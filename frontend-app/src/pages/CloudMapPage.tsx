@@ -17,7 +17,7 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useAccounts } from '../contexts/AccountContext';
-import { useTopbar } from '../contexts/TopbarContext';
+import { useTopbarActions } from '../contexts/TopbarContext';
 import { useVPC } from '../contexts/VPCContext';
 import { useCloudMap } from '../hooks/useCloudMap';
 import CloudMapTopbarControls from '../components/CloudMap/CloudMapTopbarControls';
@@ -44,7 +44,7 @@ cytoscape.use(cytoscapeEdgehandles);
 const CloudMapPage: React.FC = () => {
   const { selectedAccountIds } = useAccounts();
   const { awsVpcs, awsVpcsLoading, fetchAwsVpcs } = useVPC();
-  const { setActions } = useTopbar();
+  const { setActions } = useTopbarActions();
 
   // Get the first selected account ID
   const accountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
@@ -124,10 +124,38 @@ const CloudMapPage: React.FC = () => {
 
     if (!containerRef.current) return;
 
+    // Deduplicate nodes by ID and filter out edges that reference non-existent nodes
+    const seenIds = new Set<string>();
+    const deduplicatedElements = elements.filter((el) => {
+      const id = el.data.id;
+      if (seenIds.has(id)) {
+        return false; // Skip duplicate
+      }
+      seenIds.add(id);
+      return true;
+    });
+
+    // Check for edges by presence of source/target (not just group property)
+    const nodeIds = new Set(
+      deduplicatedElements
+        .filter((el) => el.group === 'nodes' || (!el.data.source && !el.data.target))
+        .map((el) => el.data.id)
+    );
+    const validElements = deduplicatedElements.filter((el) => {
+      const isEdge = el.group === 'edges' || (el.data.source && el.data.target);
+      if (isEdge) {
+        const edgeData = el.data as { source: string; target: string };
+        const hasSource = nodeIds.has(edgeData.source);
+        const hasTarget = nodeIds.has(edgeData.target);
+        return hasSource && hasTarget;
+      }
+      return true;
+    });
+
     // Create Cytoscape instance
     cyRef.current = cytoscape({
       container: containerRef.current,
-      elements: elements,
+      elements: validElements,
       layout: isEditable
         ? { name: 'preset' }
         : {
@@ -236,12 +264,32 @@ const CloudMapPage: React.FC = () => {
           'padding': '45px',
           'border-width': 2,
           'border-style': 'dashed',
-          'background-image': (node: any) => AWS_ICONS[node.data('type')] || '',
+          'background-image': (node: any) => AWS_ICONS[node.data('type')] || 'none',
           'background-fit': 'none',
           'background-width': '25px',
           'background-height': '25px',
           'background-position-x': '15px',
           'background-position-y': '15px',
+        },
+      },
+      // VPC parent node style - blue/indigo
+      {
+        selector: 'node[type="VPC"]:parent',
+        style: {
+          'border-color': '#6366f1',
+          'border-width': 2,
+          'background-color': '#eef2ff',
+          'background-opacity': 0.3,
+        },
+      },
+      // Subnet parent node style - light blue/sky
+      {
+        selector: 'node[type="Subnet"]:parent',
+        style: {
+          'border-color': '#0ea5e9',
+          'border-width': 2,
+          'background-color': '#e0f2fe',
+          'background-opacity': 0.4,
         },
       },
       // Edge handles styles
@@ -640,13 +688,24 @@ const CloudMapPage: React.FC = () => {
 
           {/* Message Overlay */}
           {messageOverlay.show && (
-            <div className="message-overlay">
-              <div className="message-box">
-                <div className="spinner" />
-                <h3 className="font-bold text-gray-800 mb-2">{messageOverlay.title}</h3>
+            <div className="absolute inset-0 flex items-center justify-center z-20 bg-white/80 backdrop-blur-sm">
+              <div className="text-center p-8 rounded-2xl bg-white shadow-xl border border-gray-100 max-w-sm">
+                <div className="relative mx-auto mb-6 w-20 h-20">
+                  <div className="absolute inset-0 rounded-full border-4 border-gray-200"></div>
+                  <div className="absolute inset-0 rounded-full border-4 border-indigo-500 border-t-transparent animate-spin"></div>
+                  <div className="absolute inset-3 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+                    <i className="fas fa-cloud text-white text-xl"></i>
+                  </div>
+                </div>
+                <h3 className="text-xl font-bold text-gray-800 mb-2">{messageOverlay.title}</h3>
                 {messageOverlay.subtitle && (
-                  <p className="text-sm text-gray-500">{messageOverlay.subtitle}</p>
+                  <p className="text-gray-500 text-sm">{messageOverlay.subtitle}</p>
                 )}
+                <div className="mt-4 flex justify-center gap-1">
+                  <div className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                  <div className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                  <div className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                </div>
               </div>
             </div>
           )}

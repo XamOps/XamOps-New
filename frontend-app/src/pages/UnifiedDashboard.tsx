@@ -14,7 +14,7 @@
  * - Added proper TypeScript types for type safety
  */
 
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import { Ticker } from '../components/Dashboard/Ticker';
 import { DashboardHeader } from '../components/Dashboard/DashboardHeader';
 import { MetricCard } from '../components/Dashboard/MetricCard';
@@ -244,6 +244,27 @@ export const UnifiedDashboard: React.FC = () => {
   const handleRefresh = () => {
     fetchAll(true);
   };
+
+  // Listen for account selection changes (for soft navigation)
+  useEffect(() => {
+    const handleAccountChanged = () => {
+      console.log('🔄 Account changed, reloading unified dashboard...');
+      fetchAll(true);
+    };
+
+    const handleMultiAccountChanged = () => {
+      console.log('🔄 Multi-account selection changed, reloading unified dashboard...');
+      fetchAll(true);
+    };
+
+    globalThis.addEventListener('account-changed', handleAccountChanged);
+    globalThis.addEventListener('multi-account-selection-changed', handleMultiAccountChanged);
+
+    return () => {
+      globalThis.removeEventListener('account-changed', handleAccountChanged);
+      globalThis.removeEventListener('multi-account-selection-changed', handleMultiAccountChanged);
+    };
+  }, [fetchAll]);
 
   return (
     <div className="flex-1 flex flex-col h-screen overflow-y-auto overflow-x-hidden bg-slate-50 font-sans text-slate-800">

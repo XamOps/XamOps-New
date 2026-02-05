@@ -25,14 +25,13 @@ public class MasterDatabaseService {
     public Optional<GlobalUserDto> findGlobalUser(String username) {
         try {
             String sql = "SELECT username, tenant_id, role, enabled FROM global_users WHERE username = ?";
-            
-            GlobalUserDto user = jdbcTemplate.queryForObject(sql, new Object[]{username}, 
-                (rs, rowNum) -> new GlobalUserDto(
-                    rs.getString("username"),
-                    rs.getString("tenant_id"),
-                    rs.getString("role"),
-                    rs.getBoolean("enabled")
-                ));
+
+            GlobalUserDto user = jdbcTemplate.queryForObject(sql, new Object[] { username },
+                    (rs, rowNum) -> new GlobalUserDto(
+                            rs.getString("username"),
+                            rs.getString("tenant_id"),
+                            rs.getString("role"),
+                            rs.getBoolean("enabled")));
             return Optional.ofNullable(user);
         } catch (EmptyResultDataAccessException e) {
             return Optional.empty();

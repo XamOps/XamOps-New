@@ -44,23 +44,6 @@ const GcpDashboardHeader: React.FC<GcpDashboardHeaderProps> = ({
             </div>
 
             <div className="flex items-center space-x-4">
-                {/* CloudMap Button with Animation */}
-                <Link
-                    to="/gcp-cloudmap"
-                    className="my-auto nav-item cursor-pointer"
-                >
-                    <div className="map-btn-wrapper">
-                        <div className="map-btn">CloudMap</div>
-                        <div className="pinpoint"></div>
-                        <div className="map-container">
-                            <div className="map fold-1"></div>
-                            <div className="map fold-2"></div>
-                            <div className="map fold-3"></div>
-                            <div className="map fold-4"></div>
-                        </div>
-                    </div>
-                </Link>
-
                 {/* CloudList Button */}
                 <Link
                     to="/gcp-cloudlist"

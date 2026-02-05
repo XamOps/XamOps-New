@@ -19,6 +19,7 @@ public class AdminDashboardDto {
     private List<AccountSummaryDto> topSpendingAccounts;
     private Map<String, BigDecimal> spendingByProvider;
     private Map<String, Long> accountsByStatus;
+    private List<UserDashboardDto.CostHistory> spendingTrend;
     private List<InvoiceDto> recentInvoices;
     private List<TicketDto> recentTickets;
 
@@ -26,6 +27,14 @@ public class AdminDashboardDto {
     }
 
     // Getters and Setters
+    public List<UserDashboardDto.CostHistory> getSpendingTrend() {
+        return spendingTrend;
+    }
+
+    public void setSpendingTrend(List<UserDashboardDto.CostHistory> spendingTrend) {
+        this.spendingTrend = spendingTrend;
+    }
+
     public BigDecimal getTotalSpending() {
         return totalSpending;
     }

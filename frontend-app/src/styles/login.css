@@ -43,8 +43,10 @@ body {
   display: flex;
   height: 100vh;
   width: 100vw;
+  max-width: 100%;
   position: relative;
   background: radial-gradient(circle at 50% 50%, #111827 0%, #030712 100%);
+  overflow-x: hidden;
 }
 
 /* Dynamic Background Elements */
@@ -101,12 +103,14 @@ body {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  padding: 6rem;
+  padding: clamp(2rem, 5vw, 6rem);
   z-index: 10;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .brand-hero {
-  max-width: 600px;
+  max-width: min(600px, 100%);
 }
 
 .hero-tag {
@@ -123,7 +127,7 @@ body {
 }
 
 .hero-title {
-  font-size: 4.5rem;
+  font-size: clamp(2.5rem, 4vw, 4.5rem);
   font-weight: 800;
   line-height: 1;
   margin-bottom: 1.5rem;
@@ -139,7 +143,7 @@ body {
 }
 
 .hero-subtitle {
-  font-size: 1.25rem;
+  font-size: clamp(1rem, 1.5vw, 1.25rem);
   color: white;
   line-height: 1.6;
   margin-bottom: 3rem;
@@ -194,14 +198,15 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 2rem;
+  padding: clamp(1rem, 3vw, 2rem);
   z-index: 10;
+  min-width: 0;
 }
 
 .login-card-transparent {
   width: 100%;
-  max-width: 480px;
-  padding: 3rem;
+  max-width: min(480px, calc(100vw - 2rem));
+  padding: clamp(1.5rem, 4vw, 3rem);
   background: transparent;
   box-shadow: none;
   border: none;
@@ -246,7 +251,7 @@ body {
 }
 
 .brand-title {
-  font-size: 4rem;
+  font-size: clamp(2.5rem, 5vw, 4rem);
   font-weight: 800;
   color: #7C3AED;
   /* Vibrant Purple from image */
@@ -318,7 +323,7 @@ body {
 }
 
 .label-text {
-  font-size: 0.875rem;
+  font-size: clamp(0.8125rem, 1.5vw, 0.875rem);
   font-weight: 600;
   color: #CBD5E1;
   /* Lighter slate gray */
@@ -337,7 +342,7 @@ body {
   color: #E0E7FF;
   /* Themed light text */
   font-family: inherit;
-  font-size: 1rem;
+  font-size: clamp(0.9375rem, 1.5vw, 1rem);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
 }
@@ -527,11 +532,40 @@ body {
   border: 1px solid rgba(239, 68, 68, 0.2);
   border-radius: 1rem;
   padding: 1rem;
+  padding-right: 2.5rem;
   margin-bottom: 2rem;
   display: flex;
   gap: 0.75rem;
   color: #FCA5A5;
   animation: shake 0.5s cubic-bezier(.36, .07, .19, .97) both;
+  position: relative;
+}
+
+.error-dismiss-btn {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  background: none;
+  border: none;
+  color: #FCA5A5;
+  cursor: pointer;
+  padding: 0.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  opacity: 0.7;
+}
+
+.error-dismiss-btn:hover {
+  opacity: 1;
+  background: rgba(239, 68, 68, 0.2);
+  color: #FEE2E2;
+}
+
+.error-alert-content {
+  flex: 1;
 }
 
 @keyframes shake {
@@ -672,38 +706,247 @@ body {
 }
 
 /* Responsive Overrides */
+
+/* Large desktops */
 @media (max-width: 1280px) {
-  .hero-title {
-    font-size: 3.5rem;
+  .visual-section {
+    padding: 3rem;
   }
 
-  .visual-section {
-    padding: 4rem;
+  .feature-glass-grid {
+    gap: 1rem;
   }
 }
 
-@media (max-width: 1024px) {
+/* Smaller desktops / laptops - hide sidebar earlier to prevent overflow */
+@media (max-width: 1100px) {
   .visual-section {
     display: none;
   }
 
   .form-section {
     flex: 1;
-    padding: 1.5rem;
+    padding: 2rem;
   }
 
   .login-container {
     background: radial-gradient(circle at center, #111827 0%, #030712 100%);
+    justify-content: center;
   }
 }
 
-@media (max-width: 480px) {
+/* Small desktops / netbooks */
+@media (max-width: 800px) {
+  .form-section {
+    padding: 1.5rem;
+  }
+
   .login-card-transparent {
     padding: 2rem;
+    max-width: calc(100vw - 3rem);
+  }
+
+  .brand-title {
+    font-size: clamp(2rem, 8vw, 3rem);
+  }
+
+  .brand-header {
+    margin-bottom: 2.5rem;
+  }
+}
+
+/* Tablets */
+@media (max-width: 600px) {
+  .login-card-transparent {
+    padding: 1.5rem;
+    border-radius: 1.5rem;
+  }
+
+  .brand-title {
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .beta-badge {
+    top: 0;
+    font-size: 1rem;
+  }
+
+  .brand-subtitle {
+    font-size: 1rem;
+  }
+
+  .form-instruction {
+    font-size: 0.75rem;
+  }
+}
+
+/* Mobile phones */
+@media (max-width: 480px) {
+  .form-section {
+    padding: 1rem;
+  }
+
+  .login-card-transparent {
+    padding: 1.25rem;
+    border-radius: 1.25rem;
+    max-width: calc(100vw - 2rem);
+  }
+
+  .brand-header {
+    margin-bottom: 2rem;
+  }
+
+  .welcome-label {
+    font-size: 1rem;
+  }
+
+  .brand-title {
+    font-size: 2rem;
+  }
+
+  .brand-subtitle {
+    font-size: 0.875rem;
+  }
+
+  .form-stack {
+    gap: 1.25rem;
+  }
+
+  .input-field {
+    padding: 0.75rem 1rem 0.75rem 2.75rem;
+    font-size: 1rem;
+  }
+
+  .submit-btn {
+    padding: 0.875rem;
+  }
+
+  .footer-note {
+    margin-top: 1.5rem;
+    padding-top: 1.5rem;
+  }
+}
+
+/* Large desktops / 1440p monitors */
+@media (min-width: 1920px) {
+  .visual-section {
+    padding: 8rem;
+  }
+
+  .hero-title {
+    font-size: 5rem;
+  }
+
+  .hero-subtitle {
+    font-size: 1.5rem;
+  }
+
+  .feature-pill {
+    padding: 1.5rem;
+  }
+
+  .pill-icon {
+    width: 52px;
+    height: 52px;
+    font-size: 1.5rem;
+  }
+
+  .pill-text {
+    font-size: 1.1rem;
+  }
+
+  .login-card-transparent {
+    max-width: 520px;
+    padding: 3.5rem;
+  }
+
+  .brand-title {
+    font-size: 4.5rem;
+  }
+
+  .input-field {
+    padding: 1rem 1.25rem 1rem 3.25rem;
+    font-size: 1.0625rem;
+  }
+
+  .submit-btn {
+    padding: 1.125rem;
+    font-size: 1.0625rem;
+  }
+}
+
+/* 4K / Ultra-wide monitors */
+@media (min-width: 2560px) {
+  .login-container {
+    max-width: 2560px;
+    margin: 0 auto;
+  }
+
+  .visual-section {
+    padding: 10rem;
+  }
+
+  .hero-title {
+    font-size: 6rem;
+  }
+
+  .hero-subtitle {
+    font-size: 1.75rem;
+    margin-bottom: 4rem;
+  }
+
+  .feature-glass-grid {
+    gap: 2rem;
+  }
+
+  .feature-pill {
+    padding: 1.75rem;
     border-radius: 2rem;
   }
 
-  .card-title {
+  .pill-icon {
+    width: 60px;
+    height: 60px;
+    font-size: 1.75rem;
+    border-radius: 16px;
+  }
+
+  .pill-text {
+    font-size: 1.25rem;
+  }
+
+  .login-card-transparent {
+    max-width: 580px;
+    padding: 4rem;
+  }
+
+  .brand-title {
+    font-size: 5rem;
+  }
+
+  .brand-subtitle {
     font-size: 1.5rem;
+  }
+
+  .label-text {
+    font-size: 1rem;
+  }
+
+  .input-field {
+    padding: 1.125rem 1.5rem 1.125rem 3.5rem;
+    font-size: 1.125rem;
+    border-radius: 1.25rem;
+  }
+
+  .input-icon-left {
+    font-size: 1.375rem;
+    left: 1.25rem;
+  }
+
+  .submit-btn {
+    padding: 1.25rem;
+    font-size: 1.125rem;
+    border-radius: 1.25rem;
   }
 }

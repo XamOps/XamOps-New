@@ -25,7 +25,8 @@
  * - Uses React sidebar component
  */
 
-import React from 'react';
+import React, { useEffect } from 'react';
+import { useTopbar } from '../contexts/TopbarContext';
 import { useBillOpsUserManager } from '../hooks/useBillOpsUserManager';
 import type { BillOpsUser, BillOpsRole } from '../types/billopsUserManager';
 import '../styles/billopsAdminUserManager.css';
@@ -67,32 +68,27 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
         return role === 'ROLE_BILLOPS_ADMIN';
     };
 
+    const { setActions, clearActions } = useTopbar();
+
+    // Set TopBar actions
+    useEffect(() => {
+        setActions(
+            <div className="flex items-center gap-3">
+                <button
+                    onClick={newUser}
+                    className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl text-sm font-bold hover:shadow-lg hover:shadow-indigo-500/20 active:scale-95 transition-all"
+                >
+                    <i className="fas fa-user-plus"></i>
+                    <span>Create New User</span>
+                </button>
+            </div>
+        );
+
+        return () => clearActions();
+    }, [setActions, clearActions, newUser]);
+
     return (
         <div className="user-manager-page">
-            {/* Header */}
-            <header className="user-manager-header">
-                <div className="user-manager-header-content">
-                    <div className="user-manager-title-section">
-                        <h1 className="user-manager-title">
-                            <i className="fas fa-user-cog user-manager-title-icon"></i>
-                            User Manager
-                        </h1>
-                        <p className="user-manager-subtitle">
-                            Manage BillOps users and their access roles
-                        </p>
-                    </div>
-                    <div className="user-manager-header-actions">
-                        <button
-                            onClick={newUser}
-                            className="user-manager-create-btn"
-                        >
-                            <i className="fas fa-user-plus"></i>
-                            Create New User
-                        </button>
-                    </div>
-                </div>
-            </header>
-
             {/* Error State */}
             {error && (
                 <div className="user-manager-error">

@@ -89,19 +89,47 @@ const GcpCloudMapPage: React.FC = () => {
   const renderGraph = useCallback((graphData: GraphElement[]) => {
     if (!containerRef.current) return;
 
+    // Deduplicate nodes by ID and filter out edges that reference non-existent nodes
+    const seenIds = new Set<string>();
+    const deduplicatedData = graphData.filter((el) => {
+      const id = el.data.id;
+      if (seenIds.has(id)) {
+        return false; // Skip duplicate
+      }
+      seenIds.add(id);
+      return true;
+    });
+
+    const nodeIds = new Set(
+      deduplicatedData
+        .filter((el) => el.group === 'nodes' || (!el.data.source && !el.data.target))
+        .map((el) => el.data.id)
+    );
+    const validElements = deduplicatedData.filter((el) => {
+      const isEdge = el.group === 'edges' || (el.data.source && el.data.target);
+      if (isEdge) {
+        const edgeData = el.data as { source: string; target: string };
+        return nodeIds.has(edgeData.source) && nodeIds.has(edgeData.target);
+      }
+      return true;
+    });
+
     try {
       cyRef.current = cytoscape({
         container: containerRef.current,
-        elements: graphData,
+        elements: validElements,
+        minZoom: 0.3,
+        maxZoom: 2.5,
+        wheelSensitivity: 0.2,
         layout: {
           name: 'dagre',
           // @ts-ignore - dagre-specific options not in base LayoutOptions type
-          nodeSep: 80,
-          edgeSep: 20,
-          rankSep: 100,
+          nodeSep: 60,
+          edgeSep: 15,
+          rankSep: 80,
           rankDir: 'TB',
           align: 'UL',
-          spacingFactor: 1.5,
+          spacingFactor: 1.2,
         } as any,
         style: [
           {
@@ -152,13 +180,24 @@ const GcpCloudMapPage: React.FC = () => {
               'padding': '20px'
             }
           },
+          // VNet parent node style - indigo (same as AWS VPC)
+          {
+            selector: 'node[type="VPC"]:parent',
+            style: {
+              'border-color': '#6366f1',
+              'border-width': 2,
+              'background-color': '#eef2ff',
+              'background-opacity': 0.3,
+              'border-style': 'dashed'
+            }
+          },
           {
             selector: 'node[type="VPC"]',
             style: {
-              'background-color': '#f0fdf4',
-              'border-width': 3,
-              'border-color': '#10b981',
-              'border-style': 'solid'
+              'background-color': '#eef2ff',
+              'border-width': 2,
+              'border-color': '#6366f1',
+              'border-style': 'dashed'
             }
           },
           {
@@ -170,12 +209,23 @@ const GcpCloudMapPage: React.FC = () => {
               'border-style': 'dashed'
             }
           },
+          // Subnet parent node style - light blue/sky (same as AWS Subnet)
+          {
+            selector: 'node[type="Subnet"]:parent',
+            style: {
+              'border-color': '#0ea5e9',
+              'border-width': 2,
+              'background-color': '#e0f2fe',
+              'background-opacity': 0.4,
+              'border-style': 'solid'
+            }
+          },
           {
             selector: 'node[type="Subnet"]',
             style: {
-              'background-color': '#ecfdf5',
+              'background-color': '#e0f2fe',
               'border-width': 2,
-              'border-color': '#6ee7b7',
+              'border-color': '#0ea5e9',
               'border-style': 'solid'
             }
           },
@@ -224,8 +274,12 @@ const GcpCloudMapPage: React.FC = () => {
         }
       });
 
-      // Fit to view
-      cyRef.current.fit();
+      // Fit to view with padding and ensure minimum zoom
+      cyRef.current.fit(undefined, 50);
+      if (cyRef.current.zoom() < 0.5) {
+        cyRef.current.zoom(0.5);
+        cyRef.current.center();
+      }
     } catch (error) {
       console.error('Error rendering graph:', error);
     }
@@ -372,9 +426,9 @@ const GcpCloudMapPage: React.FC = () => {
     if (!selectedNodeData) return null;
 
     const nodeTypeColors: Record<string, string> = {
-      'VPC': 'from-green-500 to-emerald-600',
+      'VPC': 'from-indigo-500 to-purple-600',
       'Instance': 'from-orange-500 to-red-600',
-      'Subnet': 'from-blue-500 to-indigo-600',
+      'Subnet': 'from-sky-500 to-blue-600',
       'Firewall': 'from-yellow-500 to-orange-600'
     };
     const gradientClass = nodeTypeColors[selectedNodeData.type] || 'from-gray-500 to-gray-600';
@@ -421,24 +475,37 @@ const GcpCloudMapPage: React.FC = () => {
         <div id="graph-container" className="w-full h-full p-4">
           {/* Message Overlay */}
           {messageOverlay.show && (
-            <div className="absolute inset-0 flex items-center justify-center z-20">
-              <div className="message-overlay text-center">
+            <div className="absolute inset-0 flex items-center justify-center z-20 bg-white/80 backdrop-blur-sm">
+              <div className="text-center p-8 rounded-2xl bg-white shadow-xl border border-gray-100 max-w-sm">
                 {messageOverlay.type === 'loading' && (
-                  <div className="loading-spinner mx-auto mb-4"></div>
+                  <div className="relative mx-auto mb-6 w-20 h-20">
+                    <div className="absolute inset-0 rounded-full border-4 border-gray-200"></div>
+                    <div className="absolute inset-0 rounded-full border-4 border-indigo-500 border-t-transparent animate-spin"></div>
+                    <div className="absolute inset-3 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+                      <i className="fas fa-cloud text-white text-xl"></i>
+                    </div>
+                  </div>
                 )}
                 {messageOverlay.type === 'error' && (
-                  <div className="w-16 h-16 bg-gradient-to-br from-red-500 to-pink-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <div className="w-20 h-20 bg-gradient-to-br from-red-500 to-pink-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg">
                     <i className="fas fa-exclamation-triangle text-white text-2xl"></i>
                   </div>
                 )}
                 {messageOverlay.type === 'info' && (
-                  <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <div className="w-20 h-20 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg">
                     <i className="fas fa-network-wired text-white text-2xl"></i>
                   </div>
                 )}
-                <h3 className="text-lg font-bold text-gray-800 mb-2">{messageOverlay.title}</h3>
+                <h3 className="text-xl font-bold text-gray-800 mb-2">{messageOverlay.title}</h3>
                 {messageOverlay.subtitle && (
-                  <p className="text-gray-600">{messageOverlay.subtitle}</p>
+                  <p className="text-gray-500 text-sm">{messageOverlay.subtitle}</p>
+                )}
+                {messageOverlay.type === 'loading' && (
+                  <div className="mt-4 flex justify-center gap-1">
+                    <div className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                    <div className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                    <div className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                  </div>
                 )}
               </div>
             </div>
@@ -485,10 +552,10 @@ const GcpCloudMapPage: React.FC = () => {
           <div className="legend">
             <h4 className="text-sm font-bold text-gray-800 mb-3">Legend</h4>
             <div className="legend-item">
-              <div className="legend-icon bg-green-100 border-2 border-green-500">
-                <i className="fas fa-cloud text-green-600 text-xs"></i>
+              <div className="legend-icon bg-indigo-100 border-2 border-indigo-500" style={{ borderStyle: 'dashed' }}>
+                <i className="fas fa-cloud text-indigo-600 text-xs"></i>
               </div>
-              <span className="text-gray-700">VPC</span>
+              <span className="text-gray-700">VNet</span>
             </div>
             <div className="legend-item">
               <div className="legend-icon bg-blue-100 border border-blue-400" style={{ borderStyle: 'dashed' }}>
@@ -497,8 +564,8 @@ const GcpCloudMapPage: React.FC = () => {
               <span className="text-gray-700">Region/Zone</span>
             </div>
             <div className="legend-item">
-              <div className="legend-icon bg-emerald-100 border border-emerald-400">
-                <i className="fas fa-network-wired text-emerald-600 text-xs"></i>
+              <div className="legend-icon bg-sky-100 border-2 border-sky-500">
+                <i className="fas fa-network-wired text-sky-600 text-xs"></i>
               </div>
               <span className="text-gray-700">Subnet</span>
             </div>

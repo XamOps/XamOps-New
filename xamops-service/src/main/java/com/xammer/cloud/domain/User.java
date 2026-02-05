@@ -33,18 +33,12 @@ public class User {
     // --- ✅ MODIFIED THIS LINE ---
     @Column(nullable = false)
     private String role; // e.g., "USER", "ADMIN", "BILLOPS", "XAMOPS"
-    
-    @Column(name = "is_tour_seen", nullable = false)
-    private boolean isTourSeen = false;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "client_id", nullable = false)
     @JsonIgnore
     @lombok.ToString.Exclude
     private Client client;
-
-    @Column(name = "created_by")
-    private Long createdBy;
 
     public User(String username, String password, Client client) {
         this.username = username;
@@ -55,6 +49,12 @@ public class User {
 
     @Column(nullable = true)
     private String email;
+
+    @Column(name = "created_by", nullable = true)
+    private Long createdBy;
+
+    @Column(name = "is_tour_seen", nullable = false)
+    private boolean tourSeen = false;
 
     public void setEnabled(boolean b) {
         // TODO Auto-generated method stub

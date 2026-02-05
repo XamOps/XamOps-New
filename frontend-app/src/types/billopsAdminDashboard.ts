@@ -21,6 +21,7 @@ export interface AdminInvoice {
   clientName: string;
   accountName: string;
   amount: number;
+  provider?: 'AWS' | 'GCP' | 'Azure';
   status: 'DRAFT' | 'FINALIZED' | 'PAID' | 'OVERDUE';
 }
 
@@ -30,6 +31,12 @@ export interface AdminTicket {
   category: string;
   severity?: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
   status: 'OPEN' | 'IN_PROGRESS' | 'CLOSED';
+}
+
+export interface SpendingTrendItem {
+  date: string;
+  cost: number;
+  costByProvider?: SpendingByProvider;
 }
 
 export interface SpendingByProvider {
@@ -57,6 +64,7 @@ export interface BillOpsAdminDashboardData {
   totalClients: number;
 
   // Charts data
+  spendingTrend: SpendingTrendItem[];
   spendingByProvider: SpendingByProvider;
   accountsByStatus: AccountsByStatus;
 

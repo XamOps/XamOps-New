@@ -109,14 +109,16 @@ export const AccountProvider: React.FC<{ children: ReactNode }> = ({ children })
       setAccounts(filtered);
       sessionStorage.setItem('cached_accounts', JSON.stringify(filtered));
 
-      // Auto-select first account if none selected
+      // Auto-select first account if none selected, prioritizing AWS accounts
       const currentSelectedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
       if (currentSelectedIds.length === 0 && filtered.length > 0) {
-        console.log('📝 No account selected, auto-selecting first account:', filtered[0].id);
-        const firstId = filtered[0].id;
-        setSelectedAccountIds([firstId]);
-        setTempSelectedAccounts([firstId]);
-        sessionStorage.setItem('selectedAccountIds', JSON.stringify([firstId]));
+        // Prioritize AWS accounts, then fall back to first available account
+        const firstAwsAccount = filtered.find(acc => acc.provider === 'AWS');
+        const accountToSelect = firstAwsAccount || filtered[0];
+        console.log('📝 No account selected, auto-selecting account:', accountToSelect.id, '(provider:', accountToSelect.provider + ')');
+        setSelectedAccountIds([accountToSelect.id]);
+        setTempSelectedAccounts([accountToSelect.id]);
+        sessionStorage.setItem('selectedAccountIds', JSON.stringify([accountToSelect.id]));
       }
     } catch (err) {
       console.error('Failed to fetch accounts:', err);

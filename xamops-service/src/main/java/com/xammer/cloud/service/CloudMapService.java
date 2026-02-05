@@ -84,7 +84,9 @@ public class CloudMapService {
                             if (vpcId != null && !vpcId.isEmpty()) {
                                 // --- VPC-specific or Multi-VPC view ---
                                 logger.info("Building graph for VPC: {}", vpcId);
-                                Ec2Client ec2Client = awsClientProvider.getEc2Client(account, region);
+                                // Use default region for "ALL" VPCs, otherwise use provided region
+                                String effectiveRegion = (region != null && !region.isEmpty()) ? region : "us-east-1";
+                                Ec2Client ec2Client = awsClientProvider.getEc2Client(account, effectiveRegion);
                                 addVpcAndSubnetNodes(elements, ec2Client, vpcId);
 
                                 relevantResources = allResources.stream()
@@ -165,43 +167,130 @@ public class CloudMapService {
 
     private void createAllEdges(List<Map<String, Object>> elements, List<ResourceDto> resources) {
         for (ResourceDto resource : resources) {
+            String type = resource.getType();
+
             // EBS Volume -> EC2 Instance
-            if ("EBS Volume".equals(resource.getType())) {
+            if ("EBS Volume".equals(type)) {
                 String attachedInstance = getDetail(resource, "Attached to");
                 if (attachedInstance != null && !attachedInstance.equals("N/A")) {
                     elements.add(createEdge(resource.getId(), attachedInstance, "attaches to"));
                 }
             }
-            // EC2 Instance -> Security Group
-            if ("EC2 Instance".equals(resource.getType())) {
-                String securityGroups = getDetail(resource, "Security Groups");
-                if (securityGroups != null && !securityGroups.isBlank()) {
-                    for (String sgId : securityGroups.split("\\s*,\\s*")) {
-                        if (!sgId.trim().isEmpty())
-                            elements.add(createEdge(resource.getId(), sgId.trim(), "uses"));
+
+            // EC2 Instance -> Security Groups, IAM Role, ENI
+            if ("EC2 Instance".equals(type)) {
+                addSecurityGroupEdges(elements, resource, "uses SG");
+                String iamRole = getDetail(resource, "IAM Role");
+                if (iamRole != null && !iamRole.isBlank() && !iamRole.equals("N/A")) {
+                    elements.add(createEdge(resource.getId(), iamRole, "assumes"));
+                }
+            }
+
+            // Load Balancer -> Security Groups, Target Groups
+            if ("Load Balancer".equals(type)) {
+                addSecurityGroupEdges(elements, resource, "uses SG");
+                String targetGroups = getDetail(resource, "Target Groups");
+                if (targetGroups != null && !targetGroups.isBlank()) {
+                    for (String tgArn : targetGroups.split("\\s*,\\s*")) {
+                        if (!tgArn.trim().isEmpty()) {
+                            elements.add(createEdge(resource.getId(), tgArn.trim(), "routes to"));
+                        }
                     }
                 }
             }
-            // Load Balancer -> Subnets
-            if ("Load Balancer".equals(resource.getType())) {
-                String subnets = getDetail(resource, "Subnets"); // Note: You need to add "Subnets" to the LB's details
-                                                                 // map
-                if (subnets != null) {
-                    for (String subnetId : subnets.split("\\s*,\\s*")) {
-                        if (!subnetId.trim().isEmpty())
-                            elements.add(createEdge(resource.getId(), subnetId.trim(), "in subnet"));
+
+            // Target Group -> EC2 Instances
+            if ("Target Group".equals(type)) {
+                String targets = getDetail(resource, "Targets");
+                if (targets != null && !targets.isBlank()) {
+                    for (String targetId : targets.split("\\s*,\\s*")) {
+                        if (!targetId.trim().isEmpty()) {
+                            elements.add(createEdge(resource.getId(), targetId.trim(), "targets"));
+                        }
                     }
                 }
             }
+
             // RDS Instance -> Security Groups
-            if ("RDS Instance".equals(resource.getType())) {
-                String securityGroups = getDetail(resource, "Security Groups"); // Note: You need to add "Security
-                                                                                // Groups" to the RDS details map
-                if (securityGroups != null) {
-                    for (String sgId : securityGroups.split("\\s*,\\s*")) {
-                        if (!sgId.trim().isEmpty())
-                            elements.add(createEdge(resource.getId(), sgId.trim(), "uses"));
+            if ("RDS Instance".equals(type)) {
+                addSecurityGroupEdges(elements, resource, "uses SG");
+            }
+
+            // Lambda -> Security Groups, VPC
+            if ("Lambda Function".equals(type)) {
+                addSecurityGroupEdges(elements, resource, "uses SG");
+            }
+
+            // NAT Gateway -> Elastic IP, Subnet
+            if ("NAT Gateway".equals(type)) {
+                String elasticIp = getDetail(resource, "Elastic IP");
+                if (elasticIp != null && !elasticIp.isBlank() && !elasticIp.equals("N/A")) {
+                    elements.add(createEdge(resource.getId(), elasticIp, "uses EIP"));
+                }
+            }
+
+            // Internet Gateway -> VPC (already handled by parent relationship)
+
+            // ECS Service -> Security Groups, Load Balancer
+            if ("ECS Service".equals(type)) {
+                addSecurityGroupEdges(elements, resource, "uses SG");
+                String loadBalancer = getDetail(resource, "Load Balancer");
+                if (loadBalancer != null && !loadBalancer.isBlank() && !loadBalancer.equals("N/A")) {
+                    elements.add(createEdge(resource.getId(), loadBalancer, "behind"));
+                }
+            }
+
+            // EKS Cluster -> Security Groups
+            if ("EKS Cluster".equals(type)) {
+                addSecurityGroupEdges(elements, resource, "uses SG");
+            }
+
+            // ElastiCache -> Security Groups
+            if ("ElastiCache Cluster".equals(type)) {
+                addSecurityGroupEdges(elements, resource, "uses SG");
+            }
+
+            // EFS -> Security Groups
+            if ("EFS".equals(type)) {
+                addSecurityGroupEdges(elements, resource, "uses SG");
+            }
+
+            // Elastic IP -> EC2 Instance
+            if ("Elastic IP".equals(type)) {
+                String instanceId = getDetail(resource, "Instance ID");
+                if (instanceId != null && !instanceId.isBlank() && !instanceId.equals("N/A")) {
+                    elements.add(createEdge(resource.getId(), instanceId, "assigned to"));
+                }
+            }
+
+            // Auto Scaling Group -> EC2 Instances, Load Balancer
+            if ("Auto Scaling Group".equals(type)) {
+                String instances = getDetail(resource, "Instances");
+                if (instances != null && !instances.isBlank()) {
+                    for (String instanceId : instances.split("\\s*,\\s*")) {
+                        if (!instanceId.trim().isEmpty()) {
+                            elements.add(createEdge(resource.getId(), instanceId.trim(), "manages"));
+                        }
                     }
+                }
+                String targetGroups = getDetail(resource, "Target Groups");
+                if (targetGroups != null && !targetGroups.isBlank()) {
+                    for (String tgArn : targetGroups.split("\\s*,\\s*")) {
+                        if (!tgArn.trim().isEmpty()) {
+                            elements.add(createEdge(resource.getId(), tgArn.trim(), "registers to"));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private void addSecurityGroupEdges(List<Map<String, Object>> elements, ResourceDto resource, String label) {
+        String securityGroups = getDetail(resource, "Security Groups");
+        if (securityGroups != null && !securityGroups.isBlank()) {
+            for (String sgId : securityGroups.split("\\s*,\\s*")) {
+                if (!sgId.trim().isEmpty()) {
+                    elements.add(createEdge(resource.getId(), sgId.trim(), label));
                 }
             }
         }

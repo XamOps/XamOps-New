@@ -10,82 +10,9 @@
 /* Page Container */
 .user-manager-page {
     min-height: 100vh;
-    padding: 1.5rem 2rem;
+    padding: 6rem 2rem 2rem 2rem;
     background: linear-gradient(135deg, #f0f4f8 0%, #e2e8f0 50%, #f0f4f8 100%);
     font-family: 'Inter', sans-serif;
-}
-
-/* Header */
-.user-manager-header {
-    margin-bottom: 2rem;
-}
-
-.user-manager-header-content {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 1rem;
-}
-
-.user-manager-title-section {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-}
-
-.user-manager-title {
-    font-size: 1.75rem;
-    font-weight: 700;
-    color: #1e293b;
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-}
-
-.user-manager-title-icon {
-    font-size: 1.5rem;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-}
-
-.user-manager-subtitle {
-    font-size: 0.875rem;
-    color: #64748b;
-}
-
-.user-manager-header-actions {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-}
-
-/* Create Button */
-.user-manager-create-btn {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.75rem 1.5rem;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    border: none;
-    border-radius: 0.75rem;
-    font-size: 0.875rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.3s ease;
-    box-shadow: 0 4px 6px -1px rgba(102, 126, 234, 0.3);
-}
-
-.user-manager-create-btn:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 10px 15px -3px rgba(102, 126, 234, 0.4);
-}
-
-.user-manager-create-btn:active {
-    transform: translateY(0);
 }
 
 /* Form Card */

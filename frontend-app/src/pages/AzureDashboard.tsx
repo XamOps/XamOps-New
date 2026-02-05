@@ -89,11 +89,14 @@ const AzureDashboard: React.FC = () => {
 
 
 
-  // Get resource list
   const resources: AzureResourceType[] = useMemo(() => {
     if (!dashboardData) return [];
     return mapInventoryToResources(dashboardData.resourceInventory);
   }, [dashboardData]);
+
+  const totalResources = useMemo(() => {
+    return resources.reduce((acc, curr) => acc + (curr.count || 0), 0);
+  }, [resources]);
 
   // Register Topbar actions
   useEffect(() => {
@@ -264,52 +267,22 @@ const AzureDashboard: React.FC = () => {
             />
           </div>
         )}
+      </main>
 
-        {widgetVisibility.inventory && dashboardData && (
-          <AzureInventorySection
-            resources={resources}
-            loading={loading.inventory}
-            accountIds={selectedAccountIds}
-          />
-        )}
+      {/* Floating Action Button */}
+      <button
+        className="azure-fab group"
+        onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+        title="Back to Top"
+      >
+        <i className="fas fa-chevron-up group-hover:-translate-y-1 transition-transform"></i>
+      </button>
+
+      {/* Support Chat Widget */}
+      <div className="relative z-[100]">
+        <SupportChatWidget />
+      </div>
     </div>
-
-      {/* Cost & Billing Grid */ }
-  <div className="grid gap-6 lg:grid-cols-3 fade-in">
-    {(widgetVisibility.cost || widgetVisibility.billing) && dashboardData && (
-      <AzureCostSection
-        costHistory={dashboardData.costHistory}
-        billingSummary={dashboardData.billingSummary}
-        isLoading={loading.cost}
-      />
-    )}
-  </div>
-
-  {/* Optimization Section */ }
-  {
-    widgetVisibility.optimization && dashboardData && dashboardData.optimization && (
-      <AzureOptimizationSection
-        optimization={dashboardData.optimization}
-        selectedAccountIds={selectedAccountIds}
-        isLoading={loading.optimization}
-      />
-    )
-  }
-
-  {/* Floating Action Button */ }
-  <button
-    className="azure-fab group"
-    onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-    title="Back to Top"
-  >
-    <i className="fas fa-chevron-up group-hover:-translate-y-1 transition-transform"></i>
-  </button>
-
-  {/* Support Chat Widget */ }
-  <div className="relative z-[100]">
-    <SupportChatWidget />
-  </div>
-    </div >
   );
 };
 
