@@ -77,12 +77,7 @@ const AzureDashboard: React.FC = () => {
     return data as AzureDashboardData;
   }, [data]);
 
-  // Calculate total resources
-  const totalResources = useMemo(() => {
-    if (!dashboardData) return 0;
-    const inventory = dashboardData.resourceInventory;
-    return Object.values(inventory).reduce((sum, count) => (sum as number) + (count as number), 0) as number;
-  }, [dashboardData]);
+
 
   // Get resource list
   const resources: AzureResourceType[] = useMemo(() => {
@@ -225,7 +220,6 @@ const AzureDashboard: React.FC = () => {
         {widgetVisibility.inventory && dashboardData && (
           <AzureInventorySection
             resources={resources}
-            totalResources={totalResources}
             loading={loading.inventory}
             accountIds={selectedAccountIds}
           />

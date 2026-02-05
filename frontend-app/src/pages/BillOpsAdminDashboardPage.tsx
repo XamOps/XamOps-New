@@ -35,7 +35,7 @@ import { useCurrency } from '../hooks/useCurrency';
 const BillOpsAdminDashboardPage: React.FC = () => {
   const { data, loading, isRefreshing, error, refreshDashboard } = useBillOpsAdminDashboard();
   const { setActions, clearActions } = useTopbar();
-  const { loadRates, convert, loading: currencyLoading } = useCurrency();
+  const { loadRates, convert } = useCurrency();
 
   // Chart refs
   const providerChartRef = useRef<HTMLCanvasElement>(null);

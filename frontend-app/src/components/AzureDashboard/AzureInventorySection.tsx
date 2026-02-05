@@ -4,12 +4,12 @@ import { AzureResourceType } from '../../types/azureDashboard';
 
 interface AzureInventorySectionProps {
   resources: AzureResourceType[];
-  totalResources: number;
+
   loading: boolean;
   accountIds: string[];
 }
 
-const AzureInventorySection: React.FC<AzureInventorySectionProps> = ({ resources, totalResources, loading, accountIds }) => {
+const AzureInventorySection: React.FC<AzureInventorySectionProps> = ({ resources, loading, accountIds }) => {
   if (loading) {
     return (
       <div className="lg:col-span-2 chart-container p-6 rounded-xl skeleton" style={{ height: '450px' }}></div>
