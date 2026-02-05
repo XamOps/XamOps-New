@@ -212,6 +212,8 @@ export default defineConfig({
         'gcp_performance.html': resolve(__dirname, 'gcp_performance.html'),
         'gcp_reservations.html': resolve(__dirname, 'gcp_reservations.html'),
         'gcp_alerts.html': resolve(__dirname, 'gcp_alerts.html'),
+        'user-manager.html': resolve(__dirname, 'user-manager.html'),
+        'my-profile.html': resolve(__dirname, 'my-profile.html'),
 
         // Azure files
         'azure_cloudlist': resolve(__dirname, 'azure_cloudlist.html'),
