@@ -641,6 +641,8 @@ public class DashboardDataService {
         }
 
         DashboardData result = getMultiAccountAwsDashboardData(awsIds, forceRefresh, userDetails);
+        result.setLastUpdated(java.time.LocalDateTime.now()
+                .format(java.time.format.DateTimeFormatter.ofPattern("MMM dd, HH:mm:ss")));
 
         // 6. Save using SCOPED KEY
         saveSnapshot(scopedKey, result);
@@ -681,6 +683,8 @@ public class DashboardDataService {
         }
 
         DashboardData result = getMultiAccountGcpDashboardData(gcpIds, forceRefresh, userDetails);
+        result.setLastUpdated(java.time.LocalDateTime.now()
+                .format(java.time.format.DateTimeFormatter.ofPattern("MMM dd, HH:mm:ss")));
         saveSnapshot(scopedKey, result);
         return result;
     }
@@ -719,6 +723,8 @@ public class DashboardDataService {
 
         DashboardData result = getMultiAccountAzureDashboardData(azureIds, forceRefresh, userDetails);
         if (result != null) {
+            result.setLastUpdated(java.time.LocalDateTime.now()
+                    .format(java.time.format.DateTimeFormatter.ofPattern("MMM dd, HH:mm:ss")));
             saveSnapshot(scopedKey, result);
         }
         return result;
