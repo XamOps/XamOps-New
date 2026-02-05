@@ -68,7 +68,7 @@ const AzureMapSection: React.FC<AzureMapSectionProps> = ({ regionStatus, isLoadi
               type: 'map',
               name: 'World',
               mapData: worldMap,
-              color: '#f1f5f9',
+              color: '#F8FAFC',
               nullColor: '#e5e7eb',
               enableMouseTracking: false,
               borderColor: '#cbd5e1',
@@ -113,25 +113,27 @@ const AzureMapSection: React.FC<AzureMapSectionProps> = ({ regionStatus, isLoadi
   }
 
   return (
-    <div className="lg:col-span-3 chart-container p-6 rounded-xl">
+    <div className="lg:col-span-3 glass-card chart-container p-6 rounded-xl">
       <div className="flex items-center justify-between mb-6">
-        <h3 className="text-lg font-bold text-gray-800 flex items-center">
-          <i className="fas fa-arrows-alt widget-handle mr-3 text-gray-400"></i>
-          <i className="fas fa-globe-americas mr-2 text-blue-500"></i>
-          Active Regions
-        </h3>
-        <div className="flex items-center space-x-4 text-sm">
-          <div className="flex items-center space-x-1">
-            <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
-            <span className="text-gray-600">Active</span>
+        <div className="flex items-center text-slate-600">
+          <i className="fas fa-arrows-alt widget-handle mr-3 text-lg cursor-move opacity-40 hover:opacity-100 transition-opacity"></i>
+          <h3 className="text-lg font-black tracking-tight text-slate-800 uppercase italic flex items-center">
+            <i className="fas fa-globe-americas mr-2 text-blue-500"></i>
+            Active Regions
+          </h3>
+        </div>
+        <div className="flex items-center gap-4 text-[10px] font-black uppercase text-slate-400 tracking-widest bg-slate-100/50 px-4 py-1.5 rounded-full border border-slate-200">
+          <div className="flex items-center gap-1.5">
+            <div className="w-2 h-2 bg-blue-500 rounded-full shadow-[0_0_5px_rgba(59,130,246,0.4)]"></div>
+            <span>Active</span>
           </div>
-          <div className="flex items-center space-x-1">
-            <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-            <span className="text-gray-600">Sustainable</span>
+          <div className="flex items-center gap-1.5 border-l border-slate-200 pl-4">
+            <div className="w-2 h-2 bg-emerald-500 rounded-full shadow-[0_0_5px_rgba(16,185,129,0.4)]"></div>
+            <span>Sustainable</span>
           </div>
-          <div className="flex items-center space-x-1">
-            <div className="w-3 h-3 bg-red-500 rounded-full"></div>
-            <span className="text-gray-600">Issues</span>
+          <div className="flex items-center gap-1.5 border-l border-slate-200 pl-4">
+            <div className="w-2 h-2 bg-rose-500 rounded-full shadow-[0_0_5px_rgba(244,63,94,0.4)]"></div>
+            <span>Issues</span>
           </div>
         </div>
       </div>
