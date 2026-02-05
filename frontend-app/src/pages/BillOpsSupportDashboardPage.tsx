@@ -122,18 +122,28 @@ const BillOpsSupportDashboardPage: React.FC = () => {
         <h3 className="font-bold text-gray-800 text-sm truncate pr-2 group-hover:text-indigo-700 transition-colors">
           {conv.senderUsername || conv.accountName}
         </h3>
-        <span
-          className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider text-white shadow-sm ${getProviderClasses(conv.provider)}`}
-        >
-          {conv.provider}
-        </span>
+        <div className="flex items-center gap-2">
+          {conv.unreadCount !== undefined && conv.unreadCount > 0 && (
+            <span className="flex items-center justify-center bg-rose-500 text-white text-[10px] font-bold h-5 min-w-[20px] px-1.5 rounded-full shadow-sm animate-pulse ring-2 ring-white">
+              {conv.unreadCount}
+            </span>
+          )}
+          <span
+            className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider text-white shadow-sm ${getProviderClasses(conv.provider)}`}
+          >
+            {conv.provider}
+          </span>
+        </div>
       </div>
 
-      <p className="text-xs text-gray-500 truncate mb-2">
-        {conv.accountId}
+      <p className="text-xs text-indigo-600 font-medium truncate mb-1">
+        {conv.lastMessage || conv.accountId}
       </p>
 
-      <div className="flex items-center justify-end">
+      <div className="flex items-center justify-between mt-1">
+        <span className="text-[10px] text-gray-400 font-mono">
+          {conv.lastMessage ? conv.accountId : ''}
+        </span>
         <div className="text-[10px] text-indigo-500 font-semibold opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
           Open <i className="fas fa-chevron-right"></i>
         </div>
@@ -249,14 +259,14 @@ const BillOpsSupportDashboardPage: React.FC = () => {
   }, [setActions, clearActions, loading, refreshInbox]);
 
   return (
-    <div className="support-dashboard-page flex flex-col h-full bg-transparent">
+    <div className="support-dashboard-page flex flex-col h-[calc(100vh-80px)] bg-transparent overflow-hidden">
 
       {/* Main Content */}
-      <div className="flex flex-1 overflow-hidden p-6 gap-6">
+      <div className="flex flex-1 overflow-hidden p-6 gap-6 h-full">
         {/* Conversation List Panel */}
         <div className="w-1/3 min-w-[320px] flex flex-col bg-white/95 backdrop-blur border border-gray-200 rounded-xl overflow-hidden h-full shadow-sm border-l-4 border-l-indigo-500">
           {/* Search and Filter Header */}
-          <div className="p-5 border-b border-gray-100 bg-white/60 space-y-4">
+          <div className="p-5 border-b border-gray-100 bg-white/60 space-y-4 flex-shrink-0">
             {/* Search Input */}
             <div className="relative group">
               <i className="fas fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 group-focus-within:text-indigo-500 transition-colors"></i>

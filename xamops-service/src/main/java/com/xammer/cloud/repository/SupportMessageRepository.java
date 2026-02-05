@@ -11,5 +11,9 @@ public interface SupportMessageRepository extends JpaRepository<SupportMessage, 
 
     List<SupportMessage> findByAccountIdOrderByTimestampAsc(String accountId);
 
+    // Count unread admin messages (isUserMessage = false means admin sent it)
+    long countByAccountIdAndIsUserMessageFalseAndStatus(String accountId, String status);
 
+    // Find unread admin messages for marking as read
+    List<SupportMessage> findByAccountIdAndIsUserMessageFalseAndStatus(String accountId, String status);
 }

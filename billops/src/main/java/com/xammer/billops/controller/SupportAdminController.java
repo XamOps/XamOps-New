@@ -27,18 +27,30 @@ public class SupportAdminController {
     // 1. Get Inbox (List of all conversations)
     @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
     @GetMapping("/inbox")
-    public List<Map<String, String>> getInbox() {
+    public List<Map<String, Object>> getInbox() {
         List<Object[]> results = messageRepository.findDistinctConversations();
-        List<Map<String, String>> inbox = new ArrayList<>();
+        List<Map<String, Object>> inbox = new ArrayList<>();
 
         for (Object[] row : results) {
-    Map<String, String> conversation = new HashMap<>();
-    conversation.put("accountId", (String) row[0]);
-    conversation.put("accountName", (String) row[1]);
-    conversation.put("provider", (String) row[2]);
-    conversation.put("senderUsername", (String) row[3]);
-    inbox.add(conversation);
-}
+            String accountId = (String) row[0];
+            Map<String, Object> conversation = new HashMap<>();
+            conversation.put("accountId", accountId);
+            conversation.put("accountName", (String) row[1]);
+            conversation.put("provider", (String) row[2]);
+            conversation.put("senderUsername", (String) row[3]);
+
+            // Add Extras for WhatsApp-like UI
+            long unreadCount = messageRepository.countByAccountIdAndIsUserMessageTrueAndStatus(accountId, "UNREAD");
+            conversation.put("unreadCount", unreadCount);
+
+            SupportMessage lastMsg = messageRepository.findFirstByAccountIdOrderByTimestampDesc(accountId);
+            if (lastMsg != null) {
+                conversation.put("lastMessage", lastMsg.getContent());
+                conversation.put("lastMessageTime", lastMsg.getTimestamp().toString());
+            }
+
+            inbox.add(conversation);
+        }
         return inbox;
     }
 
@@ -62,6 +74,16 @@ public class SupportAdminController {
     // 2. Get Chat History for a specific Account
     @GetMapping("/chat/{accountId}")
     public List<SupportMessage> getChatHistory(@PathVariable String accountId) {
+        // Mark all unread messages from user as READ
+        List<SupportMessage> unreadMessages = messageRepository.findByAccountIdAndIsUserMessageTrueAndStatus(accountId,
+                "UNREAD");
+        if (!unreadMessages.isEmpty()) {
+            for (SupportMessage msg : unreadMessages) {
+                msg.setStatus("READ");
+            }
+            messageRepository.saveAll(unreadMessages);
+        }
+
         return messageRepository.findByAccountIdOrderByTimestampAsc(accountId);
     }
 
@@ -70,8 +92,8 @@ public class SupportAdminController {
     public SupportMessage sendReply(@RequestBody Map<String, String> payload) {
         String accountId = payload.get("accountId");
         String messageContent = payload.get("message");
-        
-        // We need to fetch the basic details from the last message of this account 
+
+        // We need to fetch the basic details from the last message of this account
         // to ensure consistency (or you could pass them in the payload)
         List<SupportMessage> history = messageRepository.findByAccountIdOrderByTimestampAsc(accountId);
         if (history.isEmpty()) {
