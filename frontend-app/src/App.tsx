@@ -88,6 +88,8 @@ import AzureCloudList from './pages/AzureCloudList';
 import AzureFinOpsPage from './pages/AzureFinOpsPage';
 import AzureCloudK8sPage from './pages/AzureCloudK8sPage';
 import { SupportChatWidget } from './components/SupportChat';
+import AdminSupportNotificationListener from './components/Shared/AdminSupportNotificationListener';
+import UserSupportNotificationListener from './components/Shared/UserSupportNotificationListener';
 import ErrorBoundary from './components/Shared/ErrorBoundary';
 
 
@@ -269,6 +271,10 @@ const AuthenticatedLayout: React.FC = () => {
         </div>
         {/* Support Chat Widget - Visible on all authenticated pages for ROLE_XAMOPS users */}
         <SupportChatWidget />
+        {/* Admin Support Notifications - Background listener for ROLE_BILLOPS_ADMIN */}
+        <AdminSupportNotificationListener />
+        {/* User Support Notifications - Background listener for ROLE_XAMOPS users */}
+        <UserSupportNotificationListener />
       </div>
     </ErrorBoundary>
   );

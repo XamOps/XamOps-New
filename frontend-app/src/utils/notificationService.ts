@@ -131,12 +131,13 @@ export const showNotification = (
     icon?: string;
     tag?: string;
     onClick?: () => void;
+    playSound?: boolean;
   }
 ): void => {
-  console.log('[NotificationService] showNotification called:', title, options?.body);
-
-  // Play sound regardless of notification permission
-  playNotificationSound();
+  // Play sound if not explicitly disabled
+  if (options?.playSound !== false) {
+    playNotificationSound();
+  }
 
   // Show browser notification if permitted
   if (isNotificationEnabled()) {
@@ -172,10 +173,11 @@ export const showNotification = (
 /**
  * Show notification for new support message (customer receiving admin reply)
  */
-export const notifyNewSupportReply = (message: string): void => {
+export const notifyNewSupportReply = (message: string, options?: { playSound?: boolean }): void => {
   showNotification('XamOps Support', {
     body: message.length > 100 ? message.substring(0, 100) + '...' : message,
     tag: 'support-reply',
+    playSound: options?.playSound,
     onClick: () => {
       // Focus chat widget if available
       const chatButton = document.querySelector('[data-support-chat-toggle]');
@@ -191,11 +193,13 @@ export const notifyNewSupportReply = (message: string): void => {
  */
 export const notifyNewCustomerMessage = (
   accountName: string,
-  message: string
+  message: string,
+  options?: { playSound?: boolean }
 ): void => {
   showNotification(`New message from ${accountName}`, {
     body: message.length > 100 ? message.substring(0, 100) + '...' : message,
     tag: 'customer-message',
+    playSound: options?.playSound,
     onClick: () => {
       // Focus will be handled by the dashboard page
       window.focus();
