@@ -102,35 +102,35 @@ const KPICard: React.FC<KPICardProps> = ({
 
   return (
     <div
-      className="glass-card kpi-card p-6 rounded-xl group relative overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-xl"
+      className="glass-card kpi-card p-6 group transition-all duration-500 hover-glow"
       onMouseEnter={handleMouseEnter}
       style={{ borderTop: `4px solid ${chartColor}` }}
     >
       <div className="main-content relative z-10">
         <div className="flex justify-between items-start h-full">
           <div className="flex-1">
-            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{title}</h3>
-            <p className="text-3xl font-black text-slate-900 tracking-tight mb-2 metric-value">{value}</p>
-            <div className="flex items-center text-[11px] font-bold">
-              <span className={`flex items-center gap-1 ${change >= 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
+            <h3 className="text-[11px] font-extrabold text-slate-400 uppercase tracking-widest mb-1.5">{title}</h3>
+            <p className="text-3xl font-extrabold text-slate-900 tracking-tight mb-2 metric-value">{value}</p>
+            <div className="flex items-center text-[12px] font-bold">
+              <span className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full ${change >= 0 ? 'bg-rose-50 text-rose-500' : 'bg-emerald-50 text-emerald-500'}`}>
                 {change !== 0 && (
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d={change >= 0 ? "M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" : "M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6"} />
                   </svg>
                 )}
                 {Math.abs(change).toFixed(1)}%
               </span>
-              <span className="text-slate-400 ml-1.5 uppercase font-black">vs last period</span>
+              <span className="text-slate-400 ml-2 uppercase font-extrabold text-[10px] tracking-wider">vs last period</span>
             </div>
           </div>
-          <div className={`w-12 h-12 bg-gradient-to-br ${gradientClass} rounded-2xl flex items-center justify-center shadow-lg transform group-hover:scale-110 transition-transform duration-300`}>
-            <i className={`fas ${icon} text-white text-lg`}></i>
+          <div className={`w-14 h-14 bg-gradient-to-br ${gradientClass} rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/10 transform group-hover:scale-110 group-hover:rotate-6 transition-all duration-500`}>
+            <i className={`fas ${icon} text-white text-xl`}></i>
           </div>
         </div>
       </div>
 
-      <div className="sparkline-container absolute inset-0 bg-white/95 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity duration-300 z-0">
-        <div className="w-full h-full p-4">
+      <div className="sparkline-container absolute inset-0 bg-white/98 backdrop-blur-md opacity-0 group-hover:opacity-100 transition-all duration-500 z-0">
+        <div className="w-full h-full p-6">
           <canvas id={sparklineId}></canvas>
         </div>
       </div>
@@ -201,17 +201,6 @@ const AzureKPISection: React.FC<AzureKPISectionProps> = ({ kpiData, costHistory,
 
   return (
     <>
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center text-slate-600">
-          <i className="fas fa-arrows-alt widget-handle mr-3 text-lg cursor-move opacity-40 hover:opacity-100 transition-opacity"></i>
-          <h2 className="text-lg font-black tracking-tight text-slate-800 uppercase italic">Azure Performance Indicators</h2>
-        </div>
-        <div className="flex items-center gap-2 text-[10px] font-black uppercase text-slate-400 tracking-widest bg-slate-100 px-3 py-1 rounded-full border border-slate-200">
-          <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse shadow-[0_0_5px_rgba(59,130,246,0.5)]"></div>
-          Live Metrics
-        </div>
-      </div>
-
       {isLoading && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {[1, 2, 3, 4].map(i => (

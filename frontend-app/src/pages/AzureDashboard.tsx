@@ -19,7 +19,6 @@ import AzureInventorySection from '../components/AzureDashboard/AzureInventorySe
 import AzureCostSection from '../components/AzureDashboard/AzureCostSection';
 import AzureOptimizationSection from '../components/AzureDashboard/AzureOptimizationSection';
 import DashboardHeader from '../components/LiveDashboard/DashboardHeader';
-import SupportChatWidget from '../components/SupportChat/SupportChatWidget';
 
 // Highcharts loaded from CDN
 declare global {
@@ -280,10 +279,6 @@ const AzureDashboard: React.FC = () => {
         <i className="fas fa-chevron-up group-hover:-translate-y-1 transition-transform"></i>
       </button>
 
-      {/* Support Chat Widget */}
-      <div className="relative z-[100]">
-        <SupportChatWidget />
-      </div>
     </div>
   );
 };

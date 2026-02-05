@@ -12,7 +12,7 @@
  */
 
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, Outlet } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AccountProvider } from './contexts/AccountContext';
 import { VPCProvider } from './contexts/VPCContext';
@@ -86,6 +86,7 @@ import GcpCloudMapPage from './pages/GcpCloudMapPage';
 import AzureDashboard from './pages/AzureDashboard';
 import AzureCloudList from './pages/AzureCloudList';
 import AzureFinOpsPage from './pages/AzureFinOpsPage';
+import AzureCloudK8sPage from './pages/AzureCloudK8sPage';
 import { SupportChatWidget } from './components/SupportChat';
 import ErrorBoundary from './components/Shared/ErrorBoundary';
 
@@ -216,7 +217,7 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
  * Dashboard Guard - Redirects ROLE_BILLOPS (non-XAMOPS) users to BillOps dashboard
  * whenever they try to access standard dashboards.
  */
-const DashboardGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+const DashboardGuard: React.FC = () => {
   const { hasAnyRole, isLoading } = useAuth();
 
   if (isLoading) {
@@ -237,19 +238,33 @@ const DashboardGuard: React.FC<{ children: React.ReactNode }> = ({ children }) =
     return <Navigate to="/billops-dashboard" replace />;
   }
 
-  return <>{children}</>;
+  return <Outlet />;
 };
 
 // Authenticated Layout - Just handles the visual wrapper for protected routes
-const AuthenticatedLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+const AuthenticatedLayout: React.FC = () => {
+  const location = useLocation();
+  const mainContentRef = React.useRef<HTMLDivElement>(null);
+
+  // Scroll to top when route changes
+  React.useEffect(() => {
+    if (mainContentRef.current) {
+      mainContentRef.current.scrollTo(0, 0);
+    }
+  }, [location.pathname]);
+
   return (
     <ErrorBoundary>
       <div className="flex h-screen bg-gray-50 overflow-hidden">
         <Sidebar />
-        <div id="main-content" className="flex-1 lg:pl-64 flex flex-col h-full overflow-y-auto relative">
+        <div
+          id="main-content"
+          ref={mainContentRef}
+          className="flex-1 lg:pl-64 flex flex-col h-full overflow-y-auto relative"
+        >
           <Topbar />
-          <div className="flex-1">
-            {children}
+          <div className="flex-1" key={location.pathname}>
+            <Outlet />
           </div>
         </div>
         {/* Support Chat Widget - Visible on all authenticated pages for ROLE_XAMOPS users */}
@@ -267,808 +282,94 @@ const AppContent: React.FC = () => {
         {/* Login Route - No Auth/Account providers */}
         <Route path="/" element={<LoginPage />} />
 
-        {/* Protected Dashboard Route - With Auth/Account providers */}
-        <Route
-          path="/unified-dashboard"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <DashboardGuard>
-                  <UnifiedDashboard />
-                </DashboardGuard>
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* Live Dashboard Route (converted from dashboard.html) */}
-        <Route
-          path="/dashboard"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <DashboardGuard>
-                  <Dashboard />
-                </DashboardGuard>
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* GCP Dashboard Route (converted from gcp_dashboard.html) */}
-        <Route
-          path="/gcp-dashboard"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <DashboardGuard>
-                  <GcpDashboard />
-                </DashboardGuard>
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* Azure Dashboard Route (converted from azure_dashboard.html) */}
-        <Route
-          path="/azure-dashboard"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <DashboardGuard>
-                  <AzureDashboard />
-                </DashboardGuard>
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* Azure FinOps Report Route (converted from azure-finops-report.html) */}
-        <Route
-          path="/azure-finops"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <AzureFinOpsPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* FinOps Report Route (converted from finops.html) */}
-        <Route
-          path="/finops"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <FinOpsPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* GCP FinOps Report Route (converted from gcp_finops.html) */}
-        <Route
-          path="/gcp-finops"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <GcpFinOpsPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* Cost Management Route (converted from cost.html) */}
-        <Route
-          path="/cost"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <CostPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* GCP Cost Management Route (converted from gcp_cost.html) */}
-        <Route
-          path="/gcp-cost"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <GcpCostPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* Waste Management Route (converted from waste.html) */}
-        <Route
-          path="/waste"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <WastePage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* GCP Waste Management Route (converted from gcp_waste.html) */}
-        <Route
-          path="/gcp-waste"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <GcpWastePage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* Rightsizing Route (converted from rightsizing.html) */}
-        <Route
-          path="/rightsizing"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <RightsizingPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* GCP Rightsizing Route (converted from gcp_rightsizing.html) */}
-        <Route
-          path="/gcp-rightsizing"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <GcpRightsizingPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* Reservation Management Route (converted from reservation.html) */}
-        <Route
-          path="/reservation"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <ReservationPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* GCP Reservations Route (converted from gcp_reservations.html) */}
-        <Route
-          path="/gcp-reservations"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <GcpReservationsPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* CloudSitter Route (converted from cloudsitter.html) */}
-        <Route
-          path="/cloudsitter"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <CloudSitterPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* Spot Automation Route (converted from spot-automation.html) */}
-        <Route
-          path="/spot-automation"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <SpotAutomationPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* Grafana Dashboard Route (converted from grafana-dashboard.html) */}
-        <Route
-          path="/grafana-dashboard"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <GrafanaDashboardPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* CloudK8s Route (converted from cloudk8s.html) */}
-        <Route
-          path="/cloudk8s"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <CloudK8sPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* GCP CloudK8s Route (GKE clusters) */}
-        <Route
-          path="/gcp-cloudk8s"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <GcpCloudK8sPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* EKS Details Route (converted from eks-details.html) */}
-        <Route
-          path="/eks-details"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <EksDetailsPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* Security Center Route (converted from security.html) */}
-        <Route
-          path="/security"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <SecurityPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* GCP Security Center Route (converted from gcp_security.html) */}
-        <Route
-          path="/gcp-security"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <GcpSecurityPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* Performance Insights Route (converted from performance.html) */}
-        <Route
-          path="/performance"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <PerformancePage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* GCP Performance Insights Route (converted from gcp_performance.html) */}
-        <Route
-          path="/gcp-performance"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <GcpPerformancePage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* Alerts Route (converted from alerts.html) */}
-        <Route
-          path="/alerts"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <AlertsPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* GCP Alerts Route */}
-        <Route
-          path="/gcp-alerts"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <GcpAlertsPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* Support Tickets Route (converted from xamops_tickets.html) */}
-        <Route
-          path="/tickets"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <TicketsPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* Ticket Detail Route (converted from xamops_ticket_detail.html) */}
-        <Route
-          path="/ticket-detail"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <TicketDetailPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* CloudList Route (converted from cloudlist.html) */}
-        <Route
-          path="/cloudlist"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <CloudListPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* CloudShell Route (converted from cloudshell.html) */}
-        <Route
-          path="/cloudshell"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <CloudShellPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* Account Manager Route (converted from account-manager.html) */}
-        <Route
-          path="/account-manager"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <AccountManagerPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-        {/* CloudMap Route (converted from cloudmap.html) */}
-        <Route
-          path="/cloudmap"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <CloudMapPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* GCP CloudMap Route (converted from gcp_cloudmap.html) */}
-        <Route
-          path="/gcp-cloudmap"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <GcpCloudMapPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-
-        {/* Add Account Route (converted from add-account.html) */}
-        <Route
-          path="/add-account"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <AddAccountPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* Add GCP Account Route (converted from add-gcp-account.html) */}
-        <Route
-          path="/add-gcp-account"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <AddGcpAccountPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* GitHub Config Route (converted from add-github-config.html) */}
-        <Route
-          path="/add-github-config"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <GitHubConfigPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* DevOps-in-the-Box Route (converted from devops_in_the_box.html) */}
-        <Route
-          path="/devops-in-the-box"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <DevOpsInTheBoxPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* CICD Pipelines Route (converted from cicd_pipelines.html) */}
-        <Route
-          path="/cicd-pipelines"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <CICDPipelinesPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* SonarQube Code Quality Route (converted from sonarqube.html) */}
-        <Route
-          path="/sonarqube"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <SonarQubePage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* AIOps Route (converted from aiops.html) */}
-        <Route
-          path="/aiops"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <AIOpsPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* DataOps Route (converted from dataops.html) */}
-        <Route
-          path="/dataops"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <DataOpsPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* BillOps User Dashboard Route (converted from billops/dashboard_user.html) */}
-        <Route
-          path="/billops-dashboard"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <BillOpsUserDashboardPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* BillOps Billing Route (converted from billops/billing.html) */}
-        <Route
-          path="/billops-billing"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <BillingPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* BillOps Invoices Route (converted from billops/invoices.html) */}
-        <Route
-          path="/billops-invoices"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <InvoicesPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-        {/* BillOps GCP Billing Route (converted from billops/gcp-billing.html) */}
-        <Route
-          path="/billops-gcp-billing"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <GcpBillingPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/billops-client-details"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <ClientDetailsPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* Calculator Route (converted from calculator.html) */}
-        <Route
-          path="/calculator"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <CalculatorPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* GCP CloudList Route (converted from gcp_cloudlist.html) */}
-        <Route
-          path="/gcp-cloudlist"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <GcpCloudListPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* Azure CloudList Route (converted from azure_cloudlist.html) */}
-        <Route
-          path="/azure-cloudlist"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <AzureCloudList />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-
-        {/* BillOps Credits Route (converted from billops/credits.html) */}
-        <Route
-          path="/billops-credits"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <CreditsPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* BillOps Tickets Route (converted from billops/tickets.html) */}
-        <Route
-          path="/billops-tickets"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <BillOpsTicketsPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* BillOps Ticket Detail Route (converted from billops/ticket_detail.html) */}
-        <Route
-          path="/billops-ticket-detail"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <BillOpsTicketDetailPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* BillOps Support Dashboard Route (converted from billops/support-dashboard.html) */}
-        <Route
-          path="/billops-support-dashboard"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <BillOpsSupportDashboardPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* BillOps Admin Dashboard Route (converted from billops/dashboard_admin.html) */}
-        <Route
-          path="/billops-admin-dashboard"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <BillOpsAdminDashboardPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* BillOps Admin Invoices Route (converted from billops/admin_invoices.html) */}
-        <Route
-          path="/billops-admin-invoices"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <BillOpsAdminInvoicesPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* BillOps Admin Credits Route (converted from billops/admin_credits.html) */}
-        <Route
-          path="/billops-admin-credits"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <BillOpsAdminCreditsPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* BillOps Admin Tickets Route (converted from billops/admin_tickets.html) */}
-        <Route
-          path="/billops-admin-tickets"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <BillOpsAdminTicketsPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* BillOps Agreements Route (converted from billops/agreements.html) */}
-        <Route
-          path="/billops-agreements"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <AgreementsPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* BillOps Admin Agreements Route (converted from billops/admin_agreements.html) */}
-        <Route
-          path="/billops-admin-agreements"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <BillOpsAdminAgreementsPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* MarketPlace Purchases Route (converted from billops/marketplace-purchases.html) */}
-        <Route
-          path="/marketplace-purchases"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <MarketplacePurchasesPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* WorkSpace Licenses Route (converted from billops/workspace-licenses.html) */}
-        <Route
-          path="/workspace-licenses"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <WorkspaceLicensesPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* User Management Route (converted from Xamops_User_management.html) */}
-        <Route
-          path="/user-management"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <UserManagementPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* My Profile Route (converted from my-profile.html) */}
-        <Route
-          path="/my-profile"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <MyProfilePage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* ComplianceOps Route (converted from complianceops.html) */}
-        <Route
-          path="/complianceops"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <ComplianceOpsPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* BillOps Admin User Manager Route (converted from user-manager.html) */}
-        <Route
-          path="/billops-admin-user-manager"
-          element={
-            <ProtectedRoute>
-              <AuthenticatedLayout>
-                <BillOpsAdminUserManagerPage />
-              </AuthenticatedLayout>
-            </ProtectedRoute>
-          }
-        />
+        {/* Protected Routes Wrapper */}
+        <Route
+          element={
+            <ProtectedRoute>
+              <AuthenticatedLayout />
+            </ProtectedRoute>
+          }
+        >
+          {/* Dashboard Guard Wrapper - Only for standard dashboards */}
+          <Route element={<DashboardGuard />}>
+            <Route path="/unified-dashboard" element={<UnifiedDashboard />} />
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/gcp-dashboard" element={<GcpDashboard />} />
+            <Route path="/azure-dashboard" element={<AzureDashboard />} />
+          </Route>
+
+          {/* Core FinOps & CloudOps Routes */}
+          <Route path="/azure-finops" element={<AzureFinOpsPage />} />
+          <Route path="/finops" element={<FinOpsPage />} />
+          <Route path="/gcp-finops" element={<GcpFinOpsPage />} />
+          <Route path="/cost" element={<CostPage />} />
+          <Route path="/gcp-cost" element={<GcpCostPage />} />
+          <Route path="/waste" element={<WastePage />} />
+          <Route path="/gcp-waste" element={<GcpWastePage />} />
+          <Route path="/rightsizing" element={<RightsizingPage />} />
+          <Route path="/gcp-rightsizing" element={<GcpRightsizingPage />} />
+          <Route path="/reservation" element={<ReservationPage />} />
+          <Route path="/gcp-reservations" element={<GcpReservationsPage />} />
+          <Route path="/cloudsitter" element={<CloudSitterPage />} />
+          <Route path="/spot-automation" element={<SpotAutomationPage />} />
+          <Route path="/grafana-dashboard" element={<GrafanaDashboardPage />} />
+          <Route path="/cloudk8s" element={<CloudK8sPage />} />
+          <Route path="/gcp-cloudk8s" element={<GcpCloudK8sPage />} />
+          <Route path="/azure-cloudk8s" element={<AzureCloudK8sPage />} />
+          <Route path="/eks-details" element={<EksDetailsPage />} />
+          <Route path="/security" element={<SecurityPage />} />
+          <Route path="/gcp-security" element={<GcpSecurityPage />} />
+          <Route path="/performance" element={<PerformancePage />} />
+          <Route path="/gcp-performance" element={<GcpPerformancePage />} />
+          <Route path="/alerts" element={<AlertsPage />} />
+          <Route path="/gcp-alerts" element={<GcpAlertsPage />} />
+          <Route path="/tickets" element={<TicketsPage />} />
+          <Route path="/ticket-detail" element={<TicketDetailPage />} />
+          <Route path="/cloudlist" element={<CloudListPage />} />
+          <Route path="/cloudshell" element={<CloudShellPage />} />
+          <Route path="/account-manager" element={<AccountManagerPage />} />
+          <Route path="/cloudmap" element={<CloudMapPage />} />
+          <Route path="/gcp-cloudmap" element={<GcpCloudMapPage />} />
+          <Route path="/add-account" element={<AddAccountPage />} />
+          <Route path="/add-gcp-account" element={<AddGcpAccountPage />} />
+          <Route path="/add-github-config" element={<GitHubConfigPage />} />
+          <Route path="/devops-in-the-box" element={<DevOpsInTheBoxPage />} />
+          <Route path="/cicd-pipelines" element={<CICDPipelinesPage />} />
+          <Route path="/sonarqube" element={<SonarQubePage />} />
+          <Route path="/aiops" element={<AIOpsPage />} />
+          <Route path="/dataops" element={<DataOpsPage />} />
+
+          {/* BillOps Routes */}
+          <Route path="/billops-dashboard" element={<BillOpsUserDashboardPage />} />
+          <Route path="/billops-billing" element={<BillingPage />} />
+          <Route path="/billops-invoices" element={<InvoicesPage />} />
+          <Route path="/billops-gcp-billing" element={<GcpBillingPage />} />
+          <Route path="/billops-client-details" element={<ClientDetailsPage />} />
+          <Route path="/billops-credits" element={<CreditsPage />} />
+          <Route path="/billops-tickets" element={<BillOpsTicketsPage />} />
+          <Route path="/billops-ticket-detail" element={<BillOpsTicketDetailPage />} />
+          <Route path="/billops-support-dashboard" element={<BillOpsSupportDashboardPage />} />
+          <Route path="/billops-admin-dashboard" element={<BillOpsAdminDashboardPage />} />
+          <Route path="/billops-admin-invoices" element={<BillOpsAdminInvoicesPage />} />
+          <Route path="/billops-admin-credits" element={<BillOpsAdminCreditsPage />} />
+          <Route path="/billops-admin-tickets" element={<BillOpsAdminTicketsPage />} />
+          <Route path="/billops-agreements" element={<AgreementsPage />} />
+          <Route path="/billops-admin-agreements" element={<BillOpsAdminAgreementsPage />} />
+          <Route path="/marketplace-purchases" element={<MarketplacePurchasesPage />} />
+          <Route path="/workspace-licenses" element={<WorkspaceLicensesPage />} />
+          <Route path="/user-management" element={<UserManagementPage />} />
+          <Route path="/my-profile" element={<MyProfilePage />} />
+          <Route path="/complianceops" element={<ComplianceOpsPage />} />
+          <Route path="/billops-admin-user-manager" element={<BillOpsAdminUserManagerPage />} />
+          <Route path="/calculator" element={<CalculatorPage />} />
+          <Route path="/gcp-cloudlist" element={<GcpCloudListPage />} />
+          <Route path="/azure-cloudlist" element={<AzureCloudList />} />
+        </Route>
 
         {/* Catch all - redirect to login */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-    </TopbarProvider >
+    </TopbarProvider>
   );
 };
 
