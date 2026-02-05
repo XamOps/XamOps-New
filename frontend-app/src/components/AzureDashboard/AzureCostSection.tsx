@@ -33,10 +33,10 @@ const AzureCostSection: React.FC<AzureCostSectionProps> = ({ costHistory, billin
     }
 
     const backgroundColors = costHistory.anomalies.map(isAnomaly =>
-      isAnomaly ? 'rgba(239, 68, 68, 0.8)' : 'rgba(79, 70, 229, 0.8)'
+      isAnomaly ? 'rgba(244, 63, 94, 0.8)' : 'rgba(0, 120, 212, 0.8)'
     );
     const borderColors = costHistory.anomalies.map(isAnomaly =>
-      isAnomaly ? 'rgba(220, 38, 38, 1)' : 'rgba(79, 70, 229, 1)'
+      isAnomaly ? 'rgba(225, 29, 72, 1)' : 'rgba(0, 90, 158, 1)'
     );
 
     chartRef.current = new window.Chart(canvasRef.current, {
@@ -106,59 +106,71 @@ const AzureCostSection: React.FC<AzureCostSectionProps> = ({ costHistory, billin
 
   return (
     <>
-      <div className="lg:col-span-2 chart-container p-6 rounded-xl">
+      <div className="lg:col-span-2 glass-card chart-container p-6 rounded-xl">
         <div className="flex items-center justify-between mb-6">
-          <h3 className="text-lg font-bold text-gray-800 flex items-center">
-            <i className="fas fa-arrows-alt widget-handle mr-3 text-gray-400"></i>
-            <i className="fas fa-chart-bar mr-2 text-green-500"></i>
-            Cost History (Last 6 Months)
-          </h3>
-          <div className="flex items-center space-x-2 text-sm text-gray-500">
-            <i className="fas fa-exclamation-triangle text-orange-500"></i>
-            <span>Anomaly detection</span>
+          <div className="flex items-center text-slate-600">
+            <i className="fas fa-arrows-alt widget-handle mr-3 text-lg cursor-move opacity-40 hover:opacity-100 transition-opacity"></i>
+            <h3 className="text-lg font-black tracking-tight text-slate-800 uppercase italic flex items-center">
+              <i className="fas fa-chart-bar mr-2 text-emerald-500"></i>
+              Cost History (Last 6 Months)
+            </h3>
+          </div>
+          <div className="flex items-center gap-2 text-[10px] font-black uppercase text-slate-400 tracking-widest bg-slate-100 px-3 py-1 rounded-full border border-slate-200">
+            <i className="fas fa-exclamation-triangle text-amber-500"></i>
+            <span>Anomaly detection active</span>
           </div>
         </div>
-        <div className="h-80 p-4 bg-gray-50 rounded-lg">
+        <div className="h-80 p-4 bg-slate-50/50 rounded-xl border border-slate-100">
           <canvas ref={canvasRef}></canvas>
         </div>
       </div>
-      <div className="chart-container p-6 rounded-xl">
+      <div className="glass-card chart-container p-6 rounded-xl">
         <div className="flex items-center justify-between mb-6">
-          <h3 className="text-lg font-bold text-gray-800 flex items-center">
-            <i className="fas fa-arrows-alt widget-handle mr-3 text-gray-400"></i>
-            <i className="fas fa-receipt mr-2 text-blue-500"></i>
-            Billing Summary
-          </h3>
-          <div className="text-sm text-gray-500">MTD</div>
+          <div className="flex items-center text-slate-600">
+            <i className="fas fa-arrows-alt widget-handle mr-3 text-lg cursor-move opacity-40 hover:opacity-100 transition-opacity"></i>
+            <h3 className="text-lg font-black tracking-tight text-slate-800 uppercase italic flex items-center">
+              <i className="fas fa-receipt mr-2 text-blue-500"></i>
+              Billing
+            </h3>
+          </div>
+          <div className="text-[10px] font-black uppercase text-slate-400 tracking-widest bg-slate-100 px-3 py-1 rounded-full border border-slate-200">
+            MTD Summary
+          </div>
         </div>
-        <div className="overflow-y-auto max-h-80 custom-scrollbar">
-          <table className="w-full text-sm text-left text-gray-500">
-            <thead className="text-xs text-gray-700 uppercase bg-gray-50 sticky top-0 rounded-lg">
+        <div className="overflow-y-auto max-h-80 custom-scrollbar pr-2">
+          <table className="w-full text-sm text-left">
+            <thead className="text-[10px] text-slate-400 uppercase tracking-widest bg-slate-50/80 sticky top-0 backdrop-blur-md">
               <tr>
-                <th className="px-4 py-3 rounded-l-lg">Service</th>
-                <th className="px-4 py-3 text-right rounded-r-lg">Cost (USD)</th>
+                <th className="px-4 py-3 rounded-l-lg font-black">Service</th>
+                <th className="px-4 py-3 text-right rounded-r-lg font-black">Cost (USD)</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-slate-100">
               {billingSummary && billingSummary.length > 0 ? (
                 billingSummary.sort((a, b) => b.monthToDateCost - a.monthToDateCost).map((item, index) => (
-                  <tr key={index} className="border-b hover:bg-gray-50 transition-colors">
-                    <th className="px-4 py-4 font-semibold text-gray-800 text-left">
-                      <div className="flex items-center space-x-2">
-                        <div className={`w-2 h-2 bg-indigo-${500 + (index * 100) % 400} rounded-full`}></div>
-                        <span>{item.serviceName}</span>
+                  <tr key={index} className="group hover:bg-slate-50/50 transition-colors">
+                    <td className="px-4 py-4">
+                      <div className="flex items-center space-x-3">
+                        <div className={`w-2 h-2 rounded-full shadow-sm ${index === 0 ? 'bg-blue-500' :
+                          index === 1 ? 'bg-indigo-500' :
+                            index === 2 ? 'bg-purple-500' :
+                              'bg-slate-300'
+                          }`}></div>
+                        <span className="font-bold text-slate-700 group-hover:text-blue-600 transition-colors">{item.serviceName}</span>
                       </div>
-                    </th>
+                    </td>
                     <td className="px-4 py-4 text-right">
-                      <span className="font-bold text-gray-900">{formatCurrency(item.monthToDateCost)}</span>
+                      <span className="font-black text-slate-900 metric-value">{formatCurrency(item.monthToDateCost)}</span>
                     </td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={2} className="px-4 py-8 text-center text-gray-500">
-                    <i className="fas fa-receipt text-2xl mb-2"></i>
-                    <p>No billing data available</p>
+                  <td colSpan={2} className="px-4 py-12 text-center">
+                    <div className="w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-3">
+                      <i className="fas fa-receipt text-slate-300 text-xl"></i>
+                    </div>
+                    <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">No billing data available</p>
                   </td>
                 </tr>
               )}
