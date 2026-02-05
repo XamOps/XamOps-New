@@ -477,3 +477,18 @@
     background: rgba(99, 102, 241, 0.15);
     transform: scale(1.05);
 }
+
+/* Invoice Notification Styles */
+.notification-invoice::before {
+    background: #10b981;
+}
+
+.notification-invoice .notification-item-icon {
+    background: rgba(16, 185, 129, 0.1);
+    color: #10b981;
+}
+
+.notification-invoice:hover .notification-item-icon {
+    background: rgba(16, 185, 129, 0.15);
+    transform: scale(1.05);
+}
