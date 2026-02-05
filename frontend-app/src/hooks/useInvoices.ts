@@ -29,6 +29,10 @@ import type {
   Month,
   UseInvoicesReturn,
 } from '../types/invoices';
+import {
+  initNotificationService,
+  notifyNewInvoice
+} from '../utils/notificationService';
 
 const CACHE_KEY = 'invoices_list_admin';
 
@@ -80,6 +84,11 @@ export const useInvoices = (): UseInvoicesReturn => {
   const [lastUpdatedDisplay, setLastUpdatedDisplay] = useState<string>('');
 
   const isMountedRef = useRef(true);
+
+  // Refs for tracking new invoices (for notifications)
+  const previousInvoiceIdsRef = useRef<Set<number>>(new Set());
+  const isInitialLoadRef = useRef<boolean>(true);
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Computed
   const hasData = allInvoices && allInvoices.length > 0;
@@ -422,6 +431,76 @@ export const useInvoices = (): UseInvoicesReturn => {
       filterAndDisplayInvoices();
     }
   }, [selectedAccountId, allInvoices, selectedYear, selectedMonth, filterAndDisplayInvoices]);
+
+  /**
+   * Initialize notification service
+   */
+  useEffect(() => {
+    initNotificationService();
+  }, []);
+
+  /**
+   * Poll for new invoices and notify users (every 60 seconds)
+   */
+  useEffect(() => {
+    pollingIntervalRef.current = setInterval(async () => {
+      try {
+        const response = await apiFetch(`/api/admin/invoices?forceRefresh=false`, {
+          credentials: 'include',
+        });
+
+        if (!response.ok) return;
+
+        const data: Invoice[] = await response.json();
+        const currentInvoiceIds = new Set(data.map(inv => inv.id));
+
+        // Check for new finalized invoices (skip initial load)
+        if (!isInitialLoadRef.current) {
+          for (const invoice of data) {
+            if (
+              !previousInvoiceIdsRef.current.has(invoice.id) &&
+              invoice.status === 'FINALIZED' &&
+              document.hidden
+            ) {
+              // New finalized invoice detected - notify user
+              notifyNewInvoice(
+                invoice.accountName,
+                invoice.billingPeriod,
+                invoice.totalAmount
+              );
+              break; // Only one notification for batch of new invoices
+            }
+          }
+        }
+
+        // Update tracking ref
+        previousInvoiceIdsRef.current = currentInvoiceIds;
+        isInitialLoadRef.current = false;
+
+        // Update invoices state silently
+        if (isMountedRef.current) {
+          setAllInvoices(data);
+        }
+      } catch (err) {
+        console.error('[Invoices] Polling error:', err);
+      }
+    }, 60000); // 60 second polling interval
+
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
+    };
+  }, []);
+
+  /**
+   * Update invoice IDs ref when invoices change
+   */
+  useEffect(() => {
+    if (allInvoices.length > 0) {
+      previousInvoiceIdsRef.current = new Set(allInvoices.map(inv => inv.id));
+    }
+  }, [allInvoices]);
 
   return {
     allInvoices,

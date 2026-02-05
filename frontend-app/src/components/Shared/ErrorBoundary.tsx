@@ -1,8 +1,10 @@
-import { Component, ErrorInfo, ReactNode } from 'react';
+import React, { Component, ErrorInfo, ReactNode } from 'react';
+import { useLocation } from 'react-router-dom';
 
 interface Props {
     children: ReactNode;
     fallback?: ReactNode;
+    resetKey?: string; // Key to reset error boundary on route changes
 }
 
 interface State {
@@ -10,7 +12,7 @@ interface State {
     error: Error | null;
 }
 
-class ErrorBoundary extends Component<Props, State> {
+class ErrorBoundaryInner extends Component<Props, State> {
     public state: State = {
         hasError: false,
         error: null,
@@ -18,6 +20,13 @@ class ErrorBoundary extends Component<Props, State> {
 
     public static getDerivedStateFromError(error: Error): State {
         return { hasError: true, error };
+    }
+
+    public componentDidUpdate(prevProps: Props) {
+        // Reset error state when the resetKey (route) changes
+        if (this.state.hasError && prevProps.resetKey !== this.props.resetKey) {
+            this.setState({ hasError: false, error: null });
+        }
     }
 
     public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
@@ -59,5 +68,11 @@ class ErrorBoundary extends Component<Props, State> {
         return this.props.children;
     }
 }
+
+// Wrapper component that provides the location as resetKey
+const ErrorBoundary: React.FC<Omit<Props, 'resetKey'>> = (props) => {
+    const location = useLocation();
+    return <ErrorBoundaryInner {...props} resetKey={location.pathname} />;
+};
 
 export default ErrorBoundary;

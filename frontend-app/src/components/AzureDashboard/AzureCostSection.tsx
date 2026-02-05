@@ -62,7 +62,7 @@ const AzureCostSection: React.FC<AzureCostSectionProps> = ({ costHistory, billin
             backgroundColor: 'rgba(0, 0, 0, 0.8)',
             titleColor: 'white',
             bodyColor: 'white',
-            borderColor: 'rgba(79, 70, 229, 0.8)',
+            borderColor: 'rgba(0, 120, 212, 0.8)',
             borderWidth: 1,
             cornerRadius: 8,
             callbacks: {
@@ -95,88 +95,119 @@ const AzureCostSection: React.FC<AzureCostSectionProps> = ({ costHistory, billin
     };
   }, [costHistory]);
 
-  if (isLoading) {
-    return (
-      <>
-        <div className="lg:col-span-2 chart-container p-6 rounded-xl skeleton" style={{ height: '300px' }}></div>
-        <div className="chart-container p-6 rounded-xl skeleton" style={{ height: '300px' }}></div>
-      </>
-    );
-  }
+  const sortedBilling = billingSummary ? [...billingSummary].sort((a, b) => b.monthToDateCost - a.monthToDateCost).slice(0, 5) : [];
 
   return (
     <>
-      <div className="lg:col-span-2 glass-card chart-container p-6 rounded-xl">
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center text-slate-600">
-            <i className="fas fa-arrows-alt widget-handle mr-3 text-lg cursor-move opacity-40 hover:opacity-100 transition-opacity"></i>
-            <h3 className="text-lg font-black tracking-tight text-slate-800 uppercase italic flex items-center">
-              <i className="fas fa-chart-bar mr-2 text-emerald-500"></i>
-              Cost History (Last 6 Months)
-            </h3>
+      {/* Cost History Chart */}
+      <div className="lg:col-span-2 glass-card p-6 relative overflow-hidden h-full hover-glow">
+        <div className="flex items-center justify-between mb-8">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 bg-white/80 rounded-2xl flex items-center justify-center border border-white shadow-sm transition-transform duration-300 hover:rotate-6">
+              <svg className="w-7 h-7 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+              </svg>
+            </div>
+            <div>
+              <h3 className="text-xl font-extrabold text-slate-900 tracking-tight uppercase px-1">Cost History</h3>
+              <div className="flex items-center gap-2 mt-0.5 px-1">
+                <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(59,130,246,0.5)]"></span>
+                <span className="text-[11px] text-slate-400 font-extrabold uppercase tracking-widest italic">6-Month Trend</span>
+              </div>
+            </div>
           </div>
-          <div className="flex items-center gap-2 text-[10px] font-black uppercase text-slate-400 tracking-widest bg-slate-100 px-3 py-1 rounded-full border border-slate-200">
-            <i className="fas fa-exclamation-triangle text-amber-500"></i>
-            <span>Anomaly detection active</span>
-          </div>
+          {!isLoading && (
+            <div className="flex items-center gap-2 bg-white/60 backdrop-blur-sm px-4 py-2 rounded-xl border border-white shadow-sm transition-all hover:bg-white">
+              <i className="fas fa-microchip text-blue-500 text-xs animate-pulse"></i>
+              <span className="text-[10px] uppercase font-extrabold tracking-widest text-slate-500">ML Anomaly Detection</span>
+            </div>
+          )}
         </div>
-        <div className="h-80 p-4 bg-slate-50/50 rounded-xl border border-slate-100">
+
+        {isLoading && (
+          <div className="absolute inset-x-0 bottom-0 top-16 z-10 flex items-center justify-center bg-white/40 backdrop-blur-sm rounded-b-xl">
+            <div className="loading-spinner w-12 h-12"></div>
+          </div>
+        )}
+
+        <div className="h-80 p-6 bg-white/40 backdrop-blur-sm rounded-2xl border border-white shadow-inner">
           <canvas ref={canvasRef}></canvas>
         </div>
       </div>
-      <div className="glass-card chart-container p-6 rounded-xl">
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center text-slate-600">
-            <i className="fas fa-arrows-alt widget-handle mr-3 text-lg cursor-move opacity-40 hover:opacity-100 transition-opacity"></i>
-            <h3 className="text-lg font-black tracking-tight text-slate-800 uppercase italic flex items-center">
-              <i className="fas fa-receipt mr-2 text-blue-500"></i>
-              Billing
-            </h3>
-          </div>
-          <div className="text-[10px] font-black uppercase text-slate-400 tracking-widest bg-slate-100 px-3 py-1 rounded-full border border-slate-200">
-            MTD Summary
+
+      {/* Billing Summary */}
+      <div className="glass-card p-6 relative overflow-hidden h-full hover-glow">
+        <div className="flex items-center justify-between mb-8">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 bg-white/80 rounded-2xl flex items-center justify-center border border-white shadow-sm transition-transform duration-300 hover:rotate-6">
+              <svg className="w-7 h-7 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+            </div>
+            <div>
+              <h3 className="text-xl font-extrabold text-slate-900 tracking-tight uppercase px-1">Billing Details</h3>
+              <div className="flex items-center gap-2 mt-0.5 px-1">
+                <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)]"></span>
+                <span className="text-[11px] text-slate-400 font-extrabold uppercase tracking-widest italic">Month-to-Date</span>
+              </div>
+            </div>
           </div>
         </div>
-        <div className="overflow-y-auto max-h-80 custom-scrollbar pr-2">
-          <table className="w-full text-sm text-left">
-            <thead className="text-[10px] text-slate-400 uppercase tracking-widest bg-slate-50/80 sticky top-0 backdrop-blur-md">
-              <tr>
-                <th className="px-4 py-3 rounded-l-lg font-black">Service</th>
-                <th className="px-4 py-3 text-right rounded-r-lg font-black">Cost (USD)</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {billingSummary && billingSummary.length > 0 ? (
-                billingSummary.sort((a, b) => b.monthToDateCost - a.monthToDateCost).map((item, index) => (
-                  <tr key={index} className="group hover:bg-slate-50/50 transition-colors">
-                    <td className="px-4 py-4">
-                      <div className="flex items-center space-x-3">
-                        <div className={`w-2 h-2 rounded-full shadow-sm ${index === 0 ? 'bg-blue-500' :
-                          index === 1 ? 'bg-indigo-500' :
-                            index === 2 ? 'bg-purple-500' :
-                              'bg-slate-300'
-                          }`}></div>
-                        <span className="font-bold text-slate-700 group-hover:text-blue-600 transition-colors">{item.serviceName}</span>
+
+        {isLoading && (
+          <div className="absolute inset-x-0 bottom-0 top-16 z-10 p-6 space-y-3 bg-white/80 backdrop-blur-sm rounded-b-xl">
+            <div className="h-10 w-full skeleton rounded"></div>
+            <div className="h-10 w-full skeleton rounded"></div>
+            <div className="h-10 w-full skeleton rounded"></div>
+          </div>
+        )}
+
+        {!isLoading && (
+          <div className="overflow-y-auto max-h-80 custom-scrollbar pr-2">
+            <table className="w-full text-sm text-left border-separate border-spacing-y-2">
+              <thead className="text-[10px] text-slate-400 uppercase tracking-widest font-extrabold">
+                <tr>
+                  <th className="px-4 py-2">Service</th>
+                  <th className="px-4 py-2 text-right">Cost (USD)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedBilling.length > 0 ? (
+                  sortedBilling.map((item, index) => (
+                    <tr key={index} className="group transition-all duration-300">
+                      <th className="px-4 py-3 bg-white/40 group-hover:bg-white rounded-l-2xl border-l border-t border-b border-white transition-all duration-300">
+                        <div className="flex items-center space-x-3">
+                          <div
+                            className="w-2.5 h-2.5 rounded-full shadow-sm"
+                            style={{
+                              backgroundColor: `hsl(${210 + (index * 60) % 360}, 75%, 60%)`,
+                              boxShadow: `0 0 10px hsl(${210 + (index * 60) % 360}, 75%, 60%, 0.3)`
+                            }}
+                          ></div>
+                          <span className="text-slate-700 font-extrabold tracking-tight">{item.serviceName}</span>
+                        </div>
+                      </th>
+                      <td className="px-4 py-3 text-right bg-white/40 group-hover:bg-white rounded-r-2xl border-r border-t border-b border-white transition-all duration-300">
+                        <span className="font-extrabold text-slate-900 metric-value">{formatCurrency(item.monthToDateCost)}</span>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={2} className="px-4 py-12 text-center">
+                      <div className="w-12 h-12 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-3 border border-gray-100">
+                        <svg className="w-6 h-6 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
                       </div>
-                    </td>
-                    <td className="px-4 py-4 text-right">
-                      <span className="font-black text-slate-900 metric-value">{formatCurrency(item.monthToDateCost)}</span>
+                      <p className="text-gray-500 font-bold text-xs uppercase tracking-widest">No Billing Data Available</p>
                     </td>
                   </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={2} className="px-4 py-12 text-center">
-                    <div className="w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-3">
-                      <i className="fas fa-receipt text-slate-300 text-xl"></i>
-                    </div>
-                    <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">No billing data available</p>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </>
   );

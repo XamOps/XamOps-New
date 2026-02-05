@@ -16,29 +16,11 @@ import React from 'react';
 
 const MarketplacePurchasesPage: React.FC = () => {
   return (
-    <div className="marketplace-purchases-page">
-      {/* Header Bar */}
-      <header className="marketplace-header">
-        <div className="header-content">
-          <div className="header-icon-wrapper">
-            <div className="header-icon">
-              <i className="fas fa-shopping-cart" />
-            </div>
-          </div>
-          <div className="header-text">
-            <h1 className="header-title">MarketPlace Purchases</h1>
-            <p className="header-subtitle">
-              <i className="fas fa-cloud" />
-              Unified cloud marketplace subscription management
-            </p>
-          </div>
-        </div>
-      </header>
-
+    <main className="flex-1 p-6 bg-transparent space-y-6">
       {/* Main Content */}
       <div className="marketplace-content">
         <div className="coming-soon-container">
-          <div className="coming-soon-card">
+          <div className="glass-card coming-soon-card">
             {/* Background Pattern */}
             <div className="background-pattern" />
 
@@ -158,7 +140,7 @@ const MarketplacePurchasesPage: React.FC = () => {
           </div>
         </div>
       </div>
-    </div>
+    </main>
   );
 };
 

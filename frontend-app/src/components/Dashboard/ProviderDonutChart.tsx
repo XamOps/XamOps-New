@@ -160,7 +160,7 @@ export const ProviderDonutChart: React.FC<ProviderDonutChartProps> = ({ awsData,
       beforeDraw(chart: Chart) {
         const { ctx, width, height } = chart;
         ctx.restore();
-        const fontSize = (height / 114).toFixed(2);
+        const fontSize = (height / 150).toFixed(2);
         ctx.font = `bolder ${fontSize}em 'Plus Jakarta Sans', sans-serif`;
         ctx.textBaseline = 'middle';
 

@@ -11,12 +11,17 @@
  * Converted from: billops/ticket_detail.html
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   BillOpsTicketDetail,
   BillOpsUserProfile,
   RCAFormData
 } from '../types/billopsTickets';
+import {
+  initNotificationService,
+  notifyNewTicketReply,
+  notifyTicketStatusChange
+} from '../utils/notificationService';
 
 interface UseBillOpsTicketDetailReturn {
   ticket: BillOpsTicketDetail | null;
@@ -39,6 +44,12 @@ export const useBillOpsTicketDetail = (
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Refs for polling and notification tracking
+  const previousReplyCountRef = useRef<number>(0);
+  const previousStatusRef = useRef<string | null>(null);
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const isInitialLoadRef = useRef<boolean>(true);
 
   /**
    * Check if current user is admin
@@ -225,6 +236,89 @@ export const useBillOpsTicketDetail = (
       window.removeEventListener('popstate', handlePopState);
     };
   }, [fetchTicketDetails]);
+
+  /**
+   * Initialize notification service
+   */
+  useEffect(() => {
+    initNotificationService();
+  }, []);
+
+  /**
+   * Poll for new replies and trigger notifications
+   */
+  useEffect(() => {
+    if (!ticketId) return;
+
+    // Set up polling interval (every 10 seconds)
+    pollingIntervalRef.current = setInterval(async () => {
+      try {
+        const response = await fetch(`/api/billops/tickets/${ticketId}`, {
+          credentials: 'include'
+        });
+
+        if (!response.ok) return;
+
+        const ticketData: BillOpsTicketDetail = await response.json();
+        const currentReplyCount = ticketData.replies?.length || 0;
+
+        // Check for status change (skip initial load)
+        if (
+          !isInitialLoadRef.current &&
+          previousStatusRef.current &&
+          ticketData.status !== previousStatusRef.current &&
+          document.hidden
+        ) {
+          notifyTicketStatusChange(ticketId, ticketData.status, ticketData.subject);
+          setTicket(ticketData);
+        }
+
+        // Check for new replies (skip initial load)
+        if (!isInitialLoadRef.current && currentReplyCount > previousReplyCountRef.current) {
+          const newReplies = ticketData.replies?.slice(previousReplyCountRef.current) || [];
+
+          // Notify only for replies not from current user and when page is hidden
+          for (const reply of newReplies) {
+            if (reply.authorId !== currentUser?.id && document.hidden) {
+              const plainText = reply.message.replaceAll(/<[^>]*>/g, '');
+              notifyNewTicketReply(ticketId, plainText);
+              break; // Only one notification for batch of new replies
+            }
+          }
+
+          // Update ticket state with new data
+          setTicket(ticketData);
+        }
+
+        // Update tracking refs
+        previousReplyCountRef.current = currentReplyCount;
+        previousStatusRef.current = ticketData.status;
+        isInitialLoadRef.current = false;
+      } catch (err) {
+        console.error('[Ticket Detail] Polling error:', err);
+      }
+    }, 10000); // 10 second polling interval
+
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
+    };
+  }, [ticketId, currentUser?.id]);
+
+  /**
+   * Update tracking refs when ticket changes
+   */
+  useEffect(() => {
+    if (ticket) {
+      if (ticket.replies) {
+        previousReplyCountRef.current = ticket.replies.length;
+      }
+      if (ticket.status) {
+        previousStatusRef.current = ticket.status;
+      }
+    }
+  }, [ticket]);
 
   return {
     ticket,

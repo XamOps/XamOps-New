@@ -270,13 +270,6 @@ public class FinOpsReportEmailBuilder {
         sb.append("</td>");
         sb.append("</tr>");
 
-        // --- CTA BUTTON ---
-        sb.append("<tr>");
-        sb.append("<td style='padding: 0 40px 30px 40px; text-align: center;'>");
-        sb.append("<a href='https://app.xamops.com/finops' style='display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-size: 15px; font-weight: 600; box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);'>View Full Dashboard</a>");
-        sb.append("</td>");
-        sb.append("</tr>");
-
         // --- FOOTER ---
         sb.append("<tr>");
         sb.append("<td style='background-color: #f8fafc; padding: 30px 40px; border-top: 1px solid #e5e7eb;'>");

@@ -14,11 +14,13 @@ import org.springframework.web.bind.annotation.*;
 import java.io.ByteArrayInputStream;
 
 /**
- * Handles all user-facing requests related to viewing and interacting with invoices.
+ * Handles all user-facing requests related to viewing and interacting with
+ * invoices.
  */
 @RestController
 @RequestMapping("/api/billops/invoices")
-@CrossOrigin(origins = {"http://localhost:5173", "http://127.0.0.1:5500", "https://uat.xamops.com", "https://live.xamops.com"}, allowCredentials = "true")
+@CrossOrigin(origins = { "http://localhost:5173", "http://127.0.0.1:5500", "https://uat.xamops.com",
+        "https://live.xamops.com", "https://prep.xamops.com" }, allowCredentials = "true")
 public class InvoiceViewController {
 
     private static final Logger logger = LoggerFactory.getLogger(InvoiceViewController.class);
@@ -29,7 +31,8 @@ public class InvoiceViewController {
     }
 
     /**
-     * MODIFIED: Endpoint to fetch a FINALIZED invoice DTO for viewing on the frontend.
+     * MODIFIED: Endpoint to fetch a FINALIZED invoice DTO for viewing on the
+     * frontend.
      * This corresponds to the fetch call in invoices.html.
      */
     @GetMapping("/view")
@@ -57,7 +60,8 @@ public class InvoiceViewController {
 
     /**
      * Endpoint to preview the effect of a discount on the invoice data.
-     * This is now used for temporary, on-the-fly previews before an invoice is saved.
+     * This is now used for temporary, on-the-fly previews before an invoice is
+     * saved.
      */
     @PostMapping("/apply-discount-preview")
     public ResponseEntity<InvoiceDto> applyDiscountPreview(@RequestBody ApplyDiscountPreviewRequest request) {
@@ -67,16 +71,16 @@ public class InvoiceViewController {
             return ResponseEntity.badRequest().build();
         }
         try {
-            InvoiceDto updatedInvoice = invoiceManagementService.applyDiscountToTemporaryInvoice(request.getInvoice(), request.getDiscount());
+            InvoiceDto updatedInvoice = invoiceManagementService.applyDiscountToTemporaryInvoice(request.getInvoice(),
+                    request.getDiscount());
             return ResponseEntity.ok(updatedInvoice);
         } catch (Exception e) {
-             logger.error("Error applying discount preview for account {}: {}",
-                          (request.getInvoice() != null ? request.getInvoice().getAwsAccountId() : "UNKNOWN"),
-                          e.getMessage(), e);
+            logger.error("Error applying discount preview for account {}: {}",
+                    (request.getInvoice() != null ? request.getInvoice().getAwsAccountId() : "UNKNOWN"),
+                    e.getMessage(), e);
             return ResponseEntity.internalServerError().build();
         }
     }
-
 
     /**
      * Endpoint to generate and download a PDF of an invoice DTO.
@@ -84,10 +88,10 @@ public class InvoiceViewController {
      */
     @PostMapping("/download-preview")
     public ResponseEntity<byte[]> downloadInvoicePreview(@RequestBody InvoiceDto invoiceDto) {
-         // Basic validation
+        // Basic validation
         if (invoiceDto == null || invoiceDto.getBillingPeriod() == null) {
-             logger.warn("Received invalid InvoiceDto for PDF download: {}", invoiceDto);
-             return ResponseEntity.badRequest().build();
+            logger.warn("Received invalid InvoiceDto for PDF download: {}", invoiceDto);
+            return ResponseEntity.badRequest().build();
         }
         try {
             ByteArrayInputStream pdfStream = invoiceManagementService.generatePdfFromDto(invoiceDto);
@@ -95,8 +99,9 @@ public class InvoiceViewController {
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_PDF);
-            
-            // Handle filename generation for GCP accounts (where awsAccountId might be null)
+
+            // Handle filename generation for GCP accounts (where awsAccountId might be
+            // null)
             String accountIdentifier = invoiceDto.getAwsAccountId();
             if (accountIdentifier == null || "N/A".equals(accountIdentifier)) {
                 accountIdentifier = invoiceDto.getGcpProjectId();
@@ -115,9 +120,10 @@ public class InvoiceViewController {
 
             return ResponseEntity.ok().headers(headers).body(contents);
         } catch (Exception e) {
-             // Safe logging to avoid NPE if getAwsAccountId is null
-             String accId = invoiceDto.getAwsAccountId() != null ? invoiceDto.getAwsAccountId() : invoiceDto.getGcpProjectId();
-             logger.error("Error generating PDF preview for account {}: {}", accId, e.getMessage(), e);
+            // Safe logging to avoid NPE if getAwsAccountId is null
+            String accId = invoiceDto.getAwsAccountId() != null ? invoiceDto.getAwsAccountId()
+                    : invoiceDto.getGcpProjectId();
+            logger.error("Error generating PDF preview for account {}: {}", accId, e.getMessage(), e);
             return ResponseEntity.internalServerError().build();
         }
     }

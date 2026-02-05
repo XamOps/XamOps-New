@@ -23,6 +23,7 @@ public class InvoiceDto {
     private String clientName;
     private Long cloudAccountId;
     private String accountName;
+    private String provider;
     private String awsAccountId;
     private String gcpProjectId;
     private String azureSubscriptionId; // ✅ Added
@@ -54,6 +55,7 @@ public class InvoiceDto {
             if (invoice.getCloudAccount() != null) {
                 dto.setCloudAccountId(invoice.getCloudAccount().getId());
                 dto.setAccountName(invoice.getCloudAccount().getAccountName());
+                dto.setProvider(invoice.getCloudAccount().getProvider());
                 dto.setAwsAccountId(invoice.getCloudAccount().getAwsAccountId());
                 dto.setGcpProjectId(invoice.getCloudAccount().getGcpProjectId());
                 dto.setAzureSubscriptionId(invoice.getCloudAccount().getAzureSubscriptionId()); // ✅ Map Azure ID
@@ -161,6 +163,14 @@ public class InvoiceDto {
 
     public void setAccountName(String accountName) {
         this.accountName = accountName;
+    }
+
+    public String getProvider() {
+        return provider;
+    }
+
+    public void setProvider(String provider) {
+        this.provider = provider;
     }
 
     public String getAwsAccountId() {
