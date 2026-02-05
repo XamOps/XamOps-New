@@ -1,0 +1,3091 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" >
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" >
+  <title>XamOps - Grafana Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" >
+  <link rel="icon" href="/icons/XamOps.png" sizes="32x32" type="image/png" >
+  <link rel="apple-touch-icon" href="/icons/XamOps.png" >
+  <script type="module" crossorigin src="/assets/modulepreload-polyfill-B5Qt9EMX.js"></script>
+  <script type="module" crossorigin src="/assets/main-CitRH1IO.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/main-L3V86z8W.css">
+</head>
+
+<body class="bg-gray-50">
+  <div class="flex">
+    <script>
+    (function () {
+        // Store the original browser fetch function
+        const originalFetch = window.fetch;
+
+        // Override fetch with our smart wrapper
+        window.fetch = async function (url, options = {}) {
+            // 1. Get Context from Session (with null/undefined safety)
+            const tenantId = sessionStorage.getItem('selectedTenantId');
+            const impersonateId = sessionStorage.getItem('impersonateUserId');
+
+            // 2. Get CSRF Token
+            const csrfToken = document.cookie
+                .split('; ')
+                .find(row => row.startsWith('XSRF-TOKEN='))
+                ?.split('=')[1];
+
+            // 3. Initialize headers if they don't exist
+            if (!options.headers) {
+                options.headers = {};
+            }
+
+            // 4. Helper to check if header exists (works with Headers object and plain object)
+            const hasHeader = (key) => {
+                if (options.headers instanceof Headers) {
+                    return options.headers.has(key);
+                } else {
+                    return key in options.headers && options.headers[key] !== undefined;
+                }
+            };
+
+            // 5. Helper to add headers safely (only if value exists and is not "null" string)
+            const addHeader = (key, value) => {
+                // Skip if value is null, undefined, "null" string, or empty string
+                if (!value || value === 'null' || value === 'undefined') {
+                    return;
+                }
+
+                if (options.headers instanceof Headers) {
+                    options.headers.set(key, value);
+                } else {
+                    options.headers[key] = value;
+                }
+            };
+
+            // 6. Helper to delete header safely
+            const deleteHeader = (key) => {
+                if (options.headers instanceof Headers) {
+                    options.headers.delete(key);
+                } else {
+                    delete options.headers[key];
+                }
+            };
+
+            // 7. Inject Headers (Only for internal API calls)
+            const urlStr = url.toString();
+            const isInternal = urlStr.startsWith('/') || urlStr.includes(window.location.origin);
+
+            if (isInternal) {
+                // Only add Content-Type if not already set and body is not FormData
+                if (!hasHeader('Content-Type') && !(options.body instanceof FormData)) {
+                    addHeader('Content-Type', 'application/json');
+                }
+
+                // Add security and tenant headers
+                addHeader('X-XSRF-TOKEN', csrfToken);
+                addHeader('X-Tenant-ID', tenantId);
+                addHeader('X-Impersonate-User', impersonateId);
+
+                // SPECIAL CASE: Remove tenant ID for superadmin endpoints
+                if (urlStr.includes('/api/xamops/superadmin/tenants')) {
+                    deleteHeader('X-Tenant-ID');
+                    console.log('🔧 Fetch Interceptor: Removed X-Tenant-ID for superadmin/tenants endpoint');
+                }
+
+                // DEBUG: Log headers for CloudMap and CloudSitter endpoints
+                if (urlStr.includes('/cloudmap/') || urlStr.includes('/cloudsitter/')) {
+                    console.log('🔍 Fetch Interceptor Debug:', {
+                        url: urlStr,
+                        tenantId: tenantId || 'NOT SET',
+                        impersonateId: impersonateId || 'NOT SET',
+                        csrfToken: csrfToken ? 'SET' : 'NOT SET',
+                        headers: options.headers instanceof Headers ?
+                            Object.fromEntries([...options.headers.entries()]) :
+                            options.headers
+                    });
+                }
+            }
+
+            // 8. Execute the request
+            try {
+                const response = await originalFetch(url, options);
+                if (response.status === 401 && !urlStr.includes('/login')) {
+                    console.warn('Global Interceptor: Session expired or unauthorized.');
+                }
+                return response;
+            } catch (error) {
+                throw error;
+            }
+        };
+        console.log("✅ Global Multi-Tenant Interceptor Activated");
+    })();
+</script>
+
+<style data-global>
+    /* Hide elements with x-cloak until Alpine is ready */
+    [x-cloak] {
+        display: none !important;
+    }
+
+    /* Toggle Switch Styles */
+    .toggle-switch {
+        position: relative;
+        width: 48px;
+        height: 24px;
+        background-color: #cbd5e1;
+        border-radius: 12px;
+        cursor: pointer;
+        transition: background-color 0.3s ease;
+    }
+
+    .toggle-switch.active {
+        background-color: #4f46e5;
+    }
+
+    .toggle-slider {
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 20px;
+        height: 20px;
+        background-color: white;
+        border-radius: 50%;
+        transition: transform 0.3s ease;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    }
+
+    .toggle-switch.active .toggle-slider {
+        transform: translateX(24px);
+    }
+
+    /* Account Avatar Styles */
+    .account-avatar {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+
+    .connection-indicator {
+        position: absolute;
+        bottom: 0;
+        right: 0;
+        width: 10px;
+        height: 10px;
+        background-color: #10b981;
+        border: 2px solid white;
+        border-radius: 50%;
+    }
+
+    .account-status {
+        width: 8px;
+        height: 8px;
+        background-color: #10b981;
+        border-radius: 50%;
+        display: inline-block;
+    }
+</style>
+
+
+<button id="mobile-menu-toggle"
+    class="lg:hidden fixed top-4 left-4 z-50 p-2 bg-white rounded-lg shadow-lg border border-gray-200 hover:bg-gray-50 transition-colors"
+    onclick="document.getElementById('tour-sidebar').classList.toggle('translate-x-0'); document.getElementById('tour-sidebar').classList.toggle('-translate-x-full'); document.getElementById('sidebar-overlay').classList.toggle('hidden');"
+    aria-label="Toggle sidebar menu">
+    <svg class="w-6 h-6 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+    </svg>
+</button>
+
+
+<div id="sidebar-overlay" class="lg:hidden fixed inset-0 bg-black/50 z-20 hidden"
+    onclick="document.getElementById('tour-sidebar').classList.remove('translate-x-0'); document.getElementById('tour-sidebar').classList.add('-translate-x-full'); this.classList.add('hidden');">
+</div>
+
+<div id="tour-sidebar"
+    class="w-64 fixed top-0 left-0 h-screen flex flex-col bg-white shadow-xl z-30 transform -translate-x-full lg:translate-x-0 transition-transform duration-300 ease-in-out"
+    x-data="{
+    open: false,
+    sidebarOpen: false,
+    // Shared state for dropdown menu management - only one can be open at a time
+    openDropdown: null,
+    // 1. OPTIMIZATION: Load from cache immediately to prevent flicker
+    accounts: JSON.parse(sessionStorage.getItem('cached_accounts') || '[]'),
+    selectedAccountIds: [],
+    tempSelectedAccounts: [],
+    searchTerm: '',
+    isLoading: false,
+    // 2. OPTIMIZATION: Load roles from cache so menus appear instantly
+    userRoles: JSON.parse(sessionStorage.getItem('cached_user_roles') || '[]'),
+    multiAccountMode: false,
+    isDashboardPage: false,
+    isBillingPage: false,
+
+    // SuperAdmin Specific State
+    tenantList: [],
+    tenantUsers: [],
+    selectedTenant: sessionStorage.getItem('selectedTenantId') || '',
+    impersonateUser: sessionStorage.getItem('impersonateUserId') || '',
+
+    async apiFetch(url, options = {}) {
+        const response = await fetch(url, {
+            ...options,
+            credentials: 'include'
+        });
+
+        if (!response.ok) {
+            console.error('API Error:', response.status, await response.text());
+            throw new Error(`HTTP ${response.status}`);
+        }
+        return response;
+    },
+
+    init() {
+        console.log('🚀 Sidebar Init - Starting...');
+        console.log('📍 Current Path:', window.location.pathname);
+        console.log('🔐 Cached User Roles:', this.userRoles);
+
+        // --- 3. OPTIMIZATION: Restore Scroll Position ---
+        const savedScroll = sessionStorage.getItem('sidebar_scroll_pos');
+        if (savedScroll) {
+            this.$nextTick(() => {
+                const scrollContainer = document.querySelector('.sidebar-scroll');
+                if (scrollContainer) scrollContainer.scrollTop = parseInt(savedScroll);
+            });
+        }
+
+        // Save scroll position before navigating away
+        window.addEventListener('beforeunload', () => {
+            const scrollContainer = document.querySelector('.sidebar-scroll');
+            if (scrollContainer) {
+                sessionStorage.setItem('sidebar_scroll_pos', scrollContainer.scrollTop);
+            }
+        });
+        // -----------------------------------------------
+
+        // 4. Standard Init
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlAccountId = urlParams.get('accountId') || urlParams.get('accountIds');
+        const urlProjectId = urlParams.get('projectId');
+
+        let selectedIds = [];
+
+        if (urlAccountId) {
+            selectedIds = urlAccountId.split(',');
+        } else if (urlProjectId) {
+             selectedIds = [urlProjectId];
+        }
+
+        if (selectedIds.length === 0) {
+            selectedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+        }
+
+        this.selectedAccountIds = selectedIds;
+        this.tempSelectedAccounts = [...selectedIds];
+
+        if (selectedIds.length > 0) {
+            sessionStorage.setItem('selectedAccountIds', JSON.stringify(selectedIds));
+        }
+
+        this.multiAccountMode = sessionStorage.getItem('multiAccountMode') === 'true';
+
+        this.checkCurrentPage();
+
+        // Fetch fresh data in background (UI is already rendered from cache)
+        this.fetchAccounts();
+        this.fetchUserRoles();
+
+        // Auto-apply selection if we have selected accounts but no URL params
+        const hasUrlParams = urlAccountId || urlProjectId;
+        // Fix: Do not auto-redirect from unified-dashboard, BillOps dashboards, or detail pages, as they are valid landing pages without params
+        const isExcludedPage = window.location.pathname.includes('unified-dashboard.html') ||
+                               window.location.pathname.includes('account-manager.html') ||
+                               window.location.pathname.includes('add-account.html') ||
+                               window.location.pathname.includes('add-gcp-account.html') ||
+                               window.location.pathname.includes('add-github-config.html') ||
+                               window.location.pathname.includes('/billops/dashboard_user.html') ||
+                               window.location.pathname.includes('/billops/dashboard_admin.html') ||
+                               window.location.pathname.includes('admin_invoice_detail.html') ||
+                               window.location.pathname.includes('invoice_detail.html') ||
+                               window.location.pathname.includes('ticket_detail.html') ||
+                               window.location.pathname.includes('admin_ticket_detail.html') ||
+                               window.location.pathname.includes('cloudlist.html');
+
+        if (!hasUrlParams && this.selectedAccountIds.length > 0 && !isExcludedPage) {
+            console.log('🔄 Auto-applying saved account selection...');
+            this.$nextTick(() => {
+                // Wait for accounts to be fetched, then apply selection
+                const checkAndApply = () => {
+                    if (this.accounts.length > 0) {
+                        console.log('✅ Accounts loaded, applying selection automatically');
+                        this.applySelection();
+                    } else {
+                        // Retry after a short delay
+                        setTimeout(checkAndApply, 100);
+                    }
+                };
+                checkAndApply();
+            });
+        }
+
+        console.log('✅ Sidebar Init - Complete');
+       
+        window.addEventListener('account-changed', () => this.fetchAccounts());
+
+        // 5. Soft Navigation: Handle Browser Back/Forward Buttons
+        window.addEventListener('popstate', (event) => {
+            console.log('[Sidebar] Popstate event detected:', window.location.href);
+           
+            const urlParams = new URLSearchParams(window.location.search);
+            const urlAccountIds = urlParams.get('accountIds');
+            const urlAccountId = urlParams.get('accountId');
+            const urlProjectId = urlParams.get('projectId');
+           
+            let recoveredIds = [];
+           
+            if (urlAccountIds) {
+                recoveredIds = urlAccountIds.split(',');
+            } else if (urlAccountId) {
+                recoveredIds = [urlAccountId];
+            } else if (urlProjectId) {
+                recoveredIds = [urlProjectId];
+            }
+           
+            if (recoveredIds.length > 0) {
+                console.log('[Sidebar] Restoring selection from history:', recoveredIds);
+                this.selectedAccountIds = recoveredIds;
+                this.tempSelectedAccounts = [...recoveredIds];
+               
+                // Update Storage
+                sessionStorage.setItem('selectedAccountIds', JSON.stringify(this.selectedAccountIds));
+               
+                // Dispatch Event so Dashboard/Page refreshes
+                window.dispatchEvent(new CustomEvent('account-changed', {
+                    detail: {
+                        accountId: recoveredIds[0],
+                        accountIds: recoveredIds
+                    }
+                }));
+            }
+        });
+    },
+
+    checkCurrentPage() {
+        const path = window.location.pathname;
+        this.isDashboardPage = path.includes('dashboard');
+        this.isBillingPage = path.includes('billing');
+    },
+
+    fetchAccounts() {
+        if (this.accounts.length === 0) {
+            this.isLoading = true;
+        }
+
+        // Note: Both BillOps and XamOps services use /api/xamops/account-manager/accounts endpoint
+        const primaryEndpoint = '/api/xamops/account-manager/accounts';
+
+        this.apiFetch(primaryEndpoint)
+            .then(res => res.json())
+            .then(data => {
+                this.accounts = data.filter(acc => acc.status === 'CONNECTED');
+                sessionStorage.setItem('cached_accounts', JSON.stringify(this.accounts));
+
+                if (this.selectedAccountIds.length === 0 && this.accounts.length > 0) {
+                    console.log('📝 No account selected, auto-selecting first account:', this.accounts[0].id);
+                    this.selectedAccountIds = [this.accounts[0].id];
+                    this.tempSelectedAccounts = [this.accounts[0].id];
+                    sessionStorage.setItem('selectedAccountIds', JSON.stringify(this.selectedAccountIds));
+
+                    // Auto-apply selection if we're on a page that needs it
+                    const urlParams = new URLSearchParams(window.location.search);
+                    
+                    // Fix: Do not auto-redirect from unified-dashboard, BillOps dashboards, or detail pages
+                    const isExcludedPage = window.location.pathname.includes('unified-dashboard.html') ||
+                                           window.location.pathname.includes('account-manager.html') ||
+                                           window.location.pathname.includes('add-account.html') ||
+                                           window.location.pathname.includes('add-gcp-account.html') ||
+                                           window.location.pathname.includes('add-github-config.html') ||
+                                           window.location.pathname.includes('/billops/dashboard_user.html') ||
+                                           window.location.pathname.includes('/billops/dashboard_admin.html') ||
+                                           window.location.pathname.includes('admin_invoice_detail.html') ||
+                                           window.location.pathname.includes('invoice_detail.html') ||
+                                           window.location.pathname.includes('invoice_detail.html') ||
+                                           window.location.pathname.includes('ticket_detail.html') ||
+                                           window.location.pathname.includes('admin_ticket_detail.html') ||
+                                           window.location.pathname.includes('cloudlist.html');
+
+                    if (!urlParams.get('accountId') && !urlParams.get('accountIds') && !isExcludedPage) {
+                        console.log('🔄 Auto-applying first account selection...');
+                        this.$nextTick(() => this.applySelection());
+                    }
+                }
+            })
+            .catch(err => {
+                console.error('Failed to fetch accounts:', err);
+            })
+            .finally(() => this.isLoading = false);
+    },
+
+    fetchUserRoles() {
+        // Determine which API endpoint to use based on current path
+        const path = window.location.pathname;
+        const isBillopsPage = path.includes('/billops/');
+        const primaryEndpoint = isBillopsPage ? '/api/billops/profile' : '/api/xamops/user/profile';
+        const fallbackEndpoint = isBillopsPage ? '/api/xamops/user/profile' : '/api/billops/profile';
+
+        console.log('🔍 Fetching User Roles...');
+        console.log('  📍 Path:', path);
+        console.log('  🌐 Is BillOps Page:', isBillopsPage);
+        console.log('  🎯 Primary Endpoint:', primaryEndpoint);
+        console.log('  🔄 Fallback Endpoint:', fallbackEndpoint);
+
+        // Try primary endpoint first
+        this.apiFetch(primaryEndpoint)
+            .then(res => res.json())
+            .then(data => {
+                console.log('✅ User Profile Data (Primary):', data);
+                let roles = [];
+                if (data.roles) {
+                    roles = data.roles;
+                } else if (data.authorities) {
+                    roles = data.authorities;
+                }
+
+                console.log('🔐 Extracted Roles:', roles);
+                this.userRoles = roles;
+                sessionStorage.setItem('cached_user_roles', JSON.stringify(this.userRoles));
+
+                if (this.hasAnyRole('ROLE_SUPER_ADMIN')) {
+                    this.fetchTenants();
+                    if (this.selectedTenant) {
+                        this.fetchTenantUsers(this.selectedTenant);
+                    }
+                }
+            })
+            .catch(err => {
+                console.warn(`⚠️ Could not fetch user profile from ${primaryEndpoint}, trying fallback:`, err);
+                // Try fallback endpoint
+                this.apiFetch(fallbackEndpoint)
+                    .then(res => res.json())
+                    .then(data => {
+                        console.log('✅ User Profile Data (Fallback):', data);
+                        let roles = [];
+                        if (data.roles) {
+                            roles = data.roles;
+                        } else if (data.authorities) {
+                            roles = data.authorities;
+                        }
+
+                        console.log('🔐 Extracted Roles (Fallback):', roles);
+                        this.userRoles = roles;
+                        sessionStorage.setItem('cached_user_roles', JSON.stringify(this.userRoles));
+
+                        if (this.hasAnyRole('ROLE_SUPER_ADMIN')) {
+                            this.fetchTenants();
+                            if (this.selectedTenant) {
+                                this.fetchTenantUsers(this.selectedTenant);
+                            }
+                        }
+                    })
+                    .catch(fallbackErr => {
+                        console.error('❌ Could not fetch user profile from either endpoint:', fallbackErr);
+                    });
+            });
+    },
+
+    // --- SuperAdmin Functions ---
+    async fetchTenants() {
+        try {
+            const response = await fetch('/api/xamops/superadmin/tenants');
+            if (response.ok) {
+                this.tenantList = await response.json();
+            }
+        } catch (e) {
+            console.error('Failed to load tenants', e);
+        }
+    },
+
+    async fetchTenantUsers(tenantId) {
+        try {
+            const res = await this.apiFetch('/api/xamops/superadmin/users');
+            this.tenantUsers = await res.json();
+        } catch (e) {
+            console.error('Failed to load tenant users', e);
+        }
+    },
+
+    switchTenant() {
+        if (this.selectedTenant) {
+            sessionStorage.setItem('selectedTenantId', this.selectedTenant);
+            sessionStorage.removeItem('impersonateUserId');
+            window.location.reload();
+        } else {
+            this.resetContext();
+        }
+    },
+
+    switchUser() {
+        if (this.impersonateUser) {
+            sessionStorage.setItem('impersonateUserId', this.impersonateUser);
+            window.location.reload();
+        }
+    },
+
+    resetContext() {
+        sessionStorage.removeItem('selectedTenantId');
+        sessionStorage.removeItem('impersonateUserId');
+        this.selectedTenant = '';
+        this.impersonateUser = '';
+        window.location.reload();
+    },
+    // ---------------------------
+
+    hasAnyRole(requiredRoles) {
+        if (!Array.isArray(requiredRoles)) {
+            requiredRoles = [requiredRoles];
+        }
+
+        if (!this.userRoles || this.userRoles.length === 0) {
+            console.log('⚠️ hasAnyRole: No user roles available', { requiredRoles, userRoles: this.userRoles });
+            return false;
+        }
+
+        const hasRole = requiredRoles.some(role => {
+            if (this.userRoles.includes(role)) return true;
+            return this.userRoles.some(r => (r.authority === role) || (r.role === role));
+        });
+
+        console.log('🔒 hasAnyRole Check:', { requiredRoles, userRoles: this.userRoles, hasRole });
+        return hasRole;
+    },
+
+    toggleMultiAccountMode() {
+        this.multiAccountMode = !this.multiAccountMode;
+        sessionStorage.setItem('multiAccountMode', this.multiAccountMode);
+       
+        if (!this.multiAccountMode && this.selectedAccountIds.length > 1) {
+            this.tempSelectedAccounts = [this.selectedAccountIds[0]];
+        } else if (this.multiAccountMode) {
+            this.tempSelectedAccounts = [...this.selectedAccountIds];
+        }
+    },
+
+    toggleAccount(accountId) {
+        const account = this.accounts.find(a => a.id === accountId);
+        if (!account) return;
+
+        // ✅ Check if account is disabled
+        if (this.isAccountDisabled(accountId)) {
+            const firstAccount = this.accounts.find(a => a.id === this.tempSelectedAccounts[0]);
+            alert(`Cannot select ${account.provider} accounts. You have already selected ${firstAccount.provider} accounts. Please clear your selection first.`);
+            return;
+        }
+
+        if (this.multiAccountMode && this.isDashboardPage) {
+            const index = this.tempSelectedAccounts.indexOf(accountId);
+            if (index > -1) {
+                this.tempSelectedAccounts.splice(index, 1);
+            } else {
+                if (this.tempSelectedAccounts.length >= 10) {
+                    alert('Maximum 10 accounts can be selected');
+                    return;
+                }
+                this.tempSelectedAccounts.push(accountId);
+            }
+        } else {
+            this.tempSelectedAccounts = [accountId];
+        }
+    },
+
+    isAccountDisabled(accountId) {
+        // Only disable in multi-account mode on dashboard page
+        if (!this.multiAccountMode || !this.isDashboardPage) return false;
+        if (this.tempSelectedAccounts.length === 0) return false;
+       
+        const account = this.accounts.find(a => a.id === accountId);
+        const firstAccount = this.accounts.find(a => a.id === this.tempSelectedAccounts[0]);
+       
+        // Disable if different provider than first selected account
+        return account && firstAccount && account.provider !== firstAccount.provider;
+    },
+
+    isAccountSelected(accountId) {
+        return this.tempSelectedAccounts.includes(accountId);
+    },
+
+    selectAllAws() {
+        const awsIds = this.accounts
+            .filter(acc => acc.provider === 'AWS')
+            .map(acc => acc.id)
+            .slice(0, 10);
+        this.tempSelectedAccounts = awsIds;
+    },
+
+    selectAllGcp() {
+        const gcpIds = this.accounts
+            .filter(acc => acc.provider === 'GCP')
+            .map(acc => acc.id)
+            .slice(0, 10);
+        this.tempSelectedAccounts = gcpIds;
+    },
+
+    clearAllSelections() {
+        this.tempSelectedAccounts = [];
+    },
+
+    applySelection() {
+        console.log('[Sidebar] applySelection called');
+        if (this.tempSelectedAccounts.length === 0) {
+            alert('Please select at least one account');
+            return;
+        }
+
+        this.selectedAccountIds = [...this.tempSelectedAccounts];
+        sessionStorage.setItem('selectedAccountIds', JSON.stringify(this.selectedAccountIds));
+        sessionStorage.setItem('multiAccountMode', this.multiAccountMode);
+        this.open = false;
+
+        // 1. Determine Provider Context (All selected accounts are guaranteed to be same provider by toggleAccount)
+        const firstSelectedId = this.selectedAccountIds[0];
+        const account = this.accounts.find(a => a.id === firstSelectedId);
+        const provider = account ? account.provider : 'AWS';
+        console.log('[Sidebar] Selected Provider:', provider);
+
+        let targetPage;
+        const isBillOpsUser = this.hasAnyRole(['ROLE_BILLOPS', 'ROLE_BILLOPS_ADMIN']);
+       
+        if (isBillOpsUser) {
+            switch (provider) {
+                case 'GCP': targetPage = '/billops/gcp-billing.html'; break;
+                case 'Azure': targetPage = '/billops/azure-billing.html'; break;
+                case 'AWS': default: targetPage = '/billops/billing.html'; break;
+            }
+        } else {
+            switch (provider) {
+                case 'GCP': targetPage = '/gcp_dashboard.html'; break;
+                case 'Azure': targetPage = '/azure_dashboard.html'; break;
+                case 'AWS': default: targetPage = '/dashboard.html'; break;
+            }
+
+            // Exception: Allow CloudShell to stay on page (supports soft nav)
+            if (window.location.pathname === '/cloudshell.html') {
+                targetPage = '/cloudshell.html';
+            }
+            // Exception: Allow CloudList to stay on page (supports soft nav via account-changed event)
+            if (window.location.pathname.includes('cloudlist.html')) {
+                // Determine the correct cloudlist page based on provider
+                if (provider === 'GCP') targetPage = '/gcp_cloudlist.html';
+                else if (provider === 'Azure') targetPage = '/azure_cloudlist.html';
+                else targetPage = '/cloudlist.html';
+            }
+        }
+        console.log('[Sidebar] Target Page:', targetPage);
+
+        // 2. Handle Multi-Account Mode (Dispatch event if on same dashboard type)
+        if (this.multiAccountMode && this.selectedAccountIds.length > 1 && this.isDashboardPage) {
+             // Check if we are already on the correct provider's dashboard
+             if (window.location.pathname === targetPage) {
+                console.log('[Sidebar] Multi-account soft update. Dispatching event.');
+                window.dispatchEvent(new CustomEvent('multi-account-selection-changed', {
+                    detail: { accountIds: this.selectedAccountIds }
+                }));
+                return;
+             }
+        }
+       
+        // 3. Construct URL
+        const urlParams = new URLSearchParams();
+        urlParams.set('accountIds', this.selectedAccountIds.join(','));
+       
+        if (account && this.selectedAccountIds.length === 1) {
+             if (account.provider === 'Azure' && account.azureSubscriptionId) {
+                urlParams.set('subscriptionId', account.azureSubscriptionId);
+             } else if (account.provider === 'GCP') {
+                urlParams.set('projectId', account.id);
+             } else if (account.provider === 'AWS') {
+                 urlParams.set('accountId', account.id);
+             }
+        }
+
+        const targetUrl = `${targetPage}?${urlParams.toString()}`;
+        console.log('[Sidebar] Constructed Target URL:', targetUrl);
+
+        // 4. SMART NAVIGATION CHECK
+        if (window.location.pathname === targetPage) {
+            console.log('[Sidebar] Soft navigation detected. Updating state and dispatching account-changed.');
+           
+            // Push new state to history so back button works expectedly
+            window.history.pushState(null, '', targetUrl);
+           
+            // Critical: Dispatch event so Dashboard reloads data
+            window.dispatchEvent(new CustomEvent('account-changed', {
+                detail: { accountId: firstSelectedId, accountIds: this.selectedAccountIds }
+            }));
+        } else {
+            console.log('[Sidebar] Hard navigation required. Redirecting...');
+            window.location.href = targetUrl;
+        }
+    },
+
+    get selectedAccountDisplay() {
+        if (this.selectedAccountIds.length === 0) {
+            return { name: 'Select Accounts', id: this.accounts.length === 0 && !this.isLoading ? 'No accounts connected' : 'No account selected' };
+        }
+        if (this.selectedAccountIds.length === 1) {
+            const account = this.accounts.find(a => a.id === this.selectedAccountIds[0]);
+            return { name: account?.name || 'Loading...', id: account?.id || '', provider: account?.provider || 'AWS' };
+        }
+       
+        // Multi-Account Display
+        const firstAccount = this.accounts.find(a => a.id === this.selectedAccountIds[0]);
+        const provider = firstAccount ? firstAccount.provider : 'AWS';
+        return { name: `${this.selectedAccountIds.length} ${provider} Accounts`, id: 'Multi-Account View', provider: provider };
+    },
+
+    get filteredAccounts() {
+        if (this.searchTerm === '') return this.accounts;
+        const term = this.searchTerm.toLowerCase();
+        return this.accounts.filter(account =>
+            account.name.toLowerCase().includes(term) ||
+            (account.id && account.id.toLowerCase().includes(term))
+        );
+    },
+
+    get awsAccounts() { return this.filteredAccounts.filter(acc => acc.provider === 'AWS'); },
+    get gcpAccounts() { return this.filteredAccounts.filter(acc => acc.provider === 'GCP'); },
+    get azureAccounts() { return this.filteredAccounts.filter(acc => acc.provider === 'Azure'); },
+
+    getProviderIcon(provider) {
+        switch(provider) {
+            case 'GCP': return '/icons/gcp-icon.png';
+            case 'Azure': return '/icons/azure-icon.png';
+            case 'AWS': default: return '/icons/default-icon.png';
+        }
+    },
+
+    isActive(path) {
+        const currentPath = window.location.pathname;
+        if (currentPath === path) return true;
+
+        if (path === '/dashboard.html') {
+            return currentPath === '/dashboard.html' || currentPath === '/gcp_dashboard.html' || currentPath === '/azure_dashboard.html';
+        }
+        if (path === '/account-manager.html') {
+            return currentPath === '/account-manager.html' ||
+                   currentPath === '/add-account.html' ||
+                   currentPath === '/add-gcp-account.html' ||
+                   currentPath === '/add-github-config.html';
+        }
+        if (path === '/finops.html') {
+            return currentPath === '/finops.html' || currentPath === '/gcp_finops.html' || currentPath === '/azure-finops-report.html';
+        }
+        if (path === '/cost.html') {
+            return currentPath === '/cost.html' || currentPath === '/gcp_cost.html';
+        }
+        if (path === '/waste.html') {
+            return currentPath === '/waste.html' || currentPath === '/gcp_waste.html';
+        }
+        if (path === '/rightsizing.html') {
+            return currentPath === '/rightsizing.html' || currentPath === '/rightsizing.html' || currentPath === '/gcp_rightsizing.html';
+        }
+        if (path === '/reservation.html') {
+            return currentPath === '/reservation.html' || currentPath === '/gcp_reservations.html';
+        }
+        if (path === '/cloudk8s.html') {
+            return currentPath === '/cloudk8s.html' || currentPath === '/gcp_cloudk8s.html';
+        }
+        if (path === '/security.html') {
+            return currentPath === '/security.html' || currentPath === '/gcp_security.html';
+        }
+        if (path === '/performance.html') {
+            return currentPath === '/performance.html' || currentPath === '/gcp_performance.html';
+        }
+        if (path === '/alerts.html') {
+            return currentPath === '/alerts.html' || currentPath === '/gcp_alerts.html';
+        }
+        if (path === '/billops/billing.html') {
+            return currentPath === '/billops/billing.html' || currentPath === '/billops/gcp-billing.html' || currentPath === '/billops/azure-billing.html';
+        }
+       
+        if (path === '/finops') {
+             return currentPath.includes('finops') ||
+                    currentPath.includes('cost') ||
+                    currentPath.includes('waste') ||
+                    currentPath.includes('rightsizing') ||
+                    currentPath.includes('reservation') ||
+                    currentPath.includes('azure-finops') ||
+                    currentPath.includes('spot-automation');
+        }
+        if (path === '/cloudk8s') {
+            return currentPath.includes('cloudk8s');
+        }
+        if (path === '/security') {
+             return currentPath.includes('security') ||
+                    currentPath.includes('performance') ||
+                    currentPath.includes('alerts') ||
+                    currentPath.includes('complianceops');
+        }
+        if (path === '/billops/') {
+            return currentPath.startsWith('/billops/');
+        }
+        if (path === '/billops/admin_') {
+            return currentPath.startsWith('/billops/admin_');
+        }
+        if (path === '/billops/licenses_') {
+            return currentPath.includes('/billops/workspace-licenses') ||
+                   currentPath.includes('/billops/marketplace-purchases') ||
+                   currentPath.includes('/billops/thirdparty-tools');
+        }
+        if (path === '/cloudops') {
+            return currentPath.includes('grafana') ||
+                   currentPath.includes('devops_in_the_box') ||
+                   currentPath.includes('cloudk8s') ||
+                   currentPath.includes('cicd_pipelines') ||
+                   currentPath.includes('sonarqube') ||
+                   currentPath.includes('aiops') ||
+                   currentPath.includes('dataops');
+        }
+
+        return currentPath.startsWith(path) && path !== '/';
+    },
+
+    getLink(basePath) {
+        const selectedIds = this.selectedAccountIds;
+        if (selectedIds.length === 0) {
+            if (basePath.includes('account-manager.html') || basePath.includes('dashboard.html') || basePath.includes('Xamops_user_management.html')) return basePath;
+            return '#';
+        }
+
+        const firstAccountId = selectedIds[0];
+        const account = this.accounts.find(a => a.id === firstAccountId);
+        const provider = account ? account.provider : 'AWS';
+
+        let finalPath = basePath;
+       
+        if (basePath.includes('/billops/')) {
+            if (basePath.startsWith('/billops/admin_')) {
+                finalPath = basePath;
+            } else if (basePath === '/billops/billing.html') {
+                switch (provider) {
+                    case 'GCP': finalPath = '/billops/gcp-billing.html'; break;
+                    case 'Azure': finalPath = '/billops/azure-billing.html'; break;
+                    case 'AWS': default: finalPath = '/billops/billing.html'; break;
+                }
+            }
+        } else {
+            const gcpExcludedPages = [
+                '/cicd_pipelines.html',
+                '/xamops_tickets.html',
+                '/devops_in_the_box.html',
+                '/grafana-dashboard.html',
+                '/sonarqube.html',
+                '/aiops.html',
+                '/dataops.html',
+                '/complianceops.html',
+                '/spot-automation.html'
+            ];
+           
+            const shouldExclude = gcpExcludedPages.some(page => basePath.includes(page));
+           
+            if (provider === 'GCP' && !shouldExclude) {
+                if (basePath === '/reservation.html') finalPath = '/gcp_reservations.html';
+                else if (basePath === '/cloudk8s.html') finalPath = '/gcp_cloudk8s.html';
+                else if (['/dashboard.html', '/finops.html', '/cost.html', '/waste.html', '/rightsizing.html', '/security.html', '/performance.html', '/alerts.html'].includes(basePath)) {
+                    finalPath = basePath.replace('.html', '').replace('/', '/gcp_') + '.html';
+                } else {
+                    finalPath = basePath;
+                }
+            } else if (provider === 'Azure') {
+                if (basePath === '/dashboard.html') finalPath = '/azure_dashboard.html';
+                else if (basePath === '/finops.html') finalPath = '/azure-finops-report.html';
+                else if (basePath === '/account-manager.html') finalPath = basePath;
+                else {
+                    const awsGcpPages = ['/cost.html', '/waste.html', '/rightsizing.html', '/reservation.html', '/grafana-dashboard.html', '/xamops_tickets.html', '/devops_in_the_box.html', '/cloudk8s.html', '/cicd_pipelines.html', '/security.html', '/performance.html', '/alerts.html', '/sonarqube.html'];
+                    if (awsGcpPages.includes(basePath)) finalPath = '/azure_dashboard.html';
+                    else finalPath = basePath;
+                }
+            } else {
+                finalPath = basePath;
+            }
+        }
+
+        const url = new URL(window.location.origin + finalPath);
+        url.searchParams.append('accountIds', selectedIds.join(','));
+       
+        if (selectedIds.length === 1 && account) {
+             if (account.provider === 'Azure' && account.azureSubscriptionId) {
+                url.searchParams.append('subscriptionId', account.azureSubscriptionId);
+             } else if (account.provider === 'GCP') {
+                url.searchParams.append('projectId', account.id);
+             } else if (account.provider === 'AWS') {
+                 url.searchParams.append('accountId', account.id);
+             }
+        }
+        return url.toString();
+    }
+}">
+
+    <div class="flex-shrink-0 flex items-center justify-center h-16 border-b bg-white">
+        <a href="/unified-dashboard.html" class="nav-item"><img src="/icons/xlogo.png" alt="XamOps Logo"
+                class="h-40 w-100"></a>
+    </div>
+
+    <div class="p-4 border-b bg-gradient-to-r from-gray-50 to-white flex-shrink-0">
+        <div class="relative">
+            <div id="tour-account-selector" @click="open = !open"
+                class="flex items-center justify-between p-3 rounded-xl bg-white border border-gray-200 hover:border-indigo-300 cursor-pointer transition-all duration-200 hover:shadow-md">
+                <div class="flex items-center min-w-0">
+                    <div class="relative flex-shrink-0">
+                        <div class="w-10 h-10 account-avatar rounded-full flex items-center justify-center text-white font-bold text-sm mr-3"
+                            x-show="selectedAccountIds.length === 0" x-text="'X'"></div>
+                        <div class="w-10 h-10 account-avatar rounded-full flex items-center justify-center text-white font-bold text-lg mr-3"
+                            x-show="selectedAccountIds.length > 1" x-text="selectedAccountIds.length"></div>
+                        <img :src="getProviderIcon(selectedAccountDisplay.provider)"
+                            class="w-10 h-10 rounded-full mr-3 object-cover" x-show="selectedAccountIds.length === 1">
+                        <div class="connection-indicator" x-show="selectedAccountIds.length > 0"></div>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center space-x-2">
+                            <span class="account-status" x-show="selectedAccountIds.length > 0"></span>
+                            <span class="text-sm font-semibold text-gray-800 truncate"
+                                x-text="selectedAccountDisplay.name"></span>
+                        </div>
+                        <p class="text-xs text-gray-500 truncate" x-text="selectedAccountDisplay.id"></p>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <div x-show="isLoading"
+                        class="w-4 h-4 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
+                    <i class="fas fa-chevron-down text-gray-400 text-xs transition-transform duration-200"
+                        :class="{ 'rotate-180': open }"></i>
+                </div>
+            </div>
+
+            <div x-show="open" x-transition @click.outside="open = false" x-cloak
+                class="absolute left-0 right-0 mt-2 bg-white border border-gray-200 rounded-xl shadow-xl z-50 overflow-hidden">
+
+                <div x-show="isDashboardPage" class="p-3 border-b bg-gray-50">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm font-medium text-gray-700">Multi-Account Mode</p>
+                            <p class="text-xs text-gray-500">AWS or GCP accounts</p>
+                        </div>
+                        <div @click="toggleMultiAccountMode()" class="toggle-switch"
+                            :class="{'active': multiAccountMode}">
+                            <div class="toggle-slider"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="p-3 border-b bg-gray-50">
+                    <input type="text" x-model="searchTerm" placeholder="Search accounts..."
+                        class="w-full px-3 py-2 text-sm rounded-lg focus:outline-none border">
+                </div>
+
+                <div x-show="multiAccountMode && isDashboardPage" class="p-2 border-b bg-gray-50 flex flex-col gap-2">
+                    <div class="flex gap-2">
+                        <button @click="selectAllAws()"
+                            class="flex-1 px-3 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors border border-indigo-200">
+                            <i class="fab fa-aws mr-1"></i> Select All AWS
+                        </button>
+                        <button @click="selectAllGcp()"
+                            class="flex-1 px-3 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50 rounded-md transition-colors border border-blue-200">
+                            <i class="fab fa-google mr-1"></i> Select All GCP
+                        </button>
+                    </div>
+                    <button @click="clearAllSelections()"
+                        class="w-full px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-md transition-colors border border-gray-200">
+                        <i class="fas fa-times mr-1"></i> Clear All
+                    </button>
+                </div>
+
+                <div class="py-1 max-h-60 overflow-y-auto sidebar-scroll">
+                    <template x-if="awsAccounts.length > 0">
+                        <div>
+                            <div class="px-3 py-2 text-xs font-semibold text-gray-400 uppercase bg-gray-50">
+                                AWS Accounts (<span x-text="awsAccounts.length"></span>)
+                            </div>
+                            <template x-for="account in awsAccounts" :key="account.dbId">
+                                <div @click="toggleAccount(account.id)"
+                                    class="flex items-center px-4 py-3 text-sm transition-colors" :class="{
+                                        'bg-indigo-50': isAccountSelected(account.id),
+                                        'hover:bg-indigo-50 cursor-pointer': !isAccountDisabled(account.id),
+                                        'opacity-40 cursor-not-allowed': isAccountDisabled(account.id)
+                                    }">
+                                    <input type="checkbox" :checked="isAccountSelected(account.id)"
+                                        :disabled="isAccountDisabled(account.id)" class="mr-3 rounded text-indigo-600"
+                                        x-show="multiAccountMode && isDashboardPage">
+                                    <img :src="getProviderIcon(account.provider)"
+                                        class="w-8 h-8 rounded-full mr-3 flex-shrink-0 object-cover">
+                                    <div class="flex-1 min-w-0">
+                                        <div class="font-medium text-gray-900 truncate" x-text="account.name"></div>
+                                        <div class="text-xs text-gray-500 truncate" x-text="account.id"></div>
+                                    </div>
+                                    <i class="fas fa-lock text-gray-400 text-xs"
+                                        x-show="isAccountDisabled(account.id)"></i>
+                                    <i class="fas fa-check text-indigo-600"
+                                        x-show="!multiAccountMode && isAccountSelected(account.id)"></i>
+                                </div>
+                            </template>
+                        </div>
+                    </template>
+
+                    <template x-if="gcpAccounts.length > 0">
+                        <div>
+                            <div class="px-3 py-2 text-xs font-semibold text-gray-400 uppercase bg-gray-50">
+                                GCP Projects (<span x-text="gcpAccounts.length"></span>)
+                            </div>
+                            <template x-for="account in gcpAccounts" :key="account.dbId">
+                                <div @click="toggleAccount(account.id)"
+                                    class="flex items-center px-4 py-3 text-sm transition-colors" :class="{
+                                        'bg-blue-50': isAccountSelected(account.id),
+                                        'hover:bg-blue-50 cursor-pointer': !isAccountDisabled(account.id),
+                                        'opacity-40 cursor-not-allowed': isAccountDisabled(account.id)
+                                    }">
+                                    <input type="checkbox" :checked="isAccountSelected(account.id)"
+                                        :disabled="isAccountDisabled(account.id)" class="mr-3 rounded text-blue-600"
+                                        x-show="multiAccountMode && isDashboardPage">
+                                    <img :src="getProviderIcon(account.provider)"
+                                        class="w-8 h-8 rounded-full mr-3 flex-shrink-0 object-cover">
+                                    <div class="flex-1 min-w-0">
+                                        <div class="font-medium text-gray-900 truncate" x-text="account.name"></div>
+                                        <div class="text-xs text-gray-500 truncate" x-text="account.id"></div>
+                                    </div>
+                                    <i class="fas fa-lock text-gray-400 text-xs"
+                                        x-show="isAccountDisabled(account.id)"></i>
+                                    <i class="fas fa-check text-blue-600"
+                                        x-show="!multiAccountMode && isAccountSelected(account.id)"></i>
+                                </div>
+                            </template>
+                        </div>
+                    </template>
+
+                    <template x-if="azureAccounts.length > 0">
+                        <div>
+                            <div class="px-3 py-2 text-xs font-semibold text-gray-400 uppercase bg-gray-50">
+                                Azure Subscriptions (<span x-text="azureAccounts.length"></span>)
+                            </div>
+                            <template x-for="account in azureAccounts" :key="account.dbId">
+                                <div @click="toggleAccount(account.id)"
+                                    class="flex items-center px-4 py-3 text-sm hover:bg-blue-50 cursor-pointer transition-colors"
+                                    :class="{ 'bg-blue-50': isAccountSelected(account.id) }">
+                                    <img :src="getProviderIcon(account.provider)"
+                                        class="w-8 h-8 rounded-full mr-3 flex-shrink-0 object-cover">
+                                    <div class="flex-1 min-w-0">
+                                        <div class="font-medium text-gray-900 truncate" x-text="account.name"></div>
+                                        <div class="text-xs text-gray-500 truncate"
+                                            x-text="account.azureSubscriptionId || account.id"></div>
+                                    </div>
+                                    <i class="fas fa-check text-blue-600" x-show="isAccountSelected(account.id)"></i>
+                                </div>
+                            </template>
+                        </div>
+                    </template>
+                </div>
+
+                <div class="p-3 bg-gray-50 border-t">
+                    <button @click="applySelection()"
+                        class="w-full bg-indigo-600 text-white font-semibold py-2 rounded-lg hover:bg-indigo-700 transition-colors">
+                        Apply Selection
+                        <span x-show="multiAccountMode && tempSelectedAccounts.length > 0" class="ml-1">
+                            (<span x-text="tempSelectedAccounts.length"></span>)
+                        </span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <nav class="flex-1 px-3 py-4 space-y-2 text-sm overflow-y-auto sidebar-scroll flex flex-col">
+        <div x-show="hasAnyRole(['ROLE_XAMOPS', 'ROLE_ADMIN', 'ROLE_SUPER_ADMIN'])" x-cloak>
+            <div class="sidebar-section" :class="{'active': isActive('/dashboard.html')}">
+                <a id="tour-link-dashboard" :href="getLink('/dashboard.html')"
+                    class="nav-item flex items-center gap-3 rounded-xl px-4 py-3 font-semibold"
+                    :class="isActive('/dashboard.html') ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg' : 'text-gray-600 hover:bg-indigo-50'">
+                    <i class="fas fa-tachometer-alt fa-fw w-5 text-center"></i>
+                    <span>Dashboard</span>
+                </a>
+            </div>
+
+            <div class="sidebar-section" :class="{'active': isActive('/finops')}">
+                <div x-init="if (isActive('/finops')) openDropdown = 'finops'">
+                    <button id="tour-nav-finops-toggle"
+                        @click="openDropdown = openDropdown === 'finops' ? null : 'finops'"
+                        class="nav-item w-full flex items-center justify-between gap-3 rounded-xl px-4 py-3 font-semibold"
+                        :class="isActive('/finops') ? 'bg-gradient-to-r from-green-500 to-teal-600 text-white shadow-lg' : 'text-gray-600 hover:bg-green-50'">
+                        <div class="flex items-center gap-3">
+                            <i class="fas fa-cogs fa-fw w-5 text-center"></i>
+                            <span>FinOps</span>
+                        </div>
+                        <i class="fas fa-chevron-down text-xs transition-transform"
+                            :class="openDropdown === 'finops' && 'rotate-180'"></i>
+                    </button>
+                    <div x-show="openDropdown === 'finops'" class="ml-6 mt-2 space-y-1">
+                        <a id="tour-nav-finops-report" :href="getLink('/finops.html')"
+                            :class="{'text-green-600 font-bold bg-green-50': isActive('/finops.html')}"
+                            class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-green-600">FinOps
+                            Report</a>
+                        <a id="tour-nav-finops-cost" :href="getLink('/cost.html')"
+                            :class="{'text-green-600 font-bold bg-green-50': isActive('/cost.html')}"
+                            class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-green-600">Costs
+                            Overview</a>
+                        <a :href="getLink('/waste.html')"
+                            :class="{'text-green-600 font-bold bg-green-50': isActive('/waste.html')}"
+                            class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-green-600">Waste</a>
+                        <a :href="getLink('/rightsizing.html')"
+                            :class="{'text-green-600 font-bold bg-green-50': isActive('/rightsizing.html')}"
+                            class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-green-600">Rightsizing</a>
+                        <a :href="getLink('/reservation.html')"
+                            :class="{'text-green-600 font-bold bg-green-50': isActive('/reservation.html')}"
+                            class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-green-600">Reservations</a>
+                        <a id="tour-nav-finops-spot" :href="getLink('/spot-automation.html')"
+                            x-show="selectedAccountDisplay.provider === 'AWS'"
+                            :class="{'text-green-600 font-bold bg-green-50': isActive('/spot-automation.html')}"
+                            class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-green-600">Spot
+                            Automation</a>
+                        <a id="tour-nav-finops-cloudsitter" :href="getLink('/cloudsitter.html')"
+                            x-show="selectedAccountDisplay.provider === 'AWS'"
+                            :class="{'text-green-600 font-bold bg-green-50': isActive('/cloudsitter.html')}"
+                            class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-green-600">Cloudsitter</a>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sidebar-section" :class="{'active': isActive('/cloudops')}">
+                <div x-init="if (isActive('/cloudops')) openDropdown = 'cloudops'">
+                    <button id="tour-nav-cloudops-toggle"
+                        @click="openDropdown = openDropdown === 'cloudops' ? null : 'cloudops'"
+                        class="nav-item w-full flex items-center justify-between gap-3 rounded-xl px-4 py-3 font-semibold"
+                        :class="isActive('/cloudops') ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg' : 'text-gray-600 hover:bg-indigo-50'">
+                        <div class="flex items-center gap-3">
+                            <i class="fas fa-chart-line fa-fw w-5 text-center"></i>
+                            <span>CloudOps</span>
+                        </div>
+                        <i class="fas fa-chevron-down text-xs transition-transform"
+                            :class="openDropdown === 'cloudops' && 'rotate-180'"></i>
+                    </button>
+                    <div x-show="openDropdown === 'cloudops'" class="ml-6 mt-2 space-y-1">
+                        <a :href="getLink('/xamops_tickets.html')"
+                            :class="{'text-indigo-600 font-bold bg-indigo-50': isActive('/xamops_tickets.html')}"
+                            class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-indigo-600">Tickets</a>
+                        <a id="tour-nav-cloudops-grafana" :href="getLink('/grafana-dashboard.html')"
+                            :class="{'text-indigo-600 font-bold bg-indigo-50': isActive('/grafana-dashboard.html')}"
+                            class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-indigo-600">Grafana</a>
+                        <a id="tour-nav-cloudops-devops" :href="getLink('/devops_in_the_box.html')"
+                            :class="{'text-red-600 font-bold bg-red-50': isActive('/devops_in_the_box.html')}"
+                            class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-cyan-600">DevOps
+                            In The Box</a>
+                        <a id="tour-nav-cloudops-k8s" :href="getLink('/cloudk8s.html')"
+                            :class="{'text-indigo-600 font-bold bg-indigo-50': isActive('/cloudk8s.html')}"
+                            class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-indigo-600">CloudK8s</a>
+                        <a id="tour-nav-cloudops-cicd" :href="getLink('/cicd_pipelines.html')"
+                            :class="{'text-indigo-600 font-bold bg-indigo-50': isActive('/cicd_pipelines')}"
+                            class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-indigo-600">CICD
+                            Pipelines</a>
+                        <a :href="getLink('/sonarqube.html')"
+                            :class="{'text-indigo-600 font-bold bg-indigo-50': isActive('/sonarqube.html')}"
+                            class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-indigo-600">Code
+                            Quality</a>
+                        <a :href="getLink('/aiops.html')"
+                            :class="{'text-indigo-600 font-bold bg-indigo-50': isActive('/aiops.html')}"
+                            class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-indigo-600">AIOps</a>
+                        <a :href="getLink('/dataops.html')"
+                            :class="{'text-indigo-600 font-bold bg-indigo-50': isActive('/dataops.html')}"
+                            class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-indigo-600">DataOps</a>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sidebar-section" :class="{'active': isActive('/security')}">
+                <div x-init="if (isActive('/security')) openDropdown = 'security'">
+                    <button id="tour-nav-secops-toggle"
+                        @click="openDropdown = openDropdown === 'security' ? null : 'security'"
+                        class="nav-item w-full flex items-center justify-between gap-3 rounded-xl px-4 py-3 font-semibold"
+                        :class="isActive('/security') ? 'bg-gradient-to-r from-red-500 to-orange-600 text-white shadow-lg' : 'text-gray-600 hover:bg-red-50'">
+                        <div class="flex items-center gap-3">
+                            <i class="fas fa-shield-alt fa-fw w-5 text-center"></i>
+                            <span>SecOps</span>
+                        </div>
+                        <i class="fas fa-chevron-down text-xs transition-transform"
+                            :class="openDropdown === 'security' && 'rotate-180'"></i>
+                    </button>
+                    <div x-show="openDropdown === 'security'" class="ml-6 mt-2 space-y-1">
+                        <a :href="getLink('/security.html')"
+                            :class="{'text-red-600 font-bold bg-red-50': isActive('/security.html')}"
+                            class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-red-600">Security</a>
+                        <a :href="getLink('/performance.html')"
+                            :class="{'text-red-600 font-bold bg-red-50': isActive('/performance.html')}"
+                            class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-red-600">Performance</a>
+                        <a :href="getLink('/alerts.html')"
+                            :class="{'text-red-600 font-bold bg-red-50': isActive('/alerts.html')}"
+                            class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-red-600">Alerts</a>
+                        <a :href="getLink('/complianceops.html')"
+                            :class="{'text-red-600 font-bold bg-red-50': isActive('/complianceops.html')}"
+                            class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-red-600">ComplianceOps</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+
+
+        
+        <div x-show="hasAnyRole('ROLE_BILLOPS_ADMIN')" x-cloak class="space-y-2">
+            <div class="sidebar-section" :class="{'active': isActive('/billops/support-dashboard.html')}">
+                <a :href="getLink('/billops/support-dashboard.html')"
+                    class="nav-item flex items-center gap-3 rounded-xl px-4 py-3 font-semibold"
+                    :class="isActive('/billops/support-dashboard.html') ? 'bg-gradient-to-r from-gray-700 to-gray-800 text-white shadow-lg' : 'text-gray-600 hover:bg-gray-100'">
+                    <i class="fas fa-comments fa-fw w-5 text-center"></i>
+                    <span>Support Messages</span>
+                </a>
+            </div>
+
+            <div class="sidebar-section">
+                <div x-init="if (isActive('/billops/admin_')) openDropdown = 'billops-admin-nested'">
+                    <button 
+                        @click="openDropdown = openDropdown === 'billops-admin-nested' ? null : 'billops-admin-nested'"
+                        class="nav-item w-full flex items-center justify-between gap-3 rounded-xl px-4 py-3 font-semibold"
+                        :class="isActive('/billops/admin_') ? 'bg-gradient-to-r from-gray-700 to-gray-800 text-white shadow-lg' : 'text-gray-600 hover:bg-gray-100'">
+                        <div class="flex items-center gap-3">
+                            <i class="fas fa-user-shield fa-fw w-5 text-center"></i>
+                            <span>Admin Console</span>
+                        </div>
+                        <i class="fas fa-chevron-down text-xs transition-transform"
+                            :class="openDropdown === 'billops-admin-nested' && 'rotate-180'"></i>
+                    </button>
+
+                    <div x-show="openDropdown === 'billops-admin-nested'"
+                        x-transition:enter="transition ease-out duration-200"
+                        x-transition:enter-start="opacity-0 -translate-y-2"
+                        x-transition:enter-end="opacity-100 translate-y-0"
+                        x-transition:leave="transition ease-in duration-150"
+                        x-transition:leave-start="opacity-100 translate-y-0"
+                        x-transition:leave-end="opacity-0 -translate-y-2" class="ml-6 mt-2 space-y-1">
+                        <a :href="getLink('/billops/dashboard_admin.html')"
+                            :class="{'text-gray-800 font-bold bg-gray-100': isActive('/billops/dashboard_admin')}"
+                            class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-gray-800">Admin
+                            Dashboard</a>
+                        <a :href="getLink('/billops/billing.html')"
+                            :class="{'text-cyan-600 font-bold bg-cyan-50': isActive('/billops/billing.html')}"
+                            class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-cyan-600">Billing</a>
+                        <a :href="getLink('/billops/admin_invoices.html')"
+                            :class="{'text-gray-800 font-bold bg-gray-100': isActive('/billops/admin_invoices')}"
+                            class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-gray-800">Invoice
+                            Admin</a>
+                        
+                        <a :href="getLink('/billops/admin_credits.html')"
+                            :class="{'text-gray-800 font-bold bg-gray-100': isActive('/billops/admin_credits')}"
+                            class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-gray-800">Credit
+                            Admin</a>
+                        <a :href="getLink('/billops/admin_tickets.html')"
+                            :class="{'text-gray-800 font-bold bg-gray-100': isActive('/billops/admin_tickets')}"
+                            class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-gray-800">Ticket
+                            Admin</a>
+                        <a :href="getLink('/billops/admin_agreements.html')"
+                            :class="{'text-gray-800 font-bold bg-gray-100': isActive('/billops/admin_agreements')}"
+                            class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-gray-800">Agreements
+                            Admin</a>
+                    </div>
+                </div>
+            </div>
+
+
+        </div>
+        
+        <div class="mt-auto" x-show="!hasAnyRole('ROLE_XAMOPS') && hasAnyRole(['ROLE_BILLOPS', 'ROLE_SUPER_ADMIN'])"
+            x-cloak>
+            <div class="sidebar-section" :class="{'active': isActive('/billops/')}">
+                <div x-init="if (isActive('/billops/')) openDropdown = 'billops'">
+                    <button id="tour-nav-billops-toggle"
+                        @click="openDropdown = openDropdown === 'billops' ? null : 'billops'"
+                        class="nav-item w-full flex items-center justify-between gap-3 rounded-xl px-4 py-3 font-semibold"
+                        :class="isActive('/billops/') ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg' : 'text-gray-600 hover:bg-cyan-50'">
+                        <div class="flex items-center gap-3">
+                            <i class="fas fa-file-invoice-dollar fa-fw w-5 text-center"></i>
+                            <span>BillOps</span>
+                        </div>
+                        <i class="fas fa-chevron-down text-xs transition-transform"
+                            :class="openDropdown === 'billops' && 'rotate-180'"></i>
+                    </button>
+
+                    <div x-show="openDropdown === 'billops'" class="ml-6 mt-2 space-y-1">
+                        <a :href="getLink('/billops/dashboard_user.html')"
+                            :class="{'text-cyan-600 font-bold bg-cyan-50': isActive('/billops/dashboard_user')}"
+                            class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-cyan-600">Dashboard</a>
+                        <a :href="getLink('/billops/billing.html')"
+                            :class="{'text-cyan-600 font-bold bg-cyan-50': isActive('/billops/billing.html')}"
+                            class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-cyan-600">Billing</a>
+                        <a :href="getLink('/billops/invoices.html')"
+                            :class="{'text-cyan-600 font-bold bg-cyan-50': isActive('/billops/invoices')}"
+                            class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-cyan-600">Invoices</a>
+                        <a :href="getLink('/billops/credits.html')"
+                            :class="{'text-cyan-600 font-bold bg-cyan-50': isActive('/billops/credits')}"
+                            class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-cyan-600">Credits</a>
+                        <a :href="getLink('/billops/tickets.html')"
+                            :class="{'text-cyan-600 font-bold bg-cyan-50': isActive('/billops/tickets')}"
+                            class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-cyan-600">Tickets</a>
+                        <a :href="getLink('/billops/agreements.html')"
+                            :class="{'text-cyan-600 font-bold bg-cyan-50': isActive('/billops/agreements')}"
+                            class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-cyan-600">Agreements</a>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sidebar-section mt-2">
+                
+            </div>
+        </div>
+    </nav>
+
+    
+    <div x-show="hasAnyRole('ROLE_SUPER_ADMIN')" x-cloak class="px-3 pb-2">
+        <div class="sidebar-section" :class="{'active': isActive('/superadmin_customers.html')}">
+            <a :href="getLink('/superadmin_customers.html')"
+                class="nav-item flex items-center gap-3 rounded-xl px-4 py-3 font-semibold"
+                :class="isActive('/superadmin_customers.html') ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-lg' : 'text-gray-600 hover:bg-purple-50'">
+                <i class="fas fa-user-astronaut fa-fw w-5 text-center"></i>
+                <span>Super Admin</span>
+            </a>
+        </div>
+    </div>
+
+    <div class="flex-shrink-0 border-t bg-white">
+
+
+
+        
+        <div x-show="hasAnyRole('ROLE_XAMOPS')" x-cloak class="px-3 pt-2">
+            
+            <div class="sidebar-section relative" :class="{'active': isActive('/billops/licenses_')}">
+                <div x-init="if (isActive('/billops/licenses_')) openDropdown = 'billops-licenses'">
+                    <div x-show="openDropdown === 'billops-licenses'"
+                        x-transition:enter="transition ease-out duration-200"
+                        x-transition:enter-start="opacity-0 -translate-y-2"
+                        x-transition:enter-end="opacity-100 translate-y-0"
+                        x-transition:leave="transition ease-in duration-150"
+                        x-transition:leave-start="opacity-100 translate-y-0"
+                        x-transition:leave-end="opacity-0 -translate-y-2"
+                        class="absolute bottom-full left-0 right-0 bg-white border-t border-gray-200 py-2 px-3 shadow-lg">
+                        <div class="space-y-1">
+                            <a :href="getLink('/billops/marketplace-purchases.html')"
+                                :class="{'text-cyan-600 font-bold bg-cyan-50': isActive('/billops/marketplace-purchases')}"
+                                class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-cyan-600">MarketOps</a>
+                            <a :href="getLink('/billops/workspace-licenses.html')"
+                                :class="{'text-cyan-600 font-bold bg-cyan-50': isActive('/billops/workspace-licenses')}"
+                                class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-cyan-600">Licenses
+                                & Tools</a>
+
+                            
+                        </div>
+                    </div>
+
+                    <button @click="openDropdown = openDropdown === 'billops-licenses' ? null : 'billops-licenses'"
+                        class="nav-item w-full flex items-center justify-between gap-3 rounded-xl px-4 py-3 font-semibold"
+                        :class="isActive('/billops/licenses_') ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg' : 'text-gray-600 hover:bg-cyan-50'">
+                        <div class="flex items-center gap-3">
+                            <i class="fas fa-key fa-fw w-5 text-center"></i>
+                            <span>Licenses</span>
+                        </div>
+                        <i class="fas fa-chevron-down text-xs transition-transform"
+                            :class="openDropdown === 'billops-licenses' && 'rotate-180'"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div class="sidebar-section relative" :class="{'active': isActive('/billops/')}">
+                <div x-init="if (isActive('/billops/')) openDropdown = 'billops'">
+                    <div x-show="openDropdown === 'billops'" x-transition:enter="transition ease-out duration-200"
+                        x-transition:enter-start="opacity-0 -translate-y-2"
+                        x-transition:enter-end="opacity-100 translate-y-0"
+                        x-transition:leave="transition ease-in duration-150"
+                        x-transition:leave-start="opacity-100 translate-y-0"
+                        x-transition:leave-end="opacity-0 -translate-y-2"
+                        class="absolute bottom-full left-0 right-0 bg-white border-t border-gray-200 py-2 px-3 shadow-lg">
+                        <div class="space-y-1">
+                            <a :href="getLink('/billops/dashboard_user.html')"
+                                :class="{'text-cyan-600 font-bold bg-cyan-50': isActive('/billops/dashboard_user')}"
+                                class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-cyan-600">Dashboard</a>
+                            <a :href="getLink('/billops/billing.html')"
+                                :class="{'text-cyan-600 font-bold bg-cyan-50': isActive('/billops/billing.html')}"
+                                class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-cyan-600">Billing</a>
+                            <a :href="getLink('/billops/invoices.html')"
+                                :class="{'text-cyan-600 font-bold bg-cyan-50': isActive('/billops/invoices')}"
+                                class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-cyan-600">Invoices</a>
+                            <a :href="getLink('/billops/credits.html')"
+                                :class="{'text-cyan-600 font-bold bg-cyan-50': isActive('/billops/credits')}"
+                                class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-cyan-600">Credits</a>
+                            <a :href="getLink('/billops/tickets.html')"
+                                :class="{'text-cyan-600 font-bold bg-cyan-50': isActive('/billops/tickets')}"
+                                class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-cyan-600">Tickets</a>
+                            <a :href="getLink('/billops/agreements.html')"
+                                :class="{'text-cyan-600 font-bold bg-cyan-50': isActive('/billops/agreements')}"
+                                class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-cyan-600">Agreements</a>
+                        </div>
+                    </div>
+
+                    <button id="tour-nav-billops-toggle-xamops"
+                        @click="openDropdown = openDropdown === 'billops' ? null : 'billops'"
+                        class="nav-item w-full flex items-center justify-between gap-3 rounded-xl px-4 py-3 font-semibold"
+                        :class="isActive('/billops/') ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg' : 'text-gray-600 hover:bg-cyan-50'">
+                        <div class="flex items-center gap-3">
+                            <i class="fas fa-file-invoice-dollar fa-fw w-5 text-center"></i>
+                            <span>BillOps</span>
+                        </div>
+                        <i class="fas fa-chevron-down text-xs transition-transform"
+                            :class="openDropdown === 'billops' && 'rotate-180'"></i>
+                    </button>
+                </div>
+            </div>
+
+
+        </div>
+
+        <div x-cloak class="relative">
+            <div class="sidebar-section"
+                :class="{'active': isActive('/account-manager') || isActive('/my-profile') || isActive('/Xamops_User_management') || isActive('/superadmin_customers')}">
+                <div 
+                    x-init="if (isActive('/account-manager') || isActive('/my-profile') || isActive('/Xamops_User_management') || isActive('/superadmin_customers')) openDropdown = 'settings'">
+                    <div x-show="openDropdown === 'settings'" x-transition:enter="transition ease-out duration-200"
+                        x-transition:enter-start="opacity-0 -translate-y-2"
+                        x-transition:enter-end="opacity-100 translate-y-0"
+                        x-transition:leave="transition ease-in duration-150"
+                        x-transition:leave-start="opacity-100 translate-y-0"
+                        x-transition:leave-end="opacity-0 -translate-y-2"
+                        class="absolute bottom-full left-0 right-0 bg-white border-t border-gray-200 py-2 px-3 shadow-lg">
+                        <div class="space-y-1">
+                            <a href="/account-manager.html"
+                                :class="{'text-gray-600 font-bold bg-gray-50': isActive('/account-manager.html')}"
+                                class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-gray-600">Account
+                                Management</a>
+
+                            <a href="/my-profile.html" x-show="hasAnyRole(['ROLE_XAMOPS', 'ROLE_BILLOPS'])" x-cloak
+                                :class="{'text-gray-600 font-bold bg-gray-50': isActive('/my-profile.html')}"
+                                class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-gray-600">
+                                <i class="fas fa-user-circle mr-2"></i>My Profile</a>
+
+                            <a href="/user-manager.html" x-show="hasAnyRole(['ROLE_BILLOPS_ADMIN'])" x-cloak
+                                :class="{'text-gray-600 font-bold bg-gray-50': isActive('/user-manager.html')}"
+                                class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-gray-600">User
+                                Management</a>
+                            <a href="/Xamops_User_management.html" x-show="hasAnyRole(['ROLE_XAMOPS'])" x-cloak
+                                :class="{'text-gray-600 font-bold bg-gray-50': isActive('/Xamops_User_management.html')}"
+                                class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-gray-600">User
+                                Management</a>
+                            <a href="/superadmin_customers.html" x-show="hasAnyRole('ROLE_SUPER_ADMIN')" x-cloak
+                                :class="{'text-gray-600 font-bold bg-gray-50': isActive('/superadmin_customers.html')}"
+                                class="nav-item block rounded-lg px-4 py-2 font-medium text-gray-500 hover:text-gray-600">Customer
+                                Management</a>
+                        </div>
+                    </div>
+
+                    <button id="tour-nav-settings-toggle"
+                        @click="openDropdown = openDropdown === 'settings' ? null : 'settings'"
+                        class="nav-item w-full flex items-center justify-between rounded-xl px-7 py-3 font-semibold"
+                        :class="isActive('/account-manager') || isActive('/my-profile') || isActive('/Xamops_User_management') || isActive('/superadmin_customers') ? 'bg-gradient-to-r from-gray-500 to-gray-600 text-white shadow-lg' : 'text-gray-600 hover:bg-gray-50'">
+                        <div class="flex items-center">
+                            <i class="fas fa-cog fa-fw w-5 text-center"></i>
+                            <span>Settings</span>
+                        </div>
+                        <i class="fas fa-chevron-down text-xs transition-transform"
+                            :class="openDropdown === 'settings' && 'rotate-180'"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="p-3 space-y-2" x-data="{ showLogoutModal: false }">
+            <div>
+                <button type="button" @click="showLogoutModal = true"
+                    class="nav-item flex items-center gap-3 rounded-xl px-4 py-3 font-semibold text-gray-600 hover:bg-red-50 w-full text-left">
+                    <i class="fas fa-sign-out-alt fa-fw w-5 text-center"></i>
+                    <span>Logout</span>
+                </button>
+
+                
+                <div x-show="showLogoutModal" x-cloak class="fixed inset-0 z-50 overflow-y-auto"
+                    @keydown.escape.window="showLogoutModal = false">
+                    
+                    <div class="fixed inset-0 bg-black bg-opacity-50 transition-opacity"
+                        @click="showLogoutModal = false"></div>
+
+                    
+                    <div class="flex items-center justify-center min-h-screen p-4">
+                        <div @click.stop
+                            class="relative bg-white rounded-xl shadow-2xl max-w-md w-full transform transition-all"
+                            x-transition:enter="ease-out duration-300"
+                            x-transition:enter-start="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
+                            x-transition:enter-end="opacity-100 translate-y-0 sm:scale-100"
+                            x-transition:leave="ease-in duration-200"
+                            x-transition:leave-start="opacity-100 translate-y-0 sm:scale-100"
+                            x-transition:leave-end="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95">
+
+                            
+                            <div class="flex items-center justify-center pt-8 pb-4">
+                                <div class="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center">
+                                    <i class="fas fa-sign-out-alt text-red-600 text-2xl"></i>
+                                </div>
+                            </div>
+
+                            
+                            <div class="px-6 pb-6 text-center">
+                                <h3 class="text-xl font-bold text-gray-900 mb-2">Confirm Logout</h3>
+                                <p class="text-sm text-gray-600 mb-6">
+                                    Are you sure you want to log out? You will need to sign in again
+                                    to access your account.
+                                </p>
+
+                                
+                                <div class="flex gap-3">
+                                    <button type="button" @click="showLogoutModal = false"
+                                        class="flex-1 px-4 py-2.5 text-sm font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors">
+                                        Cancel
+                                    </button>
+                                    <form id="logoutForm" action="/logout" method="POST" class="flex-1">
+                                        <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}">
+                                        <button type="submit"
+                                            class="w-full px-4 py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 rounded-lg transition-all shadow-md hover:shadow-lg">
+                                            Logout
+                                        </button>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        // Handle logout form submission
+        const logoutForm = document.getElementById('logoutForm');
+        if (logoutForm) {
+            logoutForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+
+                try {
+                    const formData = new FormData(logoutForm);
+                    await fetch('/logout', {
+                        method: 'POST',
+                        body: formData,
+                        credentials: 'include'
+                    });
+
+                    // Clear session storage
+                    sessionStorage.clear();
+
+                    // Redirect to login page
+                    window.location.href = '/';
+                } catch (error) {
+                    console.error('Logout failed:', error);
+                    // Still redirect to login on error
+                    sessionStorage.clear();
+                    window.location.href = '/';
+                }
+            });
+        }
+
+        // Intercept clicks on the sidebar navigation
+        document.addEventListener('click', async (e) => {
+            const link = e.target.closest('a');
+
+            // --- Validation Guards ---
+            if (!link ||
+                (!link.closest('.sidebar-section') && !link.classList.contains('nav-item')) ||
+                !link.href ||
+                (link.href.startsWith('http') && !link.href.includes(window.location.origin)) ||
+                link.getAttribute('href') === '#') {
+                return;
+            }
+
+            e.preventDefault();
+            const url = link.href;
+
+            // Visual Feedback
+            document.body.style.cursor = 'wait';
+            const currentMain = document.getElementById('main-content');
+            if (currentMain) currentMain.style.opacity = '0.5';
+
+            try {
+                // 1. Fetch Content
+                const response = await fetch(url);
+                if (!response.ok) throw new Error('Network response was not ok');
+                const htmlText = await response.text();
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(htmlText, 'text/html');
+                const newMain = doc.getElementById('main-content');
+
+                if (!newMain) {
+                    window.location.href = url; // Fallback if no main content found
+                    return;
+                }
+
+                // 2. CLEANUP: Destroy old Alpine instance to prevent memory leaks
+                if (currentMain && window.Alpine) {
+                    // This cleans up listeners/watchers on the old page
+                    // Note: Alpine v3 uses a mutation observer, but explicit destroy is safer
+                    // If you have specific cleanup logic, add it here.
+                    // Alpine automatically handles cleanup when elements are removed,
+                    // but we need to handle the SCRIPTS manually below.
+                }
+
+                // 3. CLEANUP: Remove old dynamic scripts
+                document.querySelectorAll('.dynamic-page-script').forEach(el => el.remove());
+
+                // 3.1. CLEANUP: Remove page-specific CSS to prevent style leaks
+                // Define global/common stylesheets that should persist
+                const globalStylesheets = [
+                    'tailwindcss',
+                    'font-awesome',
+                    'fontawesome',
+                    'alpine'
+                ];
+
+                // Remove page-specific <link rel="stylesheet"> tags
+                document.querySelectorAll('link[rel="stylesheet"]').forEach(link => {
+                    const href = link.getAttribute('href') || '';
+                    const isGlobal = globalStylesheets.some(name => href.includes(name));
+
+                    // Keep global stylesheets and those marked with data-global attribute
+                    if (!isGlobal && !link.hasAttribute('data-global')) {
+                        console.log('[Soft Nav] Removing page-specific stylesheet:', href);
+                        link.remove();
+                    }
+                });
+
+                // Remove page-specific <style> tags (except Tailwind's generated styles)
+                document.querySelectorAll('style:not([data-global]):not([data-tailwind])').forEach(style => {
+                    console.log('[Soft Nav] Removing page-specific style tag');
+                    style.remove();
+                });
+
+                // 3.2. Load new page's stylesheets
+                const newStylesheets = doc.head.querySelectorAll('link[rel="stylesheet"]');
+                const existingHrefs = new Set(
+                    Array.from(document.querySelectorAll('link[rel="stylesheet"]'))
+                        .map(l => l.getAttribute('href'))
+                );
+
+                newStylesheets.forEach(link => {
+                    const href = link.getAttribute('href');
+                    if (href && !existingHrefs.has(href)) {
+                        const newLink = document.createElement('link');
+                        newLink.rel = 'stylesheet';
+                        newLink.href = href;
+                        // Copy other attributes
+                        Array.from(link.attributes).forEach(attr => {
+                            if (attr.name !== 'rel' && attr.name !== 'href') {
+                                newLink.setAttribute(attr.name, attr.value);
+                            }
+                        });
+                        console.log('[Soft Nav] Loading new stylesheet:', href);
+                        document.head.appendChild(newLink);
+                    }
+                });
+
+                // 3.3. Load new page's inline <style> tags
+                const newStyles = doc.head.querySelectorAll('style');
+                newStyles.forEach(style => {
+                    const newStyle = document.createElement('style');
+                    newStyle.textContent = style.textContent;
+                    // Copy attributes
+                    Array.from(style.attributes).forEach(attr => {
+                        newStyle.setAttribute(attr.name, attr.value);
+                    });
+                    console.log('[Soft Nav] Loading new inline style tag');
+                    document.head.appendChild(newStyle);
+                });
+
+                // 4. Update Title
+                document.title = doc.title;
+
+                // --- FIX: Update Body Attributes (for Theme/Bg changes) ---
+                document.body.className = doc.body.className;
+                document.body.style.cssText = doc.body.style.cssText;
+
+                // --- FIX 1: Load Head Scripts (Critical Libs) FIRST ---
+                const newHeadScripts = doc.head.querySelectorAll('script[src]');
+                // Helper to normalize URLs for comparison if needed, but simple string check usually works for basic case
+                const loadedScripts = new Set(Array.from(document.querySelectorAll('script[src]')).map(s => s.src));
+
+                for (const script of newHeadScripts) {
+                    if (!loadedScripts.has(script.src)) {
+                        const newScript = document.createElement('script');
+                        newScript.src = script.src;
+                        newScript.async = false;
+
+                        if (script.type) newScript.type = script.type;
+
+                        document.head.appendChild(newScript);
+                        loadedScripts.add(script.src);
+
+                        // Wait for critical libraries
+                        if (script.src.includes('chart.js') ||
+                            script.src.includes('highcharts') ||
+                            script.src.includes('highmaps') ||
+                            script.src.includes('proj4') ||
+                            script.src.includes('sockjs') ||
+                            script.src.includes('stomp')) {
+                            await new Promise((resolve, reject) => {
+                                newScript.onload = resolve;
+                                newScript.onerror = resolve;
+                            });
+                        }
+                    }
+                }
+
+                // --- FIX 2: Execute Body Scripts (Definitions) BEFORE Swap ---
+                // This ensures 'dashboardApp' is defined when Alpine initializes the new HTML
+                const scripts = doc.body.querySelectorAll('script');
+
+                scripts.forEach(oldScript => {
+                    // Skip if it's an external script we already have
+                    if (oldScript.src && loadedScripts.has(oldScript.src)) return;
+
+                    const newScript = document.createElement('script');
+                    newScript.classList.add('dynamic-page-script');
+
+                    Array.from(oldScript.attributes).forEach(attr => {
+                        newScript.setAttribute(attr.name, attr.value);
+                    });
+
+                    if (oldScript.innerHTML) {
+                        newScript.appendChild(document.createTextNode(oldScript.innerHTML));
+                    }
+
+                    document.body.appendChild(newScript);
+
+                    if (oldScript.src) loadedScripts.add(oldScript.src);
+                });
+
+                // 5. Swap HTML (Triggers Alpine Auto-Init for new nodes which now find dashboardApp defined)
+                if (currentMain) {
+                    currentMain.replaceWith(newMain);
+                }
+
+                // 6. Force Tailwind CDN to re-scan the new DOM
+                // Tailwind CDN only scans once on initial load, so we need to trigger a re-scan
+                // after dynamically injecting new HTML content
+
+                // Solution: Remove and re-add the Tailwind script to force a complete re-scan
+                const existingTailwind = document.querySelector('script[src*="cdn.tailwindcss"]');
+                if (existingTailwind) {
+                    // Clone the script element
+                    const newTailwind = document.createElement('script');
+                    newTailwind.src = existingTailwind.src;
+
+                    // Remove old Tailwind script and its generated styles
+                    existingTailwind.remove();
+
+                    // Remove Tailwind's generated style tag
+                    document.querySelectorAll('style[data-tailwind]').forEach(style => style.remove());
+
+                    // Re-inject Tailwind to force a fresh scan of the new DOM
+                    document.head.appendChild(newTailwind);
+
+                    // Wait a tick for Tailwind to initialize and scan the new content
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                }
+
+                // 7. Update URL
+                window.history.pushState({}, '', url);
+
+                // 8. Re-init Alpine.js - REMOVED (Auto-init handles this)
+
+                // 9. Update Sidebar Visual State
+                updateSidebarActiveState(link.getAttribute('href'));
+
+            } catch (error) {
+                console.error('Soft navigation failed:', error);
+                window.location.href = url; // Fallback
+            } finally {
+                document.body.style.cursor = 'default';
+                const mainContainer = document.getElementById('main-content');
+                if (mainContainer) mainContainer.style.opacity = '1';
+            }
+        });
+
+        window.addEventListener('popstate', () => window.location.reload());
+
+        // --- TOUR HELPER FUNCTION ---
+        // This allows the Tour Driver to open/close sidebar menus programmatically
+        window.toggleDropdown = function (elementId, action) {
+            const sidebar = document.getElementById('tour-sidebar');
+
+            // Safety check: ensure sidebar and Alpine data exist
+            if (!sidebar || !sidebar._x_dataStack) {
+                console.warn('Sidebar or Alpine data not found for tour toggle');
+                return;
+            }
+
+            // Access the Alpine.js component data
+            const alpineData = sidebar._x_dataStack[0];
+
+            // Map the HTML ID to the internal Alpine 'openDropdown' value
+            const idToMenuMap = {
+                'tour-nav-finops-toggle': 'finops',
+                'tour-nav-cloudops-toggle': 'cloudops',
+                'tour-nav-secops-toggle': 'security',
+                'tour-nav-billops-toggle': 'billops',
+                'tour-nav-settings-toggle': 'settings'
+            };
+
+            const menuName = idToMenuMap[elementId];
+            if (!menuName) return;
+
+            // Apply the action
+            if (action === 'open') {
+                alpineData.openDropdown = menuName;
+            } else if (action === 'close') {
+                // Only close if it's currently the one open
+                if (alpineData.openDropdown === menuName) {
+                    alpineData.openDropdown = null;
+                }
+            }
+        };
+
+        function updateSidebarActiveState(targetHref) {
+            // Remove active class from all items
+            document.querySelectorAll('.sidebar-section, .nav-item').forEach(el => {
+                el.classList.remove('active');
+                // Reset standard styling if you use utility classes for active states directly
+                el.classList.remove('bg-gradient-to-r', 'from-indigo-500', 'to-purple-600', 'text-white', 'shadow-lg');
+                el.classList.add('text-gray-600', 'hover:bg-indigo-50');
+            });
+
+            // Add active class to clicked item (Logic simplified for example)
+            // You might need to check your getLink logic to match exact HREFs
+            const activeLinks = document.querySelectorAll(`a[href="${targetHref}"]`);
+            activeLinks.forEach(link => {
+                const section = link.closest('.sidebar-section');
+                if (section) section.classList.add('active');
+
+                // Re-apply the specific active classes based on your design
+                link.classList.remove('text-gray-600', 'hover:bg-indigo-50');
+                link.classList.add('bg-gradient-to-r', 'from-indigo-500', 'to-purple-600', 'text-white', 'shadow-lg');
+            });
+        }
+    });
+</script>
+
+
+
+<script>
+    function supportChatWidget() {
+        return {
+            open: false,
+            newMessage: '',
+            isLoading: false,
+            messages: [],
+            isXamopsUser: false,
+
+            init() {
+                // Check if user has ROLE_XAMOPS from cached roles
+                const cachedRoles = JSON.parse(sessionStorage.getItem('cached_user_roles') || '[]');
+                this.isXamopsUser = cachedRoles.includes('ROLE_XAMOPS');
+
+                if (this.isXamopsUser) {
+                    this.fetchHistory();
+                    setInterval(() => this.fetchHistory(), 5000);
+                }
+            },
+
+            // Get the currently selected account ID from sessionStorage
+            getSelectedAccountId() {
+                const selectedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+                return selectedIds.length > 0 ? selectedIds[0] : null;
+            },
+
+            async fetchHistory() {
+                try {
+                    const accountId = this.getSelectedAccountId();
+                    const url = accountId
+                        ? `/api/ai/chat/history?accountId=${encodeURIComponent(accountId)}`
+                        : '/api/ai/chat/history';
+                    const response = await fetch(url, {
+                        credentials: 'include'
+                    });
+                    if (response.ok) {
+                        const history = await response.json();
+                        this.messages = history.map(msg => ({
+                            text: msg.content,
+                            isUser: msg.userMessage,
+                            timestamp: msg.timestamp
+                        }));
+                        this.scrollToBottom();
+                    }
+                } catch (e) {
+                    console.error('Failed to fetch chat history', e);
+                }
+            },
+
+            async sendMessage() {
+                if (this.newMessage.trim() === '') return;
+
+                this.messages.push({ text: this.newMessage, isUser: true });
+                const userMsg = this.newMessage;
+                this.newMessage = '';
+                this.isLoading = true;
+                this.scrollToBottom();
+
+                try {
+                    const csrfToken = document.cookie
+                        .split('; ')
+                        .find(row => row.startsWith('XSRF-TOKEN='))
+                        ?.split('=')[1];
+
+                    const response = await fetch(`/api/ai/chat`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-XSRF-TOKEN': csrfToken
+                        },
+                        credentials: 'include',
+                        body: JSON.stringify({
+                            message: userMsg,
+                            accountId: this.getSelectedAccountId()
+                        })
+                    });
+
+                    if (response.status === 401 || response.status === 403) {
+                        this.messages.push({ text: '⚠️ Session expired. Please refresh the page to log in again.', isUser: false });
+                        return;
+                    }
+
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        console.error('Server Error:', response.status, errorText);
+                        throw new Error(`Server error: ${response.status}`);
+                    }
+
+                    // Fetch updated history after sending
+                    await this.fetchHistory();
+
+                } catch (error) {
+                    console.error('Chat Error:', error);
+                    this.messages.push({ text: '⚠️ Connection failed. Please try again later.', isUser: false });
+                } finally {
+                    this.isLoading = false;
+                    this.scrollToBottom();
+                }
+            },
+
+            scrollToBottom() {
+                this.$nextTick(() => {
+                    const container = document.getElementById('support-chat-history');
+                    if (container) container.scrollTop = container.scrollHeight;
+                });
+            }
+        }
+    }
+</script>
+
+<div id="support-chat-widget" class="fixed bottom-24 right-6 z-50 font-sans" x-data="supportChatWidget()" x-init="init()" x-show="isXamopsUser" x-cloak>
+
+    <button @click="open = !open; if(open) { fetchHistory(); scrollToBottom(); }"
+        class="w-14 h-14 bg-gradient-to-r from-teal-500 to-green-500 rounded-full shadow-2xl flex items-center justify-center hover:scale-110 transition-all duration-300 focus:outline-none z-50"
+        title="Live Support">
+        <i class="fas fa-headset text-white text-2xl"></i>
+        <span class="absolute -top-1 -right-1 flex h-4 w-4">
+            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-teal-400 opacity-75"></span>
+            <span class="relative inline-flex rounded-full h-4 w-4 bg-teal-500"></span>
+        </span>
+    </button>
+
+    <div x-show="open" x-cloak x-transition:enter="transition ease-out duration-300"
+        x-transition:enter-start="opacity-0 transform scale-95 translate-y-10"
+        x-transition:enter-end="opacity-100 transform scale-100 translate-y-0"
+        x-transition:leave="transition ease-in duration-200"
+        x-transition:leave-start="opacity-100 transform scale-100 translate-y-0"
+        x-transition:leave-end="opacity-0 transform scale-95 translate-y-10"
+        class="absolute bottom-20 right-0 w-96 h-[500px] bg-white rounded-2xl shadow-2xl border border-gray-200 flex flex-col overflow-hidden z-40">
+
+        <div class="bg-gradient-to-r from-teal-500 to-green-500 text-white p-4 flex items-center justify-between shadow-md">
+            <div class="flex items-center space-x-3">
+                <div class="w-8 h-8 bg-white bg-opacity-20 rounded-full flex items-center justify-center backdrop-blur-sm">
+                    <i class="fas fa-user-headset text-sm"></i>
+                </div>
+                <div>
+                    <h3 class="font-bold text-sm">BillOps Support</h3>
+                    <p class="text-xs opacity-80 flex items-center gap-1">
+                        <span class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span> Available
+                    </p>
+                </div>
+            </div>
+            <button @click="open = false"
+                class="hover:bg-white hover:bg-opacity-20 rounded-lg p-2 transition-colors">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+
+        <div id="support-chat-history"
+            class="flex-1 p-4 overflow-y-auto bg-gray-50 space-y-4 custom-scrollbar">
+            <template x-for="(msg, index) in messages" :key="index">
+                <div :class="msg.isUser ? 'flex justify-end' : 'flex justify-start'">
+                    <div :class="msg.isUser ? 'bg-teal-600 text-white rounded-br-none' : 'bg-white text-gray-800 border border-gray-200 rounded-bl-none'"
+                        class="max-w-[85%] rounded-2xl px-4 py-3 shadow-sm text-sm leading-relaxed">
+                        <p x-text="msg.text"></p>
+                    </div>
+                </div>
+            </template>
+
+            <div x-show="isLoading" class="flex justify-start">
+                <div class="bg-white border border-gray-200 text-gray-500 rounded-2xl rounded-bl-none px-4 py-3 text-xs flex items-center shadow-sm">
+                    <i class="fas fa-circle-notch fa-spin mr-2 text-teal-500"></i>
+                    Sending...
+                </div>
+            </div>
+        </div>
+
+        <div class="p-4 bg-white border-t border-gray-100">
+            <div class="relative flex items-center">
+                <input type="text" x-model="newMessage" @keydown.enter="sendMessage()"
+                    placeholder="Type your message..."
+                    class="w-full bg-gray-100 text-gray-800 text-sm rounded-xl pl-4 pr-12 py-3 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white transition-all border-0">
+                <button @click="sendMessage()" :disabled="isLoading || newMessage.trim() === ''"
+                    class="absolute right-2 p-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm">
+                    <i class="fas fa-paper-plane text-xs"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+    <div class="flex-1 lg:pl-64">
+      <main id="main-content" class="flex-1 flex flex-col min-h-screen" x-data="grafanaDashboard()">
+
+        <style>
+          @import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap");
+
+          [x-cloak] {
+            display: none !important;
+          }
+
+          .header-gradient {
+            background: linear-gradient(135deg,
+                rgba(255, 255, 255, 0.95) 0%,
+                rgba(248, 250, 252, 0.95) 100%);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(229, 231, 235, 0.8);
+          }
+
+          .fade-in {
+            animation: fadeIn 0.5s ease-in-out;
+          }
+
+          @keyframes fadeIn {
+            from {
+              opacity: 0;
+            }
+
+            to {
+              opacity: 1;
+            }
+          }
+
+          .modal-overlay {
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(4px);
+          }
+
+          .modal-content {
+            background: rgba(255, 255, 255, 0.98);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(229, 231, 235, 0.8);
+          }
+
+          /* Scrollbar styling for code blocks and modal */
+
+          ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+          }
+
+          ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 4px;
+          }
+
+          ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+          }
+
+          ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+          }
+
+          .code-block {
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 1.25rem;
+            border-radius: 0.5rem;
+            font-family: "Menlo", "Monaco", "Courier New", monospace;
+            font-size: 0.85rem;
+            line-height: 1.5;
+            white-space: pre;
+            overflow-x: auto;
+            border: 1px solid #334155;
+            margin-top: 0.5rem;
+            margin-bottom: 1rem;
+          }
+
+          .placeholder-highlight {
+            background-color: #fef3c7;
+            color: #92400e;
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-weight: 600;
+          }
+
+          /* Guide specific styles */
+
+          .guide-h2 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #1f2937;
+            margin-top: 2rem;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid #e5e7eb;
+          }
+
+          .guide-h3 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #374151;
+            margin-top: 1.5rem;
+            margin-bottom: 0.75rem;
+          }
+
+          .guide-text {
+            color: #4b5563;
+            line-height: 1.6;
+            margin-bottom: 1rem;
+          }
+
+          .guide-list {
+            list-style-type: disc;
+            padding-left: 1.5rem;
+            margin-bottom: 1rem;
+            color: #4b5563;
+          }
+
+          .guide-list li {
+            margin-bottom: 0.25rem;
+          }
+
+          .inline-code {
+            background-color: #f3f4f6;
+            color: #ef4444;
+            padding: 0.1rem 0.3rem;
+            border-radius: 0.25rem;
+            font-family: monospace;
+            font-size: 0.9em;
+          }
+        </style>
+
+        <header class="header-gradient h-20 flex items-center justify-between px-8 sticky top-0 z-10">
+          <div class="flex items-center space-x-4">
+            <div 
+              class="w-12 h-12 bg-gradient-to-br from-orange-400 to-orange-600 rounded-xl flex items-center justify-center">
+              <i class="fas fa-chart-line text-white text-xl"></i>
+            </div>
+            <div>
+              <h1 class="text-2xl font-bold text-gray-800">
+                Infrastructure Monitoring
+              </h1>
+              <p class="text-sm text-gray-600" :class="{ 'text-red-500 font-semibold': errorMessage }"
+                x-text="subtitleText">
+              </p>
+            </div>
+          </div>
+          <a x-show="grafanaUrl" :href="grafanaUrl" target="_blank"
+            class="flex items-center space-x-2 px-4 py-2 text-sm font-semibold text-gray-700 bg-white rounded-lg border hover:bg-gray-50 transition-all">
+            <span>View in Grafana</span>
+            <i class="fas fa-external-link-alt text-xs"></i>
+          </a>
+        </header>
+
+        <div class="flex-1 p-2 bg-gray-200">
+          <iframe :src="iframeSrc" class="w-full h-[calc(100vh-6rem)] border-0 rounded-lg fade-in"></iframe>
+        </div>
+
+        <div @click="isHelpModalOpen = true"
+          class="fixed bottom-8 right-8 w-14 h-14 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full flex items-center justify-center text-white text-2xl shadow-lg cursor-pointer hover:scale-110 transition-transform z-30">
+          <i class="fas fa-question"></i>
+        </div>
+
+        <div x-show="isHelpModalOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div @click="isHelpModalOpen = false" class="modal-overlay fixed inset-0"></div>
+          <div class="modal-content rounded-2xl p-0 w-full max-w-5xl mx-auto h-[85vh] flex flex-col fade-in"
+            @click.stop>
+
+            <div class="flex items-center justify-between p-6 border-b bg-gray-50 rounded-t-2xl">
+              <div>
+                <h3 class="font-bold text-xl text-gray-800">
+                  <i class="fab fa-aws text-orange-500 mr-2"></i>
+                  Grafana Monitoring Setup Guide
+                </h3>
+                <p class="text-sm text-gray-500 mt-1">Complete Terraform & SSL Configuration</p>
+              </div>
+              <button @click="isHelpModalOpen = false"
+                class="text-gray-400 hover:text-gray-600 text-2xl w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-200 transition-colors">
+                &times;
+              </button>
+            </div>
+
+            <div class="p-8 overflow-y-auto flex-1">
+
+
+              <div class="mb-8">
+                <p class="guide-text">
+                  This guide will help you set up a complete monitoring infrastructure with Grafana, Prometheus, Loki,
+                  and SSL-secured domains using Terraform on AWS.
+                </p>
+              </div>
+
+              <h2 class="guide-h2">Prerequisites</h2>
+              <ul class="guide-list">
+                <li><strong>AWS Account</strong> - An active Amazon Web Services account</li>
+                <li><strong>AWS CLI</strong> - Installed and configured with your credentials</li>
+                <li><strong>Terraform</strong> - Version 1.0 or higher installed</li>
+                <li><strong>Domain Name</strong> - A registered domain that you can configure DNS records for</li>
+                <li><strong>SSH Key Pair</strong> - An existing EC2 Key Pair in your AWS region</li>
+              </ul>
+
+              <h2 class="guide-h2">Step 1: Create Project Structure</h2>
+              <p class="guide-text">Create a new directory for your project and the necessary file structure:</p>
+              <div class="code-block">mkdir grafana-monitoring-terraform
+                cd grafana-monitoring-terraform
+
+                # Create empty files
+                touch main.tf variables.tf outputs.tf user_data.sh</div>
+
+              <h2 class="guide-h2">Step 2: Create Configuration Files</h2>
+
+              <h3 class="guide-h3">2.1 variables.tf</h3>
+              <p class="guide-text">
+                Define your environment variables.
+                <span class="bg-yellow-100 text-yellow-800 text-xs font-bold px-2 py-1 rounded">ACTION REQUIRED</span>
+                Replace the default values with your own details.
+              </p>
+              <div class="code-block">variable "aws_region" {
+                description = "AWS region to deploy resources"
+                type = string
+                default = "ap-south-1"
+                }
+
+                variable "key_name" {
+                description = "Name of your existing EC2 Key Pair"
+                type = string
+                default = "your-key-pair-name"
+                }
+
+                variable "instance_type" {
+                description = "EC2 instance type for monitoring server"
+                type = string
+                default = "t2.medium"
+                }
+
+                variable "monitoring_server_name" {
+                description = "Name tag for the monitoring server"
+                type = string
+                default = "Grafana-Monitoring-Server"
+                }
+
+                variable "uat_domain" {
+                description = "UAT environment domain (e.g., grafana.uat.example.com)"
+                type = string
+                default = "grafana.uat.example.com"
+                }
+
+                variable "live_domain" {
+                description = "Production environment domain (e.g., grafana.live.example.com)"
+                type = string
+                default = "grafana.live.example.com"
+                }
+
+                variable "ssl_email" {
+                description = "Email for Let's Encrypt SSL certificate notifications"
+                type = string
+                default = "admin@example.com"
+                }</div>
+
+              <h3 class="guide-h3">2.2 main.tf</h3>
+              <p class="guide-text">This file defines the VPC, Security Groups, and EC2 instance resources.</p>
+              <div class="code-block">terraform {
+                required_version = "&gt;= 1.0"
+                required_providers {
+                aws = {
+                source = "hashicorp/aws"
+                version = "~&gt; 5.0"
+                }
+                }
+                }
+
+                provider "aws" {
+                region = var.aws_region
+                }
+
+                # Get the latest Ubuntu 22.04 AMI
+                data "aws_ami" "ubuntu" {
+                most_recent = true
+                owners = ["099720109477"] # Canonical
+
+                filter {
+                name = "name"
+                values = ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"]
+                }
+
+                filter {
+                name = "virtualization-type"
+                values = ["hvm"]
+                }
+                }
+
+                # VPC Configuration
+                resource "aws_vpc" "main" {
+                cidr_block = "10.20.0.0/16"
+                enable_dns_hostnames = true
+                enable_dns_support = true
+
+                tags = {
+                Name = "Monitoring-VPC"
+                }
+                }
+
+                # Internet Gateway
+                resource "aws_internet_gateway" "main" {
+                vpc_id = aws_vpc.main.id
+
+                tags = {
+                Name = "Monitoring-IGW"
+                }
+                }
+
+                # Public Subnet
+                resource "aws_subnet" "public" {
+                vpc_id = aws_vpc.main.id
+                cidr_block = "10.20.1.0/24"
+                availability_zone = "${var.aws_region}a"
+                map_public_ip_on_launch = true
+
+                tags = {
+                Name = "Monitoring-Public-Subnet"
+                }
+                }
+
+                # Route Table
+                resource "aws_route_table" "public" {
+                vpc_id = aws_vpc.main.id
+
+                route {
+                cidr_block = "0.0.0.0/0"
+                gateway_id = aws_internet_gateway.main.id
+                }
+
+                tags = {
+                Name = "Monitoring-Public-RT"
+                }
+                }
+
+                # Route Table Association
+                resource "aws_route_table_association" "public" {
+                subnet_id = aws_subnet.public.id
+                route_table_id = aws_route_table.public.id
+                }
+
+                # Security Group for Monitoring Server
+                resource "aws_security_group" "monitoring" {
+                name = "monitoring-server-sg"
+                description = "Security group for Grafana monitoring server"
+                vpc_id = aws_vpc.main.id
+
+                # SSH access
+                ingress {
+                description = "SSH"
+                from_port = 22
+                to_port = 22
+                protocol = "tcp"
+                cidr_blocks = ["0.0.0.0/0"]
+                }
+
+                # HTTP for Let's Encrypt
+                ingress {
+                description = "HTTP"
+                from_port = 80
+                to_port = 80
+                protocol = "tcp"
+                cidr_blocks = ["0.0.0.0/0"]
+                }
+
+                # HTTPS
+                ingress {
+                description = "HTTPS"
+                from_port = 443
+                to_port = 443
+                protocol = "tcp"
+                cidr_blocks = ["0.0.0.0/0"]
+                }
+
+                # Grafana
+                ingress {
+                description = "Grafana"
+                from_port = 3000
+                to_port = 3000
+                protocol = "tcp"
+                cidr_blocks = ["0.0.0.0/0"]
+                }
+
+                # Prometheus
+                ingress {
+                description = "Prometheus"
+                from_port = 9090
+                to_port = 9090
+                protocol = "tcp"
+                cidr_blocks = ["0.0.0.0/0"]
+                }
+
+                # Node Exporter
+                ingress {
+                description = "Node Exporter"
+                from_port = 9100
+                to_port = 9100
+                protocol = "tcp"
+                cidr_blocks = ["0.0.0.0/0"]
+                }
+
+                # Loki
+                ingress {
+                description = "Loki"
+                from_port = 3100
+                to_port = 3100
+                protocol = "tcp"
+                cidr_blocks = ["0.0.0.0/0"]
+                }
+
+                # All outbound traffic
+                egress {
+                from_port = 0
+                to_port = 0
+                protocol = "-1"
+                cidr_blocks = ["0.0.0.0/0"]
+                }
+
+                tags = {
+                Name = "Monitoring-Server-SG"
+                }
+                }
+
+                # EC2 Instance for Monitoring Server
+                resource "aws_instance" "monitoring_server" {
+                ami = data.aws_ami.ubuntu.id
+                instance_type = var.instance_type
+                key_name = var.key_name
+                subnet_id = aws_subnet.public.id
+                vpc_security_group_ids = [aws_security_group.monitoring.id]
+
+                user_data = templatefile("${path.module}/user_data.sh", {
+                uat_domain = var.uat_domain
+                live_domain = var.live_domain
+                ssl_email = var.ssl_email
+                })
+
+                root_block_device {
+                volume_size = 30
+                volume_type = "gp3"
+                }
+
+                tags = {
+                Name = var.monitoring_server_name
+                }
+                }</div>
+
+              <h3 class="guide-h3">2.3 outputs.tf</h3>
+              <p class="guide-text">Displays connection info after deployment.</p>
+              <div class="code-block">output "monitoring_server_public_ip" {
+                description = "Public IP address of the monitoring server"
+                value = aws_instance.monitoring_server.public_ip
+                }
+
+                output "monitoring_server_private_ip" {
+                description = "Private IP address of the monitoring server"
+                value = aws_instance.monitoring_server.private_ip
+                }
+
+                output "grafana_direct_access" {
+                description = "Direct access to Grafana (before DNS setup)"
+                value = "http://${aws_instance.monitoring_server.public_ip}:3000"
+                }
+
+                output "next_steps" {
+                description = "Next steps after deployment"
+                value = &lt;&lt;-EOT
+
+                NEXT STEPS:
+                ===========
+
+                1. Configure DNS Records:
+                - Add A record: ${var.uat_domain} -&gt; ${aws_instance.monitoring_server.public_ip}
+                - Add A record: ${var.live_domain} -&gt; ${aws_instance.monitoring_server.public_ip}
+
+                2. Wait 5-10 minutes for the server to complete setup
+
+                3. SSH into the server to check progress:
+                ssh -i your-key.pem ubuntu@${aws_instance.monitoring_server.public_ip}
+
+                4. Check setup logs:
+                tail -f /var/log/cloud-init-output.log
+
+                5. Once DNS propagates, access your dashboards:
+                - UAT: https://${var.uat_domain}
+                - LIVE: https://${var.live_domain}
+
+                6. Default Grafana credentials:
+                - Username: admin
+                - Password: admin
+                EOT
+                }</div>
+
+              <h3 class="guide-h3">2.4 user_data.sh</h3>
+              <p class="guide-text">This bash script automates the installation of Docker, Nginx, Certbot, and the
+                deployment of the Grafana stack.</p>
+              <div class="code-block">#!/bin/bash
+                # Exit on any error
+                set -e
+
+                # Log all output
+                exec &gt; &gt;(tee /var/log/user-data.log)
+                exec 2&gt;&1
+
+                echo "=== Starting Monitoring Server Setup ==="
+                echo "Timestamp: $(date)"
+
+                # Update system
+                echo "=== Updating system packages ==="
+                apt-get update -y
+                apt-get upgrade -y
+
+                # Install required packages
+                echo "=== Installing Docker and dependencies ==="
+                apt-get install -y \
+                docker.io \
+                docker-compose \
+                nginx \
+                certbot \
+                python3-certbot-nginx \
+                curl \
+                git
+
+                # Start and enable Docker
+                systemctl start docker
+                systemctl enable docker
+                usermod -aG docker ubuntu
+
+                # Create monitoring directory
+                echo "=== Creating monitoring directory structure ==="
+                mkdir -p /home/ubuntu/monitoring
+                cd /home/ubuntu/monitoring
+
+                # Create docker-compose.yml
+                echo "=== Creating Docker Compose configuration ==="
+                cat &gt; docker-compose.yml &lt;&lt;'EOF'
+                version: '3.8'
+
+                services:
+                node-exporter:
+                image: prom/node-exporter:v1.8.1
+                container_name: node-exporter
+                restart: unless-stopped
+                volumes:
+                - /proc:/host/proc:ro
+                - /sys:/host/sys:ro
+                - /:/rootfs:ro
+                command:
+                - '--path.procfs=/host/proc'
+                - '--path.sysfs=/host/sys'
+                - '--path.rootfs=/rootfs'
+                - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+                ports:
+                - "9100:9100"
+
+                prometheus:
+                image: prom/prometheus:v2.53.0
+                container_name: prometheus
+                restart: unless-stopped
+                ports:
+                - "9090:9090"
+                volumes:
+                - ./prometheus.yml:/etc/prometheus/prometheus.yml
+
+                loki:
+                image: grafana/loki:3.1.0
+                container_name: loki
+                restart: unless-stopped
+                ports:
+                - "3100:3100"
+                command: -config.file=/etc/loki/local-config.yaml
+                volumes:
+                - /home/ubuntu/monitoring/loki-data:/loki
+                - /home/ubuntu/monitoring/loki-local-config.yaml:/etc/loki/local-config.yaml
+
+                promtail:
+                image: grafana/promtail:3.1.0
+                container_name: promtail
+                restart: unless-stopped
+                volumes:
+                - /var/log:/var/log
+                - ./promtail-config.yml:/etc/promtail/config.yml
+                command: -config.file=/etc/promtail/config.yml
+
+                grafana:
+                image: grafana/grafana:11.1.0
+                container_name: grafana
+                restart: unless-stopped
+                ports:
+                - "3000:3000"
+                volumes:
+                - /home/ubuntu/monitoring/grafana-data:/var/lib/grafana
+                - ./grafana.ini:/etc/grafana/grafana.ini
+                environment:
+                - GF_SECURITY_ADMIN_USER=admin
+                - GF_SECURITY_ADMIN_PASSWORD=admin
+                - GF_SECURITY_ALLOW_EMBEDDING=true
+                - GF_AUTH_ANONYMOUS_ENABLED=true
+                - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+                EOF
+
+                # Create Prometheus configuration
+                echo "=== Creating Prometheus configuration ==="
+                cat &gt; prometheus.yml &lt;&lt;'EOF'
+                global:
+                scrape_interval: 15s
+
+                scrape_configs:
+                - job_name: prometheus
+                static_configs:
+                - targets: ['localhost:9090']
+                - job_name: node-exporter
+                static_configs:
+                - targets: ['node-exporter:9100']
+                EOF
+
+                # Create Loki configuration
+                echo "=== Creating Loki configuration ==="
+                cat &gt; loki-local-config.yaml &lt;&lt;'EOF'
+                auth_enabled: false
+                server:
+                http_listen_port: 3100
+                grpc_listen_port: 9096
+                common:
+                path_prefix: /loki
+                storage:
+                filesystem:
+                chunks_directory: /loki/chunks
+                rules_directory: /loki/rules
+                replication_factor: 1
+                ring:
+                instance_addr: 127.0.0.1
+                kvstore:
+                store: inmemory
+                schema_config:
+                configs:
+                - from: 2024-01-01
+                store: tsdb
+                object_store: filesystem
+                schema: v13
+                index:
+                prefix: index_
+                period: 24h
+                limits_config:
+                reject_old_samples: true
+                reject_old_samples_max_age: 168h
+                EOF
+
+                # Create Promtail configuration
+                echo "=== Creating Promtail configuration ==="
+                cat &gt; promtail-config.yml &lt;&lt;'EOF'
+                server:
+                http_listen_port: 9080
+                grpc_listen_port: 0
+
+                positions:
+                filename: /tmp/positions.yaml
+
+                clients:
+                - url: http://loki:3100/loki/api/v1/push
+
+                scrape_configs:
+                - job_name: system
+                static_configs:
+                - targets:
+                - localhost
+                labels:
+                job: varlogs
+                __path__: /var/log/*log
+                EOF
+
+                # Create Grafana configuration
+                echo "=== Creating Grafana configuration ==="
+                cat &gt; grafana.ini &lt;&lt;'EOF'
+                [server]
+                protocol = http
+                http_port = 3000
+
+                [security]
+                admin_user = admin
+                admin_password = admin
+                allow_embedding = true
+
+                [auth.anonymous]
+                enabled = true
+                org_role = Viewer
+
+                [users]
+                allow_sign_up = false
+                EOF
+
+                # Create data directories and permissions
+                mkdir -p grafana-data loki-data
+                chown -R 10001:10001 loki-data
+                chown -R 472:472 grafana-data
+                chown -R ubuntu:ubuntu /home/ubuntu/monitoring
+
+                # Start Docker containers
+                echo "=== Starting Docker containers ==="
+                docker-compose up -d
+
+                # Wait for services to start
+                echo "=== Waiting for services to initialize ==="
+                sleep 30
+
+                # Create nginx configuration for temporary HTTP access
+                echo "=== Creating temporary Nginx configuration ==="
+                cat &gt; /etc/nginx/sites-available/grafana-temp &lt;&lt;EOF
+                server {
+                listen 80;
+                server_name ${uat_domain} ${live_domain};
+
+                location ~ /.well-known/acme-challenge/ {
+                allow all;
+                root /var/www/html;
+                }
+
+                location / {
+                proxy_pass http://127.0.0.1:3000;
+                proxy_set_header Host \$host;
+                proxy_set_header X-Real-IP \$remote_addr;
+                proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto \$scheme;
+                }
+                }
+                EOF
+
+                # Enable temporary configuration
+                ln -sf /etc/nginx/sites-available/grafana-temp /etc/nginx/sites-enabled/grafana-temp
+                rm -f /etc/nginx/sites-enabled/default
+                nginx -t && systemctl reload nginx
+
+                # Create webroot for Let's Encrypt
+                mkdir -p /var/www/html
+
+                echo "=== Waiting for DNS propagation ==="
+                # Get server's public IP
+                PUBLIC_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)
+
+                # Function to check DNS resolution
+                check_dns() {
+                local domain=$1
+                local resolved_ip=$(dig +short $domain | tail -n1)
+
+                if [ "$resolved_ip" = "$PUBLIC_IP" ]; then
+                echo "✓ $domain resolves correctly to $PUBLIC_IP"
+                return 0
+                else
+                echo "✗ $domain does not resolve to $PUBLIC_IP (got: $resolved_ip)"
+                return 1
+                fi
+                }
+
+                # Wait up to 10 minutes for DNS propagation
+                MAX_WAIT=600
+                ELAPSED=0
+                INTERVAL=30
+
+                while [ $ELAPSED -lt $MAX_WAIT ]; do
+                if check_dns "${uat_domain}" && check_dns "${live_domain}"; then
+                echo "=== DNS propagation complete! ==="
+                break
+                fi
+
+                echo "Waiting for DNS propagation... ($ELAPSED/$MAX_WAIT seconds)"
+                sleep $INTERVAL
+                ELAPSED=$((ELAPSED + INTERVAL))
+                done
+
+                if [ $ELAPSED -ge $MAX_WAIT ]; then
+                echo "⚠ Warning: DNS propagation timeout. SSL setup will be skipped."
+                echo "Please run the SSL setup manually after DNS propagates."
+                else
+                # Obtain SSL certificates
+                echo "=== Obtaining SSL certificates ==="
+
+                certbot certonly --webroot \
+                -w /var/www/html \
+                -d ${uat_domain} \
+                --non-interactive \
+                --agree-tos \
+                --email ${ssl_email} || echo "Failed to obtain certificate for ${uat_domain}"
+
+                certbot certonly --webroot \
+                -w /var/www/html \
+                -d ${live_domain} \
+                --non-interactive \
+                --agree-tos \
+                --email ${ssl_email} || echo "Failed to obtain certificate for ${live_domain}"
+
+                # Create final Nginx configuration with SSL
+                echo "=== Creating final Nginx configuration with SSL ==="
+                cat &gt; /etc/nginx/sites-available/grafana &lt;&lt;EOF
+                # HTTP server: Redirects both domains to HTTPS
+                server {
+                listen 80;
+                server_name ${uat_domain} ${live_domain};
+
+                location ~ /.well-known/acme-challenge/ {
+                allow all;
+                root /var/www/html;
+                }
+
+                location / {
+                return 301 https://\$host\$request_uri;
+                }
+                }
+
+                # UAT HTTPS Server
+                server {
+                listen 443 ssl;
+                server_name ${uat_domain};
+
+                ssl_certificate /etc/letsencrypt/live/${uat_domain}/fullchain.pem;
+                ssl_certificate_key /etc/letsencrypt/live/${uat_domain}/privkey.pem;
+
+                location / {
+                proxy_pass http://127.0.0.1:3000;
+                proxy_set_header Host \$host;
+                proxy_set_header X-Real-IP \$remote_addr;
+                proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto \$scheme;
+                }
+                }
+
+                # LIVE HTTPS Server
+                server {
+                listen 443 ssl;
+                server_name ${live_domain};
+
+                ssl_certificate /etc/letsencrypt/live/${live_domain}/fullchain.pem;
+                ssl_certificate_key /etc/letsencrypt/live/${live_domain}/privkey.pem;
+
+                location / {
+                proxy_pass http://127.0.0.1:3000;
+                proxy_set_header Host \$host;
+                proxy_set_header X-Real-IP \$remote_addr;
+                proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto \$scheme;
+                }
+                }
+                EOF
+
+                # Switch to SSL configuration
+                rm -f /etc/nginx/sites-enabled/grafana-temp
+                ln -sf /etc/nginx/sites-available/grafana /etc/nginx/sites-enabled/grafana
+
+                nginx -t && systemctl reload nginx
+                echo "=== SSL setup complete! ==="
+                fi
+
+                # Enable Nginx on boot
+                systemctl enable nginx
+                echo "=== Setup Complete ==="</div>
+
+              <h2 class="guide-h2">Step 3: Configure DNS Records</h2>
+              <p class="guide-text">Before deploying, or immediately after, create <strong>A records</strong> in your
+                DNS provider pointing to your server's public IP:</p>
+              <ul class="guide-list">
+                <li><span class="inline-code">grafana.uat.example.com</span> &rarr; Server Public IP</li>
+                <li><span class="inline-code">grafana.live.example.com</span> &rarr; Server Public IP</li>
+              </ul>
+
+              <h2 class="guide-h2">Step 4: Deploy Infrastructure</h2>
+              <div class="code-block"># Initialize Terraform
+                terraform init
+
+                # Review Plan
+                terraform plan
+
+                # Deploy (Type 'yes' when prompted)
+                terraform apply</div>
+              <p class="guide-text mt-2"><i class="fas fa-clock text-blue-500 mr-2"></i><strong>Wait 5-10
+                  minutes</strong> for the server to install all software.</p>
+
+              <h2 class="guide-h2">Step 5: Verify & Access</h2>
+              <p class="guide-text">1. Get your IP and instructions:</p>
+              <div class="code-block">terraform output</div>
+              <p class="guide-text">2. Access Grafana (after DNS propagation):</p>
+              <ul class="guide-list">
+                <li><strong>UAT:</strong> https://grafana.uat.example.com</li>
+                <li><strong>LIVE:</strong> https://grafana.live.example.com</li>
+              </ul>
+              <p class="guide-text"><strong>Default Credentials:</strong></p>
+              <ul class="guide-list">
+                <li>Username: <span class="inline-code">admin</span></li>
+                <li>Password: <span class="inline-code">admin</span></li>
+              </ul>
+
+              <h2 class="guide-h2">Architecture Components</h2>
+              <table class="w-full text-left border-collapse border border-gray-200 mt-4 mb-8">
+                <thead class="bg-gray-100">
+                  <tr>
+                    <th class="p-3 border border-gray-200 font-semibold">Component</th>
+                    <th class="p-3 border border-gray-200 font-semibold">Port</th>
+                    <th class="p-3 border border-gray-200 font-semibold">Purpose</th>
+                  </tr>
+                </thead>
+                <tbody class="text-sm">
+                  <tr>
+                    <td class="p-3 border border-gray-200">Grafana</td>
+                    <td class="p-3 border border-gray-200">3000</td>
+                    <td class="p-3 border border-gray-200">Dashboard & Visualization</td>
+                  </tr>
+                  <tr>
+                    <td class="p-3 border border-gray-200">Prometheus</td>
+                    <td class="p-3 border border-gray-200">9090</td>
+                    <td class="p-3 border border-gray-200">Metrics Collection</td>
+                  </tr>
+                  <tr>
+                    <td class="p-3 border border-gray-200">Loki</td>
+                    <td class="p-3 border border-gray-200">3100</td>
+                    <td class="p-3 border border-gray-200">Log Aggregation</td>
+                  </tr>
+                  <tr>
+                    <td class="p-3 border border-gray-200">Node Exporter</td>
+                    <td class="p-3 border border-gray-200">9100</td>
+                    <td class="p-3 border border-gray-200">System Metrics</td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <h2 class="guide-h2">Troubleshooting</h2>
+              <div class="space-y-4">
+                <div class="bg-red-50 p-4 rounded-lg border border-red-100">
+                  <h4 class="font-bold text-red-700">Issue: DNS not resolving / SSL Failed</h4>
+                  <p class="text-sm text-red-600 mt-1">Wait longer for DNS propagation (up to 1 hour). If the script
+                    timed out, run Certbot manually via SSH:</p>
+                  <code 
+                    class="block mt-2 bg-white p-2 rounded border border-red-200 text-xs">sudo certbot certonly --webroot -w /var/www/html -d your.domain.com</code>
+                </div>
+                <div class="bg-blue-50 p-4 rounded-lg border border-blue-100">
+                  <h4 class="font-bold text-blue-700">Issue: Docker containers not running</h4>
+                  <p class="text-sm text-blue-600 mt-1">SSH into the server and check container logs:</p>
+                  <code class="block mt-2 bg-white p-2 rounded border border-blue-200 text-xs">docker ps -a
+docker logs grafana</code>
+                </div>
+              </div>
+
+              <h2 class="guide-h2">Cleanup</h2>
+              <p class="guide-text">To remove all resources created by Terraform:</p>
+              <div class="code-block">terraform destroy</div>
+
+            </div>
+          </div>
+        </div>
+
+        <script>
+          function grafanaDashboard() {
+            return {
+              isHelpModalOpen: false,
+              iframeSrc: 'about:blank',
+              subtitleText: 'Live Grafana Dashboard',
+              errorMessage: false,
+              grafanaUrl: null,
+
+              init() {
+                const selectedIds = JSON.parse(
+                  sessionStorage.getItem("selectedAccountIds") || "[]"
+                );
+
+                if (selectedIds.length > 0) {
+                  fetch("/api/xamops/account-manager/accounts")
+                    .then((res) => res.json())
+                    .then((accounts) => {
+                      const selectedAccount = accounts.find(
+                        (acc) => acc.id === selectedIds[0]
+                      );
+                      if (selectedAccount) {
+                        this.loadDashboardFor(selectedAccount);
+                      } else {
+                        this.showError("Selected account not found.");
+                      }
+                    })
+                    .catch(() => this.showError("Could not load account details."));
+                } else {
+                  this.showError("No account selected.");
+                }
+              },
+
+              loadDashboardFor(account) {
+                let grafanaIp = account.grafanaIp;
+                let dashboardUid = account.grafanaDashboardUid;
+                let dashboardSlug = account.grafanaDashboardSlug;
+
+                if (!grafanaIp) {
+                  this.showError(`Grafana IP not configured for "${account.name}".`);
+                  return;
+                }
+
+                if (!dashboardUid) {
+                  this.showError(`Grafana Dashboard UID not configured for "${account.name}".`);
+                  return;
+                }
+
+                if (!dashboardSlug) {
+                  this.showError(`Grafana Dashboard Slug not configured for "${account.name}".`);
+                  return;
+                }
+
+                const protocol = (grafanaIp.includes(':')) ? 'http' : 'https';
+                const baseUrl = `${protocol}://${grafanaIp}`;
+
+                const iframeUrl = new URL(
+                  `${baseUrl}/d/${dashboardUid}/${dashboardSlug}`
+                );
+                iframeUrl.searchParams.append("orgId", "1");
+                iframeUrl.searchParams.append("kiosk", "true");
+                this.iframeSrc = iframeUrl.toString();
+
+                const externalUrl = new URL(
+                  `${baseUrl}/d/${dashboardUid}/${dashboardSlug}`
+                );
+                externalUrl.searchParams.append("orgId", "1");
+                externalUrl.searchParams.append("refresh", "10s");
+                this.grafanaUrl = externalUrl.toString();
+
+                this.subtitleText = `Live Grafana Dashboard for ${account.name}`;
+                this.errorMessage = false;
+              },
+
+              showError(message) {
+                this.subtitleText = message;
+                this.errorMessage = true;
+                this.iframeSrc = "about:blank";
+                this.grafanaUrl = null;
+              }
+            };
+          }
+        </script>
+      </main>
+    </div>
+  </div>
+</body>
+
+</html>
