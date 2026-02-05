@@ -82,11 +82,11 @@ export const useUnifiedDashboard = () => {
   }, []);
 
   // Fetch summary data
-  const fetchSummary = useCallback(async (force: boolean = false) => {
+  const fetchSummary = useCallback(async (force: boolean = false, silent: boolean = false) => {
     setError((prev) => ({ ...prev, summary: null }));
 
-    // Only show loading if forcing refresh or if we haven't loaded initially (though strict mode might mask this, defaults handle it)
-    if (force) {
+    // Only show loading if forcing refresh AND not silent, or if we haven't loaded initially
+    if (!silent && (force || isLoading.summary)) {
       setIsLoading((prev) => ({ ...prev, summary: true }));
     }
 
@@ -113,9 +113,9 @@ export const useUnifiedDashboard = () => {
   }, []);
 
   // Fetch provider data
-  const fetchProvider = useCallback(async (provider: 'aws' | 'gcp' | 'azure', force: boolean = false) => {
-    // Only set loading if forced or if we don't have data yet
-    if (force || (provider === 'aws' && !awsData) || (provider === 'gcp' && !gcpData) || (provider === 'azure' && !azureData)) {
+  const fetchProvider = useCallback(async (provider: 'aws' | 'gcp' | 'azure', force: boolean = false, silent: boolean = false) => {
+    // Only set loading if not silent AND (forced or if we don't have data yet)
+    if (!silent && (force || (provider === 'aws' && !awsData) || (provider === 'gcp' && !gcpData) || (provider === 'azure' && !azureData))) {
       setIsLoading((prev) => ({ ...prev, [provider]: true }));
     }
     setError((prev) => ({ ...prev, [provider]: null }));
@@ -177,11 +177,11 @@ export const useUnifiedDashboard = () => {
   fetchFunctionsRef.current = { fetchSummary, fetchProvider, fetchHealth };
 
   // Fetch all data - using ref to avoid dependency issues
-  const fetchAllImpl = useCallback((force: boolean = false) => {
+  const fetchAllImpl = useCallback((force: boolean = false, silent: boolean = false) => {
     const { fetchSummary, fetchProvider, fetchHealth } = fetchFunctionsRef.current;
 
-    if (force) {
-      // Reset states when forcing refresh
+    if (force && !silent) {
+      // Reset states when forcing refresh (only if not silent)
       setIsLoading({
         summary: true,
         aws: true,
@@ -202,18 +202,20 @@ export const useUnifiedDashboard = () => {
       setSummaryData((prev) => ({ ...prev, totalResources: 0 }));
     }
 
-    setLastUpdated(new Date());
+    if (!silent) {
+      setLastUpdated(new Date());
+    }
 
-    fetchSummary(force);
-    fetchProvider('aws', force);
-    fetchProvider('gcp', force);
-    fetchProvider('azure', force);
+    fetchSummary(force, silent);
+    fetchProvider('aws', force, silent);
+    fetchProvider('gcp', force, silent);
+    fetchProvider('azure', force, silent);
     fetchHealth();
   }, []);
 
   // Stable fetchAll reference for external use
-  const fetchAll = useCallback((force: boolean = false) => {
-    fetchAllImpl(force);
+  const fetchAll = useCallback((force: boolean = false, silent: boolean = false) => {
+    fetchAllImpl(force, silent);
   }, [fetchAllImpl]);
 
   // Helper to get all accounts
@@ -287,12 +289,13 @@ export const useUnifiedDashboard = () => {
     }, 60000);
 
     intervalsRef.current.autoRefresh = setInterval(() => {
-      console.log('Auto-refreshing dashboard data...');
-      fetchFunctionsRef.current.fetchSummary(false);
-      fetchFunctionsRef.current.fetchProvider('aws', false);
-      fetchFunctionsRef.current.fetchProvider('gcp', false);
-      fetchFunctionsRef.current.fetchProvider('azure', false);
+      console.log('Auto-refreshing dashboard data (silent force refresh)...');
+      fetchFunctionsRef.current.fetchSummary(true, true);
+      fetchFunctionsRef.current.fetchProvider('aws', true, true);
+      fetchFunctionsRef.current.fetchProvider('gcp', true, true);
+      fetchFunctionsRef.current.fetchProvider('azure', true, true);
       fetchFunctionsRef.current.fetchHealth();
+      setLastUpdated(new Date()); // Update the last updated time after background fetch
     }, 60000);
 
     // Cleanup

@@ -3,6 +3,7 @@ package com.xammer.billops.service;
 import com.xammer.billops.domain.CloudAccount;
 import com.xammer.billops.dto.AccountSummaryDto;
 import com.xammer.billops.dto.AdminDashboardDto;
+import com.xammer.billops.dto.UserDashboardDto;
 import com.xammer.billops.dto.BillingDashboardDto;
 import com.xammer.billops.dto.InvoiceDto;
 import com.xammer.billops.dto.TicketDto;
@@ -191,12 +192,41 @@ public class AdminDashboardService {
                 .collect(Collectors.toList());
         dashboard.setRecentTickets(recentTickets);
 
+        // Spending trend (last 6 months)
+        dashboard.setSpendingTrend(calculateSpendingTrend(allAccounts, 6));
+
         // Cache the result
         dashboard.setLastUpdated(System.currentTimeMillis());
         redisCache.put(tenantCacheKey, dashboard, CACHE_TTL_MINUTES);
         logger.info("Admin dashboard data cached for tenant {} for {} minutes", tenantCacheKey, CACHE_TTL_MINUTES);
 
         return dashboard;
+    }
+
+    private List<UserDashboardDto.CostHistory> calculateSpendingTrend(List<CloudAccount> accounts, int months) {
+        List<UserDashboardDto.CostHistory> trend = new ArrayList<>();
+        YearMonth currentMonth = YearMonth.now();
+
+        for (int i = months - 1; i >= 0; i--) {
+            YearMonth month = currentMonth.minusMonths(i);
+            double totalCost = 0.0;
+            Map<String, Double> costByProvider = new HashMap<>();
+            costByProvider.put("AWS", 0.0);
+            costByProvider.put("GCP", 0.0);
+            costByProvider.put("Azure", 0.0);
+
+            for (CloudAccount account : accounts) {
+                BigDecimal cost = calculateAccountSpending(account, month);
+                totalCost += (cost != null ? cost.doubleValue() : 0.0);
+
+                String provider = account.getProvider() != null ? account.getProvider().toUpperCase() : "AWS";
+                costByProvider.merge(provider, (cost != null ? cost.doubleValue() : 0.0), Double::sum);
+            }
+
+            trend.add(new UserDashboardDto.CostHistory(month.toString(), totalCost, costByProvider));
+        }
+
+        return trend;
     }
 
     private BigDecimal calculateAccountSpending(CloudAccount account, YearMonth month) {
@@ -208,9 +238,10 @@ public class AdminDashboardService {
                     month.getMonthValue());
 
             // Sum up costs from service breakdown
-            if (billingData.getServiceBreakdown() != null) {
+            if (billingData != null && billingData.getServiceBreakdown() != null) {
                 return billingData.getServiceBreakdown().stream()
-                        .map(s -> BigDecimal.valueOf(s.getCost()))
+                        .map(s -> s.getCost())
+                        .map(BigDecimal::valueOf)
                         .reduce(BigDecimal.ZERO, BigDecimal::add);
             }
 
@@ -279,6 +310,7 @@ public class AdminDashboardService {
 
         if (invoice.getCloudAccount() != null) {
             dto.setAccountName(invoice.getCloudAccount().getAccountName());
+            dto.setProvider(invoice.getCloudAccount().getProvider());
         }
         if (invoice.getClient() != null) {
             dto.setClientName(invoice.getClient().getName());
