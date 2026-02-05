@@ -190,14 +190,16 @@ export const useInvoices = (): UseInvoicesReturn => {
     setViewState('list');
     setSelectedInvoice(null);
 
-    // Filter by account
-    let invoices = allInvoices.filter(
-      (inv) =>
-        (inv.awsAccountId === selectedAccountId ||
-          inv.gcpProjectId === selectedAccountId ||
-          inv.azureSubscriptionId === selectedAccountId) &&
-        inv.status === 'FINALIZED'
-    );
+    // Filter by account (if account is selected)
+    let invoices = selectedAccountId
+      ? allInvoices.filter(
+        (inv) =>
+          (inv.awsAccountId === selectedAccountId ||
+            inv.gcpProjectId === selectedAccountId ||
+            inv.azureSubscriptionId === selectedAccountId) &&
+          inv.status === 'FINALIZED'
+      )
+      : allInvoices.filter((inv) => inv.status === 'FINALIZED'); // Show all invoices if no account selected
 
     // Filter by year
     if (selectedYear !== 'all') {
@@ -210,8 +212,8 @@ export const useInvoices = (): UseInvoicesReturn => {
       invoices = invoices.filter((inv) => inv.billingPeriod.endsWith(monthStr));
     }
 
-    // Set account name from first invoice
-    if (invoices.length > 0 && !selectedAccountName) {
+    // Set account name from first invoice (only if a specific account is selected)
+    if (invoices.length > 0 && !selectedAccountName && selectedAccountId) {
       setSelectedAccountName(invoices[0].accountName);
     }
 
@@ -383,9 +385,13 @@ export const useInvoices = (): UseInvoicesReturn => {
       // 2. Background Refresh
       fetchData(false);
     } else {
-      console.warn('[Invoices] No account ID in URL, waiting for sidebar to apply selection...');
-      setError('Select an account to view invoices');
-      setListLoading(false);
+      console.warn('[Invoices] No account ID in URL, loading all invoices for user...');
+      // For BILLOPS users without account selection, load all their invoices
+      // 1. Instant Load from Cache
+      loadFromCache();
+
+      // 2. Background Refresh
+      fetchData(false);
     }
 
     // Listen for account changes from sidebar
@@ -427,7 +433,7 @@ export const useInvoices = (): UseInvoicesReturn => {
    * Re-filter when filters or data change
    */
   useEffect(() => {
-    if (selectedAccountId && allInvoices.length > 0) {
+    if (allInvoices.length > 0) {
       filterAndDisplayInvoices();
     }
   }, [selectedAccountId, allInvoices, selectedYear, selectedMonth, filterAndDisplayInvoices]);

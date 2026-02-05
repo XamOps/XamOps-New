@@ -656,7 +656,7 @@ const BillOpsUserDashboardPage: React.FC = () => {
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-black text-gray-900">Recent Invoices</h3>
               <Link
-                to="/billops/invoices"
+                to="/billops-invoices"
                 className="text-xs font-bold text-indigo-600 hover:text-indigo-800 hover:underline uppercase tracking-wide"
               >
                 View All &rarr;
@@ -707,7 +707,7 @@ const BillOpsUserDashboardPage: React.FC = () => {
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-black text-gray-900">Recent Tickets</h3>
               <Link
-                to="/billops/tickets"
+                to="/billops-tickets"
                 className="text-xs font-bold text-indigo-600 hover:text-indigo-800 hover:underline uppercase tracking-wide"
               >
                 View All &rarr;

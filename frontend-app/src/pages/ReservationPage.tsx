@@ -25,6 +25,7 @@ import ReservationMetrics from '../components/Reservation/ReservationMetrics';
 import ReservationChart from '../components/Reservation/ReservationChart';
 import ReservationInventory from '../components/Reservation/ReservationInventory';
 import ReservationRecommendations from '../components/Reservation/ReservationRecommendations';
+import ReservationSkeleton from '../components/Reservation/ReservationSkeleton';
 
 export const ReservationPage: React.FC = () => {
   const { selectedAccountIds } = useAccounts();
@@ -84,17 +85,40 @@ export const ReservationPage: React.FC = () => {
       />
 
       <div className="flex-1 p-8 space-y-6 custom-scrollbar overflow-y-auto">
-        {/* Loading State */}
-        {isLoading && (!data.inventory || data.inventory.length === 0) && (
-          <div className="flex flex-col items-center justify-center h-96 fade-in">
-            <div className="loader mb-6"></div>
-            <p className="text-gray-600 text-base font-semibold">Loading reservation data...</p>
-            <p className="text-gray-400 text-sm mt-2">Please wait while we fetch your information</p>
-          </div>
-        )}
-
-        {/* Content */}
-        {!isLoading || (data.inventory && data.inventory.length > 0) ? (
+        {/* Loading State with Skeleton */}
+        {isLoading && (!data.inventory || data.inventory.length === 0) ? (
+          <>
+            {/* Tab Navigation Skeleton */}
+            <div className="glass-card rounded-xl p-1 shadow-sm">
+              <nav className="flex space-x-1" aria-label="Tabs">
+                <button
+                  onClick={() => setActiveTab('recommendations')}
+                  className={`tab-btn flex-1 whitespace-nowrap py-3 px-4 border-b-0 font-semibold text-sm rounded-lg transition-all flex items-center justify-center gap-2 ${
+                    activeTab === 'recommendations'
+                      ? 'bg-gradient-to-br from-indigo-50 to-purple-50 text-indigo-700 shadow-sm active'
+                      : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'
+                  }`}
+                >
+                  <i className="fas fa-lightbulb"></i>
+                  Purchase Recommendations
+                </button>
+                <button
+                  onClick={() => setActiveTab('overview')}
+                  className={`tab-btn flex-1 whitespace-nowrap py-3 px-4 border-b-0 font-semibold text-sm rounded-lg transition-all ${
+                    activeTab === 'overview'
+                      ? 'bg-gradient-to-br from-indigo-50 to-purple-50 text-indigo-700 shadow-sm active'
+                      : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'
+                  }`}
+                >
+                  <i className="fas fa-chart-line mr-2"></i>
+                  Overview & Inventory
+                </button>
+              </nav>
+            </div>
+            <ReservationSkeleton type={activeTab} />
+          </>
+        ) : (
+          /* Content */
           <div className="space-y-6 fade-in">
             {/* Tab Navigation */}
             <div className="glass-card rounded-xl p-1 shadow-sm">
@@ -195,7 +219,7 @@ export const ReservationPage: React.FC = () => {
               </div>
             )}
           </div>
-        ) : null}
+        )}
       </div>
     </main>
   );
