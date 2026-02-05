@@ -46,7 +46,8 @@ public class CustomUserDetailsService implements UserDetailsService {
 
         // Check active profile
         String[] activeProfiles = environment.getActiveProfiles();
-        boolean isProduction = java.util.Arrays.asList(activeProfiles).contains("prod");
+        boolean isProduction = java.util.Arrays.asList(activeProfiles).contains("prod")
+                || java.util.Arrays.asList(activeProfiles).contains("preprod");
 
         if (isProduction) {
             // PRODUCTION MODE: Use global_users table for multi-tenant routing
