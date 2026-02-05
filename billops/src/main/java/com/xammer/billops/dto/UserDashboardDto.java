@@ -180,6 +180,7 @@ public class UserDashboardDto {
     public static class CostHistory {
         private String date;
         private double cost;
+        private Map<String, Double> costByProvider;
 
         public CostHistory() {
         }
@@ -187,6 +188,12 @@ public class UserDashboardDto {
         public CostHistory(String date, double cost) {
             this.date = date;
             this.cost = cost;
+        }
+
+        public CostHistory(String date, double cost, Map<String, Double> costByProvider) {
+            this.date = date;
+            this.cost = cost;
+            this.costByProvider = costByProvider;
         }
 
         public String getDate() {
@@ -203,6 +210,14 @@ public class UserDashboardDto {
 
         public void setCost(double cost) {
             this.cost = cost;
+        }
+
+        public Map<String, Double> getCostByProvider() {
+            return costByProvider;
+        }
+
+        public void setCostByProvider(Map<String, Double> costByProvider) {
+            this.costByProvider = costByProvider;
         }
     }
 }
