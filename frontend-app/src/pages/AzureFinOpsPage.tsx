@@ -239,7 +239,7 @@ const AzureFinOpsPage: React.FC = () => {
             },
             ticks: {
               color: '#6b7280',
-              callback: function(value) {
+              callback: function (value) {
                 return '$' + (value as number).toFixed(0);
               }
             }

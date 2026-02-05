@@ -4,9 +4,11 @@ import { useTopbar } from '../../contexts/TopbarContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { useAccounts } from '../../contexts/AccountContext';
 import { useNotifications } from '../../hooks/useNotifications';
+import { useBillOpsUserNotifications } from '../../hooks/useBillOpsUserNotifications';
 import SuperAdminTopBar from './SuperAdminTopBar';
 import LogoutModal from './LogoutModal';
 import NotificationDropdown from './NotificationDropdown';
+import BillOpsUserNotificationDropdown from '../BillOps/BillOpsUserNotificationDropdown';
 
 const Topbar: React.FC = () => {
     const location = useLocation();
@@ -22,13 +24,24 @@ const Topbar: React.FC = () => {
     const dropdownRef = useRef<HTMLDivElement>(null);
     const notificationRef = useRef<HTMLDivElement>(null);
 
-    // Check if current page is BillOps Admin Dashboard (which has its own notification system)
-    const isBillOpsAdminPage = location.pathname === '/billops-admin-dashboard';
+    // Check user role for notification system
+    const isBillOpsAdmin = hasAnyRole('ROLE_BILLOPS_ADMIN') && !hasAnyRole('ROLE_XAMOPS') && !hasAnyRole('ROLE_SUPER_ADMIN');
+    const isBillOpsUser = hasAnyRole('ROLE_BILLOPS') && !hasAnyRole('ROLE_XAMOPS') && !hasAnyRole('ROLE_SUPER_ADMIN') && !hasAnyRole('ROLE_BILLOPS_ADMIN');
 
-    // Fetch notifications (only for XamOps pages, not BillOps Admin)
-    const { notifications, counts, isLoading: notificationsLoading } = useNotifications({
-        selectedAccountId: isBillOpsAdminPage ? null : selectedAccountId,
+    // Fetch XamOps notifications (only for XamOps users, not BillOps users)
+    const { notifications: xamOpsNotifications, counts: xamOpsCounts, isLoading: xamOpsLoading } = useNotifications({
+        selectedAccountId: (isBillOpsAdmin || isBillOpsUser) ? null : selectedAccountId,
     });
+
+    // Fetch BillOps User notifications (only for BillOps users)
+    const { notifications: billOpsUserNotifications, counts: billOpsUserCounts, isLoading: billOpsUserLoading } = useBillOpsUserNotifications(
+        isBillOpsUser ? selectedAccountId : null
+    );
+
+    // Determine which notifications to show
+    const notifications = isBillOpsUser ? billOpsUserNotifications : xamOpsNotifications;
+    const counts = isBillOpsUser ? billOpsUserCounts : xamOpsCounts;
+    const notificationsLoading = isBillOpsUser ? billOpsUserLoading : xamOpsLoading;
 
     // Close dropdown when clicking outside
     useEffect(() => {
@@ -107,8 +120,8 @@ const Topbar: React.FC = () => {
                     </div>
 
                     <div className="flex items-center gap-3">
-                        {/* Notifications - Only show for XamOps pages, not BillOps Admin */}
-                        {!isBillOpsAdminPage && (
+                        {/* Notifications - Show for XamOps and BillOps users, but not BillOps Admin (they have their own on dashboard) */}
+                        {!isBillOpsAdmin && (
                             <div className="relative" ref={notificationRef}>
                                 <button
                                     onClick={toggleNotifications}
@@ -121,12 +134,23 @@ const Topbar: React.FC = () => {
                                 </button>
 
                                 {isNotificationOpen && (
-                                    <NotificationDropdown
-                                        notifications={notifications}
-                                        counts={counts}
-                                        isLoading={notificationsLoading}
-                                        onClose={() => setIsNotificationOpen(false)}
-                                    />
+                                    <>
+                                        {isBillOpsUser ? (
+                                            <BillOpsUserNotificationDropdown
+                                                notifications={billOpsUserNotifications}
+                                                counts={billOpsUserCounts}
+                                                isLoading={billOpsUserLoading}
+                                                onClose={() => setIsNotificationOpen(false)}
+                                            />
+                                        ) : (
+                                            <NotificationDropdown
+                                                notifications={xamOpsNotifications}
+                                                counts={xamOpsCounts}
+                                                isLoading={xamOpsLoading}
+                                                onClose={() => setIsNotificationOpen(false)}
+                                            />
+                                        )}
+                                    </>
                                 )}
                             </div>
                         )}
