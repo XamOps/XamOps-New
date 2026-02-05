@@ -28,20 +28,20 @@ import { Link } from 'react-router-dom';
 import Chart from 'chart.js/auto';
 import { useBillOpsAdminDashboard } from '../hooks/useBillOpsAdminDashboard';
 import { useTopbar } from '../contexts/TopbarContext';
-import type { TopSpendingAccount, AdminInvoice, AdminTicket } from '../types/billopsAdminDashboard';
+import type { TopSpendingAccount, AdminInvoice, AdminTicket, SpendingTrendItem } from '../types/billopsAdminDashboard';
 
 import { useCurrency } from '../hooks/useCurrency';
 
 const BillOpsAdminDashboardPage: React.FC = () => {
   const { data, loading, isRefreshing, error, refreshDashboard } = useBillOpsAdminDashboard();
   const { setActions, clearActions } = useTopbar();
-  const { loadRates, convert, loading: currencyLoading } = useCurrency();
+  const { loadRates, convert } = useCurrency();
 
   // Chart refs
   const providerChartRef = useRef<HTMLCanvasElement>(null);
-  const statusChartRef = useRef<HTMLCanvasElement>(null);
+  const trendChartRef = useRef<HTMLCanvasElement>(null);
   const providerChartInstance = useRef<Chart<'doughnut'> | null>(null);
-  const statusChartInstance = useRef<Chart<'bar'> | null>(null);
+  const trendChartInstance = useRef<Chart<'line'> | null>(null);
 
   // Load currency rates (Assuming GCP data is in INR and needs conversion to USD)
   useEffect(() => {
@@ -49,34 +49,88 @@ const BillOpsAdminDashboardPage: React.FC = () => {
   }, [loadRates]);
 
   /**
+   * Memoized converted data to ensure consistent USD presentation
+   */
+  const convertedData = React.useMemo(() => {
+    if (!data) return null;
+
+    // Convert top accounts spending
+    const convertedTopAccounts = data.topSpendingAccounts.map(account => ({
+      ...account,
+      currentMonthSpending: account.provider === 'GCP'
+        ? (convert(account.currentMonthSpending, 'usd') ?? account.currentMonthSpending)
+        : account.currentMonthSpending,
+      lastMonthSpending: account.provider === 'GCP'
+        ? (convert(account.lastMonthSpending, 'usd') ?? account.lastMonthSpending)
+        : account.lastMonthSpending,
+    }));
+
+    // Recalculate provider distribution
+    const spendingByProvider = {
+      AWS: data.spendingByProvider.AWS || 0,
+      Azure: data.spendingByProvider.Azure || 0,
+      GCP: data.spendingByProvider.GCP ? (convert(data.spendingByProvider.GCP, 'usd') ?? data.spendingByProvider.GCP) : 0
+    };
+
+    // Recalculate total spending
+    const totalSpending = Object.values(spendingByProvider).reduce((sum, val) => sum + (val || 0), 0);
+
+    // Convert spendingTrend if it exists
+    const convertedSpendingTrend = data.spendingTrend?.map(item => {
+      if (!item.costByProvider) return item;
+
+      const aws = item.costByProvider.AWS || 0;
+      const azure = item.costByProvider.Azure || 0;
+      const gcpRaw = item.costByProvider.GCP || 0;
+      const gcpConverted = convert(gcpRaw, 'usd') ?? gcpRaw;
+
+      return {
+        ...item,
+        cost: aws + azure + gcpConverted,
+        costByProvider: {
+          AWS: aws,
+          Azure: azure,
+          GCP: gcpConverted
+        }
+      };
+    }) || [];
+
+    // Convert recent invoices
+    const convertedRecentInvoices = data.recentInvoices.map(invoice => ({
+      ...invoice,
+      amount: invoice.provider === 'GCP'
+        ? (convert(invoice.amount, 'usd') ?? invoice.amount)
+        : invoice.amount
+    }));
+
+    return {
+      ...data,
+      topSpendingAccounts: convertedTopAccounts,
+      totalSpending,
+      spendingByProvider,
+      spendingTrend: convertedSpendingTrend,
+      recentInvoices: convertedRecentInvoices
+    };
+  }, [data, convert]);
+
+  /**
    * Format currency value
    */
-  const formatCurrency = (value: number | null | undefined, provider?: string): string => {
+  const formatCurrency = (value: number | null | undefined): string => {
     if (value === null || value === undefined) return '$0.00';
-
-    let finalValue = value;
-
-    // Convert GCP data (assumed INR) to USD
-    if (provider === 'GCP') {
-      const converted = convert(value, 'usd');
-      if (converted !== null) {
-        finalValue = converted;
-      }
-    }
-
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
-    }).format(finalValue);
+    }).format(value);
   };
 
   /**
    * Render Provider Distribution Chart (Doughnut)
    */
   useEffect(() => {
-    if (!providerChartRef.current || !data?.spendingByProvider) return;
+    if (!providerChartRef.current || !convertedData?.spendingByProvider) return;
 
     // Destroy existing chart
     if (providerChartInstance.current) {
@@ -86,7 +140,7 @@ const BillOpsAdminDashboardPage: React.FC = () => {
     const ctx = providerChartRef.current.getContext('2d');
     if (!ctx) return;
 
-    const spendingData = data.spendingByProvider;
+    const spendingData = convertedData.spendingByProvider;
     const labels = Object.keys(spendingData);
     const values = Object.values(spendingData);
 
@@ -137,39 +191,43 @@ const BillOpsAdminDashboardPage: React.FC = () => {
         providerChartInstance.current.destroy();
       }
     };
-  }, [data?.spendingByProvider]);
+  }, [convertedData?.spendingByProvider]);
 
   /**
-   * Render Account Status Chart (Bar)
+   * Render Spending Trend Chart
    */
   useEffect(() => {
-    if (!statusChartRef.current || !data?.accountsByStatus) return;
+    if (!trendChartRef.current || !convertedData?.spendingTrend?.length) return;
 
     // Destroy existing chart
-    if (statusChartInstance.current) {
-      statusChartInstance.current.destroy();
+    if (trendChartInstance.current) {
+      trendChartInstance.current.destroy();
     }
 
-    const ctx = statusChartRef.current.getContext('2d');
+    const ctx = trendChartRef.current.getContext('2d');
     if (!ctx) return;
 
-    const statusData = data.accountsByStatus;
-    const labels = Object.keys(statusData);
-    const values = Object.values(statusData);
+    const labels = convertedData.spendingTrend.map((item: SpendingTrendItem) => item.date);
+    const values = convertedData.spendingTrend.map((item: SpendingTrendItem) => item.cost);
 
-    if (labels.length === 0) return;
-
-    statusChartInstance.current = new Chart(ctx, {
-      type: 'bar',
+    trendChartInstance.current = new Chart(ctx, {
+      type: 'line',
       data: {
         labels,
         datasets: [
           {
-            label: 'Accounts',
+            label: 'Monthly Spending (USD)',
             data: values,
-            backgroundColor: '#6366f1',
-            borderRadius: 6,
-            barThickness: 32,
+            borderColor: '#6366f1',
+            backgroundColor: 'rgba(99, 102, 241, 0.1)',
+            borderWidth: 3,
+            fill: true,
+            tension: 0.4,
+            pointBackgroundColor: '#fff',
+            pointBorderColor: '#6366f1',
+            pointBorderWidth: 2,
+            pointRadius: 4,
+            pointHoverRadius: 6,
           },
         ],
       },
@@ -180,12 +238,24 @@ const BillOpsAdminDashboardPage: React.FC = () => {
           legend: {
             display: false,
           },
+          tooltip: {
+            backgroundColor: 'rgba(255, 255, 255, 0.95)',
+            bodyColor: '#1f2937',
+            titleColor: '#111827',
+            borderColor: '#e5e7eb',
+            borderWidth: 1,
+            padding: 12,
+            displayColors: false,
+            callbacks: {
+              label: (context) => `Spend: ${formatCurrency(context.raw as number)}`,
+            },
+          },
         },
         scales: {
           y: {
             beginAtZero: true,
             ticks: {
-              stepSize: 1,
+              callback: (value) => `$${Number(value).toLocaleString()}`,
               font: { family: 'Inter' },
             },
             grid: {
@@ -205,11 +275,11 @@ const BillOpsAdminDashboardPage: React.FC = () => {
     });
 
     return () => {
-      if (statusChartInstance.current) {
-        statusChartInstance.current.destroy();
+      if (trendChartInstance.current) {
+        trendChartInstance.current.destroy();
       }
     };
-  }, [data?.accountsByStatus]);
+  }, [convertedData?.spendingTrend]);
 
   /**
    * Get status badge class
@@ -311,7 +381,7 @@ const BillOpsAdminDashboardPage: React.FC = () => {
               <div className="admin-fade-in">
                 <div className="flex items-baseline gap-2 mb-1">
                   <span className="text-3xl font-black admin-metric-value">
-                    {formatCurrency(data?.totalSpending)}
+                    {formatCurrency(convertedData?.totalSpending)}
                   </span>
                 </div>
                 <p className="text-xs text-gray-500 mt-2 font-medium">Aggregated across all clients</p>
@@ -444,19 +514,19 @@ const BillOpsAdminDashboardPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Account Status Chart */}
+          {/* Spending Trend Chart */}
           <div className="admin-glass-card admin-border-top-purple rounded-xl p-6 flex flex-col">
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h3 className="text-lg font-black text-gray-900 flex items-center gap-2">
-                  <i className="fas fa-chart-bar text-purple-600" />
-                  Account Status
+                  <i className="fas fa-chart-line text-purple-600" />
+                  Spending Trend (Last 6 Months)
                 </h3>
-                <p className="text-xs text-gray-500 mt-1 font-medium">Active vs Inactive</p>
+                <p className="text-xs text-gray-500 mt-1 font-medium">Aggregated Cloud Spend in USD</p>
               </div>
             </div>
-            <div className="admin-chart-container">
-              <canvas ref={statusChartRef} />
+            <div className="admin-chart-container" style={{ height: '300px' }}>
+              <canvas ref={trendChartRef} />
             </div>
           </div>
         </div>
@@ -502,8 +572,8 @@ const BillOpsAdminDashboardPage: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="bg-white/40 divide-y divide-gray-200">
-                  {data?.topSpendingAccounts && data.topSpendingAccounts.length > 0 ? (
-                    data.topSpendingAccounts.map((account: TopSpendingAccount) => (
+                  {convertedData?.topSpendingAccounts && convertedData.topSpendingAccounts.length > 0 ? (
+                    convertedData.topSpendingAccounts.map((account: TopSpendingAccount) => (
                       <tr key={account.id} className="admin-table-row">
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
                           {account.accountName}
@@ -523,10 +593,10 @@ const BillOpsAdminDashboardPage: React.FC = () => {
                           </span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-black text-gray-900">
-                          {formatCurrency(account.currentMonthSpending, account.provider)}
+                          {formatCurrency(account.currentMonthSpending)}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">
-                          {formatCurrency(account.lastMonthSpending, account.provider)}
+                          {formatCurrency(account.lastMonthSpending)}
                         </td>
                       </tr>
                     ))
@@ -562,8 +632,8 @@ const BillOpsAdminDashboardPage: React.FC = () => {
                   <div className="h-12 bg-gray-100 rounded-lg admin-shimmer animate-pulse" />
                   <div className="h-12 bg-gray-100 rounded-lg admin-shimmer animate-pulse" />
                 </>
-              ) : data?.recentInvoices && data.recentInvoices.length > 0 ? (
-                data.recentInvoices.map((invoice: AdminInvoice) => (
+              ) : convertedData?.recentInvoices && convertedData.recentInvoices.length > 0 ? (
+                convertedData.recentInvoices.map((invoice: AdminInvoice) => (
                   <div
                     key={invoice.id}
                     className="admin-list-item flex items-center justify-between p-3 rounded-lg group"
