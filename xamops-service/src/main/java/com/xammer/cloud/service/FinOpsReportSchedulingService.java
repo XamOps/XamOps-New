@@ -13,10 +13,15 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.DayOfWeek;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
-import java.util.Map; // <-- NEW IMPORT
-import java.util.stream.Collectors; // <-- NEW IMPORT
+import java.util.Map;
+import java.util.stream.Collectors;
+
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 
 @Service
 public class FinOpsReportSchedulingService {
@@ -41,7 +46,149 @@ public class FinOpsReportSchedulingService {
         this.emailBuilder = emailBuilder;
     }
 
-    @Transactional(readOnly = true)
+    // Scheduled report time: 6:00 PM IST (12:30 UTC)
+    private static final LocalTime SCHEDULED_TIME = LocalTime.of(18, 0);
+
+    /**
+     * Checks for and runs any missed report executions on application startup.
+     * This handles cases where the application was suspended/sleeping during
+     * the scheduled execution time.
+     *
+     * Uses ApplicationReadyEvent instead of @PostConstruct to ensure the
+     * transaction manager and Hibernate session are fully initialized.
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    @Transactional
+    public void checkAndRunMissedReports() {
+        logger.info("========================================");
+        logger.info("Checking for missed FinOps report executions...");
+        logger.info("========================================");
+
+        LocalDateTime now = LocalDateTime.now();
+        LocalTime currentTime = now.toLocalTime();
+        LocalDate today = now.toLocalDate();
+
+        // Only check for missed reports if we're past the scheduled time
+        if (currentTime.isBefore(SCHEDULED_TIME)) {
+            logger.info("Current time {} is before scheduled time {}. No missed reports to check.",
+                    currentTime, SCHEDULED_TIME);
+            return;
+        }
+
+        // Check DAILY reports
+        checkAndRunMissedDailyReports(today);
+
+        // Check WEEKLY reports (only on Fridays or if missed on a previous Friday)
+        checkAndRunMissedWeeklyReports(today);
+
+        // Check MONTHLY reports (only on 30th or if missed)
+        checkAndRunMissedMonthlyReports(today);
+
+        logger.info("========================================");
+        logger.info("Missed report check completed.");
+        logger.info("========================================");
+    }
+
+    private void checkAndRunMissedDailyReports(LocalDate today) {
+        List<FinOpsReportSchedule> dailySchedules = scheduleRepository
+                .findAllActiveByFrequencyWithDetails(FinOpsReportSchedule.Frequency.DAILY);
+
+        if (dailySchedules.isEmpty()) {
+            logger.info("No active DAILY schedules found.");
+            return;
+        }
+
+        // Check if any daily schedule was missed today
+        boolean anyMissed = dailySchedules.stream().anyMatch(schedule -> {
+            LocalDateTime lastSent = schedule.getLastSent();
+            // Missed if never sent OR last sent before today
+            return lastSent == null || lastSent.toLocalDate().isBefore(today);
+        });
+
+        if (anyMissed) {
+            logger.info(">>> DETECTED MISSED DAILY REPORTS - Triggering recovery execution...");
+            runDailyReports();
+        } else {
+            logger.info("All DAILY reports for today have already been sent.");
+        }
+    }
+
+    private void checkAndRunMissedWeeklyReports(LocalDate today) {
+        // Find the most recent Friday (including today if it's Friday)
+        LocalDate lastFriday = today;
+        while (lastFriday.getDayOfWeek() != DayOfWeek.FRIDAY) {
+            lastFriday = lastFriday.minusDays(1);
+        }
+
+        List<FinOpsReportSchedule> weeklySchedules = scheduleRepository
+                .findAllActiveByFrequencyWithDetails(FinOpsReportSchedule.Frequency.WEEKLY);
+
+        if (weeklySchedules.isEmpty()) {
+            logger.info("No active WEEKLY schedules found.");
+            return;
+        }
+
+        final LocalDate fridayToCheck = lastFriday;
+        boolean anyMissed = weeklySchedules.stream().anyMatch(schedule -> {
+            LocalDateTime lastSent = schedule.getLastSent();
+            // Missed if never sent OR last sent before the most recent Friday
+            return lastSent == null || lastSent.toLocalDate().isBefore(fridayToCheck);
+        });
+
+        if (anyMissed) {
+            logger.info(">>> DETECTED MISSED WEEKLY REPORTS (for Friday {}) - Triggering recovery execution...", lastFriday);
+            runWeeklyReports();
+        } else {
+            logger.info("All WEEKLY reports for the week ending {} have already been sent.", lastFriday);
+        }
+    }
+
+    private void checkAndRunMissedMonthlyReports(LocalDate today) {
+        // Monthly reports run on the 30th
+        int dayOfMonth = today.getDayOfMonth();
+
+        // Find the most recent 30th (could be this month or last month)
+        LocalDate lastThirtieth;
+        if (dayOfMonth >= 30) {
+            // Check if this month's 30th report was sent
+            lastThirtieth = today.withDayOfMonth(30);
+        } else {
+            // Check last month's 30th
+            LocalDate lastMonth = today.minusMonths(1);
+            // Handle months with fewer than 30 days
+            int lastDayOfPrevMonth = lastMonth.lengthOfMonth();
+            if (lastDayOfPrevMonth >= 30) {
+                lastThirtieth = lastMonth.withDayOfMonth(30);
+            } else {
+                // Previous month had fewer than 30 days, use last day
+                lastThirtieth = lastMonth.withDayOfMonth(lastDayOfPrevMonth);
+            }
+        }
+
+        List<FinOpsReportSchedule> monthlySchedules = scheduleRepository
+                .findAllActiveByFrequencyWithDetails(FinOpsReportSchedule.Frequency.MONTHLY);
+
+        if (monthlySchedules.isEmpty()) {
+            logger.info("No active MONTHLY schedules found.");
+            return;
+        }
+
+        final LocalDate thirtiethToCheck = lastThirtieth;
+        boolean anyMissed = monthlySchedules.stream().anyMatch(schedule -> {
+            LocalDateTime lastSent = schedule.getLastSent();
+            // Missed if never sent OR last sent before the most recent 30th
+            return lastSent == null || lastSent.toLocalDate().isBefore(thirtiethToCheck);
+        });
+
+        if (anyMissed) {
+            logger.info(">>> DETECTED MISSED MONTHLY REPORTS (for {}) - Triggering recovery execution...", lastThirtieth);
+            runMonthlyReports();
+        } else {
+            logger.info("All MONTHLY reports for {} have already been sent.", lastThirtieth);
+        }
+    }
+
+    @Transactional
     @Scheduled(cron = "0 30 12 * * ?") // 6:00 PM IST daily
     public void runDailyReports() {
         logger.info("Running DAILY FinOps report schedules...");
@@ -54,7 +201,7 @@ public class FinOpsReportSchedulingService {
         processSchedules(schedules, "Daily", reportDate, reportDate, dateRange);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     @Scheduled(cron = "0 30 12 ? * FRI") // 6:00 PM IST every Friday
     public void runWeeklyReports() {
         logger.info("Running WEEKLY FinOps report schedules...");
@@ -69,7 +216,7 @@ public class FinOpsReportSchedulingService {
         processSchedules(schedules, "Weekly", startDate, endDate, dateRange);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     @Scheduled(cron = "0 30 12 30 * ?") // 6:00 PM IST on the 30th
     public void runMonthlyReports() {
         logger.info("Running MONTHLY FinOps report schedules...");
@@ -134,21 +281,33 @@ public class FinOpsReportSchedulingService {
                 String htmlBody = emailBuilder.buildProfessionalReportEmail(reportData, accountName, frequency, dateRange, account.getProvider());
                 logger.debug("Generated HTML email body with {} characters", htmlBody != null ? htmlBody.length() : 0);
 
-                // --- STEP 3: Send email to all recipients for this account ---
-                logger.info("Sending {} reports for account {} to {} recipients",
-                           frequency, accountId, accountSchedules.size());
+                // --- STEP 3: Send email to unique recipients for this account ---
+                // Group schedules by email to avoid sending duplicate emails to the same recipient
+                Map<String, List<FinOpsReportSchedule>> schedulesByEmail = accountSchedules.stream()
+                        .collect(Collectors.groupingBy(FinOpsReportSchedule::getEmail));
 
-                for (FinOpsReportSchedule schedule : accountSchedules) {
+                logger.info("Sending {} reports for account {} to {} unique recipients (from {} schedules)",
+                           frequency, accountId, schedulesByEmail.size(), accountSchedules.size());
+
+                for (Map.Entry<String, List<FinOpsReportSchedule>> emailEntry : schedulesByEmail.entrySet()) {
+                    String recipientEmail = emailEntry.getKey();
+                    List<FinOpsReportSchedule> recipientSchedules = emailEntry.getValue();
+
                     try {
-                        logger.info("Attempting to send email to {} for schedule ID {}",
-                                   schedule.getEmail(), schedule.getId());
-                        emailService.sendHtmlEmail(schedule.getEmail(), subject, htmlBody);
-                        updateScheduleLastSent(schedule.getId());
-                        logger.info("✓ Successfully sent {} report to {} for account {} (Schedule ID: {})",
-                                   frequency, schedule.getEmail(), accountName, schedule.getId());
+                        logger.info("Attempting to send email to {} for {} schedule(s)",
+                                   recipientEmail, recipientSchedules.size());
+                        emailService.sendHtmlEmail(recipientEmail, subject, htmlBody);
+
+                        // Update lastSent for all schedules with this email
+                        for (FinOpsReportSchedule schedule : recipientSchedules) {
+                            updateScheduleLastSent(schedule.getId());
+                        }
+                        logger.info("✓ Successfully sent {} report to {} for account {} (Schedule IDs: {})",
+                                   frequency, recipientEmail, accountName,
+                                   recipientSchedules.stream().map(s -> s.getId().toString()).collect(Collectors.joining(", ")));
                     } catch (Exception emailEx) {
-                        logger.error("✗ Failed to send email for schedule ID {} to {}: {}",
-                                    schedule.getId(), schedule.getEmail(), emailEx.getMessage(), emailEx);
+                        logger.error("✗ Failed to send email to {}: {}",
+                                    recipientEmail, emailEx.getMessage(), emailEx);
                     }
                 }
 
