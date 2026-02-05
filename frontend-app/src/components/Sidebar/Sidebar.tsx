@@ -185,8 +185,10 @@ const Sidebar: React.FC = () => {
         currentPath === '/cloudk8s.html' ||
         currentPath === '/gcp-cloudk8s' ||
         currentPath === '/gcp_cloudk8s.html' ||
+        currentPath === '/azure-cloudk8s' ||
         currentPath.startsWith('/eks-details') ||
-        currentPath.startsWith('/gke-details')
+        currentPath.startsWith('/gke-details') ||
+        currentPath.startsWith('/aks-details')
       );
     }
 
@@ -660,7 +662,7 @@ const Sidebar: React.FC = () => {
               isOpen={openDropdown === 'cloudops'}
               onToggle={() => toggleDropdown('cloudops')}
             >
-              <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-cloudk8s' : '/cloudk8s'} icon="fas fa-dharmachakra" label="CloudK8s" isActive={isActive('/cloudk8s')} />
+              <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-cloudk8s' : selectedAccountDisplay.provider === 'Azure' ? '/azure-cloudk8s' : '/cloudk8s'} icon="fas fa-dharmachakra" label="CloudK8s" isActive={isActive('/cloudk8s')} />
               <NavItem href="/sonarqube" icon="fas fa-chart-line" label="SonarQube" isActive={isActive('/sonarqube')} />
               <NavItem href="/cicd-pipelines" icon="fas fa-cogs" label="CICD Pipelines" isActive={isActive('/cicd-pipelines')} />
               <NavItem href="/devops-in-the-box" icon="fas fa-toolbox" label="DevOps-in-the-Box" isActive={isActive('/devops-in-the-box')} />

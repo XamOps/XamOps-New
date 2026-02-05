@@ -90,10 +90,7 @@ const LoginPage: React.FC = () => {
             <p className="footer-text">
               Already logged in? <a href="/unified-dashboard" className="text-link">Go to Dashboard →</a>
             </p>
-            <p className="footer-text mt-2">
-              Secure • Compliant • <span className="footer-highlight">Enterprise Ready</span>
-            </p>
-            <p className="footer-text mt-1 opacity-50">
+            <p className="footer-text mt-2 opacity-50">
               © 2025 Xammer. All rights reserved.
             </p>
           </div>

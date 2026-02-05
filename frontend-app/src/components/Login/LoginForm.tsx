@@ -1,4 +1,4 @@
-import React, { useState, FormEvent } from 'react';
+import React, { useState, useEffect, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useAccounts } from '../../contexts/AccountContext';
@@ -22,6 +22,14 @@ const LoginForm: React.FC<LoginFormProps> = ({ onForgotPassword }) => {
   const [rememberMe, setRememberMe] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Auto-dismiss error after 8 seconds
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => setError(null), 8000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
 
   const togglePasswordVisibility = () => {
     setShowPassword(!showPassword);
@@ -83,12 +91,20 @@ const LoginForm: React.FC<LoginFormProps> = ({ onForgotPassword }) => {
     <>
       {/* Error Alert */}
       {error && (
-        <div className="error-box" role="alert">
+        <div className="error-box" role="alert" aria-live="assertive">
           <i className="fas fa-exclamation-triangle"></i>
           <div className="error-alert-content">
             <h4 className="error-title">Access Denied</h4>
             <p className="error-msg">{error}</p>
           </div>
+          <button
+            type="button"
+            className="error-dismiss-btn"
+            onClick={() => setError(null)}
+            aria-label="Dismiss error"
+          >
+            <i className="fas fa-times"></i>
+          </button>
         </div>
       )}
 
