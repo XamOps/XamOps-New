@@ -35,6 +35,8 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
                 return 'fas fa-chart-line';
             case 'budget':
                 return 'fas fa-dollar-sign';
+            case 'chat':
+                return 'fas fa-comment-dots';
             default:
                 return 'fas fa-bell';
         }
@@ -76,9 +78,23 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
      * Group notifications by type
      */
     const groupedNotifications = {
+        chat: notifications.filter(n => n.type === 'chat'),
         cloudguard: notifications.filter(n => n.type === 'cloudguard'),
         grafana: notifications.filter(n => n.type === 'grafana'),
         budget: notifications.filter(n => n.type === 'budget'),
+    };
+
+    /**
+     * Handle chat notification click - mark chat as opened
+     */
+    const handleChatClick = () => {
+        // Update last chat open time in localStorage
+        try {
+            localStorage.setItem('lastChatOpenTime', Date.now().toString());
+        } catch (error) {
+            console.error('Failed to update lastChatOpenTime:', error);
+        }
+        onClose();
     };
 
     return (
@@ -112,6 +128,52 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
             {/* Notifications List */}
             {!isLoading && notifications.length > 0 && (
                 <div className="notification-content">
+                    {/* Chat Messages Section */}
+                    {groupedNotifications.chat.length > 0 && (
+                        <div className="notification-section">
+                            <div className="notification-section-header">
+                                <i className="fas fa-comment-dots notification-section-icon"></i>
+                                <span className="notification-section-title">Unread Messages</span>
+                                <span className="notification-section-count">{counts.chat}</span>
+                            </div>
+                            <div className="notification-list">
+                                {groupedNotifications.chat.slice(0, 3).map((notification) => (
+                                    <div
+                                        key={notification.id}
+                                        className={`notification-item ${getSeverityClass(notification.severity)} notification-chat-item`}
+                                        onClick={handleChatClick}
+                                        role="button"
+                                        tabIndex={0}
+                                        onKeyPress={(e) => e.key === 'Enter' && handleChatClick()}
+                                    >
+                                        <div className="notification-item-icon">
+                                            <i className={getTypeIcon(notification.type)}></i>
+                                        </div>
+                                        <div className="notification-item-content">
+                                            <h4 className="notification-item-title">{notification.title}</h4>
+                                            <p className="notification-item-description">{notification.description}</p>
+                                            <span className="notification-item-time">{formatTimestamp(notification.timestamp)}</span>
+                                        </div>
+                                        {notification.isUnread && (
+                                            <span className="notification-unread-badge"></span>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                            {groupedNotifications.chat.length > 3 && (
+                                <div
+                                    className="notification-view-all"
+                                    onClick={handleChatClick}
+                                    role="button"
+                                    tabIndex={0}
+                                    onKeyPress={(e) => e.key === 'Enter' && handleChatClick()}
+                                >
+                                    View all messages ({groupedNotifications.chat.length})
+                                </div>
+                            )}
+                        </div>
+                    )}
+
                     {/* CloudGuard Alerts Section */}
                     {groupedNotifications.cloudguard.length > 0 && (
                         <div className="notification-section">

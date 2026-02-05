@@ -22,9 +22,12 @@ const Topbar: React.FC = () => {
     const dropdownRef = useRef<HTMLDivElement>(null);
     const notificationRef = useRef<HTMLDivElement>(null);
 
-    // Fetch notifications
+    // Check if current page is BillOps Admin Dashboard (which has its own notification system)
+    const isBillOpsAdminPage = location.pathname === '/billops-admin-dashboard';
+
+    // Fetch notifications (only for XamOps pages, not BillOps Admin)
     const { notifications, counts, isLoading: notificationsLoading } = useNotifications({
-        selectedAccountId,
+        selectedAccountId: isBillOpsAdminPage ? null : selectedAccountId,
     });
 
     // Close dropdown when clicking outside
@@ -104,27 +107,29 @@ const Topbar: React.FC = () => {
                     </div>
 
                     <div className="flex items-center gap-3">
-                        {/* Notifications */}
-                        <div className="relative" ref={notificationRef}>
-                            <button
-                                onClick={toggleNotifications}
-                                className="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-100/50 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 transition-all relative"
-                            >
-                                <i className="fas fa-bell"></i>
-                                {counts.total > 0 && (
-                                    <span className="absolute top-2 right-2 w-2 h-2 bg-rose-500 rounded-full border-2 border-white"></span>
-                                )}
-                            </button>
+                        {/* Notifications - Only show for XamOps pages, not BillOps Admin */}
+                        {!isBillOpsAdminPage && (
+                            <div className="relative" ref={notificationRef}>
+                                <button
+                                    onClick={toggleNotifications}
+                                    className="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-100/50 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 transition-all relative"
+                                >
+                                    <i className="fas fa-bell"></i>
+                                    {counts.total > 0 && (
+                                        <span className="absolute top-2 right-2 w-2 h-2 bg-rose-500 rounded-full border-2 border-white"></span>
+                                    )}
+                                </button>
 
-                            {isNotificationOpen && (
-                                <NotificationDropdown
-                                    notifications={notifications}
-                                    counts={counts}
-                                    isLoading={notificationsLoading}
-                                    onClose={() => setIsNotificationOpen(false)}
-                                />
-                            )}
-                        </div>
+                                {isNotificationOpen && (
+                                    <NotificationDropdown
+                                        notifications={notifications}
+                                        counts={counts}
+                                        isLoading={notificationsLoading}
+                                        onClose={() => setIsNotificationOpen(false)}
+                                    />
+                                )}
+                            </div>
+                        )}
 
                         {onHelpClick && (
                             <button

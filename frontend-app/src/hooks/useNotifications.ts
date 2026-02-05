@@ -9,6 +9,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import type { NotificationItem, NotificationCounts } from '../types/notifications';
 import type { Alert, GrafanaAlert } from '../types/alerts';
 import type { Budget } from '../types/finops';
+import apiClient from '../utils/apiClient';
 
 interface UseNotificationsOptions {
     selectedAccountId: string | null;
@@ -22,9 +23,16 @@ interface UseNotificationsReturn {
     refresh: () => Promise<void>;
 }
 
+interface ChatHistoryItem {
+    content: string;
+    userMessage: boolean;
+    timestamp: string;
+}
+
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
 const BUDGET_ALERT_THRESHOLD = 0.8; // 80% threshold for budget alerts
+const CHAT_NOTIFICATION_WINDOW = 24 * 60 * 60 * 1000; // Show chat notifications from last 24 hours
 
 export const useNotifications = ({
     selectedAccountId,
@@ -93,6 +101,51 @@ export const useNotifications = ({
     }, []);
 
     /**
+     * Get the last time the chat was opened from localStorage
+     */
+    const getLastChatOpenTime = useCallback((): number => {
+        try {
+            const stored = localStorage.getItem('lastChatOpenTime');
+            return stored ? parseInt(stored, 10) : Date.now() - CHAT_NOTIFICATION_WINDOW;
+        } catch {
+            return Date.now() - CHAT_NOTIFICATION_WINDOW;
+        }
+    }, []);
+
+    /**
+     * Convert chat message to NotificationItem (if unread)
+     */
+    const convertChatMessage = useCallback((msg: ChatHistoryItem, index: number): NotificationItem | null => {
+        // Only show messages from support (not user messages)
+        if (msg.userMessage) {
+            return null;
+        }
+
+        const messageTime = new Date(msg.timestamp).getTime();
+        const lastOpenTime = getLastChatOpenTime();
+
+        // Only show messages that arrived after the last time chat was opened
+        if (messageTime <= lastOpenTime) {
+            return null;
+        }
+
+        // Truncate long messages
+        const description = msg.content.length > 80
+            ? msg.content.substring(0, 80) + '...'
+            : msg.content;
+
+        return {
+            id: `chat-${index}-${msg.timestamp}`,
+            type: 'chat',
+            severity: 'info',
+            title: 'New Support Message',
+            description,
+            timestamp: new Date(msg.timestamp),
+            isUnread: true,
+        };
+    }, [getLastChatOpenTime]);
+
+    /**
      * Fetch all notifications
      */
     const fetchNotifications = useCallback(async () => {
@@ -146,6 +199,22 @@ export const useNotifications = ({
                 }
             }
 
+            // Fetch Chat history for unread messages
+            try {
+                const url = `/api/ai/chat/history?accountId=${encodeURIComponent(selectedAccountId)}`;
+                const chatHistory = await apiClient.get<ChatHistoryItem[]>(url);
+
+                if (Array.isArray(chatHistory)) {
+                    const chatNotifications = chatHistory
+                        .map((msg, index) => convertChatMessage(msg, index))
+                        .filter((n): n is NotificationItem => n !== null);
+                    allNotifications.push(...chatNotifications);
+                }
+            } catch (error) {
+                // Chat history might not be available for all users, silently ignore
+                console.debug('[Notifications] Chat history not available:', error);
+            }
+
             // Filter to last 7 days and sort by timestamp (newest first)
             const sevenDaysAgo = Date.now() - SEVEN_DAYS_MS;
             const recentNotifications = allNotifications
@@ -159,7 +228,7 @@ export const useNotifications = ({
         } finally {
             setIsLoading(false);
         }
-    }, [selectedAccountId, convertCloudGuardAlert, convertGrafanaAlert, convertBudgetAlert]);
+    }, [selectedAccountId, convertCloudGuardAlert, convertGrafanaAlert, convertBudgetAlert, convertChatMessage]);
 
     /**
      * Calculate notification counts
@@ -168,12 +237,14 @@ export const useNotifications = ({
         const cloudguard = notifications.filter(n => n.type === 'cloudguard').length;
         const grafana = notifications.filter(n => n.type === 'grafana').length;
         const budget = notifications.filter(n => n.type === 'budget').length;
+        const chat = notifications.filter(n => n.type === 'chat').length;
 
         return {
             total: notifications.length,
             cloudguard,
             grafana,
             budget,
+            chat,
         };
     }, [notifications]);
 

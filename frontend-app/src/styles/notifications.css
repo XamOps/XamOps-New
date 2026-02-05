@@ -401,3 +401,79 @@
         padding-right: 16px;
     }
 }
+
+/* Chat Notification Styles */
+.notification-chat-item {
+    position: relative;
+}
+
+.notification-unread-badge {
+    position: absolute;
+    top: 50%;
+    right: 20px;
+    transform: translateY(-50%);
+    width: 8px;
+    height: 8px;
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+    border-radius: 50%;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+    animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+    }
+    50% {
+        box-shadow: 0 0 0 6px rgba(99, 102, 241, 0.1);
+    }
+}
+
+/* Chat notification icon styling */
+.notification-chat-item .notification-item-icon {
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(139, 92, 246, 0.1) 100%);
+    color: #6366f1;
+}
+
+.notification-chat-item:hover .notification-item-icon {
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(139, 92, 246, 0.15) 100%);
+    transform: scale(1.05);
+}
+
+/* Chat section header styling */
+.notification-section:has(.notification-chat-item) .notification-section-icon {
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+/* Ticket Notification Styles */
+.notification-ticket::before {
+    background: #f97316;
+}
+
+.notification-ticket .notification-item-icon {
+    background: rgba(249, 115, 22, 0.1);
+    color: #f97316;
+}
+
+.notification-ticket:hover .notification-item-icon {
+    background: rgba(249, 115, 22, 0.15);
+    transform: scale(1.05);
+}
+
+/* Chat type styling for BillOps */
+.notification-chat::before {
+    background: #6366f1;
+}
+
+.notification-chat .notification-item-icon {
+    background: rgba(99, 102, 241, 0.1);
+    color: #6366f1;
+}
+
+.notification-chat:hover .notification-item-icon {
+    background: rgba(99, 102, 241, 0.15);
+    transform: scale(1.05);
+}

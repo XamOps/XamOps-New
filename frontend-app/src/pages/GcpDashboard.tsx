@@ -225,13 +225,6 @@ const GcpDashboard: React.FC = () => {
         {/* Navigation Links */}
         <div className="flex items-center gap-1 bg-slate-100/50 p-1 rounded-xl border border-slate-200/50 mr-2">
           <Link
-            to="/gcp-cloudmap"
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-[11px] font-bold text-slate-600 hover:bg-white hover:text-blue-600 hover:shadow-sm transition-all"
-          >
-            <i className="fas fa-map-marked-alt text-[10px]"></i>
-            <span>CloudMap</span>
-          </Link>
-          <Link
             to="/calculator"
             className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-[11px] font-bold text-slate-600 hover:bg-white hover:text-blue-600 hover:shadow-sm transition-all"
           >

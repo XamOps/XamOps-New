@@ -43,6 +43,12 @@ const SupportChatWidget: React.FC = () => {
     const newOpenState = !isOpen;
     setIsOpen(newOpenState);
     if (newOpenState) {
+      // Mark messages as read by updating last chat open time
+      try {
+        localStorage.setItem('lastChatOpenTime', Date.now().toString());
+      } catch (error) {
+        console.error('Failed to update lastChatOpenTime:', error);
+      }
       fetchHistory();
     }
   }, [isOpen, setIsOpen, fetchHistory]);

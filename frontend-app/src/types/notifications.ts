@@ -4,7 +4,7 @@
  * TypeScript types for the notification dropdown system
  */
 
-export type NotificationType = 'cloudguard' | 'grafana' | 'budget';
+export type NotificationType = 'cloudguard' | 'grafana' | 'budget' | 'chat';
 
 export type NotificationSeverity = 'critical' | 'warning' | 'info';
 
@@ -16,6 +16,7 @@ export interface NotificationItem {
     description: string;
     timestamp: Date;
     link?: string; // Optional link to view details
+    isUnread?: boolean; // For chat messages
 }
 
 export interface NotificationCounts {
@@ -23,6 +24,7 @@ export interface NotificationCounts {
     cloudguard: number;
     grafana: number;
     budget: number;
+    chat: number;
 }
 
 export interface NotificationDropdownState {
