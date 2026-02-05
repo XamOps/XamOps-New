@@ -203,6 +203,123 @@ export const notifyNewCustomerMessage = (
   });
 };
 
+/**
+ * Show notification for new ticket reply (ticket chat)
+ */
+export const notifyNewTicketReply = (
+  ticketId: string | number,
+  message: string
+): void => {
+  showNotification(`New reply on Ticket #${ticketId}`, {
+    body: message.length > 100 ? message.substring(0, 100) + '...' : message,
+    tag: `ticket-reply-${ticketId}`,
+    onClick: () => {
+      window.focus();
+      // Navigate to ticket detail if not already there
+      if (!window.location.pathname.includes(`/tickets/${ticketId}`)) {
+        window.location.href = `/billops/tickets/${ticketId}`;
+      }
+    },
+  });
+};
+
+/**
+ * Show notification for new ticket created (admin notification)
+ */
+export const notifyNewTicketCreated = (
+  ticketId: string | number,
+  subject: string,
+  accountName?: string
+): void => {
+  const title = accountName
+    ? `New Ticket from ${accountName}`
+    : `New Ticket #${ticketId}`;
+  showNotification(title, {
+    body: subject.length > 100 ? subject.substring(0, 100) + '...' : subject,
+    tag: `new-ticket-${ticketId}`,
+    onClick: () => {
+      window.focus();
+      window.location.href = `/billops/tickets/${ticketId}`;
+    },
+  });
+};
+
+/**
+ * Show notification for new invoice (when invoice is finalized/pushed)
+ */
+export const notifyNewInvoice = (
+  accountName: string,
+  billingPeriod: string,
+  amount?: number
+): void => {
+  const body = amount
+    ? `Invoice for ${billingPeriod} - $${amount.toFixed(2)}`
+    : `Invoice for ${billingPeriod} is now available`;
+  showNotification(`New Invoice for ${accountName}`, {
+    body,
+    tag: `invoice-${accountName}-${billingPeriod}`,
+    onClick: () => {
+      window.focus();
+      window.location.href = '/billops/invoices';
+    },
+  });
+};
+
+/**
+ * Show notification for ticket status change
+ */
+export const notifyTicketStatusChange = (
+  ticketId: string | number,
+  newStatus: string,
+  subject?: string
+): void => {
+  const statusLabels: Record<string, string> = {
+    'OPEN': 'opened',
+    'IN_PROGRESS': 'in progress',
+    'CLOSED': 'closed',
+    'RESOLVED': 'resolved',
+    'PENDING': 'pending'
+  };
+  const statusText = statusLabels[newStatus] || newStatus.toLowerCase();
+  let body: string;
+  if (subject) {
+    const truncatedSubject = subject.length > 50 ? subject.substring(0, 50) + '...' : subject;
+    body = `"${truncatedSubject}" is now ${statusText}`;
+  } else {
+    body = `Status changed to ${statusText}`;
+  }
+  showNotification(`Ticket #${ticketId} Updated`, {
+    body,
+    tag: `ticket-status-${ticketId}`,
+    onClick: () => {
+      window.focus();
+      window.location.href = `/billops/tickets/${ticketId}`;
+    },
+  });
+};
+
+/**
+ * Show notification for cost anomaly detection
+ */
+export const notifyCostAnomaly = (
+  accountName: string,
+  serviceName: string,
+  percentageIncrease: number,
+  currentCost?: number
+): void => {
+  const costText = currentCost ? ` ($${currentCost.toFixed(2)})` : '';
+  const body = `${serviceName} spending increased by ${percentageIncrease.toFixed(0)}%${costText}`;
+  showNotification(`Cost Alert: ${accountName}`, {
+    body,
+    icon: '/icons/alert-warning.png',
+    tag: `cost-anomaly-${accountName}-${serviceName}`,
+    onClick: () => {
+      window.focus();
+      window.location.href = '/billops/cost-explorer';
+    },
+  });
+};
+
 export default {
   initNotificationService,
   requestNotificationPermission,
@@ -211,4 +328,9 @@ export default {
   showNotification,
   notifyNewSupportReply,
   notifyNewCustomerMessage,
+  notifyNewTicketReply,
+  notifyNewTicketCreated,
+  notifyNewInvoice,
+  notifyTicketStatusChange,
+  notifyCostAnomaly,
 };

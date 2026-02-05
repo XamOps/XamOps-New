@@ -96,11 +96,13 @@ export const useCloudMap = ({ accountId, mode }: UseCloudMapOptions): UseCloudMa
       const data = await response.json();
       setVpcs(data);
 
-      // Auto-select "All VPCs" if available
+      // Auto-select first VPC if available
       if (data.length > 0) {
-        setSelectedVpcValue('ALL');
-        // Auto-load graph for "All VPCs"
-        await loadGraph('ALL');
+        const firstVpc = data[0];
+        const vpcValue = `${firstVpc.id}|${firstVpc.region}`;
+        setSelectedVpcValue(vpcValue);
+        // Auto-load graph for first VPC
+        await loadGraph(vpcValue);
       } else {
         // No VPCs found, load global resources
         setSelectedVpcValue('');
@@ -180,7 +182,7 @@ export const useCloudMap = ({ accountId, mode }: UseCloudMapOptions): UseCloudMa
   /**
    * Load a specific design blueprint
    */
-  const loadBlueprint = async (id: string) => {
+  const loadBlueprint = useCallback(async (id: string) => {
     setLoadingGraph(true);
     setGraphError(null);
 
@@ -209,12 +211,12 @@ export const useCloudMap = ({ accountId, mode }: UseCloudMapOptions): UseCloudMa
     } finally {
       setLoadingGraph(false);
     }
-  };
+  }, []);
 
   /**
    * Save a design blueprint
    */
-  const saveBlueprint = async (name: string, graphData: string) => {
+  const saveBlueprint = useCallback(async (name: string, graphData: string) => {
     setSavingBlueprint(true);
 
     try {
@@ -248,20 +250,20 @@ export const useCloudMap = ({ accountId, mode }: UseCloudMapOptions): UseCloudMa
     } finally {
       setSavingBlueprint(false);
     }
-  };
+  }, [selectedBlueprintId]);
 
   /**
    * Clear the current blueprint
    */
-  const clearBlueprint = () => {
+  const clearBlueprint = useCallback(() => {
     setSelectedBlueprintId(null);
     setGraphElements([]);
-  };
+  }, []);
 
   /**
    * Export graph to PNG
    */
-  const exportToPng = (cy: any, vpcSelector: HTMLSelectElement | null) => {
+  const exportToPng = useCallback((cy: any, vpcSelector: HTMLSelectElement | null) => {
     if (!cy) {
       alert('No graph to export');
       return;
@@ -286,7 +288,7 @@ export const useCloudMap = ({ accountId, mode }: UseCloudMapOptions): UseCloudMa
       console.error('Export failed:', error);
       alert('Failed to export graph: ' + (error instanceof Error ? error.message : 'Unknown error'));
     }
-  };
+  }, []);
 
   return {
     // VPC Data

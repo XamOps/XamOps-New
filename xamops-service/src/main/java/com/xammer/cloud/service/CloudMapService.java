@@ -84,7 +84,9 @@ public class CloudMapService {
                             if (vpcId != null && !vpcId.isEmpty()) {
                                 // --- VPC-specific or Multi-VPC view ---
                                 logger.info("Building graph for VPC: {}", vpcId);
-                                Ec2Client ec2Client = awsClientProvider.getEc2Client(account, region);
+                                // Use default region for "ALL" VPCs, otherwise use provided region
+                                String effectiveRegion = (region != null && !region.isEmpty()) ? region : "us-east-1";
+                                Ec2Client ec2Client = awsClientProvider.getEc2Client(account, effectiveRegion);
                                 addVpcAndSubnetNodes(elements, ec2Client, vpcId);
 
                                 relevantResources = allResources.stream()

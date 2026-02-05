@@ -4,13 +4,38 @@
  * Global top navigation bar containing Super Admin Panel and Profile
  */
 
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { Link } from 'react-router-dom';
-import SuperAdminTopBar from './SuperAdminTopBar';
+import { useAccounts } from '../../contexts/AccountContext';
+import { useNotifications } from '../../hooks/useNotifications';
+import SuperAdminTopBar from '../Shared/SuperAdminTopBar';
+import NotificationDropdown from '../Shared/NotificationDropdown';
 
 const TopBar: React.FC = () => {
     const { hasAnyRole, userProfile, logout } = useAuth();
+    const { selectedAccountIds } = useAccounts();
+    const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
+
+    const [isNotificationOpen, setIsNotificationOpen] = useState(false);
+    const notificationRef = useRef<HTMLDivElement>(null);
+
+    // Fetch notifications
+    const { notifications, counts, isLoading: notificationsLoading } = useNotifications({
+        selectedAccountId,
+    });
+
+    // Close dropdown when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (notificationRef.current && !notificationRef.current.contains(event.target as Node)) {
+                setIsNotificationOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    const toggleNotifications = () => setIsNotificationOpen(!isNotificationOpen);
 
     return (
         <header className="h-16 fixed top-0 left-0 right-0 z-40 bg-white/80 backdrop-blur-xl border-b border-gray-200 lg:left-64 flex items-center justify-between px-6 transition-all duration-300">
@@ -34,10 +59,26 @@ const TopBar: React.FC = () => {
             {/* Right side - Profile & Actions */}
             <div className="flex items-center space-x-4">
                 {/* Notifications */}
-                <button className="relative p-2.5 text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all">
-                    <i className="far fa-bell text-xl" />
-                    <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 border-2 border-white rounded-full"></span>
-                </button>
+                <div className="relative" ref={notificationRef}>
+                    <button
+                        onClick={toggleNotifications}
+                        className="relative p-2.5 text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"
+                    >
+                        <i className="far fa-bell text-xl" />
+                        {counts.total > 0 && (
+                            <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 border-2 border-white rounded-full"></span>
+                        )}
+                    </button>
+
+                    {isNotificationOpen && (
+                        <NotificationDropdown
+                            notifications={notifications}
+                            counts={counts}
+                            isLoading={notificationsLoading}
+                            onClose={() => setIsNotificationOpen(false)}
+                        />
+                    )}
+                </div>
 
                 {/* Support */}
                 <button className="p-2.5 text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all">
