@@ -30,7 +30,7 @@ public class SupportMessage {
     private String status; // SENT, DELIVERED, READ
 
     // --- Context Data for BillOps Admin ---
-    
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id", nullable = true)
     @JsonIgnore
@@ -53,6 +53,6 @@ public class SupportMessage {
         this.content = content;
         this.isUserMessage = isUserMessage;
         this.timestamp = LocalDateTime.now(ZoneId.of("Asia/Kolkata"));
-        this.status = "SENT";
+        this.status = isUserMessage ? "UNREAD" : "SENT";
     }
 }

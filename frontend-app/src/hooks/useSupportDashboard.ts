@@ -29,10 +29,7 @@ import {
   CloudProvider,
   ReplyPayload,
 } from '../types/supportDashboard';
-import {
-  initNotificationService,
-  notifyNewCustomerMessage,
-} from '../utils/notificationService';
+import { initNotificationService } from '../utils/notificationService';
 
 interface UseSupportDashboardReturn {
   // Data
@@ -99,6 +96,8 @@ export const useSupportDashboard = (): UseSupportDashboardReturn => {
 
   /**
    * Fetch inbox (list of conversations)
+   * Note: Notifications are handled by the global AdminSupportNotificationListener
+   * to avoid duplicate sounds. This function only updates UI state.
    */
   const fetchInbox = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -110,22 +109,6 @@ export const useSupportDashboard = (): UseSupportDashboardReturn => {
       if (!isMountedRef.current) return;
 
       const inboxData = data || [];
-
-      // Check for new messages from customers (only on silent refresh to avoid initial load notifications)
-      if (silent && previousInboxRef.current.size > 0) {
-        for (const conv of inboxData) {
-          const previousUnread = previousInboxRef.current.get(conv.accountId) || 0;
-          const currentUnread = conv.unreadCount || 0;
-
-          // Notify if unread count increased and page is not visible or not focused on this conversation
-          if (currentUnread > previousUnread && (document.hidden || activeAccountRef.current?.accountId !== conv.accountId)) {
-            notifyNewCustomerMessage(
-              conv.accountName || conv.accountId,
-              conv.lastMessage || 'New message received'
-            );
-          }
-        }
-      }
 
       // Update previous inbox state
       const newInboxMap = new Map<string, number>();
@@ -147,6 +130,8 @@ export const useSupportDashboard = (): UseSupportDashboardReturn => {
 
   /**
    * Fetch chat messages for active account
+   * Note: Notifications are handled by the global AdminSupportNotificationListener
+   * to avoid duplicate sounds. This function only updates UI state.
    */
   const fetchChat = useCallback(async () => {
     const account = activeAccountRef.current;
@@ -160,26 +145,7 @@ export const useSupportDashboard = (): UseSupportDashboardReturn => {
       if (!isMountedRef.current) return;
 
       const chatData = data || [];
-
-      // Check for new customer messages (userMessage = true means customer sent it)
-      const previousCount = previousMessageCountRef.current;
-      const newCount = chatData.length;
-
-      if (previousCount > 0 && newCount > previousCount) {
-        const newMessages = chatData.slice(previousCount);
-        const newCustomerMessages = newMessages.filter(msg => msg.userMessage);
-
-        // Notify if there are new customer messages and page is not visible
-        if (newCustomerMessages.length > 0 && document.hidden) {
-          const latestMessage = newCustomerMessages[newCustomerMessages.length - 1];
-          notifyNewCustomerMessage(
-            account.accountName || account.accountId,
-            latestMessage.content
-          );
-        }
-      }
-
-      previousMessageCountRef.current = newCount;
+      previousMessageCountRef.current = chatData.length;
 
       // Only update if we have new messages
       setMessages(prevMessages => {
@@ -201,6 +167,11 @@ export const useSupportDashboard = (): UseSupportDashboardReturn => {
     setMessages([]);
     setChatLoading(true);
     previousMessageCountRef.current = 0; // Reset message count for new conversation
+
+    // Locally clear unread count for immediate UI feedback
+    setConversations(prev => prev.map(c =>
+      c.accountId === account.accountId ? { ...c, unreadCount: 0 } : c
+    ));
 
     try {
       const data = await apiClient.get<ChatMessage[]>(
@@ -320,6 +291,27 @@ export const useSupportDashboard = (): UseSupportDashboardReturn => {
       }
     };
   }, [activeAccount, fetchChat]);
+
+  /**
+   * Listen for new customer message events from the global AdminSupportNotificationListener
+   */
+  useEffect(() => {
+    const handleNewCustomerMessage = (event: CustomEvent) => {
+      // Refresh inbox to update unread counts
+      fetchInbox(true);
+
+      // If we have an active conversation with this customer, refresh chat
+      const { accountId } = event.detail;
+      if (activeAccountRef.current?.accountId === accountId) {
+        fetchChat();
+      }
+    };
+
+    window.addEventListener('newCustomerMessage', handleNewCustomerMessage as EventListener);
+    return () => {
+      window.removeEventListener('newCustomerMessage', handleNewCustomerMessage as EventListener);
+    };
+  }, [fetchInbox, fetchChat]);
 
   return {
     // Data
