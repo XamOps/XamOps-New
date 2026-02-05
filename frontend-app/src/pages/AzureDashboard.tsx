@@ -9,6 +9,7 @@ import {
   mapInventoryToResources,
 } from '../api/azureDashboardApi';
 import { useTopbar } from '../contexts/TopbarContext';
+import { useAuth } from '../contexts/AuthContext';
 import '../styles/azureDashboard.css';
 
 // Import components
@@ -17,6 +18,8 @@ import AzureMapSection from '../components/AzureDashboard/AzureMapSection';
 import AzureInventorySection from '../components/AzureDashboard/AzureInventorySection';
 import AzureCostSection from '../components/AzureDashboard/AzureCostSection';
 import AzureOptimizationSection from '../components/AzureDashboard/AzureOptimizationSection';
+import DashboardHeader from '../components/LiveDashboard/DashboardHeader';
+import SupportChatWidget from '../components/SupportChat/SupportChatWidget';
 
 // Highcharts loaded from CDN
 declare global {
@@ -37,6 +40,13 @@ const AzureDashboard: React.FC = () => {
       refreshInterval: 60,
     });
 
+  const {
+    hasAnyRole,
+    selectedTenant,
+    impersonateUser,
+    tenantList,
+    tenantUsers
+  } = useAuth();
   const { setActions, clearActions } = useTopbar();
 
   // Widget visibility state
@@ -173,93 +183,108 @@ const AzureDashboard: React.FC = () => {
   }
 
   return (
-    <main className="flex-1 p-6 bg-transparent space-y-6">
+    <div className="flex-1 flex flex-col bg-[#F8FAFC] azure-dashboard-container relative">
+      {/* Dashboard Header Integration */}
+      {dashboardData && (
+        <DashboardHeader
+          hasAnyRole={hasAnyRole}
+          selectedTenant={selectedTenant}
+          impersonateUser={impersonateUser}
+          tenantList={tenantList}
+          tenantUsers={tenantUsers}
+          selectedAccountIds={selectedAccountIds}
+          layoutChanged={false}
+          isRefreshing={loading.global}
+          lastUpdateTime={lastUpdated ? new Date(lastUpdated).toLocaleTimeString() : 'Connected'}
+          onRefresh={refresh}
+          onSaveLayout={() => { }}
+          getLink={(path) => path}
+        />
+      )}
+
       {/* Notification Toast */}
       {notification && (
-        <div className={`fixed top-4 right-4 z-50 transform transition-all duration-300 ${notification ? 'translate-y-0 opacity-100' : '-translate-y-4 opacity-0'}`}>
-          <div className={`flex items-center p-4 rounded-lg shadow-lg border ${notification.type === 'info' ? 'bg-blue-50 border-blue-100 text-blue-800' :
-            notification.type === 'success' ? 'bg-green-50 border-green-100 text-green-800' :
-              notification.type === 'warning' ? 'bg-yellow-50 border-yellow-100 text-yellow-800' :
-                'bg-red-50 border-red-100 text-red-800'
+        <div className={`fixed top-20 right-4 z-50 transform transition-all duration-300 ${notification ? 'translate-y-0 opacity-100' : '-translate-y-4 opacity-0'}`}>
+          <div className={`flex items-center p-4 rounded-xl shadow-xl border backdrop-blur-md ${notification.type === 'info' ? 'bg-blue-50/90 border-blue-100 text-blue-800' :
+            notification.type === 'success' ? 'bg-green-50/90 border-green-100 text-green-800' :
+              notification.type === 'warning' ? 'bg-amber-50/90 border-amber-100 text-amber-800' :
+                'bg-rose-50/90 border-rose-100 text-rose-800'
             }`}>
-            {notification.message}
-            <button onClick={() => setNotification(null)} className="ml-4 hover:opacity-75 font-bold">&times;</button>
+            <span className="text-sm font-bold">{notification.message}</span>
+            <button onClick={() => setNotification(null)} className="ml-4 hover:opacity-75 font-black text-lg leading-none">&times;</button>
           </div>
         </div>
       )}
 
-      {/* Development Alert Banner */}
-      <div className="mx-6 mt-4">
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-start space-x-3">
-          <div className="flex-shrink-0">
-            <i className="fas fa-hard-hat text-amber-500 text-xl"></i>
+      <main className="flex-1 p-6 space-y-8 pt-4">
+        {/* KPI Section */}
+        {widgetVisibility.kpi && dashboardData && (
+          <div className="fade-in">
+            <AzureKPISection
+              kpiData={dashboardData.kpi}
+              costHistory={dashboardData.costHistory}
+              isLoading={loading.kpi}
+            />
           </div>
-          <div>
-            <h3 className="text-sm font-semibold text-amber-800">Azure Features Under Development</h3>
-            <p className="text-sm text-amber-700 mt-1">Most Azure features are currently under development.
-              Dashboard and CloudList are available. Additional features like FinOps, Security,
-              Alerts, and more will be coming soon.</p>
-          </div>
+        )}
+
+        {/* Main Grid: Map & Inventory (3:2) */}
+        <div className="grid gap-6 lg:grid-cols-5 fade-in">
+          {widgetVisibility.map && dashboardData && (
+            <AzureMapSection
+              regionStatus={dashboardData.regionStatus || []}
+              isLoading={loading.map}
+              onRegionClick={(name) => showNotification(`Dashboard filtered by: ${name}`, 'info')}
+            />
+          )}
+
+          {widgetVisibility.inventory && dashboardData && (
+            <AzureInventorySection
+              resources={resources}
+              totalResources={totalResources}
+              loading={loading.inventory}
+              accountIds={selectedAccountIds}
+            />
+          )}
         </div>
-      </div>
 
-      {/* KPI Section */}
-      {widgetVisibility.kpi && dashboardData && (
-        <AzureKPISection
-          kpiData={dashboardData.kpi}
-          costHistory={dashboardData.costHistory}
-          isLoading={loading.kpi}
-        />
-      )}
+        {/* Cost & Billing Grid */}
+        <div className="grid gap-6 lg:grid-cols-3 fade-in">
+          {(widgetVisibility.cost || widgetVisibility.billing) && dashboardData && (
+            <AzureCostSection
+              costHistory={dashboardData.costHistory}
+              billingSummary={dashboardData.billingSummary}
+              isLoading={loading.cost}
+            />
+          )}
+        </div>
 
-      {/* Main Grid: Map & Inventory (3:2) */}
-      <div className="grid gap-6 lg:grid-cols-5 fade-in">
-        {widgetVisibility.map && dashboardData && (
-          <AzureMapSection
-            regionStatus={dashboardData.regionStatus || []}
-            isLoading={loading.map}
-            onRegionClick={(name) => showNotification(`Dashboard filtered by: ${name}`, 'info')}
-          />
+        {/* Optimization Section */}
+        {widgetVisibility.optimization && dashboardData && dashboardData.optimization && (
+          <div className="fade-in">
+            <AzureOptimizationSection
+              optimization={dashboardData.optimization}
+              selectedAccountIds={selectedAccountIds}
+              isLoading={loading.optimization}
+            />
+          </div>
         )}
-
-        {widgetVisibility.inventory && dashboardData && (
-          <AzureInventorySection
-            resources={resources}
-            totalResources={totalResources}
-            loading={loading.inventory}
-            accountIds={selectedAccountIds}
-          />
-        )}
-      </div>
-
-      {/* Cost & Billing Grid */}
-      <div className="grid gap-6 lg:grid-cols-3 fade-in">
-        {(widgetVisibility.cost || widgetVisibility.billing) && dashboardData && (
-          <AzureCostSection
-            costHistory={dashboardData.costHistory}
-            billingSummary={dashboardData.billingSummary}
-            isLoading={loading.cost}
-          />
-        )}
-      </div>
-
-      {/* Optimization Section */}
-      {widgetVisibility.optimization && dashboardData && dashboardData.optimization && (
-        <AzureOptimizationSection
-          optimization={dashboardData.optimization}
-          selectedAccountIds={selectedAccountIds}
-          isLoading={loading.optimization}
-        />
-      )}
+      </main>
 
       {/* Floating Action Button */}
       <button
-        className="azure-fab"
-        onClick={() => showNotification('Quick actions are coming soon!', 'info')}
+        className="azure-fab group"
+        onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+        title="Back to Top"
       >
-        <i className="fas fa-bolt"></i>
+        <i className="fas fa-chevron-up group-hover:-translate-y-1 transition-transform"></i>
       </button>
-    </main>
+
+      {/* Support Chat Widget */}
+      <div className="relative z-[100]">
+        <SupportChatWidget />
+      </div>
+    </div>
   );
 };
 
