@@ -33,6 +33,7 @@ export interface Ticket {
 export interface SpendingTrendItem {
   date: string;
   cost: number;
+  costByProvider?: SpendingByProvider;
 }
 
 export interface SpendingByProvider {

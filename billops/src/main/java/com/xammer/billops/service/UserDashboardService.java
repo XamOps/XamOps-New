@@ -235,13 +235,20 @@ public class UserDashboardService {
         for (int i = months - 1; i >= 0; i--) {
             YearMonth month = currentMonth.minusMonths(i);
             double totalCost = 0.0;
+            Map<String, Double> costByProvider = new HashMap<>();
+            costByProvider.put("AWS", 0.0);
+            costByProvider.put("GCP", 0.0);
+            costByProvider.put("Azure", 0.0);
 
             for (CloudAccount account : accounts) {
                 BigDecimal cost = calculateAccountSpending(account, month);
                 totalCost += cost.doubleValue();
+
+                String provider = account.getProvider() != null ? account.getProvider().toUpperCase() : "AWS";
+                costByProvider.merge(provider, cost.doubleValue(), Double::sum);
             }
 
-            trend.add(new UserDashboardDto.CostHistory(month.toString(), totalCost));
+            trend.add(new UserDashboardDto.CostHistory(month.toString(), totalCost, costByProvider));
         }
 
         return trend;
