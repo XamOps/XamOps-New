@@ -2,16 +2,30 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useLocation, Link } from 'react-router-dom';
 import { useTopbar } from '../../contexts/TopbarContext';
 import { useAuth } from '../../contexts/AuthContext';
+import { useAccounts } from '../../contexts/AccountContext';
+import { useNotifications } from '../../hooks/useNotifications';
 import SuperAdminTopBar from './SuperAdminTopBar';
 import LogoutModal from './LogoutModal';
+import NotificationDropdown from './NotificationDropdown';
 
 const Topbar: React.FC = () => {
     const location = useLocation();
     const { actions, onHelpClick } = useTopbar();
     const { userProfile, logout, hasAnyRole } = useAuth();
+    const { selectedAccountIds } = useAccounts();
+    const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
+
     const [isProfileOpen, setIsProfileOpen] = useState(false);
     const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
+    const [isNotificationOpen, setIsNotificationOpen] = useState(false);
+
     const dropdownRef = useRef<HTMLDivElement>(null);
+    const notificationRef = useRef<HTMLDivElement>(null);
+
+    // Fetch notifications
+    const { notifications, counts, isLoading: notificationsLoading } = useNotifications({
+        selectedAccountId,
+    });
 
     // Close dropdown when clicking outside
     useEffect(() => {
@@ -19,12 +33,16 @@ const Topbar: React.FC = () => {
             if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
                 setIsProfileOpen(false);
             }
+            if (notificationRef.current && !notificationRef.current.contains(event.target as Node)) {
+                setIsNotificationOpen(false);
+            }
         };
         document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
     const toggleProfile = () => setIsProfileOpen(!isProfileOpen);
+    const toggleNotifications = () => setIsNotificationOpen(!isNotificationOpen);
 
     const handleLogoutClick = () => {
         setIsProfileOpen(false);
@@ -86,10 +104,28 @@ const Topbar: React.FC = () => {
                     </div>
 
                     <div className="flex items-center gap-3">
-                        <button className="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-100/50 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 transition-all relative">
-                            <i className="fas fa-bell"></i>
-                            <span className="absolute top-2 right-2 w-2 h-2 bg-rose-500 rounded-full border-2 border-white"></span>
-                        </button>
+                        {/* Notifications */}
+                        <div className="relative" ref={notificationRef}>
+                            <button
+                                onClick={toggleNotifications}
+                                className="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-100/50 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 transition-all relative"
+                            >
+                                <i className="fas fa-bell"></i>
+                                {counts.total > 0 && (
+                                    <span className="absolute top-2 right-2 w-2 h-2 bg-rose-500 rounded-full border-2 border-white"></span>
+                                )}
+                            </button>
+
+                            {isNotificationOpen && (
+                                <NotificationDropdown
+                                    notifications={notifications}
+                                    counts={counts}
+                                    isLoading={notificationsLoading}
+                                    onClose={() => setIsNotificationOpen(false)}
+                                />
+                            )}
+                        </div>
+
                         {onHelpClick && (
                             <button
                                 onClick={onHelpClick}

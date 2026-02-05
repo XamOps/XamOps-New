@@ -6,13 +6,17 @@
  * Converted from: billops/tickets.html
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   BillOpsTicket,
   CreateTicketFormData,
   TicketCacheData
 } from '../types/billopsTickets';
 import { useAccounts } from '../contexts/AccountContext';
+import {
+  initNotificationService,
+  notifyNewTicketCreated
+} from '../utils/notificationService';
 
 const CACHE_KEY = 'billops_account_tickets_v1';
 
@@ -36,6 +40,11 @@ export const useBillOpsTickets = (): UseBillOpsTicketsReturn => {
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
+
+  // Refs for tracking new tickets (for admin notifications)
+  const previousTicketIdsRef = useRef<Set<number>>(new Set());
+  const isInitialLoadRef = useRef<boolean>(true);
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const hasData = tickets.length > 0;
 
@@ -224,6 +233,74 @@ export const useBillOpsTickets = (): UseBillOpsTicketsReturn => {
       window.removeEventListener('popstate', handlePopState);
     };
   }, [fetchTickets]);
+
+  /**
+   * Initialize notification service
+   */
+  useEffect(() => {
+    initNotificationService();
+  }, []);
+
+  /**
+   * Poll for new tickets and notify admins (every 30 seconds)
+   */
+  useEffect(() => {
+    pollingIntervalRef.current = setInterval(async () => {
+      try {
+        const url = `/api/billops/tickets/category/Account%20and%20Billing?forceRefresh=false`;
+        const response = await fetch(url, { credentials: 'include' });
+
+        if (!response.ok) return;
+
+        const allTickets: BillOpsTicket[] = await response.json();
+        const currentTicketIds = new Set(allTickets.map(t => t.id));
+
+        // Check for new tickets (skip initial load)
+        if (!isInitialLoadRef.current) {
+          for (const ticket of allTickets) {
+            if (!previousTicketIdsRef.current.has(ticket.id) && document.hidden) {
+              // New ticket detected - notify admin
+              notifyNewTicketCreated(
+                ticket.id,
+                ticket.subject,
+                ticket.accountId
+              );
+              break; // Only one notification for batch of new tickets
+            }
+          }
+        }
+
+        // Update tracking ref
+        previousTicketIdsRef.current = currentTicketIds;
+        isInitialLoadRef.current = false;
+
+        // Update tickets state silently (without loading indicator)
+        let filteredTickets = allTickets;
+        if (selectedAccountId) {
+          filteredTickets = allTickets.filter(t => t.accountId === selectedAccountId);
+        }
+        const sortedTickets = [...filteredTickets].sort((a, b) => b.id - a.id);
+        setTickets(sortedTickets);
+      } catch (err) {
+        console.error('[BillOps Tickets] Polling error:', err);
+      }
+    }, 30000); // 30 second polling interval
+
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
+    };
+  }, [selectedAccountId]);
+
+  /**
+   * Update ticket IDs ref when tickets change
+   */
+  useEffect(() => {
+    if (tickets.length > 0) {
+      previousTicketIdsRef.current = new Set(tickets.map(t => t.id));
+    }
+  }, [tickets]);
 
   return {
     tickets,
