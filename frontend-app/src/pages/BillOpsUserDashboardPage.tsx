@@ -28,11 +28,13 @@ import { Link } from 'react-router-dom';
 import Chart from 'chart.js/auto';
 import { useBillOpsUserDashboard } from '../hooks/useBillOpsUserDashboard';
 import { useTopbar } from '../contexts/TopbarContext';
+import { useCurrency } from '../hooks/useCurrency';
 import type { CloudAccount, Invoice, Ticket, SpendingTrendItem } from '../types/billopsUserDashboard';
 
 const BillOpsUserDashboardPage: React.FC = () => {
   const { data, loading, isRefreshing, error, refreshDashboard } = useBillOpsUserDashboard();
   const { setActions, clearActions } = useTopbar();
+  const { loadRates, convert } = useCurrency();
 
   // Chart refs
   const trendChartRef = useRef<HTMLCanvasElement>(null);
@@ -40,29 +42,103 @@ const BillOpsUserDashboardPage: React.FC = () => {
   const trendChartInstance = useRef<Chart<'line'> | null>(null);
   const providerChartInstance = useRef<Chart<'doughnut'> | null>(null);
 
+  // Load currency rates (GCP data is in INR and needs conversion to USD)
+  useEffect(() => {
+    loadRates('inr');
+  }, [loadRates]);
+
   /**
    * Format currency value
    */
-  const formatCurrency = (value: number | null | undefined): string => {
+  const formatCurrency = (value: number | null | undefined, provider?: string): string => {
     if (value === null || value === undefined) return '$0.00';
+
+    let finalValue = value;
+
+    // Convert GCP data (assumed INR) to USD
+    if (provider === 'GCP') {
+      const converted = convert(value, 'usd');
+      if (converted !== null) {
+        finalValue = converted;
+      }
+    }
+
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
-    }).format(value);
+    }).format(finalValue);
   };
+
+  /**
+   * Memoize converted data to ensure consistent metrics across the UI
+   */
+  const convertedData = useMemo(() => {
+    if (!data) return null;
+
+    // Convert account spending
+    const convertedAccounts = data.accounts.map(account => ({
+      ...account,
+      currentMonthSpending: account.provider === 'GCP'
+        ? (convert(account.currentMonthSpending, 'usd') ?? account.currentMonthSpending)
+        : account.currentMonthSpending,
+      lastMonthSpending: account.provider === 'GCP'
+        ? (convert(account.lastMonthSpending, 'usd') ?? account.lastMonthSpending)
+        : account.lastMonthSpending,
+    }));
+
+    // Recalculate totals
+    const currentMonthSpending = convertedAccounts.reduce((sum, acc) => sum + acc.currentMonthSpending, 0);
+    const lastMonthSpending = convertedAccounts.reduce((sum, acc) => sum + acc.lastMonthSpending, 0);
+
+    // Recalculate provider distribution
+    const spendingByProvider = {
+      AWS: data.spendingByProvider.AWS || 0,
+      Azure: data.spendingByProvider.Azure || 0,
+      GCP: data.spendingByProvider.GCP ? (convert(data.spendingByProvider.GCP, 'usd') ?? data.spendingByProvider.GCP) : 0
+    };
+
+    // Convert spendingTrend using provider breakdown
+    const convertedSpendingTrend = data.spendingTrend.map(item => {
+      if (!item.costByProvider) return item;
+
+      const aws = item.costByProvider.AWS || 0;
+      const azure = item.costByProvider.Azure || 0;
+      const gcpRaw = item.costByProvider.GCP || 0;
+      const gcpConverted = convert(gcpRaw, 'usd') ?? gcpRaw;
+
+      return {
+        ...item,
+        cost: aws + azure + gcpConverted,
+        costByProvider: {
+          AWS: aws,
+          Azure: azure,
+          GCP: gcpConverted
+        }
+      };
+    });
+
+    return {
+      ...data,
+      accounts: convertedAccounts,
+      currentMonthSpending,
+      lastMonthSpending,
+      spendingByProvider,
+      spendingTrend: convertedSpendingTrend
+    };
+  }, [data, convert]);
 
   /**
    * Calculate spending trend percentage
    */
   const spendingTrend = useMemo(() => {
-    if (!data?.currentMonthSpending || !data?.lastMonthSpending) {
+    if (!convertedData?.currentMonthSpending || !convertedData?.lastMonthSpending) {
       return null;
     }
 
-    const current = data.currentMonthSpending || 0;
-    const last = data.lastMonthSpending || 0;
+    const current = convertedData.currentMonthSpending || 0;
+    const last = convertedData.lastMonthSpending || 0;
 
     if (last === 0) return null;
 
@@ -71,7 +147,7 @@ const BillOpsUserDashboardPage: React.FC = () => {
       percentage: Math.abs(change).toFixed(1),
       isIncrease: current > last,
     };
-  }, [data?.currentMonthSpending, data?.lastMonthSpending]);
+  }, [convertedData?.currentMonthSpending, convertedData?.lastMonthSpending]);
 
   /**
    * Calculate progress bar width based on spending comparison
@@ -86,7 +162,7 @@ const BillOpsUserDashboardPage: React.FC = () => {
    * Render Spending Trend Chart
    */
   useEffect(() => {
-    if (!trendChartRef.current || !data?.spendingTrend?.length) return;
+    if (!trendChartRef.current || !convertedData?.spendingTrend?.length) return;
 
     // Destroy existing chart
     if (trendChartInstance.current) {
@@ -96,8 +172,8 @@ const BillOpsUserDashboardPage: React.FC = () => {
     const ctx = trendChartRef.current.getContext('2d');
     if (!ctx) return;
 
-    const labels = data.spendingTrend.map((item: SpendingTrendItem) => item.date);
-    const values = data.spendingTrend.map((item: SpendingTrendItem) => item.cost);
+    const labels = convertedData.spendingTrend.map((item: SpendingTrendItem) => item.date);
+    const values = convertedData.spendingTrend.map((item: SpendingTrendItem) => item.cost);
 
     trendChartInstance.current = new Chart(ctx, {
       type: 'line',
@@ -174,13 +250,13 @@ const BillOpsUserDashboardPage: React.FC = () => {
         trendChartInstance.current.destroy();
       }
     };
-  }, [data?.spendingTrend]);
+  }, [convertedData?.spendingTrend]);
 
   /**
    * Render Provider Distribution Chart
    */
   useEffect(() => {
-    if (!providerChartRef.current || !data?.spendingByProvider) return;
+    if (!providerChartRef.current || !convertedData?.spendingByProvider) return;
 
     // Destroy existing chart
     if (providerChartInstance.current) {
@@ -190,7 +266,7 @@ const BillOpsUserDashboardPage: React.FC = () => {
     const ctx = providerChartRef.current.getContext('2d');
     if (!ctx) return;
 
-    const spendingData = data.spendingByProvider;
+    const spendingData = convertedData.spendingByProvider;
     const labels = Object.keys(spendingData);
     const values = Object.values(spendingData);
 
@@ -241,7 +317,7 @@ const BillOpsUserDashboardPage: React.FC = () => {
         providerChartInstance.current.destroy();
       }
     };
-  }, [data?.spendingByProvider]);
+  }, [convertedData?.spendingByProvider]);
 
   /**
    * Get status badge class
@@ -343,7 +419,7 @@ const BillOpsUserDashboardPage: React.FC = () => {
               <div className="billops-fade-in">
                 <div className="flex items-baseline gap-2 mb-1">
                   <span className="text-3xl font-black billops-metric-value">
-                    {formatCurrency(data?.currentMonthSpending)}
+                    {formatCurrency(convertedData?.currentMonthSpending)}
                   </span>
                 </div>
                 {spendingTrend && (
@@ -378,7 +454,7 @@ const BillOpsUserDashboardPage: React.FC = () => {
               <div className="billops-fade-in">
                 <div className="flex items-baseline justify-between mb-2">
                   <span className="text-3xl font-black billops-metric-value">
-                    {data?.totalAccounts || 0}
+                    {convertedData?.totalAccounts || 0}
                   </span>
                   <div className="billops-provider-stack">
                     <div className="billops-provider-icon" title="AWS">
@@ -393,9 +469,9 @@ const BillOpsUserDashboardPage: React.FC = () => {
                   </div>
                 </div>
                 <div className="text-xs text-gray-500 mt-2 font-medium">
-                  <span>{data?.awsAccountsCount || 0}</span> AWS |{' '}
-                  <span>{data?.gcpAccountsCount || 0}</span> GCP |{' '}
-                  <span>{data?.azureAccountsCount || 0}</span> Azure
+                  <span>{convertedData?.awsAccountsCount || 0}</span> AWS |{' '}
+                  <span>{convertedData?.gcpAccountsCount || 0}</span> GCP |{' '}
+                  <span>{convertedData?.azureAccountsCount || 0}</span> Azure
                 </div>
               </div>
             ) : (
@@ -420,7 +496,7 @@ const BillOpsUserDashboardPage: React.FC = () => {
               <div className="billops-fade-in">
                 <div className="flex items-baseline gap-2 mb-1">
                   <span className="text-3xl font-black billops-metric-value">
-                    {data?.pendingInvoices || 0}
+                    {convertedData?.pendingInvoices || 0}
                   </span>
                 </div>
                 <p className="text-xs text-blue-600 mt-2 font-medium flex items-center gap-1">
@@ -449,7 +525,7 @@ const BillOpsUserDashboardPage: React.FC = () => {
               <div className="billops-fade-in">
                 <div className="flex items-baseline gap-2 mb-1">
                   <span className="text-3xl font-black billops-metric-value">
-                    {data?.openTickets || 0}
+                    {convertedData?.openTickets || 0}
                   </span>
                 </div>
                 <p className="text-xs text-gray-500 mt-2 font-medium">Active support requests</p>
@@ -505,9 +581,9 @@ const BillOpsUserDashboardPage: React.FC = () => {
               <i className="fas fa-server text-cyan-600" />
               My Cloud Accounts
             </h3>
-            {data?.accounts && (
+            {convertedData?.accounts && (
               <span className="text-xs font-semibold px-2 py-1 bg-gray-100 rounded-lg text-gray-600">
-                Total: {data.accounts.length}
+                Total: {convertedData.accounts.length}
               </span>
             )}
           </div>
@@ -518,9 +594,9 @@ const BillOpsUserDashboardPage: React.FC = () => {
                 <div key={i} className="h-32 bg-gray-100 rounded-xl billops-shimmer animate-pulse" />
               ))}
             </div>
-          ) : data?.accounts && data.accounts.length > 0 ? (
+          ) : convertedData?.accounts && convertedData.accounts.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {data.accounts.map((account: CloudAccount) => (
+              {convertedData.accounts.map((account: CloudAccount) => (
                 <div key={account.id} className="billops-account-card rounded-xl p-4 group">
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex-1">
@@ -587,8 +663,8 @@ const BillOpsUserDashboardPage: React.FC = () => {
               </Link>
             </div>
             <div className="space-y-3">
-              {data?.recentInvoices && data.recentInvoices.length > 0 ? (
-                data.recentInvoices.map((invoice: Invoice) => (
+              {convertedData?.recentInvoices && convertedData.recentInvoices.length > 0 ? (
+                convertedData.recentInvoices.map((invoice: Invoice) => (
                   <div
                     key={invoice.id}
                     className="billops-list-item flex items-center justify-between p-3 rounded-lg group"

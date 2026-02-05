@@ -18,11 +18,14 @@ public interface FinOpsReportScheduleRepository extends JpaRepository<FinOpsRepo
 
     /**
      * Finds all active schedules by a specific frequency.
-     * --- MODIFIED: Renamed method to force @Query to be used ---
-     * This eagerly loads the CloudAccount and User entities to prevent
+     * Eagerly loads CloudAccount, Client, and User entities to prevent
      * LazyInitializationException in the scheduled service.
      */
-    @Query("SELECT s FROM FinOpsReportSchedule s JOIN FETCH s.cloudAccount JOIN FETCH s.user WHERE s.frequency = :frequency AND s.isActive = true")
+    @Query("SELECT s FROM FinOpsReportSchedule s " +
+           "JOIN FETCH s.cloudAccount ca " +
+           "JOIN FETCH ca.client " +
+           "JOIN FETCH s.user " +
+           "WHERE s.frequency = :frequency AND s.isActive = true")
     List<FinOpsReportSchedule> findAllActiveByFrequencyWithDetails(
             @Param("frequency") FinOpsReportSchedule.Frequency frequency);
 
