@@ -364,7 +364,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
 
       if (tenantId) {
-        sessionStorage.removeItem('selectedTenantId', tenantId);
+        sessionStorage.removeItem('selectedTenantId');
         sessionStorage.setItem('selectedTenantId', tenantId);
         setSelectedTenant(tenantId);
       }

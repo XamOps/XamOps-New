@@ -33,7 +33,7 @@ export interface UseAzureFinOpsDataResult {
   loadSchedules: () => Promise<void>;
   handleCreateBudget: (budget: AzureNewBudget) => Promise<void>;
   handleDeleteBudget: (budgetName: string) => Promise<void>;
-  handleCreateSchedule: (schedule: AzureNewSchedule) => Promise<void>;
+  handleCreateSchedule: (schedule: AzureNewSchedule) => Promise<AzureReportSchedule>;
   handleDeleteSchedule: (scheduleId: number) => Promise<void>;
 }
 

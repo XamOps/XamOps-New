@@ -78,7 +78,7 @@ export const useSupportChat = (): UseSupportChatReturn => {
   const previousMessageCountRef = useRef(0);
   const notificationInitializedRef = useRef(false);
   const isOpenRef = useRef(isOpen); // Ref to track current isOpen state for use in callbacks
-  const fetchHistoryRef = useRef<() => Promise<void>>(); // Ref to store latest fetchHistory function
+  const fetchHistoryRef = useRef<(() => Promise<void>) | undefined>(undefined); // Ref to store latest fetchHistory function
 
   // Check if user has ROLE_XAMOPS
   const isXamopsUser = hasAnyRole('ROLE_XAMOPS');
