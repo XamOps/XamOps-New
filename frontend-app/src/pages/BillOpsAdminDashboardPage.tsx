@@ -23,19 +23,26 @@
  * - Enhanced UI with smoother animations
  */
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Chart from 'chart.js/auto';
 import { useBillOpsAdminDashboard } from '../hooks/useBillOpsAdminDashboard';
+import { useBillOpsAdminNotifications } from '../hooks/useBillOpsAdminNotifications';
 import { useTopbar } from '../contexts/TopbarContext';
 import type { TopSpendingAccount, AdminInvoice, AdminTicket, SpendingTrendItem } from '../types/billopsAdminDashboard';
+import BillOpsNotificationDropdown from '../components/BillOps/BillOpsNotificationDropdown';
 
 import { useCurrency } from '../hooks/useCurrency';
 
 const BillOpsAdminDashboardPage: React.FC = () => {
   const { data, loading, isRefreshing, error, refreshDashboard } = useBillOpsAdminDashboard();
+  const { notifications, counts, isLoading: notificationsLoading } = useBillOpsAdminNotifications();
   const { setActions, clearActions } = useTopbar();
   const { loadRates, convert } = useCurrency();
+
+  // State for notification dropdown
+  const [isNotificationOpen, setIsNotificationOpen] = useState(false);
+  const notificationRef = useRef<HTMLDivElement>(null);
 
   // Chart refs
   const providerChartRef = useRef<HTMLCanvasElement>(null);
@@ -327,6 +334,19 @@ const BillOpsAdminDashboardPage: React.FC = () => {
   };
 
   /**
+   * Close notification dropdown when clicking outside
+   */
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (notificationRef.current && !notificationRef.current.contains(event.target as Node)) {
+        setIsNotificationOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  /**
    * Set Topbar Actions
    */
   useEffect(() => {
@@ -337,6 +357,32 @@ const BillOpsAdminDashboardPage: React.FC = () => {
             Last updated: {new Date(data.lastUpdated).toLocaleString()}
           </div>
         )}
+
+        {/* Notification Bell - Only for Tickets and Chat */}
+        <div className="relative" ref={notificationRef}>
+          <button
+            onClick={() => setIsNotificationOpen(!isNotificationOpen)}
+            className="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-100/50 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 transition-all relative"
+            title="Notifications (Tickets & Messages)"
+          >
+            <i className="fas fa-bell"></i>
+            {counts.total > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] flex items-center justify-center px-1 bg-gradient-to-br from-orange-500 to-red-500 text-white text-[10px] font-bold rounded-full border-2 border-white shadow-lg">
+                {counts.total}
+              </span>
+            )}
+          </button>
+
+          {isNotificationOpen && (
+            <BillOpsNotificationDropdown
+              notifications={notifications}
+              counts={counts}
+              isLoading={notificationsLoading}
+              onClose={() => setIsNotificationOpen(false)}
+            />
+          )}
+        </div>
+
         <button
           onClick={refreshDashboard}
           disabled={isRefreshing}
@@ -348,7 +394,7 @@ const BillOpsAdminDashboardPage: React.FC = () => {
       </div>
     );
     return () => clearActions();
-  }, [setActions, clearActions, data?.lastUpdated, isRefreshing, refreshDashboard]);
+  }, [setActions, clearActions, data?.lastUpdated, isRefreshing, refreshDashboard, notifications, counts, notificationsLoading, isNotificationOpen]);
 
   return (
     <div className="admin-dashboard flex-1 flex flex-col h-full bg-transparent overflow-hidden">

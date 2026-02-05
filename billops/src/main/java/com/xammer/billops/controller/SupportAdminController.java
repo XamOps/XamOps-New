@@ -42,6 +42,23 @@ public class SupportAdminController {
         return inbox;
     }
 
+    // Get Chat Sessions (for notification system)
+    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
+    @GetMapping("/chat-sessions")
+    public List<Map<String, String>> getChatSessions() {
+        List<Object[]> results = messageRepository.findDistinctConversations();
+        List<Map<String, String>> sessions = new ArrayList<>();
+
+        for (Object[] row : results) {
+            Map<String, String> session = new HashMap<>();
+            session.put("accountId", (String) row[0]);
+            session.put("accountName", (String) row[1]);
+            session.put("provider", (String) row[2]);
+            sessions.add(session);
+        }
+        return sessions;
+    }
+
     // 2. Get Chat History for a specific Account
     @GetMapping("/chat/{accountId}")
     public List<SupportMessage> getChatHistory(@PathVariable String accountId) {
