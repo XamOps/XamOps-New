@@ -82,6 +82,7 @@ public class SecurityConfig {
                                                                 new AntPathRequestMatcher("/spot-automation.html"),
                                                                 new AntPathRequestMatcher("/superadmin_customer.html"),
                                                                 new AntPathRequestMatcher("actions-history.html"),
+                                                                new AntPathRequestMatcher("/my-profile.html"),
                                                                 // ✅ YOUR CODE: Preserved missing pages
                                                                 new AntPathRequestMatcher("/cloudsitter.html"),
                                                                 new AntPathRequestMatcher("/integration-guide.html"),

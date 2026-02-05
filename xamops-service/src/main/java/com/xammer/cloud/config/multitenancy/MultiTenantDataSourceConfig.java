@@ -62,7 +62,7 @@ public class MultiTenantDataSourceConfig {
 
     /**
      * Helper method to create a DriverManagerDataSource for master DB access
-     * Used ONLY in PROD for querying tenant_config table
+     * Used ONLY in PROD/PREPROD for querying tenant_config table
      */
     private DataSource createMasterDataSourceForLookup() {
         DriverManagerDataSource dataSource = new DriverManagerDataSource();
@@ -180,54 +180,9 @@ public class MultiTenantDataSourceConfig {
 
     /**
      * ========================================================================
-     * PREPROD PROFILE: Simple Single-Database DataSource
+     * PRODUCTION & PREPROD PROFILES: Multi-Tenant Routing DataSource
      * ========================================================================
-     * Used in pre-production environment.
-     * Connects to production database but without multi-tenant routing.
-     * No multi-tenancy, no routing - similar to UAT setup.
-     */
-    @Bean
-    @Primary
-    @ConditionalOnProperty(name = "spring.profiles.active", havingValue = "preprod")
-    public DataSource preprodDataSource() {
-        logger.info("========================================");
-        logger.info("PROFILE: PREPROD - Single Database Mode");
-        logger.info("========================================");
-        logger.info("Database URL: {}", dataSourceUrl);
-
-        HikariDataSource ds = new HikariDataSource();
-        ds.setJdbcUrl(dataSourceUrl);
-        ds.setUsername(dataSourceUsername);
-        ds.setPassword(dataSourcePassword);
-        ds.setDriverClassName(dataSourceDriver);
-
-        applyHikariSettings(ds, "PreprodPool");
-
-        logger.info("Preprod datasource initialized successfully (No Multi-Tenancy)");
-        return ds;
-    }
-
-    /**
-     * Master DataSource for Preprod Profile
-     * Points to the same Preprod DB - used for global_users table lookups
-     */
-    @Bean(name = "masterDataSource")
-    @ConditionalOnProperty(name = "spring.profiles.active", havingValue = "preprod")
-    public DataSource preprodMasterDataSource() {
-        logger.info("Creating masterDataSource bean pointing to Preprod DB for global_users lookups");
-        DriverManagerDataSource dataSource = new DriverManagerDataSource();
-        dataSource.setUrl(dataSourceUrl);
-        dataSource.setUsername(dataSourceUsername);
-        dataSource.setPassword(dataSourcePassword);
-        dataSource.setDriverClassName(dataSourceDriver);
-        return dataSource;
-    }
-
-    /**
-     * ========================================================================
-     * PRODUCTION PROFILE: Multi-Tenant Routing DataSource
-     * ========================================================================
-     * Used in production environment.
+     * Used in PRODUCTION and PREPROD environments.
      * Reads tenant_config from master DB (production_db) and creates:
      * - Connection pool for System DB (tenant_id = "system" or "default")
      * - Connection pools for Customer DBs (SISL, etc.)
@@ -237,10 +192,22 @@ public class MultiTenantDataSourceConfig {
      */
     @Bean
     @Primary
-    @ConditionalOnProperty(name = "spring.profiles.active", havingValue = "prod")
+    @ConditionalOnProperty(name = "spring.profiles.active", havingValue = "prod", matchIfMissing = false)
     public DataSource prodRoutingDataSource() {
+        return createRoutingDataSource("PROD");
+    }
+
+    // Explicitly define for 'preprod' to ensure it also uses this logic
+    @Bean
+    @Primary
+    @ConditionalOnProperty(name = "spring.profiles.active", havingValue = "preprod")
+    public DataSource preprodRoutingDataSource() {
+        return createRoutingDataSource("PREPROD");
+    }
+
+    private DataSource createRoutingDataSource(String profileName) {
         logger.info("========================================");
-        logger.info("PROFILE: PROD - Multi-Tenant Routing Mode");
+        logger.info("PROFILE: {} - Multi-Tenant Routing Mode", profileName);
         logger.info("========================================");
         logger.info("Master DB URL: {}", dataSourceUrl);
 
@@ -309,7 +276,7 @@ public class MultiTenantDataSourceConfig {
     }
 
     /**
-     * Master DataSource Bean for PROD Profile
+     * Master DataSource Bean for PROD & PREPROD Profiles
      * (exposed for services that need to query master DB directly)
      * Points to production_db for tenant_config and global_users lookups
      */
@@ -317,6 +284,13 @@ public class MultiTenantDataSourceConfig {
     @ConditionalOnProperty(name = "spring.profiles.active", havingValue = "prod")
     public DataSource prodMasterDataSource() {
         logger.info("Creating masterDataSource bean pointing to production_db for global_users lookups");
+        return createMasterDataSourceForLookup();
+    }
+
+    @Bean(name = "masterDataSource")
+    @ConditionalOnProperty(name = "spring.profiles.active", havingValue = "preprod")
+    public DataSource preprodMasterDataSource() {
+        logger.info("Creating masterDataSource bean pointing to production_db for global_users lookups (PREPROD)");
         return createMasterDataSourceForLookup();
     }
 }
