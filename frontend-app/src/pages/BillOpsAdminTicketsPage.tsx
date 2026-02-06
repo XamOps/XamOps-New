@@ -8,11 +8,9 @@
  *
  * What changed:
  * - Migrated from Alpine.js to React with TypeScript
- * - Improved UI with modern table design and better spacing
- * - Enhanced status and severity badges with animations
- * - Better loading states with skeleton loaders
- * - More professional tab design with counts
- * - Improved responsive design
+ * - Topbar integration for search, actions and status
+ * - Soft Glass Minimal design system
+ * - Premium animations and transitions
  *
  * What stayed the same:
  * - All API endpoints remain identical (/api/billops/tickets)
@@ -25,7 +23,7 @@
 import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useBillOpsAdminTickets } from '../hooks/useBillOpsAdminTickets';
-import { useTopbar } from '../contexts/TopbarContext';
+import { useTopbarActions } from '../contexts/TopbarContext';
 import {
   AdminTicket,
   ADMIN_TICKET_TABS
@@ -48,7 +46,26 @@ const BillOpsAdminTicketsPage: React.FC = () => {
     getCategoryCount
   } = useBillOpsAdminTickets();
 
-  const { setActions, clearActions } = useTopbar();
+  const { setActions, clearActions } = useTopbarActions();
+
+  const getStatusBadgeClasses = (status: string) => {
+    if (status === 'OPEN') {
+      return 'bg-emerald-500 text-white shadow-emerald-200 ring-4 ring-emerald-500/10';
+    }
+    if (status === 'IN_PROGRESS') {
+      return 'bg-amber-500 text-white shadow-amber-200 ring-4 ring-amber-500/10';
+    }
+    return 'bg-slate-400 text-white shadow-slate-200 ring-4 ring-slate-400/10';
+  };
+
+  const getSeverityColor = (severity: string): string => {
+    if (['High', 'Critical', 'Urgent'].includes(severity)) {
+      return '#ef4444';
+    } else if (['Normal', 'Medium'].includes(severity)) {
+      return '#f59e0b';
+    }
+    return '#3b82f6';
+  };
 
   /**
    * Format date for ticket display
@@ -62,37 +79,6 @@ const BillOpsAdminTicketsPage: React.FC = () => {
     });
   };
 
-  /**
-   * Get status badge classes
-   */
-  const getStatusClasses = (status: string): string => {
-    switch (status) {
-      case 'OPEN':
-        return 'bg-green-100 text-green-800';
-      case 'CLOSED':
-        return 'bg-gray-100 text-gray-800';
-      case 'IN_PROGRESS':
-        return 'bg-yellow-100 text-yellow-800';
-      default:
-        return 'bg-gray-100 text-gray-800';
-    }
-  };
-
-  /**
-   * Get status dot classes
-   */
-  const getStatusDotClasses = (status: string): string => {
-    switch (status) {
-      case 'OPEN':
-        return 'bg-green-400';
-      case 'CLOSED':
-        return 'bg-gray-400';
-      case 'IN_PROGRESS':
-        return 'bg-yellow-400';
-      default:
-        return 'bg-gray-400';
-    }
-  };
 
   /**
    * Get severity indicator classes
@@ -113,14 +99,9 @@ const BillOpsAdminTicketsPage: React.FC = () => {
    */
   const viewTicket = (id: number, category: string) => {
     if (category === 'Technical') {
-      // Technical tickets go to xamops ticket detail
-      window.location.href = `/xamops_ticket_detail.html?id=${id}`;
-    } else if (category === 'Account and Billing') {
-      // Billing tickets go to React billops ticket detail
-      navigate(`/billops-ticket-detail?id=${id}`);
+      navigate(`/ticket-detail?id=${id}`);
     } else {
-      // Default to xamops ticket detail
-      window.location.href = `/xamops_ticket_detail.html?id=${id}`;
+      navigate(`/billops-ticket-detail?id=${id}`);
     }
   };
 
@@ -129,37 +110,50 @@ const BillOpsAdminTicketsPage: React.FC = () => {
    */
   useEffect(() => {
     setActions(
-      <div className="flex items-center gap-4">
-        {/* Search Input in Topbar */}
+      <div className="flex items-center gap-6">
+        {/* Page Title & Icon */}
+        <div className="hidden lg:flex items-center gap-3 pr-6 border-r border-slate-200/50">
+          <div className="w-9 h-9 flex items-center justify-center rounded-xl bg-orange-50 text-orange-600 shadow-sm border border-orange-100/50">
+            <i className="fas fa-user-shield"></i>
+          </div>
+          <div>
+            <h1 className="text-sm font-bold text-slate-900 leading-none">Admin Tickets</h1>
+            <p className="text-[10px] text-slate-500 font-medium mt-1">Global Ticket Management</p>
+          </div>
+        </div>
+
+        {/* Global Search Interface */}
         <div className="relative group hidden md:block">
-          <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-            <i className="fas fa-search text-slate-400 group-focus-within:text-indigo-500 transition-colors"></i>
+          <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+            <i className="fas fa-search text-slate-400 group-focus-within:text-indigo-500 transition-colors text-[10px]"></i>
           </span>
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search tickets..."
-            className="pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500 focus:bg-white focus:border-indigo-500 w-64 transition-all"
+            placeholder="Search all tickets..."
+            className="pl-10 pr-4 py-2 bg-slate-100/50 border border-transparent rounded-xl text-xs font-medium focus:ring-4 focus:ring-indigo-500/10 focus:bg-white focus:border-indigo-500/30 w-72 transition-all outline-none"
           />
         </div>
 
-        {/* Sync Info */}
-        {lastUpdatedDisplay && (
-          <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest hidden lg:block">
-            Synced {lastUpdatedDisplay}
-          </div>
-        )}
+        {/* Action Group */}
+        <div className="flex items-center gap-3">
+          {lastUpdatedDisplay && (
+            <div className="hidden xl:flex items-center gap-2 px-3 py-1.5 bg-slate-50 rounded-lg border border-slate-100/50 text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none">
+              <i className="fas fa-history opacity-70"></i>
+              Synced {lastUpdatedDisplay}
+            </div>
+          )}
 
-        {/* Refresh Button */}
-        <button
-          onClick={() => fetchTickets(true)}
-          disabled={loading || isUpdating}
-          className="w-10 h-10 flex items-center justify-center text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-xl transition-all disabled:opacity-50"
-          title="Refresh Data"
-        >
-          <i className={`fas fa-sync-alt ${isUpdating ? 'animate-spin' : ''}`}></i>
-        </button>
+          <button
+            onClick={() => fetchTickets(true)}
+            disabled={loading || isUpdating}
+            className="w-10 h-10 flex items-center justify-center text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-xl transition-all border border-transparent hover:border-slate-200/50"
+            title="Refresh Data"
+          >
+            <i className={`fas fa-sync-alt ${isUpdating ? 'animate-spin' : ''}`}></i>
+          </button>
+        </div>
       </div>
     );
     return () => clearActions();
@@ -169,35 +163,35 @@ const BillOpsAdminTicketsPage: React.FC = () => {
    * Render loading skeleton
    */
   const renderLoadingSkeleton = () => (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+    <div className="bg-white/70 backdrop-blur-xl rounded-[2rem] shadow-xl shadow-slate-200/50 border border-white overflow-hidden">
       <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
+        <table className="min-w-full divide-y divide-slate-100">
+          <thead className="bg-slate-50/50">
             <tr>
               {['ID', 'Account ID', 'Subject', 'Service', 'Status', 'Severity', 'Created', 'Action'].map((header) => (
                 <th
                   key={header}
-                  className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider"
+                  className="px-6 py-4 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]"
                 >
                   {header}
                 </th>
               ))}
             </tr>
           </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {[1, 2, 3, 4, 5].map(i => (
+          <tbody className="bg-white/30 divide-y divide-slate-50">
+            {[1, 2, 3, 4, 5, 6].map(i => (
               <tr key={i}>
-                <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-16 animate-pulse"></div></td>
-                <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-24 animate-pulse"></div></td>
-                <td className="px-6 py-4">
-                  <div className="h-4 bg-gray-200 rounded w-48 mb-2 animate-pulse"></div>
-                  <div className="h-3 bg-gray-200 rounded w-32 animate-pulse"></div>
+                <td className="px-6 py-5"><div className="h-4 bg-slate-100 rounded-full w-12 animate-pulse"></div></td>
+                <td className="px-6 py-5"><div className="h-4 bg-slate-100 rounded-full w-20 animate-pulse"></div></td>
+                <td className="px-6 py-5">
+                  <div className="h-4 bg-slate-100 rounded-full w-40 mb-2 animate-pulse"></div>
+                  <div className="h-3 bg-slate-50 rounded-full w-24 animate-pulse"></div>
                 </td>
-                <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-20 animate-pulse"></div></td>
-                <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-16 animate-pulse"></div></td>
-                <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-16 animate-pulse"></div></td>
-                <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-20 animate-pulse"></div></td>
-                <td className="px-6 py-4"><div className="h-8 w-8 bg-gray-200 rounded-full animate-pulse"></div></td>
+                <td className="px-6 py-5"><div className="h-5 bg-slate-100 rounded-lg w-20 animate-pulse"></div></td>
+                <td className="px-6 py-5"><div className="h-6 bg-slate-100 rounded-full w-16 animate-pulse"></div></td>
+                <td className="px-6 py-5"><div className="h-4 bg-slate-100 rounded-full w-16 animate-pulse"></div></td>
+                <td className="px-6 py-5"><div className="h-4 bg-slate-100 rounded-full w-20 animate-pulse"></div></td>
+                <td className="px-6 py-5"><div className="h-8 w-8 bg-slate-50 rounded-xl animate-pulse"></div></td>
               </tr>
             ))}
           </tbody>
@@ -229,182 +223,175 @@ const BillOpsAdminTicketsPage: React.FC = () => {
   const renderTicketRow = (ticket: AdminTicket) => (
     <tr
       key={ticket.id}
-      className="hover:bg-gray-50 transition-colors cursor-pointer group"
+      className="hover:bg-indigo-50/30 transition-all cursor-pointer group border-b border-transparent hover:border-indigo-100"
       onClick={() => viewTicket(ticket.id, ticket.category)}
     >
       {/* ID */}
-      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-mono">
-        #{ticket.id}
+      <td className="px-6 py-5 whitespace-nowrap">
+        <span className="text-xs font-bold text-slate-400 font-mono tracking-tighter opacity-60">#{ticket.id}</span>
       </td>
 
       {/* Account ID */}
-      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 font-mono">
-        {ticket.accountId || '-'}
+      <td className="px-6 py-5 whitespace-nowrap">
+        <span className="px-2 py-1 bg-slate-100 text-slate-600 rounded-lg text-[10px] font-bold font-mono tracking-tight border border-slate-200/50">
+          {ticket.accountId || 'GLOBAL'}
+        </span>
       </td>
 
       {/* Subject & Description */}
-      <td className="px-6 py-4">
-        <div className="text-sm font-medium text-gray-900 group-hover:text-indigo-600 transition-colors">
+      <td className="px-6 py-5">
+        <div className="text-sm font-bold text-slate-800 group-hover:text-indigo-600 transition-colors leading-tight mb-1">
           {ticket.subject}
         </div>
-        <div className="text-xs text-gray-500 truncate max-w-xs">
+        <div className="text-[10px] text-slate-400 font-medium truncate max-w-xs opacity-80">
           {ticket.description}
         </div>
       </td>
 
       {/* Service */}
-      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-        <span className="inline-flex items-center px-2.5 py-0.5 rounded bg-gray-100 text-gray-800 text-xs font-medium">
+      <td className="px-6 py-5 whitespace-nowrap">
+        <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-700 text-[10px] font-black border border-indigo-100/50 tracking-tight">
           {ticket.service}
         </span>
       </td>
 
       {/* Status */}
-      <td className="px-6 py-4 whitespace-nowrap">
+      <td className="px-6 py-5 whitespace-nowrap">
         <span
-          className={`px-2 inline-flex items-center text-xs leading-5 font-semibold rounded-full ${getStatusClasses(ticket.status)}`}
+          className={`flex items-center gap-2 px-3 py-1 text-[10px] font-black rounded-full shadow-sm ring-1 ring-inset ${getStatusBadgeClasses(ticket.status)}`}
         >
-          <span
-            className={`w-1.5 h-1.5 rounded-full mr-1.5 ${getStatusDotClasses(ticket.status)}`}
-          ></span>
+          <span className={`w-1.5 h-1.5 rounded-full bg-white shadow-[0_0_8px_white] ${ticket.status === 'OPEN' ? 'animate-pulse' : ''}`}></span>
           {ticket.status}
         </span>
       </td>
 
       {/* Severity */}
-      <td className="px-6 py-4 whitespace-nowrap text-sm">
-        <div className="flex items-center">
+      <td className="px-6 py-5 whitespace-nowrap">
+        <div className="flex items-center gap-2">
           <span
-            className={`w-2 h-2 rounded-full mr-2 ${getSeverityDotClasses(ticket.severity)}`}
+            className={`w-2 h-2 rounded-full ${getSeverityDotClasses(ticket.severity)} shadow-[0_0_8px_currentcolor]`}
+            style={{ color: getSeverityColor(ticket.severity) }}
           ></span>
-          <span>{ticket.severity}</span>
+          <span className="text-[10px] font-bold text-slate-600 uppercase tracking-widest">{ticket.severity}</span>
         </div>
       </td>
 
       {/* Created Date */}
-      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-        {formatDate(ticket.createdAt)}
+      <td className="px-6 py-5 whitespace-nowrap">
+        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">
+          {formatDate(ticket.createdAt)}
+        </span>
       </td>
 
       {/* Action */}
-      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+      <td className="px-6 py-5 whitespace-nowrap text-sm font-medium">
         <button
           onClick={(e) => {
             e.stopPropagation();
             viewTicket(ticket.id, ticket.category);
           }}
-          className="text-indigo-600 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100 p-2 rounded-full transition w-8 h-8 flex items-center justify-center"
+          className="text-slate-400 hover:text-indigo-600 bg-slate-100 hover:bg-indigo-100 transition-all w-9 h-9 flex items-center justify-center rounded-xl border border-transparent hover:border-indigo-200 shadow-sm group-hover:scale-110 active:scale-95"
         >
-          <i className="fas fa-arrow-right"></i>
+          <i className="fas fa-chevron-right text-xs"></i>
         </button>
       </td>
     </tr>
   );
 
   return (
-    <div className="billops-admin-tickets-page flex-1 flex flex-col h-full overflow-hidden bg-transparent">
-      {/* Category Summary (Simplified) */}
-      <div className="px-6 py-4 flex gap-4 bg-white/50 border-b border-slate-200/50 xl:hidden">
+    <div className="flex-1 flex flex-col h-full overflow-hidden bg-transparent">
+      {/* Category Summary Header (Mobile Only) */}
+      <div className="px-6 py-3 flex gap-3 bg-white/70 backdrop-blur-xl border-b border-slate-200/50 xl:hidden">
         {ADMIN_TICKET_TABS.map(tab => (
-          <div key={tab.id} className="flex-1 text-center">
-            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">{tab.label}</div>
-            <div className="text-sm font-bold text-slate-700">{getCategoryCount(tab.id)}</div>
+          <div key={tab.id} className="flex-1 p-2 bg-slate-50 rounded-xl border border-slate-100">
+            <div className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">{tab.label}</div>
+            <div className="text-xs font-black text-slate-700">{getCategoryCount(tab.id)}</div>
           </div>
         ))}
       </div>
 
-      {/* Main Content */}
-      <div className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-50 p-6">
-        {/* Tabs */}
-        <div className="mb-6">
-          <div className="border-b border-gray-200">
-            <nav className="-mb-px flex space-x-8" aria-label="Tabs">
+      {/* Main Content Area */}
+      <div className="flex-1 overflow-x-hidden overflow-y-auto custom-scrollbar p-6 lg:p-8">
+        <div className="max-w-7xl mx-auto space-y-8">
+          {/* Tabs Navigation */}
+          <div className="flex items-center justify-between border-b border-slate-200/50 pb-2">
+            <nav className="flex space-x-2" aria-label="Tabs">
               {ADMIN_TICKET_TABS.map((tab) => (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors ${activeTab === tab.id
-                      ? 'border-indigo-500 text-indigo-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  className={`relative py-3 px-6 rounded-2xl text-[11px] font-black uppercase tracking-widest flex items-center gap-2.5 transition-all ${activeTab === tab.id
+                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20'
+                    : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
                     }`}
                 >
-                  <i className={tab.icon}></i>
+                  <i className={`${tab.icon} ${activeTab === tab.id ? 'opacity-100' : 'opacity-40'}`}></i>
                   {tab.label}
-                  <span className="bg-gray-100 text-gray-600 py-0.5 px-2.5 rounded-full text-xs ml-1">
+                  <span className={`flex items-center justify-center px-2 py-0.5 rounded-full text-[9px] min-w-[20px] shadow-sm ${activeTab === tab.id
+                    ? 'bg-white/20 text-white'
+                    : 'bg-slate-200 text-slate-600'
+                    }`}>
                     {getCategoryCount(tab.id)}
                   </span>
+                  {activeTab === tab.id && (
+                    <span className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-indigo-600 rounded-full shadow-[0_0_8px_rgba(79,70,229,0.8)] animate-pulse"></span>
+                  )}
                 </button>
               ))}
             </nav>
           </div>
+
+          {/* Loading State */}
+          {loading && renderLoadingSkeleton()}
+
+          {/* Error State */}
+          {error && !hasData && (
+            <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-6 rounded shadow-sm">
+              <div className="flex items-center">
+                <div className="flex-shrink-0">
+                  <i className="fas fa-exclamation-circle text-red-500"></i>
+                </div>
+                <div className="ml-3">
+                  <p className="text-sm text-red-700 font-medium">Error loading data</p>
+                  <p className="text-sm text-red-600">{error}</p>
+                  <button
+                    onClick={() => fetchTickets(true)}
+                    className="mt-2 text-sm font-medium text-red-700 underline hover:text-red-600"
+                  >
+                    Try Again
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Table Content */}
+          {!loading && (
+            <div className="bg-white/70 backdrop-blur-xl rounded-[2.5rem] shadow-[0_8px_40px_rgba(0,0,0,0.03)] border border-white overflow-hidden">
+              <div className="overflow-x-auto custom-scrollbar">
+                <table className="min-w-full divide-y divide-slate-100/50">
+                  <thead className="bg-slate-50/50">
+                    <tr>
+                      <th className="px-6 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap">ID</th>
+                      <th className="px-6 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap">Account ID</th>
+                      <th className="px-6 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap">Subject</th>
+                      <th className="px-6 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap">Service</th>
+                      <th className="px-6 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap">Status</th>
+                      <th className="px-6 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap">Severity</th>
+                      <th className="px-6 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap">Created</th>
+                      <th className="px-6 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white/20 divide-y divide-slate-50">
+                    {filteredTickets.length > 0
+                      ? filteredTickets.map((ticket) => renderTicketRow(ticket))
+                      : renderEmptyState()}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
-
-        {/* Loading State */}
-        {loading && renderLoadingSkeleton()}
-
-        {/* Error State */}
-        {error && !hasData && (
-          <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-6 rounded shadow-sm">
-            <div className="flex items-center">
-              <div className="flex-shrink-0">
-                <i className="fas fa-exclamation-circle text-red-500"></i>
-              </div>
-              <div className="ml-3">
-                <p className="text-sm text-red-700 font-medium">Error loading data</p>
-                <p className="text-sm text-red-600">{error}</p>
-                <button
-                  onClick={() => fetchTickets(true)}
-                  className="mt-2 text-sm font-medium text-red-700 underline hover:text-red-600"
-                >
-                  Try Again
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Table Content */}
-        {!loading && (
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                      ID
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                      Account ID
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                      Subject
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                      Service
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                      Status
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                      Severity
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                      Created
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                      Action
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {filteredTickets.length > 0
-                    ? filteredTickets.map((ticket) => renderTicketRow(ticket))
-                    : renderEmptyState()}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

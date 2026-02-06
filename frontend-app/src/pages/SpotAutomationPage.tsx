@@ -31,9 +31,10 @@ import SpotAutomationChart from '../components/SpotAutomation/SpotAutomationChar
 import SpotAutomationASGTable from '../components/SpotAutomation/SpotAutomationASGTable';
 import DeploymentModal from '../components/SpotAutomation/DeploymentModal';
 import SyncAccountModal from '../components/SpotAutomation/SyncAccountModal';
-import ActionsHistory from '../components/ActionsHistory/ActionsHistory';
-import LaunchAnalytics from '../components/LaunchAnalytics/LaunchAnalytics';
-import RispCoverage from '../components/RispCoverage/RispCoverage';
+// Coming Soon mode - these components are not used yet
+// import ActionsHistory from '../components/ActionsHistory/ActionsHistory';
+// import LaunchAnalytics from '../components/LaunchAnalytics/LaunchAnalytics';
+// import RispCoverage from '../components/RispCoverage/RispCoverage';
 
 const SpotAutomationPage: React.FC = () => {
   const { selectedAccountIds } = useAccounts();
@@ -43,16 +44,8 @@ const SpotAutomationPage: React.FC = () => {
     asgs,
     costs,
     savings,
-    enabledRegionsCount,
-    totalInstances,
     historyData,
     historySummary,
-    isLoading,
-    isRefreshing,
-    isLoadingHistory,
-    error,
-    fetchCostData,
-    fetchHistoryData,
     toggleASG,
     generateDeploymentUrl,
     syncAccount,
@@ -104,76 +97,57 @@ const SpotAutomationPage: React.FC = () => {
 
   const handleTimeRangeChange = (range: 'last24h' | 'last7d' | 'last30d') => {
     setHistoryTimeRange(range);
-    fetchHistoryData(range);
+    // Demo mode - no API call needed
   };
 
-  // Error state
-  if (error) {
-    const isBackendNotImplemented = error.message.includes('not implemented') ||
-                                     error.message.includes('not found') ||
-                                     error.message.includes('HTML instead of JSON');
+  // Demo data for Coming Soon preview - matches type interfaces
+  const demoAsgs: typeof asgs = [
+    { name: 'web-app-asg', region: 'us-east-1', isEnabled: true, instanceCount: 5, spotCount: 4, onDemandCount: 1, instanceTypes: 't3.medium, t3.large', currentCost: 0.42, onDemandCost: 0.85, savings: 0.43, potentialSavings: 0.50 },
+    { name: 'api-server-asg', region: 'us-west-2', isEnabled: true, instanceCount: 3, spotCount: 3, onDemandCount: 0, instanceTypes: 'm5.large', currentCost: 0.28, onDemandCost: 0.72, savings: 0.44, potentialSavings: 0.44 },
+    { name: 'worker-asg', region: 'eu-west-1', isEnabled: false, instanceCount: 8, spotCount: 0, onDemandCount: 8, instanceTypes: 'c5.xlarge', currentCost: 1.36, onDemandCost: 1.36, savings: 0, potentialSavings: 0.95 },
+  ];
+  const demoCosts: typeof costs = { currentHourly: 2.06, currentMonthlyCost: 1503.80, onDemandHourly: 2.93, hourlyActualSavings: 0.87 };
+  const demoSavings: typeof savings = { actualMonthlySavings: 635.10, potentialMonthlySavings: 1378.85 };
+  const demoHistoryData: typeof historyData = [
+    { timestamp: '2024-01-01T00:00:00Z', total_actual_savings: 120, total_potential_savings: 180 },
+    { timestamp: '2024-01-02T00:00:00Z', total_actual_savings: 145, total_potential_savings: 195 },
+    { timestamp: '2024-01-03T00:00:00Z', total_actual_savings: 130, total_potential_savings: 185 },
+    { timestamp: '2024-01-04T00:00:00Z', total_actual_savings: 165, total_potential_savings: 210 },
+    { timestamp: '2024-01-05T00:00:00Z', total_actual_savings: 180, total_potential_savings: 225 },
+    { timestamp: '2024-01-06T00:00:00Z', total_actual_savings: 155, total_potential_savings: 200 },
+    { timestamp: '2024-01-07T00:00:00Z', total_actual_savings: 190, total_potential_savings: 240 },
+  ];
+  const demoHistorySummary: typeof historySummary = { total_savings: 1085, average_hourly_savings: 155, peak_savings: 190 };
 
-    return (
-      <div className="flex-1 flex flex-col min-h-screen bg-gray-50 p-8">
-        <div className="bg-white p-10 rounded-xl shadow-2xl max-w-2xl mx-auto">
-          <div className="flex items-center justify-center w-20 h-20 mx-auto mb-6 bg-yellow-100 rounded-full">
-            <i className={`fas ${isBackendNotImplemented ? 'fa-tools' : 'fa-exclamation-triangle'} text-yellow-600 text-3xl`}></i>
-          </div>
-          <h2 className="text-3xl font-bold text-center mb-4 text-gray-800">
-            {isBackendNotImplemented ? 'Backend Not Configured' : 'Error Loading Data'}
-          </h2>
-          <p className="text-center text-gray-600 mb-6 text-lg">{error.message}</p>
+  // Use demo data for Coming Soon mode
+  const displayAsgs = demoAsgs;
+  const displayCosts = demoCosts;
+  const displaySavings = demoSavings;
+  const displayHistoryData = demoHistoryData;
+  const displayHistorySummary = demoHistorySummary;
+  const displayEnabledRegionsCount = 3;
+  const displayTotalInstances = 16;
 
-          {isBackendNotImplemented && (
-            <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-6 mb-6">
-              <h3 className="font-bold text-blue-900 mb-3 flex items-center">
-                <i className="fas fa-info-circle mr-2"></i>
-                Backend Setup Required
-              </h3>
-              <p className="text-sm text-gray-700 mb-3">
-                The Spot Automation feature requires the following backend API endpoints:
-              </p>
-              <ul className="text-sm text-gray-700 space-y-1 list-disc list-inside">
-                <li><code className="bg-gray-200 px-2 py-1 rounded text-xs">/api/autospotting/costs/{'{accountId}'}</code></li>
-                <li><code className="bg-gray-200 px-2 py-1 rounded text-xs">/api/autospotting/costs/history/{'{accountId}'}</code></li>
-                <li><code className="bg-gray-200 px-2 py-1 rounded text-xs">/api/autospotting/asgs/{'{accountId}'}/enable</code></li>
-                <li><code className="bg-gray-200 px-2 py-1 rounded text-xs">/api/autospotting/asgs/{'{accountId}'}/disable</code></li>
-                <li><code className="bg-gray-200 px-2 py-1 rounded text-xs">/api/cloudformation/deploy-url</code></li>
-                <li><code className="bg-gray-200 px-2 py-1 rounded text-xs">/api/cloudformation/sync-account</code></li>
-              </ul>
-              <p className="text-sm text-gray-700 mt-3">
-                Please ensure the backend AutoSpotting service is running and properly configured.
-              </p>
-            </div>
-          )}
-
-          <div className="flex gap-3">
-            <button
-              onClick={() => window.history.back()}
-              className="flex-1 bg-gray-200 text-gray-700 py-3 px-6 rounded-lg hover:bg-gray-300 transition-colors font-semibold"
-            >
-              Go Back
-            </button>
-            <button
-              onClick={() => window.location.reload()}
-              className="flex-1 bg-blue-600 text-white py-3 px-6 rounded-lg hover:bg-blue-700 transition-colors font-semibold"
-            >
-              Try Again
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  const enabledASGsCount = asgs.filter((a) => a.isEnabled).length;
+  const enabledASGsCount = displayAsgs.filter((a: any) => a.isEnabled).length;
 
   return (
-    <div className="flex-1 flex flex-col min-h-screen bg-gray-50">
+    <div className="flex-1 flex flex-col min-h-screen bg-gray-50 relative">
+      {/* Coming Soon Banner */}
+      <div className="bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 text-white py-3 px-8 flex items-center justify-center gap-3 shadow-lg">
+        <div className="flex items-center gap-2 bg-white/20 px-3 py-1 rounded-full">
+          <i className="fas fa-rocket text-yellow-300"></i>
+          <span className="font-bold text-sm uppercase tracking-wide">Coming Soon</span>
+        </div>
+        <span className="text-sm">
+          Spot Automation is under development. Preview the features below!
+        </span>
+      </div>
+
       {/* Header */}
       <SpotAutomationHeader
-        onSyncAccount={() => setIsSyncAccountModalOpen(true)}
-        onDeployToAWS={() => setIsDeploymentModalOpen(true)}
+        onSyncAccount={() => {}}
+        onDeployToAWS={() => {}}
+        disabled={true}
       />
 
       {/* Tab Navigation */}
@@ -226,83 +200,110 @@ const SpotAutomationPage: React.FC = () => {
         </nav>
       </div>
 
-      {/* Main Content */}
-      <div className="flex-1 p-8">
-        {/* No Account Selected */}
-        {!selectedAccountId && !isLoading && (
-          <div className="text-center py-20 rounded-2xl border-2 border-dashed border-gray-300 bg-white shadow-lg">
-            <div className="w-24 h-24 bg-gradient-to-br from-blue-100 to-blue-200 rounded-full flex items-center justify-center mx-auto mb-6">
-              <i className="fas fa-cloud text-blue-500 text-4xl"></i>
+      {/* Main Content with Blur Overlay */}
+      <div className="flex-1 p-8 relative">
+        {/* Blurred Content */}
+        <div className="filter blur-[2px] pointer-events-none select-none">
+          {/* Dashboard Tab Content - Always show with demo data in Coming Soon mode */}
+          {activeTab === 'dashboard' && (
+            <div className="space-y-8">
+              {/* KPIs */}
+              <SpotAutomationKPIs
+                costs={displayCosts}
+                savings={displaySavings}
+                enabledASGsCount={enabledASGsCount}
+                totalASGsCount={displayAsgs.length}
+                enabledRegionsCount={displayEnabledRegionsCount}
+              />
+
+              {/* Savings Chart */}
+              <SpotAutomationChart
+                historyData={displayHistoryData}
+                historySummary={displayHistorySummary}
+                timeRange={historyTimeRange}
+                isLoading={false}
+                onTimeRangeChange={handleTimeRangeChange}
+                onRefresh={() => {}}
+              />
+
+              {/* ASG Table */}
+              <SpotAutomationASGTable
+                asgs={displayAsgs}
+                costs={displayCosts}
+                totalInstances={displayTotalInstances}
+                isLoading={false}
+                onToggleASG={handleToggleASG}
+                onRefresh={() => {}}
+              />
             </div>
-            <h4 className="text-2xl font-bold text-gray-800 mb-3">No Account Selected</h4>
-            <p className="text-gray-600 text-lg">
-              Please select an account from the sidebar to view Spot Automation data.
-            </p>
-          </div>
-        )}
+          )}
 
-        {/* Loading State - Initial */}
-        {selectedAccountId && isLoading && (
-          <div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-20 text-center">
-            <i className="fas fa-spinner fa-spin text-6xl text-blue-600 mb-6"></i>
-            <p className="text-gray-700 font-bold text-xl">Loading AutoSpotting data...</p>
-            <p className="text-sm text-gray-500 mt-3">Fetching cost data and ASG information</p>
-          </div>
-        )}
-
-        {/* Main Content - Data Loaded */}
-        {selectedAccountId && !isLoading && (
-          <>
-            {/* Dashboard Tab Content */}
-            {activeTab === 'dashboard' && (
-              <div className="space-y-8">
-                {/* KPIs */}
-                <SpotAutomationKPIs
-                  costs={costs}
-                  savings={savings}
-                  enabledASGsCount={enabledASGsCount}
-                  totalASGsCount={asgs.length}
-                  enabledRegionsCount={enabledRegionsCount}
-                />
-
-                {/* Savings Chart */}
-                <SpotAutomationChart
-                  historyData={historyData}
-                  historySummary={historySummary}
-                  timeRange={historyTimeRange}
-                  isLoading={isLoadingHistory}
-                  onTimeRangeChange={handleTimeRangeChange}
-                  onRefresh={() => fetchHistoryData(historyTimeRange)}
-                />
-
-                {/* ASG Table */}
-                <SpotAutomationASGTable
-                  asgs={asgs}
-                  costs={costs}
-                  totalInstances={totalInstances}
-                  isLoading={isRefreshing}
-                  onToggleASG={handleToggleASG}
-                  onRefresh={() => fetchCostData(true)}
-                />
+          {/* Launch Analytics Tab Content */}
+          {activeTab === 'analytics' && (
+            <div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-16 text-center">
+              <div className="w-20 h-20 bg-gradient-to-br from-blue-100 to-indigo-200 rounded-full flex items-center justify-center mx-auto mb-6">
+                <i className="fas fa-chart-line text-indigo-500 text-3xl"></i>
               </div>
-            )}
+              <h3 className="text-2xl font-bold text-gray-800 mb-3">Launch Analytics</h3>
+              <p className="text-gray-500 max-w-md mx-auto">
+                Track instance launches, spot interruptions, and capacity trends across your Auto Scaling Groups.
+              </p>
+            </div>
+          )}
 
-            {/* Launch Analytics Tab Content */}
-            {activeTab === 'analytics' && (
-              <LaunchAnalytics accountId={selectedAccountId} />
-            )}
+          {/* RI/SP Coverage Tab Content */}
+          {activeTab === 'risp-coverage' && (
+            <div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-16 text-center">
+              <div className="w-20 h-20 bg-gradient-to-br from-green-100 to-emerald-200 rounded-full flex items-center justify-center mx-auto mb-6">
+                <i className="fas fa-chart-pie text-emerald-500 text-3xl"></i>
+              </div>
+              <h3 className="text-2xl font-bold text-gray-800 mb-3">RI/SP Coverage</h3>
+              <p className="text-gray-500 max-w-md mx-auto">
+                Monitor Reserved Instance and Savings Plan coverage to optimize your commitment-based discounts.
+              </p>
+            </div>
+          )}
 
-            {/* RI/SP Coverage Tab Content */}
-            {activeTab === 'risp-coverage' && (
-              <RispCoverage accountId={selectedAccountId} />
-            )}
+          {/* Actions History Tab Content */}
+          {activeTab === 'history' && (
+            <div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-16 text-center">
+              <div className="w-20 h-20 bg-gradient-to-br from-purple-100 to-violet-200 rounded-full flex items-center justify-center mx-auto mb-6">
+                <i className="fas fa-history text-violet-500 text-3xl"></i>
+              </div>
+              <h3 className="text-2xl font-bold text-gray-800 mb-3">Actions History</h3>
+              <p className="text-gray-500 max-w-md mx-auto">
+                View detailed logs of all spot automation actions, including enables, disables, and instance replacements.
+              </p>
+            </div>
+          )}
+        </div>
 
-            {/* Actions History Tab Content */}
-            {activeTab === 'history' && (
-              <ActionsHistory accountId={selectedAccountId} />
-            )}
-          </>
-        )}
+        {/* Coming Soon Overlay - Fixed position for true centering */}
+        <div className="fixed inset-0 flex items-center justify-center z-50 pointer-events-none" style={{ top: '180px' }}>
+          <div className="bg-white/95 backdrop-blur-sm rounded-3xl shadow-2xl p-12 text-center max-w-lg mx-4 border border-gray-200 pointer-events-auto">
+            <div className="w-24 h-24 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg">
+              <i className="fas fa-rocket text-white text-4xl"></i>
+            </div>
+            <h2 className="text-3xl font-bold text-gray-800 mb-3">Coming Soon</h2>
+            <p className="text-gray-600 text-lg mb-6">
+              Spot Automation is currently under development. We're working hard to bring you powerful cost-saving features.
+            </p>
+            <div className="flex items-center justify-center gap-4 text-sm text-gray-500">
+              <div className="flex items-center gap-2">
+                <i className="fas fa-check-circle text-green-500"></i>
+                <span>Auto Scaling</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <i className="fas fa-check-circle text-green-500"></i>
+                <span>Cost Savings</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <i className="fas fa-check-circle text-green-500"></i>
+                <span>Analytics</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Modals */}
