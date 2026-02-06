@@ -3,7 +3,7 @@ import os
 class Config:
     """Base configuration with common settings"""
     # Flask settings
-    SECRET_KEY = os.getenv('SECRET_KEY', 'your-secret-key-change-in-production')
+    SECRET_KEY = os.getenv('SECRET_KEY')
 
     # Service settings
     SERVICE_NAME = 'XamOps Prophet Forecast Service'

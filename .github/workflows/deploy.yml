@@ -80,7 +80,7 @@
 #               "sudo docker stop frontend-app || true && sudo docker rm frontend-app || true",
 #               "sudo docker run -d -p 8761:8761 --name service-registry --network xamops-network ghcr.io/sahil-remoterepo/service-registry:latest",
 #               "sudo docker run -d -p 8082:8082 --name billops --network xamops-network ghcr.io/sahil-remoterepo/billops:latest",
-#               "sudo docker run -d -p 8080:8080 --name xamops-service --network xamops-network --restart always -e SPRING_PROFILES_ACTIVE=sit -e DB_HOST=172.31.9.24 -e DB_USER=xamops_local_user -e DB_PASS=XamOps@123 -e DB_NAME=xamops_local_db -e EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://service-registry:8761/eureka/ -e REDIS_HOST=redis-sit -e REDIS_PORT=6379 ghcr.io/sahil-remoterepo/xamops-service:latest",
+#               "sudo docker run -d -p 8080:8080 --name xamops-service --network xamops-network --restart always -e SPRING_PROFILES_ACTIVE=sit -e DB_HOST=172.31.9.24 -e DB_USER=xamops_local_user -e DB_PASS=${{ secrets.DB_PASS }} -e DB_NAME=xamops_local_db -e EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://service-registry:8761/eureka/ -e REDIS_HOST=redis-sit -e REDIS_PORT=6379 ghcr.io/sahil-remoterepo/xamops-service:latest",
 #               "sudo docker run -d --name frontend-app --network xamops-network ghcr.io/sahil-remoterepo/frontend-app:latest",
 #             ]'
 
@@ -169,7 +169,7 @@
 #               "sudo docker stop frontend-app || true && sudo docker rm frontend-app || true",
 #               "sudo docker run -d -p 8761:8761 --name service-registry --network xamops-network ghcr.io/sahil-remoterepo/service-registry:latest",
 #               "sudo docker run -d -p 8082:8082 --name billops --network xamops-network ghcr.io/sahil-remoterepo/billops:latest",
-#               "sudo docker run -d -p 8080:8080 --name xamops-service --network xamops-network --restart always -e SPRING_PROFILES_ACTIVE=sit -e DB_HOST=172.31.9.24 -e DB_USER=xamops_local_user -e DB_PASS=XamOps@123 -e DB_NAME=xamops_local_db -e EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://service-registry:8761/eureka/ -e REDIS_HOST=redis-sit -e REDIS_PORT=6379 -e \"GROQ_API_KEY=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\" ghcr.io/sahil-remoterepo/xamops-service:latest",
+#               "sudo docker run -d -p 8080:8080 --name xamops-service --network xamops-network --restart always -e SPRING_PROFILES_ACTIVE=sit -e DB_HOST=172.31.9.24 -e DB_USER=xamops_local_user -e DB_PASS=${{ secrets.DB_PASS }} -e DB_NAME=xamops_local_db -e EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://service-registry:8761/eureka/ -e REDIS_HOST=redis-sit -e REDIS_PORT=6379 -e \"GROQ_API_KEY=${{ secrets.GROQ_API_KEY }}\" ghcr.io/sahil-remoterepo/xamops-service:latest",
 #               "sudo docker run -d --name frontend-app --network xamops-network ghcr.io/sahil-remoterepo/frontend-app:latest"
 #             ]'
 
@@ -267,6 +267,6 @@ jobs:
               # UPDATED RUN COMMANDS (all 4)
               "sudo docker run -d -p 8761:8761 --name service-registry --network xamops-network ghcr.io/kshitij-prajapati/service-registry:latest",
               "sudo docker run -d -p 8082:8082 --name billops --network xamops-network ghcr.io/kshitij-prajapati/billops:latest",
-              "sudo docker run -d -p 8080:8080 --name xamops-service --network xamops-network --restart always -e SPRING_PROFILES_ACTIVE=sit -e DB_HOST=172.31.9.24 -e DB_USER=xamops_local_user -e DB_PASS=XamOps@123 -e DB_NAME=xamops_local_db -e EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://service-registry:8761/eureka/ -e REDIS_HOST=redis-sit -e REDIS_PORT=6379 -e \"GROQ_API_KEY=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\" ghcr.io/kshitij-prajapati/xamops-service:latest",
+              "sudo docker run -d -p 8080:8080 --name xamops-service --network xamops-network --restart always -e SPRING_PROFILES_ACTIVE=sit -e DB_HOST=172.31.9.24 -e DB_USER=xamops_local_user -e DB_PASS=${{ secrets.DB_PASS }} -e DB_NAME=xamops_local_db -e EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://service-registry:8761/eureka/ -e REDIS_HOST=redis-sit -e REDIS_PORT=6379 -e \"GROQ_API_KEY=${{ secrets.GROQ_API_KEY }}\" ghcr.io/kshitij-prajapati/xamops-service:latest",
               "sudo docker run -d --name frontend-app --network xamops-network ghcr.io/kshitij-prajapati/frontend-app:latest"
             ]'
