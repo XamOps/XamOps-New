@@ -47,11 +47,12 @@ public class GlobalUserSyncService {
      */
     @Scheduled(fixedDelay = 60000) // Run every 1 minute
     public void syncAllUsersToGlobalDirectory() {
-        // Skip in local/UAT - only run in prod
+        // Skip in local/UAT - only run in prod or preprod
         String[] activeProfiles = new org.springframework.core.env.StandardEnvironment().getActiveProfiles();
-        boolean isProd = java.util.Arrays.asList(activeProfiles).contains("prod");
-        if (!isProd) {
-            log.debug("Skipping Global User Sync - not in prod profile");
+        List<String> profilesList = java.util.Arrays.asList(activeProfiles);
+        boolean isSyncProfile = profilesList.contains("prod") || profilesList.contains("preprod");
+        if (!isSyncProfile) {
+            log.debug("Skipping Global User Sync - not in prod or preprod profile");
             return;
         }
 
