@@ -302,12 +302,18 @@ public class CostService {
                                                 .groupBy(groupDefinition)
                                                 .build();
 
-                                List<CostDto> costs = ce.getCostAndUsage(request).resultsByTime().get(0).groups()
-                                                .stream()
-                                                .map(group -> new CostDto(
-                                                                group.keys().get(0),
-                                                                Double.parseDouble(group.metrics().get("UnblendedCost")
-                                                                                .amount())))
+                                // Aggregate costs across all time periods (fixes data mismatch with FinOps)
+                                Map<String, Double> costMap = new HashMap<>();
+                                ce.getCostAndUsage(request).resultsByTime().forEach(timePeriod -> {
+                                        timePeriod.groups().forEach(group -> {
+                                                String name = group.keys().get(0);
+                                                double cost = Double.parseDouble(group.metrics().get("UnblendedCost").amount());
+                                                costMap.merge(name, cost, Double::sum);
+                                        });
+                                });
+
+                                List<CostDto> costs = costMap.entrySet().stream()
+                                                .map(e -> new CostDto(e.getKey(), e.getValue()))
                                                 .filter(cost -> cost.getAmount() > 0.01)
                                                 .sorted((a, b) -> Double.compare(b.getAmount(), a.getAmount()))
                                                 .collect(Collectors.toList());

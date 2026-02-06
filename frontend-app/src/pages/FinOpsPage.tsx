@@ -19,7 +19,7 @@
  * - Pagination for large tables
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useFinOpsData } from '../hooks/useFinOpsData';
 import type { DateFilter, NewBudget, NewSchedule, PaginationState } from '../types/finops';
@@ -36,15 +36,30 @@ import BudgetModal from '../components/FinOps/BudgetModal';
 import ScheduleModal from '../components/FinOps/ScheduleModal';
 import Toast from '../components/FinOps/Toast';
 
+// Helper to get initial date range (start of month to today) - matches Cost page defaults
+const getInitialDates = (): DateFilter => {
+  const today = new Date();
+  const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+
+  const formatDate = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  return {
+    startDate: formatDate(startOfMonth),
+    endDate: formatDate(today),
+  };
+};
+
 export const FinOpsPage: React.FC = () => {
   const { selectedAccountIds } = useAccounts();
   const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
 
-  // Date filter state
-  const [dateFilter, setDateFilter] = useState<DateFilter>({
-    startDate: '',
-    endDate: '',
-  });
+  // Date filter state - initialized to match Cost page defaults
+  const [dateFilter, setDateFilter] = useState<DateFilter>(getInitialDates());
 
   // Get FinOps data
   const {
@@ -107,8 +122,10 @@ export const FinOpsPage: React.FC = () => {
   };
 
   const clearDateFilter = () => {
-    setDateFilter({ startDate: '', endDate: '' });
-    console.log('[FinOps] Date filter cleared, reloading report');
+    const initialDates = getInitialDates();
+    setDateFilter(initialDates);
+    console.log('[FinOps] Date filter reset to current month');
+    // Note: loadReport will be called via useEffect in useFinOpsData when dateFilter changes
   };
 
   // Budget handlers
@@ -194,12 +211,7 @@ export const FinOpsPage: React.FC = () => {
     }
   };
 
-  // Reload report when date filter changes after clearing
-  useEffect(() => {
-    if (!dateFilter.startDate && !dateFilter.endDate && selectedAccountId) {
-      loadReport(false);
-    }
-  }, [dateFilter, selectedAccountId, loadReport]);
+  // Note: Report reloads automatically when dateFilter changes via useFinOpsData hook
 
   // Show error state
   if (error) {

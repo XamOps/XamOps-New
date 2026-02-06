@@ -177,7 +177,7 @@ const EksKarpenterTab: React.FC<{ eksData: any }> = ({ eksData }) => {
           </div>
         </div>
 
-        {karpenter.dailyCostKarpenterNodes && (
+        {karpenter.dailyCostKarpenterNodes > 0 && (
           <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">

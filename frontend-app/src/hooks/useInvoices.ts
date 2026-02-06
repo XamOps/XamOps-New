@@ -472,7 +472,7 @@ export const useInvoices = (): UseInvoicesReturn => {
               notifyNewInvoice(
                 invoice.accountName,
                 invoice.billingPeriod,
-                invoice.totalAmount
+                invoice.amount
               );
               break; // Only one notification for batch of new invoices
             }
