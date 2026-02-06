@@ -40,13 +40,24 @@ const AccountSelector: React.FC<AccountSelectorProps> = ({ isOpen, onToggle, onC
     getProviderIcon,
   } = useAccounts();
 
+  React.useEffect(() => {
+    if (!isOpen) return;
+
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [isOpen, onClose]);
+
   const renderAccountGroup = (title: string, accounts: Account[], selectAllFn?: () => void) => {
     if (accounts.length === 0) return null;
 
     return (
-      <div className="mb-4">
+      <section className="mb-4" aria-labelledby={`account-group-${title.replace(/\s+/g, '-').toLowerCase()}`}>
         <div className="flex items-center justify-between px-4 py-2 bg-gray-50">
-          <h4 className="text-xs font-semibold text-gray-700 uppercase tracking-wider">{title}</h4>
+          <h4 id={`account-group-${title.replace(/\s+/g, '-').toLowerCase()}`} className="text-xs font-semibold text-gray-700 uppercase tracking-wider">{title}</h4>
           {multiAccountMode && selectAllFn && (
             <button
               onClick={selectAllFn}
@@ -56,21 +67,30 @@ const AccountSelector: React.FC<AccountSelectorProps> = ({ isOpen, onToggle, onC
             </button>
           )}
         </div>
-        <div className="max-h-48 overflow-y-auto">
+        <div className="max-h-48 overflow-y-auto" role="listbox">
           {accounts.map(account => {
             const selected = isAccountSelected(account.id);
             const disabled = isAccountDisabled(account.id);
 
             return (
-              <div
+              <button
                 key={account.id}
                 onClick={() => !disabled && toggleAccount(account.id)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    !disabled && toggleAccount(account.id);
+                  }
+                }}
                 className={clsx(
-                  'flex items-center px-4 py-3 cursor-pointer transition-colors',
+                  'w-full flex items-center px-4 py-3 cursor-pointer transition-colors text-left',
                   disabled && 'opacity-50 cursor-not-allowed',
                   !disabled && 'hover:bg-gray-50',
                   selected && !disabled && 'bg-indigo-50'
                 )}
+                disabled={disabled}
+                role="option"
+                aria-selected={selected}
               >
                 {multiAccountMode && isDashboardPage && (
                   <input
@@ -99,11 +119,11 @@ const AccountSelector: React.FC<AccountSelectorProps> = ({ isOpen, onToggle, onC
                     />
                   </svg>
                 )}
-              </div>
+              </button>
             );
           })}
         </div>
-      </div>
+      </section>
     );
   };
 
@@ -165,84 +185,97 @@ const AccountSelector: React.FC<AccountSelectorProps> = ({ isOpen, onToggle, onC
         )}
       </button>
 
-      {/* Dropdown Menu */}
-      {isOpen && (
-        <>
-          {/* Backdrop */}
-          <div className="fixed inset-0 z-10" onClick={onClose} />
+      {/* Dropdown Menu - Smooth Transition Wrapper */}
+      <div className={clsx(
+        'fixed inset-0 z-10 transition-opacity duration-200 ease-linear',
+        isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+      )}>
+        {/* Backdrop */}
+        <button
+          className="absolute inset-0 bg-black/5 w-full h-full cursor-default"
+          onClick={onClose}
+          aria-label="Close Account Selector"
+        />
+      </div>
 
-          {/* Dropdown Content */}
-          <div className="absolute left-0 right-0 mt-2 bg-white rounded-lg shadow-xl border border-gray-200 z-20 max-h-[600px] flex flex-col">
-            {/* Multi-Account Mode Toggle (Dashboard Only) */}
-            {isDashboardPage && (
-              <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-gray-700">Multi-Account Mode</span>
-                  <div
-                    onClick={toggleMultiAccountMode}
-                    className={clsx(
-                      'toggle-switch',
-                      multiAccountMode && 'active'
-                    )}
-                  >
-                    <div className="toggle-slider" />
-                  </div>
-                </div>
-                <p className="text-xs text-gray-500 mt-1">
-                  Select up to 10 accounts from the same provider
-                </p>
-              </div>
-            )}
-
-            {/* Search Box */}
-            <div className="p-4 border-b border-gray-200">
-              <input
-                type="text"
-                placeholder="Search accounts..."
-                value={searchTerm}
-                onChange={e => setSearchTerm(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              />
-            </div>
-
-            {/* Account List */}
-            <div className="flex-1 overflow-y-auto">
-              {filteredAccounts.length === 0 ? (
-                <div className="px-4 py-8 text-center text-gray-500">
-                  <p className="text-sm">No accounts found</p>
-                </div>
-              ) : (
-                <>
-                  {renderAccountGroup('AWS Accounts', awsAccounts, selectAllAws)}
-                  {renderAccountGroup('GCP Accounts', gcpAccounts, selectAllGcp)}
-                  {renderAccountGroup('Azure Accounts', azureAccounts, selectAllAzure)}
-                </>
-              )}
-            </div>
-
-            {/* Actions */}
-            <div className="px-4 py-3 border-t border-gray-200 bg-gray-50 flex gap-2">
-              {multiAccountMode && (
+      <div className={clsx(
+        'absolute left-0 right-0 mt-2 bg-white rounded-lg shadow-xl border border-gray-200 z-20 overflow-hidden grid transition-[grid-template-rows,opacity,transform] duration-200 ease-[cubic-bezier(0.2,1,0.2,1)] will-change-[grid-template-rows,opacity,transform]',
+        isOpen
+          ? 'grid-rows-[1fr] opacity-100 translate-y-0 scale-100'
+          : 'grid-rows-[0fr] opacity-0 -translate-y-2 scale-95 pointer-events-none'
+      )}>
+        <div className="min-h-0 flex flex-col max-h-[600px]">
+          {/* Multi-Account Mode Toggle (Dashboard Only) */}
+          {isDashboardPage && (
+            <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium text-gray-700">Multi-Account Mode</span>
                 <button
-                  onClick={clearAllSelections}
-                  className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                  onClick={toggleMultiAccountMode}
+                  className={clsx(
+                    'toggle-switch focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2',
+                    multiAccountMode && 'active'
+                  )}
+                  aria-pressed={multiAccountMode}
+                  aria-label="Toggle Multi-Account Mode"
                 >
-                  Clear All
+                  <div className="toggle-slider" />
                 </button>
-              )}
-              <button
-                onClick={() => {
-                  applySelection();
-                  onClose();
-                }}
-                className="flex-1 px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors"
-              >
-                Apply
-              </button>
+              </div>
+              <p className="text-xs text-gray-500 mt-1">
+                Select up to 10 accounts from the same provider
+              </p>
             </div>
+          )}
+
+          {/* Search Box */}
+          <div className="p-4 border-b border-gray-200">
+            <input
+              type="text"
+              placeholder="Search accounts..."
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+            />
           </div>
-        </>
-      )}
+
+          {/* Account List */}
+          <div className="flex-1 overflow-y-auto min-h-0">
+            {filteredAccounts.length === 0 ? (
+              <div className="px-4 py-8 text-center text-gray-500">
+                <p className="text-sm">No accounts found</p>
+              </div>
+            ) : (
+              <>
+                {renderAccountGroup('AWS Accounts', awsAccounts, selectAllAws)}
+                {renderAccountGroup('GCP Accounts', gcpAccounts, selectAllGcp)}
+                {renderAccountGroup('Azure Accounts', azureAccounts, selectAllAzure)}
+              </>
+            )}
+          </div>
+
+          {/* Actions */}
+          <div className="px-4 py-3 border-t border-gray-200 bg-gray-50 flex gap-2">
+            {multiAccountMode && (
+              <button
+                onClick={clearAllSelections}
+                className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Clear All
+              </button>
+            )}
+            <button
+              onClick={() => {
+                applySelection();
+                onClose();
+              }}
+              className="flex-1 px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors"
+            >
+              Apply
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };

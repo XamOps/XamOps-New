@@ -83,28 +83,3 @@
 .sidebar-scroll::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
 }
-
-/* Smooth transitions for dropdowns */
-.nav-dropdown-enter {
-  max-height: 0;
-  opacity: 0;
-  overflow: hidden;
-}
-
-.nav-dropdown-enter-active {
-  max-height: 500px;
-  opacity: 1;
-  transition: max-height 0.3s ease, opacity 0.3s ease;
-}
-
-.nav-dropdown-exit {
-  max-height: 500px;
-  opacity: 1;
-}
-
-.nav-dropdown-exit-active {
-  max-height: 0;
-  opacity: 0;
-  overflow: hidden;
-  transition: max-height 0.3s ease, opacity 0.3s ease;
-}
