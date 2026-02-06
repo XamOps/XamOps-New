@@ -26,7 +26,7 @@ public class EnvironmentService {
         String[] activeProfiles = environment.getActiveProfiles();
         List<String> profiles = Arrays.asList(activeProfiles);
 
-        if (profiles.contains("prod")) {
+        if (profiles.contains("prod") || profiles.contains("preprod")) {
             return "prod";
         } else if (profiles.contains("uat")) {
             return "uat";

@@ -567,7 +567,8 @@ public class DashboardDataService {
         messages.add("ℹ️ Monitoring " + totalAccounts + " cloud accounts across " + providerCount + " providers.");
 
         for (CloudAccount acc : accounts) {
-            if (acc.getAccountName().toLowerCase().contains("prod")) {
+            String accNameLower = acc.getAccountName().toLowerCase();
+            if (accNameLower.contains("prod") || accNameLower.contains("preprod")) {
                 messages.add("🛡️ Security scan completed for '" + acc.getAccountName() + "': No critical threats.");
             }
         }

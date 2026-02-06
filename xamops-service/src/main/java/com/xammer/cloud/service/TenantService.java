@@ -33,11 +33,12 @@ public class TenantService {
      * @return List of active tenants
      */
     public List<TenantDto> getAllActiveTenants() {
-        // Check if we're in prod profile
+        // Check if we're in prod or preprod profile
         String[] activeProfiles = environment.getActiveProfiles();
-        boolean isProd = java.util.Arrays.asList(activeProfiles).contains("prod");
+        List<String> profilesList = java.util.Arrays.asList(activeProfiles);
+        boolean isSyncProfile = profilesList.contains("prod") || profilesList.contains("preprod");
 
-        if (!isProd) {
+        if (!isSyncProfile) {
             // In local/UAT, there's no tenant_config table - return empty list
             return java.util.Collections.emptyList();
         }
