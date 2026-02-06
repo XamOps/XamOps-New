@@ -586,7 +586,6 @@ const Sidebar: React.FC = () => {
           {/* FinOps Section */}
           {(hasAnyRole('ROLE_XAMOPS') || hasAnyRole('ROLE_SUPER_ADMIN')) && (
             <NavSection
-              id="finops"
               icon="fas fa-dollar-sign"
               label="FinOps"
               gradientClass="from-green-500 to-teal-600"
@@ -655,7 +654,6 @@ const Sidebar: React.FC = () => {
           {/* CloudOps Section */}
           {(hasAnyRole('ROLE_XAMOPS') || hasAnyRole('ROLE_SUPER_ADMIN')) && (
             <NavSection
-              id="cloudops"
               icon="fas fa-server"
               label="CloudOps"
               gradientClass="from-indigo-500 to-purple-600"
@@ -676,7 +674,6 @@ const Sidebar: React.FC = () => {
           {/* SecOps Section */}
           {(hasAnyRole('ROLE_XAMOPS') || hasAnyRole('ROLE_SUPER_ADMIN')) && (
             <NavSection
-              id="security"
               icon="fas fa-shield-alt"
               label="SecOps"
               gradientClass="from-red-500 to-orange-600"
@@ -713,7 +710,6 @@ const Sidebar: React.FC = () => {
           {/* Licenses Section for ROLE_XAMOPS */}
           {(hasAnyRole('ROLE_XAMOPS') || hasAnyRole('ROLE_SUPER_ADMIN')) && (
             <NavSection
-              id="licenses"
               icon="fas fa-key"
               label="Licenses"
               gradientClass="from-cyan-500 to-blue-600"
@@ -733,7 +729,6 @@ const Sidebar: React.FC = () => {
           {/* Only show for ROLE_XAMOPS and ROLE_SUPER_ADMIN users (Admin items moved to top) */}
           {(hasAnyRole('ROLE_XAMOPS') || hasAnyRole('ROLE_SUPER_ADMIN')) && (
             <NavSection
-              id="billops"
               icon="fas fa-file-invoice-dollar"
               label="BillOps"
               gradientClass="from-cyan-500 to-blue-600"
@@ -752,7 +747,6 @@ const Sidebar: React.FC = () => {
 
           {/* Settings Section moved to footer */}
           <NavSection
-            id="settings"
             icon="fas fa-cog"
             label="Settings"
             gradientClass="from-gray-500 to-gray-700"

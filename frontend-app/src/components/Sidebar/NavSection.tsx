@@ -9,7 +9,6 @@ import React from 'react';
 import clsx from 'clsx';
 
 interface NavSectionProps {
-  id: string;
   icon: string;
   label: string;
   gradientClass?: string;
@@ -31,11 +30,16 @@ const NavSection: React.FC<NavSectionProps> = ({
   return (
     <div className="relative">
       {/* Dropdown Content - Above for 'up' direction (Absolute positioning to prevent shift) */}
-      {isOpen && direction === 'up' && (
-        <div className="absolute bottom-full left-0 w-full mb-2 space-y-1 bg-white border border-gray-200 rounded-xl shadow-2xl p-2 z-50">
+      <div className={clsx(
+        'absolute bottom-full left-0 w-full mb-2 transition-[grid-template-rows,opacity,transform] duration-200 ease-[cubic-bezier(0.2,1,0.2,1)] bg-white border border-gray-200 rounded-xl shadow-2xl z-50 overflow-hidden grid will-change-[grid-template-rows,opacity,transform]',
+        isOpen && direction === 'up'
+          ? 'grid-rows-[1fr] opacity-100 p-2 scale-100'
+          : 'grid-rows-[0fr] opacity-0 p-0 border-transparent shadow-none scale-95 pointer-events-none'
+      )}>
+        <div className="min-h-0 space-y-1">
           {children}
         </div>
-      )}
+      </div>
 
       {/* Section Header */}
       <button
@@ -65,11 +69,16 @@ const NavSection: React.FC<NavSectionProps> = ({
       </button>
 
       {/* Dropdown Content - Below for 'down' direction (Standard flow) */}
-      {isOpen && direction === 'down' && (
-        <div className="ml-4 mt-2 space-y-1 border-l-2 border-gray-200 pl-4">
+      <div className={clsx(
+        'grid transition-[grid-template-rows,opacity,margin] duration-200 ease-[cubic-bezier(0.2,1,0.2,1)] overflow-hidden will-change-[grid-template-rows,opacity]',
+        isOpen && direction === 'down'
+          ? 'grid-rows-[1fr] opacity-100 mt-2'
+          : 'grid-rows-[0fr] opacity-0 mt-0'
+      )}>
+        <div className="min-h-0 ml-4 space-y-1 border-l-2 border-gray-200 pl-4">
           {children}
         </div>
-      )}
+      </div>
     </div>
   );
 };
