@@ -1482,8 +1482,9 @@ public class PrometheusService {
      * Returns map of pod -> {kind, name}
      */
     public Map<String, Map<String, String>> getPodOwner(String prometheusUrl, String clusterName) {
+        // Filter by job="kube-state-metrics" to avoid duplicates from otel-gateway
         String query = String.format(
-                "max by (pod, owner_kind, owner_name) (xamops_eks_kube_pod_owner{cluster_name=\"%s\"})",
+                "max by (pod, owner_kind, owner_name) (xamops_eks_kube_pod_owner{cluster_name=\"%s\", job=\"kube-state-metrics\"})",
                 clusterName);
         List<Map<String, String>> results = fetchMetricLabels(
                 prometheusUrl, query, Arrays.asList("pod", "owner_kind", "owner_name"));
@@ -1507,12 +1508,13 @@ public class PrometheusService {
      * Uses kube_pod_owner join for accurate mapping
      */
     public List<Map<String, String>> getWorkloadCpuUsage(String prometheusUrl, String clusterName) {
+        // Filter by job="kube-state-metrics" to avoid duplicates from otel-gateway
         String query = String.format(
                 "sum by (owner_name, owner_kind, namespace) (" +
                         "  rate(xamops_eks_container_cpu_usage_seconds_total{cluster_name=\"%s\", container!=\"\", container!=\"POD\"}[5m]) * 1000 "
                         +
                         "  * on(pod, namespace) group_left(owner_name, owner_kind) " +
-                        "  xamops_eks_kube_pod_owner{cluster_name=\"%s\"}" +
+                        "  xamops_eks_kube_pod_owner{cluster_name=\"%s\", job=\"kube-state-metrics\"}" +
                         ")",
                 clusterName, clusterName);
 
@@ -1524,12 +1526,13 @@ public class PrometheusService {
      * Get Memory usage grouped by owner (Deployment, DaemonSet, etc.)
      */
     public List<Map<String, String>> getWorkloadMemoryUsage(String prometheusUrl, String clusterName) {
+        // Filter by job="kube-state-metrics" to avoid duplicates from otel-gateway
         String query = String.format(
                 "sum by (owner_name, owner_kind, namespace) (" +
                         "  xamops_eks_container_memory_working_set_bytes{cluster_name=\"%s\", container!=\"\", container!=\"POD\"} / 1024 / 1024 "
                         +
                         "  * on(pod, namespace) group_left(owner_name, owner_kind) " +
-                        "  xamops_eks_kube_pod_owner{cluster_name=\"%s\"}" +
+                        "  xamops_eks_kube_pod_owner{cluster_name=\"%s\", job=\"kube-state-metrics\"}" +
                         ")",
                 clusterName, clusterName);
 

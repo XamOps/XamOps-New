@@ -71,6 +71,7 @@ export interface DashboardErrors {
   gcp: string | null;
   azure: string | null;
   health: string | null;
+  tickets: string | null;
 }
 
 export interface DashboardLoading {
@@ -79,6 +80,7 @@ export interface DashboardLoading {
   gcp: boolean;
   azure: boolean;
   health: boolean;
+  tickets: boolean;
 }
 
 export type ViewMode = 'cost' | 'resource' | 'waste' | 'alerts' | 'savings';

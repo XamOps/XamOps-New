@@ -59,14 +59,9 @@ public class DashboardController {
     }
 
     /**
-<<<<<<< HEAD
-     * User Dashboard endpoint - shows data specific to the logged-in user's accounts
-     * Accessible by users with ROLE_BILLOPS, ROLE_BILLOPS_ADMIN, or ROLE_XAMOPS
-=======
      * User Dashboard endpoint - shows data specific to the logged-in user's
      * accounts
-     * Accessible by users with ROLE_BILLOPS or ROLE_BILLOPS_ADMIN
->>>>>>> 32fb69be (preprod update)
+     * Accessible by users with ROLE_BILLOPS, ROLE_BILLOPS_ADMIN, or ROLE_XAMOPS
      */
     @GetMapping("/user")
     @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS', 'ROLE_BILLOPS_ADMIN', 'ROLE_XAMOPS')")

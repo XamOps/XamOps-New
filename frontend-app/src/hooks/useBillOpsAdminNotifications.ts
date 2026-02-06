@@ -109,7 +109,6 @@ export const useBillOpsAdminNotifications = (): UseBillOpsAdminNotificationsRetu
       metadata: {
         ticketId: ticket.id,
         accountId: ticket.accountId,
-        clientName: ticket.clientName,
         severity: ticket.severity,
       },
     };
