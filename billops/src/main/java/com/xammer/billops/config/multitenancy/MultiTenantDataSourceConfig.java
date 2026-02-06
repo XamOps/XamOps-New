@@ -191,10 +191,21 @@ public class MultiTenantDataSourceConfig {
      */
     @Bean
     @Primary
-    @ConditionalOnProperty(name = "spring.profiles.active", havingValue = "prod")
+    @ConditionalOnProperty(name = "spring.profiles.active", havingValue = "prod", matchIfMissing = false)
     public DataSource prodRoutingDataSource() {
+        return createRoutingDataSource("PROD");
+    }
+
+    @Bean
+    @Primary
+    @ConditionalOnProperty(name = "spring.profiles.active", havingValue = "preprod")
+    public DataSource preprodRoutingDataSource() {
+        return createRoutingDataSource("PREPROD");
+    }
+
+    private DataSource createRoutingDataSource(String profileName) {
         logger.info("========================================");
-        logger.info("BILLOPS - PROFILE: PROD - Multi-Tenant Routing Mode");
+        logger.info("BILLOPS - PROFILE: {} - Multi-Tenant Routing Mode", profileName);
         logger.info("========================================");
         logger.info("Master DB URL: {}", dataSourceUrl);
 
@@ -270,6 +281,12 @@ public class MultiTenantDataSourceConfig {
     @Bean(name = "masterDataSource")
     @ConditionalOnProperty(name = "spring.profiles.active", havingValue = "prod")
     public DataSource masterDataSource() {
+        return createMasterDataSourceForLookup();
+    }
+
+    @Bean(name = "masterDataSource")
+    @ConditionalOnProperty(name = "spring.profiles.active", havingValue = "preprod")
+    public DataSource preprodMasterDataSource() {
         return createMasterDataSourceForLookup();
     }
 }

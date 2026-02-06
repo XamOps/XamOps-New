@@ -553,6 +553,10 @@ public class EksCompleteDashboardDto {
             private String namespace;
             private Long count;
 
+            // Default constructor for Jackson deserialization
+            public SecurityAlert() {
+            }
+
             public SecurityAlert(String rule, String priority, String pod, String namespace, Long count) {
                 this.rule = rule;
                 this.priority = priority;

@@ -158,7 +158,6 @@ const CloudK8sPage: React.FC = () => {
         onRefresh={() => fetchClusters(true)}
       />
 
-      {/* Main Content */}
       <div className="flex-1 p-4 md:p-8 space-y-8">
         <div className="space-y-8">
           {/* Clusters Table */}

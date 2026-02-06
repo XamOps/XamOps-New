@@ -41,11 +41,12 @@ public class GcpBillingDataIngestionService {
     public void runDailyBillingIngestion() {
         log.info("🔄 [Scheduler] Starting Global Scheduled Job: Ingest GCP billing data...");
 
-        // Check if we're in prod profile
+        // Check if we're in prod or preprod profile
         String[] activeProfiles = new org.springframework.core.env.StandardEnvironment().getActiveProfiles();
-        boolean isProd = java.util.Arrays.asList(activeProfiles).contains("prod");
+        List<String> profilesList = java.util.Arrays.asList(activeProfiles);
+        boolean isProduction = profilesList.contains("prod") || profilesList.contains("preprod");
 
-        if (!isProd) {
+        if (!isProduction) {
             // In local/UAT, process current database only (no multi-tenancy)
             log.info("🔓 LOCAL/UAT MODE: Processing current database only");
             try {

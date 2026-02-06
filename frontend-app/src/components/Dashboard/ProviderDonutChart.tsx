@@ -160,11 +160,11 @@ export const ProviderDonutChart: React.FC<ProviderDonutChartProps> = ({ awsData,
       beforeDraw(chart: Chart) {
         const { ctx, width, height } = chart;
         ctx.restore();
-        const fontSize = (height / 150).toFixed(2);
+        const fontSize = (height / 170).toFixed(2);
         ctx.font = `bolder ${fontSize}em 'Plus Jakarta Sans', sans-serif`;
         ctx.textBaseline = 'middle';
 
-        const text = `$${totalSpend.toLocaleString()}`;
+        const text = `$${Math.round(totalSpend).toLocaleString()}`;
         const textX = (width - ctx.measureText(text).width) / 2;
         const textY = height / 2 - 10; // Adjust for "Total Spend" label
 

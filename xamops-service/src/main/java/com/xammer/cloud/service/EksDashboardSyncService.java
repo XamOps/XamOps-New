@@ -14,10 +14,17 @@ import com.xammer.cloud.repository.KubernetesClusterRepository;
 import com.xammer.cloud.repository.KubernetesClusterConfigRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.concurrent.CompletableFuture;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -27,9 +34,16 @@ import java.util.Optional;
  * Service for syncing and caching EKS dashboard data.
  *
  * Features:
- * - Scheduled sync at 4 AM daily for all clusters
- * - On-demand sync when user clicks "Sync Data" button
+ * - Cache warmup on application startup (instant page loads from day 1)
+ * - Scheduled sync at 4 AM daily for all clusters (fresh data every morning)
+ * - On-demand sync when user clicks "Sync Data" button (live data on demand)
  * - Database-backed caching for instant page loads
+ *
+ * Flow:
+ * 1. On app startup: warmCacheOnStartup() populates cache for all clusters
+ * 2. Every 6 hours: scheduledSyncAllClusters() refreshes cache with fresh data
+ * 3. On page load: Returns cached data from database (instant)
+ * 4. On "Sync Data" click: Returns cached data immediately, fetches fresh data in background
  */
 @Service
 public class EksDashboardSyncService {
@@ -42,6 +56,12 @@ public class EksDashboardSyncService {
     private final CloudAccountRepository cloudAccountRepository;
     private final EksDashboardService eksDashboardService;
     private final ObjectMapper objectMapper;
+
+    // Self-injection to allow @Transactional to work on internal calls
+    // Without this, calling saveDashboardToCache() from within this class bypasses the proxy
+    @Autowired
+    @Lazy
+    private EksDashboardSyncService self;
 
     public EksDashboardSyncService(
             EksDashboardCacheRepository cacheRepository,
@@ -61,12 +81,37 @@ public class EksDashboardSyncService {
     }
 
     /**
-     * Scheduled job to sync all EKS clusters at 4 AM daily.
-     * Cron: 0 0 4 * * ? = At 4:00 AM every day
+     * Warm up cache on application startup.
+     * This ensures cached data is available immediately when users visit EKS dashboards.
+     * Runs in a separate thread to avoid blocking application startup.
      */
-    @Scheduled(cron = "0 0 4 * * ?")
+    @EventListener(ApplicationReadyEvent.class)
+    public void warmCacheOnStartup() {
+        logger.info("🚀 Starting EKS dashboard cache warming on application startup...");
+
+        // Run in separate thread to avoid blocking application startup
+        new Thread(() -> {
+            try {
+                // Wait a few seconds for other services to be ready
+                Thread.sleep(5000);
+                syncAllClusters();
+                logger.info("✅ EKS dashboard cache warming completed successfully");
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                logger.warn("⚠️ EKS cache warming interrupted");
+            } catch (Exception e) {
+                logger.error("❌ Error during startup EKS cache warming", e);
+            }
+        }, "eks-cache-warmup").start();
+    }
+
+    /**
+     * Scheduled job to sync all EKS clusters every 6 hours.
+     * Cron: 0 0 *\/6 * * ? = At minute 0 past every 6th hour (00:00, 06:00, 12:00, 18:00)
+     */
+    @Scheduled(cron = "0 0 */6 * * ?")
     public void scheduledSyncAllClusters() {
-        logger.info("🕐 Starting scheduled EKS dashboard sync at 4 AM...");
+        logger.info("🕐 Starting scheduled EKS dashboard sync (every 6 hours)...");
         syncAllClusters();
         logger.info("✅ Scheduled EKS dashboard sync completed");
     }
@@ -140,8 +185,11 @@ public class EksDashboardSyncService {
                     .get(); // Block and wait for result
 
             if (dashboard != null) {
-                // Save to database (runs in separate transaction, won't fail this method)
-                boolean saved = saveDashboardToCache(clusterName, account.getAwsAccountId(), region, dashboard);
+                // Save to database using self-injection to ensure @Transactional works
+                // Direct call would bypass Spring's proxy and transaction won't be created
+                logger.info("💾 Saving dashboard to cache with params: clusterName='{}', accountId='{}', region='{}'",
+                        clusterName, account.getAwsAccountId(), region);
+                boolean saved = self.saveDashboardToCache(clusterName, account.getAwsAccountId(), region, dashboard);
                 if (saved) {
                     logger.info("✅ Dashboard synced and saved to database for cluster: {}", clusterName);
                 } else {
@@ -155,6 +203,24 @@ public class EksDashboardSyncService {
         } catch (Exception e) {
             logger.error("❌ Error fetching dashboard for cluster: {}", clusterName, e);
             throw new RuntimeException("Failed to fetch dashboard for cluster: " + clusterName, e);
+        }
+    }
+
+    /**
+     * Async background sync for a single cluster.
+     * Called when user clicks "Sync Data" - runs in background while UI shows cached data.
+     * Returns CompletableFuture that completes when sync is done.
+     */
+    @Async
+    public CompletableFuture<EksCompleteDashboardDto> syncClusterDashboardAsync(CloudAccount account, String clusterName, String region) {
+        logger.info("🔄 Starting background sync for cluster: {}", clusterName);
+        try {
+            EksCompleteDashboardDto dashboard = syncClusterDashboard(account, clusterName, region);
+            logger.info("✅ Background sync completed for cluster: {}", clusterName);
+            return CompletableFuture.completedFuture(dashboard);
+        } catch (Exception e) {
+            logger.error("❌ Background sync failed for cluster: {}", clusterName, e);
+            return CompletableFuture.failedFuture(e);
         }
     }
 
@@ -230,11 +296,21 @@ public class EksDashboardSyncService {
     @Transactional(readOnly = true)
     public EksCompleteDashboardDto getCachedDashboard(String clusterName, String accountId, String region) {
         try {
+            // Debug: Log the lookup parameters
+            logger.info("🔍 Looking up cache for: clusterName='{}', accountId='{}', region='{}'",
+                    clusterName, accountId, region);
+
             Optional<EksDashboardCache> cached = cacheRepository
                     .findByClusterNameAndAccountIdAndRegion(clusterName, accountId, region);
 
             if (cached.isEmpty()) {
-                logger.info("📭 No cached dashboard found for cluster: {}", clusterName);
+                logger.info("📭 No cached dashboard found for cluster: {} (accountId={}, region={})",
+                        clusterName, accountId, region);
+                // Debug: List all cached entries to see what's available
+                var allCaches = cacheRepository.findAll();
+                logger.info("📦 Available caches in DB: {}", allCaches.size());
+                allCaches.forEach(c -> logger.info("   - cluster='{}', accountId='{}', region='{}'",
+                        c.getClusterName(), c.getAccountId(), c.getRegion()));
                 return null;
             }
 

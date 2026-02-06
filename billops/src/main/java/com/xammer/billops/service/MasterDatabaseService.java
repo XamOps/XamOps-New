@@ -25,14 +25,13 @@ public class MasterDatabaseService {
     public Optional<GlobalUserDto> findGlobalUser(String username) {
         try {
             String sql = "SELECT username, tenant_id, role, enabled FROM global_users WHERE username = ?";
-            
-            GlobalUserDto user = jdbcTemplate.queryForObject(sql, new Object[]{username}, 
-                (rs, rowNum) -> new GlobalUserDto(
-                    rs.getString("username"),
-                    rs.getString("tenant_id"),
-                    rs.getString("role"),
-                    rs.getBoolean("enabled")
-                ));
+
+            GlobalUserDto user = jdbcTemplate.queryForObject(sql, new Object[] { username },
+                    (rs, rowNum) -> new GlobalUserDto(
+                            rs.getString("username"),
+                            rs.getString("tenant_id"),
+                            rs.getString("role"),
+                            rs.getBoolean("enabled")));
             return Optional.ofNullable(user);
         } catch (EmptyResultDataAccessException e) {
             return Optional.empty();
@@ -46,5 +45,21 @@ public class MasterDatabaseService {
     public void registerGlobalUser(String username, String passwordHash, String email, String role, String tenantId) {
         String sql = "INSERT INTO global_users (username, password, email, role, tenant_id, enabled) VALUES (?, ?, ?, ?, ?, ?)";
         jdbcTemplate.update(sql, username, passwordHash, email, role, tenantId, true);
+    }
+
+    /**
+     * Updates an existing user in the Global Directory (Master DB).
+     */
+    public void updateGlobalUser(String username, String passwordHash, String email, String role) {
+        String sql = "UPDATE global_users SET password = ?, email = ?, role = ? WHERE username = ?";
+        jdbcTemplate.update(sql, passwordHash, email, role, username);
+    }
+
+    /**
+     * Deletes a user from the Global Directory (Master DB).
+     */
+    public void deleteGlobalUser(String username) {
+        String sql = "DELETE FROM global_users WHERE username = ?";
+        jdbcTemplate.update(sql, username);
     }
 }
