@@ -69,6 +69,10 @@ public class EksController {
 
         CloudAccount account = getAccount(accountId);
 
+        // DEBUG: Log all request parameters
+        logger.info("📥 EKS Dashboard request: clusterName='{}', accountId='{}', region='{}', forceRefresh={}",
+                clusterName, accountId, region, forceRefresh);
+
         try {
             // If forceRefresh is true, sync fresh data from Prometheus/K8s
             if (forceRefresh) {
@@ -81,18 +85,21 @@ public class EksController {
             }
 
             // Try to get from database cache first
+            logger.info("🔍 Attempting to get cached dashboard from database with params: clusterName='{}', accountId='{}', region='{}'",
+                    clusterName, accountId, region);
             EksCompleteDashboardDto cachedDashboard = syncService.getCachedDashboard(clusterName, accountId, region);
 
             if (cachedDashboard != null) {
                 // Return cached data (instant load)
                 LocalDateTime lastSyncedAt = syncService.getLastSyncedAt(clusterName, accountId, region);
                 cachedDashboard.setLastSyncedAt(lastSyncedAt);
-                logger.info("📦 Returning cached dashboard for cluster: {} (synced: {})", clusterName, lastSyncedAt);
+                logger.info("✅ CACHE HIT! Returning cached dashboard for cluster: {} (synced: {})", clusterName, lastSyncedAt);
                 return ResponseEntity.ok(cachedDashboard);
             }
 
             // No cache exists - fetch fresh data and save to DB
-            logger.info("📭 No cache found, fetching fresh data for cluster: {}", clusterName);
+            logger.info("❌ CACHE MISS! No cache found for cluster='{}', accountId='{}', region='{}'. Fetching fresh data from Prometheus...",
+                    clusterName, accountId, region);
             EksCompleteDashboardDto dashboard = syncService.syncClusterDashboard(account, clusterName, region);
             if (dashboard != null) {
                 dashboard.setLastSyncedAt(LocalDateTime.now());
@@ -107,7 +114,8 @@ public class EksController {
 
     /**
      * Manual sync endpoint - triggered by "Sync Data" button
-     * Always fetches fresh data from Prometheus/K8s and updates DB cache
+     * Returns cached data immediately and triggers background sync.
+     * Frontend should poll /dashboard endpoint to get updated data when sync completes.
      */
     @PostMapping("/{clusterName}/sync")
     public ResponseEntity<Map<String, Object>> syncDashboard(
@@ -118,23 +126,35 @@ public class EksController {
         try {
             CloudAccount account = getAccount(accountId);
 
-            logger.info("🔄 Manual sync triggered for cluster: {}", clusterName);
-            EksCompleteDashboardDto dashboard = syncService.syncClusterDashboard(account, clusterName, region);
+            logger.info("🔄 Manual sync triggered for cluster: {} - starting background sync", clusterName);
 
+            // Get current cached data to return immediately
+            EksCompleteDashboardDto cachedDashboard = syncService.getCachedDashboard(clusterName, accountId, region);
+            LocalDateTime lastSyncedAt = syncService.getLastSyncedAt(clusterName, accountId, region);
+
+            // Trigger background sync (non-blocking)
+            syncService.syncClusterDashboardAsync(account, clusterName, region);
+
+            // Return immediately with cached data info and syncing status
             return ResponseEntity.ok(Map.of(
                     "success", true,
-                    "message", "Dashboard synced successfully",
+                    "message", "Sync started in background. Data will be updated shortly.",
+                    "syncing", true,
                     "clusterName", clusterName,
-                    "lastSyncedAt", LocalDateTime.now().toString(),
-                    "totalNodes", dashboard.getClusterOverview() != null ? dashboard.getClusterOverview().getTotalNodes() : 0,
-                    "totalPods", dashboard.getClusterOverview() != null ? dashboard.getClusterOverview().getTotalPods() : 0
+                    "lastSyncedAt", lastSyncedAt != null ? lastSyncedAt.toString() : "Never",
+                    "hasCachedData", cachedDashboard != null,
+                    "totalNodes", cachedDashboard != null && cachedDashboard.getClusterOverview() != null
+                            ? cachedDashboard.getClusterOverview().getTotalNodes() : 0,
+                    "totalPods", cachedDashboard != null && cachedDashboard.getClusterOverview() != null
+                            ? cachedDashboard.getClusterOverview().getTotalPods() : 0
             ));
 
         } catch (Exception e) {
-            logger.error("❌ Error syncing dashboard for cluster: {}", clusterName, e);
+            logger.error("❌ Error triggering sync for cluster: {}", clusterName, e);
             return ResponseEntity.status(500).body(Map.of(
                     "success", false,
-                    "message", "Failed to sync dashboard: " + e.getMessage()
+                    "syncing", false,
+                    "message", "Failed to trigger sync: " + e.getMessage()
             ));
         }
     }

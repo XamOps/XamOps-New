@@ -28,10 +28,11 @@
  * - Same RCA form structure
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useBillOpsTicketDetail } from '../hooks/useBillOpsTicketDetail';
 import { RCAFormData, RCAFormSection } from '../types/billopsTickets';
+import { useTopbarActions } from '../contexts/TopbarContext';
 import Quill from 'quill';
 import 'quill/dist/quill.snow.css';
 
@@ -39,6 +40,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const ticketId = searchParams.get('id');
+  const { setActions, clearActions } = useTopbarActions();
 
   const {
     ticket,
@@ -79,7 +81,94 @@ const BillOpsTicketDetailPage: React.FC = () => {
   const chatContainerRef = useRef<HTMLDivElement>(null);
 
   /**
-   * Initialize Quill editor
+   * Helper Functions
+   */
+  const formatDate = useCallback((dateString: string): string => {
+    if (!dateString) return '';
+    return new Date(dateString).toLocaleString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  }, []);
+
+  const formatDateSimple = useCallback((dateString: string): string => {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    const today = new Date();
+    const isToday = date.toDateString() === today.toDateString();
+
+    if (isToday) {
+      return date.toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit'
+      });
+    }
+    return (
+      date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) +
+      ', ' +
+      date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+    );
+  }, []);
+
+  const getInitials = useCallback((name: string): string => {
+    if (!name) return 'U';
+    return name.charAt(0).toUpperCase();
+  }, []);
+
+  const isMe = useCallback((reply: any): boolean => {
+    if (!currentUser?.id) return false;
+    return String(reply.authorId) === String(currentUser.id);
+  }, [currentUser]);
+
+  /**
+   * Action Handlers
+   */
+  const handleCloseTicket = useCallback(async () => {
+    if (globalThis.confirm('Are you sure you want to close this ticket?')) {
+      try {
+        await closeTicket();
+      } catch (err) {
+        globalThis.alert('Error closing ticket. Please try again.');
+      }
+    }
+  }, [closeTicket]);
+
+  const goBackToTickets = useCallback(() => {
+    if (isAdmin) {
+      navigate('/billops-admin-tickets');
+    } else {
+      navigate('/billops-tickets');
+    }
+  }, [navigate, isAdmin]);
+
+  /**
+   * File Handlers
+   */
+  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      if (file.size > 10 * 1024 * 1024) {
+        globalThis.alert('File is too large. Max size is 10MB.');
+        return;
+      }
+      setAttachment(file);
+      setFileName(file.name);
+    }
+  };
+
+  const clearFile = useCallback(() => {
+    setAttachment(null);
+    setFileName('');
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  }, []);
+
+  /**
+   * Quill initialization
    */
   useEffect(() => {
     if (!quillRef.current || quillInstance.current || !ticket || ticket.status === 'CLOSED') {
@@ -136,99 +225,74 @@ const BillOpsTicketDetailPage: React.FC = () => {
     }
   }, [ticketId, navigate]);
 
-  /**
-   * Format date
-   */
-  const formatDate = (dateString: string): string => {
-    if (!dateString) return '';
-    return new Date(dateString).toLocaleString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+  const getStatusBadgeClasses = (status: string) => {
+    if (status === 'OPEN') {
+      return 'bg-emerald-500 text-white shadow-emerald-200 ring-4 ring-emerald-500/10';
+    }
+    if (status === 'IN_PROGRESS') {
+      return 'bg-amber-500 text-white shadow-amber-200 ring-4 ring-amber-500/10';
+    }
+    return 'bg-slate-400 text-white shadow-slate-200 ring-4 ring-slate-400/10';
   };
 
   /**
-   * Format date (simple - for chat bubbles)
+   * Set Topbar Actions
    */
-  const formatDateSimple = (dateString: string): string => {
-    if (!dateString) return '';
-    const date = new Date(dateString);
-    const today = new Date();
-    const isToday = date.toDateString() === today.toDateString();
+  useEffect(() => {
+    if (!ticket) return;
 
-    if (isToday) {
-      return date.toLocaleTimeString('en-US', {
-        hour: 'numeric',
-        minute: '2-digit'
-      });
-    }
-    return (
-      date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) +
-      ', ' +
-      date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+    setActions(
+      <div className="flex items-center gap-6">
+        <div className="flex items-center gap-4 pr-6 border-r border-slate-200/50">
+          <button
+            onClick={goBackToTickets}
+            className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-100 text-slate-500 hover:text-indigo-600 hover:bg-slate-200 transition-all font-bold"
+            title="Back to List"
+          >
+            <i className="fas fa-arrow-left"></i>
+          </button>
+          <div>
+            <h1 className="text-sm font-bold text-slate-900 leading-none truncate max-w-[200px] lg:max-w-[400px]">
+              {ticket.subject}
+            </h1>
+            <p className="text-[10px] text-slate-500 font-medium mt-1">
+              Case #{ticket.id} • {ticket.service}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <span className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider shadow-sm transition-all ${getStatusBadgeClasses(ticket.status)}`}>
+            <span className={`w-1.5 h-1.5 rounded-full bg-white shadow-[0_0_8px_white] ${ticket.status === 'OPEN' ? 'animate-pulse' : ''}`}></span>
+            {ticket.status}
+          </span>
+
+          {isAdmin && ticket.status !== 'CLOSED' && (
+            <button
+              onClick={() => setShowRcaModal(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-xl text-xs font-bold shadow-lg shadow-purple-500/20 hover:bg-purple-700 transition-all hover:-translate-y-0.5"
+              title="Generate RCA Report"
+            >
+              <i className="fas fa-file-medical-alt"></i>
+              <span>Generate RCA</span>
+            </button>
+          )}
+
+          {ticket.status !== 'CLOSED' && (
+            <button
+              onClick={handleCloseTicket}
+              className="flex items-center gap-2 px-4 py-2 bg-rose-50 text-rose-600 rounded-xl text-xs font-bold border border-rose-100 hover:bg-rose-100 transition-all active:scale-95"
+            >
+              <i className="far fa-times-circle"></i>
+              <span>Close Ticket</span>
+            </button>
+          )}
+        </div>
+      </div>
     );
-  };
 
-  /**
-   * Get status badge classes
-   */
-  const getStatusClasses = (status: string): string => {
-    switch (status) {
-      case 'OPEN':
-        return 'bg-green-100 text-green-800';
-      case 'CLOSED':
-        return 'bg-gray-100 text-gray-800';
-      case 'IN_PROGRESS':
-        return 'bg-yellow-100 text-yellow-800';
-      default:
-        return 'bg-gray-100 text-gray-800';
-    }
-  };
-
-  /**
-   * Check if reply is from current user
-   */
-  const isMe = (reply: any): boolean => {
-    if (!currentUser?.id) return false;
-    return String(reply.authorId) === String(currentUser.id);
-  };
-
-  /**
-   * Get initials from username
-   */
-  const getInitials = (name: string): string => {
-    if (!name) return 'U';
-    return name.charAt(0).toUpperCase();
-  };
-
-  /**
-   * Handle file selection
-   */
-  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      if (file.size > 10 * 1024 * 1024) {
-        alert('File is too large. Max size is 10MB.');
-        return;
-      }
-      setAttachment(file);
-      setFileName(file.name);
-    }
-  };
-
-  /**
-   * Clear file attachment
-   */
-  const clearFile = () => {
-    setAttachment(null);
-    setFileName('');
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  };
+    return () => clearActions();
+  }, [setActions, clearActions, ticket, isAdmin, handleCloseTicket, goBackToTickets]);
 
   /**
    * Submit reply
@@ -260,46 +324,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
         }
       }, 100);
     } catch (err) {
-      alert('Error sending reply. Please try again.');
-    }
-  };
-
-  /**
-   * Handle close ticket
-   */
-  const handleCloseTicket = async () => {
-    if (confirm('Are you sure you want to close this ticket?')) {
-      try {
-        await closeTicket();
-      } catch (err) {
-        alert('Error closing ticket. Please try again.');
-      }
-    }
-  };
-
-  /**
-   * Go back to tickets list
-   * Navigates to admin tickets if user is admin and came from admin tickets page
-   */
-  const goBackToTickets = () => {
-    // Check if we can go back in history and if the referrer contains admin tickets
-    if (window.history.length > 1) {
-      const referrer = document.referrer;
-      if (referrer.includes('/billops-admin-tickets') || referrer.includes('/billops/admin_tickets')) {
-        navigate('/billops-admin-tickets');
-        return;
-      }
-      if (referrer.includes('/billops-tickets') || referrer.includes('/billops/tickets')) {
-        navigate('/billops-tickets');
-        return;
-      }
-    }
-
-    // Fallback: Navigate based on user role
-    if (isAdmin) {
-      navigate('/billops-admin-tickets');
-    } else {
-      navigate('/billops-tickets');
+      globalThis.alert('Error sending reply. Please try again.');
     }
   };
 
@@ -353,12 +378,12 @@ const BillOpsTicketDetailPage: React.FC = () => {
    */
   const handleSubmitRca = async () => {
     if (!rcaFormData.problemStatement) {
-      alert('Problem Statement is required.');
+      globalThis.alert('Problem Statement is required.');
       return;
     }
 
     if (
-      !confirm(
+      !globalThis.confirm(
         'This will generate an RCA report and CLOSE the ticket. Continue?'
       )
     ) {
@@ -369,10 +394,10 @@ const BillOpsTicketDetailPage: React.FC = () => {
 
     try {
       await submitRCA(rcaFormData);
-      alert('RCA Generated successfully. Ticket Closed.');
+      globalThis.alert('RCA Generated successfully. Ticket Closed.');
       setShowRcaModal(false);
     } catch (err: any) {
-      alert('Failed to submit RCA: ' + (err.message || 'Unknown error'));
+      globalThis.alert('Failed to submit RCA: ' + (err.message || 'Unknown error'));
     } finally {
       setRcaSubmitting(false);
     }
@@ -471,258 +496,134 @@ const BillOpsTicketDetailPage: React.FC = () => {
   if (!ticket) return null;
 
   return (
-    <div className="billops-ticket-detail-page flex flex-col h-full">
-      {/* Header */}
-      <header className="bg-white shadow-sm z-10 border-b border-gray-200 px-6 py-4 flex-shrink-0">
-        <div className="max-w-5xl mx-auto flex justify-between items-center">
-          <div className="flex items-center gap-4">
-            <button
-              onClick={goBackToTickets}
-              className="text-gray-500 hover:text-indigo-600 transition cursor-pointer"
-            >
-              <i className="fas fa-arrow-left"></i> Back to Tickets
-            </button>
-            <div>
-              <h1 className="text-xl font-bold text-gray-900 flex items-center gap-3">
-                <span>{ticket.subject}</span>
-                <span
-                  className={`px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide ${getStatusClasses(
-                    ticket.status
-                  )}`}
-                >
-                  {ticket.status}
-                </span>
-              </h1>
-              <p className="text-xs text-gray-500 mt-1">
-                <span>#{ticket.id}</span> &bull; <span>{ticket.service}</span>{' '}
-                &bull; <span>{formatDate(ticket.createdAt)}</span>
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {isAdmin && ticket.status !== 'CLOSED' && (
-              <button
-                onClick={() => setShowRcaModal(true)}
-                className="bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium py-2 px-4 rounded transition flex items-center gap-2"
-                title="Generate RCA Report and Close Ticket"
-              >
-                <i className="fas fa-file-medical-alt"></i> Generate RCA
-              </button>
-            )}
-
-            {ticket.status !== 'CLOSED' && (
-              <button
-                onClick={handleCloseTicket}
-                className="text-gray-500 hover:text-red-600 text-sm font-medium transition flex items-center gap-2 px-3 py-2 rounded hover:bg-gray-50"
-              >
-                <i className="far fa-times-circle"></i> Close Ticket
-              </button>
-            )}
-          </div>
-        </div>
-      </header>
-
+    <div className="flex-1 flex flex-col h-full overflow-hidden bg-transparent">
       {/* Chat Container */}
       <div
         ref={chatContainerRef}
-        className="flex-1 overflow-y-auto bg-gray-100 p-6 scroll-smooth"
+        className="flex-1 overflow-y-auto custom-scrollbar bg-slate-50/50 scroll-smooth p-6 lg:p-10"
       >
-        <div className="max-w-5xl mx-auto space-y-6 pb-6">
-          {/* Original Ticket Description */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 relative overflow-hidden">
-            <div className="absolute top-0 left-0 w-1 h-full bg-indigo-500"></div>
-            <div className="flex items-start gap-4">
+        <div className="max-w-4xl mx-auto space-y-8 pb-10">
+          {/* Original Ticket Description - Premium Glass Card */}
+          <div className="relative group bg-white/70 backdrop-blur-xl border border-white p-8 rounded-[2.5rem] shadow-[0_8px_40px_rgba(0,0,0,0.03)] hover:shadow-[0_24px_48px_rgba(0,0,0,0.06)] transition-all duration-500 overflow-hidden">
+            <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-br from-indigo-500/5 to-purple-500/5 rounded-full blur-3xl -mr-20 -mt-20 group-hover:scale-150 transition-transform duration-700"></div>
+
+            <div className="relative flex gap-6">
               <div className="flex-shrink-0">
-                <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold">
-                  <i className="fas fa-ticket-alt"></i>
+                <div className="w-12 h-12 rounded-2xl bg-indigo-600 flex items-center justify-center text-white shadow-lg shadow-indigo-200">
+                  <i className="fas fa-ticket-alt text-lg"></i>
                 </div>
               </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex justify-between items-baseline mb-2">
-                  <h3 className="text-sm font-semibold text-gray-900">
-                    Ticket Description
-                  </h3>
-                  <span className="text-xs text-gray-400">Original Request</span>
+              <div className="flex-1 space-y-4">
+                <div className="flex justify-between items-center">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">Original Issue Description</span>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Request #{ticket.id}</span>
                 </div>
-                <div className="prose prose-sm max-w-none text-gray-700">
-                  {ticket.description}
+                <div className="text-base text-slate-700 font-medium leading-relaxed whitespace-pre-wrap">{ticket.description}</div>
+
+                <div className="flex flex-wrap gap-4 pt-4 border-t border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Service:</span>
+                    <span className="text-[10px] font-black text-indigo-600">{ticket.service}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Submitted:</span>
+                    <span className="text-[10px] font-black text-slate-600">{formatDate(ticket.createdAt)}</span>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Divider */}
-          <div className="relative flex items-center justify-center py-2">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-gray-300"></div>
-            </div>
-            <span className="relative bg-gray-100 px-4 text-xs text-gray-500 font-medium uppercase tracking-widest">
-              Discussion History
-            </span>
+          {/* Discussion Header */}
+          <div className="flex items-center gap-4 text-slate-400">
+            <span className="text-[10px] font-black uppercase tracking-[0.2em] whitespace-nowrap">Correspondence Log</span>
+            <div className="h-px bg-slate-200 flex-1"></div>
           </div>
 
           {/* Replies */}
           {ticket.replies && ticket.replies.length > 0 ? (
-            ticket.replies.map(reply => {
-              const isMine = isMe(reply);
-              return (
-                <div
-                  key={reply.id}
-                  className={`flex w-full ${isMine ? 'justify-end' : 'justify-start'}`}
-                >
+            <div className="space-y-6">
+              {ticket.replies.map(reply => {
+                const isMine = isMe(reply);
+                return (
                   <div
-                    className={`flex max-w-[85%] md:max-w-[75%] gap-3 ${
-                      isMine ? 'flex-row-reverse' : 'flex-row'
-                    }`}
+                    key={reply.id}
+                    className={`flex w-full ${isMine ? 'justify-end' : 'justify-start'}`}
                   >
-                    {/* Avatar */}
-                    <div className="flex-shrink-0 mt-auto">
-                      <div
-                        className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shadow-sm ${
-                          reply.admin
-                            ? 'bg-indigo-100 text-indigo-700'
-                            : 'bg-gray-200 text-gray-600'
-                        }`}
-                      >
-                        {reply.admin ? (
-                          <i className="fas fa-headset"></i>
-                        ) : (
-                          <span>{getInitials(reply.authorUsername)}</span>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Message Bubble */}
-                    <div>
-                      <div
-                        className={`flex items-center gap-2 mb-1 px-1 ${
-                          isMine ? 'justify-end' : 'justify-start'
-                        }`}
-                      >
-                        <span className="text-xs font-semibold text-gray-600">
-                          {reply.admin ? 'Support Agent' : reply.authorUsername}
-                        </span>
-                        <span className="text-[10px] text-gray-400">
-                          {formatDateSimple(reply.createdAt)}
-                        </span>
+                    <div className={`flex max-w-[85%] md:max-w-[70%] gap-4 ${isMine ? 'flex-row-reverse' : ''}`}>
+                      <div className="flex-shrink-0 mt-auto">
+                        <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-sm font-black shadow-sm ${reply.admin ? 'bg-indigo-600 text-white shadow-indigo-100' : 'bg-slate-200 text-slate-600'}`}>
+                          {reply.admin ? <i className="fas fa-shield-alt"></i> : <span>{getInitials(reply.authorUsername)}</span>}
+                        </div>
                       </div>
 
-                      <div
-                        className={`shadow-sm px-5 py-3 relative ${
-                          isMine
-                            ? 'bg-indigo-600 text-white rounded-2xl rounded-tr-none'
-                            : 'bg-white text-gray-800 border border-gray-200 rounded-2xl rounded-tl-none'
-                        }`}
-                      >
-                        <div
-                          className={`prose-chat ql-editor !p-0 !min-h-0 ${
-                            isMine ? 'prose-chat-inverse' : ''
-                          }`}
-                          dangerouslySetInnerHTML={{ __html: reply.message }}
-                        />
+                      <div className={`space-y-2 ${isMine ? 'text-right' : 'text-left'}`}>
+                        <div className="flex items-center gap-2 px-1">
+                          {!isMine && <span className="text-[10px] font-black text-slate-800 uppercase tracking-widest">{reply.authorUsername}</span>}
+                          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">{formatDateSimple(reply.createdAt)}</span>
+                          {isMine && <span className="text-[10px] font-black text-slate-800 uppercase tracking-widest">You</span>}
+                        </div>
 
-                        {/* Attachments */}
-                        {(reply.attachmentUrl || reply.attachmentName) && (
-                          <div className="mt-3">
-                            {/* Image Preview */}
-                            {reply.attachmentType?.startsWith('image/') && (
-                              <div
-                                className="mb-2 rounded-lg overflow-hidden border border-gray-200 shadow-sm bg-gray-50 max-w-xs cursor-pointer hover:opacity-90 transition-opacity"
-                                onClick={() =>
-                                  window.open(reply.attachmentUrl, '_blank')
-                                }
-                              >
-                                <img
-                                  src={reply.attachmentUrl}
-                                  alt={reply.attachmentName}
-                                  className="w-full h-auto object-cover max-h-60"
-                                />
-                              </div>
-                            )}
+                        <div className={`p-5 rounded-[1.5rem] shadow-sm text-sm font-medium leading-relaxed ${isMine ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white text-slate-700 border border-slate-100 rounded-tl-none'}`}>
+                          <div dangerouslySetInnerHTML={{ __html: reply.message }} className="prose-chat !p-0" />
 
-                            {/* RCA Document Box */}
-                            {reply.attachmentName?.startsWith('rca_ticket_') && (
-                              <div
-                                className="group cursor-pointer bg-white rounded-lg overflow-hidden border border-gray-200 hover:border-purple-300 transition-colors shadow-sm"
-                                onClick={() =>
-                                  reply.attachmentUrl
-                                    ? window.open(reply.attachmentUrl, '_blank')
-                                    : alert('File URL not found')
-                                }
-                              >
-                                <div className="flex items-center p-3 bg-purple-50/50">
-                                  <div className="p-2 bg-purple-100 text-purple-600 rounded-lg mr-3 shadow-sm">
-                                    <i className="fas fa-file-medical-alt text-xl"></i>
-                                  </div>
-                                  <div className="flex-1">
-                                    <h4 className="text-sm font-bold text-purple-900 leading-tight">
-                                      RCA Report Generated
-                                    </h4>
-                                    <p className="text-xs text-purple-700 mt-0.5">
-                                      Click to download PDF
-                                    </p>
-                                  </div>
-                                  <div className="text-purple-400 group-hover:text-purple-600 transition-colors bg-white rounded-full p-1.5 shadow-sm">
-                                    <i className="fas fa-download"></i>
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-
-                            {/* General Attachment Box */}
-                            {(!reply.attachmentName ||
-                              !reply.attachmentName.startsWith('rca_ticket_')) && (
-                              <div
-                                className={`flex items-center p-2 rounded-lg transition-colors cursor-pointer ${
-                                  isMine
-                                    ? 'bg-white/20 border border-white/30 hover:bg-white/40'
-                                    : 'bg-gray-50 border border-gray-200 hover:bg-gray-100'
-                                }`}
-                                onClick={() =>
-                                  reply.attachmentUrl
-                                    ? window.open(reply.attachmentUrl, '_blank')
-                                    : alert('File URL not found')
-                                }
-                              >
+                          {/* Attachments */}
+                          {(reply.attachmentUrl || reply.attachmentName) && (
+                            <div className="mt-4">
+                              {/* Image Preview */}
+                              {reply.attachmentType?.startsWith('image/') && (
                                 <div
-                                  className={`p-2 rounded mr-3 ${
-                                    isMine
-                                      ? 'bg-white/20 text-white'
-                                      : 'bg-white text-indigo-600 shadow-sm'
-                                  }`}
+                                  className="mb-3 rounded-2xl overflow-hidden border border-white/20 shadow-md max-w-xs cursor-pointer hover:opacity-90 transition-opacity"
+                                  onClick={() => globalThis.open(reply.attachmentUrl, '_blank')}
                                 >
-                                  {reply.attachmentType?.startsWith('image/') ? (
-                                    <i className="fas fa-file-image text-lg"></i>
-                                  ) : reply.attachmentType?.includes('pdf') ? (
-                                    <i className="fas fa-file-pdf text-lg"></i>
-                                  ) : (
-                                    <i className="fas fa-file-alt text-lg"></i>
-                                  )}
+                                  <img src={reply.attachmentUrl} alt={reply.attachmentName} className="w-full h-auto object-cover max-h-60" />
                                 </div>
-                                <div className="flex-1 min-w-0 overflow-hidden">
-                                  <p className="text-sm font-medium truncate">
-                                    {reply.attachmentName || 'Attached File'}
-                                  </p>
-                                  <p className="text-[10px] opacity-80">
-                                    {reply.attachmentUrl
-                                      ? 'Click to view / download'
-                                      : 'Attachment processing...'}
-                                  </p>
+                              )}
+
+                              {/* RCA Document Box */}
+                              {reply.attachmentName?.startsWith('rca_ticket_') && (
+                                <div
+                                  className="group cursor-pointer bg-white/10 backdrop-blur-md rounded-2xl overflow-hidden border border-white/20 hover:border-purple-300 transition-colors shadow-lg"
+                                  onClick={() => reply.attachmentUrl ? globalThis.open(reply.attachmentUrl, '_blank') : globalThis.alert('File URL not found')}
+                                >
+                                  <div className={`flex items-center p-4 ${isMine ? 'bg-white/10' : 'bg-purple-50'}`}>
+                                    <div className="p-3 bg-purple-600 text-white rounded-xl mr-4 shadow-lg shadow-purple-200">
+                                      <i className="fas fa-file-medical-alt text-xl"></i>
+                                    </div>
+                                    <div className="flex-1">
+                                      <h4 className={`text-sm font-black leading-tight ${isMine ? 'text-white' : 'text-purple-900'}`}>RCA Report Generated</h4>
+                                      <p className={`text-[10px] font-bold mt-1 uppercase tracking-widest ${isMine ? 'text-white/70' : 'text-purple-600'}`}>Download PDF Report</p>
+                                    </div>
+                                    <i className={`fas fa-download ${isMine ? 'text-white/50' : 'text-purple-400'}`}></i>
+                                  </div>
                                 </div>
-                                <div className="ml-2">
-                                  <i className="fas fa-download text-xs opacity-70"></i>
+                              )}
+
+                              {/* General Attachment Box */}
+                              {(!reply.attachmentName || !reply.attachmentName.startsWith('rca_ticket_')) && (
+                                <div
+                                  className={`flex items-center p-3 rounded-2xl transition-all cursor-pointer ${isMine ? 'bg-white/10 border border-white/20 hover:bg-white/20' : 'bg-slate-50 border border-slate-100 hover:bg-slate-100'}`}
+                                  onClick={() => reply.attachmentUrl ? globalThis.open(reply.attachmentUrl, '_blank') : alert('File URL not found')}
+                                >
+                                  <div className={`w-10 h-10 flex items-center justify-center rounded-xl mr-3 ${isMine ? 'bg-white/20 text-white' : 'bg-white shadow-sm text-indigo-500'}`}>
+                                    {reply.attachmentType?.startsWith('image/') ? <i className="fas fa-file-image text-lg"></i> : reply.attachmentType?.includes('pdf') ? <i className="fas fa-file-pdf text-lg"></i> : <i className="fas fa-file-alt text-lg"></i>}
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className={`text-xs font-bold truncate ${isMine ? 'text-white' : 'text-slate-800'}`}>{reply.attachmentName || 'Attached File'}</p>
+                                    <p className={`text-[9px] font-bold uppercase tracking-widest mt-0.5 ${isMine ? 'text-white/60' : 'text-slate-400'}`}>Click to view</p>
+                                  </div>
+                                  <i className={`fas fa-download text-xs ${isMine ? 'text-white/40' : 'text-slate-300'}`}></i>
                                 </div>
-                              </div>
-                            )}
-                          </div>
-                        )}
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              );
-            })
+                );
+              })}
+            </div>
           ) : (
             <div className="text-center py-10">
               <p className="text-gray-400 text-sm italic">
@@ -733,66 +634,58 @@ const BillOpsTicketDetailPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Footer - Reply Form or Closed Message */}
+      {/* Footer - Floating Glass Form */}
       {ticket.status !== 'CLOSED' ? (
-        <footer className="bg-white border-t border-gray-200 p-6 flex-shrink-0">
-          <div className="max-w-5xl mx-auto">
-            <form onSubmit={handleSubmitReply}>
-              <div className="mb-4 relative">
-                <div ref={quillRef} className="bg-white"></div>
-
-                {attachment && (
-                  <div className="absolute bottom-2 right-2 bg-indigo-50 border border-indigo-100 text-indigo-700 px-3 py-1 rounded-full text-xs flex items-center shadow-sm z-10">
-                    <i className="fas fa-paperclip mr-2"></i>
-                    <span className="max-w-[150px] truncate">{fileName}</span>
-                    <button
-                      type="button"
-                      onClick={clearFile}
-                      className="ml-2 text-indigo-400 hover:text-indigo-900"
-                    >
-                      <i className="fas fa-times"></i>
-                    </button>
+        <div className="p-6 lg:p-10 bg-white/70 backdrop-blur-xl border-t border-slate-200/50">
+          <div className="max-w-4xl mx-auto">
+            <form onSubmit={handleSubmitReply} className="space-y-4">
+              <div className="relative bg-white rounded-[2rem] border border-slate-200 overflow-hidden focus-within:ring-4 focus-within:ring-indigo-500/10 focus-within:border-indigo-500/30 transition-all shadow-xl shadow-slate-200/40">
+                <div className="px-6 py-3 border-b border-slate-50 flex items-center justify-between bg-slate-50/30">
+                  <div className="flex items-center gap-2 text-[10px] font-black text-slate-500 uppercase tracking-widest leading-none">
+                    <i className="fas fa-reply text-indigo-500"></i>
+                    Official Ticket Response
                   </div>
-                )}
-              </div>
-
-              <div className="flex justify-between items-center">
-                <div className="flex items-center">
-                  <label className="cursor-pointer text-gray-500 hover:text-indigo-600 transition flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-50">
-                    <i className="fas fa-paperclip text-lg"></i>
-                    <span className="text-sm font-medium">Attach File</span>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      className="hidden"
-                      onChange={handleFileSelect}
-                    />
-                  </label>
+                  {attachment && (
+                    <div className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-lg border border-indigo-100 text-[9px] font-black uppercase tracking-widest">
+                      <i className="fas fa-paperclip"></i>
+                      <span className="max-w-[150px] truncate">{fileName}</span>
+                      <button type="button" onClick={clearFile} className="hover:text-rose-500 transition-colors">
+                        <i className="fas fa-times"></i>
+                      </button>
+                    </div>
+                  )}
                 </div>
 
-                <button
-                  type="submit"
-                  disabled={isSubmitting || (!newReplyHasContent && !attachment)}
-                  className="bg-indigo-600 text-white px-6 py-2.5 rounded-lg font-semibold shadow-md hover:bg-indigo-700 hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                >
-                  {isSubmitting ? (
-                    <>
-                      <i className="fas fa-circle-notch fa-spin"></i> Sending...
-                    </>
-                  ) : (
-                    <>
-                      Send Reply <i className="fas fa-paper-plane ml-1"></i>
-                    </>
-                  )}
-                </button>
+                <div className="quill-minimal-wrapper">
+                  <div ref={quillRef} className="bg-white"></div>
+                </div>
+
+                <div className="px-6 py-4 border-t border-slate-50 flex items-center justify-between bg-slate-50/10">
+                  <label className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest cursor-pointer transition-all active:scale-95">
+                    <i className="fas fa-paperclip text-sm"></i>
+                    <span>Add Attachments</span>
+                    <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileSelect} />
+                  </label>
+
+                  <button
+                    type="submit"
+                    disabled={isSubmitting || (!newReplyHasContent && !attachment)}
+                    className="flex items-center gap-2 px-8 py-3 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-widest shadow-lg shadow-indigo-500/30 hover:bg-indigo-700 hover:-translate-y-0.5 transition-all disabled:opacity-50 active:scale-95"
+                  >
+                    {isSubmitting ? <><i className="fas fa-circle-notch fa-spin"></i> Processing...</> : <><i className="fas fa-paper-plane"></i> Send Message</>}
+                  </button>
+                </div>
               </div>
             </form>
           </div>
-        </footer>
+        </div>
       ) : (
-        <div className="bg-gray-50 border-t border-gray-200 p-6 text-center flex-shrink-0">
-          <div className="inline-flex items-center gap-2 text-gray-500 font-medium bg-white px-4 py-2 rounded-full shadow-sm border border-gray-200">
-            <i className="fas fa-lock"></i> This ticket is closed.
+        <div className="p-8 bg-slate-100/50 border-t border-slate-200/50 backdrop-blur-sm">
+          <div className="max-w-md mx-auto bg-white p-4 rounded-2xl shadow-sm border border-slate-200 text-center">
+            <div className="flex items-center justify-center gap-2 text-slate-400 font-bold text-[10px] uppercase tracking-[0.2em]">
+              <i className="fas fa-lock"></i>
+              Ticket Interaction Disabled &bull; Case Closed
+            </div>
           </div>
         </div>
       )}

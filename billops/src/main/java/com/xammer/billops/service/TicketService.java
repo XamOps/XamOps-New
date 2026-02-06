@@ -100,20 +100,11 @@ public class TicketService {
                     : ADMIN_TECHNICAL_EMAIL;
 
             String subject = String.format("New Ticket [ID: %d]: %s", savedTicket.getId(), savedTicket.getSubject());
-            String text = String.format(
-                    "A new ticket has been created by %s (Client: %s).\n\n" +
-                            "Category: %s\n" +
-                            "Service: %s\n" +
-                            "Severity: %s\n\n" +
-                            "Description:\n%s",
-                    creator.getUsername(),
-                    client.getName(),
-                    ticket.getCategory(),
-                    ticket.getService(),
-                    ticket.getSeverity(),
-                    ticket.getDescription());
 
-            emailService.sendSimpleMessage(adminEmail, subject, text);
+            // Create HTML email template matching UI design
+            String htmlBody = buildTicketEmailTemplate(savedTicket, creator, client);
+
+            emailService.sendHtmlEmail(adminEmail, subject, htmlBody);
         } catch (Exception e) {
             logger.error("Failed to send new ticket notification email for ticket {}", savedTicket.getId(), e);
         }
@@ -322,6 +313,185 @@ public class TicketService {
         } else {
             logger.info("Evicted ticket cache: {}", allTicketsKey);
         }
+    }
+
+    /**
+     * Build HTML email template for new ticket notification
+     * Matches the UI design with modern gradient theme
+     */
+    private String buildTicketEmailTemplate(Ticket ticket, User creator, Client client) {
+        String statusColor = getStatusColor(ticket.getStatus());
+        String severityColor = getSeverityColor(ticket.getSeverity());
+
+        return "<!DOCTYPE html>" +
+                "<html lang=\"en\">" +
+                "<head>" +
+                "    <meta charset=\"UTF-8\">" +
+                "    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">" +
+                "    <title>New Support Ticket</title>" +
+                "</head>" +
+                "<body style=\"margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif; background: linear-gradient(135deg, #f5f7fa 0%, #e9ecef 100%);\">" +
+                "    <div style=\"max-width: 600px; margin: 40px auto; background: white; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);\">" +
+                "        " +
+                "        <!-- Header -->" +
+                "        <div style=\"background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 32px 24px; text-align: center;\">" +
+                "            <h1 style=\"margin: 0; color: white; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;\">New Support Ticket</h1>" +
+                "            <p style=\"margin: 8px 0 0 0; color: rgba(255, 255, 255, 0.9); font-size: 14px;\">Ticket ID: #" + ticket.getId() + "</p>" +
+                "        </div>" +
+                "        " +
+                "        <!-- Content -->" +
+                "        <div style=\"padding: 32px 24px;\">" +
+                "            " +
+                "            <!-- Status Badge -->" +
+                "            <div style=\"text-align: center; margin-bottom: 24px;\">" +
+                "                <span style=\"display: inline-block; background: " + statusColor + "; color: white; padding: 8px 16px; border-radius: 20px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;\">" + ticket.getStatus() + "</span>" +
+                "            </div>" +
+                "            " +
+                "            <!-- Ticket Details Card -->" +
+                "            <div style=\"background: #f9fafb; border-radius: 12px; padding: 20px; margin-bottom: 24px; border-left: 4px solid #667eea;\">" +
+                "                <h2 style=\"margin: 0 0 16px 0; color: #1a202c; font-size: 18px; font-weight: 700;\">" + escapeHtml(ticket.getSubject()) + "</h2>" +
+                "                <p style=\"margin: 0; color: #4b5563; line-height: 1.6; white-space: pre-wrap;\">" + escapeHtml(ticket.getDescription()) + "</p>" +
+                "            </div>" +
+                "            " +
+                "            <!-- Information Grid -->" +
+                "            <div style=\"background: white; border: 1px solid #e5e7eb; border-radius: 12px; overflow: hidden;\">" +
+                "                " +
+                "                <!-- Row: Creator -->" +
+                "                <div style=\"display: table; width: 100%; border-bottom: 1px solid #e5e7eb;\">" +
+                "                    <div style=\"display: table-cell; padding: 16px; background: #f9fafb; width: 35%; font-weight: 600; color: #374151; font-size: 13px;\">" +
+                "                        <span style=\"margin-right: 8px;\">👤</span> Created By" +
+                "                    </div>" +
+                "                    <div style=\"display: table-cell; padding: 16px; color: #1a202c; font-size: 14px;\">" +
+                "                        " + escapeHtml(creator.getUsername()) + "" +
+                "                    </div>" +
+                "                </div>" +
+                "                " +
+                "                <!-- Row: Client -->" +
+                "                <div style=\"display: table; width: 100%; border-bottom: 1px solid #e5e7eb;\">" +
+                "                    <div style=\"display: table-cell; padding: 16px; background: #f9fafb; width: 35%; font-weight: 600; color: #374151; font-size: 13px;\">" +
+                "                        <span style=\"margin-right: 8px;\">🏢</span> Client" +
+                "                    </div>" +
+                "                    <div style=\"display: table-cell; padding: 16px; color: #1a202c; font-size: 14px;\">" +
+                "                        " + escapeHtml(client.getName()) + "" +
+                "                    </div>" +
+                "                </div>" +
+                "                " +
+                "                <!-- Row: Category -->" +
+                "                <div style=\"display: table; width: 100%; border-bottom: 1px solid #e5e7eb;\">" +
+                "                    <div style=\"display: table-cell; padding: 16px; background: #f9fafb; width: 35%; font-weight: 600; color: #374151; font-size: 13px;\">" +
+                "                        <span style=\"margin-right: 8px;\">📁</span> Category" +
+                "                    </div>" +
+                "                    <div style=\"display: table-cell; padding: 16px; color: #1a202c; font-size: 14px;\">" +
+                "                        " + escapeHtml(ticket.getCategory()) + "" +
+                "                    </div>" +
+                "                </div>" +
+                "                " +
+                "                <!-- Row: Service -->" +
+                "                <div style=\"display: table; width: 100%; border-bottom: 1px solid #e5e7eb;\">" +
+                "                    <div style=\"display: table-cell; padding: 16px; background: #f9fafb; width: 35%; font-weight: 600; color: #374151; font-size: 13px;\">" +
+                "                        <span style=\"margin-right: 8px;\">⚙️</span> Service" +
+                "                    </div>" +
+                "                    <div style=\"display: table-cell; padding: 16px; color: #1a202c; font-size: 14px;\">" +
+                "                        " + escapeHtml(ticket.getService()) + "" +
+                "                    </div>" +
+                "                </div>" +
+                "                " +
+                "                <!-- Row: Severity -->" +
+                "                <div style=\"display: table; width: 100%; border-bottom: 1px solid #e5e7eb;\">" +
+                "                    <div style=\"display: table-cell; padding: 16px; background: #f9fafb; width: 35%; font-weight: 600; color: #374151; font-size: 13px;\">" +
+                "                        <span style=\"margin-right: 8px;\">⚡</span> Severity" +
+                "                    </div>" +
+                "                    <div style=\"display: table-cell; padding: 16px;\">" +
+                "                        <span style=\"color: " + severityColor + "; font-weight: 700; font-size: 14px;\">" + escapeHtml(ticket.getSeverity()) + "</span>" +
+                "                    </div>" +
+                "                </div>" +
+                "                " +
+                "                <!-- Row: Account ID (if present) -->" +
+                (ticket.getAccountId() != null && !ticket.getAccountId().isEmpty() ?
+                "                <div style=\"display: table; width: 100%; border-bottom: 1px solid #e5e7eb;\">" +
+                "                    <div style=\"display: table-cell; padding: 16px; background: #f9fafb; width: 35%; font-weight: 600; color: #374151; font-size: 13px;\">" +
+                "                        <span style=\"margin-right: 8px;\">🔑</span> Account ID" +
+                "                    </div>" +
+                "                    <div style=\"display: table-cell; padding: 16px; color: #1a202c; font-size: 14px; font-family: 'Courier New', monospace;\">" +
+                "                        " + escapeHtml(ticket.getAccountId()) + "" +
+                "                    </div>" +
+                "                </div>" : "") +
+                "                " +
+                "                <!-- Row: Region (if present) -->" +
+                (ticket.getRegion() != null && !ticket.getRegion().isEmpty() ?
+                "                <div style=\"display: table; width: 100%;\">" +
+                "                    <div style=\"display: table-cell; padding: 16px; background: #f9fafb; width: 35%; font-weight: 600; color: #374151; font-size: 13px;\">" +
+                "                        <span style=\"margin-right: 8px;\">🌍</span> Region" +
+                "                    </div>" +
+                "                    <div style=\"display: table-cell; padding: 16px; color: #1a202c; font-size: 14px; font-family: 'Courier New', monospace;\">" +
+                "                        " + escapeHtml(ticket.getRegion()) + "" +
+                "                    </div>" +
+                "                </div>" :
+                "                <div style=\"display: table; width: 100%;\">" +
+                "                    <div style=\"display: table-cell; padding: 16px; background: #f9fafb; width: 35%; font-weight: 600; color: #374151; font-size: 13px;\">" +
+                "                        <span style=\"margin-right: 8px;\">🌍</span> Region" +
+                "                    </div>" +
+                "                    <div style=\"display: table-cell; padding: 16px; color: #9ca3af; font-size: 14px;\">" +
+                "                        Global" +
+                "                    </div>" +
+                "                </div>") +
+                "            </div>" +
+                "            " +
+                "        </div>" +
+                "        " +
+                "        <!-- Footer -->" +
+                "        <div style=\"background: #f9fafb; padding: 20px 24px; border-top: 1px solid #e5e7eb; text-align: center;\">" +
+                "            <p style=\"margin: 0; color: #6b7280; font-size: 12px; line-height: 1.6;\">" +
+                "                This ticket was automatically generated by <strong style=\"color: #667eea;\">XamOps Support System</strong><br>" +
+                "                Please respond promptly to ensure customer satisfaction." +
+                "            </p>" +
+                "        </div>" +
+                "    </div>" +
+                "</body>" +
+                "</html>";
+    }
+
+    /**
+     * Get status color for email template
+     */
+    private String getStatusColor(String status) {
+        if ("OPEN".equalsIgnoreCase(status)) {
+            return "#10b981"; // Green
+        } else if ("IN_PROGRESS".equalsIgnoreCase(status)) {
+            return "#f59e0b"; // Orange
+        } else if ("CLOSED".equalsIgnoreCase(status)) {
+            return "#6b7280"; // Gray
+        }
+        return "#667eea"; // Default purple
+    }
+
+    /**
+     * Get severity color for email template
+     */
+    private String getSeverityColor(String severity) {
+        if (severity != null) {
+            if (severity.equalsIgnoreCase("High") || severity.equalsIgnoreCase("Critical") || severity.equalsIgnoreCase("Urgent")) {
+                return "#dc2626"; // Red
+            } else if (severity.equalsIgnoreCase("Normal") || severity.equalsIgnoreCase("Medium")) {
+                return "#f59e0b"; // Orange
+            }
+        }
+        return "#3b82f6"; // Blue
+    }
+
+    /**
+     * Escape HTML special characters
+     */
+    private String escapeHtml(String text) {
+        if (text == null) {
+            return "";
+        }
+        return text
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&#39;");
     }
 
     private TicketDto convertToDto(Ticket ticket) {
