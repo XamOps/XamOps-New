@@ -36,11 +36,11 @@ export const useDevOpsScripts = (): UseDevOpsScriptsReturn => {
 
     try {
       console.log('🔧 Fetching DevOps scripts from API...');
-      const response = await apiClient.get('/api/dev_ops_script');
+      const response = await apiClient.get<DevOpsScript[]>('/api/dev_ops_script');
 
-      if (Array.isArray(response.data)) {
-        setScripts(response.data);
-        console.log(`✅ Loaded ${response.data.length} DevOps scripts`);
+      if (Array.isArray(response)) {
+        setScripts(response);
+        console.log(`✅ Loaded ${response.length} DevOps scripts`);
       } else {
         throw new Error('Invalid response format from server');
       }

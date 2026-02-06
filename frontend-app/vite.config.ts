@@ -164,7 +164,8 @@ export default defineConfig({
       '/api/ai-advisor': { target: authTarget, changeOrigin: true, secure: false },
       '/api/cicd': { target: authTarget, changeOrigin: true, secure: false },
       '/api/karpenter': { target: authTarget, changeOrigin: true, secure: false },
-      '/api/ai': { target: authTarget, changeOrigin: true, secure: false }, // ✅ Added missing proxy rule
+      '/api/ai': { target: authTarget, changeOrigin: true, secure: false },
+      '/api/dev_ops_script': { target: 'http://localhost:8080', changeOrigin: true, secure: false }, // DevOps In The Box scripts
 
 
     }
