@@ -4,11 +4,13 @@ import { useTopbar } from '../../contexts/TopbarContext';
 interface SpotAutomationHeaderProps {
   onSyncAccount: () => void;
   onDeployToAWS: () => void;
+  disabled?: boolean;
 }
 
 const SpotAutomationHeader: React.FC<SpotAutomationHeaderProps> = ({
   onSyncAccount,
   onDeployToAWS,
+  disabled = false,
 }) => {
   const { setActions, clearActions } = useTopbar();
   const [showTooltip, setShowTooltip] = useState(false);
@@ -50,23 +52,33 @@ const SpotAutomationHeader: React.FC<SpotAutomationHeaderProps> = ({
         {/* Actions */}
         <button
           onClick={onSyncAccount}
-          className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all shadow-sm active:scale-95"
+          disabled={disabled}
+          className={`flex items-center gap-2 px-4 py-2 border rounded-xl text-xs font-bold transition-all shadow-sm ${
+            disabled
+              ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed'
+              : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 active:scale-95'
+          }`}
         >
-          <i className="fas fa-sync text-indigo-500"></i>
+          <i className={`fas fa-sync ${disabled ? 'text-gray-400' : 'text-indigo-500'}`}></i>
           <span>Sync Account</span>
         </button>
 
         <button
           onClick={onDeployToAWS}
-          className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-orange-500 to-orange-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-orange-200 hover:shadow-orange-300 transition-all active:scale-95"
+          disabled={disabled}
+          className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-all ${
+            disabled
+              ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+              : 'bg-gradient-to-r from-orange-500 to-orange-600 text-white shadow-lg shadow-orange-200 hover:shadow-orange-300 active:scale-95'
+          }`}
         >
-          <i className="fab fa-aws text-white text-sm"></i>
+          <i className={`fab fa-aws text-sm ${disabled ? 'text-gray-500' : 'text-white'}`}></i>
           <span>Deploy to AWS</span>
         </button>
       </div>
     );
     return () => clearActions();
-  }, [setActions, clearActions, onSyncAccount, onDeployToAWS, showTooltip]);
+  }, [setActions, clearActions, onSyncAccount, onDeployToAWS, showTooltip, disabled]);
 
   return null;
 };

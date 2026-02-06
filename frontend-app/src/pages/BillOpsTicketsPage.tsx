@@ -8,11 +8,9 @@
  *
  * What changed:
  * - Migrated from Alpine.js to React with TypeScript
- * - Improved UI with modern card design and better spacing
- * - Enhanced status and severity badges with icons
- * - Better loading states and animations
- * - More professional modal design
- * - Improved responsive design
+ * - Topbar integration for actions and status
+ * - Soft Glass Minimal design system
+ * - Premium animations and transitions
  *
  * What stayed the same:
  * - All API endpoints remain identical
@@ -24,7 +22,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useBillOpsTickets } from '../hooks/useBillOpsTickets';
-import { useTopbar } from '../contexts/TopbarContext';
+import { useTopbarActions } from '../contexts/TopbarContext';
 import {
   CreateTicketFormData,
   SERVICE_OPTIONS,
@@ -46,7 +44,7 @@ const BillOpsTicketsPage: React.FC = () => {
     submitTicket
   } = useBillOpsTickets();
 
-  const { setActions, clearActions } = useTopbar();
+  const { setActions, clearActions } = useTopbarActions();
 
   const [showModal, setShowModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -83,21 +81,6 @@ const BillOpsTicketsPage: React.FC = () => {
     });
   };
 
-  /**
-   * Get status dot classes
-   */
-  const getStatusDotClasses = (status: string): string => {
-    switch (status) {
-      case 'OPEN':
-        return 'bg-green-400';
-      case 'CLOSED':
-        return 'bg-gray-400';
-      case 'IN_PROGRESS':
-        return 'bg-yellow-400';
-      default:
-        return 'bg-gray-400';
-    }
-  };
 
   /**
    * Get severity badge classes
@@ -114,6 +97,30 @@ const BillOpsTicketsPage: React.FC = () => {
       default:
         return 'bg-gray-50 text-gray-700 border-gray-200';
     }
+  };
+
+  const getStatusBadgeClasses = (status: string) => {
+    if (status === 'OPEN') {
+      return 'bg-emerald-500 text-white shadow-emerald-200 ring-4 ring-emerald-500/10';
+    }
+    if (status === 'IN_PROGRESS') {
+      return 'bg-amber-500 text-white shadow-amber-200 ring-4 ring-amber-500/10';
+    }
+    return 'bg-slate-400 text-white shadow-slate-200 ring-4 ring-slate-400/10';
+  };
+
+  const getSeverityBadgeClasses = (severity: string): string => {
+    const classes = getSeverityClasses(severity);
+    if (classes.includes('red')) return 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.4)]';
+    if (classes.includes('orange')) return 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.4)]';
+    return 'bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.4)]';
+  };
+
+  const getSeverityTextClasses = (severity: string): string => {
+    const classes = getSeverityClasses(severity);
+    if (classes.includes('red')) return 'text-rose-600';
+    if (classes.includes('orange')) return 'text-amber-600';
+    return 'text-blue-600';
   };
 
   /**
@@ -144,7 +151,7 @@ const BillOpsTicketsPage: React.FC = () => {
       setShowModal(false);
     } catch (err) {
       console.error('Error submitting ticket:', err);
-      alert('There was an error submitting your case. Please try again.');
+      globalThis.alert('There was an error submitting your case. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -161,50 +168,81 @@ const BillOpsTicketsPage: React.FC = () => {
    * Set Topbar Actions
    */
   useEffect(() => {
+    const openTicketsCount = tickets.filter(t => t.status === 'OPEN').length;
+    const inProgressCount = tickets.filter(t => t.status === 'IN_PROGRESS').length;
+
     setActions(
-      <div className="flex items-center gap-4">
-        {lastUpdated && (
-          <div className="text-xs text-slate-500 font-medium hidden md:block">
-            Synced {lastUpdatedDisplay}
+      <div className="flex items-center gap-6">
+        {/* Page Title & Icon */}
+        <div className="hidden lg:flex items-center gap-3 pr-6 border-r border-slate-200/50">
+          <div className="w-9 h-9 flex items-center justify-center rounded-xl bg-purple-50 text-purple-600 shadow-sm border border-purple-100/50">
+            <i className="fas fa-file-invoice-dollar"></i>
+          </div>
+          <div>
+            <h1 className="text-sm font-bold text-slate-900 leading-none">Billing Tickets</h1>
+            <p className="text-[10px] text-slate-500 font-medium mt-1">Account & Billing Support</p>
+          </div>
+        </div>
+
+        {/* Live Stats */}
+        {!loading && tickets.length > 0 && (
+          <div className="hidden xl:flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Open</span>
+              <span className="text-xs font-bold text-slate-700">{openTicketsCount}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">In Progress</span>
+              <span className="text-xs font-bold text-slate-700">{inProgressCount}</span>
+            </div>
           </div>
         )}
-        <button
-          onClick={() => fetchTickets(true)}
-          disabled={loading || isUpdating}
-          className="w-10 h-10 flex items-center justify-center text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-xl transition-all disabled:opacity-50"
-          title="Refresh Tickets"
-        >
-          <i className={`fas fa-sync-alt ${isUpdating ? 'animate-spin' : ''}`}></i>
-        </button>
-        <button
-          onClick={openCreateModal}
-          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold shadow-lg shadow-indigo-500/20 hover:bg-indigo-700 transition-all active:scale-95"
-        >
-          <i className="fas fa-plus mr-2" />
-          Create New Case
-        </button>
+
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => fetchTickets(true)}
+            disabled={loading || isUpdating}
+            className="w-10 h-10 flex items-center justify-center text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-xl transition-all border border-transparent hover:border-slate-200/50"
+            title="Refresh Tickets"
+          >
+            <i className={`fas fa-sync-alt ${isUpdating ? 'animate-spin' : ''}`}></i>
+          </button>
+          <button
+            onClick={openCreateModal}
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold shadow-lg shadow-indigo-500/20 hover:bg-indigo-700 transition-all hover:-translate-y-0.5 active:scale-95"
+          >
+            <i className="fas fa-plus mr-1" />
+            Create New Case
+          </button>
+        </div>
       </div>
     );
     return () => clearActions();
-  }, [setActions, clearActions, lastUpdated, lastUpdatedDisplay, loading, isUpdating, fetchTickets]);
+  }, [setActions, clearActions, loading, isUpdating, fetchTickets, tickets]);
 
   /**
    * Render loading skeleton
    */
   const renderLoadingSkeleton = () => (
-    <div className="space-y-4">
-      {[1, 2, 3].map(i => (
-        <div key={i} className="bg-white/80 backdrop-blur-sm shadow-sm rounded-xl p-6 border border-gray-100">
-          <div className="flex justify-between items-start">
-            <div className="w-full">
-              <div className="flex gap-3 mb-4">
-                <div className="h-5 bg-gray-200 rounded w-16 animate-pulse"></div>
-                <div className="h-5 bg-gray-200 rounded w-20 animate-pulse"></div>
-                <div className="h-5 bg-gray-200 rounded w-16 animate-pulse"></div>
-              </div>
-              <div className="h-6 bg-gray-200 rounded w-1/3 mb-3 animate-pulse"></div>
-              <div className="h-4 bg-gray-200 rounded w-2/3 animate-pulse"></div>
+    <div className="grid gap-6 md:grid-cols-2">
+      {[1, 2, 3, 4].map(i => (
+        <div key={i} className="bg-white/80 backdrop-blur-xl border border-white/40 rounded-[2rem] p-6 shadow-sm">
+          <div className="flex justify-between items-start mb-6">
+            <div className="space-y-3 w-2/3">
+              <div className="h-5 bg-slate-200 rounded-full w-24 animate-pulse"></div>
+              <div className="h-6 bg-slate-200 rounded-xl w-full animate-pulse"></div>
             </div>
+            <div className="h-8 bg-slate-200 rounded-full w-20 animate-pulse"></div>
+          </div>
+          <div className="space-y-2 mb-6">
+            <div className="h-4 bg-slate-100 rounded-lg w-full animate-pulse"></div>
+            <div className="h-4 bg-slate-100 rounded-lg w-[85%] animate-pulse"></div>
+          </div>
+          <div className="flex items-center gap-4 pt-4 border-t border-slate-50">
+            <div className="h-4 bg-slate-50 rounded w-24 animate-pulse"></div>
+            <div className="h-4 bg-slate-50 rounded w-20 animate-pulse"></div>
           </div>
         </div>
       ))}
@@ -240,102 +278,104 @@ const BillOpsTicketsPage: React.FC = () => {
   const renderTicketCard = (ticket: BillOpsTicket) => (
     <div
       key={ticket.id}
-      className="group relative bg-white rounded-xl p-6 shadow-sm border border-gray-100 hover:shadow-md hover:border-indigo-100 transition-all duration-200 cursor-pointer"
+      className="group relative bg-white/70 backdrop-blur-xl border border-white p-7 rounded-[2.5rem] shadow-[0_8px_40px_rgba(0,0,0,0.03)] hover:shadow-[0_24px_48px_rgba(0,0,0,0.08)] hover:bg-white hover:border-purple-100/50 transition-all duration-500 cursor-pointer overflow-hidden"
       onClick={() => viewTicket(ticket.id)}
     >
-      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-        <div className="flex-1 min-w-0">
-          {/* Badges Row */}
-          <div className="flex items-center gap-2 mb-3 flex-wrap">
-            <span className="text-xs font-mono text-gray-400 bg-gray-50 px-2 py-0.5 rounded border border-gray-100">
-              #{ticket.id}
-            </span>
+      {/* Background Decor */}
+      <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-br from-indigo-500/5 to-purple-500/5 rounded-full blur-3xl -mr-20 -mt-20 group-hover:scale-150 transition-transform duration-700"></div>
 
-            {/* Status Badge */}
-            <span
-              className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ring-1 ring-inset ${ticket.status === 'OPEN' ? 'bg-green-50 text-green-700 ring-green-600/20' :
-                ticket.status === 'IN_PROGRESS' ? 'bg-yellow-50 text-yellow-800 ring-yellow-600/20' :
-                  'bg-gray-50 text-gray-600 ring-gray-500/10'
-                }`}
-            >
-              <span
-                className={`w-1.5 h-1.5 rounded-full mr-1.5 ${getStatusDotClasses(ticket.status)}`}
-              ></span>
-              {ticket.status}
-            </span>
-
-            {/* Severity Badge */}
-            <span
-              className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getSeverityClasses(
-                ticket.severity
-              ).replace('bg-', 'bg-opacity-50 bg-')}`} // Adjust opacity for subtlety
-            >
-              {(ticket.severity === 'High' || ticket.severity === 'Critical') && (
-                <i className="fas fa-exclamation-circle mr-1.5"></i>
-              )}
-              {ticket.severity}
-            </span>
-
-            {/* Account Badge */}
-            {ticket.accountId && (
-              <span className="flex items-center text-xs text-gray-500 bg-gray-50 px-2 py-0.5 rounded border border-gray-100">
-                <i className="fas fa-cloud text-gray-400 mr-1.5"></i>
-                {ticket.accountId}
-              </span>
-            )}
+      <div className="relative flex flex-col h-full">
+        {/* Header: ID & Status */}
+        <div className="flex justify-between items-start mb-5">
+          <div className="flex flex-col gap-1.5">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Billing Case #{ticket.id}</span>
+            <h3 className="text-lg font-bold text-slate-900 group-hover:text-indigo-600 transition-colors line-clamp-1 leading-tight tracking-tight">
+              {ticket.subject}
+            </h3>
           </div>
-
-          {/* Subject */}
-          <h3 className="text-lg font-bold text-gray-900 mb-2 group-hover:text-indigo-600 transition-colors pr-8">
-            {ticket.subject}
-          </h3>
-
-          {/* Description */}
-          <p className="text-sm text-gray-600 line-clamp-2 mb-4 leading-relaxed">
-            {ticket.description}
-          </p>
-
-          {/* Metadata Row */}
-          <div className="flex items-center gap-6 text-xs text-gray-500">
-            <div className="flex items-center">
-              <i className="far fa-clock mr-2 text-gray-400"></i>
-              <span>{formatDate(ticket.createdAt)}</span>
-            </div>
-            <div className="flex items-center">
-              <i className="fas fa-cube mr-2 text-gray-400"></i>
-              <span>{ticket.service}</span>
-            </div>
-            {ticket.region && (
-              <div className="flex items-center">
-                <i className="fas fa-globe-americas mr-2 text-gray-400"></i>
-                <span className="font-mono">{ticket.region}</span>
-              </div>
-            )}
-          </div>
+          <span
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider shadow-sm transition-all ${getStatusBadgeClasses(ticket.status)}`}
+          >
+            <span className={`w-1.5 h-1.5 rounded-full bg-white shadow-[0_0_8px_white] ${ticket.status === 'OPEN' ? 'animate-pulse' : ''}`}></span>
+            {ticket.status}
+          </span>
         </div>
 
-        {/* Chevron Icon */}
-        <div className="hidden sm:flex items-center justify-center w-8 h-8 rounded-full bg-gray-50 text-gray-400 group-hover:bg-indigo-50 group-hover:text-indigo-600 transition-colors absolute right-6 top-6">
-          <i className="fas fa-chevron-right text-sm"></i>
+        {/* Metadata Badges */}
+        <div className="flex flex-wrap gap-2.5 mb-6">
+          {ticket.accountId && (
+            <span className="flex items-center gap-2 px-3 py-1.5 bg-slate-100/80 text-slate-600 rounded-xl text-[10px] font-bold tracking-tight border border-slate-200/50">
+              <i className="fas fa-cloud text-[8px] text-slate-400"></i>
+              {ticket.accountId}
+            </span>
+          )}
+          <span className="flex items-center gap-2 px-3 py-1.5 bg-purple-50/80 text-purple-600 rounded-xl text-[10px] font-bold tracking-tight border border-purple-100/50">
+            <i className="fas fa-file-invoice text-[8px] text-purple-400"></i>
+            {ticket.service}
+          </span>
+          {ticket.region && (
+            <span className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 text-slate-500 rounded-xl text-[10px] font-bold tracking-tight border border-slate-100">
+              <i className="fas fa-globe-americas text-[8px] text-slate-300"></i>
+              {ticket.region}
+            </span>
+          )}
+        </div>
+
+        {/* Description */}
+        <p className="text-sm text-slate-500 line-clamp-2 mb-8 leading-relaxed flex-1">
+          {ticket.description}
+        </p>
+
+        <div className="flex items-center justify-between pt-5 border-t border-slate-100/60">
+          <div className="flex items-center gap-2">
+            <div className={`w-2 h-2 rounded-full ${getSeverityBadgeClasses(ticket.severity)}`}></div>
+            <span className={`text-[10px] font-bold uppercase tracking-widest ${getSeverityTextClasses(ticket.severity)}`}>
+              {ticket.severity} SEVERITY
+            </span>
+          </div>
+          <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-tighter">
+            <i className="far fa-clock text-[12px] opacity-70"></i>
+            {formatDate(ticket.createdAt)}
+          </div>
         </div>
       </div>
     </div>
   );
 
   return (
-    <div className="billops-tickets-page flex-1 flex flex-col h-full overflow-hidden bg-transparent">
+    <div className="flex-1 flex flex-col h-full overflow-hidden bg-transparent">
       {/* Main Content Scroll Area */}
-      <main className="flex-1 overflow-y-auto custom-scrollbar p-8">
-        <div className="w-full space-y-8">
+      <main className="flex-1 overflow-y-auto custom-scrollbar p-6 lg:p-8">
+        <div className="max-w-7xl mx-auto space-y-8">
 
-          {/* Account Indicator (Simplified) */}
-          <div className="flex items-center gap-3">
-            {selectedAccountId && (
-              <span className="text-xs font-medium px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-100">
-                Account: {selectedAccountId}
-              </span>
+          {/* Subheader: Account Info & Sync Status */}
+          <div className="flex flex-wrap items-center justify-between gap-4 px-2">
+            <div className="flex items-center gap-3">
+              {selectedAccountId ? (
+                <div className="flex items-center gap-2 px-3 py-1 bg-indigo-50 text-indigo-700 rounded-full border border-indigo-100 text-[10px] font-bold uppercase tracking-wider shadow-sm">
+                  <i className="fas fa-at opacity-70"></i>
+                  <span>Active Account: {selectedAccountId}</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 px-3 py-1 bg-slate-100 text-slate-500 rounded-full border border-slate-200 text-[10px] font-bold uppercase tracking-wider">
+                  <i className="fas fa-info-circle opacity-70"></i>
+                  <span>Viewing All Accounts</span>
+                </div>
+              )}
+              {isUpdating && (
+                <div className="flex items-center gap-2 text-[10px] font-bold text-indigo-400 uppercase tracking-widest animate-pulse">
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
+                  Updating...
+                </div>
+              )}
+            </div>
+
+            {lastUpdated && (
+              <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                <i className="fas fa-history opacity-70"></i>
+                Last synced {lastUpdatedDisplay}
+              </div>
             )}
-            {isUpdating && <span className="inline-block w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></span>}
           </div>
 
           {/* Loading State */}
@@ -361,7 +401,7 @@ const BillOpsTicketsPage: React.FC = () => {
 
           {/* Tickets Grid */}
           {!loading && tickets.length > 0 && (
-            <div className="grid gap-4">
+            <div className="grid gap-6 md:grid-cols-2">
               {tickets.map(ticket => renderTicketCard(ticket))}
             </div>
           )}

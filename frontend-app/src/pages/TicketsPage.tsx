@@ -5,13 +5,10 @@
  *
  * Converted from: xamops_tickets.html
  *
- * Features:
- * - Create new technical support cases
- * - View all technical tickets
- * - Filter by account ID
- * - Real-time data fetching with cache
- * - Status tracking (Open, In Progress, Closed)
- * - Professional and modern UI design
+ * Modernized:
+ * - Topbar integration for actions and status
+ * - Soft Glass Minimal design system
+ * - Premium animations and transitions
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -169,10 +166,10 @@ const TicketsPage: React.FC = () => {
       fetchTickets();
     };
 
-    window.addEventListener('account-changed', handleAccountChanged);
+    globalThis.addEventListener('account-changed', handleAccountChanged);
 
     return () => {
-      window.removeEventListener('account-changed', handleAccountChanged);
+      globalThis.removeEventListener('account-changed', handleAccountChanged);
     };
   }, [selectedAccountIds, loadFromCache, fetchTickets]);
 
@@ -275,10 +272,38 @@ const TicketsPage: React.FC = () => {
    */
   const getStatusBadgeClass = (status: string): string => {
     const statusLower = status.toLowerCase();
-    if (statusLower === 'open') return 'bg-blue-100 text-blue-800';
-    if (statusLower === 'in_progress') return 'bg-yellow-100 text-yellow-800';
-    if (statusLower === 'closed') return 'bg-gray-200 text-gray-800';
-    return 'bg-gray-100 text-gray-700';
+    if (statusLower === 'open') return 'bg-emerald-500 text-white';
+    if (statusLower === 'in_progress') return 'bg-amber-500 text-white';
+    if (statusLower === 'closed') return 'bg-gray-400 text-white';
+    return 'bg-indigo-500 text-white';
+  };
+
+  /**
+   * Get severity badge classes
+   */
+  const getSeverityClass = (severity: string): string => {
+    const severityLower = severity.toLowerCase();
+    if (severityLower === 'urgent' || severityLower === 'high' || severityLower === 'critical') {
+      return 'text-red-600 font-bold';
+    }
+    if (severityLower === 'normal' || severityLower === 'medium') {
+      return 'text-orange-500 font-semibold';
+    }
+    return 'text-blue-500 font-medium';
+  };
+
+  /**
+   * Get severity icon
+   */
+  const getSeverityIcon = (severity: string): string => {
+    const severityLower = severity.toLowerCase();
+    if (severityLower === 'urgent' || severityLower === 'high' || severityLower === 'critical') {
+      return 'fas fa-exclamation-triangle';
+    }
+    if (severityLower === 'normal' || severityLower === 'medium') {
+      return 'fas fa-exclamation-circle';
+    }
+    return 'fas fa-info-circle';
   };
 
   /**
@@ -290,118 +315,187 @@ const TicketsPage: React.FC = () => {
 
   // Topbar Integration
   useEffect(() => {
-    // Only update actions when loading/updating state changes to avoid flickering
-    // internal navigation state is handled by the buttons
-    const actionsNode = (
-      <div className="flex items-center gap-3">
-        <button
-          onClick={() => fetchTickets(true)}
-          disabled={loading || isUpdating}
-          className="w-9 h-9 flex items-center justify-center text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
-          title="Refresh Tickets"
-        >
-          <i className={`fas fa-sync-alt ${isUpdating ? 'animate-spin' : ''}`}></i>
-        </button>
+    const openTicketsCount = tickets.filter(t => t.status.toLowerCase() === 'open').length;
+    const inProgressCount = tickets.filter(t => t.status.toLowerCase() === 'in_progress').length;
 
-        <button
-          onClick={openCreateModal}
-          disabled={loading}
-          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all disabled:opacity-50 active:scale-95"
-        >
-          <i className="fas fa-plus"></i>
-          <span>Create Ticket</span>
-        </button>
+    const actionsNode = (
+      <div className="flex items-center gap-6">
+        {/* Page Title & Icon (Mobile Hidden) */}
+        <div className="hidden lg:flex items-center gap-3 pr-6 border-r border-slate-200/50">
+          <div className="w-9 h-9 flex items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 shadow-sm border border-indigo-100/50">
+            <i className="fas fa-ticket-alt"></i>
+          </div>
+          <div>
+            <h1 className="text-sm font-bold text-slate-900 leading-none">Support Tickets</h1>
+            <p className="text-[10px] text-slate-500 font-medium mt-1">Technical Support Cases</p>
+          </div>
+        </div>
+
+        {/* Live Stats */}
+        {!loading && tickets.length > 0 && (
+          <div className="hidden xl:flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Open</span>
+              <span className="text-xs font-bold text-slate-700">{openTicketsCount}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">In Progress</span>
+              <span className="text-xs font-bold text-slate-700">{inProgressCount}</span>
+            </div>
+          </div>
+        )}
+
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => fetchTickets(true)}
+            disabled={loading || isUpdating}
+            className="w-10 h-10 flex items-center justify-center text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-xl transition-all border border-transparent hover:border-slate-200/50"
+            title="Refresh Tickets"
+          >
+            <i className={`fas fa-sync-alt ${isUpdating ? 'animate-spin' : ''}`}></i>
+          </button>
+
+          <button
+            onClick={openCreateModal}
+            disabled={loading}
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-500/20 hover:bg-indigo-700 transition-all hover:-translate-y-0.5 active:scale-95 disabled:opacity-50"
+          >
+            <i className="fas fa-plus"></i>
+            <span>Create Ticket</span>
+          </button>
+        </div>
       </div>
     );
 
     setActions(actionsNode);
 
-    // Cleanup function
-    return () => {
-      // Ensure actions are cleared when component unmounts
-      // This is critical for preventing "stuck" topbar state
-      clearActions();
-    };
-  }, [setActions, clearActions, loading, isUpdating, fetchTickets]); // fetchTickets is cached via useCallback
+    return () => clearActions();
+  }, [setActions, clearActions, loading, isUpdating, fetchTickets, tickets]);
 
   return (
-    <div className="tickets-page p-8">
+    <div className="flex-1 flex flex-col h-full overflow-hidden bg-transparent">
+      {/* Scrollable Content Area */}
+      <main className="flex-1 overflow-y-auto custom-scrollbar p-6 lg:p-8">
+        <div className="max-w-7xl mx-auto space-y-6">
 
-      {/* Loading Skeleton */}
-      {loading && (
-        <div className="tickets-grid">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="ticket-card p-6">
-              <div className="flex justify-between items-start mb-4">
-                <div className="space-y-2 w-2/3">
-                  <Skeleton variant="text" height={24} width="80%" />
-                  <Skeleton variant="text" height={16} width="40%" />
-                </div>
-                <Skeleton variant="rounded" height={24} width={80} />
-              </div>
-              <div className="space-y-2 mb-4">
-                <Skeleton variant="text" height={16} width="100%" />
-                <Skeleton variant="text" height={16} width="90%" />
-              </div>
-              <Skeleton variant="text" height={16} width={120} />
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Tickets List */}
-      {!loading && tickets.length > 0 && (
-        <div className="tickets-grid">
-          {tickets.map((ticket) => (
-            <div
-              key={ticket.id}
-              onClick={() => navigateToDetail(ticket.id)}
-              className="ticket-card"
-            >
-              <div className="ticket-header">
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <h3 className="ticket-title">{ticket.subject}</h3>
-                    {ticket.accountId && (
-                      <span className="account-badge">
-                        Account: {ticket.accountId}
-                      </span>
-                    )}
+          {/* Loading Skeleton */}
+          {loading && (
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="bg-white/80 backdrop-blur-xl border border-white/40 rounded-3xl p-6 shadow-sm">
+                  <div className="flex justify-between items-start mb-6">
+                    <div className="space-y-3 w-2/3">
+                      <Skeleton variant="text" height={24} width="90%" />
+                      <Skeleton variant="text" height={16} width="50%" />
+                    </div>
+                    <Skeleton variant="rounded" height={28} width={80} className="rounded-full" />
                   </div>
-                  <p className="ticket-meta">
-                    {ticket.category} | {ticket.service} | Severity: {ticket.severity}
-                  </p>
+                  <div className="space-y-2 mb-6">
+                    <Skeleton variant="text" height={16} width="100%" />
+                    <Skeleton variant="text" height={16} width="85%" />
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <Skeleton variant="text" height={16} width={100} />
+                    <Skeleton variant="text" height={16} width={80} />
+                  </div>
                 </div>
-                <span className={`status-badge ${getStatusBadgeClass(ticket.status)}`}>
-                  {ticket.status.replace('_', ' ')}
-                </span>
-              </div>
-
-              <p className="ticket-description">
-                {ticket.description}
-              </p>
-
-              <div className="ticket-footer">
-                <i className="fas fa-calendar-alt mr-2 text-gray-400"></i>
-                Created on: {new Date(ticket.createdAt).toLocaleString()}
-              </div>
+              ))}
             </div>
-          ))}
-        </div>
-      )}
+          )}
 
-      {/* Empty State */}
-      {!loading && tickets.length === 0 && !error && (
-        <div className="empty-state">
-          <i className="fas fa-ticket-alt text-6xl mb-4 text-gray-300"></i>
-          <h3 className="text-xl font-semibold text-gray-700 mb-2">No tickets found</h3>
-          <p className="text-gray-500">
-            {selectedAccountIds.length > 0
-              ? `No technical tickets found for the selected account${selectedAccountIds.length > 1 ? 's' : ''}.`
-              : 'Please select an account from the sidebar to view tickets.'}
-          </p>
+          {/* Tickets List */}
+          {!loading && tickets.length > 0 && (
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {tickets.map((ticket) => (
+                <div
+                  key={ticket.id}
+                  onClick={() => navigateToDetail(ticket.id)}
+                  className="group relative bg-white/70 backdrop-blur-xl border border-white p-6 rounded-[2rem] shadow-[0_8px_32px_rgba(0,0,0,0.04)] hover:shadow-[0_20px_40px_rgba(0,0,0,0.08)] hover:bg-white hover:border-indigo-100/50 transition-all duration-500 cursor-pointer overflow-hidden"
+                >
+                  {/* Glass Accent Decor */}
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-indigo-500/5 to-purple-500/5 rounded-full blur-3xl -mr-16 -mt-16 group-hover:scale-150 transition-transform duration-700"></div>
+
+                  <div className="relative flex flex-col h-full">
+                    {/* Header: ID & Status */}
+                    <div className="flex justify-between items-start mb-4">
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Case #{ticket.id}</span>
+                        <h3 className="text-base font-bold text-slate-900 group-hover:text-indigo-600 transition-colors line-clamp-1 leading-tight">
+                          {ticket.subject}
+                        </h3>
+                      </div>
+                      <span className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider shadow-sm ${getStatusBadgeClass(ticket.status)}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full bg-white shadow-[0_0_8px_white] ${ticket.status.toLowerCase() === 'open' ? 'animate-pulse' : ''}`}></span>
+                        {ticket.status.replace('_', ' ')}
+                      </span>
+                    </div>
+
+                    {/* Metadata Badges */}
+                    <div className="flex flex-wrap gap-2 mb-4">
+                      {ticket.accountId && (
+                        <span className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-100/80 text-slate-600 rounded-lg text-[10px] font-bold tracking-tight">
+                          <i className="fas fa-cloud text-[8px] text-slate-400"></i>
+                          {ticket.accountId}
+                        </span>
+                      )}
+                      <span className="flex items-center gap-1.5 px-2.5 py-1 bg-indigo-50/80 text-indigo-600 rounded-lg text-[10px] font-bold tracking-tight">
+                        <i className="fas fa-cube text-[8px] text-indigo-400"></i>
+                        {ticket.service}
+                      </span>
+                    </div>
+
+                    {/* Description */}
+                    <p className="text-xs text-slate-500 line-clamp-2 mb-6 leading-relaxed flex-1">
+                      {ticket.description}
+                    </p>
+
+                    {/* Footer */}
+                    <div className="flex items-center justify-between pt-4 border-t border-slate-100/50">
+                      <div className="flex items-center gap-1.5 text-slate-400">
+                        <i className={`${getSeverityIcon(ticket.severity)} ${getSeverityClass(ticket.severity)} text-xs`}></i>
+                        <span className={`text-[10px] font-bold uppercase tracking-wider ${getSeverityClass(ticket.severity)}`}>
+                          {ticket.severity}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 text-[10px] font-medium text-slate-400">
+                        <i className="far fa-calendar-alt"></i>
+                        {new Date(ticket.createdAt).toLocaleDateString('en-US', {
+                          month: 'short',
+                          day: 'numeric'
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Empty State */}
+          {!loading && tickets.length === 0 && !error && (
+            <div className="max-w-md mx-auto text-center py-20 bg-white/50 backdrop-blur-xl border border-white rounded-[3rem] shadow-xl shadow-indigo-500/5">
+              <div className="w-24 h-24 bg-indigo-50 rounded-full flex items-center justify-center mx-auto mb-8 shadow-inner border border-indigo-100/50">
+                <i className="fas fa-ticket-alt text-indigo-300 text-4xl"></i>
+              </div>
+              <h3 className="text-2xl font-black text-slate-800 mb-3 tracking-tight">No Tickets Found</h3>
+              <p className="text-slate-500 text-sm px-10 leading-relaxed mb-10">
+                {selectedAccountIds.length > 0
+                  ? `No technical tickets found for the selected account${selectedAccountIds.length > 1 ? 's' : ''}. Support is just a click away.`
+                  : 'Select an account from the sidebar or create a new ticket to get started.'}
+              </p>
+              <button
+                onClick={openCreateModal}
+                className="inline-flex items-center gap-3 px-8 py-4 bg-indigo-600 text-white rounded-2xl text-sm font-bold shadow-xl shadow-indigo-500/20 hover:bg-indigo-700 transition-all hover:-translate-y-1 active:scale-95"
+              >
+                <i className="fas fa-plus"></i>
+                Create New Ticket
+              </button>
+            </div>
+          )}
         </div>
-      )}
+      </main>
 
       {/* Error State */}
       {error && tickets.length === 0 && (
