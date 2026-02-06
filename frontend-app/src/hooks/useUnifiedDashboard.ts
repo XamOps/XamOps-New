@@ -26,6 +26,7 @@ export const useUnifiedDashboard = () => {
     gcp: true,
     azure: true,
     health: true,
+    tickets: true,
   });
 
   // Error states
@@ -35,6 +36,7 @@ export const useUnifiedDashboard = () => {
     gcp: null,
     azure: null,
     health: null,
+    tickets: null,
   });
 
   // Data states
@@ -49,6 +51,7 @@ export const useUnifiedDashboard = () => {
   const [gcpData, setGcpData] = useState<ProviderData | null>(null);
   const [azureData, setAzureData] = useState<ProviderData | null>(null);
   const [healthData, setHealthData] = useState<HealthData | null>(null);
+  const [ticketCount, setTicketCount] = useState<number>(0);
 
   // UI states
   const [showModal, setShowModal] = useState(false);
@@ -173,9 +176,29 @@ export const useUnifiedDashboard = () => {
     }
   }, []);
 
+  // Fetch ticket counts
+  const fetchTickets = useCallback(async () => {
+    try {
+      const res = await fetch('/api/xamops/tickets/category/Technical');
+      if (res.ok) {
+        const data = await res.json();
+        // Count only open or in_progress tickets if needed, or just total
+        // The user asked for "Active" support tickets, assuming any returned from this category are relevant
+        // or filtering for !Closed
+        const activeTickets = data.filter((t: any) => t.status !== 'Closed' && t.status !== 'CLOSED');
+        setTicketCount(activeTickets.length);
+      }
+    } catch (e) {
+      console.error('Error fetching tickets:', e);
+      setError((prev) => ({ ...prev, tickets: 'Failed' }));
+    } finally {
+      setIsLoading((prev) => ({ ...prev, tickets: false }));
+    }
+  }, []);
+
   // Store fetch functions in refs for stable reference in intervals
-  const fetchFunctionsRef = useRef({ fetchSummary, fetchProvider, fetchHealth });
-  fetchFunctionsRef.current = { fetchSummary, fetchProvider, fetchHealth };
+  const fetchFunctionsRef = useRef({ fetchSummary, fetchProvider, fetchHealth, fetchTickets });
+  fetchFunctionsRef.current = { fetchSummary, fetchProvider, fetchHealth, fetchTickets };
 
   // Fetch all data - using ref to avoid dependency issues
   const fetchAllImpl = useCallback((force: boolean = false, silent: boolean = false) => {
@@ -189,6 +212,7 @@ export const useUnifiedDashboard = () => {
         gcp: true,
         azure: true,
         health: true,
+        tickets: true,
       });
       setError({
         summary: null,
@@ -196,6 +220,7 @@ export const useUnifiedDashboard = () => {
         gcp: null,
         azure: null,
         health: null,
+        tickets: null,
       });
       setAwsData(null);
       setGcpData(null);
@@ -212,6 +237,7 @@ export const useUnifiedDashboard = () => {
     fetchProvider('gcp', force, silent);
     fetchProvider('azure', force, silent);
     fetchHealth();
+    fetchTickets();
   }, []);
 
   // Stable fetchAll reference for external use
@@ -355,7 +381,7 @@ export const useUnifiedDashboard = () => {
 
     intervalsRef.current.autoRefresh = setInterval(async () => {
       console.log('Auto-refreshing dashboard data (silent force refresh)...');
-      const { fetchSummary, fetchProvider, fetchHealth } = fetchFunctionsRef.current;
+      const { fetchSummary, fetchProvider, fetchHealth, fetchTickets } = fetchFunctionsRef.current;
 
       // Await all fetches to ensure data is updated before timestamp changes
       const results = await Promise.allSettled([
@@ -363,7 +389,8 @@ export const useUnifiedDashboard = () => {
         fetchProvider('aws', true, true),
         fetchProvider('gcp', true, true),
         fetchProvider('azure', true, true),
-        fetchHealth()
+        fetchHealth(),
+        fetchTickets()
       ]);
 
       const failed = results.filter(r => r.status === 'rejected' || (r.status === 'fulfilled' && (r.value as any)?.error));
@@ -402,6 +429,7 @@ export const useUnifiedDashboard = () => {
     gcpData,
     azureData,
     healthData,
+    ticketCount,
     showModal,
     viewMode,
     activeProvider,

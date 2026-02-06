@@ -16,6 +16,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, Outlet }
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AccountProvider } from './contexts/AccountContext';
 import { VPCProvider } from './contexts/VPCContext';
+import { EksDashboardCacheProvider } from './contexts/EksDashboardCacheContext';
 import { Sidebar } from './components/Sidebar';
 import { TopbarProvider } from './contexts/TopbarContext';
 import Topbar from './components/Shared/Topbar';
@@ -385,7 +386,9 @@ const App: React.FC = () => {
       <AuthProvider>
         <AccountProvider>
           <VPCProvider>
-            <AppContent />
+            <EksDashboardCacheProvider>
+              <AppContent />
+            </EksDashboardCacheProvider>
           </VPCProvider>
         </AccountProvider>
       </AuthProvider>
