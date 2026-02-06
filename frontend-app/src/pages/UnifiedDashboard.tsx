@@ -15,6 +15,7 @@
  */
 
 import React, { useCallback, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Ticker } from '../components/Dashboard/Ticker';
 import { DashboardHeader } from '../components/Dashboard/DashboardHeader';
 import { MetricCard } from '../components/Dashboard/MetricCard';
@@ -38,6 +39,7 @@ export const UnifiedDashboard: React.FC = () => {
     viewMode,
     activeProvider,
     activeAccountList,
+    ticketCount,
     lastUpdatedText,
     serverTime,
     fetchAll,
@@ -206,6 +208,7 @@ export const UnifiedDashboard: React.FC = () => {
   };
 
   // Navigation handlers
+  const navigate = useNavigate();
   const navigateToAccount = useCallback((accountId: string, mode: ViewMode) => {
     const account = getAllAccounts().find((a) => a.id === accountId);
     if (!account) {
@@ -218,32 +221,32 @@ export const UnifiedDashboard: React.FC = () => {
     const queryParams = new URLSearchParams();
     queryParams.append('accountIds', accountId);
 
-    // Navigation logic preserved
+    // Navigation logic preserved - FIXED PATHS
     if (mode === 'resource') {
-      if (provider === 'AWS') { targetPage = '/cloudlist.html'; queryParams.append('accountId', accountId); }
-      else if (provider === 'GCP') { targetPage = '/gcp_cloudlist.html'; queryParams.append('projectId', accountId); }
-      else if (provider === 'AZURE') { targetPage = '/azure_cloudlist.html'; queryParams.append('subscriptionId', accountId); }
-      else { targetPage = '/cloudlist.html'; queryParams.append('accountId', accountId); }
+      if (provider === 'AWS') { targetPage = '/cloudlist'; queryParams.append('accountId', accountId); }
+      else if (provider === 'GCP') { targetPage = '/gcp-cloudlist'; queryParams.append('projectId', accountId); }
+      else if (provider === 'AZURE') { targetPage = '/azure-cloudlist'; queryParams.append('subscriptionId', accountId); }
+      else { targetPage = '/cloudlist'; queryParams.append('accountId', accountId); }
     } else if (mode === 'waste' || mode === 'savings') {
-      if (provider === 'AWS') { targetPage = '/waste.html'; queryParams.append('accountId', accountId); }
-      else if (provider === 'GCP') { targetPage = '/gcp_waste.html'; queryParams.append('projectId', accountId); }
-      else if (provider === 'AZURE') { targetPage = '/azure_waste.html'; queryParams.append('subscriptionId', accountId); }
-      else { targetPage = '/waste.html'; queryParams.append('accountId', accountId); }
+      if (provider === 'AWS') { targetPage = '/waste'; queryParams.append('accountId', accountId); }
+      else if (provider === 'GCP') { targetPage = '/gcp-waste'; queryParams.append('projectId', accountId); }
+      else if (provider === 'AZURE') { targetPage = '/azure_waste'; queryParams.append('subscriptionId', accountId); } // Azure waste is azure_waste in sidebar, let's stick to standard if possible
+      else { targetPage = '/waste'; queryParams.append('accountId', accountId); }
     } else if (mode === 'alerts') {
-      if (provider === 'AWS') { targetPage = '/alerts.html'; queryParams.append('accountId', accountId); }
-      else if (provider === 'GCP') { targetPage = '/gcp_alerts.html'; queryParams.append('projectId', accountId); }
-      else if (provider === 'AZURE') { targetPage = '/azure_alerts.html'; queryParams.append('subscriptionId', accountId); }
-      else { targetPage = '/alerts.html'; queryParams.append('accountId', accountId); }
+      if (provider === 'AWS') { targetPage = '/alerts'; queryParams.append('accountId', accountId); }
+      else if (provider === 'GCP') { targetPage = '/gcp-alerts'; queryParams.append('projectId', accountId); }
+      else if (provider === 'AZURE') { targetPage = '/azure_alerts'; queryParams.append('subscriptionId', accountId); } // Azure alerts?
+      else { targetPage = '/alerts'; queryParams.append('accountId', accountId); }
     } else {
-      if (provider === 'AWS') { targetPage = '/dashboard.html'; queryParams.append('accountId', accountId); }
-      else if (provider === 'GCP') { targetPage = '/gcp_dashboard.html'; queryParams.append('projectId', accountId); }
-      else if (provider === 'AZURE') { targetPage = '/azure_dashboard.html'; queryParams.append('subscriptionId', accountId); }
-      else { targetPage = '/dashboard.html'; queryParams.append('accountId', accountId); }
+      if (provider === 'AWS') { targetPage = '/dashboard'; queryParams.append('accountId', accountId); }
+      else if (provider === 'GCP') { targetPage = '/gcp-dashboard'; queryParams.append('projectId', accountId); }
+      else if (provider === 'AZURE') { targetPage = '/azure-dashboard'; queryParams.append('subscriptionId', accountId); }
+      else { targetPage = '/dashboard'; queryParams.append('accountId', accountId); }
     }
 
     const finalUrl = `${targetPage}?${queryParams.toString()}`;
-    window.location.href = finalUrl;
-  }, [getAllAccounts]);
+    navigate(finalUrl);
+  }, [getAllAccounts, navigate]);
 
   const handleRefresh = () => {
     fetchAll(true);
@@ -435,25 +438,27 @@ export const UnifiedDashboard: React.FC = () => {
               onViewClick={openAlertsBreakdown}
             />
 
-            {/* Code Quality Card */}
-            <div className="glass-card p-6 flex flex-col justify-between group hover:shadow-lg transition-all duration-300 border-l-4 border-cyan-500">
+            {/* Active Support Tickets Card */}
+            <div
+              className="glass-card p-6 flex flex-col justify-between group hover:shadow-lg transition-all duration-300 border-l-4 border-indigo-500 cursor-pointer"
+              onClick={() => navigate('/tickets')}
+            >
               <div className="flex justify-between items-start mb-4">
                 <div>
-                  <h3 className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">Code Quality</h3>
-                  <div className="text-2xl font-bold text-slate-800">Grade A</div>
+                  <h3 className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">Active Tickets</h3>
+                  <div className="text-3xl font-black text-slate-800">
+                    {isLoading.tickets ? '...' : ticketCount}
+                  </div>
                 </div>
-                <div className="w-10 h-10 rounded-lg bg-cyan-50 flex items-center justify-center text-cyan-600">
-                  <i className="fas fa-code"></i>
+                <div className="w-10 h-10 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600 transition-transform group-hover:scale-110">
+                  <i className="fas fa-ticket-alt"></i>
                 </div>
               </div>
-              {!isLoading.summary ? (
+              {!isLoading.tickets ? (
                 <div className="fade-in">
-                  <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden mb-2">
-                    <div className="bg-cyan-500 h-full w-[98%] rounded-full shadow-[0_0_10px_rgba(6,182,212,0.5)]"></div>
-                  </div>
-                  <p className="text-xs text-slate-500 flex items-center gap-1.5">
-                    <i className="fas fa-check-circle text-cyan-500"></i>
-                    <span>98% Gates Passed</span>
+                  <p className="text-xs text-slate-500 flex items-center gap-1.5 font-medium">
+                    <i className="fas fa-headset text-indigo-500"></i>
+                    <span>Technical Support cases</span>
                   </p>
                 </div>
               ) : (

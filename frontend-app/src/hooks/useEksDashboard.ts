@@ -16,6 +16,7 @@ import {
   TabType,
   NodeCost
 } from '../types/eksTypes';
+import { useEksDashboardCache } from '../contexts/EksDashboardCacheContext';
 
 interface UseEksDashboardParams {
   clusterName: string | null;
@@ -28,6 +29,7 @@ interface UseEksDashboardReturn {
   dashboard: EksDashboard | null;
   loading: boolean;
   isRefreshing: boolean;
+  isSyncing: boolean;
   error: string | null;
   lastUpdateTimestamp: number;
   activeTab: TabType;
@@ -38,6 +40,7 @@ interface UseEksDashboardReturn {
   setContainerNamespaceFilter: (ns: string) => void;
   fetchDashboard: (forceRefresh?: boolean) => Promise<void>;
   refresh: () => Promise<void>;
+  syncInBackground: () => Promise<void>;
   // Computed values
   clusterHealth: string;
   cpuColor: string;
@@ -78,9 +81,13 @@ export const useEksDashboard = ({
   version,
   accountId
 }: UseEksDashboardParams): UseEksDashboardReturn => {
+  // Frontend cache context - persists data across navigation
+  const dashboardCache = useEksDashboardCache();
+
   const [dashboard, setDashboard] = useState<EksDashboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdateTimestamp, setLastUpdateTimestamp] = useState(Date.now());
   const [activeTab, setActiveTab] = useState<TabType>('overview');
@@ -89,6 +96,7 @@ export const useEksDashboard = ({
 
   /**
    * Fetch dashboard data from API
+   * Uses frontend cache to avoid re-fetching on navigation
    */
   const fetchDashboard = useCallback(async (forceRefresh = false) => {
     if (!accountId || !clusterName) {
@@ -97,23 +105,39 @@ export const useEksDashboard = ({
       return;
     }
 
+    // Check frontend cache first (for navigation scenarios)
+    // Skip cache if forceRefresh is true
+    if (!forceRefresh && dashboardCache.isCacheValid(clusterName, accountId, region)) {
+      const cached = dashboardCache.getCachedDashboard(clusterName, accountId, region);
+      if (cached) {
+        console.log('Using frontend cached dashboard data');
+        setDashboard(cached.data);
+        setLastUpdateTimestamp(cached.lastSyncedAt);
+        setLoading(false);
+        return;
+      }
+    }
+
     if (!forceRefresh) setLoading(true);
     if (forceRefresh) setIsRefreshing(true);
     setError(null);
 
     try {
       const data = await apiClient.get<EksDashboard>(
-        `/api/xamops/eks/${clusterName}/dashboard?accountId=${accountId}&region=${region}&version=${version}&forceRefresh=${forceRefresh}`
+        `/api/xamops/eks/${clusterName}/dashboard?accountId=${accountId}&region=${region}&version=${version}&forceRefresh=false`
       );
 
       setDashboard(data);
 
       // Use server's lastSyncedAt if available, otherwise use current time
-      if (data.lastSyncedAt) {
-        setLastUpdateTimestamp(new Date(data.lastSyncedAt).getTime());
-      } else {
-        setLastUpdateTimestamp(Date.now());
-      }
+      const syncTimestamp = data.lastSyncedAt
+        ? new Date(data.lastSyncedAt).getTime()
+        : Date.now();
+
+      setLastUpdateTimestamp(syncTimestamp);
+
+      // Update frontend cache
+      dashboardCache.setCachedDashboard(clusterName, accountId, region, data, syncTimestamp);
 
       // Store metric snapshot for trends
       storeMetricSnapshot(clusterName, data);
@@ -124,15 +148,83 @@ export const useEksDashboard = ({
       setLoading(false);
       setIsRefreshing(false);
     }
-  }, [accountId, clusterName, region, version]);
+  }, [accountId, clusterName, region, version, dashboardCache]);
 
   /**
-   * Manual refresh (forces fresh data)
+   * Manual refresh (forces fresh data) - blocks until complete
    */
   const refresh = useCallback(async () => {
     if (isRefreshing) return;
     await fetchDashboard(true);
   }, [fetchDashboard, isRefreshing]);
+
+  /**
+   * Sync data in background - shows current data while fetching new data
+   * Triggers backend sync and polls for updated data
+   */
+  const syncInBackground = useCallback(async () => {
+    if (!accountId || !clusterName || isSyncing) return;
+
+    setIsSyncing(true);
+    const previousSyncTime = lastUpdateTimestamp;
+
+    try {
+      // Trigger background sync on backend
+      await apiClient.post(
+        `/api/xamops/eks/${clusterName}/sync?accountId=${accountId}&region=${region}`
+      );
+
+      // Poll for updated data (check every 3 seconds, max 2 minutes)
+      const maxAttempts = 40;
+      let attempts = 0;
+
+      const pollForUpdate = async (): Promise<boolean> => {
+        try {
+          const data = await apiClient.get<EksDashboard>(
+            `/api/xamops/eks/${clusterName}/dashboard?accountId=${accountId}&region=${region}&version=${version}&forceRefresh=false`
+          );
+
+          if (data.lastSyncedAt) {
+            const newSyncTime = new Date(data.lastSyncedAt).getTime();
+            if (newSyncTime > previousSyncTime) {
+              // New data available!
+              setDashboard(data);
+              setLastUpdateTimestamp(newSyncTime);
+              // Update frontend cache with new data
+              dashboardCache.setCachedDashboard(clusterName, accountId, region, data, newSyncTime);
+              storeMetricSnapshot(clusterName, data);
+              return true;
+            }
+          }
+          return false;
+        } catch {
+          return false;
+        }
+      };
+
+      // Poll until new data arrives or timeout
+      while (attempts < maxAttempts) {
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        attempts++;
+
+        const updated = await pollForUpdate();
+        if (updated) {
+          console.log(`Sync completed after ${attempts * 3} seconds`);
+          break;
+        }
+      }
+
+      if (attempts >= maxAttempts) {
+        console.warn('Sync polling timeout - data may still be syncing');
+      }
+
+    } catch (err: any) {
+      console.error('Error triggering background sync:', err);
+      setError(err.message);
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [accountId, clusterName, region, version, isSyncing, lastUpdateTimestamp, dashboardCache]);
 
   /**
    * Store metric snapshot for trends
@@ -557,6 +649,7 @@ export const useEksDashboard = ({
     dashboard,
     loading,
     isRefreshing,
+    isSyncing,
     error,
     lastUpdateTimestamp,
     activeTab,
@@ -567,6 +660,7 @@ export const useEksDashboard = ({
     setContainerNamespaceFilter,
     fetchDashboard,
     refresh,
+    syncInBackground,
     clusterHealth,
     cpuColor,
     memoryColor,

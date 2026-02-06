@@ -12,7 +12,7 @@ import BillOpsUserNotificationDropdown from '../BillOps/BillOpsUserNotificationD
 
 const Topbar: React.FC = () => {
     const location = useLocation();
-    const { actions, onHelpClick } = useTopbar();
+    const { title: contextTitle, actions, onHelpClick } = useTopbar();
     const { userProfile, logout, hasAnyRole } = useAuth();
     const { selectedAccountIds } = useAccounts();
     const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
@@ -39,9 +39,7 @@ const Topbar: React.FC = () => {
     );
 
     // Determine which notifications to show
-    const notifications = isBillOpsUser ? billOpsUserNotifications : xamOpsNotifications;
     const counts = isBillOpsUser ? billOpsUserCounts : xamOpsCounts;
-    const notificationsLoading = isBillOpsUser ? billOpsUserLoading : xamOpsLoading;
 
     // Close dropdown when clicking outside
     useEffect(() => {
@@ -89,7 +87,7 @@ const Topbar: React.FC = () => {
             .trim();
     };
 
-    const pageTitle = getPageTitle(location.pathname);
+    const pageTitle = contextTitle || getPageTitle(location.pathname);
     const displayName = userProfile?.username || userProfile?.email?.split('@')[0] || 'User';
 
     return (

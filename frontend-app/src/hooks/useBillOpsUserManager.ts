@@ -36,7 +36,7 @@ const EMPTY_FORM: BillOpsUserFormData = {
     role: ''
 };
 
-const AVAILABLE_ROLES: BillOpsRole[] = ['ROLE_BILLOPS', 'ROLE_BILLOPS_ADMIN'];
+const AVAILABLE_ROLES: BillOpsRole[] = ['ROLE_BILLOPS', 'ROLE_BILLOPS_ADMIN', 'ROLE_XAMOPS'];
 
 export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
     // State

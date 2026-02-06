@@ -37,7 +37,7 @@ import EksIntegrationModal from '../components/EksDetails/EksIntegrationModal';
 const EksDetailsPage: React.FC = () => {
   const [searchParams] = useSearchParams();
   const [showIntegrationGuide, setShowIntegrationGuide] = useState(false);
-  const { setActions, clearActions } = useTopbar();
+  const { setTitle, setActions, clearActions } = useTopbar();
 
   // Get params from URL
   const clusterName = searchParams.get('name');
@@ -59,8 +59,8 @@ const EksDetailsPage: React.FC = () => {
     error,
     activeTab,
     setActiveTab,
-    isRefreshing,
-    refresh,
+    isSyncing,
+    syncInBackground,
     lastUpdateTimestamp,
     getTimeSince,
     totalPodsCount
@@ -70,12 +70,25 @@ const EksDetailsPage: React.FC = () => {
   useEffect(() => {
     if (!clusterName) return;
 
+    setTitle(clusterName);
+
     setActions(
       <div className="flex items-center gap-4">
-        <div className="text-right mr-2 hidden md:block">
-          <div className="text-xs text-gray-400 font-medium">Last synced</div>
-          <div className="text-xs text-gray-600 font-semibold">
-            {getTimeSince(lastUpdateTimestamp)}
+        <Link
+          to={`/cloudk8s?accountIds=${accountId}`}
+          className="w-10 h-10 bg-white border border-gray-200 rounded-xl flex items-center justify-center text-gray-500 hover:text-indigo-600 hover:border-indigo-300 transition-all shadow-sm"
+          title="Back to Clusters"
+        >
+          <i className="fas fa-arrow-left"></i>
+        </Link>
+
+        {/* Sync Status - Simplified for Topbar */}
+        <div className="hidden md:flex flex-col items-end mr-2">
+          <div className="flex items-center gap-1.5 text-[10px] text-gray-400 font-medium whitespace-nowrap">
+            <i className="fas fa-code-branch"></i> v{version} | <i className="fas fa-map-marker-alt"></i> {region}
+          </div>
+          <div className="text-[10px] text-gray-600 font-semibold">
+            Last synced: {getTimeSince(lastUpdateTimestamp)}
           </div>
         </div>
 
@@ -88,17 +101,20 @@ const EksDetailsPage: React.FC = () => {
         </button>
 
         <button
-          onClick={refresh}
-          disabled={isRefreshing}
+          onClick={syncInBackground}
+          disabled={isSyncing}
           className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all disabled:opacity-50 active:scale-95"
         >
-          <i className={clsx('fas fa-sync-alt', isRefreshing && 'animate-spin')}></i>
-          <span>{isRefreshing ? 'Syncing...' : 'Sync Data'}</span>
+          <i className={clsx('fas fa-sync-alt', isSyncing && 'animate-spin')}></i>
+          <span>{isSyncing ? 'Syncing...' : 'Sync Data'}</span>
         </button>
       </div>
     );
-    return () => clearActions();
-  }, [setActions, clearActions, isRefreshing, refresh, getTimeSince, lastUpdateTimestamp, clusterName]);
+    return () => {
+      clearActions();
+      setTitle(null);
+    };
+  }, [setTitle, setActions, clearActions, isSyncing, syncInBackground, getTimeSince, lastUpdateTimestamp, clusterName, accountId, version, region]);
 
   // Handle invalid params
   if (!clusterName || !accountId) {
@@ -119,50 +135,8 @@ const EksDetailsPage: React.FC = () => {
 
   return (
     <main className="eks-details-page flex-1 flex flex-col min-h-screen bg-gray-50">
-      <div className="p-4 md:p-8 max-w-[1800px] mx-auto w-full">
-        {/* Cluster Info Header (Simplified) */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
-          <div className="flex items-center gap-4">
-            <Link
-              to={`/cloudk8s?accountIds=${accountId}`}
-              className="w-10 h-10 bg-white border border-gray-200 rounded-xl flex items-center justify-center text-gray-500 hover:text-indigo-600 hover:border-indigo-300 transition-all shadow-sm"
-            >
-              <i className="fas fa-arrow-left"></i>
-            </Link>
-
-            <div className="relative">
-              <div className="w-12 h-12 bg-gradient-to-br from-indigo-600 to-violet-700 rounded-xl flex items-center justify-center text-white text-xl shadow-md">
-                <i className="fas fa-dharmachakra"></i>
-              </div>
-              <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-green-500 border-2 border-white rounded-full"></div>
-            </div>
-
-            <div>
-              <div className="flex items-center gap-3">
-                <h1 className="text-2xl font-bold text-gray-900">{clusterName}</h1>
-                <span className="px-2 py-0.5 rounded-lg bg-indigo-50 text-indigo-700 text-xs font-bold uppercase tracking-wider">
-                  EKS
-                </span>
-              </div>
-              <div className="flex items-center gap-3 text-sm text-gray-500 mt-1">
-                <span className="flex items-center gap-1.5">
-                  <i className="fas fa-code-branch text-xs"></i>
-                  <span>v{version}</span>
-                </span>
-                <span className="text-gray-300">|</span>
-                <span className="flex items-center gap-1.5">
-                  <i className="fas fa-map-marker-alt text-xs"></i>
-                  <span>{region}</span>
-                </span>
-                <span className="text-gray-300">|</span>
-                <span className="flex items-center gap-1.5">
-                  <i className="fas fa-cubes text-xs"></i>
-                  <span>{totalPodsCount || 0} pods</span>
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
+      <div className="p-8 space-y-8 w-full">
+        {/* Old Header Removed */}
 
         {/* Loading State */}
         {loading && !dashboard && (
