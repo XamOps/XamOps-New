@@ -23,6 +23,7 @@ import { CostChart } from '../components/Dashboard/CostChart';
 import { ProviderDonutChart } from '../components/Dashboard/ProviderDonutChart';
 import { AccountBreakdownModal } from '../components/Dashboard/AccountBreakdownModal';
 import { useUnifiedDashboard } from '../hooks/useUnifiedDashboard';
+import { useWebSocket } from '../hooks/useWebSocket';
 import type { ViewMode, SubAccount } from '../types/dashboard';
 
 export const UnifiedDashboard: React.FC = () => {
@@ -41,11 +42,14 @@ export const UnifiedDashboard: React.FC = () => {
     serverTime,
     fetchAll,
     fetchProvider,
+    updateResourceInventory,
     setShowModal,
     setViewMode,
     setActiveProvider,
     setActiveAccountList,
     getAllAccounts,
+    notification,
+    setNotification,
   } = useUnifiedDashboard();
 
   // Formatting helpers
@@ -269,6 +273,23 @@ export const UnifiedDashboard: React.FC = () => {
   return (
     <div className="flex-1 flex flex-col h-screen overflow-y-auto overflow-x-hidden bg-slate-50 font-sans text-slate-800">
       <div id="unified-dashboard-container" className="flex flex-col h-full w-full">
+        {/* Notification Toast */}
+        {notification && (
+          <div className={`fixed top-4 right-4 z-[9999] px-6 py-4 rounded-xl shadow-2xl border flex items-center gap-4 animate-in slide-in-from-right-8 duration-300 ${notification.type === 'error' ? 'bg-rose-50 border-rose-200 text-rose-800' : 'bg-emerald-50 border-emerald-200 text-emerald-800'
+            }`}>
+            <div className={`p-2 rounded-lg ${notification.type === 'error' ? 'bg-rose-100 text-rose-600' : 'bg-emerald-100 text-emerald-600'}`}>
+              <i className={`fas ${notification.type === 'error' ? 'fa-exclamation-circle' : 'fa-check-circle'} text-lg`}></i>
+            </div>
+            <div>
+              <h4 className="font-bold text-sm">{notification.title}</h4>
+              <p className="text-xs opacity-80">{notification.message}</p>
+            </div>
+            <button onClick={() => setNotification(null)} className="ml-2 hover:opacity-60 transition-opacity">
+              <i className="fas fa-times text-sm"></i>
+            </button>
+          </div>
+        )}
+
         {/* Ticker - Now glass effect */}
         <Ticker />
 
@@ -527,15 +548,31 @@ export const UnifiedDashboard: React.FC = () => {
         </main>
       </div>
 
-      {/* Breakdown Modal */}
-      <AccountBreakdownModal
-        show={showModal}
-        onClose={() => setShowModal(false)}
-        provider={activeProvider}
-        viewMode={viewMode}
-        accountList={activeAccountList}
-        onSelectAccount={navigateToAccount}
-      />
+      {/* WebSocket Subscribers for Real-time Inventory Updates */}
+      <div className="hidden">
+        {getAllAccounts().map(account => (
+          <InventorySubscriber
+            key={account.id}
+            accountId={account.id}
+            onUpdate={(inventory) => updateResourceInventory(account.id, inventory)}
+          />
+        ))}
+      </div>
     </div>
   );
+};
+
+/**
+ * Helper component to manage individual WebSocket subscriptions
+ */
+const InventorySubscriber: React.FC<{
+  accountId: string;
+  onUpdate: (inventory: any) => void;
+}> = ({ accountId, onUpdate }) => {
+  useWebSocket({
+    accountId,
+    onInventoryUpdate: onUpdate,
+    enabled: true
+  });
+  return null;
 };
