@@ -28,7 +28,7 @@ const getApiBase = (): string => {
   const roles = JSON.parse(sessionStorage.getItem('cached_user_roles') || '[]');
   if (roles.includes('ROLE_XAMOPS')) {
     return '/api/xamops/team';
-  } else if (roles.includes('ROLE_BILLOPS')) {
+  } else if (roles.includes('ROLE_BILLOPS') || roles.includes('ROLE_BILLOPS_ADMIN')) {
     return '/api/billops/team';
   }
   // Default to xamops

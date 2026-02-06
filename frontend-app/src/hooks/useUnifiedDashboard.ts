@@ -60,6 +60,7 @@ export const useUnifiedDashboard = () => {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [serverTime, setServerTime] = useState<string | null>(null);
   const [lastUpdatedText, setLastUpdatedText] = useState('Checking...');
+  const [notification, setNotification] = useState<{ type: 'error' | 'success', title: string, message: string } | null>(null);
 
   // Intervals and initialization refs
   const intervalsRef = useRef<{ timeAgo?: ReturnType<typeof setInterval>; autoRefresh?: ReturnType<typeof setInterval> }>({});
@@ -218,6 +219,70 @@ export const useUnifiedDashboard = () => {
     fetchAllImpl(force, silent);
   }, [fetchAllImpl]);
 
+  /**
+   * Update resource inventory from WebSocket (Real-time)
+   */
+  const updateResourceInventory = useCallback((accountId: string, inventory: any) => {
+    console.log(`📦 [useUnifiedDashboard] Received inventory update for ${accountId}`);
+
+    // Update AWS data if account belongs there
+    setAwsData(prev => {
+      if (!prev || !prev.selectedAccount) return prev;
+      const subAccounts = prev.selectedAccount.subAccounts || [];
+      const index = subAccounts.findIndex(a => a.id === accountId);
+      if (index === -1) return prev;
+
+      const newSubAccounts = [...subAccounts];
+      newSubAccounts[index] = { ...newSubAccounts[index], resourceInventory: inventory };
+
+      return {
+        ...prev,
+        selectedAccount: {
+          ...prev.selectedAccount,
+          subAccounts: newSubAccounts
+        }
+      };
+    });
+
+    // Update GCP data if account belongs there
+    setGcpData(prev => {
+      if (!prev || !prev.selectedAccount) return prev;
+      const subAccounts = prev.selectedAccount.subAccounts || [];
+      const index = subAccounts.findIndex(a => a.id === accountId);
+      if (index === -1) return prev;
+
+      const newSubAccounts = [...subAccounts];
+      newSubAccounts[index] = { ...newSubAccounts[index], resourceInventory: inventory };
+
+      return {
+        ...prev,
+        selectedAccount: {
+          ...prev.selectedAccount,
+          subAccounts: newSubAccounts
+        }
+      };
+    });
+
+    // Update Azure data if account belongs there
+    setAzureData(prev => {
+      if (!prev || !prev.selectedAccount) return prev;
+      const subAccounts = prev.selectedAccount.subAccounts || [];
+      const index = subAccounts.findIndex(a => a.id === accountId);
+      if (index === -1) return prev;
+
+      const newSubAccounts = [...subAccounts];
+      newSubAccounts[index] = { ...newSubAccounts[index], resourceInventory: inventory };
+
+      return {
+        ...prev,
+        selectedAccount: {
+          ...prev.selectedAccount,
+          subAccounts: newSubAccounts
+        }
+      };
+    });
+  }, []);
+
   // Helper to get all accounts
   const getAllAccounts = useCallback((): SubAccount[] => {
     const all: SubAccount[] = [];
@@ -288,14 +353,32 @@ export const useUnifiedDashboard = () => {
       updateTimeAgoRef.current?.();
     }, 60000);
 
-    intervalsRef.current.autoRefresh = setInterval(() => {
+    intervalsRef.current.autoRefresh = setInterval(async () => {
       console.log('Auto-refreshing dashboard data (silent force refresh)...');
-      fetchFunctionsRef.current.fetchSummary(true, true);
-      fetchFunctionsRef.current.fetchProvider('aws', true, true);
-      fetchFunctionsRef.current.fetchProvider('gcp', true, true);
-      fetchFunctionsRef.current.fetchProvider('azure', true, true);
-      fetchFunctionsRef.current.fetchHealth();
-      setLastUpdated(new Date()); // Update the last updated time after background fetch
+      const { fetchSummary, fetchProvider, fetchHealth } = fetchFunctionsRef.current;
+
+      // Await all fetches to ensure data is updated before timestamp changes
+      const results = await Promise.allSettled([
+        fetchSummary(true, true),
+        fetchProvider('aws', true, true),
+        fetchProvider('gcp', true, true),
+        fetchProvider('azure', true, true),
+        fetchHealth()
+      ]);
+
+      const failed = results.filter(r => r.status === 'rejected' || (r.status === 'fulfilled' && (r.value as any)?.error));
+      if (failed.length > 0) {
+        setNotification({
+          type: 'error',
+          title: 'Refresh Alert',
+          message: `${failed.length} provider(s) failed to refresh. Displaying last cached data.`
+        });
+        // Auto-clear notification after 5 seconds
+        setTimeout(() => setNotification(null), 5000);
+      } else {
+        console.log('✅ Auto-refresh complete, updating lastUpdated timestamp');
+        setLastUpdated(new Date());
+      }
     }, 60000);
 
     // Cleanup
@@ -325,10 +408,13 @@ export const useUnifiedDashboard = () => {
     activeAccountList,
     lastUpdatedText,
     serverTime,
+    notification,
 
     // Actions
     fetchAll,
     fetchProvider,
+    updateResourceInventory,
+    setNotification,
     setShowModal,
     setViewMode,
     setActiveProvider,

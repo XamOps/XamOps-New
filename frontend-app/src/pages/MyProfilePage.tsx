@@ -213,7 +213,7 @@ const MyProfilePage: React.FC = () => {
           </div>
 
           {/* Team Users Section (Only for Primary Users) */}
-          {profile.isPrimaryUser && (
+          {profile.isPrimaryUser && profile.role !== 'ROLE_BILLOPS_ADMIN' && (
             <div className="team-members-section">
               <div className="flex justify-between items-end mb-10">
                 <div>
