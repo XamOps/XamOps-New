@@ -72,7 +72,6 @@ const XamOpsRecommendationsTable: React.FC<XamOpsRecommendationsTableProps> = ({
                   <th style={{ width: '90px' }}>Projected<br />Max Util</th>
                   <th style={{ width: '100px' }}>Approx.<br />Savings</th>
                   <th style={{ width: '180px' }}>Reason</th>
-                  <th style={{ width: '50px' }} className="text-center">AI</th>
                 </tr>
               </thead>
               <tbody>
@@ -81,9 +80,16 @@ const XamOpsRecommendationsTable: React.FC<XamOpsRecommendationsTableProps> = ({
                     <td className="first-cell-indicator">
                       <div className="flex items-center space-x-1">
                         <i className="fas fa-server text-indigo-600" style={{ fontSize: '0.6rem' }}></i>
-                        <span className="font-mono text-gray-800 font-medium" style={{ fontSize: '0.7rem' }}>
-                          {rec.instanceId || 'N/A'}
-                        </span>
+                        <div className="flex flex-col">
+                          <span className="font-mono text-gray-800 font-medium" style={{ fontSize: '0.7rem' }}>
+                            {rec.instanceId || 'N/A'}
+                          </span>
+                          {rec.instanceName && (
+                            <span className="text-xs text-gray-500" style={{ fontSize: '0.6rem' }}>
+                              {rec.instanceName}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </td>
                     <td>
@@ -127,19 +133,6 @@ const XamOpsRecommendationsTable: React.FC<XamOpsRecommendationsTableProps> = ({
                     </td>
                     <td className="text-gray-700 truncate-text" title={rec.reason}>
                       {rec.reason}
-                    </td>
-                    <td className="text-center">
-                      <button onClick={() => onAiRequest(rec)} className="sparkle-button-compact">
-                        <svg className="sparkle-compact" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                          <path
-                            d="M14.187 8.096L15 5.25L15.813 8.096C16.0231 8.83114 16.4171 9.50062 16.9577 10.0413C17.4984 10.5819 18.1679 10.9759 18.903 11.186L21.75 12L18.904 12.813C18.1689 13.0231 17.4994 13.4171 16.9587 13.9577C16.4181 14.4984 16.0241 15.1679 15.814 15.903L15 18.75L14.187 15.904C13.9769 15.1689 13.5829 14.4994 13.0423 13.9587C12.5016 13.4181 11.8321 13.0241 11.097 12.814L8.25 12L11.096 11.187C11.8311 10.9769 12.5006 10.5829 13.0413 10.0423C13.5819 9.50162 13.9759 8.83214 14.186 8.097L14.187 8.096Z"
-                            fill="currentColor"
-                            stroke="currentColor"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </svg>
-                      </button>
                     </td>
                   </tr>
                 ))}
