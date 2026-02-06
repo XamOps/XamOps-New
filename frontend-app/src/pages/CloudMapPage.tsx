@@ -21,6 +21,8 @@ import { useTopbarActions } from '../contexts/TopbarContext';
 import { useVPC } from '../contexts/VPCContext';
 import { useCloudMap } from '../hooks/useCloudMap';
 import CloudMapTopbarControls from '../components/CloudMap/CloudMapTopbarControls';
+import EnhancedDesignPalette from '../components/CloudMap/EnhancedDesignPalette';
+import type { IconData } from '../components/CloudMap/IconPicker';
 import {
   NODE_TYPE_DATA,
   TAILWIND_COLORS,
@@ -221,8 +223,20 @@ const CloudMapPage: React.FC = () => {
           'text-margin-y': 6,
           'width': 50,
           'height': 50,
-          'background-opacity': 0,
-          'background-image': (node: any) => AWS_ICONS[node.data('type')] || '/icons/default-icon.png',
+          'background-opacity': (node: any) => {
+            // Show background for nodes without icons
+            const hasIcon = AWS_ICONS[node.data('type')] && !node.data('customIcon');
+            return hasIcon ? 0 : 1;
+          },
+          'background-color': '#f3f4f6',
+          'background-image': (node: any) => {
+            // Handle custom icons (they don't have background images, rendered via React)
+            if (node.data('customIcon')) {
+              return 'none';
+            }
+            // Only show icon if it exists in AWS_ICONS, otherwise no background
+            return AWS_ICONS[node.data('type')] || 'none';
+          },
           'background-fit': 'contain',
           'background-clip': 'none',
           'border-width': 2,
@@ -259,17 +273,12 @@ const CloudMapPage: React.FC = () => {
           'font-weight': 'bold',
           'font-size': '11px',
           'color': '#1f2937',
-          'background-opacity': 0.05,
+          'background-opacity': 0.1,
           'background-color': '#f8fafc',
           'padding': '45px',
           'border-width': 2,
           'border-style': 'dashed',
-          'background-image': (node: any) => AWS_ICONS[node.data('type')] || 'none',
-          'background-fit': 'none',
-          'background-width': '25px',
-          'background-height': '25px',
-          'background-position-x': '15px',
-          'background-position-y': '15px',
+          'background-image': 'none',
         },
       },
       // VPC parent node style - blue/indigo
@@ -348,6 +357,30 @@ const CloudMapPage: React.FC = () => {
       });
     }
 
+    // Add style for custom icons from icon picker
+    baseStyle.push({
+      selector: 'node[customIcon]',
+      style: {
+        'shape': 'roundrectangle',
+        'background-color': '#dbeafe',
+        'border-color': '#3b82f6',
+        'border-width': 2,
+        'border-style': 'solid',
+        'background-opacity': 1,
+        'background-image': 'none',
+        'label': 'data(label)',
+        'text-valign': 'center',
+        'text-halign': 'center',
+        'font-size': '11px',
+        'font-weight': '600',
+        'color': '#1e40af',
+        'width': 70,
+        'height': 50,
+        'text-wrap': 'wrap',
+        'text-max-width': '60px',
+      },
+    });
+
     return baseStyle;
   };
 
@@ -400,6 +433,8 @@ const CloudMapPage: React.FC = () => {
     setShowEmptyState(false);
 
     if (newMode === 'design') {
+      // Clear overlays and reset state for design mode
+      setMessageOverlay({ show: false, title: '' });
       clearBlueprint();
     }
   }, [clearBlueprint]);
@@ -521,105 +556,83 @@ const CloudMapPage: React.FC = () => {
     e.preventDefault();
 
     const type = e.dataTransfer.getData('type');
-    if (!type) return;
+    const iconDataStr = e.dataTransfer.getData('iconData');
 
-    // Get position relative to canvas
+    if (!type && !iconDataStr) return;
+
+    // Get position relative to canvas in graph coordinates
     const rect = containerRef.current?.getBoundingClientRect();
     if (!rect) return;
 
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    const pos = cyRef.current.renderer().projectIntoViewport(x, y);
+    // Calculate position relative to container
+    const containerX = e.clientX - rect.left;
+    const containerY = e.clientY - rect.top;
 
-    // Add node to graph
-    cyRef.current.add({
-      group: 'nodes',
-      data: {
-        id: 'node-' + Date.now(),
-        label: type,
-        type: type,
-      },
-      position: { x: pos.x, y: pos.y },
-    });
+    // Convert from rendered position to model (graph) position
+    const zoom = cyRef.current.zoom();
+    const pan = cyRef.current.pan();
+
+    const pos = {
+      x: (containerX - pan.x) / zoom,
+      y: (containerY - pan.y) / zoom
+    };
+
+    // Handle custom icon from icon picker
+    if (iconDataStr && type === 'custom-icon') {
+      try {
+        const iconData: IconData = JSON.parse(iconDataStr);
+        cyRef.current.add({
+          group: 'nodes',
+          data: {
+            id: 'node-' + Date.now(),
+            label: iconData.name,
+            type: 'custom-icon',
+            iconId: iconData.id,
+            customIcon: true,
+          },
+          position: { x: pos.x, y: pos.y },
+        });
+      } catch (error) {
+        console.error('Error parsing icon data:', error);
+      }
+    } else if (type) {
+      // Handle AWS resource type
+      cyRef.current.add({
+        group: 'nodes',
+        data: {
+          id: 'node-' + Date.now(),
+          label: type,
+          type: type,
+        },
+        position: { x: pos.x, y: pos.y },
+      });
+    }
 
     setDraggedType(null);
   };
 
   /**
-   * Render legend
+   * Handle icon selection (click to add at center)
    */
-  const renderLegend = () => {
-    const categories = [...new Set(Object.values(NODE_TYPE_DATA).map(d => d.category))];
+  const handleIconSelect = (icon: IconData) => {
+    if (mode !== 'design' || !cyRef.current) return;
 
-    return (
-      <div className="legend">
-        <h4 className="text-sm font-bold text-gray-800 mb-3">Legend</h4>
-        {categories.sort().map((category) => (
-          <div key={category}>
-            <h5 className="text-xs font-semibold text-gray-600 mt-3 mb-1">{category}</h5>
-            {Object.entries(NODE_TYPE_DATA)
-              .filter(([, data]) => data.category === category)
-              .map(([type, data]) => {
-                const bgColor = TAILWIND_COLORS[data.color as keyof typeof TAILWIND_COLORS]?.[100] || '#f3f4f6';
-                const borderColor = TAILWIND_COLORS[data.color as keyof typeof TAILWIND_COLORS]?.[500] || '#6b7280';
-                const iconColor = TAILWIND_COLORS[data.color as keyof typeof TAILWIND_COLORS]?.[600] || '#4b5563';
+    // Add at center of viewport
+    const extent = cyRef.current.extent();
+    const centerX = (extent.x1 + extent.x2) / 2;
+    const centerY = (extent.y1 + extent.y2) / 2;
 
-                return (
-                  <div key={type} className="legend-item">
-                    <div
-                      className="legend-icon"
-                      style={{
-                        backgroundColor: bgColor,
-                        border: `1px solid ${borderColor}`,
-                      }}
-                    >
-                      <i className={`fas fa-${data.icon} text-xs`} style={{ color: iconColor }} />
-                    </div>
-                    <span className="text-gray-700">{type}</span>
-                  </div>
-                );
-              })}
-          </div>
-        ))}
-      </div>
-    );
-  };
-
-  /**
-   * Render design palette
-   */
-  const renderDesignPalette = () => {
-    return (
-      <div className={`design-palette ${mode === 'design' ? '' : 'hidden'}`}>
-        <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">Toolbox</h3>
-        <div className="text-xs text-gray-500 mb-3 bg-blue-50 p-2 rounded border border-blue-100 flex items-start gap-2">
-          <i className="fas fa-info-circle text-blue-500 mt-0.5" />
-          <span>Drag icons to canvas. Click & drag from a node's handle to connect.</span>
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          {Object.entries(NODE_TYPE_DATA).map(([type, data]) => {
-            const color = TAILWIND_COLORS[data.color as keyof typeof TAILWIND_COLORS]?.[500] || '#6b7280';
-
-            return (
-              <div
-                key={type}
-                className="palette-item"
-                draggable
-                onDragStart={(e) => handlePaletteDragStart(e, type)}
-              >
-                <div
-                  className="w-8 h-8 rounded-full flex items-center justify-center mb-1"
-                  style={{ backgroundColor: `${color}20`, color: color }}
-                >
-                  <i className={`fas fa-${data.icon}`} />
-                </div>
-                <span className="text-[10px] font-medium text-gray-600 leading-tight">{type}</span>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
+    cyRef.current.add({
+      group: 'nodes',
+      data: {
+        id: 'node-' + Date.now(),
+        label: icon.name,
+        type: 'custom-icon',
+        iconId: icon.id,
+        customIcon: true,
+      },
+      position: { x: centerX, y: centerY },
+    });
   };
 
   /**
@@ -672,11 +685,15 @@ const CloudMapPage: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-full relative overflow-hidden">
+    <div className="flex flex-col h-full max-h-full relative overflow-hidden">
       {/* Main Content */}
-      <div className="flex flex-1 relative overflow-hidden">
-        {/* Design Palette (Design Mode Only) */}
-        {renderDesignPalette()}
+      <div className="flex flex-1 min-h-0 relative overflow-hidden">
+        {/* Enhanced Design Palette (Design Mode Only) */}
+        <EnhancedDesignPalette
+          mode={mode}
+          onDragStart={handlePaletteDragStart}
+          onIconSelect={handleIconSelect}
+        />
 
         {/* Canvas */}
         <div
@@ -776,8 +793,6 @@ const CloudMapPage: React.FC = () => {
             </button>
           </div>
 
-          {/* Legend (Design Mode Only) */}
-          {mode === 'design' && renderLegend()}
         </div>
 
         {/* Info Panel */}

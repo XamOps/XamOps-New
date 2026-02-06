@@ -108,7 +108,7 @@ const GcpCloudMapPage: React.FC = () => {
     const validElements = deduplicatedData.filter((el) => {
       const isEdge = el.group === 'edges' || (el.data.source && el.data.target);
       if (isEdge) {
-        const edgeData = el.data as { source: string; target: string };
+        const edgeData = el.data as unknown as { source: string; target: string };
         return nodeIds.has(edgeData.source) && nodeIds.has(edgeData.target);
       }
       return true;

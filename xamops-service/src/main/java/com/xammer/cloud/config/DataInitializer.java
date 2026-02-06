@@ -840,8 +840,858 @@ public class DataInitializer implements CommandLineRunner {
                 "1.0", 0, "N/A"));
 
 
-                // ... Continue adding repository.save(...) calls for more scripts ...
-                // Aim to reach ~50 entries covering various common services.
+                // --- BASH SCRIPTS ---
+
+                // Bash: System Health Check
+                repository.save(new DevOpsScript("System Health Check", "Bash script to check system health (CPU, memory, disk).", "bash",
+                    """
+                    #!/bin/bash
+                    # System Health Check Script
+
+                    echo "====== SYSTEM HEALTH CHECK ======"
+                    echo "Date: $(date)"
+                    echo ""
+
+                    # CPU Usage
+                    echo "--- CPU Usage ---"
+                    top -bn1 | grep "Cpu(s)" | awk '{print "CPU Load: " $2 + $4 "%"}'
+
+                    # Memory Usage
+                    echo ""
+                    echo "--- Memory Usage ---"
+                    free -h | awk '/^Mem:/ {print "Total: " $2 ", Used: " $3 ", Free: " $4}'
+
+                    # Disk Usage
+                    echo ""
+                    echo "--- Disk Usage ---"
+                    df -h | grep -E '^/dev/' | awk '{print $1 ": " $5 " used (" $3 " of " $2 ")"}'
+
+                    # Load Average
+                    echo ""
+                    echo "--- Load Average ---"
+                    uptime | awk -F'load average:' '{print "Load:" $2}'
+
+                    # Top 5 processes by memory
+                    echo ""
+                    echo "--- Top 5 Memory Processes ---"
+                    ps aux --sort=-%mem | head -6 | tail -5 | awk '{print $11 " - " $4 "% MEM"}'
+
+                    echo ""
+                    echo "====== END HEALTH CHECK ======"
+                    """,
+                    "<ol><li>Save as <code>health_check.sh</code></li><li>Run <code>chmod +x health_check.sh</code></li><li>Execute with <code>./health_check.sh</code></li></ol>",
+                    "1.0", 0, "N/A"));
+
+                // Bash: Log Rotation
+                repository.save(new DevOpsScript("Log Rotation Script", "Bash script to rotate and compress old logs.", "bash",
+                    """
+                    #!/bin/bash
+                    # Log Rotation Script
+
+                    LOG_DIR="/var/log/myapp"
+                    MAX_AGE_DAYS=7
+                    ARCHIVE_DIR="/var/log/myapp/archive"
+
+                    # Create archive directory if not exists
+                    mkdir -p "$ARCHIVE_DIR"
+
+                    echo "Starting log rotation at $(date)"
+
+                    # Find and compress logs older than MAX_AGE_DAYS
+                    find "$LOG_DIR" -maxdepth 1 -name "*.log" -mtime +$MAX_AGE_DAYS -exec gzip {} \\;
+
+                    # Move compressed files to archive
+                    find "$LOG_DIR" -maxdepth 1 -name "*.gz" -exec mv {} "$ARCHIVE_DIR/" \\;
+
+                    # Delete archives older than 30 days
+                    find "$ARCHIVE_DIR" -name "*.gz" -mtime +30 -delete
+
+                    echo "Log rotation completed at $(date)"
+                    echo "Archived files in $ARCHIVE_DIR:"
+                    ls -lh "$ARCHIVE_DIR" | tail -10
+                    """,
+                    "<ol><li>Modify LOG_DIR path as needed</li><li>Save and make executable</li><li>Add to crontab: <code>0 2 * * * /path/to/log_rotation.sh</code></li></ol>",
+                    "1.0", 0, "N/A"));
+
+                // Bash: Docker Cleanup
+                repository.save(new DevOpsScript("Docker Cleanup Script", "Bash script to clean up unused Docker resources.", "bash",
+                    """
+                    #!/bin/bash
+                    # Docker Cleanup Script
+
+                    echo "====== DOCKER CLEANUP ======"
+                    echo "Date: $(date)"
+
+                    # Show current disk usage
+                    echo ""
+                    echo "--- Before Cleanup ---"
+                    docker system df
+
+                    # Remove stopped containers
+                    echo ""
+                    echo "Removing stopped containers..."
+                    docker container prune -f
+
+                    # Remove unused images
+                    echo ""
+                    echo "Removing dangling images..."
+                    docker image prune -f
+
+                    # Remove unused volumes
+                    echo ""
+                    echo "Removing unused volumes..."
+                    docker volume prune -f
+
+                    # Remove unused networks
+                    echo ""
+                    echo "Removing unused networks..."
+                    docker network prune -f
+
+                    # Show disk usage after cleanup
+                    echo ""
+                    echo "--- After Cleanup ---"
+                    docker system df
+
+                    echo ""
+                    echo "====== CLEANUP COMPLETE ======"
+                    """,
+                    "<ol><li>Save as <code>docker_cleanup.sh</code></li><li>Run <code>chmod +x docker_cleanup.sh</code></li><li>Execute with <code>./docker_cleanup.sh</code></li></ol>",
+                    "1.0", 0, "N/A"));
+
+                // Bash: Database Backup
+                repository.save(new DevOpsScript("PostgreSQL Backup Script", "Bash script to backup PostgreSQL database.", "bash",
+                    """
+                    #!/bin/bash
+                    # PostgreSQL Backup Script
+
+                    # Configuration
+                    DB_NAME="your_database"
+                    DB_USER="your_user"
+                    DB_HOST="localhost"
+                    BACKUP_DIR="/backups/postgres"
+                    DATE=$(date +%Y%m%d_%H%M%S)
+                    BACKUP_FILE="$BACKUP_DIR/${DB_NAME}_${DATE}.sql.gz"
+                    RETENTION_DAYS=7
+
+                    # Create backup directory
+                    mkdir -p "$BACKUP_DIR"
+
+                    echo "Starting backup of $DB_NAME at $(date)"
+
+                    # Create backup with compression
+                    PGPASSWORD="$DB_PASSWORD" pg_dump -h "$DB_HOST" -U "$DB_USER" "$DB_NAME" | gzip > "$BACKUP_FILE"
+
+                    if [ $? -eq 0 ]; then
+                        echo "Backup successful: $BACKUP_FILE"
+                        echo "Size: $(ls -lh $BACKUP_FILE | awk '{print $5}')"
+                    else
+                        echo "Backup FAILED!"
+                        exit 1
+                    fi
+
+                    # Remove old backups
+                    echo "Removing backups older than $RETENTION_DAYS days..."
+                    find "$BACKUP_DIR" -name "*.sql.gz" -mtime +$RETENTION_DAYS -delete
+
+                    echo "Backup completed at $(date)"
+                    """,
+                    "<ol><li>Set DB_NAME, DB_USER, and export DB_PASSWORD</li><li>Modify BACKUP_DIR as needed</li><li>Add to crontab for scheduled backups</li></ol>",
+                    "1.0", 0, "N/A"));
+
+                // Bash: Service Monitor
+                repository.save(new DevOpsScript("Service Monitor & Restart", "Bash script to monitor services and restart if down.", "bash",
+                    """
+                    #!/bin/bash
+                    # Service Monitor and Auto-Restart Script
+
+                    SERVICES=("nginx" "docker" "postgresql")
+                    SLACK_WEBHOOK="https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+
+                    send_alert() {
+                        local message="$1"
+                        curl -s -X POST -H 'Content-type: application/json' \\
+                            --data "{\\"text\\":\\"$message\\"}" \\
+                            "$SLACK_WEBHOOK" > /dev/null 2>&1
+                    }
+
+                    for SERVICE in "${SERVICES[@]}"; do
+                        if systemctl is-active --quiet "$SERVICE"; then
+                            echo "[OK] $SERVICE is running"
+                        else
+                            echo "[ALERT] $SERVICE is DOWN! Attempting restart..."
+                            systemctl restart "$SERVICE"
+                            sleep 5
+
+                            if systemctl is-active --quiet "$SERVICE"; then
+                                echo "[RECOVERED] $SERVICE restarted successfully"
+                                send_alert "⚠️ Service $SERVICE was down and has been restarted on $(hostname)"
+                            else
+                                echo "[CRITICAL] $SERVICE failed to restart!"
+                                send_alert "🚨 CRITICAL: Service $SERVICE failed to restart on $(hostname)"
+                            fi
+                        fi
+                    done
+                    """,
+                    "<ol><li>Modify SERVICES array with your services</li><li>Set SLACK_WEBHOOK for alerts (optional)</li><li>Run via cron every 5 minutes: <code>*/5 * * * * /path/to/monitor.sh</code></li></ol>",
+                    "1.0", 0, "N/A"));
+
+                // Bash: SSL Certificate Check
+                repository.save(new DevOpsScript("SSL Certificate Expiry Check", "Bash script to check SSL certificate expiration dates.", "bash",
+                    """
+                    #!/bin/bash
+                    # SSL Certificate Expiry Checker
+
+                    DOMAINS=("example.com" "api.example.com" "www.example.com")
+                    WARN_DAYS=30
+
+                    echo "====== SSL CERTIFICATE CHECK ======"
+                    echo "Date: $(date)"
+                    echo ""
+
+                    for DOMAIN in "${DOMAINS[@]}"; do
+                        EXPIRY=$(echo | openssl s_client -servername "$DOMAIN" -connect "$DOMAIN:443" 2>/dev/null | \\
+                                 openssl x509 -noout -enddate 2>/dev/null | cut -d= -f2)
+
+                        if [ -z "$EXPIRY" ]; then
+                            echo "[$DOMAIN] ERROR: Could not retrieve certificate"
+                            continue
+                        fi
+
+                        EXPIRY_EPOCH=$(date -d "$EXPIRY" +%s)
+                        NOW_EPOCH=$(date +%s)
+                        DAYS_LEFT=$(( (EXPIRY_EPOCH - NOW_EPOCH) / 86400 ))
+
+                        if [ $DAYS_LEFT -lt 0 ]; then
+                            echo "[$DOMAIN] ❌ EXPIRED! (Expired $EXPIRY)"
+                        elif [ $DAYS_LEFT -lt $WARN_DAYS ]; then
+                            echo "[$DOMAIN] ⚠️  EXPIRES SOON: $DAYS_LEFT days left (Expires: $EXPIRY)"
+                        else
+                            echo "[$DOMAIN] ✅ OK: $DAYS_LEFT days left (Expires: $EXPIRY)"
+                        fi
+                    done
+
+                    echo ""
+                    echo "====== CHECK COMPLETE ======"
+                    """,
+                    "<ol><li>Modify DOMAINS array with your domains</li><li>Adjust WARN_DAYS threshold as needed</li><li>Run weekly via cron for monitoring</li></ol>",
+                    "1.0", 0, "N/A"));
+
+                // --- PYTHON SCRIPTS ---
+
+                // Python: AWS EC2 Instance Report
+                repository.save(new DevOpsScript("AWS EC2 Instance Report", "Python script to list all EC2 instances with details.", "python",
+                    """
+                    #!/usr/bin/env python3
+                    \"\"\"AWS EC2 Instance Report Script\"\"\"
+
+                    import boto3
+                    from tabulate import tabulate
+                    from datetime import datetime
+
+                    def get_ec2_instances():
+                        ec2 = boto3.client('ec2')
+                        instances = []
+
+                        response = ec2.describe_instances()
+                        for reservation in response['Reservations']:
+                            for instance in reservation['Instances']:
+                                name = 'N/A'
+                                for tag in instance.get('Tags', []):
+                                    if tag['Key'] == 'Name':
+                                        name = tag['Value']
+                                        break
+
+                                instances.append({
+                                    'Name': name,
+                                    'Instance ID': instance['InstanceId'],
+                                    'Type': instance['InstanceType'],
+                                    'State': instance['State']['Name'],
+                                    'Private IP': instance.get('PrivateIpAddress', 'N/A'),
+                                    'Public IP': instance.get('PublicIpAddress', 'N/A'),
+                                    'Launch Time': instance['LaunchTime'].strftime('%Y-%m-%d %H:%M')
+                                })
+
+                        return instances
+
+                    if __name__ == '__main__':
+                        print(f"\\n=== EC2 Instance Report - {datetime.now().strftime('%Y-%m-%d %H:%M')} ===\\n")
+                        instances = get_ec2_instances()
+
+                        if instances:
+                            print(tabulate(instances, headers='keys', tablefmt='grid'))
+                            print(f"\\nTotal Instances: {len(instances)}")
+                        else:
+                            print("No EC2 instances found.")
+                    """,
+                    "<ol><li>Install dependencies: <code>pip install boto3 tabulate</code></li><li>Configure AWS credentials</li><li>Run: <code>python ec2_report.py</code></li></ol>",
+                    "1.0", 0, "N/A"));
+
+                // Python: CloudWatch Metrics Fetcher
+                repository.save(new DevOpsScript("CloudWatch Metrics Fetcher", "Python script to fetch and display CloudWatch metrics.", "python",
+                    """
+                    #!/usr/bin/env python3
+                    \"\"\"CloudWatch Metrics Fetcher\"\"\"
+
+                    import boto3
+                    from datetime import datetime, timedelta
+
+                    def get_cpu_utilization(instance_id, hours=24):
+                        cloudwatch = boto3.client('cloudwatch')
+
+                        response = cloudwatch.get_metric_statistics(
+                            Namespace='AWS/EC2',
+                            MetricName='CPUUtilization',
+                            Dimensions=[{'Name': 'InstanceId', 'Value': instance_id}],
+                            StartTime=datetime.utcnow() - timedelta(hours=hours),
+                            EndTime=datetime.utcnow(),
+                            Period=3600,  # 1 hour intervals
+                            Statistics=['Average', 'Maximum']
+                        )
+
+                        return sorted(response['Datapoints'], key=lambda x: x['Timestamp'])
+
+                    def display_metrics(instance_id):
+                        print(f"\\n=== CPU Utilization for {instance_id} (Last 24 hours) ===\\n")
+                        metrics = get_cpu_utilization(instance_id)
+
+                        if not metrics:
+                            print("No metrics found.")
+                            return
+
+                        for point in metrics:
+                            timestamp = point['Timestamp'].strftime('%Y-%m-%d %H:%M')
+                            avg = point['Average']
+                            max_val = point['Maximum']
+                            bar = '█' * int(avg / 5) + '░' * (20 - int(avg / 5))
+                            print(f"{timestamp} | {bar} | Avg: {avg:.1f}% Max: {max_val:.1f}%")
+
+                    if __name__ == '__main__':
+                        import sys
+                        instance_id = sys.argv[1] if len(sys.argv) > 1 else 'i-xxxxxxxxx'
+                        display_metrics(instance_id)
+                    """,
+                    "<ol><li>Install boto3: <code>pip install boto3</code></li><li>Configure AWS credentials</li><li>Run: <code>python cloudwatch_metrics.py i-instanceid</code></li></ol>",
+                    "1.0", 0, "N/A"));
+
+                // Python: Kubernetes Pod Monitor
+                repository.save(new DevOpsScript("Kubernetes Pod Monitor", "Python script to monitor Kubernetes pods status.", "python",
+                    """
+                    #!/usr/bin/env python3
+                    \"\"\"Kubernetes Pod Monitor\"\"\"
+
+                    from kubernetes import client, config
+                    from tabulate import tabulate
+                    from datetime import datetime
+
+                    def get_pod_status(namespace='default'):
+                        config.load_kube_config()  # Use load_incluster_config() for in-cluster
+                        v1 = client.CoreV1Api()
+
+                        pods = v1.list_namespaced_pod(namespace)
+                        pod_info = []
+
+                        for pod in pods.items:
+                            restarts = sum(cs.restart_count for cs in (pod.status.container_statuses or []))
+                            ready = sum(1 for cs in (pod.status.container_statuses or []) if cs.ready)
+                            total = len(pod.spec.containers)
+
+                            status_icon = '✅' if pod.status.phase == 'Running' and ready == total else '⚠️'
+
+                            pod_info.append({
+                                'Status': status_icon,
+                                'Name': pod.metadata.name[:40],
+                                'Ready': f'{ready}/{total}',
+                                'Phase': pod.status.phase,
+                                'Restarts': restarts,
+                                'Age': get_age(pod.metadata.creation_timestamp)
+                            })
+
+                        return pod_info
+
+                    def get_age(timestamp):
+                        if not timestamp:
+                            return 'N/A'
+                        delta = datetime.now(timestamp.tzinfo) - timestamp
+                        if delta.days > 0:
+                            return f'{delta.days}d'
+                        hours = delta.seconds // 3600
+                        if hours > 0:
+                            return f'{hours}h'
+                        return f'{delta.seconds // 60}m'
+
+                    if __name__ == '__main__':
+                        import sys
+                        namespace = sys.argv[1] if len(sys.argv) > 1 else 'default'
+                        print(f"\\n=== Pod Status in '{namespace}' namespace ===\\n")
+                        pods = get_pod_status(namespace)
+                        print(tabulate(pods, headers='keys', tablefmt='simple'))
+                    """,
+                    "<ol><li>Install: <code>pip install kubernetes tabulate</code></li><li>Ensure kubectl is configured</li><li>Run: <code>python pod_monitor.py [namespace]</code></li></ol>",
+                    "1.0", 0, "N/A"));
+
+                // Python: Log Analyzer
+                repository.save(new DevOpsScript("Log File Analyzer", "Python script to analyze log files for errors and patterns.", "python",
+                    """
+                    #!/usr/bin/env python3
+                    \"\"\"Log File Analyzer\"\"\"
+
+                    import re
+                    from collections import Counter
+                    from datetime import datetime
+                    import sys
+
+                    def analyze_log(filepath, patterns=None):
+                        if patterns is None:
+                            patterns = {
+                                'ERROR': r'\\b(ERROR|FATAL|CRITICAL)\\b',
+                                'WARNING': r'\\bWARN(ING)?\\b',
+                                '5xx': r'\\b5[0-9]{2}\\b',
+                                '4xx': r'\\b4[0-9]{2}\\b'
+                            }
+
+                        results = {name: [] for name in patterns}
+                        line_count = 0
+
+                        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                            for line in f:
+                                line_count += 1
+                                for name, pattern in patterns.items():
+                                    if re.search(pattern, line, re.IGNORECASE):
+                                        results[name].append(line.strip()[:100])
+
+                        return results, line_count
+
+                    def print_report(filepath):
+                        print(f"\\n{'='*60}")
+                        print(f"LOG ANALYSIS REPORT")
+                        print(f"File: {filepath}")
+                        print(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                        print(f"{'='*60}\\n")
+
+                        results, total_lines = analyze_log(filepath)
+
+                        print(f"Total Lines Analyzed: {total_lines:,}\\n")
+
+                        for category, matches in results.items():
+                            count = len(matches)
+                            pct = (count / total_lines * 100) if total_lines > 0 else 0
+                            print(f"[{category}] Found: {count} ({pct:.2f}%)")
+                            if matches and count <= 5:
+                                for m in matches[:3]:
+                                    print(f"  └─ {m}")
+
+                        print(f"\\n{'='*60}")
+
+                    if __name__ == '__main__':
+                        logfile = sys.argv[1] if len(sys.argv) > 1 else '/var/log/syslog'
+                        print_report(logfile)
+                    """,
+                    "<ol><li>Save as <code>log_analyzer.py</code></li><li>Run: <code>python log_analyzer.py /path/to/logfile.log</code></li></ol>",
+                    "1.0", 0, "N/A"));
+
+                // Python: API Health Checker
+                repository.save(new DevOpsScript("API Health Checker", "Python script to check multiple API endpoints health.", "python",
+                    """
+                    #!/usr/bin/env python3
+                    \"\"\"API Health Checker\"\"\"
+
+                    import requests
+                    import time
+                    from concurrent.futures import ThreadPoolExecutor
+                    from datetime import datetime
+
+                    ENDPOINTS = [
+                        {'name': 'API Gateway', 'url': 'https://api.example.com/health'},
+                        {'name': 'Auth Service', 'url': 'https://auth.example.com/health'},
+                        {'name': 'User Service', 'url': 'https://users.example.com/health'},
+                    ]
+
+                    def check_endpoint(endpoint):
+                        name, url = endpoint['name'], endpoint['url']
+                        try:
+                            start = time.time()
+                            response = requests.get(url, timeout=10)
+                            latency = (time.time() - start) * 1000
+
+                            return {
+                                'name': name,
+                                'status': '✅' if response.status_code == 200 else '⚠️',
+                                'code': response.status_code,
+                                'latency': f'{latency:.0f}ms'
+                            }
+                        except requests.exceptions.Timeout:
+                            return {'name': name, 'status': '❌', 'code': 'TIMEOUT', 'latency': '>10s'}
+                        except Exception as e:
+                            return {'name': name, 'status': '❌', 'code': 'ERROR', 'latency': str(e)[:20]}
+
+                    def run_health_check():
+                        print(f"\\n{'='*60}")
+                        print(f"API HEALTH CHECK - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                        print(f"{'='*60}\\n")
+
+                        with ThreadPoolExecutor(max_workers=10) as executor:
+                            results = list(executor.map(check_endpoint, ENDPOINTS))
+
+                        for r in results:
+                            print(f"{r['status']} {r['name']:<20} | Code: {r['code']:<6} | Latency: {r['latency']}")
+
+                        healthy = sum(1 for r in results if r['status'] == '✅')
+                        print(f"\\n{'='*60}")
+                        print(f"Summary: {healthy}/{len(results)} endpoints healthy")
+
+                    if __name__ == '__main__':
+                        run_health_check()
+                    """,
+                    "<ol><li>Install requests: <code>pip install requests</code></li><li>Modify ENDPOINTS list with your APIs</li><li>Run: <code>python api_health.py</code></li></ol>",
+                    "1.0", 0, "N/A"));
+
+                // --- S3 BUCKET OPTIMIZATION SCRIPTS ---
+
+                // S3: Lifecycle Policy for Cost Optimization
+                repository.save(new DevOpsScript("S3 Lifecycle Policy (Cost Optimization)", "Terraform script for S3 lifecycle rules to optimize storage costs.", "terraform",
+                    """
+                    resource "aws_s3_bucket" "optimized_bucket" {
+                      bucket = "my-cost-optimized-bucket-12345" # CHANGE THIS
+                    }
+
+                    resource "aws_s3_bucket_lifecycle_configuration" "lifecycle" {
+                      bucket = aws_s3_bucket.optimized_bucket.id
+
+                      # Move infrequently accessed data to IA after 30 days
+                      rule {
+                        id     = "move-to-ia"
+                        status = "Enabled"
+
+                        transition {
+                          days          = 30
+                          storage_class = "STANDARD_IA"
+                        }
+
+                        # Move to Glacier after 90 days
+                        transition {
+                          days          = 90
+                          storage_class = "GLACIER"
+                        }
+
+                        # Move to Deep Archive after 180 days
+                        transition {
+                          days          = 180
+                          storage_class = "DEEP_ARCHIVE"
+                        }
+                      }
+
+                      # Clean up incomplete multipart uploads
+                      rule {
+                        id     = "cleanup-incomplete-uploads"
+                        status = "Enabled"
+
+                        abort_incomplete_multipart_upload {
+                          days_after_initiation = 7
+                        }
+                      }
+
+                      # Delete old versions after 90 days (if versioning enabled)
+                      rule {
+                        id     = "cleanup-old-versions"
+                        status = "Enabled"
+
+                        noncurrent_version_expiration {
+                          noncurrent_days = 90
+                        }
+                      }
+                    }
+                    """,
+                    "<ol><li>Change bucket name to be unique</li><li>Adjust transition days based on access patterns</li><li>Run <code>terraform init && terraform apply</code></li></ol>",
+                    "1.0", 0, "N/A"));
+
+                // S3: Intelligent Tiering
+                repository.save(new DevOpsScript("S3 Intelligent Tiering Configuration", "Terraform script to enable S3 Intelligent-Tiering.", "terraform",
+                    """
+                    resource "aws_s3_bucket" "intelligent_bucket" {
+                      bucket = "my-intelligent-tiering-bucket-12345" # CHANGE THIS
+                    }
+
+                    resource "aws_s3_bucket_intelligent_tiering_configuration" "tiering" {
+                      bucket = aws_s3_bucket.intelligent_bucket.id
+                      name   = "EntireBucket"
+
+                      # Enable Archive Access tier (objects not accessed for 90 days)
+                      tiering {
+                        access_tier = "ARCHIVE_ACCESS"
+                        days        = 90
+                      }
+
+                      # Enable Deep Archive Access tier (objects not accessed for 180 days)
+                      tiering {
+                        access_tier = "DEEP_ARCHIVE_ACCESS"
+                        days        = 180
+                      }
+                    }
+
+                    # Set default storage class for new objects
+                    resource "aws_s3_bucket_lifecycle_configuration" "default_intelligent" {
+                      bucket = aws_s3_bucket.intelligent_bucket.id
+
+                      rule {
+                        id     = "default-intelligent-tiering"
+                        status = "Enabled"
+
+                        transition {
+                          days          = 0
+                          storage_class = "INTELLIGENT_TIERING"
+                        }
+                      }
+                    }
+                    """,
+                    "<ol><li>Intelligent-Tiering automatically moves data between tiers</li><li>Best for unpredictable access patterns</li><li>Run <code>terraform init && terraform apply</code></li></ol>",
+                    "1.0", 0, "N/A"));
+
+                // Python: S3 Bucket Analyzer
+                repository.save(new DevOpsScript("S3 Bucket Cost Analyzer", "Python script to analyze S3 bucket storage and costs.", "python",
+                    """
+                    #!/usr/bin/env python3
+                    \"\"\"S3 Bucket Cost Analyzer\"\"\"
+
+                    import boto3
+                    from datetime import datetime
+
+                    # Storage class pricing (US East, approximate $/GB/month)
+                    PRICING = {
+                        'STANDARD': 0.023,
+                        'STANDARD_IA': 0.0125,
+                        'ONEZONE_IA': 0.01,
+                        'GLACIER': 0.004,
+                        'DEEP_ARCHIVE': 0.00099,
+                        'INTELLIGENT_TIERING': 0.023,
+                    }
+
+                    def analyze_bucket(bucket_name):
+                        s3 = boto3.client('s3')
+                        paginator = s3.get_paginator('list_objects_v2')
+
+                        storage_classes = {}
+                        total_size = 0
+                        total_objects = 0
+
+                        for page in paginator.paginate(Bucket=bucket_name):
+                            for obj in page.get('Contents', []):
+                                sc = obj.get('StorageClass', 'STANDARD')
+                                size = obj['Size']
+
+                                if sc not in storage_classes:
+                                    storage_classes[sc] = {'count': 0, 'size': 0}
+
+                                storage_classes[sc]['count'] += 1
+                                storage_classes[sc]['size'] += size
+                                total_size += size
+                                total_objects += 1
+
+                        return storage_classes, total_size, total_objects
+
+                    def print_analysis(bucket_name):
+                        print(f"\\n{'='*70}")
+                        print(f"S3 BUCKET COST ANALYSIS: {bucket_name}")
+                        print(f"{'='*70}\\n")
+
+                        storage_classes, total_size, total_objects = analyze_bucket(bucket_name)
+
+                        total_cost = 0
+                        print(f"{'Storage Class':<20} {'Objects':>10} {'Size (GB)':>12} {'Monthly Cost':>14}")
+                        print("-" * 60)
+
+                        for sc, data in sorted(storage_classes.items()):
+                            size_gb = data['size'] / (1024**3)
+                            cost = size_gb * PRICING.get(sc, 0.023)
+                            total_cost += cost
+                            print(f"{sc:<20} {data['count']:>10,} {size_gb:>12.2f} ${cost:>13.2f}")
+
+                        print("-" * 60)
+                        print(f"{'TOTAL':<20} {total_objects:>10,} {total_size/(1024**3):>12.2f} ${total_cost:>13.2f}")
+
+                        # Optimization suggestions
+                        print(f"\\n{'='*70}")
+                        print("OPTIMIZATION SUGGESTIONS:")
+                        standard_size = storage_classes.get('STANDARD', {}).get('size', 0)
+                        if standard_size > 100 * 1024**3:  # > 100GB in STANDARD
+                            potential_savings = (standard_size / (1024**3)) * (0.023 - 0.0125)
+                            print(f"• Move {standard_size/(1024**3):.0f}GB to IA = save ~${potential_savings:.2f}/month")
+
+                    if __name__ == '__main__':
+                        import sys
+                        bucket = sys.argv[1] if len(sys.argv) > 1 else 'my-bucket'
+                        print_analysis(bucket)
+                    """,
+                    "<ol><li>Install boto3: <code>pip install boto3</code></li><li>Configure AWS credentials</li><li>Run: <code>python s3_analyzer.py bucket-name</code></li></ol>",
+                    "1.0", 0, "N/A"));
+
+                // Python: S3 Cleanup Script
+                repository.save(new DevOpsScript("S3 Old Objects Cleanup", "Python script to identify and delete old S3 objects.", "python",
+                    """
+                    #!/usr/bin/env python3
+                    \"\"\"S3 Old Objects Cleanup Script\"\"\"
+
+                    import boto3
+                    from datetime import datetime, timezone, timedelta
+                    import sys
+
+                    def find_old_objects(bucket_name, days_old=90, prefix='', dry_run=True):
+                        s3 = boto3.client('s3')
+                        paginator = s3.get_paginator('list_objects_v2')
+
+                        cutoff_date = datetime.now(timezone.utc) - timedelta(days=days_old)
+                        old_objects = []
+                        total_size = 0
+
+                        print(f"Scanning bucket: {bucket_name}")
+                        print(f"Finding objects older than {days_old} days (before {cutoff_date.date()})\\n")
+
+                        for page in paginator.paginate(Bucket=bucket_name, Prefix=prefix):
+                            for obj in page.get('Contents', []):
+                                if obj['LastModified'] < cutoff_date:
+                                    old_objects.append({
+                                        'Key': obj['Key'],
+                                        'Size': obj['Size'],
+                                        'LastModified': obj['LastModified']
+                                    })
+                                    total_size += obj['Size']
+
+                        print(f"Found {len(old_objects)} objects ({total_size/(1024**3):.2f} GB)")
+
+                        if old_objects and not dry_run:
+                            confirm = input(f"\\nDelete {len(old_objects)} objects? (yes/no): ")
+                            if confirm.lower() == 'yes':
+                                for i, obj in enumerate(old_objects):
+                                    s3.delete_object(Bucket=bucket_name, Key=obj['Key'])
+                                    if (i + 1) % 100 == 0:
+                                        print(f"Deleted {i + 1}/{len(old_objects)} objects...")
+                                print(f"\\nDeleted {len(old_objects)} objects successfully!")
+                            else:
+                                print("Deletion cancelled.")
+                        elif dry_run:
+                            print("\\n[DRY RUN] No objects deleted. Run with --execute to delete.")
+                            print("\\nSample objects that would be deleted:")
+                            for obj in old_objects[:10]:
+                                print(f"  - {obj['Key']} ({obj['Size']/1024:.1f} KB)")
+
+                        return old_objects
+
+                    if __name__ == '__main__':
+                        if len(sys.argv) < 2:
+                            print("Usage: python s3_cleanup.py <bucket-name> [days] [--execute]")
+                            sys.exit(1)
+
+                        bucket = sys.argv[1]
+                        days = int(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2].isdigit() else 90
+                        dry_run = '--execute' not in sys.argv
+
+                        find_old_objects(bucket, days, dry_run=dry_run)
+                    """,
+                    "<ol><li>Install boto3: <code>pip install boto3</code></li><li>Dry run: <code>python s3_cleanup.py bucket-name 90</code></li><li>Execute: <code>python s3_cleanup.py bucket-name 90 --execute</code></li></ol>",
+                    "1.0", 0, "N/A"));
+
+                // S3: Bucket Policy for Cost Control
+                repository.save(new DevOpsScript("S3 Bucket Policy (Enforce IA Storage)", "Terraform to enforce cost-effective storage class on uploads.", "terraform",
+                    """
+                    resource "aws_s3_bucket" "enforced_storage" {
+                      bucket = "my-enforced-storage-bucket-12345" # CHANGE THIS
+                    }
+
+                    # Deny uploads that don't specify STANDARD_IA or cheaper storage classes
+                    resource "aws_s3_bucket_policy" "enforce_storage_class" {
+                      bucket = aws_s3_bucket.enforced_storage.id
+
+                      policy = jsonencode({
+                        Version = "2012-10-17"
+                        Statement = [
+                          {
+                            Sid       = "DenyExpensiveStorageClass"
+                            Effect    = "Deny"
+                            Principal = "*"
+                            Action    = "s3:PutObject"
+                            Resource  = "${aws_s3_bucket.enforced_storage.arn}/*"
+                            Condition = {
+                              StringNotEqualsIfExists = {
+                                "s3:x-amz-storage-class" = [
+                                  "STANDARD_IA",
+                                  "ONEZONE_IA",
+                                  "INTELLIGENT_TIERING",
+                                  "GLACIER",
+                                  "DEEP_ARCHIVE"
+                                ]
+                              }
+                            }
+                          }
+                        ]
+                      })
+                    }
+
+                    # Note: This policy requires uploads to specify a storage class
+                    # Remove this if you want to allow STANDARD uploads
+                    """,
+                    "<ol><li>This policy blocks uploads that don't specify a cost-effective storage class</li><li>Modify allowed storage classes as needed</li><li>Run <code>terraform init && terraform apply</code></li></ol>",
+                    "1.0", 0, "N/A"));
+
+                // S3: Replication for Disaster Recovery
+                repository.save(new DevOpsScript("S3 Cross-Region Replication", "Terraform for S3 cross-region replication (DR).", "terraform",
+                    """
+                    # Source bucket (primary region)
+                    resource "aws_s3_bucket" "source" {
+                      bucket = "my-source-bucket-primary-12345" # CHANGE THIS
+                    }
+
+                    resource "aws_s3_bucket_versioning" "source" {
+                      bucket = aws_s3_bucket.source.id
+                      versioning_configuration {
+                        status = "Enabled"  # Required for replication
+                      }
+                    }
+
+                    # Destination bucket (DR region)
+                    resource "aws_s3_bucket" "destination" {
+                      provider = aws.dr_region  # Requires provider alias for different region
+                      bucket   = "my-dest-bucket-dr-12345" # CHANGE THIS
+                    }
+
+                    resource "aws_s3_bucket_versioning" "destination" {
+                      provider = aws.dr_region
+                      bucket   = aws_s3_bucket.destination.id
+                      versioning_configuration {
+                        status = "Enabled"
+                      }
+                    }
+
+                    # IAM role for replication
+                    resource "aws_iam_role" "replication" {
+                      name = "s3-bucket-replication-role"
+                      assume_role_policy = jsonencode({
+                        Version = "2012-10-17"
+                        Statement = [{
+                          Action = "sts:AssumeRole"
+                          Effect = "Allow"
+                          Principal = { Service = "s3.amazonaws.com" }
+                        }]
+                      })
+                    }
+
+                    # Replication configuration
+                    resource "aws_s3_bucket_replication_configuration" "replication" {
+                      depends_on = [aws_s3_bucket_versioning.source]
+                      bucket     = aws_s3_bucket.source.id
+                      role       = aws_iam_role.replication.arn
+
+                      rule {
+                        id     = "replicate-all"
+                        status = "Enabled"
+
+                        destination {
+                          bucket        = aws_s3_bucket.destination.arn
+                          storage_class = "STANDARD_IA"  # Cost optimization for DR
+                        }
+                      }
+                    }
+                    """,
+                    "<ol><li>Configure provider alias for DR region</li><li>Change bucket names to be unique</li><li>Attach replication policy to IAM role</li><li>Run <code>terraform init && terraform apply</code></li></ol>",
+                    "1.0", 0, "N/A"));
 
                 logger.info("Finished loading sample DevOps scripts into database.");
             } else {
