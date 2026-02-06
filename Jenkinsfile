@@ -49,12 +49,12 @@ pipeline {
                               -e SPRING_PROFILES_ACTIVE=sit \
                               -e DB_HOST=172.31.9.24 \
                               -e DB_USER=xamops_local_user \
-                              -e DB_PASS=XamOps@123 \
+                              -e DB_PASS=${DB_PASS} \
                               -e DB_NAME=xamops_local_db \
                               -e EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://service-registry:8761/eureka/ \
                               -e REDIS_HOST=redis-sit \
                               -e REDIS_PORT=6379 \
-                              -e \"GROQ_API_KEY=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\" \
+                              -e \"GROQ_API_KEY=${GROQ_API_KEY}\" \
                               ghcr.io/sahil-remoterepo/xamops-service:latest
                             docker run -d --name frontend-app --network xamops-network ghcr.io/sahil-remoterepo/frontend-app:latest
                         "

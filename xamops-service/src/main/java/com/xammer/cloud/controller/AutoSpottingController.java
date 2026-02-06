@@ -3,9 +3,9 @@ package com.xammer.cloud.controller;
 import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.dto.autospotting.*;
 import com.xammer.cloud.service.AutoSpottingService;
-import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -18,12 +18,18 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/autospotting")
-@RequiredArgsConstructor
 public class AutoSpottingController {
 
     private static final Logger log = LoggerFactory.getLogger(AutoSpottingController.class);
 
     private final AutoSpottingService autoSpottingService;
+    private final String autospottingApiKey;
+
+    public AutoSpottingController(AutoSpottingService autoSpottingService,
+                                  @Value("${autospotting.api.key}") String autospottingApiKey) {
+        this.autoSpottingService = autoSpottingService;
+        this.autospottingApiKey = autospottingApiKey;
+    }
 
     // ================= ACCOUNT REGISTRATION =================
 
@@ -445,8 +451,6 @@ public class AutoSpottingController {
      * itself
      */
     private String testManualConnection(String accountId) throws Exception {
-        // Hardcoded for testing - in production, inject via @Value
-        String apiKey = "sHX4wpgTYZhdBI8LxrM8lhkY8eFgsIg2";
         String baseUrl = "https://do0ezmdybge0h.cloudfront.net/api";
         String urlString = baseUrl + "/v1/costs?account_id=" + accountId;
 
@@ -461,14 +465,15 @@ public class AutoSpottingController {
         // Set headers
         conn.setRequestProperty("Content-Type", "application/json");
         conn.setRequestProperty("Accept", "application/json");
-        conn.setRequestProperty("X-Api-Key", apiKey);
+        conn.setRequestProperty("X-Api-Key", autospottingApiKey);
 
         log.info("Request headers set:");
         log.info("  Content-Type: application/json");
         log.info("  Accept: application/json");
         log.info("  X-Api-Key: {}... (length={})",
-                apiKey.substring(0, Math.min(10, apiKey.length())),
-                apiKey.length());
+                autospottingApiKey != null && autospottingApiKey.length() > 10
+                    ? autospottingApiKey.substring(0, 10) : "REDACTED",
+                autospottingApiKey != null ? autospottingApiKey.length() : 0);
 
         // Get response
         int responseCode = conn.getResponseCode();
