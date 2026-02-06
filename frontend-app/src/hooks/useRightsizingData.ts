@@ -10,6 +10,7 @@ import { useState, useEffect, useCallback } from 'react';
 // AWS Recommendation type
 export interface AWSRecommendation {
   resourceId: string;
+  instanceName?: string;
   service: string;
   currentType: string;
   recommendedType: string;
@@ -22,6 +23,7 @@ export interface AWSRecommendation {
 // XamOps Recommendation type
 export interface XamOpsRecommendation {
   instanceId: string;
+  instanceName?: string;
   currentInstance: string;
   currentUtilization?: string;
   loadRange: string;

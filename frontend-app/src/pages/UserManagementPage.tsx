@@ -361,23 +361,6 @@ const UserManagementPage: React.FC = () => {
                   </div>
                 </div>
               </div>
-
-              {isAws && (
-                <div className="kpi-card">
-                  <div className="kpi-content">
-                    <div>
-                      <p className="kpi-label">MFA Status</p>
-                      <h3 className="kpi-value">{countNoMfa}</h3>
-                      {countNoMfa > 0 && (
-                        <p className="kpi-warning">Users potentially missing MFA</p>
-                      )}
-                    </div>
-                    <div className="kpi-icon bg-red-100 text-red-600">
-                      <i className="fas fa-shield-alt" />
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
 
             {/* Main Table Container */}

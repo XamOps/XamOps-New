@@ -19,7 +19,6 @@ import apiClient from '../utils/apiClient';
 import CloudK8sHeader from '../components/CloudK8s/CloudK8sHeader';
 import CloudK8sClusterTable from '../components/CloudK8s/CloudK8sClusterTable';
 import CloudK8sIntegrations from '../components/CloudK8s/CloudK8sIntegrations';
-import CloudK8sHelpModal from '../components/CloudK8s/CloudK8sHelpModal';
 
 export interface EKSCluster {
   name: string;
@@ -37,7 +36,6 @@ const CloudK8sPage: React.FC = () => {
   const [clusters, setClusters] = useState<EKSCluster[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
 
   /**
    * Fetch clusters from backend API
@@ -176,20 +174,6 @@ const CloudK8sPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Floating Help Button */}
-      <button
-        onClick={() => setIsHelpModalOpen(true)}
-        className="fixed bottom-8 right-8 w-14 h-14 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full flex items-center justify-center text-white text-2xl shadow-lg cursor-pointer hover:scale-110 hover:shadow-xl transition-all z-30 group"
-        aria-label="Open setup guide"
-      >
-        <i className="fas fa-question group-hover:animate-pulse"></i>
-      </button>
-
-      {/* Help Modal */}
-      <CloudK8sHelpModal
-        isOpen={isHelpModalOpen}
-        onClose={() => setIsHelpModalOpen(false)}
-      />
     </main>
   );
 };
