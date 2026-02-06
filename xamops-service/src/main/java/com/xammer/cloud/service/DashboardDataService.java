@@ -613,9 +613,6 @@ public class DashboardDataService {
         // 2. Determine Cache Key (User Scoped vs Global)
         boolean isAdmin = isUserAdmin(userDetails);
         String scopedKey = SNAPSHOT_KEY_AWS + "::" + tenantId;
-        if (!isAdmin && userDetails != null) {
-            scopedKey += "::" + userDetails.getUsername();
-        }
 
         // 3. Try to fetch from Snapshot first
         if (!forceRefresh) {
@@ -657,9 +654,6 @@ public class DashboardDataService {
         // Determine Cache Key
         boolean isAdmin = isUserAdmin(userDetails);
         String scopedKey = SNAPSHOT_KEY_GCP + "::" + tenantId;
-        if (!isAdmin && userDetails != null) {
-            scopedKey += "::" + userDetails.getUsername();
-        }
 
         // 1. Try to fetch from Snapshot
         if (!forceRefresh) {
@@ -696,9 +690,6 @@ public class DashboardDataService {
         // Determine Cache Key
         boolean isAdmin = isUserAdmin(userDetails);
         String scopedKey = SNAPSHOT_KEY_AZURE + "::" + tenantId;
-        if (!isAdmin && userDetails != null) {
-            scopedKey += "::" + userDetails.getUsername();
-        }
 
         // 1. Try to fetch from Snapshot
         if (!forceRefresh) {
