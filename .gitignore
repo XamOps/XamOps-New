@@ -1,5 +1,6 @@
 # Ignore build artifacts
 /xamops-service/target/
+/frontend-app/dist/
 *.jar
 
 # Ignore node_modules
