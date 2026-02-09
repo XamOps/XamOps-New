@@ -420,12 +420,10 @@
 /* Loading States */
 .dark .skeleton,
 .dark .loading-skeleton {
-    background: linear-gradient(
-        90deg,
-        rgba(20, 25, 35, 0.5) 25%,
-        rgba(30, 40, 55, 0.5) 50%,
-        rgba(20, 25, 35, 0.5) 75%
-    ) !important;
+    background: linear-gradient(90deg,
+            rgba(20, 25, 35, 0.5) 25%,
+            rgba(30, 40, 55, 0.5) 50%,
+            rgba(20, 25, 35, 0.5) 75%) !important;
     background-size: 200% 100% !important;
 }
 

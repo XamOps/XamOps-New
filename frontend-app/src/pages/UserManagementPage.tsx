@@ -81,7 +81,6 @@ const UserManagementPage: React.FC = () => {
     filteredRoles,
     formatDate,
     isOldDate,
-    countNoMfa,
     copyToClipboard,
     labels,
     fetchData,

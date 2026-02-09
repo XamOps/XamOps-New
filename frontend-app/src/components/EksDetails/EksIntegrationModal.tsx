@@ -5,7 +5,7 @@
  * OTel + Falco + Kube-State-Metrics + cAdvisor + cost exporter + OpenCost + Kubescape + Trivy
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 interface EksIntegrationModalProps {
   isOpen: boolean;
@@ -104,6 +104,18 @@ const VariableNote: React.FC<{ variables: string[] }> = ({ variables }) => (
 const EksIntegrationModal: React.FC<EksIntegrationModalProps> = ({ isOpen, onClose }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'part1' | 'part2' | 'part3' | 'part4' | 'part5'>('overview');
 
+  // Prevent body scroll when modal is open
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   const tabs = [
@@ -115,16 +127,36 @@ const EksIntegrationModal: React.FC<EksIntegrationModalProps> = ({ isOpen, onClo
     { id: 'part5', label: 'Part 5: Variables Summary', icon: 'fas fa-list' },
   ];
 
+  // Handle wheel event to prevent scroll propagation
+  const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+    const target = e.currentTarget;
+    const { scrollTop, scrollHeight, clientHeight } = target;
+    const isAtTop = scrollTop === 0 && e.deltaY < 0;
+    const isAtBottom = scrollTop + clientHeight >= scrollHeight && e.deltaY > 0;
+
+    // Only stop propagation if we're not at the boundaries or if we're scrolling within bounds
+    if (!isAtTop && !isAtBottom) {
+      e.stopPropagation();
+    } else {
+      // Prevent the scroll from propagating to parent when at boundaries
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      onWheel={(e) => e.stopPropagation()}
+    >
       <div onClick={onClose} className="fixed inset-0 bg-black/50 backdrop-blur-sm" />
 
       <div
         className="bg-white rounded-2xl w-full max-w-6xl mx-auto max-h-[95vh] overflow-hidden z-50 shadow-2xl relative flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-200 bg-gradient-to-r from-slate-50 to-blue-50">
+        {/* Header - Fixed */}
+        <div className="flex-shrink-0 flex items-center justify-between p-6 border-b border-gray-200 bg-gradient-to-r from-slate-50 to-blue-50">
           <div className="flex items-center space-x-4">
             <div className="w-14 h-14 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg">
               <i className="fas fa-book text-white text-2xl"></i>
@@ -142,8 +174,8 @@ const EksIntegrationModal: React.FC<EksIntegrationModalProps> = ({ isOpen, onClo
           </button>
         </div>
 
-        {/* Tab Navigation */}
-        <div className="flex border-b border-gray-200 bg-gray-50 overflow-x-auto">
+        {/* Tab Navigation - Fixed/Sticky */}
+        <div className="flex-shrink-0 flex border-b border-gray-200 bg-gray-50 overflow-x-auto sticky top-0 z-10">
           {tabs.map((tab) => (
             <button
               key={tab.id}
@@ -159,8 +191,12 @@ const EksIntegrationModal: React.FC<EksIntegrationModalProps> = ({ isOpen, onClo
           ))}
         </div>
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6">
+        {/* Content - Scrollable with contained overscroll */}
+        <div
+          className="flex-1 overflow-y-auto p-6"
+          style={{ overscrollBehavior: 'contain' }}
+          onWheel={handleWheel}
+        >
           {activeTab === 'overview' && <OverviewTab />}
           {activeTab === 'part1' && <Part1Tab />}
           {activeTab === 'part2' && <Part2Tab />}
@@ -169,8 +205,8 @@ const EksIntegrationModal: React.FC<EksIntegrationModalProps> = ({ isOpen, onClo
           {activeTab === 'part5' && <Part5Tab />}
         </div>
 
-        {/* Footer */}
-        <div className="p-4 border-t border-gray-200 bg-gray-50 flex justify-end">
+        {/* Footer - Fixed */}
+        <div className="flex-shrink-0 p-4 border-t border-gray-200 bg-gray-50 flex justify-end">
           <button
             onClick={onClose}
             className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold transition-all shadow-sm"

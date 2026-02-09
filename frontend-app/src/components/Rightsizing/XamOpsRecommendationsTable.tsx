@@ -10,13 +10,11 @@ import type { XamOpsRecommendation } from '../../hooks/useRightsizingData';
 interface XamOpsRecommendationsTableProps {
   recommendations: XamOpsRecommendation[];
   isLoading: boolean;
-  onAiRequest: (recommendation: XamOpsRecommendation) => void;
 }
 
 const XamOpsRecommendationsTable: React.FC<XamOpsRecommendationsTableProps> = ({
   recommendations,
   isLoading,
-  onAiRequest,
 }) => {
   // Extract instance type from recommendation string
   const extractInstanceType = (recommendation: string): string => {

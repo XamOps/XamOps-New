@@ -10,13 +10,11 @@ import type { AWSRecommendation } from '../../hooks/useRightsizingData';
 interface AWSRecommendationsTableProps {
   recommendations: AWSRecommendation[];
   isLoading: boolean;
-  onAiRequest: (recommendation: AWSRecommendation) => void;
 }
 
 const AWSRecommendationsTable: React.FC<AWSRecommendationsTableProps> = ({
   recommendations,
   isLoading,
-  onAiRequest,
 }) => {
   // Get service icon based on service type
   const getServiceIcon = (serviceType: string): string => {

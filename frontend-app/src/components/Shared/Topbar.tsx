@@ -97,7 +97,7 @@ const Topbar: React.FC = () => {
     console.log('🌗 [Topbar] Render - theme:', theme);
 
     return (
-        <header className="sticky top-0 z-30 w-full transition-colors duration-300">
+        <header className="sticky top-0 z-40 w-full transition-colors duration-300">
             <div className={clsx(
                 'mx-auto flex h-20 items-center justify-between px-8 border-b shadow-sm transition-all duration-300',
                 theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white/90 backdrop-blur-md border-gray-200/50 text-slate-800'

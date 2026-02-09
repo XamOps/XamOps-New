@@ -185,6 +185,13 @@ const CloudShellPage: React.FC = () => {
     (accountId: string) => {
       if (!terminalContainerRef.current || !mountedRef.current) return null;
 
+      // Prevent duplicate tabs for the same account
+      const existingTab = tabs.find(t => t.accountId === accountId);
+      if (existingTab) {
+        setActiveTabId(existingTab.id);
+        return existingTab.id;
+      }
+
       tabCounterRef.current += 1;
       const tabId = `tab-${Date.now()}-${tabCounterRef.current}`;
 
@@ -303,7 +310,7 @@ const CloudShellPage: React.FC = () => {
 
       return tabId;
     },
-    [initWebSocketForTab]
+    [initWebSocketForTab, tabs]
   );
 
   /**

@@ -38,7 +38,7 @@ import {
 import {
   // Hero icons
   HiOutlineDocumentText, HiOutlineChartBar, HiOutlineCog, HiOutlineUsers,
-  HiOutlineShieldCheck, HiOutlineGlobe, HiOutlineCloud, HiOutlineServer,
+  HiOutlineShieldCheck, HiOutlineCloud,
 } from 'react-icons/hi';
 
 export interface IconData {
@@ -243,11 +243,10 @@ const IconPicker: React.FC<IconPickerProps> = ({ onIconSelect, onDragStart }) =>
             <button
               key={category}
               onClick={() => setSelectedCategory(category)}
-              className={`px-2 py-1 text-xs font-medium rounded-full transition-all whitespace-nowrap shrink-0 ${
-                selectedCategory === category
+              className={`px-2 py-1 text-xs font-medium rounded-full transition-all whitespace-nowrap shrink-0 ${selectedCategory === category
                   ? 'bg-indigo-100 text-indigo-700 border border-indigo-300'
                   : 'bg-gray-100 text-gray-600 hover:bg-gray-200 border border-gray-200'
-              }`}
+                }`}
             >
               {category}
             </button>
