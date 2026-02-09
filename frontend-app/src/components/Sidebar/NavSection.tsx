@@ -1,12 +1,7 @@
-/**
- * NavSection Component
- *
- * Collapsible navigation section with dropdown menu
- * Converted from: _sidebar.html (sidebar sections with dropdowns)
- */
-
 import React from 'react';
 import clsx from 'clsx';
+
+import { useTheme } from '../../contexts/ThemeContext';
 
 interface NavSectionProps {
   icon: string;
@@ -21,17 +16,20 @@ interface NavSectionProps {
 const NavSection: React.FC<NavSectionProps> = ({
   icon,
   label,
-  gradientClass = 'from-green-500 to-teal-600',
+  gradientClass = 'from-[#704fe6] to-[#9171f8]',
   isOpen,
   onToggle,
   children,
   direction = 'down',
 }) => {
+  const { theme } = useTheme();
+
   return (
     <div className="relative">
       {/* Dropdown Content - Above for 'up' direction (Absolute positioning to prevent shift) */}
       <div className={clsx(
-        'absolute bottom-full left-0 w-full mb-2 transition-[grid-template-rows,opacity,transform] duration-200 ease-[cubic-bezier(0.2,1,0.2,1)] bg-white border border-gray-200 rounded-xl shadow-2xl z-50 overflow-hidden grid will-change-[grid-template-rows,opacity,transform]',
+        'absolute bottom-full left-0 w-full mb-2 transition-[grid-template-rows,opacity,transform] duration-200 ease-[cubic-bezier(0.2,1,0.2,1)] rounded-xl shadow-2xl z-50 overflow-hidden grid will-change-[grid-template-rows,opacity,transform]',
+        theme === 'dark' ? 'bg-slate-900 border border-slate-800' : 'bg-white border border-gray-200',
         isOpen && direction === 'up'
           ? 'grid-rows-[1fr] opacity-100 p-2 scale-100'
           : 'grid-rows-[0fr] opacity-0 p-0 border-transparent shadow-none scale-95 pointer-events-none'
@@ -45,15 +43,17 @@ const NavSection: React.FC<NavSectionProps> = ({
       <button
         onClick={onToggle}
         className={clsx(
-          'sidebar-section w-full flex items-center justify-between px-4 py-3 rounded-lg transition-all duration-200',
+          'sidebar-section w-full flex items-center rounded-lg transition-all duration-300 ease-in-out px-3 py-2.5 justify-between',
           isOpen
-            ? `bg-gradient-to-r ${gradientClass} text-white shadow-md`
-            : 'text-gray-700 hover:bg-gray-100'
+            ? `bg-gradient-to-r ${gradientClass} text-white shadow-lg shadow-purple-500/25 ring-1 ring-white/10`
+            : theme === 'dark'
+              ? 'text-slate-400 hover:bg-slate-800 hover:text-emerald-400'
+              : 'text-gray-700 hover:bg-gray-100'
         )}
       >
-        <div className="flex items-center">
+        <div className="flex items-center overflow-hidden">
           <i className={clsx(icon, 'w-5 text-center mr-3')} />
-          <span className="font-medium">{label}</span>
+          <span className="text-[13px] font-medium truncate">{label}</span>
         </div>
         <svg
           className={clsx(
@@ -75,7 +75,10 @@ const NavSection: React.FC<NavSectionProps> = ({
           ? 'grid-rows-[1fr] opacity-100 mt-2'
           : 'grid-rows-[0fr] opacity-0 mt-0'
       )}>
-        <div className="min-h-0 ml-4 space-y-1 border-l-2 border-gray-200 pl-4">
+        <div className={clsx(
+          'min-h-0 space-y-1 transition-all duration-300 ml-4 border-l-2 pl-4',
+          theme === 'dark' ? 'border-slate-800' : 'border-gray-200'
+        )}>
           {children}
         </div>
       </div>

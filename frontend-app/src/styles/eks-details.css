@@ -2,28 +2,40 @@
  * EKS Details Dashboard Styles
  *
  * Converted from: eks-details.html inline styles
- * Professional AWS-inspired design for Kubernetes monitoring
+ * Professional dark theme design for Kubernetes monitoring
+ * Matches the XamOps application dark theme (#1a1d2e background)
  */
 
-/* CSS Variables */
+/* CSS Variables - Light Theme (Default) */
 .eks-details-page {
   --aws-orange: #ff9900;
-  --aws-blue: #232f3e;
-  --aws-light-blue: #1e88e5;
-  --success-green: #16a34a;
+  --aws-blue: #6366f1;
+  --aws-light-blue: #60a5fa;
+  --success-green: #10b981;
   --warning-amber: #f59e0b;
-  --danger-red: #dc2626;
+  --danger-red: #ef4444;
   --neutral-50: #f9fafb;
   --neutral-100: #f3f4f6;
   --neutral-200: #e5e7eb;
   --neutral-800: #1f2937;
   --neutral-900: #111827;
+  --bg-card: rgba(255, 255, 255, 0.9);
+  --border-color: rgba(99, 102, 241, 0.1);
+  --page-bg: #f9fafb;
+
+  background: var(--page-bg);
+  min-height: 100vh;
 }
 
-/* Page Background */
-.eks-details-page {
-  background: linear-gradient(135deg, #fdfbf7 0%, #f5f1ea 50%, #ebe7df 100%);
-  min-height: 100vh;
+/* CSS Variables - Dark Theme */
+html.dark .eks-details-page {
+  --neutral-50: #1a1d2e;
+  --neutral-100: #252938;
+  --neutral-200: #2d3348;
+  --neutral-800: #e2e8f0;
+  --neutral-900: #f1f5f9;
+  --bg-card: rgba(26, 29, 46, 0.8);
+  --page-bg: #1a1d2e;
 }
 
 /* Health Badge Styles */
@@ -39,28 +51,29 @@
 }
 
 .health-badge.healthy {
-  background: #d1fae5;
-  color: #065f46;
-  border: 1px solid #6ee7b7;
+  background: rgba(16, 185, 129, 0.2);
+  color: #a7f3d0;
+  border: 1px solid rgba(16, 185, 129, 0.4);
 }
 
 .health-badge.degraded {
-  background: #fef3c7;
-  color: #92400e;
-  border: 1px solid #fcd34d;
+  background: rgba(245, 158, 11, 0.2);
+  color: #fcd34d;
+  border: 1px solid rgba(245, 158, 11, 0.4);
 }
 
 .health-badge.at-risk {
-  background: #fee2e2;
-  color: #991b1b;
-  border: 1px solid #fca5a5;
+  background: rgba(239, 68, 68, 0.2);
+  color: #fecaca;
+  border: 1px solid rgba(239, 68, 68, 0.4);
 }
 
-/* Metric Card Styles */
+/* Metric Card Styles - Dark Theme */
 .eks-details-page .metric-card {
-  background: white;
+  background: var(--bg-card);
+  backdrop-filter: blur(10px);
   border-radius: 12px;
-  border: 1px solid var(--neutral-200);
+  border: 1px solid var(--border-color);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
   overflow: hidden;
@@ -73,28 +86,28 @@
   left: 0;
   right: 0;
   height: 3px;
-  background: linear-gradient(90deg, var(--aws-light-blue), var(--aws-orange));
+  background: linear-gradient(90deg, var(--aws-blue), var(--aws-orange));
   opacity: 0;
   transition: opacity 0.3s;
 }
 
 .eks-details-page .metric-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.08);
-  border-color: var(--aws-light-blue);
+  box-shadow: 0 8px 32px rgba(99, 102, 241, 0.15);
+  border-color: rgba(99, 102, 241, 0.3);
 }
 
 .eks-details-page .metric-card:hover::before {
   opacity: 1;
 }
 
-/* Tab Styling */
+/* Tab Styling - Dark Theme */
 .eks-details-page .tab-container {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-start;
   gap: 0.5rem;
-  border-bottom: 2px solid #e5e7eb;
+  border-bottom: 2px solid rgba(99, 102, 241, 0.2);
   padding-bottom: 0;
 }
 
@@ -106,7 +119,7 @@
   transition: all 0.2s ease;
   border: none;
   border-bottom: 3px solid transparent;
-  color: #6b7280;
+  color: #94a3b8;
   background: transparent;
   position: relative;
   cursor: pointer;
@@ -116,20 +129,20 @@
 }
 
 .eks-details-page .tab-button:hover {
-  background: rgba(99, 102, 241, 0.08);
-  color: #6366f1;
+  background: rgba(99, 102, 241, 0.1);
+  color: #a5b4fc;
   border-bottom-color: rgba(99, 102, 241, 0.4);
 }
 
 .eks-details-page .tab-button.active {
-  background: linear-gradient(to bottom, #6366f1, #4f46e5);
-  border-bottom: 3px solid #4338ca;
+  background: linear-gradient(to bottom, rgba(99, 102, 241, 0.2), rgba(79, 70, 229, 0.15));
+  border-bottom: 3px solid #6366f1;
   color: #ffffff;
   font-weight: 700;
-  box-shadow: 0 4px 6px -1px rgba(99, 102, 241, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  box-shadow: 0 4px 6px -1px rgba(99, 102, 241, 0.3), inset 0 1px 0 rgba(99, 102, 241, 0.3);
 }
 
-/* Data Table Styles */
+/* Data Table Styles - Dark Theme */
 .eks-details-page .data-table {
   width: 100%;
   border-collapse: separate;
@@ -137,7 +150,7 @@
 }
 
 .eks-details-page .data-table thead {
-  background: var(--neutral-50);
+  background: rgba(99, 102, 241, 0.1);
   position: sticky;
   top: 0;
   z-index: 10;
@@ -148,29 +161,29 @@
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--neutral-800);
+  color: #e2e8f0;
   padding: 0.75rem 1rem;
   text-align: left;
-  border-bottom: 2px solid var(--neutral-200);
+  border-bottom: 2px solid rgba(99, 102, 241, 0.2);
 }
 
 .eks-details-page .data-table tbody tr {
   transition: background 0.2s;
-  border-bottom: 1px solid var(--neutral-100);
+  border-bottom: 1px solid rgba(99, 102, 241, 0.1);
 }
 
 .eks-details-page .data-table tbody tr:hover {
-  background: var(--neutral-50);
+  background: rgba(99, 102, 241, 0.05);
 }
 
 .eks-details-page .data-table td {
   padding: 1rem;
-  color: var(--neutral-800);
+  color: #cbd5e1;
 }
 
-/* Loading Skeleton */
+/* Loading Skeleton - Dark Theme */
 .eks-details-page .skeleton {
-  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background: linear-gradient(90deg, rgba(99, 102, 241, 0.1) 25%, rgba(99, 102, 241, 0.15) 50%, rgba(99, 102, 241, 0.1) 75%);
   background-size: 200% 100%;
   animation: eks-loading 1.5s ease-in-out infinite;
   border-radius: 0.75rem;
@@ -219,7 +232,7 @@
 
 .eks-details-page .gauge-bg {
   fill: none;
-  stroke: #f1f5f9;
+  stroke: rgba(99, 102, 241, 0.15);
   stroke-width: 10;
 }
 
@@ -231,25 +244,25 @@
   filter: drop-shadow(0 0 3px rgba(0, 0, 0, 0.1));
 }
 
-/* Custom Scrollbar */
+/* Custom Scrollbar - Dark Theme */
 .eks-details-page .custom-scrollbar::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
 .eks-details-page .custom-scrollbar::-webkit-scrollbar-track {
-  background: var(--neutral-100);
+  background: rgba(99, 102, 241, 0.05);
   border-radius: 4px;
 }
 
 .eks-details-page .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: var(--neutral-200);
+  background: rgba(99, 102, 241, 0.2);
   border-radius: 4px;
   transition: background 0.2s;
 }
 
 .eks-details-page .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: var(--neutral-800);
+  background: rgba(99, 102, 241, 0.4);
 }
 
 /* Alert Count Badge */
@@ -280,7 +293,7 @@
   color: white;
 }
 
-/* Health Score Circle */
+/* Health Score Circle - Dark Theme */
 .eks-details-page .health-score {
   display: inline-flex;
   align-items: center;
@@ -294,21 +307,21 @@
 }
 
 .eks-details-page .health-score.excellent {
-  background: linear-gradient(135deg, #d1fae5, #a7f3d0);
-  color: #065f46;
-  box-shadow: 0 0 0 3px #6ee7b7;
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.3), rgba(16, 185, 129, 0.2));
+  color: #a7f3d0;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.3);
 }
 
 .eks-details-page .health-score.good {
-  background: linear-gradient(135deg, #dbeafe, #bfdbfe);
-  color: #1e3a8a;
-  box-shadow: 0 0 0 3px #93c5fd;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.3), rgba(59, 130, 246, 0.2));
+  color: #93c5fd;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3);
 }
 
 .eks-details-page .health-score.poor {
-  background: linear-gradient(135deg, #fee2e2, #fecaca);
-  color: #991b1b;
-  box-shadow: 0 0 0 3px #fca5a5;
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.3), rgba(239, 68, 68, 0.2));
+  color: #fecaca;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.3);
 }
 
 /* Responsive Adjustments */
@@ -347,7 +360,7 @@
   }
 }
 
-/* Node Block Visualization */
+/* Node Block Visualization - Dark Theme */
 .eks-details-page .node-block {
   width: 24px;
   height: 24px;
@@ -363,16 +376,264 @@
 }
 
 .eks-details-page .node-block.underutilized {
-  background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
-  border: 1px solid #93c5fd;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.3) 0%, rgba(59, 130, 246, 0.2) 100%);
+  border: 1px solid rgba(59, 130, 246, 0.5);
 }
 
 .eks-details-page .node-block.balanced {
-  background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
-  border: 1px solid #6ee7b7;
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.3) 0%, rgba(16, 185, 129, 0.2) 100%);
+  border: 1px solid rgba(16, 185, 129, 0.5);
 }
 
 .eks-details-page .node-block.saturated {
-  background: linear-gradient(135deg, #fecaca 0%, #fca5a5 100%);
-  border: 1px solid #f87171;
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.3) 0%, rgba(239, 68, 68, 0.2) 100%);
+  border: 1px solid rgba(239, 68, 68, 0.5);
+}
+
+/* Dark Theme Overrides for Components */
+.eks-details-page .bg-white {
+  background-color: var(--bg-card) !important;
+}
+
+.eks-details-page .bg-gray-50 {
+  background-color: rgba(99, 102, 241, 0.05) !important;
+}
+
+.eks-details-page .bg-gray-100 {
+  background-color: rgba(99, 102, 241, 0.08) !important;
+}
+
+.eks-details-page .text-gray-900 {
+  color: #f1f5f9 !important;
+}
+
+.eks-details-page .text-gray-800 {
+  color: #e2e8f0 !important;
+}
+
+.eks-details-page .text-gray-700 {
+  color: #cbd5e1 !important;
+}
+
+.eks-details-page .text-gray-600 {
+  color: #94a3b8 !important;
+}
+
+.eks-details-page .text-gray-500 {
+  color: #64748b !important;
+}
+
+.eks-details-page .text-gray-400 {
+  color: #475569 !important;
+}
+
+.eks-details-page .border-gray-200 {
+  border-color: rgba(99, 102, 241, 0.15) !important;
+}
+
+.eks-details-page .border-gray-100 {
+  border-color: rgba(99, 102, 241, 0.1) !important;
+}
+
+.eks-details-page .border-gray-300 {
+  border-color: rgba(99, 102, 241, 0.2) !important;
+}
+
+/* Dark theme for colored backgrounds */
+.eks-details-page .bg-slate-100 {
+  background-color: rgba(100, 116, 139, 0.2) !important;
+}
+
+.eks-details-page .bg-blue-50 {
+  background-color: rgba(59, 130, 246, 0.15) !important;
+}
+
+.eks-details-page .bg-indigo-50 {
+  background-color: rgba(99, 102, 241, 0.15) !important;
+}
+
+.eks-details-page .bg-emerald-50 {
+  background-color: rgba(16, 185, 129, 0.15) !important;
+}
+
+.eks-details-page .bg-red-50 {
+  background-color: rgba(239, 68, 68, 0.15) !important;
+}
+
+.eks-details-page .bg-amber-50 {
+  background-color: rgba(245, 158, 11, 0.15) !important;
+}
+
+/* Text colors for icons and accents */
+.eks-details-page .text-slate-600,
+.eks-details-page .text-slate-700 {
+  color: #94a3b8 !important;
+}
+
+.eks-details-page .text-blue-600 {
+  color: #60a5fa !important;
+}
+
+.eks-details-page .text-indigo-600 {
+  color: #818cf8 !important;
+}
+
+.eks-details-page .text-emerald-600 {
+  color: #34d399 !important;
+}
+
+.eks-details-page .text-red-600 {
+  color: #f87171 !important;
+}
+
+.eks-details-page .text-purple-600,
+.eks-details-page .text-purple-700 {
+  color: #a78bfa !important;
+}
+
+/* Dark theme for gradient backgrounds in recommendations */
+.eks-details-page .bg-gradient-to-br {
+  background: linear-gradient(to bottom right, rgba(245, 158, 11, 0.1), rgba(234, 179, 8, 0.05)) !important;
+}
+
+.eks-details-page .from-amber-50 {
+  --tw-gradient-from: rgba(245, 158, 11, 0.1) !important;
+}
+
+.eks-details-page .to-yellow-50 {
+  --tw-gradient-to: rgba(234, 179, 8, 0.05) !important;
+}
+
+.eks-details-page .border-amber-200 {
+  border-color: rgba(245, 158, 11, 0.3) !important;
+}
+
+.eks-details-page .border-amber-300 {
+  border-color: rgba(245, 158, 11, 0.4) !important;
+}
+
+.eks-details-page .bg-amber-100 {
+  background-color: rgba(245, 158, 11, 0.2) !important;
+}
+
+.eks-details-page .text-amber-600 {
+  color: #fbbf24 !important;
+}
+
+.eks-details-page .text-amber-700 {
+  color: #fcd34d !important;
+}
+
+.eks-details-page .bg-purple-50 {
+  background-color: rgba(139, 92, 246, 0.15) !important;
+}
+
+.eks-details-page .text-purple-600 {
+  color: #a78bfa !important;
+}
+
+.eks-details-page .bg-red-100 {
+  background-color: rgba(239, 68, 68, 0.2) !important;
+}
+
+.eks-details-page .text-red-700 {
+  color: #fca5a5 !important;
+}
+
+.eks-details-page .text-red-800 {
+  color: #fecaca !important;
+}
+
+.eks-details-page .bg-blue-100 {
+  background-color: rgba(59, 130, 246, 0.2) !important;
+}
+
+.eks-details-page .text-blue-700 {
+  color: #60a5fa !important;
+}
+
+.eks-details-page .border-red-200 {
+  border-color: rgba(239, 68, 68, 0.3) !important;
+}
+
+.eks-details-page .border-blue-200 {
+  border-color: rgba(59, 130, 246, 0.3) !important;
+}
+
+/* Icon and badge colors */
+.eks-details-page .text-emerald-700 {
+  color: #6ee7b7 !important;
+}
+
+/* Table hover states should be darker */
+.eks-details-page .hover\:bg-gray-50:hover {
+  background-color: rgba(99, 102, 241, 0.05) !important;
+}
+
+/* Button hover states */
+.eks-details-page .hover\:bg-gray-100:hover {
+  background-color: rgba(99, 102, 241, 0.08) !important;
+}
+
+/* Namespace Chart - Dark Theme Fixes */
+.eks-details-page .bg-green-50 {
+  background-color: rgba(16, 185, 129, 0.15) !important;
+}
+
+.eks-details-page .text-green-600 {
+  color: #34d399 !important;
+}
+
+.eks-details-page .text-green-700 {
+  color: #6ee7b7 !important;
+}
+
+.eks-details-page .border-green-200 {
+  border-color: rgba(16, 185, 129, 0.3) !important;
+}
+
+.eks-details-page .bg-green-100 {
+  background-color: rgba(16, 185, 129, 0.2) !important;
+}
+
+.eks-details-page .text-orange-600 {
+  color: #fb923c !important;
+}
+
+.eks-details-page .text-orange-700 {
+  color: #fdba74 !important;
+}
+
+.eks-details-page .bg-orange-50 {
+  background-color: rgba(249, 115, 22, 0.15) !important;
+}
+
+.eks-details-page .bg-orange-100 {
+  background-color: rgba(249, 115, 22, 0.2) !important;
+}
+
+.eks-details-page .border-orange-200 {
+  border-color: rgba(249, 115, 22, 0.3) !important;
+}
+
+.eks-details-page .text-purple-700 {
+  color: #c084fc !important;
+}
+
+/* Override SVG text and backgrounds in namespace chart */
+.eks-details-page svg text {
+  fill: #e2e8f0 !important;
+}
+
+.eks-details-page svg circle[fill="url(#innerGradient)"] {
+  fill: rgba(26, 29, 46, 0.9) !important;
+}
+
+.eks-details-page svg circle[stroke="#e5e7eb"] {
+  stroke: rgba(99, 102, 241, 0.3) !important;
+}
+
+/* Progress bars in namespace section */
+.eks-details-page .bg-gray-200 {
+  background-color: rgba(99, 102, 241, 0.1) !important;
 }

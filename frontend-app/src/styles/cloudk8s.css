@@ -44,6 +44,12 @@
   background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
 }
 
+@media (prefers-color-scheme: dark) {
+  .cloudk8s-page .table-enhanced thead {
+    background: linear-gradient(135deg, #1f2937 0%, #111827 100%);
+  }
+}
+
 .cloudk8s-page .table-enhanced thead th {
   position: sticky;
   top: 0;
@@ -51,11 +57,18 @@
 }
 
 .cloudk8s-page .table-enhanced tbody tr {
+  position: relative;
   transition: all 0.2s ease;
 }
 
 .cloudk8s-page .table-enhanced tbody tr:hover {
   background: rgba(102, 126, 234, 0.05);
+}
+
+@media (prefers-color-scheme: dark) {
+  .cloudk8s-page .table-enhanced tbody tr:hover {
+    background: rgba(102, 126, 234, 0.15);
+  }
 }
 
 /* Status Badge */
@@ -205,10 +218,6 @@
 }
 
 /* Table Row Hover Effect */
-.cloudk8s-page .table-enhanced tbody tr {
-  position: relative;
-}
-
 .cloudk8s-page .table-enhanced tbody tr::after {
   content: '';
   position: absolute;

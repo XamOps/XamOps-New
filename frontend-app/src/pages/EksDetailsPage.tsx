@@ -119,13 +119,13 @@ const EksDetailsPage: React.FC = () => {
   // Handle invalid params
   if (!clusterName || !accountId) {
     return (
-      <main className="eks-details-page flex-1 flex items-center justify-center min-h-screen bg-gray-50">
+      <main className="eks-details-page flex-1 flex items-center justify-center min-h-screen">
         <div className="text-center p-8">
-          <div className="w-20 h-20 bg-red-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <i className="fas fa-exclamation-triangle text-red-500 text-3xl"></i>
+          <div className="w-20 h-20 bg-red-900/20 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-red-500/30">
+            <i className="fas fa-exclamation-triangle text-red-400 text-3xl"></i>
           </div>
-          <h3 className="text-xl font-bold text-gray-800 mb-2">Missing Parameters</h3>
-          <p className="text-gray-600">
+          <h3 className="text-xl font-bold text-gray-100 mb-2">Missing Parameters</h3>
+          <p className="text-gray-400">
             Required parameters missing: {!clusterName && 'clusterName'} {!accountId && 'accountId'}
           </p>
         </div>
@@ -134,7 +134,7 @@ const EksDetailsPage: React.FC = () => {
   }
 
   return (
-    <main className="eks-details-page flex-1 flex flex-col min-h-screen bg-gray-50">
+    <main className="eks-details-page flex-1 flex flex-col min-h-screen">
       <div className="p-8 space-y-8 w-full">
         {/* Old Header Removed */}
 
@@ -152,12 +152,12 @@ const EksDetailsPage: React.FC = () => {
 
         {/* Error State */}
         {error && !loading && (
-          <div className="bg-red-50 border-l-4 border-red-400 p-6 rounded-lg shadow-sm">
+          <div className="bg-red-900/20 border-l-4 border-red-500 p-6 rounded-lg shadow-sm backdrop-blur-sm">
             <div className="flex items-center">
-              <i className="fas fa-exclamation-circle text-red-500 text-2xl mr-4"></i>
+              <i className="fas fa-exclamation-circle text-red-400 text-2xl mr-4"></i>
               <div>
-                <h3 className="text-lg font-bold text-red-800">Error Loading Dashboard</h3>
-                <p className="text-sm text-red-700 mt-1">{error}</p>
+                <h3 className="text-lg font-bold text-red-300">Error Loading Dashboard</h3>
+                <p className="text-sm text-red-400 mt-1">{error}</p>
               </div>
             </div>
           </div>

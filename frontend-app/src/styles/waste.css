@@ -120,7 +120,7 @@
 
 .resource-row:hover {
   transform: translateX(4px);
-  background: linear-gradient(90deg, rgba(102, 126, 234, 0.03) 0%, rgba(102, 126, 234, 0.08) 100%);
+  background: linear-gradient(90deg, rgba(102, 126, 234, 0.03) 0%, rgba(102, 126, 234, 0.06) 100%);
 }
 
 .resource-row::before {

@@ -6,6 +6,7 @@ import {
   Marker,
   ZoomableGroup,
 } from 'react-simple-maps';
+import { useTheme } from '../../contexts/ThemeContext';
 import { AzureRegionStatus } from '../../types/azureDashboard';
 
 interface AzureMapSectionProps {
@@ -26,10 +27,19 @@ const statusColors: Record<string, string> = {
 };
 
 const AzureMapSection: React.FC<AzureMapSectionProps> = ({ regionStatus, isLoading, onRegionClick }) => {
+  const { theme } = useTheme();
   const [tooltipContent, setTooltipContent] = useState<string | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [center, setCenter] = useState<[number, number]>([0, 20]);
+
+  // Map colors based on theme
+  const mapColors = {
+    geography: theme === 'dark' ? '#334155' : '#f1f5f9',
+    stroke: theme === 'dark' ? '#1e293b' : '#cbd5e1',
+    hover: theme === 'dark' ? '#475569' : '#e2e8f0',
+    background: theme === 'dark' ? '#0f172a' : '#f8fafc',
+  };
 
   const handleZoomIn = () => {
     if (zoom < 4) setZoom(zoom * 1.5);
@@ -87,7 +97,7 @@ const AzureMapSection: React.FC<AzureMapSectionProps> = ({ regionStatus, isLoadi
       )}
 
       {/* Map Container */}
-      <div className="relative rounded-lg overflow-hidden bg-slate-50" style={{ height: '480px' }}>
+      <div className="relative rounded-lg overflow-hidden" style={{ height: '480px', backgroundColor: mapColors.background }}>
         {/* Zoom Controls */}
         <div className="absolute bottom-4 left-4 z-50 flex flex-col gap-1">
           <button
@@ -143,12 +153,12 @@ const AzureMapSection: React.FC<AzureMapSectionProps> = ({ regionStatus, isLoadi
                   <Geography
                     key={geo.rsmKey}
                     geography={geo}
-                    fill="#f1f5f9"
-                    stroke="#cbd5e1"
+                    fill={mapColors.geography}
+                    stroke={mapColors.stroke}
                     strokeWidth={0.5}
                     style={{
                       default: { outline: 'none' },
-                      hover: { fill: '#e2e8f0', outline: 'none' },
+                      hover: { fill: mapColors.hover, outline: 'none' },
                       pressed: { outline: 'none' },
                     }}
                   />

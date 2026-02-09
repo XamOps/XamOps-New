@@ -13,6 +13,7 @@ import {
   Marker,
   ZoomableGroup,
 } from 'react-simple-maps';
+import { useTheme } from '../../contexts/ThemeContext';
 import type { RegionStatus } from '../../types/liveDashboard';
 
 interface MapSectionProps {
@@ -32,10 +33,19 @@ const statusColors: Record<string, string> = {
 };
 
 const MapSection: React.FC<MapSectionProps> = ({ regionStatus, isLoading }) => {
+  const { theme } = useTheme();
   const [tooltipContent, setTooltipContent] = useState<string | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [center, setCenter] = useState<[number, number]>([0, 20]);
+
+  // Map colors based on theme
+  const mapColors = {
+    geography: theme === 'dark' ? '#334155' : '#f1f5f9',
+    stroke: theme === 'dark' ? '#1e293b' : '#cbd5e1',
+    hover: theme === 'dark' ? '#475569' : '#e2e8f0',
+    background: theme === 'dark' ? '#0f172a' : '#f8fafc',
+  };
 
   /**
    * Handle region click - show notification
@@ -116,7 +126,7 @@ const MapSection: React.FC<MapSectionProps> = ({ regionStatus, isLoading }) => {
       )}
 
       {/* Map Container */}
-      <div className="relative rounded-lg overflow-hidden bg-slate-50" style={{ height: '480px' }}>
+      <div className="relative rounded-lg overflow-hidden" style={{ height: '480px', backgroundColor: mapColors.background }}>
         {/* Zoom Controls - positioned outside SVG stacking context */}
         <div className="absolute bottom-4 left-4 z-50 flex flex-col gap-1" style={{ pointerEvents: 'auto' }}>
           <button
@@ -178,12 +188,12 @@ const MapSection: React.FC<MapSectionProps> = ({ regionStatus, isLoading }) => {
                   <Geography
                     key={geo.rsmKey}
                     geography={geo}
-                    fill="#f1f5f9"
-                    stroke="#cbd5e1"
+                    fill={mapColors.geography}
+                    stroke={mapColors.stroke}
                     strokeWidth={0.5}
                     style={{
                       default: { outline: 'none' },
-                      hover: { fill: '#e2e8f0', outline: 'none' },
+                      hover: { fill: mapColors.hover, outline: 'none' },
                       pressed: { outline: 'none' },
                     }}
                   />

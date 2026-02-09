@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useLocation, Link } from 'react-router-dom';
+import clsx from 'clsx';
 import { useTopbar } from '../../contexts/TopbarContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { useAccounts } from '../../contexts/AccountContext';
@@ -9,12 +10,14 @@ import SuperAdminTopBar from './SuperAdminTopBar';
 import LogoutModal from './LogoutModal';
 import NotificationDropdown from './NotificationDropdown';
 import BillOpsUserNotificationDropdown from '../BillOps/BillOpsUserNotificationDropdown';
+import { useTheme } from '../../contexts/ThemeContext';
 
 const Topbar: React.FC = () => {
     const location = useLocation();
     const { title: contextTitle, actions, onHelpClick } = useTopbar();
     const { userProfile, logout, hasAnyRole } = useAuth();
     const { selectedAccountIds } = useAccounts();
+    const { theme, toggleTheme } = useTheme();
     const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
 
     const [isProfileOpen, setIsProfileOpen] = useState(false);
@@ -90,12 +93,21 @@ const Topbar: React.FC = () => {
     const pageTitle = contextTitle || getPageTitle(location.pathname);
     const displayName = userProfile?.username || userProfile?.email?.split('@')[0] || 'User';
 
+    // Debug theme
+    console.log('🌗 [Topbar] Render - theme:', theme);
+
     return (
-        <header className="sticky top-0 z-30 w-full">
-            <div className="mx-auto flex h-20 items-center justify-between px-8 backdrop-blur-md bg-white/70 border-b border-gray-200/50 shadow-sm transition-all duration-300">
+        <header className="sticky top-0 z-30 w-full transition-colors duration-300">
+            <div className={clsx(
+                'mx-auto flex h-20 items-center justify-between px-8 border-b shadow-sm transition-all duration-300',
+                theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white/90 backdrop-blur-md border-gray-200/50 text-slate-800'
+            )}>
                 <div className="flex items-center gap-4">
                     <div className="flex flex-col">
-                        <h1 className="text-xl font-bold text-slate-800 tracking-tight">
+                        <h1 className={clsx(
+                            'text-xl font-bold tracking-tight',
+                            theme === 'dark' ? 'text-slate-100' : 'text-slate-800'
+                        )}>
                             {pageTitle}
                         </h1>
                         <div className="flex items-center text-xs font-medium text-slate-400 gap-2">
@@ -123,11 +135,17 @@ const Topbar: React.FC = () => {
                             <div className="relative" ref={notificationRef}>
                                 <button
                                     onClick={toggleNotifications}
-                                    className="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-100/50 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 transition-all relative"
+                                    className={clsx(
+                                        'w-10 h-10 flex items-center justify-center rounded-xl transition-all relative',
+                                        theme === 'dark' ? 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-indigo-400' : 'bg-slate-100/50 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600'
+                                    )}
                                 >
                                     <i className="fas fa-bell"></i>
                                     {counts.total > 0 && (
-                                        <span className="absolute top-2 right-2 w-2 h-2 bg-rose-500 rounded-full border-2 border-white"></span>
+                                        <span className={clsx(
+                                            'absolute top-2 right-2 w-2 h-2 bg-rose-500 rounded-full border-2',
+                                            theme === 'dark' ? 'border-slate-800' : 'border-white'
+                                        )}></span>
                                     )}
                                 </button>
 
@@ -156,7 +174,10 @@ const Topbar: React.FC = () => {
                         {onHelpClick && (
                             <button
                                 onClick={onHelpClick}
-                                className="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-100/50 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 transition-all"
+                                className={clsx(
+                                    'w-10 h-10 flex items-center justify-center rounded-xl transition-all',
+                                    theme === 'dark' ? 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-indigo-400' : 'bg-slate-100/50 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600'
+                                )}
                                 aria-label="Open help guide"
                             >
                                 <i className="fas fa-question-circle"></i>
@@ -164,19 +185,28 @@ const Topbar: React.FC = () => {
                         )}
                     </div>
 
-                    <div className="h-8 w-[1px] bg-slate-200 mx-1"></div>
+                    <div className={clsx(
+                        'h-8 w-[1px] mx-1',
+                        theme === 'dark' ? 'bg-slate-800' : 'bg-slate-200'
+                    )}></div>
 
                     {/* User Profile Dropdown */}
                     <div className="relative" ref={dropdownRef}>
                         <button
                             onClick={toggleProfile}
-                            className={`flex items-center gap-3 pl-2 p-1.5 rounded-2xl transition-all duration-200 ${isProfileOpen ? 'bg-indigo-50' : 'hover:bg-slate-50'}`}
+                            className={clsx(
+                                'flex items-center gap-3 pl-2 p-1.5 rounded-2xl transition-all duration-200',
+                                isProfileOpen ? (theme === 'dark' ? 'bg-slate-800' : 'bg-indigo-50') : (theme === 'dark' ? 'hover:bg-slate-800/50' : 'hover:bg-slate-50')
+                            )}
                         >
                             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-lg shadow-indigo-500/20">
                                 <i className="fas fa-user text-sm"></i>
                             </div>
                             <div className="hidden lg:flex flex-col items-start pr-2">
-                                <span className="text-sm font-semibold text-slate-700">{displayName}</span>
+                                <span className={clsx(
+                                    'text-sm font-semibold',
+                                    theme === 'dark' ? 'text-slate-200' : 'text-slate-700'
+                                )}>{displayName}</span>
                                 <span className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Member</span>
                             </div>
                             <i className={`fas fa-chevron-down text-[10px] text-slate-400 transition-transform duration-200 ${isProfileOpen ? 'rotate-180' : ''}`}></i>
@@ -184,24 +214,73 @@ const Topbar: React.FC = () => {
 
                         {/* Dropdown Menu */}
                         {isProfileOpen && (
-                            <div className="absolute top-full right-0 mt-3 w-56 bg-white rounded-2xl shadow-2xl border border-slate-100 py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
-                                <div className="px-4 py-3 border-b border-slate-50 mb-1">
+                            <div className={clsx(
+                                'absolute top-full right-0 mt-3 w-56 rounded-2xl shadow-2xl border py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-200',
+                                theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-white border-slate-100 text-slate-600'
+                            )}>
+                                <div className={clsx(
+                                    'px-4 py-3 border-b mb-1',
+                                    theme === 'dark' ? 'border-slate-800' : 'border-slate-50'
+                                )}>
                                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Signed in as</p>
-                                    <p className="text-sm font-semibold text-slate-700 truncate">{userProfile?.email || displayName}</p>
+                                    <p className={clsx(
+                                        'text-sm font-semibold truncate',
+                                        theme === 'dark' ? 'text-slate-200' : 'text-slate-700'
+                                    )}>{userProfile?.email || displayName}</p>
                                 </div>
 
                                 <Link
                                     to="/my-profile"
                                     onClick={() => setIsProfileOpen(false)}
-                                    className="flex items-center gap-3 px-4 py-2.5 text-sm text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
+                                    className={clsx(
+                                        'flex items-center gap-3 px-4 py-2.5 text-sm transition-colors',
+                                        theme === 'dark' ? 'hover:bg-slate-800 hover:text-indigo-400' : 'hover:bg-indigo-50 hover:text-indigo-600'
+                                    )}
                                 >
-                                    <div className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center group-hover:bg-white transition-colors">
+                                    <div className={clsx(
+                                        'w-7 h-7 rounded-lg flex items-center justify-center transition-colors',
+                                        theme === 'dark' ? 'bg-slate-800 group-hover:bg-slate-700' : 'bg-slate-100 group-hover:bg-white'
+                                    )}>
                                         <i className="fas fa-user-circle text-xs"></i>
                                     </div>
                                     <span>My Profile</span>
                                 </Link>
 
-                                <div className="mx-2 my-1 border-t border-slate-50"></div>
+                                {/* Theme Toggle Switch */}
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        toggleTheme();
+                                    }}
+                                    className={clsx(
+                                        'w-full flex items-center justify-between px-4 py-2.5 text-sm transition-colors',
+                                        theme === 'dark' ? 'hover:bg-slate-800 hover:text-indigo-400' : 'hover:bg-indigo-50 hover:text-indigo-600'
+                                    )}
+                                >
+                                    <div className="flex items-center gap-3">
+                                        <div className={clsx(
+                                            'w-7 h-7 rounded-lg flex items-center justify-center transition-colors',
+                                            theme === 'dark' ? 'bg-slate-800 text-yellow-400' : 'bg-slate-100 text-slate-500'
+                                        )}>
+                                            <i className={clsx('fas', theme === 'dark' ? 'fa-moon' : 'fa-sun', 'text-xs')}></i>
+                                        </div>
+                                        <span>Dark Mode</span>
+                                    </div>
+                                    <div className={clsx(
+                                        'w-8 h-4 rounded-full relative transition-colors duration-200',
+                                        theme === 'dark' ? 'bg-indigo-600' : 'bg-gray-300'
+                                    )}>
+                                        <div className={clsx(
+                                            'absolute top-0.5 w-3 h-3 bg-white rounded-full transition-transform duration-200',
+                                            theme === 'dark' ? 'left-4.5' : 'left-0.5'
+                                        )}></div>
+                                    </div>
+                                </button>
+
+                                <div className={clsx(
+                                    'mx-2 my-1 border-t',
+                                    theme === 'dark' ? 'border-slate-800' : 'border-slate-50'
+                                )}></div>
 
                                 <button
                                     onClick={handleLogoutClick}

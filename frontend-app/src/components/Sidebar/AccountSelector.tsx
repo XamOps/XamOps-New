@@ -1,13 +1,7 @@
-/**
- * AccountSelector Component
- *
- * Dropdown for selecting cloud accounts with multi-account support
- * Converted from: _sidebar.html (account selector dropdown)
- */
-
-import React from 'react';
+import React, { useRef, useEffect } from 'react';
 import { useAccounts } from '../../contexts/AccountContext';
-import { Account } from '../../types/account';
+import { useTheme } from '../../contexts/ThemeContext';
+import { Account, CloudProvider } from '../../types/account';
 import clsx from 'clsx';
 
 interface AccountSelectorProps {
@@ -18,106 +12,121 @@ interface AccountSelectorProps {
 
 const AccountSelector: React.FC<AccountSelectorProps> = ({ isOpen, onToggle, onClose }) => {
   const {
-    selectedAccountDisplay,
-    filteredAccounts,
-    awsAccounts,
-    gcpAccounts,
-    azureAccounts,
-    searchTerm,
-    setSearchTerm,
     multiAccountMode,
-    toggleMultiAccountMode,
     isDashboardPage,
     isLoading,
-    toggleAccount,
+    searchTerm,
+    setSearchTerm,
+    filteredAccounts,
+    awsAccounts,
+    azureAccounts,
+    gcpAccounts,
     isAccountSelected,
     isAccountDisabled,
+    toggleAccount,
     selectAllAws,
     selectAllGcp,
     selectAllAzure,
     clearAllSelections,
     applySelection,
+    toggleMultiAccountMode,
     getProviderIcon,
   } = useAccounts();
 
-  React.useEffect(() => {
-    if (!isOpen) return;
+  const { theme } = useTheme();
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
+  // Close on Escape key
+  useEffect(() => {
+    if (!isOpen) return;
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
-
     document.addEventListener('keydown', handleEscape);
     return () => document.removeEventListener('keydown', handleEscape);
   }, [isOpen, onClose]);
 
-  const renderAccountGroup = (title: string, accounts: Account[], selectAllFn?: () => void) => {
-    if (accounts.length === 0) return null;
+
+  // Helper to get provider theme colors
+  const getProviderColor = (provider?: CloudProvider) => {
+    switch (provider) {
+      case 'AWS': return 'bg-orange-500';
+      case 'GCP': return 'bg-blue-500';
+      case 'Azure': return 'bg-blue-600';
+      default: return 'bg-gray-500';
+    }
+  };
+
+  const renderAccountGroup = (title: string, groupAccounts: Account[], selectAllFn?: () => void) => {
+    if (groupAccounts.length === 0) return null;
 
     return (
-      <section className="mb-4" aria-labelledby={`account-group-${title.replace(/\s+/g, '-').toLowerCase()}`}>
-        <div className="flex items-center justify-between px-4 py-2 bg-gray-50">
-          <h4 id={`account-group-${title.replace(/\s+/g, '-').toLowerCase()}`} className="text-xs font-semibold text-gray-700 uppercase tracking-wider">{title}</h4>
-          {multiAccountMode && selectAllFn && (
+      <section className="mb-4">
+        <div className={clsx(
+          'flex items-center justify-between px-3 py-1.5 rounded-lg mb-1',
+          theme === 'dark' ? 'bg-slate-800/40' : 'bg-gray-50'
+        )}>
+          <h4 className={clsx(
+            'text-[10px] font-bold uppercase tracking-widest',
+            theme === 'dark' ? 'text-slate-500' : 'text-gray-500'
+          )}>{title}</h4>
+          {multiAccountMode && isDashboardPage && selectAllFn && (
             <button
-              onClick={selectAllFn}
-              className="text-xs text-indigo-600 hover:text-indigo-700 font-medium"
+              onClick={(e) => { e.stopPropagation(); selectAllFn(); }}
+              className="text-[10px] text-indigo-400 hover:text-indigo-300 font-bold uppercase tracking-wider transition-colors"
             >
               Select All
             </button>
           )}
         </div>
-        <div className="max-h-48 overflow-y-auto" role="listbox">
-          {accounts.map(account => {
+        <div className="space-y-0.5">
+          {groupAccounts.map(account => {
             const selected = isAccountSelected(account.id);
             const disabled = isAccountDisabled(account.id);
+
+            const itemButtonStyles = selected
+              ? (theme === 'dark' ? 'bg-indigo-500/10 text-indigo-400 ring-1 ring-indigo-500/20' : 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-500/10')
+              : (theme === 'dark' ? 'hover:bg-slate-800 text-slate-400 hover:text-slate-200' : 'hover:bg-slate-50 text-slate-600 hover:text-slate-900');
 
             return (
               <button
                 key={account.id}
                 onClick={() => !disabled && toggleAccount(account.id)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    !disabled && toggleAccount(account.id);
-                  }
-                }}
                 className={clsx(
-                  'w-full flex items-center px-4 py-3 cursor-pointer transition-colors text-left',
-                  disabled && 'opacity-50 cursor-not-allowed',
-                  !disabled && 'hover:bg-gray-50',
-                  selected && !disabled && 'bg-indigo-50'
+                  'w-full flex items-center justify-between p-2 rounded-xl transition-all duration-200 group relative',
+                  disabled && 'opacity-40 cursor-not-allowed',
+                  !disabled && itemButtonStyles
                 )}
                 disabled={disabled}
-                role="option"
-                aria-selected={selected}
               >
-                {multiAccountMode && isDashboardPage && (
-                  <input
-                    type="checkbox"
-                    checked={selected}
-                    disabled={disabled}
-                    readOnly
-                    className="mr-3 h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
-                  />
-                )}
-                <img
-                  src={getProviderIcon(account.provider)}
-                  alt={account.provider}
-                  className="w-6 h-6 mr-3"
-                />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-900 truncate">{account.name}</p>
-                  <p className="text-xs text-gray-500 truncate">{account.id}</p>
+                <div className="flex items-center gap-3 overflow-hidden">
+                  {multiAccountMode && isDashboardPage && (
+                    <div className={clsx(
+                      'w-4 h-4 rounded border transition-colors flex items-center justify-center',
+                      selected ? 'bg-indigo-500 border-indigo-500 shadow-sm shadow-indigo-500/20' : (theme === 'dark' ? 'border-slate-700 bg-slate-800' : 'border-gray-300 bg-white')
+                    )}>
+                      {selected && <i className="fas fa-check text-[8px] text-white"></i>}
+                    </div>
+                  )}
+                  <div className={clsx(
+                    'w-7 h-7 rounded-lg flex items-center justify-center text-white text-[10px] transition-transform group-hover:scale-105 shadow-sm',
+                    getProviderColor(account.provider)
+                  )}>
+                    <i className={clsx('fab', getProviderIcon(account.provider))}></i>
+                  </div>
+                  <div className="flex flex-col items-start overflow-hidden text-left">
+                    <span className="text-xs font-semibold truncate w-full">
+                      {account.name}
+                    </span>
+                    <span className="text-[10px] opacity-60 font-medium">
+                      {account.id.toString().substring(0, 4)}...{account.id.toString().slice(-4)}
+                    </span>
+                  </div>
                 </div>
-                {selected && (
-                  <svg className="w-5 h-5 text-indigo-600" fill="currentColor" viewBox="0 0 20 20">
-                    <path
-                      fillRule="evenodd"
-                      d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
+                {selected && !multiAccountMode && (
+                  <div className="w-4 h-4 bg-indigo-500 rounded-full flex items-center justify-center shadow-lg shadow-indigo-500/20">
+                    <i className="fas fa-check text-[8px] text-white"></i>
+                  </div>
                 )}
               </button>
             );
@@ -127,123 +136,115 @@ const AccountSelector: React.FC<AccountSelectorProps> = ({ isOpen, onToggle, onC
     );
   };
 
+
+
   return (
     <div className="relative">
-      {/* Account Selector Button */}
+      {/* Selector Button */}
       <button
         onClick={onToggle}
-        className="w-full flex items-center justify-between p-3 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500"
+        className={clsx(
+          'w-full flex items-center justify-between p-3 border rounded-xl transition-all duration-300 shadow-sm',
+          isOpen
+            ? (theme === 'dark' ? 'bg-slate-800 border-indigo-500/50 shadow-indigo-500/10' : 'bg-white border-indigo-200 shadow-indigo-500/10')
+            : (theme === 'dark' ? 'bg-slate-800/40 border-slate-700/50 hover:bg-slate-800 hover:border-slate-600' : 'bg-white border-gray-100 hover:border-indigo-100 shadow-sm')
+        )}
       >
-        <div className="flex items-center flex-1 min-w-0">
-          <div className="account-avatar w-10 h-10 rounded-full flex items-center justify-center text-white font-bold mr-3 flex-shrink-0">
-            {selectedAccountDisplay.name === 'Select Accounts' ? (
-              'X'
-            ) : (
-              <span>{selectedAccountDisplay.name.charAt(0).toUpperCase()}</span>
-            )}
+        <div className="flex items-center gap-3 overflow-hidden">
+          <div className={clsx(
+            'flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm transition-all duration-300',
+            theme === 'dark' ? 'bg-indigo-600' : 'bg-[#704fe6]'
+          )}>
+            X
           </div>
-          <div className="flex-1 min-w-0 text-left">
-            <p className="text-sm font-semibold text-gray-900 truncate">
-              {selectedAccountDisplay.name}
-            </p>
-            <p className="text-xs text-gray-500 truncate">{selectedAccountDisplay.id}</p>
+          <div className="flex flex-col items-start overflow-hidden text-left">
+            <span className={clsx(
+              'text-sm font-bold truncate w-full',
+              theme === 'dark' ? 'text-slate-100' : 'text-slate-800'
+            )}>
+              Xammer
+            </span>
+            <span className="text-xs text-slate-400 font-medium lowercase">
+              xamops
+            </span>
           </div>
         </div>
-        {isLoading ? (
-          <svg
-            className="animate-spin h-5 w-5 text-gray-400"
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-          >
-            <circle
-              className="opacity-25"
-              cx="12"
-              cy="12"
-              r="10"
-              stroke="currentColor"
-              strokeWidth="4"
-            />
-            <path
-              className="opacity-75"
-              fill="currentColor"
-              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-            />
-          </svg>
-        ) : (
-          <svg
-            className={clsx(
-              'w-5 h-5 text-gray-400 transition-transform duration-200',
-              isOpen && 'transform rotate-180'
-            )}
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
-        )}
+        <i className={clsx(
+          'fas fa-chevron-down text-[10px] transition-transform duration-300 mr-1',
+          theme === 'dark' ? 'text-slate-500' : 'text-slate-400',
+          isOpen ? 'rotate-180 text-indigo-500' : ''
+        )}></i>
       </button>
 
-      {/* Dropdown Menu - Smooth Transition Wrapper */}
-      <div className={clsx(
-        'fixed inset-0 z-10 transition-opacity duration-200 ease-linear',
-        isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
-      )}>
-        {/* Backdrop */}
-        <button
-          className="absolute inset-0 bg-black/5 w-full h-full cursor-default"
-          onClick={onClose}
-          aria-label="Close Account Selector"
-        />
-      </div>
-
-      <div className={clsx(
-        'absolute left-0 right-0 mt-2 bg-white rounded-lg shadow-xl border border-gray-200 z-20 overflow-hidden grid transition-[grid-template-rows,opacity,transform] duration-200 ease-[cubic-bezier(0.2,1,0.2,1)] will-change-[grid-template-rows,opacity,transform]',
-        isOpen
-          ? 'grid-rows-[1fr] opacity-100 translate-y-0 scale-100'
-          : 'grid-rows-[0fr] opacity-0 -translate-y-2 scale-95 pointer-events-none'
-      )}>
-        <div className="min-h-0 flex flex-col max-h-[600px]">
+      {/* Dropdown Menu */}
+      {isOpen && (
+        <div
+          ref={dropdownRef}
+          className={clsx(
+            'absolute left-0 mt-3 w-full rounded-2xl shadow-2xl border z-[60] animate-in fade-in slide-in-from-top-4 duration-300 top-full',
+            theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'
+          )}
+        >
           {/* Multi-Account Mode Toggle (Dashboard Only) */}
           {isDashboardPage && (
-            <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-gray-700">Multi-Account Mode</span>
-                <button
-                  onClick={toggleMultiAccountMode}
-                  className={clsx(
-                    'toggle-switch focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2',
-                    multiAccountMode && 'active'
-                  )}
-                  aria-pressed={multiAccountMode}
-                  aria-label="Toggle Multi-Account Mode"
-                >
-                  <div className="toggle-slider" />
-                </button>
+            <div className={clsx(
+              'px-4 py-3 border-b flex items-center justify-between transition-colors',
+              theme === 'dark' ? 'bg-slate-800/20 border-slate-800' : 'bg-indigo-50/30 border-slate-50'
+            )}>
+              <div className="flex flex-col">
+                <span className={clsx(
+                  'text-xs font-bold leading-none',
+                  theme === 'dark' ? 'text-slate-300' : 'text-slate-700'
+                )}>Multi-Account Mode</span>
+                <span className="text-[9px] text-slate-400 mt-1">Select up to 10 accounts</span>
               </div>
-              <p className="text-xs text-gray-500 mt-1">
-                Select up to 10 accounts from the same provider
-              </p>
+              <button
+                onClick={(e) => { e.stopPropagation(); toggleMultiAccountMode(); }}
+                className={clsx(
+                  'w-8 h-4 rounded-full relative transition-colors duration-200',
+                  multiAccountMode ? 'bg-indigo-600' : (theme === 'dark' ? 'bg-slate-700' : 'bg-gray-300')
+                )}
+              >
+                <div className={clsx(
+                  'absolute top-0.5 w-3 h-3 bg-white rounded-full transition-transform duration-200',
+                  multiAccountMode ? 'left-4.5' : 'left-0.5'
+                )}></div>
+              </button>
             </div>
           )}
 
           {/* Search Box */}
-          <div className="p-4 border-b border-gray-200">
-            <input
-              type="text"
-              placeholder="Search accounts..."
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-            />
+          <div className={clsx(
+            'p-4 border-b transition-colors',
+            theme === 'dark' ? 'border-slate-800' : 'border-slate-50'
+          )}>
+            <div className="relative group">
+              <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[10px] transition-colors group-focus-within:text-indigo-500"></i>
+              <input
+                type="text"
+                placeholder="Search accounts..."
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                className={clsx(
+                  'w-full pl-9 pr-4 py-2 border rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all',
+                  theme === 'dark' ? 'bg-slate-800 border-slate-700 text-slate-200 placeholder-slate-600 focus:border-indigo-500/50' : 'bg-slate-50 border-gray-100 text-slate-700 placeholder-slate-400 focus:border-indigo-300'
+                )}
+                autoFocus
+              />
+            </div>
           </div>
 
-          {/* Account List */}
-          <div className="flex-1 overflow-y-auto min-h-0">
-            {filteredAccounts.length === 0 ? (
-              <div className="px-4 py-8 text-center text-gray-500">
-                <p className="text-sm">No accounts found</p>
+          {/* Account Lists */}
+          <div className="max-h-72 overflow-y-auto p-2 custom-scrollbar">
+            {isLoading ? (
+              <div className="py-12 flex flex-col items-center justify-center gap-3">
+                <div className="w-8 h-8 border-2 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin"></div>
+                <span className="text-xs text-slate-400 font-medium">Loading accounts...</span>
+              </div>
+            ) : filteredAccounts.length === 0 ? (
+              <div className="py-12 flex flex-col items-center justify-center gap-2">
+                <i className="fas fa-search text-slate-200 dark:text-slate-800 text-2xl"></i>
+                <p className="text-xs text-slate-400">No accounts found</p>
               </div>
             ) : (
               <>
@@ -255,27 +256,34 @@ const AccountSelector: React.FC<AccountSelectorProps> = ({ isOpen, onToggle, onC
           </div>
 
           {/* Actions */}
-          <div className="px-4 py-3 border-t border-gray-200 bg-gray-50 flex gap-2">
-            {multiAccountMode && (
+          <div className={clsx(
+            'p-3 border-t flex gap-2 transition-colors',
+            theme === 'dark' ? 'bg-slate-800/50 border-slate-800' : 'bg-slate-50/50 border-slate-50'
+          )}>
+            {multiAccountMode && isDashboardPage && (
               <button
-                onClick={clearAllSelections}
-                className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                onClick={(e) => { e.stopPropagation(); clearAllSelections(); }}
+                className={clsx(
+                  'flex-1 px-4 py-2 text-xs font-bold rounded-xl border transition-all',
+                  theme === 'dark' ? 'border-slate-700 text-slate-400 hover:bg-slate-800 hover:text-slate-200' : 'bg-white border-gray-200 text-slate-600 hover:bg-slate-50'
+                )}
               >
-                Clear All
+                Clear
               </button>
             )}
             <button
-              onClick={() => {
+              onClick={(e) => {
+                e.stopPropagation();
                 applySelection();
                 onClose();
               }}
-              className="flex-1 px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors"
+              className="flex-[2] px-4 py-2 text-xs font-bold text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 shadow-lg shadow-indigo-600/20 transition-all hover:-translate-y-0.5"
             >
-              Apply
+              Apply Selection
             </button>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };

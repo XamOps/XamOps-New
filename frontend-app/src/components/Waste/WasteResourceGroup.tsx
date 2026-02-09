@@ -71,11 +71,11 @@ const WasteResourceGroup: React.FC<WasteResourceGroupProps> = ({
       {/* Group Header */}
       <div
         onClick={onToggle}
-        className="flex items-center justify-between p-6 cursor-pointer hover:bg-gray-50/50 transition-colors"
+        className="flex items-center justify-between p-6 cursor-pointer hover:bg-gray-50/50 dark:hover:bg-gray-800/30 transition-colors"
       >
         <div className="flex items-center space-x-4 flex-1">
           <i
-            className={`fas fa-chevron-right text-gray-400 w-5 text-center transition-all ${
+            className={`fas fa-chevron-right text-gray-400 dark:text-gray-500 w-5 text-center transition-all ${
               isOpen ? 'rotate-90' : ''
             }`}
           ></i>
@@ -90,8 +90,8 @@ const WasteResourceGroup: React.FC<WasteResourceGroupProps> = ({
             />
           </div>
           <div className="flex-1">
-            <h3 className="font-bold text-gray-800 text-lg">{serviceType}</h3>
-            <p className="text-sm text-gray-600">Wasted Resource Category</p>
+            <h3 className="font-bold text-gray-800 dark:text-gray-200 text-lg">{serviceType}</h3>
+            <p className="text-sm text-gray-600 dark:text-gray-400">Wasted Resource Category</p>
           </div>
           <div className="resource-counter text-sm font-bold px-4 py-2 rounded-full">
             {resources.length}
@@ -101,12 +101,12 @@ const WasteResourceGroup: React.FC<WasteResourceGroupProps> = ({
 
       {/* Resource List */}
       {isOpen && (
-        <div className="bg-gradient-to-r from-gray-50/30 to-gray-100/30">
+        <div className="bg-gradient-to-r from-gray-50/10 to-gray-100/10 dark:from-gray-800/20 dark:to-gray-900/20">
           {resources.map((resource) => {
             const isDetailsOpen = expandedResources.has(resource.resourceId);
 
             return (
-              <div key={resource.resourceId} className="resource-row border-t border-gray-200/50">
+              <div key={resource.resourceId} className="resource-row border-t border-gray-200/30 dark:border-gray-700/30">
                 {/* Resource Row */}
                 <div
                   onClick={() => toggleResourceDetails(resource.resourceId)}
@@ -114,26 +114,26 @@ const WasteResourceGroup: React.FC<WasteResourceGroupProps> = ({
                 >
                   <div className="col-span-5 flex items-center space-x-4">
                     <i
-                      className={`fas fa-chevron-right text-gray-400 w-5 text-center transition-all ${
+                      className={`fas fa-chevron-right text-gray-400 dark:text-gray-500 w-5 text-center transition-all ${
                         isDetailsOpen ? 'rotate-90' : ''
                       }`}
                     ></i>
                     <div className="flex-1 min-w-0">
-                      <p className="font-bold text-gray-800 truncate">
+                      <p className="font-bold text-gray-800 dark:text-gray-200 truncate">
                         {resource.resourceName || 'Untitled'}
                       </p>
-                      <p className="font-mono text-xs text-gray-500 truncate">
+                      <p className="font-mono text-xs text-gray-500 dark:text-gray-400 truncate">
                         {resource.resourceId}
                       </p>
                     </div>
                   </div>
                   <div className="col-span-2 flex items-center space-x-2">
-                    <i className="fas fa-map-marker-alt text-gray-400 text-xs"></i>
-                    <span className="font-semibold text-gray-600">{resource.region}</span>
+                    <i className="fas fa-map-marker-alt text-gray-400 dark:text-gray-500 text-xs"></i>
+                    <span className="font-semibold text-gray-600 dark:text-gray-300">{resource.region}</span>
                   </div>
                   <div className="col-span-2 flex items-center space-x-1">
-                    <i className="fas fa-dollar-sign text-red-500 text-xs"></i>
-                    <span className="font-bold text-red-600">
+                    <i className="fas fa-dollar-sign text-red-500 dark:text-red-400 text-xs"></i>
+                    <span className="font-bold text-red-600 dark:text-red-400">
                       {resource.monthlySavings.toFixed(2)}
                     </span>
                   </div>
@@ -159,26 +159,26 @@ const WasteResourceGroup: React.FC<WasteResourceGroupProps> = ({
 
                 {/* Resource Details */}
                 {isDetailsOpen && (
-                  <div className="resource-details p-6 pl-24 text-sm text-gray-700 bg-gray-50/50 border-t border-gray-200">
-                    <h4 className="font-semibold text-base mb-3 text-gray-800">Waste Details:</h4>
+                  <div className="resource-details p-6 pl-24 text-sm text-gray-700 dark:text-gray-300 bg-gray-50/20 dark:bg-gray-800/20 border-t border-gray-200/30 dark:border-gray-700/30">
+                    <h4 className="font-semibold text-base mb-3 text-gray-800 dark:text-gray-200">Waste Details:</h4>
                     <div className="grid grid-cols-2 gap-3">
                       <div className="flex items-start">
-                        <strong className="text-gray-600 mr-2">Reason:</strong>
-                        <span className="text-gray-700">{resource.reason}</span>
+                        <strong className="text-gray-600 dark:text-gray-400 mr-2">Reason:</strong>
+                        <span className="text-gray-700 dark:text-gray-300">{resource.reason}</span>
                       </div>
                       <div className="flex items-start">
-                        <strong className="text-gray-600 mr-2">Monthly Cost:</strong>
-                        <span className="text-red-600 font-semibold">
+                        <strong className="text-gray-600 dark:text-gray-400 mr-2">Monthly Cost:</strong>
+                        <span className="text-red-600 dark:text-red-400 font-semibold">
                           ${resource.monthlySavings.toFixed(2)}
                         </span>
                       </div>
                       <div className="flex items-start">
-                        <strong className="text-gray-600 mr-2">Region:</strong>
-                        <span className="text-gray-700">{resource.region}</span>
+                        <strong className="text-gray-600 dark:text-gray-400 mr-2">Region:</strong>
+                        <span className="text-gray-700 dark:text-gray-300">{resource.region}</span>
                       </div>
                       <div className="flex items-start">
-                        <strong className="text-gray-600 mr-2">Resource Type:</strong>
-                        <span className="text-gray-700">{resource.resourceType}</span>
+                        <strong className="text-gray-600 dark:text-gray-400 mr-2">Resource Type:</strong>
+                        <span className="text-gray-700 dark:text-gray-300">{resource.resourceType}</span>
                       </div>
                     </div>
                   </div>

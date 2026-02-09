@@ -5,19 +5,37 @@
  * Enhanced for a more professional, smooth UI
  */
 
+/* CSS Variables - Light Theme (Default) */
+:root {
+  --billops-user-page-bg: #f9fafb;
+  --billops-user-text-primary: #111827;
+  --billops-user-text-secondary: #6b7280;
+  --billops-user-glass-bg: rgba(255, 255, 255, 0.9);
+  --billops-user-glass-border: rgba(99, 102, 241, 0.1);
+}
+
+/* CSS Variables - Dark Theme */
+html.dark {
+  --billops-user-page-bg: #1a1d2e;
+  --billops-user-text-primary: #f1f5f9;
+  --billops-user-text-secondary: #94a3b8;
+  --billops-user-glass-bg: rgba(26, 29, 46, 0.8);
+  --billops-user-glass-border: rgba(99, 102, 241, 0.1);
+}
+
 /* Page Container */
 .billops-user-dashboard {
   min-height: 100vh;
-  background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ef 100%);
-  color: #1f2937;
+  background: var(--billops-user-page-bg);
+  color: var(--billops-user-text-primary);
 }
 
 /* Glass Card Effect */
 .billops-glass-card {
-  background: rgba(255, 255, 255, 0.95);
+  background: var(--billops-user-glass-bg);
   backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.5);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
+  border: 1px solid var(--billops-user-glass-border);
+  box-shadow: 0 8px 32px rgba(99, 102, 241, 0.15);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
   overflow: hidden;
@@ -30,7 +48,7 @@
   left: -100%;
   width: 100%;
   height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+  background: linear-gradient(90deg, transparent, rgba(99, 102, 241, 0.2), transparent);
   transition: left 0.5s;
 }
 
@@ -40,8 +58,8 @@
 
 .billops-glass-card:hover {
   transform: translateY(-4px);
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08);
-  border-color: rgba(99, 102, 241, 0.2);
+  box-shadow: 0 20px 25px -5px rgba(99, 102, 241, 0.25);
+  border-color: rgba(99, 102, 241, 0.3);
 }
 
 /* Metric Cards */
@@ -52,7 +70,7 @@
 
 .billops-metric-value {
   font-weight: 800;
-  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+  background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -136,10 +154,10 @@
 
 /* Header Styles */
 .billops-header {
-  background: linear-gradient(to right, #ffffff, #f9fafb, #ffffff);
-  border-bottom: 1px solid #e5e7eb;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-  backdrop-filter: blur(8px);
+  background: var(--billops-user-glass-bg);
+  border-bottom: 1px solid rgba(99, 102, 241, 0.1);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(10px);
 }
 
 .billops-header-icon {
@@ -189,15 +207,16 @@
 
 /* Account Card */
 .billops-account-card {
-  background: rgba(255, 255, 255, 0.5);
-  border: 1px solid #f3f4f6;
+  background: var(--billops-user-glass-bg);
+  border: 1px solid rgba(99, 102, 241, 0.15);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .billops-account-card:hover {
-  background: #ffffff;
+  background: var(--billops-user-glass-bg);
   transform: translateY(-4px);
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 10px 25px rgba(99, 102, 241, 0.2);
+  border-color: rgba(99, 102, 241, 0.3);
 }
 
 /* Status Badges */
@@ -269,22 +288,22 @@
   color: #ef4444;
 }
 
-/* List Items */
+/* List Items - Dark Theme */
 .billops-list-item {
-  background: rgba(249, 250, 251, 0.8);
+  background: rgba(99, 102, 241, 0.05);
   transition: all 0.2s ease;
   border: 1px solid transparent;
 }
 
 .billops-list-item:hover {
-  background: #ffffff;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-  border-color: #f3f4f6;
+  background: rgba(99, 102, 241, 0.1);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.15);
+  border-color: rgba(99, 102, 241, 0.2);
 }
 
-/* Progress Bar */
+/* Progress Bar - Dark Theme */
 .billops-progress-track {
-  background: #f3f4f6;
+  background: rgba(99, 102, 241, 0.1);
   height: 6px;
   border-radius: 3px;
   overflow: hidden;
@@ -297,23 +316,23 @@
   transition: width 0.5s ease;
 }
 
-/* Custom Scrollbar */
+/* Custom Scrollbar - Dark Theme */
 .billops-scrollbar::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
 .billops-scrollbar::-webkit-scrollbar-track {
-  background: #f1f5f9;
+  background: rgba(99, 102, 241, 0.05);
 }
 
 .billops-scrollbar::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: rgba(99, 102, 241, 0.2);
   border-radius: 3px;
 }
 
 .billops-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: rgba(99, 102, 241, 0.4);
 }
 
 /* Chart Container */
@@ -341,10 +360,10 @@
   }
 }
 
-/* Empty State */
+/* Empty State - Dark Theme */
 .billops-empty-state {
-  background: rgba(249, 250, 251, 0.5);
-  border: 2px dashed #e5e7eb;
+  background: rgba(99, 102, 241, 0.05);
+  border: 2px dashed rgba(99, 102, 241, 0.2);
 }
 
 /* Live Indicator */
@@ -363,7 +382,7 @@
   }
 }
 
-/* Provider Icon Stack */
+/* Provider Icon Stack - Dark Theme */
 .billops-provider-stack {
   display: flex;
   margin-left: -8px;
@@ -373,12 +392,12 @@
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: #ffffff;
+  background: rgba(26, 29, 46, 0.9);
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 2px solid #ffffff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  border: 2px solid rgba(99, 102, 241, 0.2);
+  box-shadow: 0 1px 3px rgba(99, 102, 241, 0.3);
   margin-left: -8px;
 }
 
@@ -430,4 +449,105 @@
   to {
     transform: rotate(360deg);
   }
+}
+
+/* Text Color Overrides - Light Theme */
+.billops-user-dashboard .text-gray-900 {
+  color: #111827 !important;
+}
+
+.billops-user-dashboard .text-gray-800 {
+  color: #1f2937 !important;
+}
+
+.billops-user-dashboard .text-gray-700 {
+  color: #374151 !important;
+}
+
+.billops-user-dashboard .text-gray-600 {
+  color: #4b5563 !important;
+}
+
+.billops-user-dashboard .text-gray-500 {
+  color: #6b7280 !important;
+}
+
+.billops-user-dashboard .text-gray-400 {
+  color: #9ca3af !important;
+}
+
+/* Text Color Overrides - Dark Theme */
+html.dark .billops-user-dashboard .text-gray-900 {
+  color: #f1f5f9 !important;
+}
+
+html.dark .billops-user-dashboard .text-gray-800 {
+  color: #e2e8f0 !important;
+}
+
+html.dark .billops-user-dashboard .text-gray-700 {
+  color: #cbd5e1 !important;
+}
+
+html.dark .billops-user-dashboard .text-gray-600 {
+  color: #94a3b8 !important;
+}
+
+html.dark .billops-user-dashboard .text-gray-500 {
+  color: #64748b !important;
+}
+
+html.dark .billops-user-dashboard .text-gray-400 {
+  color: #475569 !important;
+}
+
+/* Background Overrides - Light Theme */
+.billops-user-dashboard .bg-white {
+  background-color: rgba(255, 255, 255, 0.9) !important;
+}
+
+/* Background Overrides - Dark Theme */
+html.dark .billops-user-dashboard .bg-white {
+  background-color: rgba(26, 29, 46, 0.8) !important;
+}
+
+.billops-user-dashboard .bg-gray-50 {
+  background-color: #f9fafb !important;
+}
+
+html.dark .billops-user-dashboard .bg-gray-50 {
+  background-color: rgba(99, 102, 241, 0.05) !important;
+}
+
+.billops-user-dashboard .bg-gray-100 {
+  background-color: #f3f4f6 !important;
+}
+
+html.dark .billops-user-dashboard .bg-gray-100 {
+  background-color: rgba(99, 102, 241, 0.08) !important;
+}
+
+/* Border Overrides - Light Theme */
+.billops-user-dashboard .border-gray-200 {
+  border-color: #e5e7eb !important;
+}
+
+html.dark .billops-user-dashboard .border-gray-200 {
+  border-color: rgba(99, 102, 241, 0.15) !important;
+}
+
+.billops-user-dashboard .border-gray-100 {
+  border-color: #f3f4f6 !important;
+}
+
+html.dark .billops-user-dashboard .border-gray-100 {
+  border-color: rgba(99, 102, 241, 0.1) !important;
+}
+
+.billops-user-dashboard .border-gray-300 {
+  border-color: #d1d5db !important;
+}
+
+html.dark .billops-user-dashboard .border-gray-300 {
+  border-color: rgba(99, 102, 241, 0.2) !important;
 }
