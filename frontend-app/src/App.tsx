@@ -279,7 +279,7 @@ const AuthenticatedLayout: React.FC = () => {
           )}
         >
           <Topbar />
-          <div className="flex-1">
+          <div className="flex-1 pt-6">
             <Outlet key={location.pathname} />
           </div>
         </div>

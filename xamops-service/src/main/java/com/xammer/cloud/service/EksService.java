@@ -89,7 +89,8 @@ public class EksService {
         CloudAccount account = getAccount(accountId);
         logger.info("DEBUG K8S: Fetching EKS cluster list from AWS for account {}...", account.getAwsAccountId());
 
-        return cloudListService.getRegionStatusForAccount(account, forceRefresh).thenCompose(activeRegions -> {
+        // Always use cached region status - no need to re-scan all AWS regions just to refresh EKS clusters
+        return cloudListService.getRegionStatusForAccount(account, false).thenCompose(activeRegions -> {
             // --- DEBUG: Log active regions ---
             logger.info("DEBUG K8S: Found {} active regions: {}", activeRegions.size(),
                     activeRegions.stream().map(r -> r.getRegionId()).collect(Collectors.toList()));

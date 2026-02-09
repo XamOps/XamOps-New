@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Link } from 'react-router-dom';
 import {
   AzureDashboardData,
   AzureResourceType,
@@ -8,7 +7,6 @@ import { useAzureDashboardData } from '../hooks/useAzureDashboardData';
 import {
   mapInventoryToResources,
 } from '../api/azureDashboardApi';
-import { useTopbar } from '../contexts/TopbarContext';
 import { useAuth } from '../contexts/AuthContext';
 import '../styles/azureDashboard.css';
 
@@ -19,7 +17,6 @@ import AzureInventorySection from '../components/AzureDashboard/AzureInventorySe
 import AzureCostSection from '../components/AzureDashboard/AzureCostSection';
 import AzureOptimizationSection from '../components/AzureDashboard/AzureOptimizationSection';
 import DashboardHeader from '../components/LiveDashboard/DashboardHeader';
-import SupportChatWidget from '../components/SupportChat/SupportChatWidget';
 
 // Highcharts loaded from CDN
 declare global {
@@ -39,15 +36,13 @@ const AzureDashboard: React.FC = () => {
       autoRefresh: true,
       refreshInterval: 60,
     });
-
   const {
     hasAnyRole,
     selectedTenant,
     impersonateUser,
     tenantList,
-    tenantUsers
+    tenantUsers,
   } = useAuth();
-  const { setActions, clearActions } = useTopbar();
 
   // Widget visibility state
   const [widgetVisibility] = useState({
@@ -98,49 +93,6 @@ const AzureDashboard: React.FC = () => {
     return resources.reduce((acc, curr) => acc + (curr.count || 0), 0);
   }, [resources]);
 
-  // Register Topbar actions
-  useEffect(() => {
-    setActions(
-      <div className="flex items-center gap-3">
-        {/* Navigation Links */}
-        <div className="flex items-center gap-1 bg-slate-100/50 p-1 rounded-xl border border-slate-200/50 mr-2">
-          <Link
-            to="/cloudmap"
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-[11px] font-bold text-slate-600 hover:bg-white hover:text-blue-600 hover:shadow-sm transition-all"
-          >
-            <i className="fas fa-map-marked-alt text-[10px]"></i>
-            <span>CloudMap</span>
-          </Link>
-          <Link
-            to="/calculator"
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-[11px] font-bold text-slate-600 hover:bg-white hover:text-blue-600 hover:shadow-sm transition-all"
-          >
-            <i className="fas fa-calculator text-[10px]"></i>
-            <span>Calculator</span>
-          </Link>
-        </div>
-
-        {/* Sync Status */}
-        <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 rounded-lg border border-slate-200/50">
-          <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div>
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-            {lastUpdated ? `Updated ${new Date(lastUpdated).toLocaleTimeString()}` : 'Connected'}
-          </span>
-        </div>
-
-        {/* Refresh Button */}
-        <button
-          onClick={refresh}
-          disabled={loading.global}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-all disabled:opacity-50 shadow-lg shadow-blue-500/20"
-        >
-          <i className={`fas fa-sync-alt ${loading.global ? 'animate-spin' : ''}`}></i>
-          <span>{loading.global ? 'Refetching...' : 'Refresh'}</span>
-        </button>
-      </div>
-    );
-    return () => clearActions();
-  }, [setActions, clearActions, lastUpdated, refresh, loading.global]);
 
   // Handle empty state
   if (selectedAccountIds.length === 0) {
@@ -278,10 +230,6 @@ const AzureDashboard: React.FC = () => {
         <i className="fas fa-chevron-up group-hover:-translate-y-1 transition-transform"></i>
       </button>
 
-      {/* Support Chat Widget */}
-      <div className="relative z-[100]">
-        <SupportChatWidget />
-      </div>
     </div>
   );
 };

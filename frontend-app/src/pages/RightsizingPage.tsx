@@ -17,13 +17,11 @@
 import React, { useState } from 'react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useRightsizingData } from '../hooks/useRightsizingData';
-import type { AWSRecommendation, XamOpsRecommendation } from '../hooks/useRightsizingData';
 
 // Component imports
 import RightsizingHeader from '../components/Rightsizing/RightsizingHeader';
 import AWSRecommendationsTable from '../components/Rightsizing/AWSRecommendationsTable';
 import XamOpsRecommendationsTable from '../components/Rightsizing/XamOpsRecommendationsTable';
-import AIModal from '../components/Rightsizing/AIModal';
 
 export const RightsizingPage: React.FC = () => {
   const { selectedAccountIds } = useAccounts();
@@ -45,11 +43,6 @@ export const RightsizingPage: React.FC = () => {
   // Tab state
   const [activeTab, setActiveTab] = useState<'aws' | 'xamops'>('aws');
 
-  // AI Modal state
-  const [showAiModal, setShowAiModal] = useState(false);
-  const [aiRecommendation, setAiRecommendation] = useState<string>('');
-  const [isAiLoading, setIsAiLoading] = useState(false);
-
   // Filter out already optimized resources from AWS recommendations
   const filteredAWSRecommendations = awsRecommendations.filter(rec => {
     // Check recommendedType field
@@ -67,33 +60,7 @@ export const RightsizingPage: React.FC = () => {
     return true;
   });
 
-  // Handle AI recommendation request
-  const handleAiRecommendation = async (recommendation: AWSRecommendation | XamOpsRecommendation) => {
-    setShowAiModal(true);
-    setIsAiLoading(true);
-    setAiRecommendation('');
 
-    try {
-      const response = await fetch('/api/ai-advisor/rightsizing', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify(recommendation),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const text = await response.text();
-      setAiRecommendation(text);
-    } catch (err) {
-      console.error('Failed to load AI recommendations:', err);
-      setAiRecommendation('⚠️ **Error**: Could not get AI recommendations.\n\nPlease check your API key and network connection.');
-    } finally {
-      setIsAiLoading(false);
-    }
-  };
 
   // Show error state
   if (error) {
@@ -142,17 +109,15 @@ export const RightsizingPage: React.FC = () => {
             <div className="flex border-b border-gray-200">
               <button
                 onClick={() => setActiveTab('aws')}
-                className={`tab-button px-6 py-3 text-sm font-semibold ${
-                  activeTab === 'aws' ? 'active' : ''
-                }`}
+                className={`tab-button px-6 py-3 text-sm font-semibold ${activeTab === 'aws' ? 'active' : ''
+                  }`}
               >
                 <i className="fab fa-aws mr-2"></i>AWS Recommendations
               </button>
               <button
                 onClick={() => setActiveTab('xamops')}
-                className={`tab-button px-6 py-3 text-sm font-semibold ${
-                  activeTab === 'xamops' ? 'active' : ''
-                }`}
+                className={`tab-button px-6 py-3 text-sm font-semibold ${activeTab === 'xamops' ? 'active' : ''
+                  }`}
               >
                 <i className="fas fa-bolt mr-2"></i>XamAi Recommendations
               </button>
@@ -164,7 +129,6 @@ export const RightsizingPage: React.FC = () => {
                 <AWSRecommendationsTable
                   recommendations={filteredAWSRecommendations}
                   isLoading={isLoadingAWS}
-                  onAiRequest={handleAiRecommendation}
                 />
               </div>
             )}
@@ -175,7 +139,6 @@ export const RightsizingPage: React.FC = () => {
                 <XamOpsRecommendationsTable
                   recommendations={xamopsRecommendations}
                   isLoading={isLoadingXamOps}
-                  onAiRequest={handleAiRecommendation}
                 />
               </div>
             )}
@@ -183,13 +146,6 @@ export const RightsizingPage: React.FC = () => {
         )}
       </div>
 
-      {/* AI Modal */}
-      <AIModal
-        show={showAiModal}
-        isLoading={isAiLoading}
-        recommendation={aiRecommendation}
-        onClose={() => setShowAiModal(false)}
-      />
     </main>
   );
 };

@@ -14,7 +14,7 @@
  * - Added proper TypeScript types for type safety
  */
 
-import React, { useCallback, useEffect } from 'react';
+import React, { useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Ticker } from '../components/Dashboard/Ticker';
 import { DashboardHeader } from '../components/Dashboard/DashboardHeader';
@@ -25,7 +25,7 @@ import { ProviderDonutChart } from '../components/Dashboard/ProviderDonutChart';
 import { AccountBreakdownModal } from '../components/Dashboard/AccountBreakdownModal';
 import { useUnifiedDashboard } from '../hooks/useUnifiedDashboard';
 import { useWebSocket } from '../hooks/useWebSocket';
-import type { ViewMode, SubAccount } from '../types/dashboard';
+import type { SubAccount, ViewMode } from '../types/dashboard';
 
 export const UnifiedDashboard: React.FC = () => {
   const {
@@ -35,19 +35,19 @@ export const UnifiedDashboard: React.FC = () => {
     awsData,
     gcpData,
     azureData,
-    showModal,
-    viewMode,
-    activeProvider,
-    activeAccountList,
     ticketCount,
     lastUpdatedText,
     serverTime,
     fetchAll,
     fetchProvider,
     updateResourceInventory,
+    showModal,
     setShowModal,
+    viewMode,
     setViewMode,
+    activeProvider,
     setActiveProvider,
+    activeAccountList,
     setActiveAccountList,
     getAllAccounts,
     notification,
@@ -209,48 +209,86 @@ export const UnifiedDashboard: React.FC = () => {
 
   // Navigation handlers
   const navigate = useNavigate();
-  const navigateToAccount = useCallback((accountId: string, mode: ViewMode) => {
-    const account = getAllAccounts().find((a) => a.id === accountId);
-    if (!account) {
-      console.error('Account not found:', accountId);
-      return;
-    }
-
-    const provider = (account.provider || '').toUpperCase();
-    let targetPage = '';
-    const queryParams = new URLSearchParams();
-    queryParams.append('accountIds', accountId);
-
-    // Navigation logic preserved - FIXED PATHS
-    if (mode === 'resource') {
-      if (provider === 'AWS') { targetPage = '/cloudlist'; queryParams.append('accountId', accountId); }
-      else if (provider === 'GCP') { targetPage = '/gcp-cloudlist'; queryParams.append('projectId', accountId); }
-      else if (provider === 'AZURE') { targetPage = '/azure-cloudlist'; queryParams.append('subscriptionId', accountId); }
-      else { targetPage = '/cloudlist'; queryParams.append('accountId', accountId); }
-    } else if (mode === 'waste' || mode === 'savings') {
-      if (provider === 'AWS') { targetPage = '/waste'; queryParams.append('accountId', accountId); }
-      else if (provider === 'GCP') { targetPage = '/gcp-waste'; queryParams.append('projectId', accountId); }
-      else if (provider === 'AZURE') { targetPage = '/azure_waste'; queryParams.append('subscriptionId', accountId); } // Azure waste is azure_waste in sidebar, let's stick to standard if possible
-      else { targetPage = '/waste'; queryParams.append('accountId', accountId); }
-    } else if (mode === 'alerts') {
-      if (provider === 'AWS') { targetPage = '/alerts'; queryParams.append('accountId', accountId); }
-      else if (provider === 'GCP') { targetPage = '/gcp-alerts'; queryParams.append('projectId', accountId); }
-      else if (provider === 'AZURE') { targetPage = '/azure_alerts'; queryParams.append('subscriptionId', accountId); } // Azure alerts?
-      else { targetPage = '/alerts'; queryParams.append('accountId', accountId); }
-    } else {
-      if (provider === 'AWS') { targetPage = '/dashboard'; queryParams.append('accountId', accountId); }
-      else if (provider === 'GCP') { targetPage = '/gcp-dashboard'; queryParams.append('projectId', accountId); }
-      else if (provider === 'AZURE') { targetPage = '/azure-dashboard'; queryParams.append('subscriptionId', accountId); }
-      else { targetPage = '/dashboard'; queryParams.append('accountId', accountId); }
-    }
-
-    const finalUrl = `${targetPage}?${queryParams.toString()}`;
-    navigate(finalUrl);
-  }, [getAllAccounts, navigate]);
 
   const handleRefresh = () => {
     fetchAll(true);
   };
+
+  // Modal handlers - Select account and navigate to provider dashboard
+  const handleSelectAccount = useCallback((accountId: string, mode: ViewMode) => {
+    console.log(`Selected account ${accountId} in ${mode} mode, provider: ${activeProvider}`);
+    setShowModal(false);
+
+    // Update session storage with selected account
+    sessionStorage.setItem('selectedAccountIds', JSON.stringify([accountId]));
+
+    // Dispatch account-changed event
+    globalThis.dispatchEvent(new CustomEvent('account-changed', {
+      detail: { accountId, accountIds: [accountId] }
+    }));
+
+    // Determine target dashboard based on activeProvider from the modal
+    let targetPath = '/dashboard';
+    let provider = activeProvider;
+
+    // If provider is "All" (e.g. from Eye Buttons/Active Resources), we need to find the specific provider for this account
+    if (provider === 'All') {
+      const account = getAllAccounts().find(a => a.id === accountId);
+      if (account) {
+        // Infer provider from account type/structure or parent context if available.
+        // Since we flat-mapped, we might check properties. 
+        // A robust way in XamOps is usually checking which list it came from, 
+        // but here we have the object. 
+        // Let's rely on the fact that AWS accounts usually have 'aws' specific fields or just check the ID format if distinct,
+        // OR better: check against the loaded provider data.
+        if (awsData?.selectedAccount?.subAccounts?.some(a => a.id === accountId)) provider = 'AWS';
+        else if (gcpData?.selectedAccount?.subAccounts?.some(a => a.id === accountId)) provider = 'GCP';
+        else if (azureData?.selectedAccount?.subAccounts?.some(a => a.id === accountId)) provider = 'Azure';
+      }
+    }
+
+    // Routing Logic based on Provider and Mode
+    if (provider === 'GCP') {
+      switch (mode) {
+        case 'resource': targetPath = '/gcp-cloudlist'; break; // Corrected: CloudList for Inventory
+        case 'waste': targetPath = '/gcp-waste'; break;
+        case 'alerts': targetPath = '/gcp-alerts'; break;
+        case 'savings': targetPath = '/gcp-rightsizing'; break;
+        default: targetPath = '/gcp-dashboard';
+      }
+    } else if (provider === 'Azure') {
+      switch (mode) {
+        case 'resource': targetPath = '/azure-cloudlist'; break;
+        case 'waste': targetPath = '/azure-finops'; break; // Azure FinOps covers waste/savings
+        case 'savings': targetPath = '/azure-finops'; break;
+        case 'alerts': targetPath = '/azure-dashboard'; break; // Alerts on main dashboard
+        default: targetPath = '/azure-dashboard';
+      }
+    } else {
+      // AWS (Default)
+      switch (mode) {
+        case 'resource': targetPath = '/cloudlist'; break; // Corrected: CloudList for Inventory
+        case 'waste': targetPath = '/waste'; break;
+        case 'alerts': targetPath = '/alerts'; break;
+        case 'savings': targetPath = '/rightsizing'; break;
+        default: targetPath = '/dashboard';
+      }
+    }
+
+    // Build URL with appropriate query parameters
+    const urlParams = new URLSearchParams();
+    // Clear existing to be safe
+
+    if (provider === 'GCP') {
+      urlParams.set('projectId', accountId);
+    } else if (provider === 'Azure') {
+      urlParams.set('subscriptionId', accountId);
+    } else {
+      urlParams.set('accountId', accountId);
+    }
+
+    navigate(`${targetPath}?${urlParams.toString()}`);
+  }, [setShowModal, activeProvider, navigate, getAllAccounts, awsData, gcpData, azureData]);
 
   // Listen for account selection changes (for soft navigation)
   useEffect(() => {
@@ -296,15 +334,13 @@ export const UnifiedDashboard: React.FC = () => {
         {/* Ticker - Now glass effect */}
         <Ticker />
 
-        {/* Header - Sticky & Premium */}
-        <div className="sticky top-0 z-50 backdrop-blur-md bg-white/70 border-b border-white/50 shadow-sm transition-all duration-300">
-          <DashboardHeader
-            lastUpdatedText={lastUpdatedText}
-            serverTime={serverTime}
-            isLoading={isLoading.summary}
-            onRefresh={handleRefresh}
-          />
-        </div>
+        {/* Header - Actions registered via TopbarContext */}
+        <DashboardHeader
+          lastUpdatedText={lastUpdatedText}
+          serverTime={serverTime}
+          isLoading={isLoading.summary}
+          onRefresh={handleRefresh}
+        />
 
         {/* Main Content */}
         <main className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar">
@@ -563,6 +599,16 @@ export const UnifiedDashboard: React.FC = () => {
           />
         ))}
       </div>
+
+      {/* Account Breakdown Modal */}
+      <AccountBreakdownModal
+        show={showModal}
+        onClose={() => setShowModal(false)}
+        provider={activeProvider}
+        viewMode={viewMode}
+        accountList={activeAccountList}
+        onSelectAccount={handleSelectAccount}
+      />
     </div>
   );
 };

@@ -12,11 +12,6 @@ interface AccountSelectorProps {
 
 const AccountSelector: React.FC<AccountSelectorProps> = ({ isOpen, onToggle, onClose }) => {
   const {
-    multiAccountMode,
-    isDashboardPage,
-    isLoading,
-    searchTerm,
-    setSearchTerm,
     filteredAccounts,
     awsAccounts,
     azureAccounts,
@@ -31,6 +26,11 @@ const AccountSelector: React.FC<AccountSelectorProps> = ({ isOpen, onToggle, onC
     applySelection,
     toggleMultiAccountMode,
     getProviderIcon,
+    multiAccountMode,
+    searchTerm,
+    setSearchTerm,
+    isLoading,
+    isDashboardPage,
   } = useAccounts();
 
   const { theme } = useTheme();
@@ -234,6 +234,18 @@ const AccountSelector: React.FC<AccountSelectorProps> = ({ isOpen, onToggle, onC
             </div>
           </div>
 
+          {/* Global Actions (Multi-Account Mode) */}
+          {multiAccountMode && isDashboardPage && (
+            <div className="px-4 py-2 border-b border-gray-200 bg-gray-50 flex gap-2">
+              <button
+                onClick={clearAllSelections}
+                className="w-full px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+              >
+                Clear All
+              </button>
+            </div>
+          )}
+
           {/* Account Lists */}
           <div className="max-h-72 overflow-y-auto p-2 custom-scrollbar">
             {isLoading ? (
@@ -256,19 +268,13 @@ const AccountSelector: React.FC<AccountSelectorProps> = ({ isOpen, onToggle, onC
           </div>
 
           {/* Actions */}
-          <div className={clsx(
-            'p-3 border-t flex gap-2 transition-colors',
-            theme === 'dark' ? 'bg-slate-800/50 border-slate-800' : 'bg-slate-50/50 border-slate-50'
-          )}>
-            {multiAccountMode && isDashboardPage && (
+          <div className="px-4 py-3 border-t border-gray-200 bg-gray-50 flex gap-2">
+            {multiAccountMode && (
               <button
-                onClick={(e) => { e.stopPropagation(); clearAllSelections(); }}
-                className={clsx(
-                  'flex-1 px-4 py-2 text-xs font-bold rounded-xl border transition-all',
-                  theme === 'dark' ? 'border-slate-700 text-slate-400 hover:bg-slate-800 hover:text-slate-200' : 'bg-white border-gray-200 text-slate-600 hover:bg-slate-50'
-                )}
+                onClick={clearAllSelections}
+                className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
               >
-                Clear
+                Clear All
               </button>
             )}
             <button
@@ -277,9 +283,9 @@ const AccountSelector: React.FC<AccountSelectorProps> = ({ isOpen, onToggle, onC
                 applySelection();
                 onClose();
               }}
-              className="flex-[2] px-4 py-2 text-xs font-bold text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 shadow-lg shadow-indigo-600/20 transition-all hover:-translate-y-0.5"
+              className="flex-1 px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors"
             >
-              Apply Selection
+              Apply
             </button>
           </div>
         </div>

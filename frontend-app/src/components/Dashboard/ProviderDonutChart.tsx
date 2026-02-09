@@ -158,25 +158,29 @@ export const ProviderDonutChart: React.FC<ProviderDonutChartProps> = ({ awsData,
     const centerTextPlugin = {
       id: 'centerText',
       beforeDraw(chart: Chart) {
-        const { ctx, width, height } = chart;
+        const { ctx, width, height, chartArea } = chart;
         ctx.restore();
+
+        // Calculate the actual center of the chart area (excluding legend)
+        const centerX = (chartArea.left + chartArea.right) / 2;
+        const centerY = (chartArea.top + chartArea.bottom) / 2;
+
         const fontSize = (height / 170).toFixed(2);
         ctx.font = `bolder ${fontSize}em 'Plus Jakarta Sans', sans-serif`;
         ctx.textBaseline = 'middle';
+        ctx.textAlign = 'center';
 
         const text = `$${Math.round(totalSpend).toLocaleString()}`;
-        const textX = (width - ctx.measureText(text).width) / 2;
-        const textY = height / 2 - 10; // Adjust for "Total Spend" label
 
         ctx.fillStyle = '#1e293b';
-        ctx.fillText(text, textX, textY);
+        ctx.fillText(text, centerX, centerY - 10);
 
         ctx.font = `normal ${parseFloat(fontSize) * 0.35}em 'Plus Jakarta Sans', sans-serif`;
         ctx.fillStyle = '#64748b';
         const subText = 'Total Spend';
-        const subTextX = (width - ctx.measureText(subText).width) / 2;
-        const subTextY = height / 2 + 15; // Position below the main text
-        ctx.fillText(subText, subTextX, subTextY);
+        ctx.fillText(subText, centerX, centerY + 15);
+
+        ctx.textAlign = 'left'; // Reset alignment
         ctx.save();
       }
     };

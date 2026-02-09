@@ -62,8 +62,7 @@ const EksDetailsPage: React.FC = () => {
     isSyncing,
     syncInBackground,
     lastUpdateTimestamp,
-    getTimeSince,
-    totalPodsCount
+    getTimeSince
   } = eksData;
 
   // Topbar Integration

@@ -44,9 +44,6 @@ const InvoicesPage: React.FC = () => {
     years,
     months,
 
-    selectedAccountId,
-    selectedAccountName,
-
     viewState,
     listLoading,
     detailLoading,
