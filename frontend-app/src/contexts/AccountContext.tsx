@@ -342,9 +342,10 @@ export const AccountProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   const getProviderIcon = useCallback((provider: CloudProvider): string => {
     switch (provider) {
-      case 'GCP': return '/icons/gcp-icon.png';
-      case 'Azure': return '/icons/azure-icon.png';
-      default: return '/icons/default-icon.png';
+      case 'GCP': return 'fa-google';
+      case 'Azure': return 'fa-microsoft';
+      case 'AWS': return 'fa-aws';
+      default: return 'fa-cloud';
     }
   }, []);
 

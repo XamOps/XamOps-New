@@ -93,6 +93,13 @@
   max-width: 100%;
 }
 
+@media (prefers-color-scheme: dark) {
+  .table-enhanced {
+    background: rgba(31, 41, 55, 0.5);
+    border: 1px solid rgba(75, 85, 99, 0.5);
+  }
+}
+
 .table-enhanced table {
   width: 100%;
   min-width: 1400px;
@@ -107,6 +114,12 @@
   z-index: 10;
 }
 
+@media (prefers-color-scheme: dark) {
+  .table-enhanced thead {
+    background: linear-gradient(135deg, #1f2937 0%, #111827 100%);
+  }
+}
+
 .table-enhanced th {
   padding: 12px 8px;
   text-align: left;
@@ -118,11 +131,24 @@
   white-space: nowrap;
 }
 
+@media (prefers-color-scheme: dark) {
+  .table-enhanced th {
+    color: #d1d5db;
+  }
+}
+
 .table-enhanced td {
   padding: 10px 8px;
   vertical-align: middle;
   border-top: 1px solid #f3f4f6;
   font-size: 0.75rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  .table-enhanced td {
+    border-top: 1px solid #374151;
+    color: #e5e7eb;
+  }
 }
 
 .table-enhanced tbody tr {
@@ -132,6 +158,12 @@
 .table-enhanced tbody tr:hover {
   background: rgba(102, 126, 234, 0.05);
   transform: translateX(2px);
+}
+
+@media (prefers-color-scheme: dark) {
+  .table-enhanced tbody tr:hover {
+    background: rgba(102, 126, 234, 0.15);
+  }
 }
 
 /* First Cell Indicator */

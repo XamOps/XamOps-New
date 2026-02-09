@@ -24,11 +24,11 @@ const CloudK8sClusterTable: React.FC<CloudK8sClusterTableProps> = ({
   return (
     <div className="cloudk8s-card glass-card rounded-2xl p-6 md:p-8 fade-in">
       <div className="flex items-center justify-between mb-6">
-        <h2 className="text-xl font-bold text-gray-800 flex items-center">
+        <h2 className="text-xl font-bold text-gray-800 dark:text-gray-200 flex items-center">
           <i className="fab fa-aws text-orange-500 mr-3"></i>
           EKS Clusters
         </h2>
-        <span className="text-sm text-gray-500">
+        <span className="text-sm text-gray-500 dark:text-gray-400">
           {clusters.length} cluster{clusters.length !== 1 ? 's' : ''} found
         </span>
       </div>
@@ -45,11 +45,11 @@ const CloudK8sClusterTable: React.FC<CloudK8sClusterTableProps> = ({
       {/* Empty State */}
       {!isLoading && clusters.length === 0 && (
         <div className="text-center py-16">
-          <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <i className="fas fa-dharmachakra text-gray-400 text-3xl"></i>
+          <div className="w-20 h-20 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4">
+            <i className="fas fa-dharmachakra text-gray-400 dark:text-gray-500 text-3xl"></i>
           </div>
-          <p className="text-gray-600 font-medium">No EKS clusters found</p>
-          <p className="text-gray-400 text-sm mt-1">Connect an AWS account to view your clusters</p>
+          <p className="text-gray-600 dark:text-gray-300 font-medium">No EKS clusters found</p>
+          <p className="text-gray-400 dark:text-gray-500 text-sm mt-1">Connect an AWS account to view your clusters</p>
         </div>
       )}
 
@@ -57,7 +57,7 @@ const CloudK8sClusterTable: React.FC<CloudK8sClusterTableProps> = ({
       {!isLoading && clusters.length > 0 && (
         <div className="overflow-x-auto">
           <table className="w-full text-sm table-enhanced rounded-lg overflow-hidden">
-            <thead className="text-xs text-gray-700 uppercase bg-gradient-to-r from-gray-50 to-gray-100">
+            <thead className="text-xs !text-gray-700 dark:!text-gray-300 uppercase !bg-gradient-to-r !from-gray-50 !to-gray-100 dark:!from-gray-800 dark:!to-gray-900">
               <tr>
                 <th className="px-6 py-4 text-left font-bold">Cluster Name</th>
                 <th className="px-6 py-4 text-left font-bold hidden md:table-cell">Region</th>
@@ -66,25 +66,25 @@ const CloudK8sClusterTable: React.FC<CloudK8sClusterTableProps> = ({
                 <th className="px-6 py-4 text-center font-bold">Action</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
+            <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
               {clusters.map(cluster => (
                 <tr
                   key={`${cluster.name}-${cluster.region}`}
-                  className="hover:bg-blue-50/50 transition-colors"
+                  className="hover:bg-blue-50/50 dark:hover:bg-gray-800/30 transition-colors"
                 >
                   <td className="px-6 py-4">
                     <div className="flex items-center">
                       <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-lg flex items-center justify-center mr-3">
                         <i className="fas fa-dharmachakra text-white text-xs"></i>
                       </div>
-                      <span className="font-semibold text-gray-800">{cluster.name}</span>
+                      <span className="font-semibold text-gray-800 dark:text-gray-200">{cluster.name}</span>
                     </div>
                   </td>
                   <td className="px-6 py-4 hidden md:table-cell">
-                    <span className="text-gray-600">{cluster.region}</span>
+                    <span className="text-gray-600 dark:text-gray-300">{cluster.region}</span>
                   </td>
                   <td className="px-6 py-4 hidden md:table-cell">
-                    <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs font-mono">
+                    <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded text-xs font-mono">
                       v{cluster.version}
                     </span>
                   </td>

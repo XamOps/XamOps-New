@@ -1,15 +1,8 @@
-/**
- * NavItem Component
- *
- * Individual navigation item with active state and icon
- * Converted from: _sidebar.html (navigation links)
- *
- * Uses React Router Link for React routes, regular anchor tags for HTML pages
- */
-
 import React from 'react';
 import { Link } from 'react-router-dom';
 import clsx from 'clsx';
+
+import { useTheme } from '../../contexts/ThemeContext';
 
 interface NavItemProps {
   href: string;
@@ -24,24 +17,29 @@ const NavItem: React.FC<NavItemProps> = ({
   href,
   icon,
   label,
-  gradientClass = 'from-indigo-500 to-purple-600',
+  gradientClass = 'from-[#4169e1] to-[#5e5ce6]',
   isActive = false,
   onClick,
 }) => {
+  const { theme } = useTheme();
   // Determine if this is a React route (no .html extension) or an HTML page
   const isReactRoute = !href.includes('.html');
 
   const className = clsx(
-    'nav-item flex items-center px-4 py-3 rounded-lg transition-all duration-200',
+    'nav-item flex items-center rounded-lg transition-all duration-300 ease-in-out px-3 py-2.5',
     isActive
-      ? `bg-gradient-to-r ${gradientClass} text-white shadow-md`
-      : 'text-gray-700 hover:bg-gray-100'
+      ? `bg-gradient-to-r ${gradientClass} text-white shadow-lg shadow-blue-500/25 ring-1 ring-white/10`
+      : theme === 'dark'
+        ? 'text-slate-400 hover:bg-slate-800 hover:text-indigo-400'
+        : 'text-gray-700 hover:bg-gray-100'
   );
 
   const content = (
     <>
       <i className={clsx(icon, 'w-5 text-center mr-3')} />
-      <span className="font-medium">{label}</span>
+      <span className="text-[13px] font-medium truncate whitespace-nowrap overflow-hidden transition-all duration-300">
+        {label}
+      </span>
     </>
   );
 

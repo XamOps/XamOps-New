@@ -5,29 +5,43 @@
  * Enhanced for a professional, modern UI
  */
 
+/* CSS Variables - Light Theme (Default) */
+:root {
+  --admin-invoices-page-bg: #f9fafb;
+  --admin-invoices-header-bg: rgba(255, 255, 255, 0.95);
+  --admin-invoices-text-primary: #111827;
+}
+
+/* CSS Variables - Dark Theme */
+html.dark {
+  --admin-invoices-page-bg: #1a1d2e;
+  --admin-invoices-header-bg: rgba(26, 29, 46, 0.95);
+  --admin-invoices-text-primary: #f1f5f9;
+}
+
 /* Page Container */
 .admin-invoices-page {
   min-height: 100vh;
-  background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ef 100%);
-  color: #1f2937;
+  background: var(--admin-invoices-page-bg);
+  color: var(--admin-invoices-text-primary);
 }
 
 /* Header */
 .admin-invoices-header {
-  background: linear-gradient(to right, #ffffff, #f9fafb, #ffffff);
-  border-bottom: 1px solid #e5e7eb;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-  backdrop-filter: blur(8px);
+  background: var(--admin-invoices-header-bg);
+  border-bottom: 1px solid rgba(99, 102, 241, 0.1);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(10px);
 }
 
-/* Updating Spinner */
+/* Updating Spinner - Dark Theme */
 .invoice-updating-spinner {
   display: inline-block;
   width: 20px;
   height: 20px;
-  border: 3px solid #e5e7eb;
+  border: 3px solid rgba(99, 102, 241, 0.2);
   border-radius: 50%;
-  border-top-color: #4f46e5;
+  border-top-color: #818cf8;
   animation: invoiceSpinner 0.8s linear infinite;
   margin-left: 10px;
   vertical-align: middle;
@@ -39,10 +53,10 @@
   }
 }
 
-/* Skeleton Loading */
+/* Skeleton Loading - Dark Theme */
 .invoice-skeleton-pulse {
   animation: invoicePulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-  background-color: #f3f4f6;
+  background-color: rgba(99, 102, 241, 0.1);
   border-radius: 4px;
 }
 
@@ -151,26 +165,27 @@
   cursor: not-allowed;
 }
 
-/* Glass Card */
+/* Glass Card - Dark Theme */
 .invoice-glass-card {
-  background: rgba(255, 255, 255, 0.98);
+  background: rgba(26, 29, 46, 0.8);
   backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.5);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(99, 102, 241, 0.1);
+  box-shadow: 0 8px 32px rgba(99, 102, 241, 0.15);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   border-radius: 12px;
 }
 
 .invoice-glass-card:hover {
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.1), 0 4px 12px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 20px 25px -5px rgba(99, 102, 241, 0.25);
+  border-color: rgba(99, 102, 241, 0.2);
 }
 
-/* Generate Form Card */
+/* Generate Form Card - Dark Theme */
 .invoice-generate-card {
-  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
-  border: 1px solid #e5e7eb;
+  background: rgba(26, 29, 46, 0.6);
+  border: 1px solid rgba(99, 102, 241, 0.15);
   border-radius: 12px;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 4px 6px -1px rgba(99, 102, 241, 0.2);
 }
 
 .invoice-generate-card .card-title {
@@ -179,22 +194,22 @@
   gap: 8px;
   font-size: 1.125rem;
   font-weight: 600;
-  color: #1f2937;
+  color: #f1f5f9;
   padding-bottom: 12px;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid rgba(99, 102, 241, 0.15);
   margin-bottom: 16px;
 }
 
 .invoice-generate-card .card-title i {
-  color: #6366f1;
+  color: #818cf8;
 }
 
-/* Form Inputs */
+/* Form Inputs - Dark Theme */
 .invoice-form-label {
   display: block;
   font-size: 0.75rem;
   font-weight: 700;
-  color: #6b7280;
+  color: #94a3b8;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   margin-bottom: 4px;
@@ -204,31 +219,31 @@
   display: block;
   width: 100%;
   padding: 10px 12px;
-  border: 1px solid #d1d5db;
+  border: 1px solid rgba(99, 102, 241, 0.2);
   border-radius: 8px;
   font-size: 0.875rem;
-  background: #f9fafb;
-  color: #374151;
+  background: rgba(99, 102, 241, 0.05);
+  color: #e2e8f0;
   transition: all 0.2s ease;
 }
 
 .invoice-form-input:focus {
   outline: none;
-  border-color: #6366f1;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
-  background: white;
+  border-color: #818cf8;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+  background: rgba(99, 102, 241, 0.08);
 }
 
 .invoice-form-input:disabled {
-  background: #f3f4f6;
-  color: #6b7280;
+  background: rgba(99, 102, 241, 0.05);
+  color: #64748b;
   cursor: not-allowed;
 }
 
 .invoice-readonly-input {
-  background: #f3f4f6;
-  color: #6b7280;
-  border: 1px solid #e5e7eb;
+  background: rgba(99, 102, 241, 0.05);
+  color: #64748b;
+  border: 1px solid rgba(99, 102, 241, 0.15);
 }
 
 /* Generate Button */
@@ -374,12 +389,12 @@
   cursor: not-allowed;
 }
 
-/* Table Styles */
+/* Table Styles - Dark Theme */
 .invoice-table-container {
   overflow: hidden;
   border-radius: 12px;
-  border: 1px solid #e5e7eb;
-  background: white;
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  background: rgba(26, 29, 46, 0.6);
 }
 
 .invoice-table {
@@ -388,7 +403,7 @@
 }
 
 .invoice-table thead {
-  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  background: rgba(99, 102, 241, 0.08);
 }
 
 .invoice-table th {
@@ -396,10 +411,10 @@
   text-align: left;
   font-size: 0.75rem;
   font-weight: 600;
-  color: #6b7280;
+  color: #94a3b8;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  border-bottom: 2px solid #e5e7eb;
+  border-bottom: 2px solid rgba(99, 102, 241, 0.2);
 }
 
 .invoice-table th:first-child {
@@ -413,7 +428,7 @@
 
 .invoice-table tbody tr {
   transition: all 0.2s ease;
-  border-bottom: 1px solid #f3f4f6;
+  border-bottom: 1px solid rgba(99, 102, 241, 0.1);
 }
 
 .invoice-table tbody tr:last-child {
@@ -421,17 +436,17 @@
 }
 
 .invoice-table tbody tr:hover {
-  background: rgba(99, 102, 241, 0.03);
+  background: rgba(99, 102, 241, 0.08);
 }
 
 .invoice-table tbody tr.selected {
-  background: linear-gradient(135deg, #eef2ff 0%, #f0f0ff 100%);
+  background: rgba(99, 102, 241, 0.15);
 }
 
 .invoice-table td {
   padding: 16px 20px;
   font-size: 0.875rem;
-  color: #374151;
+  color: #cbd5e1;
   vertical-align: middle;
 }
 
@@ -443,54 +458,54 @@
   text-align: right;
 }
 
-/* Invoice Number Link */
+/* Invoice Number Link - Dark Theme */
 .invoice-number-link {
-  color: #4f46e5;
+  color: #818cf8;
   font-weight: 600;
   text-decoration: none;
   transition: all 0.2s ease;
 }
 
 .invoice-number-link:hover {
-  color: #4338ca;
+  color: #a78bfa;
   text-decoration: underline;
 }
 
-/* Account Cell */
+/* Account Cell - Dark Theme */
 .invoice-account-name {
   font-weight: 500;
-  color: #1f2937;
+  color: #f1f5f9;
 }
 
 .invoice-account-id {
   font-size: 0.75rem;
-  color: #9ca3af;
+  color: #64748b;
   margin-top: 2px;
 }
 
-/* Period Badge */
+/* Period Badge - Dark Theme */
 .invoice-period-badge {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   padding: 6px 12px;
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
+  background: rgba(99, 102, 241, 0.1);
+  border: 1px solid rgba(99, 102, 241, 0.2);
   border-radius: 6px;
   font-size: 0.875rem;
-  color: #4b5563;
+  color: #cbd5e1;
 }
 
 .invoice-period-badge i {
-  color: #9ca3af;
+  color: #64748b;
 }
 
-/* Amount */
+/* Amount - Dark Theme */
 .invoice-amount {
   font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Mono', 'Droid Sans Mono', monospace;
   font-weight: 700;
   font-size: 0.9375rem;
-  color: #1f2937;
+  color: #f1f5f9;
 }
 
 /* Actions */
@@ -627,23 +642,23 @@
   }
 }
 
-/* Scrollbar */
+/* Scrollbar - Dark Theme */
 .admin-invoices-scrollbar::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
 .admin-invoices-scrollbar::-webkit-scrollbar-track {
-  background: #f1f5f9;
+  background: rgba(99, 102, 241, 0.05);
 }
 
 .admin-invoices-scrollbar::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: rgba(99, 102, 241, 0.2);
   border-radius: 3px;
 }
 
 .admin-invoices-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: rgba(99, 102, 241, 0.4);
 }
 
 /* Fade In Animation */

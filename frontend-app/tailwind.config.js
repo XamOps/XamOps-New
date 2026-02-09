@@ -10,6 +10,7 @@ export default {
     "./src/**/*.{js,jsx,ts,tsx}",  // React components
     "./src/**/*.css",
   ],
+  darkMode: 'class',
   theme: { extend: {} },
   plugins: [],
 }

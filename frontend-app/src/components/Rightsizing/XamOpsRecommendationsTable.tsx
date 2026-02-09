@@ -37,8 +37,8 @@ const XamOpsRecommendationsTable: React.FC<XamOpsRecommendationsTableProps> = ({
             <i className="fas fa-bolt text-white"></i>
           </div>
           <div>
-            <h2 className="text-xl font-bold text-gray-800">XamAi Recommendations</h2>
-            <p className="text-sm text-gray-600">Proprietary analysis for enhanced optimization</p>
+            <h2 className="text-xl font-bold text-gray-800 dark:text-gray-200">XamAi Recommendations</h2>
+            <p className="text-sm text-gray-600 dark:text-gray-400">Proprietary analysis for enhanced optimization</p>
           </div>
         </div>
       </div>
@@ -49,11 +49,11 @@ const XamOpsRecommendationsTable: React.FC<XamOpsRecommendationsTableProps> = ({
       {/* Empty State */}
       {!isLoading && recommendations.length === 0 && (
         <div className="empty-state text-center py-20 px-8 rounded-2xl">
-          <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <i className="fas fa-lightbulb text-gray-400 text-2xl"></i>
+          <div className="w-16 h-16 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4">
+            <i className="fas fa-lightbulb text-gray-400 dark:text-gray-500 text-2xl"></i>
           </div>
-          <h3 className="text-2xl font-bold text-gray-800 mb-2">No XamOps Recommendations</h3>
-          <p className="text-gray-600">Could not load custom recommendations at this time.</p>
+          <h3 className="text-2xl font-bold text-gray-800 dark:text-gray-200 mb-2">No XamOps Recommendations</h3>
+          <p className="text-gray-600 dark:text-gray-400">Could not load custom recommendations at this time.</p>
         </div>
       )}
 
@@ -62,16 +62,16 @@ const XamOpsRecommendationsTable: React.FC<XamOpsRecommendationsTableProps> = ({
         <div className="max-h-[600px] overflow-y-auto">
           <div className="table-enhanced">
             <table>
-              <thead className="sticky top-0 bg-gradient-to-r from-gray-50 to-gray-100">
+              <thead className="sticky top-0 !bg-gradient-to-r !from-gray-50 !to-gray-100 dark:!from-gray-800 dark:!to-gray-900">
                 <tr>
-                  <th style={{ width: '140px' }}>Instance ID</th>
-                  <th style={{ width: '110px' }}>Current<br />Instance</th>
-                  <th style={{ width: '90px' }}>Load Range</th>
-                  <th style={{ width: '130px' }}>Intel Rec</th>
-                  <th style={{ width: '130px' }}>AMD Rec</th>
-                  <th style={{ width: '90px' }}>Projected<br />Max Util</th>
-                  <th style={{ width: '100px' }}>Approx.<br />Savings</th>
-                  <th style={{ width: '180px' }}>Reason</th>
+                  <th className="!text-gray-700 dark:!text-gray-300" style={{ width: '140px' }}>Instance ID</th>
+                  <th className="!text-gray-700 dark:!text-gray-300" style={{ width: '110px' }}>Current<br />Instance</th>
+                  <th className="!text-gray-700 dark:!text-gray-300" style={{ width: '90px' }}>Load Range</th>
+                  <th className="!text-gray-700 dark:!text-gray-300" style={{ width: '130px' }}>Intel Rec</th>
+                  <th className="!text-gray-700 dark:!text-gray-300" style={{ width: '130px' }}>AMD Rec</th>
+                  <th className="!text-gray-700 dark:!text-gray-300" style={{ width: '90px' }}>Projected<br />Max Util</th>
+                  <th className="!text-gray-700 dark:!text-gray-300" style={{ width: '100px' }}>Approx.<br />Savings</th>
+                  <th className="!text-gray-700 dark:!text-gray-300" style={{ width: '180px' }}>Reason</th>
                 </tr>
               </thead>
               <tbody>
@@ -79,13 +79,13 @@ const XamOpsRecommendationsTable: React.FC<XamOpsRecommendationsTableProps> = ({
                   <tr key={`${rec.instanceId || rec.currentInstance}-${index}`}>
                     <td className="first-cell-indicator">
                       <div className="flex items-center space-x-1">
-                        <i className="fas fa-server text-indigo-600" style={{ fontSize: '0.6rem' }}></i>
+                        <i className="fas fa-server text-indigo-600 dark:text-indigo-400" style={{ fontSize: '0.6rem' }}></i>
                         <div className="flex flex-col">
-                          <span className="font-mono text-gray-800 font-medium" style={{ fontSize: '0.7rem' }}>
+                          <span className="font-mono text-gray-800 dark:text-gray-200 font-medium" style={{ fontSize: '0.7rem' }}>
                             {rec.instanceId || 'N/A'}
                           </span>
                           {rec.instanceName && (
-                            <span className="text-xs text-gray-500" style={{ fontSize: '0.6rem' }}>
+                            <span className="text-xs text-gray-500 dark:text-gray-400" style={{ fontSize: '0.6rem' }}>
                               {rec.instanceName}
                             </span>
                           )}
@@ -94,22 +94,22 @@ const XamOpsRecommendationsTable: React.FC<XamOpsRecommendationsTableProps> = ({
                     </td>
                     <td>
                       <div className="flex flex-col">
-                        <span className="font-mono font-semibold text-gray-800">{rec.currentInstance}</span>
+                        <span className="font-mono font-semibold text-gray-800 dark:text-gray-200">{rec.currentInstance}</span>
                         {rec.currentUtilization && (
-                          <span className="text-indigo-600 font-medium" style={{ fontSize: '0.65rem' }}>
+                          <span className="text-indigo-600 dark:text-indigo-400 font-medium" style={{ fontSize: '0.65rem' }}>
                             {rec.currentUtilization}
                           </span>
                         )}
                       </div>
                     </td>
-                    <td className="text-gray-700">{rec.loadRange}</td>
+                    <td className="text-gray-700 dark:text-gray-300">{rec.loadRange}</td>
                     <td>
                       <div className="flex flex-col">
-                        <span className="font-medium text-gray-800" style={{ fontSize: '0.7rem' }}>
+                        <span className="font-medium text-gray-800 dark:text-gray-200" style={{ fontSize: '0.7rem' }}>
                           {extractInstanceType(rec.intelRecommendation)}
                         </span>
                         {extractUtilization(rec.intelRecommendation) && (
-                          <span className="text-gray-500" style={{ fontSize: '0.6rem' }}>
+                          <span className="text-gray-500 dark:text-gray-400" style={{ fontSize: '0.6rem' }}>
                             {extractUtilization(rec.intelRecommendation)}
                           </span>
                         )}
@@ -117,21 +117,21 @@ const XamOpsRecommendationsTable: React.FC<XamOpsRecommendationsTableProps> = ({
                     </td>
                     <td>
                       <div className="flex flex-col">
-                        <span className="font-medium text-gray-800" style={{ fontSize: '0.7rem' }}>
+                        <span className="font-medium text-gray-800 dark:text-gray-200" style={{ fontSize: '0.7rem' }}>
                           {extractInstanceType(rec.amdRecommendation)}
                         </span>
                         {extractUtilization(rec.amdRecommendation) && (
-                          <span className="text-gray-500" style={{ fontSize: '0.6rem' }}>
+                          <span className="text-gray-500 dark:text-gray-400" style={{ fontSize: '0.6rem' }}>
                             {extractUtilization(rec.amdRecommendation)}
                           </span>
                         )}
                       </div>
                     </td>
-                    <td className="text-gray-700">{rec.projectedMaxUtil}</td>
+                    <td className="text-gray-700 dark:text-gray-300">{rec.projectedMaxUtil}</td>
                     <td>
                       <span className="savings-badge">{rec.approxCostSavings}</span>
                     </td>
-                    <td className="text-gray-700 truncate-text" title={rec.reason}>
+                    <td className="text-gray-700 dark:text-gray-300 truncate-text" title={rec.reason}>
                       {rec.reason}
                     </td>
                   </tr>

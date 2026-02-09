@@ -3,17 +3,47 @@
  *
  * Custom styles for the AIOps "Coming Soon" page
  * with animations, gradients, and modern UI effects.
+ * Dark theme design matching XamOps application theme (#1a1d2e background)
  */
 
-/* Page Container */
+/* CSS Variables - Light Theme (Default) */
 .aiops-page {
-  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  --aws-blue: #6366f1;
+  --aws-light-blue: #60a5fa;
+  --success-green: #10b981;
+  --warning-amber: #f59e0b;
+  --danger-red: #ef4444;
+  --neutral-50: #f9fafb;
+  --neutral-100: #f3f4f6;
+  --neutral-200: #e5e7eb;
+  --neutral-800: #1f2937;
+  --neutral-900: #111827;
+  --bg-card: rgba(255, 255, 255, 0.9);
+  --border-color: rgba(99, 102, 241, 0.1);
+  --page-bg: #f9fafb;
+  --header-bg: rgba(255, 255, 255, 0.95);
+
+  background: var(--page-bg);
+  min-height: 100vh;
+}
+
+/* CSS Variables - Dark Theme */
+html.dark .aiops-page {
+  --neutral-50: #1a1d2e;
+  --neutral-100: #252938;
+  --neutral-200: #2d3348;
+  --neutral-800: #e2e8f0;
+  --neutral-900: #f1f5f9;
+  --bg-card: rgba(26, 29, 46, 0.8);
+  --page-bg: #1a1d2e;
+  --header-bg: rgba(26, 29, 46, 0.95);
 }
 
 /* Header */
 .aiops-header {
   backdrop-filter: blur(10px);
-  background: rgba(255, 255, 255, 0.95);
+  background: var(--header-bg);
+  border-bottom: 1px solid var(--border-color);
 }
 
 .aiops-icon-container {
@@ -26,10 +56,12 @@
   box-shadow: 0 15px 30px -5px rgba(99, 102, 241, 0.5);
 }
 
-/* Hero Section */
+/* Hero Section - Dark Theme */
 .aiops-hero {
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(249, 250, 251, 0.9) 100%);
-  border: 1px solid rgba(99, 102, 241, 0.1);
+  background: var(--bg-card);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--border-color);
+  box-shadow: 0 8px 32px rgba(99, 102, 241, 0.15);
 }
 
 /* Float Animation */
@@ -49,17 +81,36 @@
   }
 }
 
-/* Feature Cards */
+/* Feature Cards - Dark Theme */
 .aiops-feature-card {
+  background: var(--bg-card);
+  backdrop-filter: blur(10px);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  border: 1px solid rgba(0, 0, 0, 0.05);
+  border: 1px solid var(--border-color);
+  position: relative;
+  overflow: hidden;
+}
+
+.aiops-feature-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #6366f1, #a855f7);
+  opacity: 0;
+  transition: opacity 0.3s;
 }
 
 .aiops-feature-card:hover {
   transform: translateY(-4px) translateX(4px);
-  box-shadow:
-    0 20px 25px -5px rgba(0, 0, 0, 0.1),
-    0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  box-shadow: 0 20px 25px -5px rgba(99, 102, 241, 0.25);
+  border-color: rgba(99, 102, 241, 0.3);
+}
+
+.aiops-feature-card:hover::before {
+  opacity: 1;
 }
 
 .aiops-feature-card:hover .flex-shrink-0 {
@@ -67,16 +118,18 @@
   transition: transform 0.3s ease;
 }
 
-/* Capability Cards */
+/* Capability Cards - Dark Theme */
 .aiops-capability-card {
+  background: var(--bg-card);
+  backdrop-filter: blur(10px);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  border: 1px solid transparent;
+  border: 1px solid var(--border-color);
 }
 
 .aiops-capability-card:hover {
   transform: translateY(-4px);
-  border-color: rgba(99, 102, 241, 0.2);
-  box-shadow: 0 10px 20px -5px rgba(99, 102, 241, 0.15);
+  border-color: rgba(99, 102, 241, 0.3);
+  box-shadow: 0 10px 20px -5px rgba(99, 102, 241, 0.25);
 }
 
 .aiops-capability-card:hover > div:first-child {
@@ -191,9 +244,93 @@
   }
 }
 
-/* Dark Mode Support (future) */
-@media (prefers-color-scheme: dark) {
-  /* Placeholder for dark mode styles when implemented */
+/* Dark Theme Text Color Overrides */
+.aiops-page .text-gray-900 {
+  color: #f1f5f9 !important;
+}
+
+.aiops-page .text-gray-800 {
+  color: #e2e8f0 !important;
+}
+
+.aiops-page .text-gray-700 {
+  color: #cbd5e1 !important;
+}
+
+.aiops-page .text-gray-600 {
+  color: #94a3b8 !important;
+}
+
+.aiops-page .text-gray-500 {
+  color: #64748b !important;
+}
+
+.aiops-page .text-gray-400 {
+  color: #475569 !important;
+}
+
+/* Dark Theme Background Overrides */
+.aiops-page .bg-white {
+  background-color: var(--bg-card) !important;
+}
+
+.aiops-page .bg-gray-50 {
+  background-color: rgba(99, 102, 241, 0.05) !important;
+}
+
+.aiops-page .bg-gray-100 {
+  background-color: rgba(99, 102, 241, 0.08) !important;
+}
+
+/* Dark Theme Border Overrides */
+.aiops-page .border-gray-200 {
+  border-color: rgba(99, 102, 241, 0.15) !important;
+}
+
+.aiops-page .border-gray-100 {
+  border-color: rgba(99, 102, 241, 0.1) !important;
+}
+
+.aiops-page .border-gray-300 {
+  border-color: rgba(99, 102, 241, 0.2) !important;
+}
+
+/* Dark Theme Colored Backgrounds */
+.aiops-page .bg-indigo-50 {
+  background-color: rgba(99, 102, 241, 0.15) !important;
+}
+
+.aiops-page .bg-purple-50 {
+  background-color: rgba(139, 92, 246, 0.15) !important;
+}
+
+.aiops-page .text-indigo-600 {
+  color: #818cf8 !important;
+}
+
+.aiops-page .text-purple-600 {
+  color: #a78bfa !important;
+}
+
+/* Custom Scrollbar - Dark Theme */
+.aiops-page ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.aiops-page ::-webkit-scrollbar-track {
+  background: rgba(99, 102, 241, 0.05);
+  border-radius: 4px;
+}
+
+.aiops-page ::-webkit-scrollbar-thumb {
+  background: rgba(99, 102, 241, 0.2);
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+.aiops-page ::-webkit-scrollbar-thumb:hover {
+  background: rgba(99, 102, 241, 0.4);
 }
 
 /* Print Styles */
