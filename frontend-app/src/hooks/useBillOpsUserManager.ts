@@ -45,6 +45,18 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
     const [error, setError] = useState<string | null>(null);
     const [isEditing, setIsEditing] = useState<boolean>(false);
     const [selectedUser, setSelectedUser] = useState<BillOpsUserFormData>(EMPTY_FORM);
+    const [notification, setNotification] = useState<{
+        type: 'success' | 'error' | 'info';
+        title: string;
+        message: string;
+    } | null>(null);
+
+    /**
+     * Clear current notification
+     */
+    const clearNotification = useCallback(() => {
+        setNotification(null);
+    }, []);
 
     /**
      * Get CSRF token from cookies
@@ -175,7 +187,14 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
             });
 
             if (!response.ok) {
-                console.warn('[UserManager] Backend returned error but data may be saved:', response.status);
+                const errorText = await response.text();
+                console.error('[UserManager] Save failed:', response.status, errorText);
+                setNotification({
+                    type: 'error',
+                    title: 'Save Failed',
+                    message: errorText || 'An unexpected error occurred while saving the user.'
+                });
+                return; // Keep form open on error
             }
 
             console.log('[UserManager] User saved successfully');
@@ -183,11 +202,20 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
             // Refresh users list and close form
             await fetchUsers();
             cancelEdit();
+
+            setNotification({
+                type: 'success',
+                title: 'User Saved',
+                message: `User ${selectedUser.username} has been saved successfully.`
+            });
         } catch (err) {
             console.error('[UserManager] Save error:', err);
-            // Refresh anyway to check state
-            await fetchUsers();
-            cancelEdit();
+            setNotification({
+                type: 'error',
+                title: 'Operation Error',
+                message: err instanceof Error ? err.message : 'An unexpected error occurred.'
+            });
+            // Don't close form on error
         }
     }, [selectedUser, getCsrfToken, fetchUsers, cancelEdit]);
 
@@ -216,9 +244,19 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
 
             console.log('[UserManager] User deleted successfully');
             await fetchUsers();
+
+            setNotification({
+                type: 'success',
+                title: 'User Deleted',
+                message: 'The user has been deleted successfully.'
+            });
         } catch (err) {
             console.error('[UserManager] Delete failed:', err);
-            alert('Delete failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+            setNotification({
+                type: 'error',
+                title: 'Delete Failed',
+                message: err instanceof Error ? err.message : 'An error occurred while deleting the user.'
+            });
         }
     }, [getCsrfToken, fetchUsers]);
 
@@ -241,6 +279,7 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
         // Form state
         isEditing,
         selectedUser,
+        notification,
 
         // Available roles
         roles: AVAILABLE_ROLES,
@@ -252,7 +291,8 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
         cancelEdit,
         saveUser,
         deleteUser,
-        updateSelectedUser
+        updateSelectedUser,
+        clearNotification
     };
 };
 

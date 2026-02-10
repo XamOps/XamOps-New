@@ -31,6 +31,7 @@ const AccountSelector: React.FC<AccountSelectorProps> = ({ isOpen, onToggle, onC
     setSearchTerm,
     isLoading,
     isDashboardPage,
+    selectedAccountDisplay,
   } = useAccounts();
 
   const { theme } = useTheme();
@@ -153,19 +154,25 @@ const AccountSelector: React.FC<AccountSelectorProps> = ({ isOpen, onToggle, onC
         <div className="flex items-center gap-3 overflow-hidden">
           <div className={clsx(
             'flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm transition-all duration-300',
-            theme === 'dark' ? 'bg-indigo-600' : 'bg-[#704fe6]'
+            selectedAccountDisplay.provider ? getProviderColor(selectedAccountDisplay.provider) : (theme === 'dark' ? 'bg-indigo-600' : 'bg-[#704fe6]')
           )}>
-            X
+            {selectedAccountDisplay.provider ? (
+              <i className={clsx('fab', getProviderIcon(selectedAccountDisplay.provider))}></i>
+            ) : (
+              selectedAccountDisplay.name.charAt(0).toUpperCase()
+            )}
           </div>
           <div className="flex flex-col items-start overflow-hidden text-left">
             <span className={clsx(
               'text-sm font-bold truncate w-full',
               theme === 'dark' ? 'text-slate-100' : 'text-slate-800'
             )}>
-              Xammer
+              {selectedAccountDisplay.name}
             </span>
-            <span className="text-xs text-slate-400 font-medium lowercase">
-              xamops
+            <span className="text-xs text-slate-400 font-medium">
+              {selectedAccountDisplay.id.length > 20
+                ? `${selectedAccountDisplay.id.substring(0, 8)}...${selectedAccountDisplay.id.slice(-4)}`
+                : selectedAccountDisplay.id}
             </span>
           </div>
         </div>
