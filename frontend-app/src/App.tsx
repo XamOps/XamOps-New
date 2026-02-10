@@ -94,6 +94,7 @@ import { SupportChatWidget } from './components/SupportChat';
 import AdminSupportNotificationListener from './components/Shared/AdminSupportNotificationListener';
 import UserSupportNotificationListener from './components/Shared/UserSupportNotificationListener';
 import ErrorBoundary from './components/Shared/ErrorBoundary';
+import RouteChangeHandler from './components/Shared/RouteChangeHandler';
 
 
 // Import styles
@@ -254,6 +255,7 @@ const AuthenticatedLayout: React.FC = () => {
 
   // Scroll to top when route changes
   React.useEffect(() => {
+    console.log('🔄 [App] Route changed to:', location.pathname);
     if (mainContentRef.current) {
       mainContentRef.current.scrollTo(0, 0);
     }
@@ -265,7 +267,7 @@ const AuthenticatedLayout: React.FC = () => {
   return (
     <ErrorBoundary>
       <div className={clsx(
-        'flex h-screen overflow-hidden transition-colors duration-300',
+        'flex h-screen overflow-hidden',
         theme === 'dark' ? 'bg-[#020617] text-slate-100' : 'bg-gray-50 text-gray-900'
       )}>
         <Sidebar />
@@ -273,14 +275,15 @@ const AuthenticatedLayout: React.FC = () => {
           id="main-content"
           ref={mainContentRef}
           className={clsx(
-            'flex-1 flex flex-col h-full overflow-y-auto relative transition-all duration-300 ease-in-out',
+            'flex-1 flex flex-col h-full overflow-y-auto relative scroll-smooth',
             'lg:pl-72',
             theme === 'dark' ? 'bg-[#020617]' : 'bg-gray-50'
           )}
+          style={{ WebkitOverflowScrolling: 'touch' }}
         >
           <Topbar />
           <div className="flex-1 pt-6">
-            <Outlet key={location.pathname} />
+            <Outlet />
           </div>
         </div>
         {/* Support Chat Widget - Visible on all authenticated pages for ROLE_XAMOPS users */}
@@ -311,83 +314,86 @@ const AppContent: React.FC = () => {
               </ProtectedRoute>
             }
           >
-            <Route element={<DashboardGuard />}>
-              <Route path="/unified-dashboard" element={<UnifiedDashboard />} />
-              <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/gcp-dashboard" element={<GcpDashboard />} />
-              <Route path="/azure-dashboard" element={<AzureDashboard />} />
-            </Route>
+            {/* Route Change Handler - Forces remounts */}
+            <Route element={<RouteChangeHandler />}>
+              <Route element={<DashboardGuard />}>
+                <Route path="/unified-dashboard" element={<UnifiedDashboard />} />
+                <Route path="/dashboard" element={<Dashboard />} />
+                <Route path="/gcp-dashboard" element={<GcpDashboard />} />
+                <Route path="/azure-dashboard" element={<AzureDashboard />} />
+              </Route>
 
-            {/* Core FinOps & CloudOps Routes */}
-            <Route path="/azure-finops" element={<AzureFinOpsPage />} />
-            <Route path="/finops" element={<FinOpsPage />} />
-            <Route path="/gcp-finops" element={<GcpFinOpsPage />} />
-            <Route path="/cost" element={<CostPage />} />
-            <Route path="/gcp-cost" element={<GcpCostPage />} />
-            <Route path="/waste" element={<WastePage />} />
-            <Route path="/gcp-waste" element={<GcpWastePage />} />
-            <Route path="/rightsizing" element={<RightsizingPage />} />
-            <Route path="/gcp-rightsizing" element={<GcpRightsizingPage />} />
-            <Route path="/reservation" element={<ReservationPage />} />
-            <Route path="/gcp-reservations" element={<GcpReservationsPage />} />
-            <Route path="/cloudsitter" element={<CloudSitterPage />} />
-            <Route path="/spot-automation" element={<SpotAutomationPage />} />
-            <Route path="/grafana-dashboard" element={<GrafanaDashboardPage />} />
-            <Route path="/cloudk8s" element={<CloudK8sPage />} />
-            <Route path="/gcp-cloudk8s" element={<GcpCloudK8sPage />} />
-            <Route path="/azure-cloudk8s" element={<AzureCloudK8sPage />} />
-            <Route path="/eks-details" element={<EksDetailsPage />} />
-            <Route path="/security" element={<SecurityPage />} />
-            <Route path="/gcp-security" element={<GcpSecurityPage />} />
-            <Route path="/performance" element={<PerformancePage />} />
-            <Route path="/gcp-performance" element={<GcpPerformancePage />} />
-            <Route path="/alerts" element={<AlertsPage />} />
-            <Route path="/gcp-alerts" element={<GcpAlertsPage />} />
-            <Route path="/tickets" element={<TicketsPage />} />
-            <Route path="/ticket-detail" element={<TicketDetailPage />} />
-            <Route path="/cloudlist" element={<CloudListPage />} />
-            <Route path="/cloudshell" element={<CloudShellPage />} />
-            <Route path="/account-manager" element={<AccountManagerPage />} />
-            <Route path="/cloudmap" element={<CloudMapPage />} />
-            <Route path="/gcp-cloudmap" element={<GcpCloudMapPage />} />
-            <Route path="/add-account" element={<AddAccountPage />} />
-            <Route path="/add-gcp-account" element={<AddGcpAccountPage />} />
-            <Route path="/add-github-config" element={<GitHubConfigPage />} />
-            <Route path="/devops-in-the-box" element={<DevOpsInTheBoxPage />} />
-            <Route path="/cicd-pipelines" element={<CICDPipelinesPage />} />
-            <Route path="/sonarqube" element={<SonarQubePage />} />
-            <Route path="/aiops" element={<AIOpsPage />} />
-            <Route path="/dataops" element={<DataOpsPage />} />
+              {/* Core FinOps & CloudOps Routes */}
+              <Route path="/azure-finops" element={<AzureFinOpsPage />} />
+              <Route path="/finops" element={<FinOpsPage />} />
+              <Route path="/gcp-finops" element={<GcpFinOpsPage />} />
+              <Route path="/cost" element={<CostPage />} />
+              <Route path="/gcp-cost" element={<GcpCostPage />} />
+              <Route path="/waste" element={<WastePage />} />
+              <Route path="/gcp-waste" element={<GcpWastePage />} />
+              <Route path="/rightsizing" element={<RightsizingPage />} />
+              <Route path="/gcp-rightsizing" element={<GcpRightsizingPage />} />
+              <Route path="/reservation" element={<ReservationPage />} />
+              <Route path="/gcp-reservations" element={<GcpReservationsPage />} />
+              <Route path="/cloudsitter" element={<CloudSitterPage />} />
+              <Route path="/spot-automation" element={<SpotAutomationPage />} />
+              <Route path="/grafana-dashboard" element={<GrafanaDashboardPage />} />
+              <Route path="/cloudk8s" element={<CloudK8sPage />} />
+              <Route path="/gcp-cloudk8s" element={<GcpCloudK8sPage />} />
+              <Route path="/azure-cloudk8s" element={<AzureCloudK8sPage />} />
+              <Route path="/eks-details" element={<EksDetailsPage />} />
+              <Route path="/security" element={<SecurityPage />} />
+              <Route path="/gcp-security" element={<GcpSecurityPage />} />
+              <Route path="/performance" element={<PerformancePage />} />
+              <Route path="/gcp-performance" element={<GcpPerformancePage />} />
+              <Route path="/alerts" element={<AlertsPage />} />
+              <Route path="/gcp-alerts" element={<GcpAlertsPage />} />
+              <Route path="/tickets" element={<TicketsPage />} />
+              <Route path="/ticket-detail" element={<TicketDetailPage />} />
+              <Route path="/cloudlist" element={<CloudListPage />} />
+              <Route path="/cloudshell" element={<CloudShellPage />} />
+              <Route path="/account-manager" element={<AccountManagerPage />} />
+              <Route path="/cloudmap" element={<CloudMapPage />} />
+              <Route path="/gcp-cloudmap" element={<GcpCloudMapPage />} />
+              <Route path="/add-account" element={<AddAccountPage />} />
+              <Route path="/add-gcp-account" element={<AddGcpAccountPage />} />
+              <Route path="/add-github-config" element={<GitHubConfigPage />} />
+              <Route path="/devops-in-the-box" element={<DevOpsInTheBoxPage />} />
+              <Route path="/cicd-pipelines" element={<CICDPipelinesPage />} />
+              <Route path="/sonarqube" element={<SonarQubePage />} />
+              <Route path="/aiops" element={<AIOpsPage />} />
+              <Route path="/dataops" element={<DataOpsPage />} />
 
-            {/* BillOps Routes */}
-            <Route path="/billops-dashboard" element={<BillOpsUserDashboardPage />} />
-            <Route path="/billops-billing" element={<BillingPage />} />
-            <Route path="/billops-invoices" element={<InvoicesPage />} />
-            <Route path="/billops-gcp-billing" element={<GcpBillingPage />} />
-            <Route path="/billops-client-details" element={<ClientDetailsPage />} />
-            <Route path="/billops-credits" element={<CreditsPage />} />
-            <Route path="/billops-tickets" element={<BillOpsTicketsPage />} />
-            <Route path="/billops-ticket-detail" element={<BillOpsTicketDetailPage />} />
-            <Route path="/billops-support-dashboard" element={<BillOpsSupportDashboardPage />} />
-            <Route path="/billops-admin-dashboard" element={<BillOpsAdminDashboardPage />} />
-            <Route path="/billops-admin-invoices" element={<BillOpsAdminInvoicesPage />} />
-            <Route path="/billops-admin-credits" element={<BillOpsAdminCreditsPage />} />
-            <Route path="/billops-admin-tickets" element={<BillOpsAdminTicketsPage />} />
-            <Route path="/billops-agreements" element={<AgreementsPage />} />
-            <Route path="/billops-admin-agreements" element={<BillOpsAdminAgreementsPage />} />
-            <Route path="/marketplace-purchases" element={<MarketplacePurchasesPage />} />
-            <Route path="/workspace-licenses" element={<WorkspaceLicensesPage />} />
-            <Route path="/user-management" element={<UserManagementPage />} />
-            <Route path="/my-profile" element={<MyProfilePage />} />
-            <Route path="/complianceops" element={<ComplianceOpsPage />} />
-            <Route path="/billops-admin-user-manager" element={<BillOpsAdminUserManagerPage />} />
-            <Route path="/calculator" element={<CalculatorPage />} />
-            <Route path="/gcp-cloudlist" element={<GcpCloudListPage />} />
-            <Route path="/azure-cloudlist" element={<AzureCloudList />} />
-          </Route>
+              {/* BillOps Routes */}
+              <Route path="/billops-dashboard" element={<BillOpsUserDashboardPage />} />
+              <Route path="/billops-billing" element={<BillingPage />} />
+              <Route path="/billops-invoices" element={<InvoicesPage />} />
+              <Route path="/billops-gcp-billing" element={<GcpBillingPage />} />
+              <Route path="/billops-client-details" element={<ClientDetailsPage />} />
+              <Route path="/billops-credits" element={<CreditsPage />} />
+              <Route path="/billops-tickets" element={<BillOpsTicketsPage />} />
+              <Route path="/billops-ticket-detail" element={<BillOpsTicketDetailPage />} />
+              <Route path="/billops-support-dashboard" element={<BillOpsSupportDashboardPage />} />
+              <Route path="/billops-admin-dashboard" element={<BillOpsAdminDashboardPage />} />
+              <Route path="/billops-admin-invoices" element={<BillOpsAdminInvoicesPage />} />
+              <Route path="/billops-admin-credits" element={<BillOpsAdminCreditsPage />} />
+              <Route path="/billops-admin-tickets" element={<BillOpsAdminTicketsPage />} />
+              <Route path="/billops-agreements" element={<AgreementsPage />} />
+              <Route path="/billops-admin-agreements" element={<BillOpsAdminAgreementsPage />} />
+              <Route path="/marketplace-purchases" element={<MarketplacePurchasesPage />} />
+              <Route path="/workspace-licenses" element={<WorkspaceLicensesPage />} />
+              <Route path="/user-management" element={<UserManagementPage />} />
+              <Route path="/my-profile" element={<MyProfilePage />} />
+              <Route path="/complianceops" element={<ComplianceOpsPage />} />
+              <Route path="/billops-admin-user-manager" element={<BillOpsAdminUserManagerPage />} />
+              <Route path="/calculator" element={<CalculatorPage />} />
+              <Route path="/gcp-cloudlist" element={<GcpCloudListPage />} />
+              <Route path="/azure-cloudlist" element={<AzureCloudList />} />
+            </Route> {/* Close RouteChangeHandler */}
 
-          {/* Catch all - redirect to login */}
-          <Route path="*" element={<Navigate to="/" replace />} />
+            {/* Catch all - redirect to login */}
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Route> {/* Close ProtectedRoute wrapper */}
         </Routes>
       </TopbarProvider>
     </ThemeProvider>
