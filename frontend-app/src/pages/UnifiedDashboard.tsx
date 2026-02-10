@@ -312,8 +312,8 @@ export const UnifiedDashboard: React.FC = () => {
   }, [fetchAll]);
 
   return (
-    <div className="flex-1 flex flex-col h-screen overflow-y-auto overflow-x-hidden bg-slate-50 font-sans text-slate-800">
-      <div id="unified-dashboard-container" className="flex flex-col h-full w-full">
+    <div className="flex-1 flex flex-col min-h-screen bg-slate-50 font-sans text-slate-800">
+      <div id="unified-dashboard-container" className="flex flex-col w-full">
         {/* Notification Toast */}
         {notification && (
           <div className={`fixed top-4 right-4 z-[9999] px-6 py-4 rounded-xl shadow-2xl border flex items-center gap-4 animate-in slide-in-from-right-8 duration-300 ${notification.type === 'error' ? 'bg-rose-50 border-rose-200 text-rose-800' : 'bg-emerald-50 border-emerald-200 text-emerald-800'
@@ -343,10 +343,10 @@ export const UnifiedDashboard: React.FC = () => {
         />
 
         {/* Main Content */}
-        <main className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar">
+        <main className="flex-1 p-8 space-y-8">
 
           {/* Development Warning - Refined */}
-          <div className="bg-amber-50/50 backdrop-blur-sm border border-amber-200/60 p-4 rounded-xl shadow-sm flex items-start gap-4 animate-in fade-in slide-in-from-top-4 duration-500">
+          <div className="bg-amber-50 border border-amber-200/60 p-4 rounded-xl shadow-sm flex items-start gap-4 animate-in fade-in slide-in-from-top-4 duration-500">
             <div className="bg-amber-100 p-2 rounded-lg text-amber-600">
               <i className="fas fa-exclamation-triangle text-lg"></i>
             </div>

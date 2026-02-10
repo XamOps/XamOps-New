@@ -24,10 +24,10 @@
  * - Same success flow (redirect to account-manager)
  */
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useGitHubConfig } from '../hooks/useGitHubConfig';
-import { useTopbar } from '../contexts/TopbarContext';
+import { useTopbarActions } from '../contexts/TopbarContext';
 
 // Import styles
 import '../styles/addAccount.css';
@@ -35,7 +35,7 @@ import '../styles/githubConfig.css';
 
 const GitHubConfigPage: React.FC = () => {
   const navigate = useNavigate();
-  const { setActions, clearActions } = useTopbar();
+  const { setActions, clearActions } = useTopbarActions();
 
   const {
     githubDetails,
@@ -50,12 +50,17 @@ const GitHubConfigPage: React.FC = () => {
     console.log('📍 [GitHubConfig] Current URL:', globalThis.location.pathname);
   }, []);
 
+  // Memoize the navigate handler
+  const handleBackToAddAccount = useCallback(() => {
+    navigate('/add-account');
+  }, [navigate]);
+
   // Set topbar actions
   useEffect(() => {
     setActions(
       <div className="flex items-center gap-3">
         <button
-          onClick={() => navigate('/add-account')}
+          onClick={handleBackToAddAccount}
           className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all"
         >
           <i className="fas fa-arrow-left"></i>
@@ -69,7 +74,7 @@ const GitHubConfigPage: React.FC = () => {
     );
 
     return () => clearActions();
-  }, [setActions, clearActions, navigate]);
+  }, [setActions, clearActions, handleBackToAddAccount]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
