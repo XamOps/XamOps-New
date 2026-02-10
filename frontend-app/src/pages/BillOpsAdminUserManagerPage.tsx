@@ -29,6 +29,7 @@ import React, { useEffect } from 'react';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useBillOpsUserManager } from '../hooks/useBillOpsUserManager';
 import type { BillOpsUser, BillOpsRole } from '../types/billopsUserManager';
+import NotificationModal from '../components/Shared/NotificationModal';
 import '../styles/billopsAdminUserManager.css';
 
 const BillOpsAdminUserManagerPage: React.FC = () => {
@@ -45,6 +46,8 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
         saveUser,
         deleteUser,
         updateSelectedUser,
+        notification,
+        clearNotification,
     } = useBillOpsUserManager();
 
     /**
@@ -269,6 +272,17 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
                     </div>
                 )}
             </div>
+
+            {/* Notification Modal */}
+            {notification && (
+                <NotificationModal
+                    isOpen={!!notification}
+                    onClose={clearNotification}
+                    type={notification.type}
+                    title={notification.title}
+                    message={notification.message}
+                />
+            )}
         </div>
     );
 };

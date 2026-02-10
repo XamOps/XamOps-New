@@ -46,6 +46,11 @@ export interface UseBillOpsUserManagerResult {
     // Form state
     isEditing: boolean;
     selectedUser: BillOpsUserFormData;
+    notification: {
+        type: 'success' | 'error' | 'info';
+        title: string;
+        message: string;
+    } | null;
 
     // Available roles
     roles: BillOpsRole[];
@@ -58,4 +63,5 @@ export interface UseBillOpsUserManagerResult {
     saveUser: () => Promise<void>;
     deleteUser: (id: string) => Promise<void>;
     updateSelectedUser: (field: keyof BillOpsUserFormData, value: string) => void;
+    clearNotification: () => void;
 }

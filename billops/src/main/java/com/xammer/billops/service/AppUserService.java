@@ -42,6 +42,11 @@ public class AppUserService {
     private String loginUrl;
 
     public AppUser createUser(UserDTO dto) {
+        // Check if username already exists
+        if (appUserRepository.findByUsername(dto.getUsername()).isPresent()) {
+            throw new RuntimeException("Username already exists: " + dto.getUsername());
+        }
+
         // Handle client
         Client client = clientRepository.findByName(dto.getClientName());
         if (client == null) {
@@ -50,7 +55,8 @@ public class AppUserService {
         }
 
         // Create user
-        AppUser user = new AppUser(dto.getUsername(), passwordEncoder.encode(dto.getPassword()), dto.getEmail(), dto.getRole(), client);
+        AppUser user = new AppUser(dto.getUsername(), passwordEncoder.encode(dto.getPassword()), dto.getEmail(),
+                dto.getRole(), client);
         AppUser savedUser = appUserRepository.save(user);
 
         // Send welcome email with credentials
@@ -115,18 +121,18 @@ public class AppUserService {
     public void deleteUser(Long id) {
         AppUser user = appUserRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("User not found"));
-        
+
         Client client = user.getClient();
         Long clientId = client.getId();
-        
+
         // Delete the user first
         appUserRepository.deleteById(id);
-        
+
         // Check if any other users are still using this client
         long usersWithClient = appUserRepository.findAll().stream()
                 .filter(u -> u.getClient() != null && u.getClient().getId().equals(clientId))
                 .count();
-        
+
         // If no other users have this client, delete it
         if (usersWithClient == 0) {
             clientRepository.deleteById(clientId);
@@ -142,15 +148,20 @@ public class AppUserService {
                 "<style>" +
                 "body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }" +
                 ".container { max-width: 600px; margin: 0 auto; padding: 20px; }" +
-                ".header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }" +
+                ".header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }"
+                +
                 ".content { background: #f9fafb; padding: 30px; border-radius: 0 0 10px 10px; }" +
-                ".credentials-box { background: white; border-left: 4px solid #667eea; padding: 20px; margin: 20px 0; border-radius: 5px; }" +
+                ".credentials-box { background: white; border-left: 4px solid #667eea; padding: 20px; margin: 20px 0; border-radius: 5px; }"
+                +
                 ".credential-item { margin: 15px 0; }" +
                 ".label { font-weight: bold; color: #667eea; display: inline-block; width: 120px; }" +
-                ".value { background: #f3f4f6; padding: 8px 12px; border-radius: 4px; font-family: monospace; display: inline-block; }" +
-                ".button { display: inline-block; background: #667eea; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; margin: 20px 0; }" +
+                ".value { background: #f3f4f6; padding: 8px 12px; border-radius: 4px; font-family: monospace; display: inline-block; }"
+                +
+                ".button { display: inline-block; background: #667eea; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; margin: 20px 0; }"
+                +
                 ".footer { text-align: center; padding: 20px; color: #6b7280; font-size: 12px; }" +
-                ".warning { background: #fef3c7; border-left: 4px solid #f59e0b; padding: 15px; margin: 20px 0; border-radius: 5px; }" +
+                ".warning { background: #fef3c7; border-left: 4px solid #f59e0b; padding: 15px; margin: 20px 0; border-radius: 5px; }"
+                +
                 "</style>" +
                 "</head>" +
                 "<body>" +
@@ -179,7 +190,8 @@ public class AppUserService {
                 "</div>" +
                 "</div>" +
                 "<div class='warning'>" +
-                "<strong>⚠️ Security Reminder:</strong> Please change your password after your first login for security purposes." +
+                "<strong>⚠️ Security Reminder:</strong> Please change your password after your first login for security purposes."
+                +
                 "</div>" +
                 "<div style='text-align: center;'>" +
                 "<a href='https://live.xamops.com/' class='button'>Login to XamOps</a>" +
