@@ -202,7 +202,7 @@ const MapSection: React.FC<MapSectionProps> = ({ regionStatus, isLoading }) => {
             </Geographies>
 
             {/* Region Markers */}
-            {regionStatus.map((region) => (
+            {(regionStatus || []).map((region) => (
               <Marker
                 key={region.regionId}
                 coordinates={[region.longitude, region.latitude]}
