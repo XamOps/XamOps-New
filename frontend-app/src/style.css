@@ -48,11 +48,32 @@
     --shadow-glow: 0 0 15px rgba(59, 130, 246, 0.25);
 }
 
-/* Global Transitions for Theme Switching */
-* {
-    transition-property: background-color, border-color, text-decoration-color, fill, stroke;
+/* Global Transitions for Theme Switching - Optimized for scroll performance */
+/* Only apply transitions to specific elements, not all (*) to prevent scroll jank */
+.dark button,
+.dark a,
+.dark .glass-card,
+.dark .card,
+.dark input,
+.dark select,
+.dark textarea,
+.dark [class*="btn"],
+.dark header,
+.dark nav,
+.dark .sidebar {
+    transition-property: background-color, border-color, color;
     transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-    transition-duration: 300ms;
+    transition-duration: 200ms;
+}
+
+/* Smooth scrolling for html */
+html {
+    scroll-behavior: smooth;
+}
+
+/* Disable transitions during scroll for better performance */
+html.is-scrolling * {
+    transition: none !important;
 }
 
 /* Base Dark Mode Background */
@@ -1554,4 +1575,130 @@
 .dark [class*="savings"] [class*="label"],
 .dark [class*="alert"] [class*="label"] {
     color: rgba(255, 255, 255, 0.9) !important;
+}
+
+/* ===== SOLID DARK MODE - NO GLASS EFFECT FOR DROPDOWNS & HEADER ===== */
+
+/* Remove glass effect from notification dropdown */
+.dark .notification-dropdown {
+    background: #0f172a !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    border: 1px solid #1e293b !important;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5), 0 0 1px rgba(0, 0, 0, 0.3) !important;
+}
+
+.dark .notification-header {
+    background: #1e293b !important;
+    border-bottom: 1px solid #334155 !important;
+}
+
+.dark .notification-header-title {
+    color: #f8fafc !important;
+}
+
+.dark .notification-footer {
+    background: #1e293b !important;
+    border-top: 1px solid #334155 !important;
+}
+
+.dark .notification-section {
+    border-bottom: 1px solid #334155 !important;
+}
+
+.dark .notification-item:hover {
+    background: #1e293b !important;
+}
+
+.dark .notification-item-title {
+    color: #f8fafc !important;
+}
+
+.dark .notification-item-description {
+    color: #94a3b8 !important;
+}
+
+.dark .notification-empty-title {
+    color: #f8fafc !important;
+}
+
+.dark .notification-empty-text,
+.dark .notification-loading-text {
+    color: #94a3b8 !important;
+}
+
+.dark .notification-section-title {
+    color: #cbd5e1 !important;
+}
+
+.dark .notification-content::-webkit-scrollbar-track {
+    background: #1e293b !important;
+}
+
+.dark .notification-content::-webkit-scrollbar-thumb {
+    background: #475569 !important;
+}
+
+/* Remove glass effect from profile dropdown */
+.dark [class*="dropdown"],
+.dark [role="menu"],
+.dark [class*="popover"] {
+    background: #0f172a !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    border-color: #1e293b !important;
+}
+
+/* Remove glass effect from select dropdowns */
+.dark select,
+.dark select option {
+    background: #0f172a !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+}
+
+/* Remove glass effect from top header/headline section */
+.dark header,
+.dark .sticky.top-0,
+.dark [class*="topbar"],
+.dark [class*="top-bar"],
+.dark [class*="header-bar"] {
+    background: #0a0f1a !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    border-color: #1e293b !important;
+}
+
+/* Remove glass effect from ticker/headline bar */
+.dark .ticker-wrap {
+    background: #0a0f1a !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    border-bottom: 1px solid #1e293b !important;
+}
+
+.dark .ticker-item {
+    color: #94a3b8 !important;
+}
+
+.dark .ticker-item strong {
+    color: #f8fafc !important;
+}
+
+/* Ensure all dropdown menus are solid in dark mode */
+.dark .absolute[class*="top-full"],
+.dark .absolute[class*="bottom-full"],
+.dark div[class*="rounded-2xl"][class*="shadow"] {
+    background: #0f172a !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+}
+
+/* Override any remaining glass effects in dark mode for menus */
+.dark [class*="menu"],
+.dark [class*="Menu"] {
+    background: #0f172a !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    border-color: #1e293b !important;
 }

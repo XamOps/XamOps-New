@@ -11,11 +11,50 @@
 /* Prevent horizontal scrolling globally while allowing vertical scroll */
 html {
   overflow-x: hidden;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
 }
 
 body {
   overflow-x: hidden;
+  overflow-y: auto;
   /* Allow vertical scrolling - do not use overflow: hidden */
+}
+
+/* Optimize scrolling performance */
+* {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* GPU acceleration for smooth scrolling on containers */
+.scroll-smooth {
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Will-change optimization for frequently scrolling containers */
+main,
+[class*="overflow-y-auto"],
+[class*="overflow-auto"] {
+  will-change: scroll-position;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* GPU acceleration for elements with backdrop-filter to prevent scroll jank */
+[class*="backdrop-blur"],
+[class*="glass"],
+.glass-card {
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+/* Optimize sticky headers during scroll */
+.sticky,
+[class*="sticky"] {
+  transform: translateZ(0);
+  will-change: transform;
 }
 
 /* Use min-h-screen instead of fixed h-screen for content containers */

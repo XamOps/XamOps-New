@@ -261,3 +261,33 @@ body {
   background: rgba(239, 68, 68, 0.1);
   color: #DC2626;
 }
+
+/* ===== DARK MODE - SOLID BACKGROUNDS (NO GLASS EFFECT) ===== */
+
+/* Ticker/Headline bar - solid dark background */
+.dark .ticker-wrap {
+  background: #0a0f1a !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border-bottom: 1px solid #1e293b !important;
+}
+
+.dark .ticker-item {
+  color: #94a3b8 !important;
+}
+
+.dark .ticker-item strong {
+  color: #f8fafc !important;
+}
+
+/* Glass card - solid dark background in dark mode */
+.dark .glass-card {
+  background: #0f172a !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border: 1px solid #1e293b !important;
+}
+
+.dark .glass-card:hover {
+  background: #1e293b !important;
+}

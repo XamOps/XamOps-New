@@ -27,10 +27,10 @@
  * - Same visual design with enhancements
  */
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAddAccount } from '../hooks/useAddAccount';
-import { useTopbar } from '../contexts/TopbarContext';
+import { useTopbarActions } from '../contexts/TopbarContext';
 import {
   ProviderSelector,
   ConnectionSteps,
@@ -46,7 +46,7 @@ import '../styles/addAccount.css';
 
 const AddAccountPage: React.FC = () => {
   const navigate = useNavigate();
-  const { setActions, clearActions } = useTopbar();
+  const { setActions, clearActions } = useTopbarActions();
 
   const {
     // State
@@ -78,7 +78,7 @@ const AddAccountPage: React.FC = () => {
     copyToClipboard,
   } = useAddAccount();
 
-  const getProviderInfo = () => {
+  const providerInfo = useMemo(() => {
     switch (provider) {
       case 'aws':
         return { name: 'AWS', icon: 'fab fa-aws', colorClass: 'aws' };
@@ -91,16 +91,19 @@ const AddAccountPage: React.FC = () => {
       default:
         return { name: 'Cloud', icon: 'fas fa-cloud', colorClass: 'default' };
     }
-  };
+  }, [provider]);
 
-  const providerInfo = getProviderInfo();
+  // Memoize the navigate handler to prevent re-renders
+  const handleBackToAccounts = useCallback(() => {
+    navigate('/account-manager');
+  }, [navigate]);
 
   // Set topbar actions
   useEffect(() => {
     setActions(
       <div className="flex items-center gap-3">
         <button
-          onClick={() => navigate('/account-manager')}
+          onClick={handleBackToAccounts}
           className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all"
         >
           <i className="fas fa-arrow-left"></i>
@@ -116,7 +119,7 @@ const AddAccountPage: React.FC = () => {
     );
 
     return () => clearActions();
-  }, [provider, providerInfo, setActions, clearActions, navigate]);
+  }, [provider, providerInfo, setActions, clearActions, handleBackToAccounts]);
 
   const renderProviderForm = () => {
     switch (provider) {
