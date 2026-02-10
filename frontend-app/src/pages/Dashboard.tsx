@@ -230,7 +230,7 @@ export const Dashboard: React.FC = () => {
             {/* Map + Inventory Widget */}
             <div id="widget-middle" className="widget grid gap-6 lg:grid-cols-5 fade-in">
               <MapSection
-                regionStatus={dashboardData.regionStatus}
+                regionStatus={dashboardData.regionStatus || []}
                 isLoading={loadingState.map}
               />
               <InventorySection
