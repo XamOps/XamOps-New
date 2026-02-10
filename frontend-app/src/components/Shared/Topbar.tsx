@@ -100,7 +100,7 @@ const Topbar: React.FC = () => {
         <header className="sticky top-0 z-40 w-full transition-colors duration-300">
             <div className={clsx(
                 'mx-auto flex h-20 items-center justify-between px-8 border-b shadow-sm transition-all duration-300',
-                theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white/90 backdrop-blur-md border-gray-200/50 text-slate-800'
+                theme === 'dark' ? 'bg-[#0a0f1a] border-slate-800 text-slate-100' : 'bg-white/90 backdrop-blur-md border-gray-200/50 text-slate-800'
             )}>
                 <div className="flex items-center gap-4">
                     <div className="flex flex-col">
@@ -216,7 +216,7 @@ const Topbar: React.FC = () => {
                         {isProfileOpen && (
                             <div className={clsx(
                                 'absolute top-full right-0 mt-3 w-56 rounded-2xl shadow-2xl border py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-200',
-                                theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-white border-slate-100 text-slate-600'
+                                theme === 'dark' ? 'bg-[#0f172a] border-slate-800 text-slate-300' : 'bg-white border-slate-100 text-slate-600'
                             )}>
                                 <div className={clsx(
                                     'px-4 py-3 border-b mb-1',

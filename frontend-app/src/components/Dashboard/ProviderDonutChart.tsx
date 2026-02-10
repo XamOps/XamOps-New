@@ -158,7 +158,7 @@ export const ProviderDonutChart: React.FC<ProviderDonutChartProps> = ({ awsData,
     const centerTextPlugin = {
       id: 'centerText',
       beforeDraw(chart: Chart) {
-        const { ctx, width, height, chartArea } = chart;
+        const { ctx, height, chartArea } = chart;
         ctx.restore();
 
         // Calculate the actual center of the chart area (excluding legend)

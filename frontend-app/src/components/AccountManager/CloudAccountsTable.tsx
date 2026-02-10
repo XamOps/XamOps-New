@@ -24,13 +24,13 @@ const CloudAccountsTable: React.FC<CloudAccountsTableProps> = ({
   const getProviderIcon = (provider: string) => {
     switch (provider) {
       case 'AWS':
-        return { icon: 'fab fa-aws', class: 'provider-icon-aws' };
+        return { icon: 'fab fa-aws', class: 'provider-icon-aws text-white' };
       case 'GCP':
-        return { icon: 'fab fa-google', class: 'provider-icon-gcp' };
+        return { icon: 'fab fa-google', class: 'provider-icon-gcp text-white' };
       case 'Azure':
-        return { icon: 'fab fa-microsoft', class: 'provider-icon-azure' };
+        return { icon: 'fab fa-microsoft', class: 'provider-icon-azure text-white' };
       default:
-        return { icon: 'fas fa-cloud', class: 'provider-icon-default' };
+        return { icon: 'fas fa-cloud', class: 'provider-icon-default text-slate-500 bg-slate-100' };
     }
   };
 
@@ -116,7 +116,7 @@ const CloudAccountsTable: React.FC<CloudAccountsTableProps> = ({
                   >
                     <td className="py-4 nowrap">
                       <div className="flex items-center gap-4">
-                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white ${providerInfo.class} shadow-sm group-hover:scale-110 transition-transform duration-300`}>
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${providerInfo.class} shadow-sm group-hover:scale-110 transition-transform duration-300`}>
                           <i className={`${providerInfo.icon} text-lg`} />
                         </div>
                         <div className="flex flex-col">
