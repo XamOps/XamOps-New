@@ -119,7 +119,7 @@ const AccountSelector: React.FC<AccountSelectorProps> = ({ isOpen, onToggle, onC
                       {account.name}
                     </span>
                     <span className="text-[10px] opacity-60 font-medium">
-                      {account.id.toString().substring(0, 4)}...{account.id.toString().slice(-4)}
+                      {account.id?.toString().substring(0, 4) ?? 'N/A'}...{account.id?.toString().slice(-4) ?? ''}
                     </span>
                   </div>
                 </div>

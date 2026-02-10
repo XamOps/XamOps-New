@@ -101,9 +101,21 @@ export const AccountProvider: React.FC<{ children: ReactNode }> = ({ children })
       console.log('📊 [AccountContext] Accounts received:', data.length, data);
 
       // Included more statuses for visibility, especially during impersonation
-      const filtered = data.filter(acc =>
-        ['CONNECTED', 'PENDING', 'DISCONNECTED', 'ERROR'].includes(acc.status) || !acc.status
-      );
+      const filtered = data.filter(acc => {
+        // Filter out accounts with invalid IDs
+        const hasValidId = acc.id &&
+          typeof acc.id === 'string' &&
+          acc.id.trim() !== '';
+
+        const hasValidStatus = ['CONNECTED', 'PENDING', 'DISCONNECTED', 'ERROR'].includes(acc.status) || !acc.status;
+
+        // Log accounts with null IDs for debugging
+        if (!hasValidId) {
+          console.warn('[AccountContext] Filtering out account with invalid ID:', acc);
+        }
+
+        return hasValidId && hasValidStatus;
+      });
 
       console.log('📊 [AccountContext] Filtered (Visible) accounts:', filtered.length);
       setAccounts(filtered);
