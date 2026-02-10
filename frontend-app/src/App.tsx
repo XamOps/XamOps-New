@@ -70,6 +70,8 @@ import UserManagementPage from './pages/UserManagementPage';
 import MyProfilePage from './pages/MyProfilePage';
 import ComplianceOpsPage from './pages/ComplianceOpsPage';
 import BillOpsAdminUserManagerPage from './pages/BillOpsAdminUserManagerPage';
+import AutoSpottingAdminDashboardPage from './pages/AutoSpottingAdminDashboardPage';
+import AutoSpottingCustomerDashboardPage from './pages/AutoSpottingCustomerDashboardPage';
 import ClientDetailsPage from './pages/ClientDetailsPage';
 import GcpDashboard from './pages/GcpDashboard';
 import GcpFinOpsPage from './pages/GcpFinOpsPage';
@@ -381,6 +383,8 @@ const AppContent: React.FC = () => {
             <Route path="/my-profile" element={<MyProfilePage />} />
             <Route path="/complianceops" element={<ComplianceOpsPage />} />
             <Route path="/billops-admin-user-manager" element={<BillOpsAdminUserManagerPage />} />
+            <Route path="/autospotting-admin" element={<AutoSpottingAdminDashboardPage />} />
+            <Route path="/autospotting" element={<AutoSpottingCustomerDashboardPage />} />
             <Route path="/calculator" element={<CalculatorPage />} />
             <Route path="/gcp-cloudlist" element={<GcpCloudListPage />} />
             <Route path="/azure-cloudlist" element={<AzureCloudList />} />
