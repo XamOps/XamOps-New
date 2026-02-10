@@ -60,6 +60,9 @@ const LoginForm: React.FC<LoginFormProps> = ({ onForgotPassword }) => {
       }
 
       if (response.ok) {
+        // Clear stale data from any previous user session
+        sessionStorage.clear();
+
         const contentType = response.headers.get('content-type');
         if (contentType?.includes('application/json')) {
           const data: LoginResponse = await response.json();
