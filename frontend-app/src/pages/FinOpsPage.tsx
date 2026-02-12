@@ -215,20 +215,49 @@ export const FinOpsPage: React.FC = () => {
 
   // Show error state
   if (error) {
+    console.error('[FinOpsPage] Rendering error state:', error);
     return (
-      <div className="fixed inset-0 flex items-center justify-center bg-red-50 text-red-700 z-50">
-        <div className="bg-white p-8 rounded-lg shadow-xl max-w-md w-full mx-4">
-          <div className="flex items-center justify-center w-16 h-16 mx-auto mb-4 bg-red-100 rounded-full">
-            <i className="fas fa-exclamation-triangle text-red-600 text-2xl"></i>
+      <div className="fixed inset-0 flex items-center justify-center bg-red-50 text-red-700 z-50 overflow-y-auto p-4">
+        <div className="bg-white p-8 rounded-2xl shadow-2xl max-w-lg w-full">
+          <div className="flex items-center justify-center w-20 h-20 mx-auto mb-6 bg-red-100 rounded-full shadow-inner">
+            <i className="fas fa-exclamation-triangle text-red-600 text-3xl"></i>
           </div>
-          <h2 className="text-2xl font-bold text-center mb-4 text-gray-800">Error</h2>
-          <p className="text-center text-gray-600 mb-6">{error.message}</p>
-          <button
-            onClick={() => window.location.reload()}
-            className="w-full bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700 transition-colors"
-          >
-            Try Again
-          </button>
+          <h2 className="text-2xl font-black text-center mb-2 text-gray-900">Failed to Load Report</h2>
+          <p className="text-center text-gray-600 mb-8 font-medium">
+            {error.message || 'An unexpected error occurred while fetching the FinOps data.'}
+          </p>
+
+          <div className="space-y-3">
+            <button
+              onClick={() => {
+                console.log('[FinOpsPage] User clicked "Try Again"');
+                window.location.reload();
+              }}
+              className="w-full bg-gradient-to-r from-red-600 to-red-700 text-white py-3 px-4 rounded-xl font-bold shadow-lg hover:shadow-red-200/50 hover:scale-[1.02] active:scale-[0.98] transition-all"
+            >
+              Try Again
+            </button>
+            <button
+              onClick={() => {
+                const details = document.getElementById('error-details');
+                if (details) details.classList.toggle('hidden');
+              }}
+              className="w-full bg-gray-50 text-gray-500 py-3 px-4 rounded-xl font-semibold hover:bg-gray-100 transition-colors"
+            >
+              Show Technical Details
+            </button>
+          </div>
+
+          <div id="error-details" className="hidden mt-6 p-4 bg-gray-900 rounded-xl overflow-x-auto">
+            <pre className="text-xs text-green-400 font-mono">
+              {JSON.stringify({
+                message: error.message,
+                stack: error.stack,
+                timestamp: new Date().toISOString(),
+                selectedAccountId: selectedAccountId
+              }, null, 2)}
+            </pre>
+          </div>
         </div>
       </div>
     );

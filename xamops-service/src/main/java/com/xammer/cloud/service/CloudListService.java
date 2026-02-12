@@ -100,8 +100,11 @@ import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.springframework.beans.factory.annotation.Qualifier;
 
 @Service
 public class CloudListService {
@@ -136,6 +139,18 @@ public class CloudListService {
     // ✅ Added ObjectMapper for JSON serialization
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    @Qualifier("awsRegionalCheckExecutor")
+    private Executor regionalCheckExecutor;
+
+    @Autowired
+    @Qualifier("awsTaskExecutor")
+    private Executor awsTaskExecutor;
+
+    // Cache to collapse multiple concurrent requests for the same account's
+    // regional status
+    private final Map<String, CompletableFuture<List<DashboardData.RegionStatus>>> regionStatusRequests = new ConcurrentHashMap<>();
 
     @Autowired
     public CloudListService(
@@ -491,13 +506,12 @@ public class CloudListService {
     @Async("awsTaskExecutor")
     public CompletableFuture<List<DashboardData.RegionStatus>> getRegionStatusForAccount(CloudAccount account,
             boolean forceRefresh) {
-        String cacheKey = "regionStatus-" + account.getAwsAccountId();
-        String dbCacheKey = "REGION_STATUS::" + account.getAwsAccountId();
+        String accountId = account.getAwsAccountId();
+        String cacheKey = "regionStatus-" + accountId;
+        String dbCacheKey = "REGION_STATUS::" + accountId;
 
         if (!forceRefresh) {
-            // 1. Check database cache first (persistent, survives restarts)
-            // NOTE: Using separate REGION_STATUS:: key, NOT CLOUD_LIST:: (which stores
-            // resources, not regions)
+            // 1. Check database cache first
             try {
                 Optional<CachedData> dbCache = cachedDataRepository.findById(dbCacheKey);
                 if (dbCache.isPresent() && dbCache.get().getJsonData() != null
@@ -508,7 +522,7 @@ public class CloudListService {
                             });
                     if (data != null && !data.isEmpty()) {
                         logger.info("✅ Serving region status data from database cache for account {} ({} regions)",
-                                account.getAwsAccountId(), data.size());
+                                accountId, data.size());
                         return CompletableFuture.completedFuture(data);
                     }
                 }
@@ -520,114 +534,168 @@ public class CloudListService {
             Optional<List<DashboardData.RegionStatus>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {
             });
             if (cachedData.isPresent()) {
-                logger.info("Serving cloud list region data from Redis cache for account {}",
-                        account.getAwsAccountId());
+                logger.info("Serving cloud list region data from Redis cache for account {}", accountId);
                 return CompletableFuture.completedFuture(cachedData.get());
             }
         }
 
-        // 3. Fetch fresh data from AWS API
-        logger.info("Fetching status for all available and active AWS regions from AWS API for account {}...",
-                account.getAwsAccountId());
-        Ec2Client ec2 = awsClientProvider.getEc2Client(account, configuredRegion);
-        try {
-            Set<String> s3Regions = new HashSet<>();
+        // 3. Use Request Collapsing with a fully async pipeline
+        return regionStatusRequests.computeIfAbsent(accountId, k -> {
+            logger.info("🚀 Starting fresh region discovery for account {} (Thread: {})",
+                    accountId, Thread.currentThread().getName());
+
+            // a. Fetch S3 regions in parallel (fully non-blocking)
             S3Client s3 = awsClientProvider.getS3Client(account, "us-east-1");
-            try {
-                for (Bucket bucket : s3.listBuckets().buckets()) {
-                    String bucketRegion = "us-east-1";
-                    try {
-                        bucketRegion = s3.getBucketLocation(req -> req.bucket(bucket.name()))
-                                .locationConstraintAsString();
-                        if (bucketRegion == null || bucketRegion.isEmpty()) {
-                            bucketRegion = "us-east-1";
-                        }
-                    } catch (S3Exception e) {
-                        String correctRegion = e.awsErrorDetails().sdkHttpResponse()
-                                .firstMatchingHeader("x-amz-bucket-region").orElse(null);
-                        if (correctRegion != null) {
-                            bucketRegion = correctRegion;
-                        }
-                    }
-                    s3Regions.add(bucketRegion);
-                }
-            } catch (Exception e) {
-                logger.error("Could not list S3 buckets to determine active regions", e);
-            }
-
-            List<Region> allRegions = ec2.describeRegions().regions();
-            logger.debug("Found {} total regions available to the account {}. Now checking for activity.",
-                    allRegions.size(), account.getAwsAccountId());
-
-            List<DashboardData.RegionStatus> regionStatuses = allRegions.parallelStream()
-                    .filter(region -> !"not-opted-in".equals(region.optInStatus()))
-                    .map(region -> {
-                        software.amazon.awssdk.regions.Region sdkRegion = software.amazon.awssdk.regions.Region
-                                .of(region.regionName());
-                        Ec2Client regionEc2 = awsClientProvider.getEc2Client(account, sdkRegion.id());
-                        RdsClient regionRds = awsClientProvider.getRdsClient(account, sdkRegion.id());
-                        LambdaClient regionLambda = awsClientProvider.getLambdaClient(account, sdkRegion.id());
-                        EcsClient regionEcs = awsClientProvider.getEcsClient(account, sdkRegion.id());
-                        if (isRegionActive(regionEc2, regionRds, regionLambda, regionEcs, sdkRegion)
-                                || s3Regions.contains(region.regionName())) {
-                            return mapRegionToStatus(region);
-                        }
-                        return null;
-                    })
-                    .filter(Objects::nonNull)
-                    .collect(Collectors.toList());
-
-            logger.debug("Successfully fetched {} active region statuses for account {}", regionStatuses.size(),
-                    account.getAwsAccountId());
-            redisCache.put(cacheKey, regionStatuses, 10);
-
-            // ✅ Save region status to database for persistence (used by EKS cluster
-            // discovery)
-            if (!regionStatuses.isEmpty()) {
+            CompletableFuture<Set<String>> s3RegionsFuture = CompletableFuture.supplyAsync(() -> {
                 try {
-                    CachedData regionCache = cachedDataRepository.findById(dbCacheKey).orElse(new CachedData());
-                    regionCache.setCacheKey(dbCacheKey);
-                    regionCache.setJsonData(objectMapper.writeValueAsString(regionStatuses));
-                    regionCache.setLastUpdated(LocalDateTime.now());
-                    cachedDataRepository.save(regionCache);
-                    logger.info("✅ Saved region status to database for account {} ({} regions)",
-                            account.getAwsAccountId(), regionStatuses.size());
+                    return s3.listBuckets().buckets();
                 } catch (Exception e) {
-                    logger.error("❌ Failed to save region status to database: {}", e.getMessage());
+                    logger.error("Failed to list S3 buckets for {}", accountId, e);
+                    return new ArrayList<Bucket>();
                 }
-            }
+            }, awsTaskExecutor).thenCompose(buckets -> {
+                if (buckets.isEmpty())
+                    return CompletableFuture.completedFuture(Collections.<String>emptySet());
 
-            return CompletableFuture.completedFuture(regionStatuses);
+                logger.info("[{}] Checking {} S3 bucket locations in parallel...", accountId, buckets.size());
+                List<CompletableFuture<String>> bucketFutures = buckets.stream()
+                        .map(bucket -> CompletableFuture.supplyAsync(() -> {
+                            try {
+                                String loc = s3.getBucketLocation(req -> req.bucket(bucket.name()))
+                                        .locationConstraintAsString();
+                                return (loc == null || loc.isEmpty()) ? "us-east-1" : loc;
+                            } catch (Exception e) {
+                                return "us-east-1";
+                            }
+                        }, awsTaskExecutor))
+                        .collect(Collectors.toList());
 
+                return CompletableFuture.allOf(bucketFutures.toArray(new CompletableFuture[0]))
+                        .thenApply(
+                                v -> bucketFutures.stream().map(CompletableFuture::join).collect(Collectors.toSet()));
+            });
+
+            // b. Fetch EC2 regions and check activity
+            return s3RegionsFuture.thenCompose(s3Regions -> {
+                try {
+                    Ec2Client ec2 = awsClientProvider.getEc2Client(account, configuredRegion);
+                    List<Region> allRegions = ec2.describeRegions().regions();
+
+                    List<CompletableFuture<DashboardData.RegionStatus>> checkFutures = allRegions.stream()
+                            .filter(region -> !"not-opted-in".equals(region.optInStatus()))
+                            .map(region -> {
+                                String regionName = region.regionName();
+                                software.amazon.awssdk.regions.Region sdkRegion = software.amazon.awssdk.regions.Region
+                                        .of(regionName);
+                                Ec2Client rEc2 = awsClientProvider.getEc2Client(account, sdkRegion.id());
+                                RdsClient rRds = awsClientProvider.getRdsClient(account, sdkRegion.id());
+                                LambdaClient rLambda = awsClientProvider.getLambdaClient(account, sdkRegion.id());
+                                EcsClient rEcs = awsClientProvider.getEcsClient(account, sdkRegion.id());
+
+                                return isRegionActiveAsync(rEc2, rRds, rLambda, rEcs, sdkRegion)
+                                        .thenApply(isActive -> (isActive || s3Regions.contains(regionName))
+                                                ? mapRegionToStatus(region)
+                                                : null);
+                            })
+                            .collect(Collectors.toList());
+
+                    return CompletableFuture.allOf(checkFutures.toArray(new CompletableFuture[0]))
+                            .thenApply(v -> {
+                                List<DashboardData.RegionStatus> results = checkFutures.stream()
+                                        .map(CompletableFuture::join).filter(Objects::nonNull)
+                                        .collect(Collectors.toList());
+
+                                if (!results.isEmpty()) {
+                                    redisCache.put(cacheKey, results, 10);
+                                    saveRegionStatusToDb(accountId, results);
+                                }
+                                return results;
+                            });
+                } catch (Exception e) {
+                    logger.error("Failed to describe regions for {}", accountId, e);
+                    CompletableFuture<List<DashboardData.RegionStatus>> errorFuture = CompletableFuture
+                            .completedFuture(new ArrayList<>());
+                    return errorFuture;
+                }
+            }).whenComplete((res, ex) -> regionStatusRequests.remove(accountId));
+        });
+    }
+
+    private void saveRegionStatusToDb(String accountId, List<DashboardData.RegionStatus> regionStatuses) {
+        try {
+            String dbCacheKey = "REGION_STATUS::" + accountId;
+            CachedData regionCache = cachedDataRepository.findById(dbCacheKey).orElse(new CachedData());
+            regionCache.setCacheKey(dbCacheKey);
+            regionCache.setJsonData(objectMapper.writeValueAsString(regionStatuses));
+            regionCache.setLastUpdated(LocalDateTime.now());
+            cachedDataRepository.save(regionCache);
+            logger.info("✅ Saved region status to database for account {}", accountId);
         } catch (Exception e) {
-            logger.error("Could not fetch and process AWS regions for account {}", account.getAwsAccountId(), e);
-            return CompletableFuture.completedFuture(new ArrayList<>());
+            logger.error("❌ Failed to save region status to database: {}", e.getMessage());
         }
     }
 
-    private boolean isRegionActive(Ec2Client ec2Client, RdsClient rdsClient, LambdaClient lambdaClient,
+    private CompletableFuture<Boolean> isRegionActiveAsync(Ec2Client ec2Client, RdsClient rdsClient,
+            LambdaClient lambdaClient,
             EcsClient ecsClient, software.amazon.awssdk.regions.Region region) {
-        logger.debug("Performing activity check for region: {}", region.id());
-        try {
-            if (ec2Client.describeInstances().hasReservations()
-                    && !ec2Client.describeInstances().reservations().isEmpty())
-                return true;
-            if (ec2Client.describeVolumes().hasVolumes() && !ec2Client.describeVolumes().volumes().isEmpty())
-                return true;
-            if (rdsClient.describeDBInstances().hasDbInstances()
-                    && !rdsClient.describeDBInstances().dbInstances().isEmpty())
-                return true;
-            if (lambdaClient.listFunctions().hasFunctions() && !lambdaClient.listFunctions().functions().isEmpty())
-                return true;
-            if (ecsClient.listClusters().hasClusterArns() && !ecsClient.listClusters().clusterArns().isEmpty())
-                return true;
-        } catch (AwsServiceException | SdkClientException e) {
-            logger.warn("Could not perform active check for region {}: {}. Assuming inactive.", region.id(),
-                    e.getMessage());
-            return false;
-        }
-        logger.debug("No activity found in region: {}", region.id());
-        return false;
+        logger.debug("Performing async activity check for region: {}", region.id());
+
+        List<CompletableFuture<Boolean>> checks = new ArrayList<>();
+        checks.add(CompletableFuture.supplyAsync(() -> {
+            try {
+                return ec2Client.describeInstances().hasReservations()
+                        && !ec2Client.describeInstances().reservations().isEmpty();
+            } catch (Exception e) {
+                return false;
+            }
+        }, regionalCheckExecutor));
+
+        checks.add(CompletableFuture.supplyAsync(() -> {
+            try {
+                return ec2Client.describeVolumes().hasVolumes() && !ec2Client.describeVolumes().volumes().isEmpty();
+            } catch (Exception e) {
+                return false;
+            }
+        }, regionalCheckExecutor));
+
+        checks.add(CompletableFuture.supplyAsync(() -> {
+            try {
+                return rdsClient.describeDBInstances().hasDbInstances()
+                        && !rdsClient.describeDBInstances().dbInstances().isEmpty();
+            } catch (Exception e) {
+                return false;
+            }
+        }, regionalCheckExecutor));
+
+        checks.add(CompletableFuture.supplyAsync(() -> {
+            try {
+                return lambdaClient.listFunctions().hasFunctions()
+                        && !lambdaClient.listFunctions().functions().isEmpty();
+            } catch (Exception e) {
+                return false;
+            }
+        }, regionalCheckExecutor));
+
+        checks.add(CompletableFuture.supplyAsync(() -> {
+            try {
+                return ecsClient.listClusters().hasClusterArns() && !ecsClient.listClusters().clusterArns().isEmpty();
+            } catch (Exception e) {
+                return false;
+            }
+        }, regionalCheckExecutor));
+
+        return CompletableFuture.allOf(checks.toArray(new CompletableFuture[0]))
+                .thenApply(v -> checks.stream().anyMatch(f -> {
+                    try {
+                        return f.get();
+                    } catch (Exception e) {
+                        return false;
+                    }
+                })).exceptionally(ex -> {
+                    logger.warn("Async check failed for region {}: {}. Assuming inactive.", region.id(),
+                            ex.getMessage());
+                    return false;
+                });
     }
 
     private DashboardData.RegionStatus mapRegionToStatus(Region region) {
@@ -667,7 +735,7 @@ public class CloudListService {
                                 account.getAwsAccountId(), serviceName, regionStatus.getRegionId(), e);
                         return Collections.<T>emptyList();
                     }
-                }))
+                }, awsTaskExecutor))
                 .collect(Collectors.toList());
 
         return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))

@@ -11,7 +11,6 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 import javax.sql.DataSource;
 import java.util.HashMap;
@@ -61,16 +60,33 @@ public class MultiTenantDataSourceConfig {
     private String connectionTestQuery;
 
     /**
-     * Helper method to create a DriverManagerDataSource for master DB access
-     * Used ONLY in PROD/PREPROD for querying tenant_config table
+     * Helper method to create a HikariCP-pooled DataSource for master DB access.
+     * Used in PROD/PREPROD for querying tenant_config and global_users tables.
+     * Uses connection pooling to prevent connection exhaustion on PostgreSQL.
      */
-    private DataSource createMasterDataSourceForLookup() {
-        DriverManagerDataSource dataSource = new DriverManagerDataSource();
-        dataSource.setUrl("jdbc:postgresql://3.110.102.128:5432/production_db");
-        dataSource.setUsername("app_user");
-        dataSource.setPassword("AppPassword123");
-        dataSource.setDriverClassName("org.postgresql.Driver");
-        return dataSource;
+    private HikariDataSource createMasterDataSourceForLookup() {
+        HikariDataSource ds = new HikariDataSource();
+        ds.setJdbcUrl("jdbc:postgresql://3.110.102.128:5432/production_db");
+        ds.setUsername("app_user");
+        ds.setPassword("AppPassword123");
+        ds.setDriverClassName("org.postgresql.Driver");
+        applyMasterHikariSettings(ds, "MasterPool-Lookup");
+        return ds;
+    }
+
+    /**
+     * Hikari settings for master datasource (smaller pool - only used for global_users/tenant_config lookups)
+     */
+    private void applyMasterHikariSettings(HikariDataSource ds, String poolName) {
+        ds.setPoolName(poolName);
+        ds.setMaximumPoolSize(5);
+        ds.setMinimumIdle(2);
+        ds.setConnectionTimeout(connectionTimeout);
+        ds.setIdleTimeout(idleTimeout);
+        ds.setMaxLifetime(maxLifetime);
+        ds.setKeepaliveTime(keepaliveTime);
+        ds.setValidationTimeout(validationTimeout);
+        ds.setConnectionTestQuery(connectionTestQuery);
     }
 
     /**
@@ -125,12 +141,13 @@ public class MultiTenantDataSourceConfig {
     @ConditionalOnProperty(name = "spring.profiles.active", havingValue = "local")
     public DataSource localMasterDataSource() {
         logger.info("Creating masterDataSource bean pointing to local DB for global_users lookups");
-        DriverManagerDataSource dataSource = new DriverManagerDataSource();
-        dataSource.setUrl(dataSourceUrl);
-        dataSource.setUsername(dataSourceUsername);
-        dataSource.setPassword(dataSourcePassword);
-        dataSource.setDriverClassName(dataSourceDriver);
-        return dataSource;
+        HikariDataSource ds = new HikariDataSource();
+        ds.setJdbcUrl(dataSourceUrl);
+        ds.setUsername(dataSourceUsername);
+        ds.setPassword(dataSourcePassword);
+        ds.setDriverClassName(dataSourceDriver);
+        applyMasterHikariSettings(ds, "MasterPool-Local");
+        return ds;
     }
 
     /**
@@ -170,12 +187,13 @@ public class MultiTenantDataSourceConfig {
     @ConditionalOnProperty(name = "spring.profiles.active", havingValue = "uat")
     public DataSource uatMasterDataSource() {
         logger.info("Creating masterDataSource bean pointing to UAT DB for global_users lookups");
-        DriverManagerDataSource dataSource = new DriverManagerDataSource();
-        dataSource.setUrl(dataSourceUrl);
-        dataSource.setUsername(dataSourceUsername);
-        dataSource.setPassword(dataSourcePassword);
-        dataSource.setDriverClassName(dataSourceDriver);
-        return dataSource;
+        HikariDataSource ds = new HikariDataSource();
+        ds.setJdbcUrl(dataSourceUrl);
+        ds.setUsername(dataSourceUsername);
+        ds.setPassword(dataSourcePassword);
+        ds.setDriverClassName(dataSourceDriver);
+        applyMasterHikariSettings(ds, "MasterPool-UAT");
+        return ds;
     }
 
     /**

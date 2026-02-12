@@ -131,6 +131,7 @@ public class CustomUserDetailsService implements UserDetailsService {
                 user.getPassword(),
                 authorities,
                 clientId,
-                user.getId());
+                user.getId(),
+                null);
     }
 }

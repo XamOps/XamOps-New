@@ -148,16 +148,16 @@ export default defineConfig({
         target: 'http://localhost:8080',
         changeOrigin: true,
         secure: false,
-        timeout: 120000, // 120s timeout for cloudlist
-        proxyTimeout: 120000 // 120s proxy timeout
+        timeout: 300000, // 300s timeout for cloudlist
+        proxyTimeout: 300000 // 300s proxy timeout
       },
       // General XamOps requests (catch-all for other xamops endpoints)
       '/api/xamops': {
         target: 'http://localhost:8080',
         changeOrigin: true,
         secure: false,
-        timeout: 60000, // 60s timeout
-        proxyTimeout: 60000 // 60s proxy timeout
+        timeout: 300000, // 300s timeout
+        proxyTimeout: 300000 // 300s proxy timeout
       },
 
       // Feature specific endpoints

@@ -72,24 +72,53 @@ export const useFinOpsData = ({
           );
         }
 
-        console.log('[FinOps] Fetching report for account:', selectedAccountId, 'forceRefresh:', forceRefresh);
+        console.log(`[FinOps] 🚀 Fetching report for account ${selectedAccountId}...`, {
+          url,
+          forceRefresh,
+          startDate: dateFilter?.startDate,
+          endDate: dateFilter?.endDate
+        });
 
         const response = await fetch(url, {
           credentials: 'include',
         });
+        console.log(`[FinOps] 📥 Response received (Status: ${response.status} ${response.statusText})`);
 
         if (!response.ok) {
-          const text = await response.text();
-          throw new Error(`HTTP error! status: ${response.status}, body: ${text}`);
+          let errorMsg = `HTTP error! status: ${response.status}`;
+          let errorData = null;
+          try {
+            const text = await response.clone().text();
+            console.log(`[FinOps] 📄 Error response body:`, text);
+            errorData = JSON.parse(text);
+            errorMsg = errorData.error || errorData.message || errorMsg;
+          } catch (e) {
+            console.warn('[FinOps] ⚠️ Could not parse error response as JSON', e);
+          }
+
+          const error = new Error(errorMsg);
+          console.error('[FinOps] ❌ Request failed:', {
+            status: response.status,
+            message: errorMsg,
+            data: errorData
+          });
+          throw error;
         }
 
-        const data = await response.json();
+        // Check for 204 No Content which should be handled before .json()
+        if (response.status === 204) {
+          console.warn('[FinOps] ⚠️ Backend returned 204 No Content');
+          setReportData(null);
+          return;
+        }
 
-        if (data) {
+        try {
+          const data = await response.json();
+          console.log('[FinOps] ✅ Data parsed successfully:', data);
           setReportData(data);
-          console.log('[FinOps] Report data loaded successfully', data);
-        } else {
-          console.warn('[FinOps] Received empty data');
+        } catch (e) {
+          console.error('[FinOps] ❌ JSON Parsing Error:', e);
+          throw new Error('Failed to parse FinOps report data. Please check console for details.');
         }
       } catch (err) {
         console.error('[FinOps] Failed to load FinOps report:', err);

@@ -1,5 +1,6 @@
 package com.xammer.cloud.config;
 
+import com.xammer.cloud.security.CustomAuthenticationFailureHandler;
 import com.xammer.cloud.security.CustomAuthenticationSuccessHandler;
 import com.xammer.cloud.security.CustomLogoutSuccessHandler;
 import org.springframework.context.annotation.Bean;
@@ -31,13 +32,16 @@ import static org.springframework.security.config.Customizer.withDefaults;
 public class SecurityConfig {
 
         private final CustomAuthenticationSuccessHandler authenticationSuccessHandler;
+        private final CustomAuthenticationFailureHandler authenticationFailureHandler;
         private final CustomLogoutSuccessHandler logoutSuccessHandler;
         private final UserDetailsService userDetailsService;
 
         public SecurityConfig(CustomAuthenticationSuccessHandler authenticationSuccessHandler,
+                        CustomAuthenticationFailureHandler authenticationFailureHandler,
                         CustomLogoutSuccessHandler logoutSuccessHandler,
                         UserDetailsService userDetailsService) {
                 this.authenticationSuccessHandler = authenticationSuccessHandler;
+                this.authenticationFailureHandler = authenticationFailureHandler;
                 this.logoutSuccessHandler = logoutSuccessHandler;
                 this.userDetailsService = userDetailsService;
         }
@@ -154,6 +158,7 @@ public class SecurityConfig {
                                 .formLogin((form) -> form
                                                 .loginPage("/login")
                                                 .successHandler(authenticationSuccessHandler)
+                                                .failureHandler(authenticationFailureHandler)
                                                 .permitAll())
                                 .logout((logout) -> logout
                                                 .logoutUrl("/logout")

@@ -1,9 +1,7 @@
 package com.xammer.cloud.security;
 
 import com.xammer.cloud.domain.CloudAccount;
-import com.xammer.cloud.dto.GlobalUserDto;
 import com.xammer.cloud.repository.CloudAccountRepository;
-import com.xammer.cloud.service.MasterDatabaseService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -16,8 +14,8 @@ import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -27,14 +25,11 @@ public class CustomAuthenticationSuccessHandler extends SimpleUrlAuthenticationS
     private static final Logger logger = LoggerFactory.getLogger(CustomAuthenticationSuccessHandler.class);
 
     private final CloudAccountRepository cloudAccountRepository;
-    private final MasterDatabaseService masterDatabaseService;
     private final String frontendUrl;
 
     public CustomAuthenticationSuccessHandler(CloudAccountRepository cloudAccountRepository,
-            MasterDatabaseService masterDatabaseService,
             @Value("${app.frontend.url}") String frontendUrl) {
         this.cloudAccountRepository = cloudAccountRepository;
-        this.masterDatabaseService = masterDatabaseService;
         this.frontendUrl = frontendUrl;
     }
 
@@ -48,7 +43,14 @@ public class CustomAuthenticationSuccessHandler extends SimpleUrlAuthenticationS
 
         String targetUrl;
         Long clientId = userDetails.getClientId();
-        List<CloudAccount> accounts = cloudAccountRepository.findByClientId(clientId);
+
+        List<CloudAccount> accounts;
+        try {
+            accounts = clientId != null ? cloudAccountRepository.findByClientId(clientId) : Collections.emptyList();
+        } catch (Exception e) {
+            logger.error("Failed to fetch accounts for clientId {}: {}", clientId, e.getMessage());
+            accounts = Collections.emptyList();
+        }
 
         // 1. Determine Redirect URL based on Roles and Accounts
         if (roles.contains("ROLE_BILLOPS_ADMIN")) {
@@ -68,16 +70,8 @@ public class CustomAuthenticationSuccessHandler extends SimpleUrlAuthenticationS
             targetUrl = frontendUrl + "/unified-dashboard.html";
         }
 
-        // 2. Fetch Tenant ID for Frontend Context
-        String tenantId = "default";
-        try {
-            Optional<GlobalUserDto> globalUser = masterDatabaseService.findGlobalUser(userDetails.getUsername());
-            if (globalUser.isPresent()) {
-                tenantId = globalUser.get().getTenantId();
-            }
-        } catch (Exception e) {
-            logger.error("Failed to retrieve tenantId for user {}", userDetails.getUsername(), e);
-        }
+        // 2. Get Tenant ID from authenticated principal (already resolved during authentication)
+        String tenantId = userDetails.getTenantId() != null ? userDetails.getTenantId() : "default";
 
         logger.debug("Authentication successful. Redirect: {}, Tenant: {}", targetUrl, tenantId);
 

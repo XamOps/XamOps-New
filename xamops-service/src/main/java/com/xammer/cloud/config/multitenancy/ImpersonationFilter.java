@@ -54,7 +54,8 @@ public class ImpersonationFilter implements Filter {
                                 null,
                                 Collections.singletonList(new SimpleGrantedAuthority(role)),
                                 user.getClient() != null ? user.getClient().getId() : null,
-                                user.getId());
+                                user.getId(),
+                                TenantContext.getCurrentTenant());
 
                         UsernamePasswordAuthenticationToken impersonatedAuth = new UsernamePasswordAuthenticationToken(
                                 targetDetails, null, targetDetails.getAuthorities());

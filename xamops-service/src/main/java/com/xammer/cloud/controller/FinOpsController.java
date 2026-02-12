@@ -2,8 +2,6 @@ package com.xammer.cloud.controller;
 
 import com.xammer.cloud.dto.DashboardData.BudgetDetails;
 import com.xammer.cloud.dto.FinOpsReportDto;
-import com.xammer.cloud.service.CacheService;
-import com.xammer.cloud.service.FinOpsRefreshService;
 import com.xammer.cloud.service.FinOpsService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -11,8 +9,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import com.xammer.cloud.dto.DashboardData;
-import org.springframework.web.bind.annotation.*;
 import java.security.Principal;
 import java.util.Collections;
 import java.util.List;
@@ -26,71 +22,64 @@ public class FinOpsController {
     private static final Logger logger = LoggerFactory.getLogger(FinOpsController.class);
 
     private final FinOpsService finOpsService;
-    private final CacheService cacheService;
-    private final FinOpsRefreshService finOpsRefreshService;
     private final com.xammer.cloud.service.DashboardDataService dashboardDataService;
 
-    public FinOpsController(FinOpsService finOpsService, CacheService cacheService,
-            FinOpsRefreshService finOpsRefreshService,
+    public FinOpsController(FinOpsService finOpsService,
             com.xammer.cloud.service.DashboardDataService dashboardDataService) {
         this.finOpsService = finOpsService;
-        this.cacheService = cacheService;
-        this.finOpsRefreshService = finOpsRefreshService;
         this.dashboardDataService = dashboardDataService;
     }
 
     @GetMapping("/report")
-    public ResponseEntity<?> getFinOpsReport(
+    public ResponseEntity<Object> getFinOpsReport(
             @RequestParam String accountId,
             @RequestParam(defaultValue = "false") boolean forceRefresh,
             @RequestParam(required = false) String startDate,
             @RequestParam(required = false) String endDate) {
 
-        try {
-            // If date parameters are provided, include them in cache key
-            String cacheKey = "finops-" + accountId;
-            if (startDate != null && endDate != null) {
-                cacheKey += "-" + startDate + "-" + endDate;
-            }
-
-            if (!forceRefresh) {
-                // ⭐ NEW: Check database cache first (only if no custom dates)
-                if (startDate == null && endDate == null) {
-                    FinOpsReportDto cachedReport = dashboardDataService.getFinOpsSnapshot("finops-" + accountId);
-                    if (cachedReport != null) {
-                        logger.info("Serving FinOps report from database cache for account {}", accountId);
-                        return ResponseEntity.ok(cachedReport);
-                    }
+        // 1. Check database cache first if no custom dates and not forcing refresh
+        if (!forceRefresh && startDate == null && endDate == null) {
+            try {
+                FinOpsReportDto cachedReport = dashboardDataService.getFinOpsSnapshot("finops-" + accountId);
+                if (cachedReport != null) {
+                    logger.info("[FinOpsController] 📦 Serving report from database cache for account {}", accountId);
+                    return ResponseEntity.ok(cachedReport);
                 }
+            } catch (Exception e) {
+                logger.warn("[FinOpsController] ⚠️ Failed to fetch from database cache: {}", e.getMessage());
+                // Fall through to live fetch
             }
+        }
 
-            // Fallback: Fetch fresh data
-            if (startDate != null && endDate != null) {
-                logger.info("Fetching FinOps report for account {} with date range: {} to {}", accountId, startDate,
-                        endDate);
-            } else {
-                logger.info("Fetching fresh FinOps report for account {}", accountId);
-            }
+        // 2. Fetch live data
+        long startTime = System.currentTimeMillis();
+        logger.info(
+                "[FinOpsController] 📩 Incoming live report request: accountId={}, forceRefresh={}, range=[{} to {}]",
+                accountId, forceRefresh, startDate, endDate);
 
+        try {
             FinOpsReportDto report = finOpsService.getFinOpsReport(accountId, forceRefresh, startDate, endDate).join();
 
             if (report == null) {
-                logger.warn("FinOps report returned null for account {} (dates: {} to {})", accountId, startDate,
-                        endDate);
-                return ResponseEntity.status(HttpStatus.NO_CONTENT)
-                        .body(Map.of("error", "No data available for the specified date range."));
+                logger.warn("[FinOpsController] ⚠️ FinOps report generation returned null for account {}", accountId);
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                        .body(Map.of("error",
+                                "Failed to generate FinOps report. This may be due to a temporary system overload or missing data.",
+                                "accountId", accountId));
             }
 
-            logger.info("Successfully fetched FinOps report for account {} (dates: {} to {})", accountId, startDate,
-                    endDate);
+            long duration = System.currentTimeMillis() - startTime;
+            logger.info("[FinOpsController] ✅ Successfully served live report for account {} in {}ms", accountId,
+                    duration);
             return ResponseEntity.ok(report);
         } catch (Exception e) {
-            logger.error("Error fetching FinOps report for account {} (dates: {} to {}): {}",
-                    accountId, startDate, endDate, e.getMessage(), e);
+            logger.error("[FinOpsController] ❌ Error handling live report request for account {}: {}", accountId,
+                    e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", "Failed to retrieve FinOps report.",
                             "message", e.getMessage() != null ? e.getMessage() : "Unknown error",
-                            "type", e.getClass().getSimpleName()));
+                            "type", e.getClass().getSimpleName(),
+                            "accountId", accountId));
         }
     }
 

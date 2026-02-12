@@ -92,12 +92,28 @@ public class AwsConfig {
     @Bean("awsTaskExecutor")
     public TaskExecutor threadPoolTaskExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        // Scaled up for high-parallelism CloudList fetching across many
-        // regions/services
-        executor.setCorePoolSize(20); // allow 20 concurrent operations
-        executor.setMaxPoolSize(50); // burst to 50
-        executor.setQueueCapacity(500); // queue up to 500 tasks before blocking
+        // Optimized for multi-region operations with SDK client caching
+        // Core size reduced as client reuse drastically lowers thread burden
+        executor.setCorePoolSize(20);
+        executor.setMaxPoolSize(50);
+        executor.setQueueCapacity(2000);
         executor.setThreadNamePrefix("AWS-Async-");
+        executor.setRejectedExecutionHandler(new java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy());
+        executor.setAwaitTerminationSeconds(60);
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.initialize();
+        return executor;
+    }
+
+    @Bean("awsRegionalCheckExecutor")
+    public TaskExecutor regionalCheckExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        // Dedicated pool for expensive regional activity checks
+        // Increased for massive parallelism across regions and services
+        executor.setCorePoolSize(20);
+        executor.setMaxPoolSize(50);
+        executor.setQueueCapacity(500);
+        executor.setThreadNamePrefix("AWS-RegCheck-");
         executor.setRejectedExecutionHandler(new java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy());
         executor.initialize();
         return executor;
