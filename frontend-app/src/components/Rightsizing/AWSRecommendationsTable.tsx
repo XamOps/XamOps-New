@@ -27,7 +27,7 @@ const AWSRecommendationsTable: React.FC<AWSRecommendationsTableProps> = ({
   };
 
   return (
-    <div className="glass-card p-8">
+    <div className="glass-card-table p-8">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center space-x-2 text-sm text-gray-600 dark:text-gray-400">
           <i className="fab fa-aws text-orange-500"></i>
@@ -51,9 +51,26 @@ const AWSRecommendationsTable: React.FC<AWSRecommendationsTableProps> = ({
 
       {/* Table with Data */}
       {!isLoading && recommendations.length > 0 && (
-        <div className="max-h-[600px] overflow-y-auto">
+        <div
+          className="table-scroll-container"
+          onScroll={(e) => {
+            const target = e.currentTarget;
+            const isAtEnd = target.scrollLeft + target.clientWidth >= target.scrollWidth - 10;
+            if (isAtEnd) {
+              target.classList.add('scrolled-to-end');
+            } else {
+              target.classList.remove('scrolled-to-end');
+            }
+          }}
+        >
           <div className="table-enhanced">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm" style={{ tableLayout: 'fixed' }}>
+              <colgroup>
+                <col style={{ width: '22%' }} />
+                <col style={{ width: '25%' }} />
+                <col style={{ width: '15%' }} />
+                <col style={{ width: '38%' }} />
+              </colgroup>
               <thead className="text-xs !text-gray-700 dark:!text-gray-300 uppercase !bg-gradient-to-r !from-gray-50 !to-gray-100 dark:!from-gray-800 dark:!to-gray-900 sticky top-0 z-10">
                 <tr>
                   <th className="px-6 py-4 text-left font-bold">Resource ID</th>
@@ -83,13 +100,13 @@ const AWSRecommendationsTable: React.FC<AWSRecommendationsTableProps> = ({
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      <div className="flex items-center justify-between space-x-4">
-                        <div className="text-center">
+                      <div className="flex items-center justify-start space-x-2">
+                        <div className="text-left min-w-0">
                           <p className="font-bold text-red-600 dark:text-red-400">${rec.currentMonthlyCost.toFixed(2)}</p>
                           <p className="text-xs text-gray-500 dark:text-gray-400">{rec.currentType}</p>
                         </div>
-                        <i className="fas fa-arrow-right text-gray-400 dark:text-gray-500"></i>
-                        <div className="text-center">
+                        <i className="fas fa-arrow-right text-gray-400 dark:text-gray-500 text-xs"></i>
+                        <div className="text-left min-w-0">
                           <p className="font-bold text-green-600 dark:text-green-400">${rec.recommendedMonthlyCost.toFixed(2)}</p>
                           <p className="text-xs text-gray-500 dark:text-gray-400">{rec.recommendedType}</p>
                         </div>
@@ -108,7 +125,7 @@ const AWSRecommendationsTable: React.FC<AWSRecommendationsTableProps> = ({
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      <p className="text-sm text-gray-700 break-words">{rec.recommendationReason}</p>
+                      <p className="text-sm text-gray-900 dark:text-gray-100 reason-text">{rec.recommendationReason}</p>
                     </td>
                   </tr>
                 ))}

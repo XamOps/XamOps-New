@@ -86,10 +86,10 @@ export const RightsizingPage: React.FC = () => {
   }
 
   return (
-    <main className="flex-1 flex flex-col min-h-screen bg-transparent">
+    <main className="flex-1 flex flex-col min-h-screen bg-transparent min-w-0 overflow-x-auto">
       <RightsizingHeader isRefreshing={isRefreshing} onRefresh={refreshAll} />
 
-      <div className="flex-1 p-8 space-y-8">
+      <div className="flex-1 p-8 space-y-8 min-w-0">
         {/* No Account State */}
         {!selectedAccountId && !isLoadingAWS && !isLoadingXamOps && (
           <div className="text-center py-12 rounded-2xl border-2 border-dashed border-gray-300 bg-gray-50/50">

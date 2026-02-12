@@ -10,7 +10,7 @@
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import type { Alert, GrafanaAlert, AlertCounts, AlertTab, AlertSeverityClass } from '../types/alerts';
+import type { Alert, GrafanaAlert, AlertCounts, AlertTab, AlertSeverityClass, AlertError, AlertsMetadata, AlertsResponse } from '../types/alerts';
 
 interface UseAlertsDataOptions {
   selectedAccountId: string | null;
@@ -29,9 +29,16 @@ interface UseAlertsDataReturn {
   services: string[];
   alertCounts: AlertCounts;
 
+  // Enhanced error handling
+  errors: AlertError[];
+  metadata: AlertsMetadata | null;
+  hasErrors: boolean;
+  isPartialSuccess: boolean;
+
   // Actions
   loadAlerts: (forceRefresh?: boolean) => Promise<void>;
   fetchGrafanaAlerts: () => Promise<void>;
+  retryFailedServices: () => Promise<void>;
   setSelectedService: (service: string) => void;
   setActiveTab: (tab: AlertTab) => void;
 
@@ -54,6 +61,10 @@ export const useAlertsData = ({
   const [loadingGrafana, setLoadingGrafana] = useState<boolean>(false);
   const [selectedService, setSelectedService] = useState<string>('All');
   const [activeTab, setActiveTab] = useState<AlertTab>('cloudguard');
+
+  // Enhanced error handling state
+  const [errors, setErrors] = useState<AlertError[]>([]);
+  const [metadata, setMetadata] = useState<AlertsMetadata | null>(null);
 
   /**
    * Process and sort alerts by usage percentage
@@ -96,7 +107,7 @@ export const useAlertsData = ({
   }, []);
 
   /**
-   * Load CloudGuard alerts
+   * Load CloudGuard alerts with enhanced error handling
    */
   const loadAlerts = useCallback(
     async (forceRefresh: boolean = false) => {
@@ -112,7 +123,10 @@ export const useAlertsData = ({
       // Use cached data if available and not forcing refresh
       if (cachedData && !forceRefresh) {
         console.log('[Alerts] Loading from cache...');
-        setAlerts(JSON.parse(cachedData));
+        const cached: AlertsResponse = JSON.parse(cachedData);
+        setAlerts(cached.alerts || []);
+        setErrors(cached.errors || []);
+        setMetadata(cached.metadata || null);
         setIsLoading(false);
         return;
       }
@@ -125,6 +139,7 @@ export const useAlertsData = ({
       if (forceRefresh) {
         setIsRefreshing(true);
         sessionStorage.removeItem(cacheKey);
+        setErrors([]); // Clear previous errors on refresh
       }
 
       console.log(`[Alerts] Fetching alerts for account: ${selectedAccountId}, forceRefresh: ${forceRefresh}`);
@@ -132,25 +147,60 @@ export const useAlertsData = ({
       try {
         const response = await fetch(
           `/api/xamops/cloudguard/alerts?accountId=${selectedAccountId}&forceRefresh=${forceRefresh}`,
-          { credentials: 'include' }
+          {
+            credentials: 'include',
+            headers: {
+              'Accept': 'application/json',
+            }
+          }
         );
 
-        if (!response.ok) {
-          throw new Error('Failed to fetch alert data');
+        // Handle service unavailable (all services failed)
+        if (response.status === 503) {
+          const data: AlertsResponse = await response.json();
+          setErrors(data.errors || []);
+          setAlerts([]);
+          setMetadata(data.metadata || null);
+          console.error('[Alerts] All alert services are currently unavailable');
+          return;
         }
 
-        const data = await response.json();
-        const processedAlerts = processAlerts(data);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: Failed to fetch alerts`);
+        }
 
-        // Cache the data
-        sessionStorage.setItem(cacheKey, JSON.stringify(processedAlerts));
+        const data: AlertsResponse = await response.json();
+        const processedAlerts = processAlerts(data.alerts || []);
+
+        // Cache the full response
+        sessionStorage.setItem(cacheKey, JSON.stringify(data));
         sessionStorage.setItem('alerts_last_loaded', Date.now().toString());
 
         setAlerts(processedAlerts);
-        console.log(`[Alerts] Successfully loaded ${processedAlerts.length} alerts`);
+        setErrors(data.errors || []);
+        setMetadata(data.metadata || null);
+
+        // Log warnings for partial failures
+        if (data.errors && data.errors.length > 0) {
+          const failedServices = data.errors.map(e => e.service).join(', ');
+          console.warn(`[Alerts] Some services failed: ${failedServices}. Showing ${processedAlerts.length} alerts.`);
+        } else {
+          console.log(`[Alerts] Successfully loaded ${processedAlerts.length} alerts`);
+        }
       } catch (err) {
         console.error('[Alerts] Failed to load alert data:', err);
+
+        // Set error state
+        setErrors([{
+          service: 'SYSTEM',
+          errorType: 'UNKNOWN',
+          message: err instanceof Error ? err.message : 'Unknown error occurred',
+          partial: false,
+          timestamp: new Date().toISOString(),
+        }]);
+
         setAlerts([]);
+        setMetadata(null);
       } finally {
         setIsLoading(false);
         setIsRefreshing(false);
@@ -158,6 +208,14 @@ export const useAlertsData = ({
     },
     [selectedAccountId, processAlerts]
   );
+
+  /**
+   * Retry failed services by forcing a refresh
+   */
+  const retryFailedServices = useCallback(async () => {
+    console.log('[Alerts] Retrying failed services...');
+    await loadAlerts(true);
+  }, [loadAlerts]);
 
   /**
    * Fetch Grafana alerts
@@ -289,6 +347,12 @@ export const useAlertsData = ({
     };
   }, [alerts, getUsagePercentage]);
 
+  /**
+   * Computed properties for error handling
+   */
+  const hasErrors = useMemo(() => errors.length > 0, [errors]);
+  const isPartialSuccess = useMemo(() => hasErrors && alerts.length > 0, [hasErrors, alerts.length]);
+
   // Initialize data on mount and handle account changes
   useEffect(() => {
     if (selectedAccountId) {
@@ -327,8 +391,13 @@ export const useAlertsData = ({
     activeTab,
     services,
     alertCounts,
+    errors,
+    metadata,
+    hasErrors,
+    isPartialSuccess,
     loadAlerts,
     fetchGrafanaAlerts,
+    retryFailedServices,
     setSelectedService,
     setActiveTab,
     getUsagePercentage,

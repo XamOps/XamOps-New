@@ -38,6 +38,22 @@
   box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
 }
 
+/* Glass Card variant for tables - clips overflow, scrollbar handled by inner container */
+.glass-card-table {
+  background: var(--glass-bg);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: 1.5rem;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.glass-card-table:hover {
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
 /* Skeleton Loading Animation */
 .skeleton {
   background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
@@ -50,6 +66,7 @@
   0% {
     background-position: -200% 0;
   }
+
   100% {
     background-position: 200% 0;
   }
@@ -88,10 +105,24 @@
 .table-enhanced {
   background: var(--glass-bg);
   border-radius: 12px;
-  overflow-x: auto;
+  overflow: visible;
   border: 1px solid var(--glass-border);
-  max-width: 100%;
+  width: 100%;
+  margin: 0;
 }
+
+/* Scrollable table container with overflow indicators */
+.table-scroll-container {
+  width: 100%;
+  max-width: 100%;
+  max-height: 600px;
+  overflow-x: auto;
+  overflow-y: auto;
+  position: relative;
+  border-radius: 12px;
+}
+
+/* Fade overlay removed - scrollbar provides sufficient scroll indication */
 
 @media (prefers-color-scheme: dark) {
   .table-enhanced {
@@ -102,7 +133,6 @@
 
 .table-enhanced table {
   width: 100%;
-  min-width: 1400px;
   border-collapse: collapse;
   font-size: 0.75rem;
 }
@@ -142,6 +172,7 @@
   vertical-align: middle;
   border-top: 1px solid #f3f4f6;
   font-size: 0.75rem;
+  color: #111827;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -216,6 +247,7 @@
     opacity: 0;
     transform: translateY(20px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -292,6 +324,7 @@
 }
 
 @keyframes bounce {
+
   35%,
   65% {
     scale: 1.5;
@@ -309,12 +342,11 @@
   transition: opacity var(--transition);
 }
 
-/* Truncate Text */
-.truncate-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 200px;
+/* Reason Text - allow wrapping */
+.reason-text {
+  word-break: break-all;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 /* AI Content Styles (for rendered markdown in modal) */
@@ -404,25 +436,54 @@
   color: #4b5563;
 }
 
-/* Custom Scrollbar */
+/* Enhanced Custom Scrollbar - More Visible */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 12px;
+  height: 12px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #f1f5f9;
-  border-radius: 4px;
+  background: #e2e8f0;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 4px;
+  background: linear-gradient(135deg, #94a3b8 0%, #64748b 100%);
+  border-radius: 6px;
+  border: 2px solid #e2e8f0;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: linear-gradient(135deg, #64748b 0%, #475569 100%);
 }
+
+::-webkit-scrollbar-corner {
+  background: #e2e8f0;
+}
+
+/* Dark mode scrollbar */
+@media (prefers-color-scheme: dark) {
+  ::-webkit-scrollbar-track {
+    background: #1e293b;
+    border-color: #334155;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: linear-gradient(135deg, #475569 0%, #334155 100%);
+    border-color: #1e293b;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(135deg, #64748b 0%, #475569 100%);
+  }
+
+  ::-webkit-scrollbar-corner {
+    background: #1e293b;
+  }
+}
+
+
 
 /* Responsive Design */
 @media (max-width: 768px) {

@@ -16,6 +16,7 @@ public class ClientUserDetails extends User {
 
     private final Long clientId;
     private final Long id;
+    private final String tenantId;
 
     @JsonCreator
     public ClientUserDetails(
@@ -23,7 +24,8 @@ public class ClientUserDetails extends User {
             @JsonProperty("password") String password,
             @JsonProperty("authorities") Collection<? extends GrantedAuthority> authorities,
             @JsonProperty("clientId") Long clientId,
-            @JsonProperty("id") Long id) {
+            @JsonProperty("id") Long id,
+            @JsonProperty("tenantId") String tenantId) {
 
         // ✅ FIX: Handle cases where password/authorities are null (e.g. from Redis
         // session)
@@ -37,6 +39,7 @@ public class ClientUserDetails extends User {
 
         this.clientId = clientId;
         this.id = id;
+        this.tenantId = tenantId;
     }
 
     public Long getClientId() {
@@ -45,5 +48,9 @@ public class ClientUserDetails extends User {
 
     public Long getId() {
         return id;
+    }
+
+    public String getTenantId() {
+        return tenantId;
     }
 }

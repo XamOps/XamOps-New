@@ -48,8 +48,8 @@ public class AwsSecurityHubService {
 
     /**
      * Get security findings from AWS Security Hub across all active regions.
+     * REMOVED @Async - already called from async context (getAlertsWithDetails)
      */
-    @Async("awsTaskExecutor")
     public CompletableFuture<List<com.xammer.cloud.dto.AwsSecurityFinding>> getSecurityFindings(String accountId, boolean forceRefresh) {
         String cacheKey = CACHE_PREFIX + accountId;
 
@@ -194,8 +194,8 @@ public class AwsSecurityHubService {
 
     /**
      * Convert security findings to AlertDto format for CloudGuard integration.
+     * REMOVED @Async - already called from async context (getAlertsWithDetails)
      */
-    @Async("awsTaskExecutor")
     public CompletableFuture<List<AlertDto>> getSecurityAlerts(String accountId, boolean forceRefresh) {
         return getSecurityFindings(accountId, forceRefresh)
                 .thenApply(findings -> {

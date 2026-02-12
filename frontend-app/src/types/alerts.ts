@@ -48,3 +48,40 @@ export interface AlertCounts {
 export type AlertTab = 'cloudguard' | 'grafana';
 
 export type AlertSeverityClass = 'critical' | 'warning' | 'normal';
+
+/**
+ * Enhanced Alert Response Types (for error handling)
+ */
+
+export type AlertErrorType =
+  | 'TIMEOUT'
+  | 'API_ERROR'
+  | 'PERMISSION_DENIED'
+  | 'RATE_LIMIT'
+  | 'SERVICE_NOT_ENABLED'
+  | 'UNKNOWN';
+
+export interface AlertError {
+  service: string;
+  errorType: AlertErrorType;
+  message: string;
+  partial: boolean;
+  timestamp: string;
+}
+
+export interface AlertsMetadata {
+  totalAlerts: number;
+  vpcQuotaCount: number;
+  networkQuotaCount: number;
+  costAnomalyCount: number;
+  securityAlertCount: number;
+  fetchDurationMs: number;
+  timestamp: string;
+  fromCache: boolean;
+}
+
+export interface AlertsResponse {
+  alerts: Alert[];
+  errors: AlertError[];
+  metadata: AlertsMetadata;
+}

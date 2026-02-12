@@ -102,7 +102,7 @@ public class CustomUserDetailsService implements UserDetailsService {
             log.error("✗ Password is NULL or EMPTY in Tenant DB for user: {}", username);
         }
 
-        return buildUserDetails(user);
+        return buildUserDetails(user, tenantId);
     }
 
     /**
@@ -124,13 +124,13 @@ public class CustomUserDetailsService implements UserDetailsService {
 
         log.info("✓ User profile loaded: {} (role: {})", username, user.getRole());
 
-        return buildUserDetails(user);
+        return buildUserDetails(user, "default");
     }
 
     /**
      * Common method to build UserDetails from User entity
      */
-    private UserDetails buildUserDetails(User user) {
+    private UserDetails buildUserDetails(User user, String tenantId) {
         Long clientId = user.getClient() != null ? user.getClient().getId() : null;
         Collection<GrantedAuthority> authorities = Collections.singletonList(
                 new SimpleGrantedAuthority(user.getRole()));
@@ -140,6 +140,7 @@ public class CustomUserDetailsService implements UserDetailsService {
                 user.getPassword(),
                 authorities,
                 clientId,
-                user.getId());
+                user.getId(),
+                tenantId);
     }
 }

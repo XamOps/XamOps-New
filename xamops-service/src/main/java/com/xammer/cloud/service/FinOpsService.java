@@ -107,10 +107,12 @@ public class FinOpsService {
                 endDate);
 
         return cloudListService.getRegionStatusForAccount(account, forceRefresh).thenCompose(activeRegions -> {
-            if (activeRegions == null) {
-                logger.warn("No active regions found for account {}", accountId);
+            if (activeRegions == null || activeRegions.isEmpty()) {
+                logger.warn("[FinOps] ⚠️ No active regions found for account {}. Report may be empty.", accountId);
                 return CompletableFuture.completedFuture(null);
             }
+            logger.info("[FinOps] 🔍 Found {} active regions for account {}: {}", activeRegions.size(), accountId,
+                    activeRegions);
 
             if (startDate != null && endDate != null) {
                 logger.info(
@@ -141,7 +143,15 @@ public class FinOpsService {
                     .allOf(billingSummaryFuture, wastedResourcesFuture, rightsizingFuture, anomaliesFuture,
                             costHistoryFuture, taggingComplianceFuture, budgetsFuture, costByRegionFuture)
                     .thenApply(v -> {
-                        logger.info("--- ALL FINOPS DATA FETCHES COMPLETE, AGGREGATING NOW ---");
+                        logger.info("[FinOps] 🏁 --- ALL ASYNC DATA FETCHES COMPLETE FOR ACCOUNT {} ---", accountId);
+
+                        // Debugging sub-task completion state
+                        logger.debug(
+                                "[FinOps] Task Status - Billing: {}, Wasted: {}, Rightsizing: {}, Anomalies: {}, CostHistory: {}, Tagging: {}, Budgets: {}, CostByRegion: {}",
+                                billingSummaryFuture.isDone(), wastedResourcesFuture.isDone(),
+                                rightsizingFuture.isDone(),
+                                anomaliesFuture.isDone(), costHistoryFuture.isDone(), taggingComplianceFuture.isDone(),
+                                budgetsFuture.isDone(), costByRegionFuture.isDone());
 
                         List<DashboardData.BillingSummary> billingSummary = billingSummaryFuture.join();
                         DashboardData.CostHistory costHistory = costHistoryFuture.join();
@@ -183,8 +193,9 @@ public class FinOpsService {
                                 wastedResourcesFuture.join(), anomaliesFuture.join(), taggingComplianceFuture.join(),
                                 budgetsFuture.join());
                         redisCache.put(cacheKey, report, 10);
-                        logger.info("FinOps report generated successfully for account {} (dates: {} to {})", accountId,
-                                startDate, endDate);
+                        logger.info(
+                                "[FinOps] ✅ Report generated and cached successfully for account {} (Spend: ${}, Forecast: ${})",
+                                accountId, String.format("%.2f", mtdSpend), String.format("%.2f", forecastedSpend));
                         return report;
                     });
         }).exceptionally(ex -> {
@@ -693,7 +704,7 @@ public class FinOpsService {
         return CompletableFuture.completedFuture(result);
     }
 
-    @Async("awsTaskExecutor")
+    // REMOVED @Async - already called from async context (getAlertsWithDetails)
     public CompletableFuture<List<DashboardData.CostAnomaly>> getCostAnomalies(CloudAccount account,
             boolean forceRefresh) {
         String cacheKey = "costAnomalies-" + account.getAwsAccountId();

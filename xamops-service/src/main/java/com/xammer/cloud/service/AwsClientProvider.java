@@ -9,7 +9,12 @@ import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.awscore.client.builder.AwsClientBuilder;
+import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
 import software.amazon.awssdk.regions.Region;
+
+import java.time.Duration;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import software.amazon.awssdk.services.acm.AcmClient;
 import software.amazon.awssdk.services.amplify.AmplifyClient;
 import software.amazon.awssdk.services.apigateway.ApiGatewayClient;
@@ -73,12 +78,15 @@ import software.amazon.awssdk.services.savingsplans.SavingsplansClient;
 public class AwsClientProvider {
 
     private static final Logger logger = LoggerFactory.getLogger(AwsClientProvider.class);
+    private static final Duration API_TIMEOUT = Duration.ofSeconds(30);
+    private static final Duration API_CALL_ATTEMPT_TIMEOUT = Duration.ofSeconds(15);
 
     private final StsClient stsClient;
+    private final Map<String, Object> clientCache = new ConcurrentHashMap<>();
 
     public AwsClientProvider(StsClient stsClient) {
         this.stsClient = stsClient;
-        logger.info("AwsClientProvider initialized");
+        logger.info("AwsClientProvider initialized with Client Caching enabled");
     }
 
     public AwsCredentialsProvider getCredentialsProvider(CloudAccount account) {
@@ -98,14 +106,37 @@ public class AwsClientProvider {
                 .build();
     }
 
+    /**
+     * Get client override configuration with timeouts to prevent indefinite hangs.
+     */
+    private ClientOverrideConfiguration getClientOverrideConfig() {
+        return ClientOverrideConfiguration.builder()
+                .apiCallTimeout(API_TIMEOUT)
+                .apiCallAttemptTimeout(API_CALL_ATTEMPT_TIMEOUT)
+                .build();
+    }
+
     private <BuilderT extends AwsClientBuilder<BuilderT, ClientT>, ClientT> ClientT getClient(
             Class<ClientT> clientClass, BuilderT builder, CloudAccount account, String region) {
-        logger.debug("Creating {} for account {} in region {}",
-                clientClass.getSimpleName(), account.getAwsAccountId(), region);
-        return builder
-                .credentialsProvider(getCredentialsProvider(account))
-                .region(Region.of(region))
-                .build();
+
+        String cacheKey = String.format("%s:%s:%s", account.getAwsAccountId(), clientClass.getSimpleName(), region);
+        logCacheStatus(cacheKey, clientClass);
+        return (ClientT) clientCache.computeIfAbsent(cacheKey, k -> {
+            logger.info("🚀 [AwsClientProvider] Creating NEW {} for account {} in region {} (Caching instance)",
+                    clientClass.getSimpleName(), account.getAwsAccountId(), region);
+            return builder
+                    .credentialsProvider(getCredentialsProvider(account))
+                    .region(Region.of(region))
+                    .overrideConfiguration(getClientOverrideConfig())
+                    .build();
+        });
+    }
+
+    private <ClientT> void logCacheStatus(String cacheKey, Class<ClientT> clientClass) {
+        if (clientCache.containsKey(cacheKey)) {
+            logger.info("♻️ [AwsClientProvider] Reusing CACHED {} for cache key: {}", clientClass.getSimpleName(),
+                    cacheKey);
+        }
     }
 
     // ================= AutoSpotting-specific clients =================

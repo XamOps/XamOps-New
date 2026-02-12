@@ -511,143 +511,188 @@ const TicketsPage: React.FC = () => {
 
       {/* Create Ticket Modal */}
       {showModal && (
-        <div className="modal-overlay" onClick={closeModal}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2 className="text-2xl font-bold text-gray-900">Create Support Case</h2>
-              <button onClick={closeModal} className="modal-close" disabled={isSubmitting}>
-                <i className="fas fa-times"></i>
-              </button>
+        <div className="fixed inset-0 z-50 overflow-y-auto">
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 bg-gray-900/50 backdrop-blur-sm transition-opacity"
+            onClick={closeModal}
+          ></div>
+
+          {/* Modal */}
+          <div className="flex min-h-full items-center justify-center p-4">
+            <div
+              className="relative bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden transform transition-all border border-gray-100"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <form onSubmit={submitTicket}>
+                {/* Modal Header */}
+                <div className="bg-gradient-to-r from-indigo-600 to-purple-600 px-8 py-6">
+                  <h3 className="text-xl font-bold text-white flex items-center">
+                    <i className="fas fa-plus-circle mr-3 text-indigo-200"></i>
+                    Create Support Case
+                  </h3>
+                  <p className="text-indigo-100 text-sm mt-1">Submit a new request for technical support</p>
+                </div>
+
+                {/* Modal Body */}
+                <div className="px-8 py-6 space-y-5">
+                  {/* Category */}
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                      Category
+                    </label>
+                    <div className="relative">
+                      <select
+                        value={form.category}
+                        onChange={(e) => handleFormChange('category', e.target.value)}
+                        className="w-full rounded-xl border-gray-200 py-2.5 pl-4 pr-10 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 appearance-none bg-white hover:bg-gray-50 transition-colors"
+                      >
+                        <option>Technical</option>
+                      </select>
+                      <div className="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-gray-500">
+                        <i className="fas fa-lock text-xs"></i>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Service */}
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                      Service <span className="text-red-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <select
+                        value={form.service}
+                        onChange={(e) => handleFormChange('service', e.target.value)}
+                        className="w-full rounded-xl border-gray-200 py-2.5 pl-4 pr-10 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 appearance-none bg-white hover:bg-gray-50 transition-colors"
+                        required
+                      >
+                        <option disabled value="">Select Service</option>
+                        {SERVICE_OPTIONS[form.category].map((option) => (
+                          <option key={option} value={option}>{option}</option>
+                        ))}
+                      </select>
+                      <div className="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-gray-500">
+                        <i className="fas fa-chevron-down text-xs"></i>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Severity */}
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                      Severity <span className="text-red-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <select
+                        value={form.severity}
+                        onChange={(e) => handleFormChange('severity', e.target.value)}
+                        className="w-full rounded-xl border-gray-200 py-2.5 pl-4 pr-10 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 appearance-none bg-white hover:bg-gray-50 transition-colors"
+                        required
+                      >
+                        <option disabled value="">Select Severity</option>
+                        {SEVERITY_OPTIONS.map((option) => (
+                          <option key={option} value={option}>{option}</option>
+                        ))}
+                      </select>
+                      <div className="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-gray-500">
+                        <i className="fas fa-chevron-down text-xs"></i>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Subject */}
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                      Subject <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={form.subject}
+                      onChange={(e) => handleFormChange('subject', e.target.value)}
+                      maxLength={250}
+                      className="w-full rounded-xl border-gray-200 py-2.5 px-4 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 placeholder-gray-400"
+                      placeholder="Briefly summarize your question or issue"
+                      required
+                    />
+                  </div>
+
+                  {/* Description */}
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                      Description <span className="text-red-500">*</span>
+                    </label>
+                    <textarea
+                      value={form.description}
+                      onChange={(e) => handleFormChange('description', e.target.value)}
+                      maxLength={8000}
+                      rows={4}
+                      className="w-full rounded-xl border-gray-200 py-2.5 px-4 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 placeholder-gray-400 resize-none"
+                      placeholder="Describe your question or issue in detail"
+                      required
+                    />
+                  </div>
+
+                  {/* Account ID and Region */}
+                  <div className="grid grid-cols-2 gap-5">
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">
+                        AWS Account ID
+                      </label>
+                      <input
+                        type="text"
+                        value={form.accountId}
+                        onChange={(e) => handleFormChange('accountId', e.target.value)}
+                        className="w-full rounded-xl border-gray-200 py-2.5 px-4 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 placeholder-gray-400"
+                        placeholder="e.g. 1234-5678-9012"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">
+                        Region
+                      </label>
+                      <input
+                        type="text"
+                        value={form.region}
+                        onChange={(e) => handleFormChange('region', e.target.value)}
+                        className="w-full rounded-xl border-gray-200 py-2.5 px-4 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 placeholder-gray-400"
+                        placeholder="e.g. us-east-1"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Modal Footer */}
+                <div className="bg-gray-50 px-8 py-5 flex justify-end gap-3 border-t border-gray-100">
+                  <button
+                    type="button"
+                    onClick={closeModal}
+                    disabled={isSubmitting}
+                    className="px-5 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:text-gray-900 transition-colors shadow-sm"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="px-5 py-2.5 text-sm font-medium text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 disabled:opacity-70 disabled:cursor-not-allowed transition-all shadow-sm hover:shadow hover:translate-y-px flex items-center"
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <i className="fas fa-circle-notch fa-spin mr-2"></i>
+                        Submitting...
+                      </>
+                    ) : (
+                      <>
+                        <i className="fas fa-check mr-2"></i>
+                        Submit Case
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
             </div>
-
-            <form onSubmit={submitTicket}>
-              <div className="modal-body">
-                {/* Category */}
-                <div className="form-group">
-                  <label className="form-label">Category</label>
-                  <select
-                    value={form.category}
-                    onChange={(e) => handleFormChange('category', e.target.value)}
-                    className="form-input"
-                  >
-                    <option>Technical</option>
-                  </select>
-                </div>
-
-                {/* Service */}
-                <div className="form-group">
-                  <label className="form-label">Service *</label>
-                  <select
-                    value={form.service}
-                    onChange={(e) => handleFormChange('service', e.target.value)}
-                    className="form-input"
-                    required
-                  >
-                    <option disabled value="">Select Service</option>
-                    {SERVICE_OPTIONS[form.category].map((option) => (
-                      <option key={option} value={option}>{option}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Severity */}
-                <div className="form-group">
-                  <label className="form-label">Severity *</label>
-                  <select
-                    value={form.severity}
-                    onChange={(e) => handleFormChange('severity', e.target.value)}
-                    className="form-input"
-                    required
-                  >
-                    <option disabled value="">Select Severity</option>
-                    {SEVERITY_OPTIONS.map((option) => (
-                      <option key={option} value={option}>{option}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Subject */}
-                <div className="form-group">
-                  <label className="form-label">Subject *</label>
-                  <input
-                    type="text"
-                    value={form.subject}
-                    onChange={(e) => handleFormChange('subject', e.target.value)}
-                    maxLength={250}
-                    className="form-input"
-                    placeholder="Briefly summarize your question or issue"
-                    required
-                  />
-                </div>
-
-                {/* Description */}
-                <div className="form-group">
-                  <label className="form-label">Description *</label>
-                  <textarea
-                    value={form.description}
-                    onChange={(e) => handleFormChange('description', e.target.value)}
-                    maxLength={8000}
-                    rows={4}
-                    className="form-input"
-                    placeholder="Describe your question or issue in detail"
-                    required
-                  />
-                </div>
-
-                {/* Account ID and Region */}
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">AWS Account ID</label>
-                    <input
-                      type="text"
-                      value={form.accountId}
-                      onChange={(e) => handleFormChange('accountId', e.target.value)}
-                      className="form-input"
-                      placeholder="e.g. 1234-5678-9012"
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label className="form-label">Region</label>
-                    <input
-                      type="text"
-                      value={form.region}
-                      onChange={(e) => handleFormChange('region', e.target.value)}
-                      className="form-input"
-                      placeholder="e.g. us-east-1"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="modal-footer">
-                <button
-                  type="button"
-                  onClick={closeModal}
-                  disabled={isSubmitting}
-                  className="btn-secondary"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="btn-primary"
-                >
-                  {isSubmitting ? (
-                    <>
-                      <i className="fas fa-circle-notch fa-spin mr-2"></i>
-                      Submitting...
-                    </>
-                  ) : (
-                    <>
-                      <i className="fas fa-check mr-2"></i>
-                      Submit Case
-                    </>
-                  )}
-                </button>
-              </div>
-            </form>
           </div>
         </div>
       )}

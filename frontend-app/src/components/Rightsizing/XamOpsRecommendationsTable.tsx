@@ -28,7 +28,7 @@ const XamOpsRecommendationsTable: React.FC<XamOpsRecommendationsTableProps> = ({
   };
 
   return (
-    <div className="glass-card p-6">
+    <div className="glass-card-table p-6">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center space-x-4">
           <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg">
@@ -57,19 +57,40 @@ const XamOpsRecommendationsTable: React.FC<XamOpsRecommendationsTableProps> = ({
 
       {/* Table with Data */}
       {!isLoading && recommendations.length > 0 && (
-        <div className="max-h-[600px] overflow-y-auto">
+        <div
+          className="table-scroll-container"
+          onScroll={(e) => {
+            const target = e.currentTarget;
+            const isAtEnd = target.scrollLeft + target.clientWidth >= target.scrollWidth - 10;
+            if (isAtEnd) {
+              target.classList.add('scrolled-to-end');
+            } else {
+              target.classList.remove('scrolled-to-end');
+            }
+          }}
+        >
           <div className="table-enhanced">
-            <table>
+            <table style={{ tableLayout: 'fixed', width: '100%', minWidth: '1050px' }}>
+              <colgroup>
+                <col style={{ width: '13%' }} />
+                <col style={{ width: '10%' }} />
+                <col style={{ width: '8%' }} />
+                <col style={{ width: '13%' }} />
+                <col style={{ width: '13%' }} />
+                <col style={{ width: '8%' }} />
+                <col style={{ width: '10%' }} />
+                <col style={{ width: '25%' }} />
+              </colgroup>
               <thead className="sticky top-0 !bg-gradient-to-r !from-gray-50 !to-gray-100 dark:!from-gray-800 dark:!to-gray-900">
                 <tr>
-                  <th className="!text-gray-700 dark:!text-gray-300" style={{ width: '140px' }}>Instance ID</th>
-                  <th className="!text-gray-700 dark:!text-gray-300" style={{ width: '110px' }}>Current<br />Instance</th>
-                  <th className="!text-gray-700 dark:!text-gray-300" style={{ width: '90px' }}>Load Range</th>
-                  <th className="!text-gray-700 dark:!text-gray-300" style={{ width: '130px' }}>Intel Rec</th>
-                  <th className="!text-gray-700 dark:!text-gray-300" style={{ width: '130px' }}>AMD Rec</th>
-                  <th className="!text-gray-700 dark:!text-gray-300" style={{ width: '90px' }}>Projected<br />Max Util</th>
-                  <th className="!text-gray-700 dark:!text-gray-300" style={{ width: '100px' }}>Approx.<br />Savings</th>
-                  <th className="!text-gray-700 dark:!text-gray-300" style={{ width: '180px' }}>Reason</th>
+                  <th className="!text-gray-700 dark:!text-gray-300">Instance ID</th>
+                  <th className="!text-gray-700 dark:!text-gray-300">Current<br />Instance</th>
+                  <th className="!text-gray-700 dark:!text-gray-300">Load Range</th>
+                  <th className="!text-gray-700 dark:!text-gray-300">Intel Rec</th>
+                  <th className="!text-gray-700 dark:!text-gray-300">AMD Rec</th>
+                  <th className="!text-gray-700 dark:!text-gray-300">Projected<br />Max Util</th>
+                  <th className="!text-gray-700 dark:!text-gray-300">Approx.<br />Savings</th>
+                  <th className="!text-gray-700 dark:!text-gray-300">Reason</th>
                 </tr>
               </thead>
               <tbody>
@@ -79,7 +100,7 @@ const XamOpsRecommendationsTable: React.FC<XamOpsRecommendationsTableProps> = ({
                       <div className="flex items-center space-x-1">
                         <i className="fas fa-server text-indigo-600 dark:text-indigo-400" style={{ fontSize: '0.6rem' }}></i>
                         <div className="flex flex-col">
-                          <span className="font-mono text-gray-800 dark:text-gray-200 font-medium" style={{ fontSize: '0.7rem' }}>
+                          <span className="font-mono text-gray-800 dark:text-gray-200 font-medium" style={{ fontSize: '0.7rem', wordBreak: 'break-all' }}>
                             {rec.instanceId || 'N/A'}
                           </span>
                           {rec.instanceName && (
@@ -100,7 +121,7 @@ const XamOpsRecommendationsTable: React.FC<XamOpsRecommendationsTableProps> = ({
                         )}
                       </div>
                     </td>
-                    <td className="text-gray-700 dark:text-gray-300">{rec.loadRange}</td>
+                    <td style={{ color: '#111827' }}>{rec.loadRange}</td>
                     <td>
                       <div className="flex flex-col">
                         <span className="font-medium text-gray-800 dark:text-gray-200" style={{ fontSize: '0.7rem' }}>
@@ -125,11 +146,11 @@ const XamOpsRecommendationsTable: React.FC<XamOpsRecommendationsTableProps> = ({
                         )}
                       </div>
                     </td>
-                    <td className="text-gray-700 dark:text-gray-300">{rec.projectedMaxUtil}</td>
+                    <td style={{ color: '#111827' }}>{rec.projectedMaxUtil}</td>
                     <td>
                       <span className="savings-badge">{rec.approxCostSavings}</span>
                     </td>
-                    <td className="text-gray-700 dark:text-gray-300 truncate-text" title={rec.reason}>
+                    <td className="reason-text" style={{ color: '#111827' }}>
                       {rec.reason}
                     </td>
                   </tr>

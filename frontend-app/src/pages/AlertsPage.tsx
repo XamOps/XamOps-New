@@ -29,6 +29,7 @@ import {
   AlertsEmptyState,
   AlertsTabs,
 } from '../components/Alerts';
+import { AlertsErrorBanner } from '../components/Alerts/AlertsErrorBanner';
 
 // Styles
 import '../styles/alerts.css';
@@ -47,7 +48,12 @@ const AlertsPage: React.FC = () => {
     activeTab,
     services,
     alertCounts,
+    errors,
+    metadata,
+    hasErrors,
+    isPartialSuccess,
     loadAlerts,
+    retryFailedServices,
     setSelectedService,
     setActiveTab,
     getUsagePercentage,
@@ -98,7 +104,16 @@ const AlertsPage: React.FC = () => {
         {activeTab === 'cloudguard' && selectedAccountId && (
           <div className="alerts-cloudguard-content alerts-fade-in">
             {/* KPI Cards */}
-            <AlertsKPICards alertCounts={alertCounts} isLoading={isLoading} />
+            <AlertsKPICards alertCounts={alertCounts} isLoading={isLoading} metadata={metadata} />
+
+            {/* Error Banner */}
+            {hasErrors && (
+              <AlertsErrorBanner
+                errors={errors}
+                onRetry={retryFailedServices}
+                isPartialSuccess={isPartialSuccess}
+              />
+            )}
 
             {/* Main Content Card */}
             <div className="alerts-main-card">
