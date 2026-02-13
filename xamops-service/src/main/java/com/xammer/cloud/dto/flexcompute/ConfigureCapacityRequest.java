@@ -16,13 +16,13 @@ public class ConfigureCapacityRequest {
 
     // Optional parameters
     @JsonProperty("vpc")
-    private String vpc; // VPC identifier (pattern: vpc-*)
+    private String vpc; // VPC identifier (pattern: vpc-* or "default")
 
-    @JsonProperty("securityGroup")
-    private String securityGroup; // Security group identifier (pattern: sg-*)
+    @JsonProperty("securityGroups")
+    private String securityGroups; // Security group identifier (pattern: sg-* or "none")
 
     @JsonProperty("amiImage")
-    private String amiImage; // AMI identifier (pattern: ami-*)
+    private String amiImage; // AMI identifier (pattern: ami-* or "default")
 
     @JsonProperty("sshPairKey")
     private String sshPairKey; // SSH key pair name

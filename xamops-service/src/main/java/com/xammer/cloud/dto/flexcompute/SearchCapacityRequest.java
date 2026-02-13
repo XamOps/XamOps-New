@@ -29,4 +29,14 @@ public class SearchCapacityRequest {
     // Optional parameters
     @JsonProperty("platform")
     private String platform; // Defaults to "Linux/UNIX"
+
+    // Additional fields for enriching the response (not sent to CloudiDR, but used internally)
+    @JsonProperty("quantity")
+    private Integer quantity; // Number of instances
+
+    @JsonProperty("region")
+    private String region; // Region code (e.g., "us-west-2")
+
+    @JsonProperty("capacityName")
+    private String capacityName; // User-provided capacity name
 }

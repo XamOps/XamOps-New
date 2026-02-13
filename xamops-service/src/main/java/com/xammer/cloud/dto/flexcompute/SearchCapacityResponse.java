@@ -10,6 +10,20 @@ import lombok.NoArgsConstructor;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class SearchCapacityResponse {
 
+    // CloudiDR Search API returns these fields
+    @JsonProperty("title")
+    private String title; // e.g., "Available (All)"
+
+    @JsonProperty("status")
+    private String status; // e.g., "PARTIAL_AVAILABLE", "AVAILABLE_ALL", "NOT_AVAILABLE"
+
+    @JsonProperty("startDateTime")
+    private String startDateTime; // ISO 8601: "2026-02-14T08:00:00-08:00"
+
+    @JsonProperty("endDateTime")
+    private String endDateTime; // ISO 8601: "2026-02-14T23:44:59:12-08:00"
+
+    // Additional fields for compatibility (may not be in search response)
     @JsonProperty("capacity_id")
     private String capacityId;
 
@@ -54,7 +68,4 @@ public class SearchCapacityResponse {
 
     @JsonProperty("end_date")
     private String endDate;
-
-    @JsonProperty("status")
-    private String status;
 }

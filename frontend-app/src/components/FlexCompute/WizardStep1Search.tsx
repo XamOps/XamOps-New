@@ -42,6 +42,35 @@ const WizardStep1Search: React.FC<WizardStep1SearchProps> = ({
     onSearch();
   };
 
+  // Round datetime to nearest 15-minute increment
+  const roundToQuarterHour = (datetimeStr: string): string => {
+    if (!datetimeStr) return datetimeStr;
+
+    const date = new Date(datetimeStr);
+    const minutes = date.getMinutes();
+
+    // Round to nearest 15-minute increment
+    const roundedMinutes = Math.round(minutes / 15) * 15;
+
+    if (roundedMinutes === 60) {
+      date.setHours(date.getHours() + 1);
+      date.setMinutes(0);
+    } else {
+      date.setMinutes(roundedMinutes);
+    }
+
+    // Format back to datetime-local format (YYYY-MM-DDTHH:mm)
+    return date.toISOString().slice(0, 16);
+  };
+
+  // Calculate minimum start time (30 minutes from now)
+  const minStartTime = useMemo(() => {
+    const now = new Date();
+    now.setMinutes(now.getMinutes() + 30);
+    // Format: YYYY-MM-DDTHH:mm (datetime-local format)
+    return now.toISOString().slice(0, 16);
+  }, []);
+
   // Get available regions for selected CSP account
   const availableRegions = useMemo(() => {
     if (!form.cspAccount) return [];
@@ -137,7 +166,7 @@ const WizardStep1Search: React.FC<WizardStep1SearchProps> = ({
           </select>
         </div>
 
-        {/* Row 3: Instance Type + Platform */}
+        {/* Row 3: Instance Type + Platform (fixed) + Tenancy (fixed) */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">Instance Type</label>
@@ -154,27 +183,21 @@ const WizardStep1Search: React.FC<WizardStep1SearchProps> = ({
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">Platform</label>
-            <select
-              value={form.platform}
-              onChange={(e) => onChange({ platform: e.target.value })}
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-            >
-              <option value="Linux/UNIX">Linux/UNIX</option>
-              <option value="Windows">Windows</option>
-              <option value="RHEL">RHEL</option>
-              <option value="SUSE">SUSE</option>
-            </select>
+            <input
+              type="text"
+              value="Linux"
+              disabled
+              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm bg-gray-50 text-gray-500 cursor-not-allowed"
+            />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">Tenancy</label>
-            <select
-              value={form.tenancy}
-              onChange={(e) => onChange({ tenancy: e.target.value })}
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-            >
-              <option value="Shared">Shared</option>
-              <option value="Dedicated">Dedicated</option>
-            </select>
+            <input
+              type="text"
+              value="Shared"
+              disabled
+              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm bg-gray-50 text-gray-500 cursor-not-allowed"
+            />
           </div>
         </div>
 
@@ -202,43 +225,126 @@ const WizardStep1Search: React.FC<WizardStep1SearchProps> = ({
                 <option key={tz.value} value={tz.value}>{tz.label}</option>
               ))}
             </select>
+            <p className="text-xs text-blue-600 mt-1">
+              <i className="fas fa-clock mr-1"></i>
+              All times will be scheduled in this timezone
+            </p>
           </div>
         </div>
 
-        {/* Row 5: Dates + Auto-renewal */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+        {/* Row 5: Start Date/Time + End Date/Time */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Start Date</label>
-            <input
-              type="date"
-              value={form.startDate}
-              onChange={(e) => onChange({ startDate: e.target.value })}
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">End Date</label>
-            <input
-              type="date"
-              value={form.endDate}
-              onChange={(e) => onChange({ endDate: e.target.value })}
-              min={form.startDate}
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-              required
-            />
-          </div>
-          <div className="flex items-end">
-            <label className="flex items-center gap-3 cursor-pointer py-2.5">
-              <input
-                type="checkbox"
-                checked={form.autoRenewal}
-                onChange={(e) => onChange({ autoRenewal: e.target.checked })}
-                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-              />
-              <span className="text-sm font-medium text-gray-700">Auto-renewal</span>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              Start Date & Time
+              <span className="text-xs font-normal text-blue-600 ml-2">
+                ({TIME_ZONES.find(tz => tz.value === form.timeZone)?.label || 'Selected timezone'})
+              </span>
             </label>
+            <input
+              type="datetime-local"
+              value={form.startDate}
+              onChange={(e) => onChange({ startDate: roundToQuarterHour(e.target.value) })}
+              min={minStartTime}
+              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              required
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              <i className="fas fa-info-circle mr-1"></i>
+              Earliest start time is 30 minutes from now. Times rounded to 15-min intervals (00, 15, 30, 45).
+            </p>
           </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              End Date & Time
+              <span className="text-xs font-normal text-blue-600 ml-2">
+                ({TIME_ZONES.find(tz => tz.value === form.timeZone)?.label || 'Selected timezone'})
+              </span>
+            </label>
+            <input
+              type="datetime-local"
+              value={form.endDate}
+              onChange={(e) => onChange({ endDate: roundToQuarterHour(e.target.value) })}
+              min={form.startDate || minStartTime}
+              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              required
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              <i className="fas fa-info-circle mr-1"></i>
+              Times rounded to 15-min intervals (00, 15, 30, 45).
+            </p>
+          </div>
+        </div>
+
+        {/* Row 6: Auto-renewal Settings */}
+        <div className="border border-gray-200 rounded-lg p-5 space-y-4">
+          <h4 className="text-base font-semibold text-gray-900">Enable Auto-renewal</h4>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              Auto-renewal enabled
+              <span className="ml-2 text-xs text-gray-400">
+                <i className="fas fa-info-circle"></i>
+              </span>
+            </label>
+            <select
+              value={form.autoRenewal ? 'yes' : 'no'}
+              onChange={(e) => onChange({ autoRenewal: e.target.value === 'yes' })}
+              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+            >
+              <option value="yes">Yes</option>
+              <option value="no">No</option>
+            </select>
+          </div>
+
+          {form.autoRenewal && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-3">
+                Frequency of renewal
+                <span className="ml-2 text-xs text-gray-400">
+                  <i className="fas fa-info-circle"></i>
+                </span>
+              </label>
+              <div className="flex gap-6">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="renewalFrequency"
+                    value="24hrs"
+                    checked={form.renewalFrequency === '24hrs'}
+                    onChange={(e) => onChange({ renewalFrequency: e.target.value as '24hrs' | '1week' | '1month' })}
+                    className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                  />
+                  <span className="text-sm text-gray-700">24 hrs</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="renewalFrequency"
+                    value="1week"
+                    checked={form.renewalFrequency === '1week'}
+                    onChange={(e) => onChange({ renewalFrequency: e.target.value as '24hrs' | '1week' | '1month' })}
+                    className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                  />
+                  <span className="text-sm text-gray-700">1 Week</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="renewalFrequency"
+                    value="1month"
+                    checked={form.renewalFrequency === '1month'}
+                    onChange={(e) => onChange({ renewalFrequency: e.target.value as '24hrs' | '1week' | '1month' })}
+                    className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                  />
+                  <span className="text-sm text-gray-700">1 Month</span>
+                </label>
+              </div>
+              <p className="text-xs text-gray-500 mt-2">
+                Specifies the time period that will be added to the current end date each time the auto-renewal is triggered.
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Submit */}

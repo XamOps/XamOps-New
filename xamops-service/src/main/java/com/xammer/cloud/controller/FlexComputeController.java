@@ -154,13 +154,14 @@ public class FlexComputeController {
 
     /**
      * POST /api/flexcompute/capacity/reserve - Reserve capacity
+     * Creates a temporary 15-minute reservation with cidrId and pricing
      */
     @PostMapping("/capacity/reserve")
     public ResponseEntity<?> reserveCapacity(@RequestBody ReserveCapacityRequest request,
                                              @AuthenticationPrincipal ClientUserDetails userDetails) {
         try {
             Long userId = userDetails.getId();
-            SearchCapacityResponse response = flexComputeService.reserveCapacity(userId, request);
+            ReserveCapacityResponse response = flexComputeService.reserveCapacity(userId, request);
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             logger.error("FlexCompute reserve-capacity failed: {}", e.getMessage());
