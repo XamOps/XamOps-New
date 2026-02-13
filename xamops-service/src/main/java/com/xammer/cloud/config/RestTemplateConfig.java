@@ -1,7 +1,9 @@
 package com.xammer.cloud.config;
 
+import org.apache.http.client.CookieStore;
 import org.apache.http.conn.ssl.NoopHostnameVerifier;
 import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
+import org.apache.http.impl.client.BasicCookieStore;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
 import org.apache.http.ssl.SSLContextBuilder;
@@ -39,16 +41,20 @@ public class RestTemplateConfig {
                 NoopHostnameVerifier.INSTANCE // Skip hostname verification for CloudFront
         );
 
-        // Build HTTP client with SSL support
+        // Create cookie store to maintain sessions (required for CloudiDR API)
+        CookieStore cookieStore = new BasicCookieStore();
+
+        // Build HTTP client with SSL support and cookie handling
         CloseableHttpClient httpClient = HttpClients.custom()
                 .setSSLSocketFactory(socketFactory)
+                .setDefaultCookieStore(cookieStore)
                 .setMaxConnTotal(100)
                 .setMaxConnPerRoute(20)
                 .build();
 
         // Create request factory
         HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory(httpClient);
-        factory.setConnectTimeout(30000); // 30 seconds
+        factory.setConnectTimeout(60000); // 60 seconds (increased for CloudiDR API)
         factory.setReadTimeout(180000); // 3 minutes
 
         // Wrap with buffering for request/response logging

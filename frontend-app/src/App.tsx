@@ -89,6 +89,7 @@ import GcpCloudMapPage from './pages/GcpCloudMapPage';
 import AzureDashboard from './pages/AzureDashboard';
 import AzureCloudList from './pages/AzureCloudList';
 import AzureFinOpsPage from './pages/AzureFinOpsPage';
+import FlexComputePage from './pages/FlexComputePage';
 import AzureCloudK8sPage from './pages/AzureCloudK8sPage';
 import { SupportChatWidget } from './components/SupportChat';
 import AdminSupportNotificationListener from './components/Shared/AdminSupportNotificationListener';
@@ -158,6 +159,7 @@ import './styles/gcpCloudmap.css';
 import './styles/azureDashboard.css';
 import './styles/azureCloudList.css';
 import './styles/azureFinops.css';
+import './styles/flexCompute.css';
 
 // Helper function to check authentication
 // Note: Since cookies might be HttpOnly, we check by making an API call
@@ -337,6 +339,7 @@ const AppContent: React.FC = () => {
               <Route path="/gcp-reservations" element={<GcpReservationsPage />} />
               <Route path="/cloudsitter" element={<CloudSitterPage />} />
               <Route path="/spot-automation" element={<SpotAutomationPage />} />
+              <Route path="/flex-compute" element={<FlexComputePage />} />
               <Route path="/grafana-dashboard" element={<GrafanaDashboardPage />} />
               <Route path="/cloudk8s" element={<CloudK8sPage />} />
               <Route path="/gcp-cloudk8s" element={<GcpCloudK8sPage />} />
