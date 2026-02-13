@@ -54,8 +54,8 @@ public class RestTemplateConfig {
 
         // Create request factory
         HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory(httpClient);
-        factory.setConnectTimeout(60000); // 60 seconds (increased for CloudiDR API)
-        factory.setReadTimeout(180000); // 3 minutes
+        factory.setConnectTimeout(120000); // 120 seconds (increased for CloudiDR API)
+        factory.setReadTimeout(240000); // 4 minutes
 
         // Wrap with buffering for request/response logging
         BufferingClientHttpRequestFactory bufferingFactory = new BufferingClientHttpRequestFactory(factory);

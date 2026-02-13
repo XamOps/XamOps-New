@@ -18,8 +18,22 @@ import WizardSearchProgress from './WizardSearchProgress';
 import WizardStep2Configure from './WizardStep2Configure';
 import WizardStep3Review from './WizardStep3Review';
 
+interface LinkedAccount {
+  id: string;
+  cspAccountId: string;
+  alias: string;
+  accountRegions?: Array<{
+    id: number;
+    operatingCspRegionAz: {
+      regionCode: string;
+      regionType: string;
+      availabilityZoneId: string;
+    };
+  }>;
+}
+
 interface FlexComputeWizardProps {
-  accounts: Array<{ id: string; name: string }>;
+  accounts: LinkedAccount[];
   searchCapacity: (form: SearchCapacityForm) => Promise<CapacityPricing | null>;
   configureCapacity: (form: ConfigureCapacityForm) => Promise<boolean>;
   purchaseCapacity: (capacityId: string) => Promise<boolean>;

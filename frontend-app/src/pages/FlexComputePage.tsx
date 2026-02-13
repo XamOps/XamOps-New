@@ -49,11 +49,13 @@ const FlexComputePage: React.FC = () => {
     linkedAccounts,
   } = useFlexComputeData();
 
-  // Map CloudiDR linked accounts for the wizard dropdown
+  // Map CloudiDR linked accounts for the wizard dropdown (with accountRegions)
   const accountOptions = useMemo(() => {
     return (linkedAccounts || []).map((acc) => ({
       id: acc.accountId,
-      name: acc.accountName || `${acc.provider} ${acc.accountId}`,
+      cspAccountId: acc.accountId,
+      alias: acc.accountName || `${acc.provider} ${acc.accountId}`,
+      accountRegions: acc.accountRegions,
     }));
   }, [linkedAccounts]);
 

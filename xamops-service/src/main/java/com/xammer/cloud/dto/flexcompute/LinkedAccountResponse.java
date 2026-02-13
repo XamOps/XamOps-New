@@ -5,6 +5,8 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
+
 @Data
 @NoArgsConstructor
 public class LinkedAccountResponse {
@@ -29,6 +31,9 @@ public class LinkedAccountResponse {
 
     @JsonProperty("linkedAt")
     private String linkedAt; // ISO 8601 timestamp when account was linked
+
+    @JsonProperty("accountRegions")
+    private List<AccountRegion> accountRegions; // Available regions for this account
 
     // Constructor for backward compatibility with existing service code
     public LinkedAccountResponse(String accountId, String accountName, String provider, String status, String linkedAt) {
@@ -63,5 +68,30 @@ public class LinkedAccountResponse {
 
         @JsonProperty("providerCode")
         private String providerCode; // e.g., "AWS"
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class AccountRegion {
+        @JsonProperty("id")
+        private Long id;
+
+        @JsonProperty("operatingCspRegionAz")
+        private OperatingCspRegionAz operatingCspRegionAz;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class OperatingCspRegionAz {
+        @JsonProperty("regionCode")
+        private String regionCode; // e.g., "us-west-2"
+
+        @JsonProperty("regionType")
+        private String regionType; // e.g., "PRIMARY"
+
+        @JsonProperty("availabilityZoneId")
+        private String availabilityZoneId; // e.g., "usw2-az1"
     }
 }
