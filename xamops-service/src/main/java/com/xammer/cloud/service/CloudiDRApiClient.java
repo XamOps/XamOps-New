@@ -119,6 +119,7 @@ public class CloudiDRApiClient {
 
     /**
      * GET /external/api/v1/flexcompute/search - Search available capacity
+     * CloudiDR returns an array of results, we take the first one
      */
     public SearchCapacityResponse searchCapacity(String token, SearchCapacityRequest request) {
         logger.info("CloudiDR API: GET /external/api/v1/flexcompute/search for instance type: {}", request.getInstanceType());
@@ -141,12 +142,44 @@ public class CloudiDRApiClient {
             HttpHeaders headers = createAuthHeaders(token);
             HttpEntity<Void> entity = new HttpEntity<>(headers);
 
-            ResponseEntity<SearchCapacityResponse> response = restTemplate.exchange(
-                    url, HttpMethod.GET, entity, SearchCapacityResponse.class);
+            // CloudiDR returns an array of search results
+            ResponseEntity<SearchCapacityResponse[]> response = restTemplate.exchange(
+                    url, HttpMethod.GET, entity, SearchCapacityResponse[].class);
 
-            logger.info("CloudiDR search-capacity successful, capacity_id: {}",
-                    response.getBody() != null ? response.getBody().getCapacityId() : "null");
-            return response.getBody();
+            if (response.getBody() == null || response.getBody().length == 0) {
+                logger.warn("CloudiDR search-capacity returned no results");
+                throw new RuntimeException("No capacity available for the specified criteria");
+            }
+
+            // Get the first result from CloudiDR (only contains title, status, startDateTime, endDateTime)
+            SearchCapacityResponse result = response.getBody()[0];
+            logger.info("CloudiDR search-capacity successful, found {} result(s), returning first: status={}",
+                    response.getBody().length, result.getStatus());
+
+            // Enrich the response with data from the original request
+            // CloudiDR search response doesn't include these fields, so we populate them from the request
+            result.setInstanceType(request.getInstanceType());
+            result.setZoneId(request.getZoneId());
+            result.setPlatform(request.getPlatform() != null ? request.getPlatform() : "Linux/UNIX");
+            result.setStartDate(request.getStartDate());
+            result.setEndDate(request.getEndDate());
+
+            // Additional fields from request
+            if (request.getQuantity() != null) {
+                result.setQuantity(request.getQuantity());
+            }
+            if (request.getRegion() != null) {
+                result.setRegion(request.getRegion());
+            }
+            if (request.getCapacityName() != null) {
+                result.setCapacityName(request.getCapacityName());
+            }
+            result.setTenancy("Shared"); // Fixed value as per UI
+
+            logger.info("Enriched search response with request parameters: instanceType={}, zoneId={}, platform={}, quantity={}, region={}",
+                    result.getInstanceType(), result.getZoneId(), result.getPlatform(), result.getQuantity(), result.getRegion());
+
+            return result;
 
         } catch (HttpClientErrorException e) {
             logger.error("CloudiDR search-capacity failed: HTTP {} - {}", e.getStatusCode(), e.getResponseBodyAsString());
@@ -159,10 +192,14 @@ public class CloudiDRApiClient {
 
     /**
      * POST /external/api/v1/flexcompute/reserve - Reserve capacity
-     * Note: This endpoint requires full reservation details, not just a capacity ID
+     * Creates a temporary 15-minute reservation and returns cidrId + pricing
      */
-    public SearchCapacityResponse reserveCapacity(String token, ReserveCapacityRequest request) {
+    public ReserveCapacityResponse reserveCapacity(String token, ReserveCapacityRequest request) {
         logger.info("CloudiDR API: POST /external/api/v1/flexcompute/reserve for instance type: {}", request.getInstanceType());
+        logger.debug("Reserve request details: accountId={}, zoneId={}, policyName={}, platform={}, quantity={}, startDate={}, endDate={}, startTime={}, endTime={}, utcOffsetHours={}",
+                request.getAccountId(), request.getZoneId(), request.getPolicyName(), request.getPlatform(),
+                request.getQuantity(), request.getStartDate(), request.getEndDate(),
+                request.getStartTime(), request.getEndTime(), request.getUtcOffsetHours());
 
         try {
             String url = baseUrl + "/external/api/v1/flexcompute/reserve";
@@ -170,15 +207,37 @@ public class CloudiDRApiClient {
             HttpHeaders headers = createAuthHeaders(token);
             HttpEntity<ReserveCapacityRequest> entity = new HttpEntity<>(request, headers);
 
-            ResponseEntity<SearchCapacityResponse> response = restTemplate.exchange(
-                    url, HttpMethod.POST, entity, SearchCapacityResponse.class);
+            ResponseEntity<ReserveCapacityResponse> response = restTemplate.exchange(
+                    url, HttpMethod.POST, entity, ReserveCapacityResponse.class);
 
-            logger.info("CloudiDR reserve-capacity successful");
-            return response.getBody();
+            ReserveCapacityResponse result = response.getBody();
+            if (result != null && result.getMyPolicy() != null) {
+                logger.info("CloudiDR reserve-capacity successful: cidrId={}, status={}, ourPrice={}, savings={}",
+                        result.getMyPolicy().getCidrId(),
+                        result.getMyPolicy().getPolicyStatus(),
+                        result.getMyPolicy().getPricing() != null ? result.getMyPolicy().getPricing().getOurPrice() : null,
+                        result.getMyPolicy().getPricing() != null ? result.getMyPolicy().getPricing().getSavings() : null);
+            }
+            return result;
 
         } catch (HttpClientErrorException e) {
-            logger.error("CloudiDR reserve-capacity failed: HTTP {} - {}", e.getStatusCode(), e.getResponseBodyAsString());
-            throw new RuntimeException("Reserve capacity failed: " + e.getStatusCode(), e);
+            String errorBody = e.getResponseBodyAsString();
+            logger.error("CloudiDR reserve-capacity failed: HTTP {} - {}", e.getStatusCode(), errorBody);
+
+            // Try to extract error message from CloudiDR response
+            String errorMessage = "Reserve capacity failed: " + e.getStatusCode();
+            if (errorBody != null && !errorBody.isEmpty()) {
+                try {
+                    // Try to parse error message from response body
+                    if (errorBody.contains("message") || errorBody.contains("error")) {
+                        errorMessage = "Reserve capacity failed: " + errorBody;
+                    }
+                } catch (Exception ex) {
+                    // If parsing fails, use the raw error body
+                    errorMessage = "Reserve capacity failed: " + errorBody;
+                }
+            }
+            throw new RuntimeException(errorMessage, e);
         } catch (Exception e) {
             logger.error("CloudiDR reserve-capacity error: {}", e.getMessage(), e);
             throw new RuntimeException("Reserve capacity failed: " + e.getMessage(), e);

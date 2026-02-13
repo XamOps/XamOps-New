@@ -198,23 +198,48 @@ export const useFlexComputeData = () => {
       setError(null);
       setSearchResult(null);
 
+      // Convert datetime-local format (YYYY-MM-DDTHH:mm) to date format (MM/dd/yyyy)
+      const formatDateForAPI = (datetimeStr: string): string => {
+        if (!datetimeStr) return '';
+        const date = new Date(datetimeStr);
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        const year = date.getFullYear();
+        return `${month}/${day}/${year}`;
+      };
+
+      // Calculate UTC offset in hours from timezone
+      const getUtcOffsetHours = (timezone: string): number => {
+        // Map timezone to UTC offset
+        const timezoneOffsets: { [key: string]: number } = {
+          'America/Los_Angeles': -8,
+          'America/Denver': -7,
+          'America/Chicago': -6,
+          'America/New_York': -5,
+          'Europe/London': 0,
+          'Europe/Berlin': 1,
+          'Asia/Kolkata': 5.5,
+          'Asia/Tokyo': 9,
+          'Australia/Sydney': 11,
+        };
+        return timezoneOffsets[timezone] || 0;
+      };
+
       const response = await fetch('/api/flexcompute/capacity/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          capacity_name: form.capacityName,
-          csp_account: form.cspAccount,
-          region: form.region,
-          zone_id: form.zoneId,
-          instance_type: form.instanceType,
+          instanceType: form.instanceType,
           platform: form.platform,
-          tenancy: form.tenancy,
+          zoneId: form.zoneId,
+          startDate: formatDateForAPI(form.startDate),
+          endDate: formatDateForAPI(form.endDate),
+          utcOffsetHours: getUtcOffsetHours(form.timeZone),
+          // Additional fields for enriching the response
           quantity: form.quantity,
-          time_zone: form.timeZone,
-          start_date: form.startDate,
-          end_date: form.endDate,
-          auto_renewal: form.autoRenewal,
+          region: form.region,
+          capacityName: form.capacityName,
         }),
       });
 
@@ -260,24 +285,126 @@ export const useFlexComputeData = () => {
   }, []);
 
   /**
+   * Reserve capacity - Creates 15-minute temporary reservation with pricing
+   * Called after search, before configure
+   */
+  const reserveCapacity = useCallback(async (form: SearchCapacityForm): Promise<any> => {
+    try {
+      setError(null);
+
+      // Validate required fields
+      if (!form.cspAccount || !form.zoneId || !form.capacityName || !form.instanceType || !form.startDate || !form.endDate) {
+        throw new Error('Missing required fields for reservation');
+      }
+
+      // Format date and time from datetime-local format (YYYY-MM-DDTHH:mm)
+      const formatDate = (datetimeStr: string): string => {
+        if (!datetimeStr) return '';
+        const date = new Date(datetimeStr);
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        const year = date.getFullYear();
+        return `${month}/${day}/${year}`;
+      };
+
+      const formatTime = (datetimeStr: string): string => {
+        if (!datetimeStr) return '';
+        const date = new Date(datetimeStr);
+        const hours = date.getHours();
+        const minutes = date.getMinutes();
+
+        // Round to nearest 15-minute increment (0, 15, 30, 45)
+        const roundedMinutes = Math.round(minutes / 15) * 15;
+        const finalMinutes = roundedMinutes === 60 ? 0 : roundedMinutes;
+        const finalHours = roundedMinutes === 60 ? (hours + 1) % 24 : hours;
+
+        return `${String(finalHours).padStart(2, '0')}:${String(finalMinutes).padStart(2, '0')}`;
+      };
+
+      // Calculate UTC offset in hours from timezone
+      const getUtcOffsetHours = (timezone: string): string => {
+        const timezoneOffsets: { [key: string]: string } = {
+          'America/Los_Angeles': '-8',
+          'America/Denver': '-7',
+          'America/Chicago': '-6',
+          'America/New_York': '-5',
+          'Europe/London': '0',
+          'Europe/Berlin': '1',
+          'Asia/Kolkata': '5.5',
+          'Asia/Tokyo': '9',
+          'Australia/Sydney': '11',
+        };
+        return timezoneOffsets[timezone] || '0';
+      };
+
+      const requestBody = {
+        accountId: form.cspAccount,
+        zoneId: form.zoneId,
+        policyName: form.capacityName,
+        instanceType: form.instanceType,
+        platform: form.platform,
+        startDate: formatDate(form.startDate),
+        endDate: formatDate(form.endDate),
+        startTime: formatTime(form.startDate),
+        endTime: formatTime(form.endDate),
+        utcOffsetHours: getUtcOffsetHours(form.timeZone),
+        quantity: form.quantity,
+      };
+
+      console.log('[FlexCompute] Reserve capacity request:', requestBody);
+
+      const response = await fetch('/api/flexcompute/capacity/reserve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(requestBody),
+      });
+
+      if (response.status === 401) {
+        setAuthStatus({ authenticated: false });
+        return null;
+      }
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
+        const errorMessage = errorData.error || `Reserve failed with status ${response.status}`;
+        console.error('[FlexCompute] Reserve capacity error response:', errorData);
+        throw new Error(errorMessage);
+      }
+
+      const data = await response.json();
+      console.log('[FlexCompute] Reserve capacity response:', data);
+      return data; // Returns ReserveCapacityResponse with myPolicy, pricing, etc.
+    } catch (err) {
+      console.error('[FlexCompute] Reserve capacity failed:', err);
+      setError(err instanceof Error ? err.message : 'Reserve failed');
+      return null;
+    }
+  }, [setAuthStatus]);
+
+  /**
    * Configure capacity (wizard step 2)
    */
   const configureCapacity = useCallback(async (form: ConfigureCapacityForm): Promise<boolean> => {
     try {
       setError(null);
 
+      const requestBody = {
+        cidrId: form.capacityId,
+        vpc: form.vpcId,
+        securityGroups: form.securityGroupId,
+        sshPairKey: form.sshKeyName,
+        ebsVolumeSize: form.ebsVolumeSize,
+        amiImage: form.amiImageId,
+      };
+
+      console.log('[FlexCompute] Configure capacity request:', requestBody);
+
       const response = await fetch('/api/flexcompute/capacity/configure', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({
-          capacity_id: form.capacityId,
-          vpc_id: form.vpcId,
-          security_group_id: form.securityGroupId,
-          ssh_key_name: form.sshKeyName,
-          ebs_volume_size: form.ebsVolumeSize,
-          ami_image_id: form.amiImageId,
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
@@ -301,14 +428,17 @@ export const useFlexComputeData = () => {
       setIsPurchasing(true);
       setError(null);
 
+      const requestBody = {
+        cidrId: capacityId,
+      };
+
+      console.log('[FlexCompute] Purchase capacity request:', requestBody);
+
       const response = await fetch('/api/flexcompute/capacity/purchase', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({
-          capacity_id: capacityId,
-          terms_accepted: true,
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
@@ -365,6 +495,7 @@ export const useFlexComputeData = () => {
     isSearching,
     isPurchasing,
     searchCapacity,
+    reserveCapacity,
     configureCapacity,
     purchaseCapacity,
     setSearchResult,

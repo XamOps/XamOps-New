@@ -43,6 +43,7 @@ export interface SearchCapacityForm {
   startDate: string;
   endDate: string;
   autoRenewal: boolean;
+  renewalFrequency: '24hrs' | '1week' | '1month';
 }
 
 export interface ConfigureCapacityForm {
@@ -94,15 +95,16 @@ export const INITIAL_SEARCH_FORM: SearchCapacityForm = {
   startDate: '',
   endDate: '',
   autoRenewal: false,
+  renewalFrequency: '1month',
 };
 
 export const INITIAL_CONFIGURE_FORM: ConfigureCapacityForm = {
   capacityId: '',
-  vpcId: '',
-  securityGroupId: '',
-  sshKeyName: '',
+  vpcId: 'default',
+  securityGroupId: 'none',
+  sshKeyName: 'none',
   ebsVolumeSize: 10,
-  amiImageId: '',
+  amiImageId: 'default',
 };
 
 export const AWS_REGIONS = [
@@ -123,11 +125,8 @@ export const AWS_REGIONS = [
 
 export const INSTANCE_TYPES = [
   'c5.large', 'c5.xlarge', 'c5.2xlarge', 'c5.4xlarge',
-  'm5.large', 'm5.xlarge', 'm5.2xlarge', 'm5.4xlarge',
-  'r5.large', 'r5.xlarge', 'r5.2xlarge', 'r5.4xlarge',
-  't3.micro', 't3.small', 't3.medium', 't3.large', 't3.xlarge',
-  'c6i.large', 'c6i.xlarge', 'c6i.2xlarge',
-  'm6i.large', 'm6i.xlarge', 'm6i.2xlarge',
+  'g5.24xlarge',
+  'm6i.large', 'm6i.xlarge', 'm6i.2xlarge', 'm6i.4xlarge',
 ];
 
 export const TIME_ZONES = [

@@ -136,8 +136,9 @@ public class FlexComputeService {
 
     /**
      * Reserve capacity via CloudiDR API
+     * Creates a temporary 15-minute reservation with cidrId and pricing
      */
-    public SearchCapacityResponse reserveCapacity(Long userId, ReserveCapacityRequest request) {
+    public ReserveCapacityResponse reserveCapacity(Long userId, ReserveCapacityRequest request) {
         logger.info("Reserving capacity for user {} - instance type: {}", userId, request.getInstanceType());
         String token = getValidToken(userId);
         return apiClient.reserveCapacity(token, request);

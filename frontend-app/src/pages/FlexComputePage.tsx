@@ -41,6 +41,7 @@ const FlexComputePage: React.FC = () => {
     isLoading,
     fetchCapacities,
     searchCapacity,
+    reserveCapacity,
     configureCapacity,
     purchaseCapacity,
     isSearching,
@@ -160,6 +161,7 @@ const FlexComputePage: React.FC = () => {
             <FlexComputeWizard
               accounts={accountOptions}
               searchCapacity={searchCapacity}
+              reserveCapacity={reserveCapacity}
               configureCapacity={configureCapacity}
               purchaseCapacity={purchaseCapacity}
               isSearching={isSearching}

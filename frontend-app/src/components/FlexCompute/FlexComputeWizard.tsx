@@ -35,6 +35,7 @@ interface LinkedAccount {
 interface FlexComputeWizardProps {
   accounts: LinkedAccount[];
   searchCapacity: (form: SearchCapacityForm) => Promise<CapacityPricing | null>;
+  reserveCapacity: (form: SearchCapacityForm) => Promise<any>;
   configureCapacity: (form: ConfigureCapacityForm) => Promise<boolean>;
   purchaseCapacity: (capacityId: string) => Promise<boolean>;
   isSearching: boolean;
@@ -45,6 +46,7 @@ interface FlexComputeWizardProps {
 const FlexComputeWizard: React.FC<FlexComputeWizardProps> = ({
   accounts,
   searchCapacity,
+  reserveCapacity,
   configureCapacity,
   purchaseCapacity,
   isSearching,
@@ -55,28 +57,119 @@ const FlexComputeWizard: React.FC<FlexComputeWizardProps> = ({
   const [searchForm, setSearchForm] = useState<SearchCapacityForm>(INITIAL_SEARCH_FORM);
   const [configureForm, setConfigureForm] = useState<ConfigureCapacityForm>(INITIAL_CONFIGURE_FORM);
   const [pricing, setPricing] = useState<CapacityPricing | null>(null);
+  const [searchStatus, setSearchStatus] = useState<string | undefined>(undefined);
+  const [reservationData, setReservationData] = useState<any>(null); // Store the reserve response (cidrId, pricing, etc.)
+  const [isReserving, setIsReserving] = useState(false);
 
   const handleSearch = async () => {
     setStep('searching');
+    setSearchStatus(undefined);
 
     const result = await searchCapacity(searchForm);
 
     if (result) {
       setPricing(result);
       setConfigureForm((prev) => ({ ...prev, capacityId: result.capacityId }));
-      setStep('configure');
+      setSearchStatus(result.status);
+      // Stay on searching step - user will click Next to continue
     } else {
       setStep('search');
     }
   };
 
+  const handleSearchNext = async () => {
+    // Call Reserve API to create 15-minute temporary reservation
+    setIsReserving(true);
+    try {
+      const reservation = await reserveCapacity(searchForm);
+      if (reservation && reservation.myPolicy) {
+        console.log('Reserve API response:', reservation);
+
+        setReservationData(reservation);
+        setConfigureForm((prev) => ({ ...prev, capacityId: reservation.myPolicy.cidrId }));
+
+        // Update pricing with data from Reserve API response
+        if (reservation.myPolicy.pricing) {
+          const reservePricing = reservation.myPolicy.pricing;
+          const updatedPricing: CapacityPricing = {
+            capacityId: reservation.myPolicy.cidrId,
+            capacityName: searchForm.capacityName,
+            instanceType: reservation.myPolicy.policyInstance?.instanceType || searchForm.instanceType,
+            region: reservation.myPolicy.cspRegion?.regionCode || searchForm.region,
+            zoneId: reservation.myPolicy.cspRegion?.availabilityZoneId || searchForm.zoneId,
+            quantity: reservation.myPolicy.policyInstance?.qty || searchForm.quantity,
+            platform: reservation.myPolicy.policyInstance?.platformCode || searchForm.platform,
+            tenancy: reservation.myPolicy.policyInstance?.tenancyCode || searchForm.tenancy,
+            ourPrice: reservePricing.ourPrice || 0,
+            awsPrice: reservePricing.cspProviderPrice || 0,
+            savingsPercent: (reservePricing.savingsPercentage || 0) * 100, // Convert to percentage
+            fees: reservePricing.creditCardProcessingFee || reservePricing.bankAccountProcessingFee || 0,
+            total: (reservePricing.ourPrice || 0) + (reservePricing.creditCardProcessingFee || reservePricing.bankAccountProcessingFee || 0),
+            startDate: searchForm.startDate,
+            endDate: searchForm.endDate,
+            status: reservation.myPolicy.policyStatus || 'READY_FOR_PURCHASE',
+          };
+
+          console.log('Updated pricing:', updatedPricing);
+          setPricing(updatedPricing);
+        }
+
+        setStep('configure');
+      } else {
+        // Handle reservation failure
+        alert('Failed to reserve capacity. Please try again.');
+        setStep('search');
+      }
+    } catch (error) {
+      console.error('Reserve failed:', error);
+      alert('Failed to reserve capacity. Please try again.');
+      setStep('search');
+    } finally {
+      setIsReserving(false);
+    }
+  };
+
+  const handleSearchBack = () => {
+    setStep('search');
+  };
+
   const handleConfigure = async () => {
-    // Configure is optional - send config if any fields are filled
-    const hasConfig = configureForm.vpcId || configureForm.securityGroupId ||
-      configureForm.sshKeyName || configureForm.amiImageId;
+    // Configure is optional - only send if user provided actual AWS resource IDs
+    // Skip if values are "default" or "none" (CloudiDR auto-populates these)
+    console.log('=== handleConfigure called ===');
+    console.log('configureForm:', JSON.stringify(configureForm, null, 2));
+
+    const isRealValue = (value: string) => {
+      if (!value || value.trim() === '') return false;
+      const normalizedValue = value.trim().toLowerCase();
+      return normalizedValue !== 'default' && normalizedValue !== 'none';
+    };
+
+    const hasConfig = isRealValue(configureForm.vpcId) ||
+      isRealValue(configureForm.securityGroupId) ||
+      isRealValue(configureForm.sshKeyName) ||
+      isRealValue(configureForm.amiImageId) ||
+      (configureForm.ebsVolumeSize && configureForm.ebsVolumeSize !== 10); // Default is 10GB
+
+    console.log('hasConfig evaluation:', {
+      vpcId: configureForm.vpcId,
+      isRealVpc: isRealValue(configureForm.vpcId),
+      securityGroupId: configureForm.securityGroupId,
+      isRealSg: isRealValue(configureForm.securityGroupId),
+      sshKeyName: configureForm.sshKeyName,
+      isRealSsh: isRealValue(configureForm.sshKeyName),
+      amiImageId: configureForm.amiImageId,
+      isRealAmi: isRealValue(configureForm.amiImageId),
+      ebsVolumeSize: configureForm.ebsVolumeSize,
+      isNonDefaultEbs: (configureForm.ebsVolumeSize && configureForm.ebsVolumeSize !== 10),
+      hasConfig: hasConfig
+    });
 
     if (hasConfig) {
+      console.log('✅ Calling configureCapacity API...');
       await configureCapacity(configureForm);
+    } else {
+      console.log('⏭️  Skipping Configure API - using CloudiDR defaults');
     }
 
     setStep('review');
@@ -159,7 +252,14 @@ const FlexComputeWizard: React.FC<FlexComputeWizardProps> = ({
         />
       )}
 
-      {step === 'searching' && <WizardSearchProgress />}
+      {step === 'searching' && (
+        <WizardSearchProgress
+          status={searchStatus}
+          isSearching={isSearching || isReserving}
+          onNext={handleSearchNext}
+          onBack={handleSearchBack}
+        />
+      )}
 
       {step === 'configure' && (
         <WizardStep2Configure
@@ -174,6 +274,7 @@ const FlexComputeWizard: React.FC<FlexComputeWizardProps> = ({
         <WizardStep3Review
           pricing={pricing}
           searchForm={searchForm}
+          configureForm={configureForm}
           onPurchase={handlePurchase}
           onBack={() => setStep('configure')}
           isPurchasing={isPurchasing}
