@@ -1,3 +1,7 @@
-## 2025-05-14 - Accessible Interactive Components Pattern
-**Learning:** Many interactive components in this application (like the account selector and toggles) were implemented using `div` elements with click handlers. This breaks keyboard accessibility and screen reader support. Using semantic `button` elements and appropriate ARIA roles (like `role="switch"` or `aria-haspopup`) is essential for accessibility. Additionally, the `vite-plugin-html-include` pattern means that improvements to shared fragments like `_sidebar.html` have an outsized positive impact on the overall application's UX.
-**Action:** Always check if a clickable `div` can be replaced with a `button` and ensure shared fragments are prioritized for accessibility improvements.
+## 2025-05-15 - Password Visibility Toggle Resilience
+**Learning:** Adding interactive elements (like icons) inside form groups can break existing DOM traversal logic (e.g., `parentElement`). Using `.closest('.form-group')` is more robust for applying visual focus states when the input structure becomes more complex.
+**Action:** Always use `.closest()` when targeting parent containers for animations or state changes to handle potential nesting.
+
+## 2025-05-15 - Dynamic ARIA Labels for Toggles
+**Learning:** For interactive toggles (like show/hide password), static ARIA labels are insufficient. Dynamically updating the `aria-label` along with the visual state (icon/input type) provides a much better experience for screen reader users.
+**Action:** Update `aria-label` in the same JavaScript function that handles the visual toggle logic.
