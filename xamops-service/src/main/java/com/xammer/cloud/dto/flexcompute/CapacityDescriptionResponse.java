@@ -160,33 +160,79 @@ public class CapacityDescriptionResponse {
         }
     }
 
-    // Additional helper methods (not serialized)
+    @JsonGetter("region")
     public String getRegion() {
         return cspRegion != null ? cspRegion.getRegionCode() : null;
     }
 
+    @JsonGetter("zoneId")
     public String getZoneId() {
         return cspRegion != null ? cspRegion.getAvailabilityZoneId() : null;
     }
 
+    @JsonGetter("platform")
     public String getPlatform() {
         return policyInstance != null ? policyInstance.getPlatformCode() : null;
     }
 
+    @JsonGetter("tenancy")
     public String getTenancy() {
         return policyInstance != null ? policyInstance.getTenancyCode() : null;
     }
 
+    @JsonGetter("vcpu")
+    public Integer getVcpu() {
+        return policyInstance != null ? policyInstance.getVcpu() : null;
+    }
+
+    @JsonGetter("memory")
+    public Integer getMemory() {
+        return policyInstance != null ? policyInstance.getMemory() : null;
+    }
+
+    @JsonGetter("ourPrice")
     public Double getOurPrice() {
         return pricing != null ? pricing.getOurPrice() : null;
     }
 
+    @JsonGetter("awsPrice")
     public Double getAwsPrice() {
         return pricing != null ? pricing.getCspProviderPrice() : null;
     }
 
+    @JsonGetter("savingsPercent")
     public Double getSavingsPercent() {
         return pricing != null ? pricing.getSavingsPercentage() : null;
+    }
+
+    @JsonGetter("vpc")
+    public String getVpc() {
+        return capacityConfiguration != null ? capacityConfiguration.getVpc() : null;
+    }
+
+    @JsonGetter("securityGroups")
+    public String getSecurityGroups() {
+        return capacityConfiguration != null ? capacityConfiguration.getSecurityGroups() : null;
+    }
+
+    @JsonGetter("amiImage")
+    public String getAmiImage() {
+        return capacityConfiguration != null ? capacityConfiguration.getAmiImage() : null;
+    }
+
+    @JsonGetter("sshPairKey")
+    public String getSshPairKey() {
+        return capacityConfiguration != null ? capacityConfiguration.getSshPairKey() : null;
+    }
+
+    @JsonGetter("ebsVolumeSize")
+    public Integer getEbsVolumeSize() {
+        return capacityConfiguration != null ? capacityConfiguration.getEbsVolumeSize() : null;
+    }
+
+    @JsonGetter("frequency")
+    public String getFrequency() {
+        return capacityConfiguration != null ? capacityConfiguration.getFrequency() : null;
     }
 
     @Data

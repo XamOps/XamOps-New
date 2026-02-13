@@ -458,6 +458,35 @@ export const useFlexComputeData = () => {
     }
   }, [fetchCapacities]);
 
+  /**
+   * Cancel capacity (dashboard action)
+   */
+  const cancelCapacity = useCallback(async (cidrId: string): Promise<boolean> => {
+    try {
+      setError(null);
+
+      console.log('[FlexCompute] Cancel capacity request:', cidrId);
+
+      const response = await fetch(`/api/flexcompute/capacity/${cidrId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Cancel failed');
+      }
+
+      // Refresh capacity list after cancellation
+      await fetchCapacities();
+      return true;
+    } catch (err) {
+      console.error('[FlexCompute] Cancel capacity failed:', err);
+      setError(err instanceof Error ? err.message : 'Cancel failed');
+      return false;
+    }
+  }, [fetchCapacities]);
+
   // Initial load
   useEffect(() => {
     checkAuthStatus();
@@ -498,6 +527,7 @@ export const useFlexComputeData = () => {
     reserveCapacity,
     configureCapacity,
     purchaseCapacity,
+    cancelCapacity,
     setSearchResult,
 
     // Error

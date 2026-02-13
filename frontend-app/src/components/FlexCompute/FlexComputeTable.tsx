@@ -4,12 +4,14 @@
  * Displays capacity list with columns matching requirements
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import type { FlexComputeCapacity } from '../../types/flexCompute';
+import ViewCapacityDetailModal from './ViewCapacityDetailModal';
 
 interface FlexComputeTableProps {
   capacities: FlexComputeCapacity[];
   isLoading: boolean;
+  onCancelCapacity: (cidrId: string) => Promise<boolean>;
 }
 
 const statusBadge = (status: string) => {
@@ -37,7 +39,29 @@ const formatCurrency = (value: number): string => {
   }).format(value || 0);
 };
 
-const FlexComputeTable: React.FC<FlexComputeTableProps> = ({ capacities, isLoading }) => {
+const FlexComputeTable: React.FC<FlexComputeTableProps> = ({ capacities, isLoading, onCancelCapacity }) => {
+  const [openDropdown, setOpenDropdown] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState<string | null>(null);
+  const [selectedCapacity, setSelectedCapacity] = useState<FlexComputeCapacity | null>(null);
+
+  const handleCancel = async (cidrId: string, capacityName: string) => {
+    if (!window.confirm(`Are you sure you want to cancel "${capacityName}"? This action cannot be undone.`)) {
+      return;
+    }
+
+    setCancelling(cidrId);
+    setOpenDropdown(null);
+
+    try {
+      const success = await onCancelCapacity(cidrId);
+      if (success) {
+        // Success - capacity list will refresh automatically
+      }
+    } finally {
+      setCancelling(null);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
@@ -75,6 +99,7 @@ const FlexComputeTable: React.FC<FlexComputeTableProps> = ({ capacities, isLoadi
   }
 
   return (
+    <>
     <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
       <div className="px-6 py-4 border-b border-gray-200">
         <h3 className="text-lg font-semibold text-gray-900">
@@ -110,10 +135,51 @@ const FlexComputeTable: React.FC<FlexComputeTableProps> = ({ capacities, isLoadi
                 <td className="px-6 py-4 text-sm text-gray-700">{cap.quantities}</td>
                 <td className="px-6 py-4 text-sm text-gray-600">{cap.regionZoneId}</td>
                 <td className="px-6 py-4 text-sm font-semibold text-green-600">{formatCurrency(cap.estimatedSavings)}</td>
-                <td className="px-6 py-4">
-                  <button className="text-gray-400 hover:text-blue-600 transition-colors" title="View Details">
-                    <i className="fas fa-eye"></i>
+                <td className="px-6 py-4 relative">
+                  <button
+                    onClick={() => setOpenDropdown(openDropdown === cap.id ? null : cap.id)}
+                    className="text-gray-400 hover:text-gray-600 transition-colors p-2"
+                    disabled={cancelling === cap.id}
+                  >
+                    {cancelling === cap.id ? (
+                      <i className="fas fa-spinner fa-spin"></i>
+                    ) : (
+                      <i className="fas fa-ellipsis-v"></i>
+                    )}
                   </button>
+
+                  {/* Dropdown Menu */}
+                  {openDropdown === cap.id && (
+                    <>
+                      {/* Backdrop to close dropdown */}
+                      <div
+                        className="fixed inset-0 z-10"
+                        onClick={() => setOpenDropdown(null)}
+                      ></div>
+
+                      {/* Dropdown content */}
+                      <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-20">
+                        <button
+                          onClick={() => {
+                            setOpenDropdown(null);
+                            setSelectedCapacity(cap);
+                          }}
+                          className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors flex items-center gap-2"
+                        >
+                          <i className="fas fa-eye w-4"></i>
+                          View Detail
+                        </button>
+                        <button
+                          onClick={() => handleCancel(cap.id, cap.name)}
+                          disabled={cancelling === cap.id}
+                          className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <i className="fas fa-times-circle w-4"></i>
+                          Cancel
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </td>
               </tr>
             ))}
@@ -121,6 +187,15 @@ const FlexComputeTable: React.FC<FlexComputeTableProps> = ({ capacities, isLoadi
         </table>
       </div>
     </div>
+
+    {/* View Detail Modal */}
+    {selectedCapacity && (
+      <ViewCapacityDetailModal
+        capacity={selectedCapacity}
+        onClose={() => setSelectedCapacity(null)}
+      />
+    )}
+    </>
   );
 };
 

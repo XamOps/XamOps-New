@@ -44,6 +44,7 @@ const FlexComputePage: React.FC = () => {
     reserveCapacity,
     configureCapacity,
     purchaseCapacity,
+    cancelCapacity,
     isSearching,
     isPurchasing,
     error,
@@ -152,7 +153,11 @@ const FlexComputePage: React.FC = () => {
         {activeTab === 'dashboard' && (
           <div className="space-y-8">
             <FlexComputeKPICards kpis={kpis} />
-            <FlexComputeTable capacities={capacities} isLoading={isLoading} />
+            <FlexComputeTable
+              capacities={capacities}
+              isLoading={isLoading}
+              onCancelCapacity={cancelCapacity}
+            />
           </div>
         )}
 

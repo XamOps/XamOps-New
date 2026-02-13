@@ -202,6 +202,27 @@ public class FlexComputeController {
     }
 
     /**
+     * DELETE /api/flexcompute/capacity/{cidrId} - Cancel capacity
+     */
+    @DeleteMapping("/capacity/{cidrId}")
+    public ResponseEntity<?> cancelCapacity(@PathVariable String cidrId,
+                                           @AuthenticationPrincipal ClientUserDetails userDetails) {
+        try {
+            Long userId = userDetails.getId();
+            flexComputeService.cancelCapacity(userId, cidrId);
+
+            Map<String, Object> result = new HashMap<>();
+            result.put("success", true);
+            result.put("message", "Capacity cancelled successfully");
+            result.put("cidrId", cidrId);
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            logger.error("FlexCompute cancel-capacity failed: {}", e.getMessage());
+            return handleError(e);
+        }
+    }
+
+    /**
      * GET /api/flexcompute/cloudformation/deploy-url - Generate CF Quick Create URL
      */
     @GetMapping("/cloudformation/deploy-url")
