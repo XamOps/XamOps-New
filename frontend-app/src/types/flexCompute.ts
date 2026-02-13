@@ -21,6 +21,23 @@ export interface FlexComputeCapacity {
   startDate: string;
   endDate: string;
   autoRenewal: boolean;
+  // Rich detail fields from CloudiDR
+  vcpu?: number;
+  memory?: number;
+  platform?: string;
+  tenancy?: string;
+  region?: string;
+  zoneId?: string;
+  ourPrice?: number;
+  awsPrice?: number;
+  savingsPercent?: number;
+  vpc?: string;
+  securityGroups?: string;
+  amiImage?: string;
+  sshPairKey?: string;
+  ebsVolumeSize?: number;
+  createdDate?: string;
+  frequency?: string;
 }
 
 export interface FlexComputeKPIs {

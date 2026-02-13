@@ -163,6 +163,15 @@ public class FlexComputeService {
     }
 
     /**
+     * Cancel/Delete capacity
+     */
+    public void cancelCapacity(Long userId, String cidrId) {
+        logger.info("Cancelling capacity {} for user {}", cidrId, userId);
+        String token = getValidToken(userId);
+        apiClient.cancelCapacity(token, cidrId);
+    }
+
+    /**
      * List all capacities for the user
      */
     public CapacityListResponse describeCapacity(Long userId) {

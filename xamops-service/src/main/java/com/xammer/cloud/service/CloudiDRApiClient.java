@@ -382,4 +382,29 @@ public class CloudiDRApiClient {
             throw new RuntimeException("Get linked accounts failed: " + e.getMessage(), e);
         }
     }
+
+    /**
+     * DELETE /external/api/v1/flexcompute/capacity/{cidrId} - Cancel/Delete capacity
+     */
+    public void cancelCapacity(String token, String cidrId) {
+        logger.info("CloudiDR API: DELETE /external/api/v1/flexcompute/capacity/{}", cidrId);
+
+        try {
+            String url = baseUrl + "/external/api/v1/flexcompute/capacity/" + cidrId;
+
+            HttpHeaders headers = createAuthHeaders(token);
+            HttpEntity<Void> entity = new HttpEntity<>(headers);
+
+            restTemplate.exchange(url, HttpMethod.DELETE, entity, Void.class);
+
+            logger.info("CloudiDR cancel-capacity successful for id: {}", cidrId);
+
+        } catch (HttpClientErrorException e) {
+            logger.error("CloudiDR cancel-capacity failed: HTTP {} - {}", e.getStatusCode(), e.getResponseBodyAsString());
+            throw new RuntimeException("Cancel capacity failed: " + e.getStatusCode(), e);
+        } catch (Exception e) {
+            logger.error("CloudiDR cancel-capacity error: {}", e.getMessage(), e);
+            throw new RuntimeException("Cancel capacity failed: " + e.getMessage(), e);
+        }
+    }
 }
