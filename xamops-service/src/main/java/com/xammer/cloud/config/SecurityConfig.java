@@ -111,6 +111,7 @@ public class SecurityConfig {
                                                                 new AntPathRequestMatcher("/reservation"),
                                                                 new AntPathRequestMatcher("/cloudsitter"),
                                                                 new AntPathRequestMatcher("/spot-automation"),
+                                                                new AntPathRequestMatcher("/flex-compute"),
                                                                 new AntPathRequestMatcher("/account-manager"),
                                                                 new AntPathRequestMatcher("/security"),
                                                                 new AntPathRequestMatcher("/performance"),
@@ -150,6 +151,7 @@ public class SecurityConfig {
                                                                 new AntPathRequestMatcher("/api/karpenter/**"),
 
                                                                 new AntPathRequestMatcher("/api/autospotting/**"),
+                                                                new AntPathRequestMatcher("/api/flexcompute/**"),
                                                                 new AntPathRequestMatcher("/api/dev_ops_script/**"),
                                                                 // ✅ TEAM CODE: Preserved AWS Calculator API
                                                                 new AntPathRequestMatcher("/api/aws/**"))
