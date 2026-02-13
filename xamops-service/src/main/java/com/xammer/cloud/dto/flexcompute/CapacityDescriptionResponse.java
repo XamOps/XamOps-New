@@ -7,6 +7,10 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
+
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -113,13 +117,47 @@ public class CapacityDescriptionResponse {
 
     @JsonGetter("totalUsageHours")
     public Double getTotalUsageHours() {
-        // Calculate from start/end time if available
-        return 0.0; // Placeholder
+        if (capacityConfiguration == null
+            || capacityConfiguration.getLaunchDateTime() == null
+            || capacityConfiguration.getEndDateTime() == null) {
+            return 0.0;
+        }
+
+        try {
+            // Parse ISO 8601 timestamps
+            DateTimeFormatter formatter = DateTimeFormatter.ISO_DATE_TIME;
+            LocalDateTime start = LocalDateTime.parse(capacityConfiguration.getLaunchDateTime(), formatter);
+            LocalDateTime end = LocalDateTime.parse(capacityConfiguration.getEndDateTime(), formatter);
+
+            // Calculate hours between start and end
+            long hours = ChronoUnit.HOURS.between(start, end);
+            return (double) hours;
+        } catch (Exception e) {
+            // If parsing fails, return 0
+            return 0.0;
+        }
     }
 
     @JsonGetter("remainingHours")
     public Double getRemainingHours() {
-        return 0.0; // Placeholder
+        if (capacityConfiguration == null || capacityConfiguration.getEndDateTime() == null) {
+            return 0.0;
+        }
+
+        try {
+            // Parse end date
+            DateTimeFormatter formatter = DateTimeFormatter.ISO_DATE_TIME;
+            LocalDateTime end = LocalDateTime.parse(capacityConfiguration.getEndDateTime(), formatter);
+            LocalDateTime now = LocalDateTime.now();
+
+            // Calculate remaining hours from now to end
+            long hours = ChronoUnit.HOURS.between(now, end);
+
+            // Return 0 if already expired (negative hours)
+            return hours > 0 ? (double) hours : 0.0;
+        } catch (Exception e) {
+            return 0.0;
+        }
     }
 
     // Additional helper methods (not serialized)

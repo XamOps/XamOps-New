@@ -172,21 +172,21 @@ public class FlexComputeService {
     }
 
     /**
-     * Get linked cloud accounts for the user (from database)
+     * Get linked cloud accounts for the user (from CloudiDR API with accountRegions)
      */
     public List<LinkedAccountResponse> getLinkedAccounts(Long userId) {
-        logger.info("Fetching linked accounts for user {} from database", userId);
-        List<LinkedAccount> accounts = linkedAccountRepository.findByUserId(userId);
+        logger.info("Fetching linked accounts for user {} from CloudiDR API", userId);
+        String token = getValidToken(userId);
+        List<LinkedAccountResponse> apiAccounts = apiClient.getLinkedAccounts(token);
 
-        return accounts.stream()
-                .map(account -> new LinkedAccountResponse(
-                        account.getAccountId(),
-                        account.getAccountName(),
-                        account.getProvider(),
-                        account.getStatus(),
-                        account.getLinkedAt() != null ? account.getLinkedAt().toString() : null
-                ))
-                .collect(Collectors.toList());
+        // Sync to database for caching (but return API response with accountRegions)
+        try {
+            syncLinkedAccounts(userId, apiAccounts);
+        } catch (Exception e) {
+            logger.warn("Failed to sync linked accounts to database: {}", e.getMessage());
+        }
+
+        return apiAccounts;
     }
 
     /**

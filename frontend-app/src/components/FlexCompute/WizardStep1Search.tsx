@@ -4,16 +4,30 @@
  * Form for searching available capacity: name, account, region, instance type, etc.
  */
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import type { SearchCapacityForm } from '../../types/flexCompute';
-import { AWS_REGIONS, INSTANCE_TYPES, TIME_ZONES } from '../../types/flexCompute';
+import { INSTANCE_TYPES, TIME_ZONES } from '../../types/flexCompute';
+
+interface LinkedAccount {
+  id: string;
+  cspAccountId: string;
+  alias: string;
+  accountRegions?: Array<{
+    id: number;
+    operatingCspRegionAz: {
+      regionCode: string;
+      regionType: string;
+      availabilityZoneId: string;
+    };
+  }>;
+}
 
 interface WizardStep1SearchProps {
   form: SearchCapacityForm;
   onChange: (updates: Partial<SearchCapacityForm>) => void;
   onSearch: () => void;
   isSearching: boolean;
-  accounts: Array<{ id: string; name: string }>;
+  accounts: LinkedAccount[];
 }
 
 const WizardStep1Search: React.FC<WizardStep1SearchProps> = ({
@@ -26,6 +40,30 @@ const WizardStep1Search: React.FC<WizardStep1SearchProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onSearch();
+  };
+
+  // Get available regions for selected CSP account
+  const availableRegions = useMemo(() => {
+    if (!form.cspAccount) return [];
+
+    const selectedAccount = accounts.find(
+      (acc) => acc.cspAccountId === form.cspAccount || acc.id === form.cspAccount
+    );
+
+    if (!selectedAccount?.accountRegions) return [];
+
+    return selectedAccount.accountRegions.map((region) => ({
+      regionCode: region.operatingCspRegionAz.regionCode,
+      zoneId: region.operatingCspRegionAz.availabilityZoneId,
+      label: `${region.operatingCspRegionAz.regionCode}/${region.operatingCspRegionAz.availabilityZoneId}`,
+      value: `${region.operatingCspRegionAz.regionCode}/${region.operatingCspRegionAz.availabilityZoneId}`,
+    }));
+  }, [form.cspAccount, accounts]);
+
+  // Handle region/zone selection
+  const handleRegionZoneChange = (value: string) => {
+    const [regionCode, zoneId] = value.split('/');
+    onChange({ region: regionCode, zoneId: zoneId });
   };
 
   return (
@@ -72,31 +110,31 @@ const WizardStep1Search: React.FC<WizardStep1SearchProps> = ({
           </div>
         </div>
 
-        {/* Row 2: Region + Zone */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Region</label>
-            <select
-              value={form.region}
-              onChange={(e) => onChange({ region: e.target.value })}
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-              required
-            >
-              {AWS_REGIONS.map((r) => (
-                <option key={r.value} value={r.value}>{r.label}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Zone ID (optional)</label>
-            <input
-              type="text"
-              value={form.zoneId}
-              onChange={(e) => onChange({ zoneId: e.target.value })}
-              placeholder="e.g., use1-az1"
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-            />
-          </div>
+        {/* Row 2: Region/Zone Combined (CloudiDR style) */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">
+            Regions Linked to Your CSP Account
+          </label>
+          <select
+            value={form.region && form.zoneId ? `${form.region}/${form.zoneId}` : ''}
+            onChange={(e) => handleRegionZoneChange(e.target.value)}
+            className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+            required
+            disabled={!form.cspAccount || availableRegions.length === 0}
+          >
+            <option value="">
+              {!form.cspAccount
+                ? 'Select a CSP account first...'
+                : availableRegions.length === 0
+                ? 'No regions available for this account'
+                : 'Select a region/zone...'}
+            </option>
+            {availableRegions.map((region) => (
+              <option key={region.value} value={region.value}>
+                {region.label}
+              </option>
+            ))}
+          </select>
         </div>
 
         {/* Row 3: Instance Type + Platform */}
