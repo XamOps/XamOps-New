@@ -1,3 +1,7 @@
 ## 2025-05-14 - Accessible Interactive Components Pattern
 **Learning:** Many interactive components in this application (like the account selector and toggles) were implemented using `div` elements with click handlers. This breaks keyboard accessibility and screen reader support. Using semantic `button` elements and appropriate ARIA roles (like `role="switch"` or `aria-haspopup`) is essential for accessibility. Additionally, the `vite-plugin-html-include` pattern means that improvements to shared fragments like `_sidebar.html` have an outsized positive impact on the overall application's UX.
 **Action:** Always check if a clickable `div` can be replaced with a `button` and ensure shared fragments are prioritized for accessibility improvements.
+
+## 2026-02-17 - Robust Input Focus & Password Toggles
+**Learning:** Form input focus animations in this app rely on CSS/JS targeting specific parent containers. When adding interactive elements like password visibility toggles, the DOM structure often changes (e.g., adding a wrapper div). Using `.closest()` in event listeners instead of fixed parent navigation ensures that focus styles remain resilient to structural changes. Standardizing input wrapping across different forms (Login vs. Reset Password) also simplifies maintenance.
+**Action:** Use `.closest()` for focus listeners and always use semantic `button` elements with `aria-label` for toggles to maintain keyboard accessibility.
