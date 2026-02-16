@@ -122,13 +122,18 @@ public class FlexComputeController {
     }
 
     /**
-     * GET /api/flexcompute/capacity - List all capacities (dashboard)
+     * GET /api/flexcompute/capacity - List capacities (dashboard) with pagination and filters
      */
     @GetMapping("/capacity")
-    public ResponseEntity<?> describeCapacity(@AuthenticationPrincipal ClientUserDetails userDetails) {
+    public ResponseEntity<?> describeCapacity(
+            @RequestParam(defaultValue = "1") Integer page,
+            @RequestParam(defaultValue = "10") Integer pageSize,
+            @RequestParam(defaultValue = "desc") String sort,
+            @RequestParam(required = false) List<String> statuses,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
         try {
             Long userId = userDetails.getId();
-            CapacityListResponse capacities = flexComputeService.describeCapacity(userId);
+            CapacityListResponse capacities = flexComputeService.describeCapacity(userId, page, pageSize, sort, statuses);
             return ResponseEntity.ok(capacities);
         } catch (Exception e) {
             logger.error("FlexCompute describe-capacity failed: {}", e.getMessage());
@@ -197,6 +202,27 @@ public class FlexComputeController {
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             logger.error("FlexCompute purchase-capacity failed: {}", e.getMessage());
+            return handleError(e);
+        }
+    }
+
+    /**
+     * PUT /api/flexcompute/capacity/extend - Extend capacity end date
+     */
+    @PutMapping("/capacity/extend")
+    public ResponseEntity<?> extendCapacity(@RequestBody ExtendCapacityRequest request,
+                                            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        try {
+            Long userId = userDetails.getId();
+            flexComputeService.extendCapacity(userId, request);
+
+            Map<String, Object> result = new HashMap<>();
+            result.put("success", true);
+            result.put("message", "Capacity extended successfully");
+            result.put("cidrId", request.getCidrId());
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            logger.error("FlexCompute extend-capacity failed: {}", e.getMessage());
             return handleError(e);
         }
     }

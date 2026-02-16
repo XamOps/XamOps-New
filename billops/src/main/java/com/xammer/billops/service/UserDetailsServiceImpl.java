@@ -47,8 +47,7 @@ public class UserDetailsServiceImpl implements UserDetailsService {
                 user.getPassword(),
                 authorities,
                 clientId,
-                user.getId(),
-                null
+                user.getId()
         );
     }
 }

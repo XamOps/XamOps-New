@@ -19,18 +19,14 @@
 
 import React, { useState, useMemo } from 'react';
 import { useFlexComputeData } from '../hooks/useFlexComputeData';
-import FlexComputeHeader from '../components/FlexCompute/FlexComputeHeader';
 import FlexComputeKPICards from '../components/FlexCompute/FlexComputeKPICards';
 import FlexComputeTable from '../components/FlexCompute/FlexComputeTable';
 import FlexComputeWizard from '../components/FlexCompute/FlexComputeWizard';
 import CloudiDRAuthModal from '../components/FlexCompute/CloudiDRAuthModal';
-import CloudFormationSetup from '../components/FlexCompute/CloudFormationSetup';
 import type { FlexComputeTab } from '../types/flexCompute';
 
 const FlexComputePage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<FlexComputeTab>('dashboard');
-  const [showCFSetup, setShowCFSetup] = useState(false);
-
   const {
     authStatus,
     authLoading,
@@ -45,6 +41,11 @@ const FlexComputePage: React.FC = () => {
     configureCapacity,
     purchaseCapacity,
     cancelCapacity,
+    extendCapacity,
+    currentPage,
+    pageSize,
+    totalElements,
+    totalPages,
     isSearching,
     isPurchasing,
     error,
@@ -88,7 +89,7 @@ const FlexComputePage: React.FC = () => {
   // Not authenticated - show auth modal
   if (!authStatus.authenticated) {
     return (
-      <main className="flex-1 flex flex-col min-h-screen bg-gray-50">
+      <main className="flex-1 flex flex-col bg-transparent">
         <div className="bg-white border-b border-gray-200 px-8 py-6">
           <h1 className="text-2xl font-bold text-gray-900">Flex Compute</h1>
           <p className="text-sm text-gray-500 mt-1">Connect to CloudiDR to manage scheduled EC2 capacity</p>
@@ -99,45 +100,58 @@ const FlexComputePage: React.FC = () => {
   }
 
   return (
-    <main className="flex-1 flex flex-col min-h-screen bg-gray-50">
-      {/* Header */}
-      <FlexComputeHeader
-        onRefresh={fetchCapacities}
-        onDeployStack={() => setShowCFSetup(true)}
-        onDisconnect={async () => {
-          await disconnectCloudIDR();
-          showToast('Disconnected from CloudiDR');
-        }}
-        email={authStatus.email}
-        isLoading={isLoading}
-      />
-
-      {/* Tab Navigation */}
+    <main className="flex-1 flex flex-col bg-transparent">
+      {/* Top Bar: Tabs + Action Buttons */}
       <div className="bg-white border-b border-gray-200 px-8">
-        <nav className="flex space-x-8" aria-label="Tabs">
-          <button
-            onClick={() => setActiveTab('dashboard')}
-            className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-              activeTab === 'dashboard'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            <i className="fas fa-tachometer-alt mr-2"></i>
-            Dashboard
-          </button>
-          <button
-            onClick={() => setActiveTab('create')}
-            className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-              activeTab === 'create'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            <i className="fas fa-plus-circle mr-2"></i>
-            New Reservation
-          </button>
-        </nav>
+        <div className="flex items-center justify-between">
+          {/* Tabs */}
+          <nav className="flex space-x-8" aria-label="Tabs">
+            <button
+              onClick={() => setActiveTab('dashboard')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                activeTab === 'dashboard'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <i className="fas fa-tachometer-alt mr-2"></i>
+              Dashboard
+            </button>
+            <button
+              onClick={() => setActiveTab('create')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                activeTab === 'create'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <i className="fas fa-plus-circle mr-2"></i>
+              New Reservation
+            </button>
+          </nav>
+
+          {/* Action Buttons */}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => fetchCapacities()}
+              disabled={isLoading}
+              className="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg hover:from-blue-700 hover:to-indigo-700 transition-all disabled:opacity-50"
+            >
+              <i className={`fas fa-sync-alt mr-2 ${isLoading ? 'animate-spin' : ''}`}></i>
+              Refresh
+            </button>
+            <button
+              onClick={async () => {
+                await disconnectCloudIDR();
+                showToast('Disconnected from CloudiDR');
+              }}
+              className="px-3 py-2 text-sm font-medium text-gray-500 hover:text-red-600 transition-colors"
+              title="Disconnect CloudiDR"
+            >
+              <i className="fas fa-sign-out-alt"></i>
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Error Banner */}
@@ -157,6 +171,12 @@ const FlexComputePage: React.FC = () => {
               capacities={capacities}
               isLoading={isLoading}
               onCancelCapacity={cancelCapacity}
+              onExtendCapacity={extendCapacity}
+              currentPage={currentPage}
+              pageSize={pageSize}
+              totalElements={totalElements}
+              totalPages={totalPages}
+              onPageChange={(page, size, statuses) => fetchCapacities(page, size, statuses)}
             />
           </div>
         )}
@@ -179,9 +199,6 @@ const FlexComputePage: React.FC = () => {
           </div>
         )}
       </div>
-
-      {/* CloudFormation Setup Modal */}
-      <CloudFormationSetup isOpen={showCFSetup} onClose={() => setShowCFSetup(false)} />
 
       {/* Toast Notification */}
       {toast.show && (

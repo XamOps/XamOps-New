@@ -116,15 +116,77 @@ export const useFlexComputeData = () => {
     }
   }, []);
 
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [totalElements, setTotalElements] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+  const [statusFilter, setStatusFilter] = useState<string[]>([]);
+
   /**
-   * Fetch all capacities (dashboard data)
+   * Fetch KPIs by loading ALL ACTIVE/COMPLETED capacities (separate from paginated table data)
    */
-  const fetchCapacities = useCallback(async () => {
+  const fetchKpis = useCallback(async () => {
+    try {
+      // Fetch all ACTIVE+COMPLETED capacities with a large page size for KPI aggregation
+      const params = new URLSearchParams();
+      params.set('page', '1');
+      params.set('pageSize', '500');
+      params.set('sort', 'desc');
+      params.append('statuses', 'ACTIVE');
+      params.append('statuses', 'COMPLETED');
+
+      const response = await fetch(`/api/flexcompute/capacity?${params.toString()}`, {
+        credentials: 'include',
+      });
+
+      if (!response.ok) return;
+
+      const responseData = await response.json();
+      let allData: FlexComputeCapacity[] = [];
+
+      if (Array.isArray(responseData)) {
+        allData = responseData;
+      } else if (responseData && Array.isArray(responseData.data)) {
+        allData = responseData.data;
+      }
+
+      const computedKpis: FlexComputeKPIs = allData.reduce(
+        (acc, item) => ({
+          totalSavings: acc.totalSavings + (item.totalSavings || 0),
+          totalCost: acc.totalCost + (item.totalCost || 0),
+          totalUsageHours: acc.totalUsageHours + (item.totalUsageHours || 0),
+          remainingHours: acc.remainingHours + (item.remainingHours || 0),
+        }),
+        { ...defaultKPIs }
+      );
+      setKpis(computedKpis);
+    } catch (err) {
+      console.error('[FlexCompute] Fetch KPIs failed:', err);
+    }
+  }, []);
+
+  /**
+   * Fetch capacities with pagination and filters
+   */
+  const fetchCapacities = useCallback(async (
+    page: number = 1,
+    size: number = 10,
+    statuses: string[] = [],
+  ) => {
     try {
       setIsLoading(true);
       setError(null);
 
-      const response = await fetch('/api/flexcompute/capacity', {
+      const params = new URLSearchParams();
+      params.set('page', String(page));
+      params.set('pageSize', String(size));
+      params.set('sort', 'desc');
+      if (statuses.length > 0) {
+        statuses.forEach((s) => params.append('statuses', s));
+      }
+
+      const response = await fetch(`/api/flexcompute/capacity?${params.toString()}`, {
         credentials: 'include',
       });
 
@@ -135,30 +197,20 @@ export const useFlexComputeData = () => {
 
       if (response.ok) {
         const responseData = await response.json();
-        // Handle paginated response format: { data: [], page, pageSize, total }
         let data: FlexComputeCapacity[] = [];
 
         if (Array.isArray(responseData)) {
-          // Old format: direct array
           data = responseData;
         } else if (responseData && Array.isArray(responseData.data)) {
-          // New format: paginated response with data array
           data = responseData.data;
+          setTotalElements(responseData.totalElements || responseData.total || data.length);
+          setTotalPages(responseData.totalPageNumbers || Math.ceil((responseData.totalElements || data.length) / size));
         }
 
         setCapacities(data);
-
-        // Calculate KPIs from capacity data
-        const computedKpis: FlexComputeKPIs = data.reduce(
-          (acc, item) => ({
-            totalSavings: acc.totalSavings + (item.totalSavings || 0),
-            totalCost: acc.totalCost + (item.totalCost || 0),
-            totalUsageHours: acc.totalUsageHours + (item.totalUsageHours || 0),
-            remainingHours: acc.remainingHours + (item.remainingHours || 0),
-          }),
-          { ...defaultKPIs }
-        );
-        setKpis(computedKpis);
+        setCurrentPage(page);
+        setPageSize(size);
+        setStatusFilter(statuses);
       }
     } catch (err) {
       console.error('[FlexCompute] Fetch capacities failed:', err);
@@ -446,8 +498,9 @@ export const useFlexComputeData = () => {
         throw new Error(errorData.error || 'Purchase failed');
       }
 
-      // Refresh capacity list after purchase
+      // Refresh capacity list and KPIs after purchase
       await fetchCapacities();
+      await fetchKpis();
       return true;
     } catch (err) {
       console.error('[FlexCompute] Purchase capacity failed:', err);
@@ -456,7 +509,44 @@ export const useFlexComputeData = () => {
     } finally {
       setIsPurchasing(false);
     }
-  }, [fetchCapacities]);
+  }, [fetchCapacities, fetchKpis]);
+
+  /**
+   * Extend capacity end date
+   */
+  const extendCapacity = useCallback(async (
+    cidrId: string,
+    endDate: string,
+    endTime: string,
+    utcOffset: string,
+  ): Promise<boolean> => {
+    try {
+      setError(null);
+
+      const requestBody = { cidrId, endDate, endTime, utcOffset };
+      console.log('[FlexCompute] Extend capacity request:', requestBody);
+
+      const response = await fetch('/api/flexcompute/capacity/extend', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(requestBody),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Extend failed');
+      }
+
+      await fetchCapacities();
+      await fetchKpis();
+      return true;
+    } catch (err) {
+      console.error('[FlexCompute] Extend capacity failed:', err);
+      setError(err instanceof Error ? err.message : 'Extend failed');
+      return false;
+    }
+  }, [fetchCapacities, fetchKpis]);
 
   /**
    * Cancel capacity (dashboard action)
@@ -477,28 +567,30 @@ export const useFlexComputeData = () => {
         throw new Error(errorData.error || 'Cancel failed');
       }
 
-      // Refresh capacity list after cancellation
+      // Refresh capacity list and KPIs after cancellation
       await fetchCapacities();
+      await fetchKpis();
       return true;
     } catch (err) {
       console.error('[FlexCompute] Cancel capacity failed:', err);
       setError(err instanceof Error ? err.message : 'Cancel failed');
       return false;
     }
-  }, [fetchCapacities]);
+  }, [fetchCapacities, fetchKpis]);
 
   // Initial load
   useEffect(() => {
     checkAuthStatus();
   }, [checkAuthStatus]);
 
-  // Fetch capacities and linked accounts when authenticated
+  // Fetch capacities, KPIs, and linked accounts when authenticated
   useEffect(() => {
     if (authStatus.authenticated) {
       fetchCapacities();
+      fetchKpis();
       fetchLinkedAccounts();
     }
-  }, [authStatus.authenticated, fetchCapacities, fetchLinkedAccounts]);
+  }, [authStatus.authenticated, fetchCapacities, fetchKpis, fetchLinkedAccounts]);
 
   return {
     // Auth
@@ -518,6 +610,11 @@ export const useFlexComputeData = () => {
     kpis,
     isLoading,
     fetchCapacities,
+    fetchKpis,
+    currentPage,
+    pageSize,
+    totalElements,
+    totalPages,
 
     // Wizard
     searchResult,
@@ -528,6 +625,7 @@ export const useFlexComputeData = () => {
     configureCapacity,
     purchaseCapacity,
     cancelCapacity,
+    extendCapacity,
     setSearchResult,
 
     // Error
