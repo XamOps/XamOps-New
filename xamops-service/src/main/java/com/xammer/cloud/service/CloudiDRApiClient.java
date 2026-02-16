@@ -435,4 +435,32 @@ public class CloudiDRApiClient {
             throw new RuntimeException("Cancel capacity failed: " + e.getMessage(), e);
         }
     }
+
+    /**
+     * PUT /external/api/v1/flexcompute/capacity/auto-renewal - Update capacity auto-renewal settings
+     */
+    public void renewCapacity(String token, RenewCapacityRequest request) {
+        logger.info("CloudiDR API: PUT /external/api/v1/flexcompute/capacity/auto-renewal for cidrId={}", request.getCidrId());
+
+        try {
+            String url = baseUrl + "/external/api/v1/flexcompute/capacity/auto-renewal";
+
+            HttpHeaders headers = createAuthHeaders(token);
+            HttpEntity<RenewCapacityRequest> entity = new HttpEntity<>(request, headers);
+
+            logger.info("CloudiDR renew-capacity request: cidrId={}, autoRenewalEnabled={}, frequency={}",
+                    request.getCidrId(), request.getAutoRenewalEnabled(), request.getFrequency());
+
+            restTemplate.exchange(url, HttpMethod.PUT, entity, Void.class);
+
+            logger.info("CloudiDR renew-capacity successful for id: {}", request.getCidrId());
+
+        } catch (HttpClientErrorException e) {
+            logger.error("CloudiDR renew-capacity failed: HTTP {} - {}", e.getStatusCode(), e.getResponseBodyAsString());
+            throw new RuntimeException("Update auto-renewal failed: " + e.getStatusCode() + " - " + e.getResponseBodyAsString(), e);
+        } catch (Exception e) {
+            logger.error("CloudiDR renew-capacity error: {}", e.getMessage(), e);
+            throw new RuntimeException("Update auto-renewal failed: " + e.getMessage(), e);
+        }
+    }
 }

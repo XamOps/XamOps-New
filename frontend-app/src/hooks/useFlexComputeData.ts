@@ -1,7 +1,8 @@
 /**
  * useFlexComputeData Hook
  *
- * Custom hook to manage FlexCompute (CloudiDR) data and operations
+ * Custom hook to manage FlexCompute (CloudiDR) data and operations.
+ * CloudiDR authentication is handled automatically by the backend.
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -11,7 +12,6 @@ import type {
   SearchCapacityForm,
   ConfigureCapacityForm,
   CapacityPricing,
-  CloudiDRAuthStatus,
 } from '../types/flexCompute';
 
 const defaultKPIs: FlexComputeKPIs = {
@@ -22,10 +22,6 @@ const defaultKPIs: FlexComputeKPIs = {
 };
 
 export const useFlexComputeData = () => {
-  // Auth state
-  const [authStatus, setAuthStatus] = useState<CloudiDRAuthStatus>({ authenticated: false });
-  const [authLoading, setAuthLoading] = useState(true);
-
   // Dashboard data
   const [capacities, setCapacities] = useState<FlexComputeCapacity[]>([]);
   const [kpis, setKpis] = useState<FlexComputeKPIs>(defaultKPIs);
@@ -43,79 +39,6 @@ export const useFlexComputeData = () => {
   // Error state
   const [error, setError] = useState<string | null>(null);
 
-  /**
-   * Check CloudiDR authentication status
-   */
-  const checkAuthStatus = useCallback(async () => {
-    try {
-      setAuthLoading(true);
-      const response = await fetch('/api/flexcompute/auth/status', {
-        credentials: 'include',
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setAuthStatus({
-          authenticated: data.authenticated,
-          email: data.email,
-        });
-      } else {
-        setAuthStatus({ authenticated: false });
-      }
-    } catch (err) {
-      console.error('[FlexCompute] Auth status check failed:', err);
-      setAuthStatus({ authenticated: false });
-    } finally {
-      setAuthLoading(false);
-    }
-  }, []);
-
-  /**
-   * Authenticate with CloudiDR
-   */
-  const authenticateCloudIDR = useCallback(async (email: string, password: string): Promise<boolean> => {
-    try {
-      setError(null);
-      const response = await fetch('/api/flexcompute/auth', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ email, password }),
-      });
-
-      const data = await response.json();
-
-      if (response.ok && data.authenticated) {
-        setAuthStatus({ authenticated: true, email });
-        return true;
-      } else {
-        setError(data.error || 'Authentication failed');
-        return false;
-      }
-    } catch (err) {
-      console.error('[FlexCompute] Authentication failed:', err);
-      setError('Failed to connect to CloudiDR');
-      return false;
-    }
-  }, []);
-
-  /**
-   * Disconnect from CloudiDR
-   */
-  const disconnectCloudIDR = useCallback(async () => {
-    try {
-      await fetch('/api/flexcompute/auth', {
-        method: 'DELETE',
-        credentials: 'include',
-      });
-      setAuthStatus({ authenticated: false });
-      setCapacities([]);
-      setKpis(defaultKPIs);
-    } catch (err) {
-      console.error('[FlexCompute] Disconnect failed:', err);
-    }
-  }, []);
-
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
@@ -128,7 +51,6 @@ export const useFlexComputeData = () => {
    */
   const fetchKpis = useCallback(async () => {
     try {
-      // Fetch all ACTIVE+COMPLETED capacities with a large page size for KPI aggregation
       const params = new URLSearchParams();
       params.set('page', '1');
       params.set('pageSize', '500');
@@ -190,11 +112,6 @@ export const useFlexComputeData = () => {
         credentials: 'include',
       });
 
-      if (response.status === 401) {
-        setAuthStatus({ authenticated: false });
-        return;
-      }
-
       if (response.ok) {
         const responseData = await response.json();
         let data: FlexComputeCapacity[] = [];
@@ -250,7 +167,6 @@ export const useFlexComputeData = () => {
       setError(null);
       setSearchResult(null);
 
-      // Convert datetime-local format (YYYY-MM-DDTHH:mm) to date format (MM/dd/yyyy)
       const formatDateForAPI = (datetimeStr: string): string => {
         if (!datetimeStr) return '';
         const date = new Date(datetimeStr);
@@ -260,9 +176,7 @@ export const useFlexComputeData = () => {
         return `${month}/${day}/${year}`;
       };
 
-      // Calculate UTC offset in hours from timezone
       const getUtcOffsetHours = (timezone: string): number => {
-        // Map timezone to UTC offset
         const timezoneOffsets: { [key: string]: number } = {
           'America/Los_Angeles': -8,
           'America/Denver': -7,
@@ -288,17 +202,11 @@ export const useFlexComputeData = () => {
           startDate: formatDateForAPI(form.startDate),
           endDate: formatDateForAPI(form.endDate),
           utcOffsetHours: getUtcOffsetHours(form.timeZone),
-          // Additional fields for enriching the response
           quantity: form.quantity,
           region: form.region,
           capacityName: form.capacityName,
         }),
       });
-
-      if (response.status === 401) {
-        setAuthStatus({ authenticated: false });
-        return null;
-      }
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -338,18 +246,15 @@ export const useFlexComputeData = () => {
 
   /**
    * Reserve capacity - Creates 15-minute temporary reservation with pricing
-   * Called after search, before configure
    */
   const reserveCapacity = useCallback(async (form: SearchCapacityForm): Promise<any> => {
     try {
       setError(null);
 
-      // Validate required fields
       if (!form.cspAccount || !form.zoneId || !form.capacityName || !form.instanceType || !form.startDate || !form.endDate) {
         throw new Error('Missing required fields for reservation');
       }
 
-      // Format date and time from datetime-local format (YYYY-MM-DDTHH:mm)
       const formatDate = (datetimeStr: string): string => {
         if (!datetimeStr) return '';
         const date = new Date(datetimeStr);
@@ -364,16 +269,12 @@ export const useFlexComputeData = () => {
         const date = new Date(datetimeStr);
         const hours = date.getHours();
         const minutes = date.getMinutes();
-
-        // Round to nearest 15-minute increment (0, 15, 30, 45)
         const roundedMinutes = Math.round(minutes / 15) * 15;
         const finalMinutes = roundedMinutes === 60 ? 0 : roundedMinutes;
         const finalHours = roundedMinutes === 60 ? (hours + 1) % 24 : hours;
-
         return `${String(finalHours).padStart(2, '0')}:${String(finalMinutes).padStart(2, '0')}`;
       };
 
-      // Calculate UTC offset in hours from timezone
       const getUtcOffsetHours = (timezone: string): string => {
         const timezoneOffsets: { [key: string]: string } = {
           'America/Los_Angeles': '-8',
@@ -412,11 +313,6 @@ export const useFlexComputeData = () => {
         body: JSON.stringify(requestBody),
       });
 
-      if (response.status === 401) {
-        setAuthStatus({ authenticated: false });
-        return null;
-      }
-
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
         const errorMessage = errorData.error || `Reserve failed with status ${response.status}`;
@@ -426,13 +322,13 @@ export const useFlexComputeData = () => {
 
       const data = await response.json();
       console.log('[FlexCompute] Reserve capacity response:', data);
-      return data; // Returns ReserveCapacityResponse with myPolicy, pricing, etc.
+      return data;
     } catch (err) {
       console.error('[FlexCompute] Reserve capacity failed:', err);
       setError(err instanceof Error ? err.message : 'Reserve failed');
       return null;
     }
-  }, [setAuthStatus]);
+  }, []);
 
   /**
    * Configure capacity (wizard step 2)
@@ -480,10 +376,7 @@ export const useFlexComputeData = () => {
       setIsPurchasing(true);
       setError(null);
 
-      const requestBody = {
-        cidrId: capacityId,
-      };
-
+      const requestBody = { cidrId: capacityId };
       console.log('[FlexCompute] Purchase capacity request:', requestBody);
 
       const response = await fetch('/api/flexcompute/capacity/purchase', {
@@ -498,7 +391,6 @@ export const useFlexComputeData = () => {
         throw new Error(errorData.error || 'Purchase failed');
       }
 
-      // Refresh capacity list and KPIs after purchase
       await fetchCapacities();
       await fetchKpis();
       return true;
@@ -554,7 +446,6 @@ export const useFlexComputeData = () => {
   const cancelCapacity = useCallback(async (cidrId: string): Promise<boolean> => {
     try {
       setError(null);
-
       console.log('[FlexCompute] Cancel capacity request:', cidrId);
 
       const response = await fetch(`/api/flexcompute/capacity/${cidrId}`, {
@@ -567,7 +458,6 @@ export const useFlexComputeData = () => {
         throw new Error(errorData.error || 'Cancel failed');
       }
 
-      // Refresh capacity list and KPIs after cancellation
       await fetchCapacities();
       await fetchKpis();
       return true;
@@ -578,28 +468,14 @@ export const useFlexComputeData = () => {
     }
   }, [fetchCapacities, fetchKpis]);
 
-  // Initial load
+  // Fetch data on mount
   useEffect(() => {
-    checkAuthStatus();
-  }, [checkAuthStatus]);
-
-  // Fetch capacities, KPIs, and linked accounts when authenticated
-  useEffect(() => {
-    if (authStatus.authenticated) {
-      fetchCapacities();
-      fetchKpis();
-      fetchLinkedAccounts();
-    }
-  }, [authStatus.authenticated, fetchCapacities, fetchKpis, fetchLinkedAccounts]);
+    fetchCapacities();
+    fetchKpis();
+    fetchLinkedAccounts();
+  }, [fetchCapacities, fetchKpis, fetchLinkedAccounts]);
 
   return {
-    // Auth
-    authStatus,
-    authLoading,
-    authenticateCloudIDR,
-    disconnectCloudIDR,
-    checkAuthStatus,
-
     // Linked Accounts
     linkedAccounts,
     accountsLoading,

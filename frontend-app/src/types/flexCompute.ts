@@ -10,6 +10,7 @@ export interface FlexComputeCapacity {
   accountName: string;
   policyStatus: string;
   instanceState: string;
+  policyOperatingState?: string; // e.g., "EXPIRED_NOT_PURCHASED", "ACTIVE", etc.
   instanceType: string;
   quantities: number;
   regionZoneId: string;
@@ -18,6 +19,7 @@ export interface FlexComputeCapacity {
   totalCost: number;
   totalUsageHours: number;
   remainingHours: number;
+  consumptionPercent?: number; // Percentage of capacity time consumed (0-100)
   startDate: string;
   endDate: string;
   autoRenewal: boolean;

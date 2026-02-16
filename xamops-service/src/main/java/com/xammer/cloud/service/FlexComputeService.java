@@ -8,6 +8,7 @@ import com.xammer.cloud.repository.LinkedAccountRepository;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,6 +27,12 @@ public class FlexComputeService {
     private final CloudiDRCredentialsRepository credentialsRepository;
     private final LinkedAccountRepository linkedAccountRepository;
     private final EncryptionService encryptionService;
+
+    @Value("${cloudidr.auth.email:}")
+    private String cloudidrEmail;
+
+    @Value("${cloudidr.auth.password:}")
+    private String cloudidrPassword;
 
     public FlexComputeService(CloudiDRApiClient apiClient,
                               CloudiDRCredentialsRepository credentialsRepository,
@@ -89,12 +96,26 @@ public class FlexComputeService {
     }
 
     /**
-     * Check if user has valid CloudiDR credentials
+     * Check if user has valid CloudiDR credentials.
+     * Auto-authenticates using properties credentials if not yet authenticated.
      */
     public boolean isAuthenticated(Long userId) {
-        return credentialsRepository.findByUserId(userId)
+        boolean valid = credentialsRepository.findByUserId(userId)
                 .map(creds -> creds.getTokenExpiresAt() == null || creds.getTokenExpiresAt().isAfter(Instant.now()))
                 .orElse(false);
+
+        if (!valid && cloudidrEmail != null && !cloudidrEmail.isBlank() && cloudidrPassword != null && !cloudidrPassword.isBlank()) {
+            try {
+                logger.info("Auto-authenticating user {} with CloudiDR on status check", userId);
+                authenticateUser(userId, cloudidrEmail, cloudidrPassword);
+                return true;
+            } catch (Exception e) {
+                logger.error("CloudiDR auto-authentication failed: {}", e.getMessage());
+                return false;
+            }
+        }
+
+        return valid;
     }
 
     /**
@@ -107,22 +128,35 @@ public class FlexComputeService {
     }
 
     /**
-     * Retrieve and decrypt a valid token for the user
+     * Retrieve and decrypt a valid token for the user.
+     * Auto-authenticates using properties credentials if token is missing or expired.
      */
     private String getValidToken(Long userId) {
-        CloudiDRCredentials creds = credentialsRepository.findByUserId(userId)
-                .orElseThrow(() -> new RuntimeException("CloudiDR not configured. Please authenticate first."));
+        var credsOpt = credentialsRepository.findByUserId(userId);
 
-        if (creds.getTokenExpiresAt() != null && creds.getTokenExpiresAt().isBefore(Instant.now())) {
-            throw new RuntimeException("CloudiDR token expired. Please re-authenticate.");
+        // Check if we have a valid (non-expired) token
+        if (credsOpt.isPresent()) {
+            CloudiDRCredentials creds = credsOpt.get();
+            boolean expired = creds.getTokenExpiresAt() != null && creds.getTokenExpiresAt().isBefore(Instant.now());
+            if (!expired) {
+                String token = encryptionService.decrypt(creds.getCloudidrTokenEncrypted());
+                if (token != null) {
+                    return token;
+                }
+            }
         }
 
-        String token = encryptionService.decrypt(creds.getCloudidrTokenEncrypted());
-        if (token == null) {
-            throw new RuntimeException("Failed to decrypt CloudiDR token. Please re-authenticate.");
+        // Token missing or expired — auto-authenticate using properties credentials
+        if (cloudidrEmail != null && !cloudidrEmail.isBlank() && cloudidrPassword != null && !cloudidrPassword.isBlank()) {
+            logger.info("Auto-authenticating user {} with CloudiDR using configured credentials", userId);
+            authenticateUser(userId, cloudidrEmail, cloudidrPassword);
+            // Retrieve the freshly stored token
+            CloudiDRCredentials freshCreds = credentialsRepository.findByUserId(userId)
+                    .orElseThrow(() -> new RuntimeException("CloudiDR auto-auth failed — no credentials stored"));
+            return encryptionService.decrypt(freshCreds.getCloudidrTokenEncrypted());
         }
 
-        return token;
+        throw new RuntimeException("CloudiDR not configured. Please set cloudidr.auth.email and cloudidr.auth.password in properties.");
     }
 
     /**
@@ -178,6 +212,16 @@ public class FlexComputeService {
         logger.info("Extending capacity {} for user {} to new end date {}", request.getCidrId(), userId, request.getEndDate());
         String token = getValidToken(userId);
         apiClient.extendCapacity(token, request);
+    }
+
+    /**
+     * Update capacity auto-renewal settings
+     */
+    public void renewCapacity(Long userId, RenewCapacityRequest request) {
+        logger.info("Updating auto-renewal for capacity {} for user {}: enabled={}, frequency={}",
+                request.getCidrId(), userId, request.getAutoRenewalEnabled(), request.getFrequency());
+        String token = getValidToken(userId);
+        apiClient.renewCapacity(token, request);
     }
 
     /**
