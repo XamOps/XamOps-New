@@ -384,6 +384,34 @@ public class CloudiDRApiClient {
     }
 
     /**
+     * PUT /external/api/v1/flexcompute/capacity/extend - Extend capacity end date
+     */
+    public void extendCapacity(String token, ExtendCapacityRequest request) {
+        logger.info("CloudiDR API: PUT /external/api/v1/flexcompute/capacity/extend for cidrId={}", request.getCidrId());
+
+        try {
+            String url = baseUrl + "/external/api/v1/flexcompute/capacity/extend";
+
+            HttpHeaders headers = createAuthHeaders(token);
+            HttpEntity<ExtendCapacityRequest> entity = new HttpEntity<>(request, headers);
+
+            logger.info("CloudiDR extend-capacity request: cidrId={}, endDate={}, endTime={}, utcOffset={}",
+                    request.getCidrId(), request.getEndDate(), request.getEndTime(), request.getUtcOffset());
+
+            restTemplate.exchange(url, HttpMethod.PUT, entity, Void.class);
+
+            logger.info("CloudiDR extend-capacity successful for id: {}", request.getCidrId());
+
+        } catch (HttpClientErrorException e) {
+            logger.error("CloudiDR extend-capacity failed: HTTP {} - {}", e.getStatusCode(), e.getResponseBodyAsString());
+            throw new RuntimeException("Extend capacity failed: " + e.getStatusCode() + " - " + e.getResponseBodyAsString(), e);
+        } catch (Exception e) {
+            logger.error("CloudiDR extend-capacity error: {}", e.getMessage(), e);
+            throw new RuntimeException("Extend capacity failed: " + e.getMessage(), e);
+        }
+    }
+
+    /**
      * DELETE /external/api/v1/flexcompute/capacity/{cidrId} - Cancel/Delete capacity
      */
     public void cancelCapacity(String token, String cidrId) {

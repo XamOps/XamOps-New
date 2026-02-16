@@ -30,6 +30,7 @@ public abstract class ClientUserDetailsMixin {
             @JsonProperty("password") String password,
             @JsonProperty("authorities") Collection<? extends GrantedAuthority> authorities,
             @JsonProperty("clientId") Long clientId,
-            @JsonProperty("id") Long id) {
+            @JsonProperty("id") Long id,
+            @JsonProperty("tenantId") String tenantId) {
     }
 }

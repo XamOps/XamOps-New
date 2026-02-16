@@ -4,12 +4,14 @@
  * Displays comprehensive capacity information matching the CloudiDR detail view
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import type { FlexComputeCapacity } from '../../types/flexCompute';
+import ExtendUsageModal from './ExtendUsageModal';
 
 interface ViewCapacityDetailModalProps {
   capacity: FlexComputeCapacity | null;
   onClose: () => void;
+  onExtend: (cidrId: string, endDate: string, endTime: string, utcOffset: string) => Promise<boolean>;
 }
 
 const formatCurrency = (value?: number): string => {
@@ -69,7 +71,9 @@ const getActiveStep = (instanceState?: string): number => {
   return idx >= 0 ? idx : 0;
 };
 
-const ViewCapacityDetailModal: React.FC<ViewCapacityDetailModalProps> = ({ capacity, onClose }) => {
+const ViewCapacityDetailModal: React.FC<ViewCapacityDetailModalProps> = ({ capacity, onClose, onExtend }) => {
+  const [showExtendModal, setShowExtendModal] = useState(false);
+
   if (!capacity) return null;
 
   const activeStep = getActiveStep(capacity.instanceState);
@@ -100,7 +104,10 @@ const ViewCapacityDetailModal: React.FC<ViewCapacityDetailModalProps> = ({ capac
               <button className="px-4 py-2 text-sm text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors flex items-center gap-2">
                 <i className="fas fa-sync-alt text-xs"></i> Refresh
               </button>
-              <button className="px-4 py-2 text-sm text-white bg-purple-600 rounded-lg hover:bg-purple-700 transition-colors flex items-center gap-2">
+              <button
+                onClick={() => setShowExtendModal(true)}
+                className="px-4 py-2 text-sm text-white bg-purple-600 rounded-lg hover:bg-purple-700 transition-colors flex items-center gap-2"
+              >
                 <i className="fas fa-clock text-xs"></i> Extend Usage
               </button>
               <button
@@ -281,6 +288,15 @@ const ViewCapacityDetailModal: React.FC<ViewCapacityDetailModalProps> = ({ capac
           </div>
         </div>
       </div>
+
+      {/* Extend Usage Modal (stacked on top) */}
+      {showExtendModal && (
+        <ExtendUsageModal
+          capacity={capacity}
+          onExtend={onExtend}
+          onClose={() => setShowExtendModal(false)}
+        />
+      )}
     </div>
   );
 };

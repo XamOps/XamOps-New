@@ -172,13 +172,21 @@ public class FlexComputeService {
     }
 
     /**
-     * List all capacities for the user
+     * Extend capacity end date
      */
-    public CapacityListResponse describeCapacity(Long userId) {
-        logger.info("Describing capacity for user {}", userId);
+    public void extendCapacity(Long userId, ExtendCapacityRequest request) {
+        logger.info("Extending capacity {} for user {} to new end date {}", request.getCidrId(), userId, request.getEndDate());
         String token = getValidToken(userId);
-        // CloudiDR uses 1-based pagination (page starts at 1, not 0)
-        return apiClient.describeCapacity(token, 1, 10, "desc", null);
+        apiClient.extendCapacity(token, request);
+    }
+
+    /**
+     * List capacities for the user with pagination and filters
+     */
+    public CapacityListResponse describeCapacity(Long userId, Integer page, Integer pageSize, String sort, java.util.List<String> statuses) {
+        logger.info("Describing capacity for user {} (page={}, pageSize={}, sort={}, statuses={})", userId, page, pageSize, sort, statuses);
+        String token = getValidToken(userId);
+        return apiClient.describeCapacity(token, page, pageSize, sort, statuses);
     }
 
     /**
