@@ -160,6 +160,31 @@ public class CapacityDescriptionResponse {
         }
     }
 
+    @JsonGetter("consumptionPercent")
+    public Double getConsumptionPercent() {
+        Double totalHours = getTotalUsageHours();
+        Double remainingHours = getRemainingHours();
+
+        // Avoid division by zero
+        if (totalHours == null || totalHours == 0.0) {
+            return 0.0;
+        }
+
+        // Calculate used hours
+        double usedHours = totalHours - (remainingHours != null ? remainingHours : 0.0);
+
+        // Ensure usedHours is not negative
+        if (usedHours < 0) {
+            usedHours = 0.0;
+        }
+
+        // Calculate percentage
+        double percentage = (usedHours / totalHours) * 100.0;
+
+        // Cap at 100%
+        return Math.min(percentage, 100.0);
+    }
+
     @JsonGetter("region")
     public String getRegion() {
         return cspRegion != null ? cspRegion.getRegionCode() : null;

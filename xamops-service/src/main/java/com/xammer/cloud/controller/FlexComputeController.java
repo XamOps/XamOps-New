@@ -228,6 +228,29 @@ public class FlexComputeController {
     }
 
     /**
+     * PUT /api/flexcompute/capacity/auto-renewal - Update capacity auto-renewal settings
+     */
+    @PutMapping("/capacity/auto-renewal")
+    public ResponseEntity<?> renewCapacity(@RequestBody RenewCapacityRequest request,
+                                           @AuthenticationPrincipal ClientUserDetails userDetails) {
+        try {
+            Long userId = userDetails.getId();
+            flexComputeService.renewCapacity(userId, request);
+
+            Map<String, Object> result = new HashMap<>();
+            result.put("success", true);
+            result.put("message", "Auto-renewal settings updated successfully");
+            result.put("cidrId", request.getCidrId());
+            result.put("autoRenewalEnabled", request.getAutoRenewalEnabled());
+            result.put("frequency", request.getFrequency());
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            logger.error("FlexCompute renew-capacity failed: {}", e.getMessage());
+            return handleError(e);
+        }
+    }
+
+    /**
      * DELETE /api/flexcompute/capacity/{cidrId} - Cancel capacity
      */
     @DeleteMapping("/capacity/{cidrId}")

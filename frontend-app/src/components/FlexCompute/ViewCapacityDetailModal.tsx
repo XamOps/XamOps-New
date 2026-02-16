@@ -76,40 +76,52 @@ const ViewCapacityDetailModal: React.FC<ViewCapacityDetailModalProps> = ({ capac
 
   if (!capacity) return null;
 
+  // Debug: Log capacity data to console
+  console.log('[ViewDetail] Capacity data:', capacity);
+
   const activeStep = getActiveStep(capacity.instanceState);
+
+  // Fix savingsPercent if it's a decimal (0.15) instead of percentage (15)
+  const savingsPercentDisplay = capacity.savingsPercent != null
+    ? (capacity.savingsPercent > 1 ? capacity.savingsPercent : capacity.savingsPercent * 100)
+    : null;
 
   const Row: React.FC<{ label: string; value: React.ReactNode }> = ({ label, value }) => (
     <div className="flex items-center justify-between py-3 border-b border-gray-100 last:border-0">
       <span className="text-sm text-gray-500">{label}:</span>
-      <span className="text-sm font-medium text-gray-900 text-right max-w-xs">{value || '-'}</span>
+      <span className="text-sm font-medium text-gray-900 text-right max-w-xs truncate">{value || '-'}</span>
     </div>
   );
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
+    <>
       {/* Backdrop */}
-      <div className="fixed inset-0 bg-black/50" onClick={onClose} />
+      <div className="fixed inset-0 bg-black/50 z-50" onClick={onClose} />
 
-      <div className="relative min-h-screen flex items-start justify-center p-4 pt-8">
-        <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-6xl">
-          {/* Header */}
-          <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between rounded-t-2xl z-10">
+      {/* Modal Container - Fixed positioning with internal scroll */}
+      <div className="fixed inset-0 z-50 overflow-hidden pointer-events-none flex items-center justify-center p-4">
+        <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-6xl max-h-[90vh] overflow-hidden pointer-events-auto flex flex-col">
+
+          {/* Header - Fixed at top */}
+          <div className="flex-shrink-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 bg-blue-100 rounded-lg flex items-center justify-center">
+              <div className="w-9 h-9 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
                 <i className="fas fa-server text-blue-600 text-sm"></i>
               </div>
-              <h2 className="text-lg font-bold text-gray-900">{capacity.name}</h2>
+              <h2 className="text-lg font-bold text-gray-900 truncate">{capacity.name}</h2>
             </div>
-            <div className="flex items-center gap-2">
-              <button className="px-4 py-2 text-sm text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors flex items-center gap-2">
-                <i className="fas fa-sync-alt text-xs"></i> Refresh
-              </button>
-              <button
-                onClick={() => setShowExtendModal(true)}
-                className="px-4 py-2 text-sm text-white bg-purple-600 rounded-lg hover:bg-purple-700 transition-colors flex items-center gap-2"
-              >
-                <i className="fas fa-clock text-xs"></i> Extend Usage
-              </button>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {/* Only show Extend Usage button for purchased policies without auto-renewal */}
+              {!capacity.instanceState?.toUpperCase().includes('NOT_PURCHASED') &&
+               !capacity.policyOperatingState?.toUpperCase().includes('NOT_PURCHASED') &&
+               !capacity.autoRenewal && (
+                <button
+                  onClick={() => setShowExtendModal(true)}
+                  className="px-4 py-2 text-sm text-white bg-purple-600 rounded-lg hover:bg-purple-700 transition-colors flex items-center gap-2"
+                >
+                  <i className="fas fa-clock text-xs"></i> Extend Usage
+                </button>
+              )}
               <button
                 onClick={onClose}
                 className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-700 rounded-lg hover:bg-gray-100 transition-colors"
@@ -119,171 +131,279 @@ const ViewCapacityDetailModal: React.FC<ViewCapacityDetailModalProps> = ({ capac
             </div>
           </div>
 
-          {/* Body — two-column layout */}
-          <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Body - Scrollable */}
+          <div className="flex-1 overflow-y-auto">
+            <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
 
-            {/* ── LEFT COLUMN ── */}
-            <div className="space-y-6">
+              {/* ── LEFT COLUMN ── */}
+              <div className="space-y-6">
 
-              {/* Description */}
-              <div className="rounded-xl border border-gray-200 overflow-hidden">
-                <div className="bg-gray-50 px-5 py-3 border-b border-gray-200">
-                  <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Description</h3>
+                {/* Description */}
+                <div className="rounded-xl border border-gray-200 overflow-hidden">
+                  <div className="bg-gray-50 px-5 py-3 border-b border-gray-200">
+                    <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Description</h3>
+                  </div>
+                  <div className="px-5 py-1">
+                    <Row label="ID" value={<span className="font-mono text-xs">{capacity.id}</span>} />
+                    <Row label="Account Name" value={capacity.accountName} />
+                    <Row label="Policy Status" value={
+                      <StatusBadge status={capacity.policyStatus} color="green" />
+                    } />
+                    <Row label="Instance State" value={
+                      <StatusBadge status={capacity.instanceState} color="blue" />
+                    } />
+                    <Row label="Instance Type" value={<span className="font-mono">{capacity.instanceType}</span>} />
+                    <Row label="vCPU" value={capacity.vcpu} />
+                    <Row label="Memory" value={capacity.memory ? `${capacity.memory} GB` : '-'} />
+                    <Row label="Platform" value={capacity.platform || 'Linux/UNIX'} />
+                    <Row label="Total Capacity" value={capacity.quantities} />
+                    <Row label="Tenancy" value={capacity.tenancy || 'Shared'} />
+                  </div>
                 </div>
-                <div className="px-5 py-1">
-                  <Row label="ID" value={<span className="font-mono text-xs">{capacity.id}</span>} />
-                  <Row label="Account Name" value={capacity.accountName} />
-                  <Row label="Policy Status" value={
-                    <StatusBadge status={capacity.policyStatus} color="green" />
-                  } />
-                  <Row label="Instance State" value={
-                    <StatusBadge status={capacity.instanceState} color="blue" />
-                  } />
-                  <Row label="Instance Type" value={<span className="font-mono">{capacity.instanceType}</span>} />
-                  <Row label="vCPU" value={capacity.vcpu} />
-                  <Row label="Memory" value={capacity.memory ? `${capacity.memory} GB` : '-'} />
-                  <Row label="Platform" value={capacity.platform} />
-                  <Row label="Total Capacity" value={capacity.quantities} />
-                  <Row label="Tenancy" value={capacity.tenancy} />
-                </div>
-              </div>
 
-              {/* Configuration */}
-              <div className="rounded-xl border border-gray-200 overflow-hidden">
-                <div className="bg-gray-50 px-5 py-3 border-b border-gray-200">
-                  <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Configuration</h3>
+                {/* Configuration */}
+                <div className="rounded-xl border border-gray-200 overflow-hidden">
+                  <div className="bg-gray-50 px-5 py-3 border-b border-gray-200">
+                    <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Configuration</h3>
+                  </div>
+                  <div className="px-5 py-1">
+                    <Row label="VPC ID" value={<span className="font-mono text-xs">{capacity.vpc || 'default'}</span>} />
+                    <Row label="Security Groups" value={<span className="font-mono text-xs">{capacity.securityGroups || 'default'}</span>} />
+                    <Row label="SSH Pair Key" value={<span className="font-mono text-xs">{capacity.sshPairKey || 'none'}</span>} />
+                    <Row label="AMI Image ID" value={<span className="font-mono text-xs">{capacity.amiImage || 'default'}</span>} />
+                    <Row label="EBS Volume Size" value={capacity.ebsVolumeSize ? `${capacity.ebsVolumeSize} GiB` : '10 GiB'} />
+                    <Row label="Start Time" value={formatDateTime(capacity.startDate)} />
+                    <Row label="End Time" value={formatDateTime(capacity.endDate)} />
+                  </div>
                 </div>
-                <div className="px-5 py-1">
-                  <Row label="VPC ID" value={<span className="font-mono text-xs">{capacity.vpc || 'default'}</span>} />
-                  <Row label="Security Groups ID" value={<span className="font-mono text-xs">{capacity.securityGroups || 'none'}</span>} />
-                  <Row label="SSH Pair Key Name" value={<span className="font-mono text-xs">{capacity.sshPairKey || 'none'}</span>} />
-                  <Row label="AMI Image ID" value={<span className="font-mono text-xs">{capacity.amiImage || 'default'}</span>} />
-                  <Row label="EBS Volume Size (GiB)" value={capacity.ebsVolumeSize ? `${capacity.ebsVolumeSize} GiB` : '10 GiB'} />
-                  <Row label="Start Time" value={formatDateTime(capacity.startDate)} />
-                  <Row label="End time" value={formatDateTime(capacity.endDate)} />
-                </div>
-              </div>
 
-              {/* Activity */}
-              <div className="rounded-xl border border-gray-200 overflow-hidden">
-                <div className="bg-gray-50 px-5 py-3 border-b border-gray-200">
-                  <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Activity</h3>
-                </div>
-                <div className="p-5">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b border-gray-200">
-                        <th className="text-left text-xs font-semibold text-gray-500 pb-3 pr-4">Created Date</th>
-                        <th className="text-left text-xs font-semibold text-gray-500 pb-3">Message</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      <tr>
-                        <td className="py-3 pr-4 text-xs text-gray-700 whitespace-nowrap">
-                          {formatDateTime(capacity.createdDate || capacity.startDate)}
-                        </td>
-                        <td className="py-3 text-xs text-gray-600">
-                          Policy purchased successfully at a cost of {formatCurrency(capacity.ourPrice)} with savings of {formatCurrency(capacity.totalSavings)}.
-                        </td>
-                      </tr>
-                      <tr>
-                        <td className="py-3 pr-4 text-xs text-gray-700 whitespace-nowrap">
-                          {formatDateTime(capacity.createdDate || capacity.startDate)}
-                        </td>
-                        <td className="py-3 text-xs text-gray-600">Capacity is available; policy is ready for purchase.</td>
-                      </tr>
-                      <tr>
-                        <td className="py-3 pr-4 text-xs text-gray-700 whitespace-nowrap">
-                          {formatDateTime(capacity.createdDate || capacity.startDate)}
-                        </td>
-                        <td className="py-3 text-xs text-gray-600">Policy created successfully.</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-
-            {/* ── RIGHT COLUMN ── */}
-            <div className="space-y-6">
-
-              {/* Auto-Renewal Settings */}
-              <div className="rounded-xl border border-gray-200 overflow-hidden">
-                <div className="bg-gray-50 px-5 py-3 border-b border-gray-200">
-                  <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Auto-Renewal Settings</h3>
-                </div>
-                <div className="px-5 py-1">
-                  <Row label="Auto-renewal enabled" value={capacity.autoRenewal ? 'Yes' : 'No'} />
-                  <Row label="Frequency of renewal" value={capacity.frequency || '-'} />
-                </div>
-              </div>
-
-              {/* Cost and Savings */}
-              <div className="rounded-xl border border-gray-200 overflow-hidden">
-                <div className="bg-gray-50 px-5 py-3 border-b border-gray-200">
-                  <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Cost and savings</h3>
-                </div>
-                <div className="px-5 py-1">
-                  <Row label="Our price" value={formatCurrency(capacity.ourPrice || capacity.totalCost)} />
-                  <Row label="AWS price" value={formatCurrency(capacity.awsPrice || (capacity.totalCost + capacity.totalSavings))} />
-                  <Row label="Your savings" value={
-                    <span className="font-bold text-blue-600">{formatCurrency(capacity.totalSavings)}</span>
-                  } />
-                </div>
-              </div>
-
-              {/* Region / Zone ID */}
-              <div className="rounded-xl border border-gray-200 overflow-hidden">
-                <div className="bg-gray-50 px-5 py-3 border-b border-gray-200">
-                  <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Region/Zone ID</h3>
-                </div>
-                <div className="px-5 py-1">
-                  <Row label="Region Code" value={capacity.region || capacity.regionZoneId?.split('/')[0]?.trim()} />
-                  <Row label="Zone ID" value={capacity.zoneId || capacity.regionZoneId?.split('/')[1]?.trim()} />
-                </div>
-              </div>
-
-              {/* Capacity Tracker */}
-              <div className="rounded-xl border border-gray-200 overflow-hidden">
-                <div className="bg-gray-50 px-5 py-3 border-b border-gray-200">
-                  <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Capacity Tracker</h3>
-                </div>
-                <div className="p-5">
-                  {CAPACITY_TRACKER_STEPS.map((step, index) => {
-                    const isActive = index === activeStep;
-                    const isCompleted = index < activeStep;
-
-                    return (
-                      <div key={index} className="flex gap-4">
-                        {/* Timeline line + circle */}
-                        <div className="flex flex-col items-center">
-                          <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 ${
-                            isCompleted
-                              ? 'bg-blue-600 text-white'
-                              : isActive
-                              ? 'bg-blue-600 text-white'
-                              : 'bg-gray-200 text-gray-500'
-                          }`}>
-                            {isCompleted ? <i className="fas fa-check text-xs"></i> : index + 1}
-                          </div>
-                          {index < CAPACITY_TRACKER_STEPS.length - 1 && (
-                            <div className={`w-0.5 h-8 my-1 ${isCompleted ? 'bg-blue-500' : 'bg-gray-200'}`} />
-                          )}
+                {/* Capacity Usage - Only show for purchased policies */}
+                {!capacity.instanceState?.toUpperCase().includes('NOT_PURCHASED') &&
+                 !capacity.policyOperatingState?.toUpperCase().includes('NOT_PURCHASED') && (
+                  <div className="rounded-xl border border-gray-200 overflow-hidden">
+                    <div className="bg-gray-50 px-5 py-3 border-b border-gray-200">
+                      <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Capacity Usage</h3>
+                    </div>
+                    <div className="p-5">
+                      <div className="space-y-3">
+                        {/* Usage Statistics */}
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-gray-600">Time Consumed</span>
+                          <span className="font-bold text-gray-900">
+                            {capacity.consumptionPercent != null ? `${capacity.consumptionPercent.toFixed(1)}%` : '0.0%'}
+                          </span>
                         </div>
 
-                        {/* Step label */}
-                        <div className="pt-2 pb-4">
-                          <p className={`text-sm font-medium ${isActive ? 'text-blue-600' : isCompleted ? 'text-gray-700' : 'text-gray-400'}`}>
-                            {step.label}
-                          </p>
-                          <p className="text-xs text-gray-400">STEP {index + 1}</p>
+                        {/* Progress Bar */}
+                        <div className="relative w-full h-3 bg-gray-100 rounded-full overflow-hidden">
+                          <div
+                            className={`absolute inset-y-0 left-0 rounded-full transition-all duration-500 ${
+                              (capacity.consumptionPercent ?? 0) >= 90
+                                ? 'bg-gradient-to-r from-red-500 to-red-600'
+                                : (capacity.consumptionPercent ?? 0) >= 80
+                                ? 'bg-gradient-to-r from-orange-500 to-orange-600'
+                                : (capacity.consumptionPercent ?? 0) >= 60
+                                ? 'bg-gradient-to-r from-yellow-500 to-yellow-600'
+                                : 'bg-gradient-to-r from-blue-500 to-blue-600'
+                            }`}
+                            style={{ width: `${capacity.consumptionPercent ?? 0}%` }}
+                          />
+                        </div>
+
+                        {/* Hours Breakdown */}
+                        <div className="grid grid-cols-2 gap-4 pt-2">
+                          <div className="flex flex-col">
+                            <span className="text-xs text-gray-500">Used Hours</span>
+                            <span className="text-sm font-semibold text-gray-900">
+                              {((capacity.totalUsageHours || 0) - (capacity.remainingHours || 0)).toFixed(1)} hrs
+                            </span>
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-xs text-gray-500">Remaining Hours</span>
+                            <span className="text-sm font-semibold text-gray-900">
+                              {(capacity.remainingHours || 0).toFixed(1)} hrs
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Alert for high consumption */}
+                        {(capacity.consumptionPercent ?? 0) >= 80 && (
+                          <div className={`mt-3 p-3 rounded-lg flex items-start gap-2 ${
+                            (capacity.consumptionPercent ?? 0) >= 90
+                              ? 'bg-red-50 border border-red-200'
+                              : 'bg-orange-50 border border-orange-200'
+                          }`}>
+                            <i className={`fas fa-exclamation-triangle text-sm mt-0.5 ${
+                              (capacity.consumptionPercent ?? 0) >= 90 ? 'text-red-600' : 'text-orange-600'
+                            }`}></i>
+                            <div className="flex-1">
+                              <p className={`text-xs font-medium ${
+                                (capacity.consumptionPercent ?? 0) >= 90 ? 'text-red-800' : 'text-orange-800'
+                              }`}>
+                                {(capacity.consumptionPercent ?? 0) >= 90
+                                  ? 'Critical: Capacity almost depleted'
+                                  : 'Warning: Capacity running low'}
+                              </p>
+                              <p className={`text-xs mt-1 ${
+                                (capacity.consumptionPercent ?? 0) >= 90 ? 'text-red-700' : 'text-orange-700'
+                              }`}>
+                                {capacity.autoRenewal
+                                  ? 'Auto-renewal is enabled and will activate soon.'
+                                  : 'Consider extending capacity or enabling auto-renewal.'}
+                              </p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Activity */}
+                <div className="rounded-xl border border-gray-200 overflow-hidden">
+                  <div className="bg-gray-50 px-5 py-3 border-b border-gray-200">
+                    <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Activity</h3>
+                  </div>
+                  <div className="p-5">
+                    {/* Only show activity for purchased policies */}
+                    {capacity.instanceState?.toUpperCase().includes('NOT_PURCHASED') ||
+                     capacity.policyOperatingState?.toUpperCase().includes('NOT_PURCHASED') ? (
+                      <div className="text-center py-4">
+                        <p className="text-sm text-gray-500">
+                          This policy was not purchased. No activity history available.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <div className="flex gap-3">
+                          <span className="text-xs text-gray-500 whitespace-nowrap flex-shrink-0">
+                            {formatDateTime(capacity.createdDate || capacity.startDate)}
+                          </span>
+                          <span className="text-xs text-gray-700">
+                            Policy purchased successfully at a cost of {formatCurrency(capacity.ourPrice || capacity.totalCost)}
+                            {capacity.totalSavings ? ` with savings of ${formatCurrency(capacity.totalSavings)}.` : '.'}
+                          </span>
+                        </div>
+                        <div className="flex gap-3">
+                          <span className="text-xs text-gray-500 whitespace-nowrap flex-shrink-0">
+                            {formatDateTime(capacity.createdDate || capacity.startDate)}
+                          </span>
+                          <span className="text-xs text-gray-700">
+                            Capacity is available; policy is ready for use.
+                          </span>
+                        </div>
+                        <div className="flex gap-3">
+                          <span className="text-xs text-gray-500 whitespace-nowrap flex-shrink-0">
+                            {formatDateTime(capacity.createdDate || capacity.startDate)}
+                          </span>
+                          <span className="text-xs text-gray-700">
+                            Policy created successfully.
+                          </span>
                         </div>
                       </div>
-                    );
-                  })}
+                    )}
+                  </div>
                 </div>
               </div>
 
+              {/* ── RIGHT COLUMN ── */}
+              <div className="space-y-6">
+
+                {/* Auto-Renewal Settings */}
+                <div className="rounded-xl border border-gray-200 overflow-hidden">
+                  <div className="bg-gray-50 px-5 py-3 border-b border-gray-200">
+                    <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Auto-Renewal Settings</h3>
+                  </div>
+                  <div className="px-5 py-1">
+                    <Row label="Auto-renewal enabled" value={capacity.autoRenewal ? 'Yes' : 'No'} />
+                    <Row label="Frequency of renewal" value={capacity.frequency || '-'} />
+                  </div>
+                </div>
+
+                {/* Cost and Savings */}
+                <div className="rounded-xl border border-gray-200 overflow-hidden">
+                  <div className="bg-gray-50 px-5 py-3 border-b border-gray-200">
+                    <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Cost and Savings</h3>
+                  </div>
+                  <div className="px-5 py-1">
+                    <Row label="Our price" value={formatCurrency(capacity.ourPrice || capacity.totalCost)} />
+                    <Row label="AWS price" value={formatCurrency(capacity.awsPrice || (capacity.totalCost + capacity.totalSavings))} />
+                    <Row label="Your savings" value={
+                      <span className="font-bold text-green-600">{formatCurrency(capacity.totalSavings)}</span>
+                    } />
+                    <Row label="Savings %" value={savingsPercentDisplay != null ? `${savingsPercentDisplay.toFixed(1)}%` : '-'} />
+                  </div>
+                </div>
+
+                {/* Region / Zone ID */}
+                <div className="rounded-xl border border-gray-200 overflow-hidden">
+                  <div className="bg-gray-50 px-5 py-3 border-b border-gray-200">
+                    <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Region/Zone ID</h3>
+                  </div>
+                  <div className="px-5 py-1">
+                    <Row label="Region Code" value={capacity.region || capacity.regionZoneId?.split('/')[0]?.trim()} />
+                    <Row label="Zone ID" value={capacity.zoneId || capacity.regionZoneId?.split('/')[1]?.trim()} />
+                  </div>
+                </div>
+
+                {/* Capacity Tracker */}
+                <div className="rounded-xl border border-gray-200 overflow-hidden">
+                  <div className="bg-gray-50 px-5 py-3 border-b border-gray-200">
+                    <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Capacity Tracker</h3>
+                  </div>
+                  <div className="p-5">
+                    {/* Only show capacity tracker for purchased policies */}
+                    {capacity.instanceState?.toUpperCase().includes('NOT_PURCHASED') ||
+                     capacity.policyOperatingState?.toUpperCase().includes('NOT_PURCHASED') ? (
+                      <div className="text-center py-8">
+                        <i className="fas fa-ban text-4xl text-gray-300 mb-3"></i>
+                        <p className="text-sm text-gray-500 font-medium">
+                          No capacity tracking available
+                        </p>
+                        <p className="text-xs text-gray-400 mt-1">
+                          This policy was not purchased
+                        </p>
+                      </div>
+                    ) : (
+                      <>
+                        {CAPACITY_TRACKER_STEPS.map((step, index) => {
+                          const isActive = index === activeStep;
+                          const isCompleted = index < activeStep;
+
+                          return (
+                            <div key={index} className="flex gap-4">
+                              {/* Timeline line + circle */}
+                              <div className="flex flex-col items-center">
+                                <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 ${
+                                  isCompleted
+                                    ? 'bg-blue-600 text-white'
+                                    : isActive
+                                    ? 'bg-blue-600 text-white'
+                                    : 'bg-gray-200 text-gray-500'
+                                }`}>
+                                  {isCompleted ? <i className="fas fa-check text-xs"></i> : index + 1}
+                                </div>
+                                {index < CAPACITY_TRACKER_STEPS.length - 1 && (
+                                  <div className={`w-0.5 h-8 my-1 ${isCompleted ? 'bg-blue-500' : 'bg-gray-200'}`} />
+                                )}
+                              </div>
+
+                              {/* Step label */}
+                              <div className="pt-2 pb-4 flex-1 min-w-0">
+                                <p className={`text-sm font-medium ${isActive ? 'text-blue-600' : isCompleted ? 'text-gray-700' : 'text-gray-400'}`}>
+                                  {step.label}
+                                </p>
+                                <p className="text-xs text-gray-400">STEP {index + 1}</p>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </>
+                    )}
+                  </div>
+                </div>
+
+              </div>
             </div>
           </div>
         </div>
@@ -297,7 +417,7 @@ const ViewCapacityDetailModal: React.FC<ViewCapacityDetailModalProps> = ({ capac
           onClose={() => setShowExtendModal(false)}
         />
       )}
-    </div>
+    </>
   );
 };
 

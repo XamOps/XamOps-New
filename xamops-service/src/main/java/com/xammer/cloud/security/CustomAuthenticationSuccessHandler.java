@@ -2,6 +2,7 @@ package com.xammer.cloud.security;
 
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.service.FlexComputeService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -25,11 +26,14 @@ public class CustomAuthenticationSuccessHandler extends SimpleUrlAuthenticationS
     private static final Logger logger = LoggerFactory.getLogger(CustomAuthenticationSuccessHandler.class);
 
     private final CloudAccountRepository cloudAccountRepository;
+    private final FlexComputeService flexComputeService;
     private final String frontendUrl;
 
     public CustomAuthenticationSuccessHandler(CloudAccountRepository cloudAccountRepository,
+            FlexComputeService flexComputeService,
             @Value("${app.frontend.url}") String frontendUrl) {
         this.cloudAccountRepository = cloudAccountRepository;
+        this.flexComputeService = flexComputeService;
         this.frontendUrl = frontendUrl;
     }
 
@@ -75,7 +79,20 @@ public class CustomAuthenticationSuccessHandler extends SimpleUrlAuthenticationS
 
         logger.debug("Authentication successful. Redirect: {}, Tenant: {}", targetUrl, tenantId);
 
-        // 3. Write JSON Response
+        // 3. Auto-authenticate with CloudiDR using configured credentials
+        try {
+            Long userId = userDetails.getId();
+            logger.info("Auto-authenticating user {} with CloudiDR after XamOps login", userId);
+
+            // This will automatically use cloudidr.auth.email and cloudidr.auth.password from properties
+            flexComputeService.isAuthenticated(userId);
+            logger.info("CloudiDR auto-authentication completed for user {}", userId);
+        } catch (Exception e) {
+            logger.warn("CloudiDR auto-authentication failed for user {}: {}", userDetails.getId(), e.getMessage());
+            // Don't fail the XamOps login if CloudiDR auth fails
+        }
+
+        // 4. Write JSON Response
         response.setContentType("application/json");
         response.setCharacterEncoding("UTF-8");
         // Sending both redirectUrl AND tenantId

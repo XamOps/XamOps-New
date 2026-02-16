@@ -3,18 +3,11 @@
  *
  * Main page for CloudiDR FlexCompute capacity management.
  * Features:
- * - CloudiDR authentication integration
  * - Dashboard with KPIs and capacity table
  * - Multi-step wizard for creating new reservations
- * - CloudFormation stack deployment guide
  *
- * API Endpoints:
- * - GET /api/flexcompute/auth/status - Check CloudiDR auth
- * - POST /api/flexcompute/auth - Authenticate with CloudiDR
- * - GET /api/flexcompute/capacity - List capacities
- * - POST /api/flexcompute/capacity/search - Search capacity
- * - PUT /api/flexcompute/capacity/configure - Configure capacity
- * - POST /api/flexcompute/capacity/purchase - Purchase capacity
+ * CloudiDR authentication is handled automatically by the backend
+ * using credentials from application.properties.
  */
 
 import React, { useState, useMemo } from 'react';
@@ -22,16 +15,11 @@ import { useFlexComputeData } from '../hooks/useFlexComputeData';
 import FlexComputeKPICards from '../components/FlexCompute/FlexComputeKPICards';
 import FlexComputeTable from '../components/FlexCompute/FlexComputeTable';
 import FlexComputeWizard from '../components/FlexCompute/FlexComputeWizard';
-import CloudiDRAuthModal from '../components/FlexCompute/CloudiDRAuthModal';
 import type { FlexComputeTab } from '../types/flexCompute';
 
 const FlexComputePage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<FlexComputeTab>('dashboard');
   const {
-    authStatus,
-    authLoading,
-    authenticateCloudIDR,
-    disconnectCloudIDR,
     capacities,
     kpis,
     isLoading,
@@ -74,34 +62,9 @@ const FlexComputePage: React.FC = () => {
     setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 4000);
   };
 
-  // Auth loading state
-  if (authLoading) {
-    return (
-      <div className="flex-1 flex items-center justify-center min-h-screen">
-        <div className="text-gray-500">
-          <i className="fas fa-spinner fa-spin mr-2"></i>
-          Checking CloudiDR connection...
-        </div>
-      </div>
-    );
-  }
-
-  // Not authenticated - show auth modal
-  if (!authStatus.authenticated) {
-    return (
-      <main className="flex-1 flex flex-col bg-transparent">
-        <div className="bg-white border-b border-gray-200 px-8 py-6">
-          <h1 className="text-2xl font-bold text-gray-900">Flex Compute</h1>
-          <p className="text-sm text-gray-500 mt-1">Connect to CloudiDR to manage scheduled EC2 capacity</p>
-        </div>
-        <CloudiDRAuthModal onAuthenticate={authenticateCloudIDR} error={error} />
-      </main>
-    );
-  }
-
   return (
     <main className="flex-1 flex flex-col bg-transparent">
-      {/* Top Bar: Tabs + Action Buttons */}
+      {/* Top Bar: Tabs + Refresh */}
       <div className="bg-white border-b border-gray-200 px-8">
         <div className="flex items-center justify-between">
           {/* Tabs */}
@@ -130,27 +93,15 @@ const FlexComputePage: React.FC = () => {
             </button>
           </nav>
 
-          {/* Action Buttons */}
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => fetchCapacities()}
-              disabled={isLoading}
-              className="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg hover:from-blue-700 hover:to-indigo-700 transition-all disabled:opacity-50"
-            >
-              <i className={`fas fa-sync-alt mr-2 ${isLoading ? 'animate-spin' : ''}`}></i>
-              Refresh
-            </button>
-            <button
-              onClick={async () => {
-                await disconnectCloudIDR();
-                showToast('Disconnected from CloudiDR');
-              }}
-              className="px-3 py-2 text-sm font-medium text-gray-500 hover:text-red-600 transition-colors"
-              title="Disconnect CloudiDR"
-            >
-              <i className="fas fa-sign-out-alt"></i>
-            </button>
-          </div>
+          {/* Refresh Button */}
+          <button
+            onClick={() => fetchCapacities()}
+            disabled={isLoading}
+            className="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg hover:from-blue-700 hover:to-indigo-700 transition-all disabled:opacity-50"
+          >
+            <i className={`fas fa-sync-alt mr-2 ${isLoading ? 'animate-spin' : ''}`}></i>
+            Refresh
+          </button>
         </div>
       </div>
 
