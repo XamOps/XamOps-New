@@ -1,20 +1,26 @@
 package com.xammer.cloud.controller;
 
+import com.xammer.cloud.domain.User;
 import com.xammer.cloud.dto.flexcompute.*;
+import com.xammer.cloud.repository.UserRepository;
 import com.xammer.cloud.security.ClientUserDetails;
+import com.xammer.cloud.service.CapacityMonitoringService;
+import com.xammer.cloud.service.CapacityNotificationEmailBuilder;
+import com.xammer.cloud.service.EmailService;
 import com.xammer.cloud.service.FlexComputeService;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.client.HttpClientErrorException;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+
 
 @RestController
 @RequestMapping("/api/flexcompute")
@@ -23,6 +29,10 @@ public class FlexComputeController {
     private static final Logger logger = LoggerFactory.getLogger(FlexComputeController.class);
 
     private final FlexComputeService flexComputeService;
+    private final CapacityMonitoringService capacityMonitoringService;
+    private final EmailService emailService;
+    private final CapacityNotificationEmailBuilder emailBuilder;
+    private final UserRepository userRepository;
 
     @Value("${cloudidr.cloudformation.template-url:}")
     private String cloudFormationTemplateUrl;
@@ -30,8 +40,19 @@ public class FlexComputeController {
     @Value("${cloudidr.cloudformation.stack-name:XamOps-CloudiDR-Integration}")
     private String cloudFormationStackName;
 
-    public FlexComputeController(FlexComputeService flexComputeService) {
+    @Value("${capacity.purchase.email.enabled:true}")
+    private boolean purchaseEmailEnabled;
+
+    public FlexComputeController(FlexComputeService flexComputeService,
+                                 CapacityMonitoringService capacityMonitoringService,
+                                 EmailService emailService,
+                                 CapacityNotificationEmailBuilder emailBuilder,
+                                 UserRepository userRepository) {
         this.flexComputeService = flexComputeService;
+        this.capacityMonitoringService = capacityMonitoringService;
+        this.emailService = emailService;
+        this.emailBuilder = emailBuilder;
+        this.userRepository = userRepository;
     }
 
     /**
@@ -199,6 +220,12 @@ public class FlexComputeController {
         try {
             Long userId = userDetails.getId();
             SearchCapacityResponse response = flexComputeService.purchaseCapacity(userId, request);
+
+            // Send purchase confirmation email
+            if (purchaseEmailEnabled) {
+                sendPurchaseConfirmationEmail(userId, request.getCidrId());
+            }
+
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             logger.error("FlexCompute purchase-capacity failed: {}", e.getMessage());
@@ -292,7 +319,88 @@ public class FlexComputeController {
         return ResponseEntity.ok(result);
     }
 
+    /**
+     * POST /api/flexcompute/capacity/monitor - Manually trigger capacity monitoring for current user
+     */
+    @PostMapping("/capacity/monitor")
+    public ResponseEntity<?> triggerCapacityMonitoring(@AuthenticationPrincipal ClientUserDetails userDetails) {
+        try {
+            Long userId = userDetails.getId();
+            logger.info("Manual capacity monitoring triggered for user {}", userId);
+            capacityMonitoringService.triggerManualMonitoring(userId);
+
+            Map<String, Object> result = new HashMap<>();
+            result.put("success", true);
+            result.put("message", "Capacity monitoring triggered successfully");
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            logger.error("FlexCompute manual monitoring failed: {}", e.getMessage());
+            return handleError(e);
+        }
+    }
+
+    /**
+     * Helper method to send purchase confirmation email
+     */
+    private void sendPurchaseConfirmationEmail(Long userId, String cidrId) {
+        try {
+            // Get user email
+            Optional<User> userOpt = userRepository.findById(userId);
+            if (!userOpt.isPresent() || userOpt.get().getEmail() == null || userOpt.get().getEmail().isEmpty()) {
+                logger.warn("Cannot send purchase email - user {} has no email address", userId);
+                return;
+            }
+
+            String userEmail = userOpt.get().getEmail();
+
+            // Fetch capacity details using describeCapacity (get first page with this specific cidrId)
+            CapacityListResponse capacityList = flexComputeService.describeCapacity(userId, 1, 100, "desc", null);
+
+            if (capacityList == null || capacityList.getValues() == null) {
+                logger.warn("Cannot send purchase email - no capacity data returned for cidrId {}", cidrId);
+                return;
+            }
+
+            // Find the purchased capacity in the list
+            Optional<CapacityDescriptionResponse> purchasedCapacity = capacityList.getValues().stream()
+                    .filter(c -> cidrId.equals(c.getCidrId()))
+                    .findFirst();
+
+            if (!purchasedCapacity.isPresent()) {
+                logger.warn("Cannot send purchase email - capacity {} not found in list", cidrId);
+                return;
+            }
+
+            CapacityDescriptionResponse capacity = purchasedCapacity.get();
+
+            // Build and send email
+            String htmlBody = emailBuilder.buildCapacityPurchaseEmail(capacity, userEmail);
+            String subject = String.format("XamOps FlexCompute - Capacity Purchase Confirmed: %s", capacity.getPolicyName());
+
+            emailService.sendHtmlEmail(userEmail, subject, htmlBody);
+
+            logger.info("Purchase confirmation email sent to {} for capacity {}", userEmail, cidrId);
+
+        } catch (Exception e) {
+            // Don't fail the purchase if email fails - just log the error
+            logger.error("Failed to send purchase confirmation email for capacity {}: {}", cidrId, e.getMessage(), e);
+        }
+    }
+
     private ResponseEntity<?> handleError(Exception e) {
+        // If the root cause is a CloudiDR HTTP error, forward its JSON body directly
+        // so the frontend can display the exact CloudiDR error description.
+        Throwable cause = e.getCause();
+        if (cause instanceof HttpClientErrorException) {
+            HttpClientErrorException httpEx = (HttpClientErrorException) cause;
+            String body = httpEx.getResponseBodyAsString();
+            if (body != null && !body.isBlank()) {
+                return ResponseEntity.status(httpEx.getStatusCode())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(body);
+            }
+        }
+
         String message = e.getMessage();
         HttpStatus status = HttpStatus.INTERNAL_SERVER_ERROR;
 

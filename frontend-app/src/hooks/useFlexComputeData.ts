@@ -159,6 +159,117 @@ export const useFlexComputeData = () => {
   }, []);
 
   /**
+   * Compute the UTC offset for a given IANA timezone as a whole-number INTEGER of hours.
+   * Backend field is java.lang.Integer, valid range -18 to +18.
+   * Uses Intl so DST is handled automatically for the current moment.
+   * Fractional-hour timezones (e.g. IST +5:30, Nepal +5:45) are rounded to nearest integer.
+   */
+  const getUtcOffsetHours = (timezone: string): number => {
+    const now = new Date();
+    const utcStr = now.toLocaleString('sv-SE', { timeZone: 'UTC' });
+    const tzStr  = now.toLocaleString('sv-SE', { timeZone: timezone });
+    const utcDate = new Date(utcStr.replace(' ', 'T') + 'Z');
+    const tzDate  = new Date(tzStr.replace(' ', 'T') + 'Z');
+    const offsetMinutes = (tzDate.getTime() - utcDate.getTime()) / 60000;
+    return Math.round(offsetMinutes / 60);
+  };
+
+  /**
+   * Convert a wall-clock datetime string ("YYYY-MM-DDTHH:mm") entered in the given
+   * IANA timezone into UTC date ("MM/DD/YYYY") and time ("HH:mm") strings.
+   *
+   * The backend compares startTime directly against server UTC — so we must
+   * send UTC, not local wall-clock time.
+   *
+   * Algorithm: treat wall-clock as provisional UTC → ask Intl what the target
+   * timezone would show at that moment → shift by the difference to reach actual UTC.
+   */
+  const wallClockToUtc = (datetimeStr: string, timezone: string): { date: string; time: string } => {
+    const [datePart, timePart] = datetimeStr.split('T');
+    const [year, month, day] = datePart.split('-').map(Number);
+    const [hours, minutes] = (timePart || '00:00').split(':').map(Number);
+
+    // Step 1: provisional UTC using wall-clock components
+    const provisional = new Date(Date.UTC(year, month - 1, day, hours, minutes));
+
+    // Step 2: what does the target timezone show at this provisional UTC?
+    const tzStr = provisional.toLocaleString('sv-SE', { timeZone: timezone });
+    const [tzDatePart, tzTimePart] = tzStr.split(' ');
+    const [ty, tm, td] = tzDatePart.split('-').map(Number);
+    const [th, tmin] = tzTimePart.split(':').map(Number);
+
+    // Step 3: correction = (what we want) − (what timezone currently shows)
+    const wantedMs = Date.UTC(year, month - 1, day, hours, minutes);
+    const gotMs    = Date.UTC(ty, tm - 1, td, th, tmin);
+    const actualUtc = new Date(provisional.getTime() + (wantedMs - gotMs));
+
+    // Step 4: round to nearest 15-min interval in UTC
+    const r = Math.round(actualUtc.getUTCMinutes() / 15) * 15;
+    if (r === 60) {
+      actualUtc.setUTCHours(actualUtc.getUTCHours() + 1);
+      actualUtc.setUTCMinutes(0);
+    } else {
+      actualUtc.setUTCMinutes(r);
+    }
+
+    return {
+      date: `${String(actualUtc.getUTCMonth() + 1).padStart(2, '0')}/${String(actualUtc.getUTCDate()).padStart(2, '0')}/${actualUtc.getUTCFullYear()}`,
+      time: `${String(actualUtc.getUTCHours()).padStart(2, '0')}:${String(actualUtc.getUTCMinutes()).padStart(2, '0')}`,
+    };
+  };
+
+  /**
+   * Parse API error responses into user-friendly messages
+   */
+  const parseApiError = (status: number, errorData: any, operation: string): string => {
+    // CloudiDR nested error format:
+    // { error: { code, message, details: { description, timestamp } } }
+    const cloudidrDesc = errorData?.error?.details?.description;
+    if (typeof cloudidrDesc === 'string' && cloudidrDesc.trim()) return cloudidrDesc;
+
+    // CloudiDR simple error string
+    if (typeof errorData?.error === 'string') return errorData.error;
+
+    // Flat field error: { field: "startDate", message: "..." }
+    if (errorData?.field && errorData?.message) {
+      const fieldLabels: Record<string, string> = {
+        startDate: 'Start Date', endDate: 'End Date',
+        startTime: 'Start Time', endTime: 'End Time',
+        instanceType: 'Instance Type', quantity: 'Quantity',
+        zoneId: 'Availability Zone', region: 'Region',
+        accountId: 'CSP Account', platform: 'Platform',
+        utcOffsetHours: 'Timezone',
+      };
+      const label = fieldLabels[errorData.field] || errorData.field;
+      return `${label}: ${errorData.message}`;
+    }
+
+    // Array of validation errors
+    if (Array.isArray(errorData?.errors) && errorData.errors.length > 0) {
+      return errorData.errors.map((e: any) => {
+        const label = e.field ? `${e.field}: ` : '';
+        return `${label}${e.message || e.defaultMessage || JSON.stringify(e)}`;
+      }).join(' | ');
+    }
+
+    // Plain message string
+    if (typeof errorData?.message === 'string') return errorData.message;
+
+    // HTTP status fallbacks
+    switch (status) {
+      case 400: return `Invalid request for ${operation}. Please check your inputs and try again.`;
+      case 401: return 'Session expired. Please refresh the page and log in again.';
+      case 403: return 'You do not have permission to perform this action.';
+      case 404: return `No capacity found matching your criteria. Try different instance type, region, or dates.`;
+      case 409: return 'This capacity is no longer available. Please search again.';
+      case 422: return 'One or more fields are invalid. Please review your inputs.';
+      case 500: return 'A server error occurred. Please try again in a moment.';
+      case 503: return 'The capacity service is temporarily unavailable. Please try again shortly.';
+      default: return `${operation.charAt(0).toUpperCase() + operation.slice(1)} failed (HTTP ${status}). Please try again.`;
+    }
+  };
+
+  /**
    * Search capacity (wizard step 1)
    */
   const searchCapacity = useCallback(async (form: SearchCapacityForm): Promise<CapacityPricing | null> => {
@@ -167,29 +278,9 @@ export const useFlexComputeData = () => {
       setError(null);
       setSearchResult(null);
 
-      const formatDateForAPI = (datetimeStr: string): string => {
-        if (!datetimeStr) return '';
-        const date = new Date(datetimeStr);
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const day = String(date.getDate()).padStart(2, '0');
-        const year = date.getFullYear();
-        return `${month}/${day}/${year}`;
-      };
-
-      const getUtcOffsetHours = (timezone: string): number => {
-        const timezoneOffsets: { [key: string]: number } = {
-          'America/Los_Angeles': -8,
-          'America/Denver': -7,
-          'America/Chicago': -6,
-          'America/New_York': -5,
-          'Europe/London': 0,
-          'Europe/Berlin': 1,
-          'Asia/Kolkata': 5.5,
-          'Asia/Tokyo': 9,
-          'Australia/Sydney': 11,
-        };
-        return timezoneOffsets[timezone] || 0;
-      };
+      // Convert wall-clock times to UTC before sending — backend validates against server UTC
+      const startUtc = wallClockToUtc(form.startDate, form.timeZone);
+      const endUtc   = wallClockToUtc(form.endDate,   form.timeZone);
 
       const response = await fetch('/api/flexcompute/capacity/search', {
         method: 'POST',
@@ -199,8 +290,8 @@ export const useFlexComputeData = () => {
           instanceType: form.instanceType,
           platform: form.platform,
           zoneId: form.zoneId,
-          startDate: formatDateForAPI(form.startDate),
-          endDate: formatDateForAPI(form.endDate),
+          startDate: startUtc.date,
+          endDate: endUtc.date,
           utcOffsetHours: getUtcOffsetHours(form.timeZone),
           quantity: form.quantity,
           region: form.region,
@@ -209,8 +300,8 @@ export const useFlexComputeData = () => {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Search failed');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(parseApiError(response.status, errorData, 'search'));
       }
 
       const data = await response.json();
@@ -255,40 +346,9 @@ export const useFlexComputeData = () => {
         throw new Error('Missing required fields for reservation');
       }
 
-      const formatDate = (datetimeStr: string): string => {
-        if (!datetimeStr) return '';
-        const date = new Date(datetimeStr);
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const day = String(date.getDate()).padStart(2, '0');
-        const year = date.getFullYear();
-        return `${month}/${day}/${year}`;
-      };
-
-      const formatTime = (datetimeStr: string): string => {
-        if (!datetimeStr) return '';
-        const date = new Date(datetimeStr);
-        const hours = date.getHours();
-        const minutes = date.getMinutes();
-        const roundedMinutes = Math.round(minutes / 15) * 15;
-        const finalMinutes = roundedMinutes === 60 ? 0 : roundedMinutes;
-        const finalHours = roundedMinutes === 60 ? (hours + 1) % 24 : hours;
-        return `${String(finalHours).padStart(2, '0')}:${String(finalMinutes).padStart(2, '0')}`;
-      };
-
-      const getUtcOffsetHours = (timezone: string): string => {
-        const timezoneOffsets: { [key: string]: string } = {
-          'America/Los_Angeles': '-8',
-          'America/Denver': '-7',
-          'America/Chicago': '-6',
-          'America/New_York': '-5',
-          'Europe/London': '0',
-          'Europe/Berlin': '1',
-          'Asia/Kolkata': '5.5',
-          'Asia/Tokyo': '9',
-          'Australia/Sydney': '11',
-        };
-        return timezoneOffsets[timezone] || '0';
-      };
+      // Convert wall-clock times to UTC — backend validates startTime against server UTC
+      const startUtc = wallClockToUtc(form.startDate, form.timeZone);
+      const endUtc   = wallClockToUtc(form.endDate,   form.timeZone);
 
       const requestBody = {
         accountId: form.cspAccount,
@@ -296,10 +356,10 @@ export const useFlexComputeData = () => {
         policyName: form.capacityName,
         instanceType: form.instanceType,
         platform: form.platform,
-        startDate: formatDate(form.startDate),
-        endDate: formatDate(form.endDate),
-        startTime: formatTime(form.startDate),
-        endTime: formatTime(form.endDate),
+        startDate: startUtc.date,
+        endDate: endUtc.date,
+        startTime: startUtc.time,
+        endTime: endUtc.time,
         utcOffsetHours: getUtcOffsetHours(form.timeZone),
         quantity: form.quantity,
       };
@@ -314,10 +374,9 @@ export const useFlexComputeData = () => {
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
-        const errorMessage = errorData.error || `Reserve failed with status ${response.status}`;
+        const errorData = await response.json().catch(() => ({}));
         console.error('[FlexCompute] Reserve capacity error response:', errorData);
-        throw new Error(errorMessage);
+        throw new Error(parseApiError(response.status, errorData, 'reserve'));
       }
 
       const data = await response.json();
@@ -371,7 +430,8 @@ export const useFlexComputeData = () => {
   /**
    * Purchase capacity (wizard step 3)
    */
-  const purchaseCapacity = useCallback(async (capacityId: string): Promise<boolean> => {
+  // Returns null on success, error message string on failure
+  const purchaseCapacity = useCallback(async (capacityId: string): Promise<string | null> => {
     try {
       setIsPurchasing(true);
       setError(null);
@@ -387,17 +447,18 @@ export const useFlexComputeData = () => {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Purchase failed');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(parseApiError(response.status, errorData, 'purchase'));
       }
 
       await fetchCapacities();
       await fetchKpis();
-      return true;
+      return null;
     } catch (err) {
       console.error('[FlexCompute] Purchase capacity failed:', err);
-      setError(err instanceof Error ? err.message : 'Purchase failed');
-      return false;
+      const msg = err instanceof Error ? err.message : 'Purchase failed';
+      setError(msg);
+      return msg;
     } finally {
       setIsPurchasing(false);
     }

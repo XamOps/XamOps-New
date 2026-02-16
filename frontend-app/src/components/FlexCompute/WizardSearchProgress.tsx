@@ -24,6 +24,13 @@ const WizardSearchProgress: React.FC<WizardSearchProgressProps> = ({ status, isS
   const [progress, setProgress] = useState(0);
 
   useEffect(() => {
+    // Complete animations when search finishes
+    if (!isSearching && status) {
+      setProgress(100);
+      setCurrentStep(steps.length - 1);
+      return;
+    }
+
     const stepInterval = setInterval(() => {
       setCurrentStep((prev) => {
         if (prev < steps.length - 1) return prev + 1;
@@ -42,7 +49,7 @@ const WizardSearchProgress: React.FC<WizardSearchProgressProps> = ({ status, isS
       clearInterval(stepInterval);
       clearInterval(progressInterval);
     };
-  }, []);
+  }, [isSearching, status]);
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-12">
@@ -131,17 +138,28 @@ const WizardSearchProgress: React.FC<WizardSearchProgressProps> = ({ status, isS
           <div className="mt-8 flex gap-4">
             <button
               onClick={onBack}
-              className="flex-1 py-3 px-6 bg-white border-2 border-gray-300 text-gray-700 font-semibold rounded-xl hover:bg-gray-50 transition-all"
+              disabled={isSearching}
+              className="flex-1 py-3 px-6 bg-white border-2 border-gray-300 text-gray-700 font-semibold rounded-xl hover:bg-gray-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <i className="fas fa-arrow-left mr-2"></i>
               Back to Search
             </button>
             <button
               onClick={onNext}
-              className="flex-1 py-3 px-6 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all shadow-lg"
+              disabled={isSearching}
+              className="flex-1 py-3 px-6 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Continue to Configure
-              <i className="fas fa-arrow-right ml-2"></i>
+              {isSearching ? (
+                <>
+                  <i className="fas fa-spinner fa-spin mr-2"></i>
+                  Processing...
+                </>
+              ) : (
+                <>
+                  Continue to Configure
+                  <i className="fas fa-arrow-right ml-2"></i>
+                </>
+              )}
             </button>
           </div>
         )}

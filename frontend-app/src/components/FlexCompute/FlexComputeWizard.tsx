@@ -37,7 +37,7 @@ interface FlexComputeWizardProps {
   searchCapacity: (form: SearchCapacityForm) => Promise<CapacityPricing | null>;
   reserveCapacity: (form: SearchCapacityForm) => Promise<any>;
   configureCapacity: (form: ConfigureCapacityForm) => Promise<boolean>;
-  purchaseCapacity: (capacityId: string) => Promise<boolean>;
+  purchaseCapacity: (capacityId: string) => Promise<string | null>;
   isSearching: boolean;
   isPurchasing: boolean;
   onComplete: () => void;
@@ -60,6 +60,7 @@ const FlexComputeWizard: React.FC<FlexComputeWizardProps> = ({
   const [searchStatus, setSearchStatus] = useState<string | undefined>(undefined);
   const [reservationData, setReservationData] = useState<any>(null); // Store the reserve response (cidrId, pricing, etc.)
   const [isReserving, setIsReserving] = useState(false);
+  const [purchaseError, setPurchaseError] = useState<string | null>(null);
 
   const handleSearch = async () => {
     setStep('searching');
@@ -178,9 +179,12 @@ const FlexComputeWizard: React.FC<FlexComputeWizardProps> = ({
   const handlePurchase = async () => {
     if (!pricing?.capacityId) return;
 
-    const success = await purchaseCapacity(pricing.capacityId);
-    if (success) {
+    setPurchaseError(null);
+    const errMsg = await purchaseCapacity(pricing.capacityId);
+    if (errMsg === null) {
       setStep('complete');
+    } else {
+      setPurchaseError(errMsg);
     }
   };
 
@@ -278,6 +282,7 @@ const FlexComputeWizard: React.FC<FlexComputeWizardProps> = ({
           onPurchase={handlePurchase}
           onBack={() => setStep('configure')}
           isPurchasing={isPurchasing}
+          purchaseError={purchaseError}
         />
       )}
 

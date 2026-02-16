@@ -131,7 +131,7 @@ const CloudFormationSetup: React.FC<CloudFormationSetupProps> = ({ isOpen, onClo
           {/* Info */}
           <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-xs text-blue-700">
             <i className="fas fa-info-circle mr-1.5"></i>
-            This stack creates a read-only IAM role that allows CloudiDR to manage EC2 capacity on your behalf.
+            This stack creates a read-only IAM role that allows XamOps to manage EC2 capacity on your behalf.
             You can delete the stack at any time from the AWS CloudFormation console.
           </div>
         </div>
