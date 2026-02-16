@@ -95,10 +95,10 @@ const ViewCapacityDetailModal: React.FC<ViewCapacityDetailModalProps> = ({ capac
 
   return (
     <>
-      {/* Backdrop */}
-      <div className="fixed inset-0 bg-black/50 z-50" onClick={onClose} />
+      {/* Backdrop - Lower z-index with stronger blur */}
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40" onClick={onClose} />
 
-      {/* Modal Container - Fixed positioning with internal scroll */}
+      {/* Modal Container - Higher z-index above backdrop */}
       <div className="fixed inset-0 z-50 overflow-hidden pointer-events-none flex items-center justify-center p-4">
         <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-6xl max-h-[90vh] overflow-hidden pointer-events-auto flex flex-col">
 

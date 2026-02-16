@@ -15,6 +15,7 @@ interface WizardStep3ReviewProps {
   onPurchase: () => void;
   onBack: () => void;
   isPurchasing: boolean;
+  purchaseError?: string | null;
 }
 
 const formatCurrency = (value: number): string => {
@@ -32,6 +33,7 @@ const WizardStep3Review: React.FC<WizardStep3ReviewProps> = ({
   onPurchase,
   onBack,
   isPurchasing,
+  purchaseError,
 }) => {
   const [termsAccepted, setTermsAccepted] = useState(false);
 
@@ -76,50 +78,45 @@ const WizardStep3Review: React.FC<WizardStep3ReviewProps> = ({
 
       <div className="p-6 space-y-6">
         {/* 15-Minute Countdown Timer */}
-        <div className={`rounded-xl p-4 border-2 transition-all ${
-          isTimeCritical
-            ? 'bg-red-50 border-red-400'
-            : isTimeWarning
+        <div className={`rounded-xl p-4 border-2 transition-all ${isTimeCritical
+          ? 'bg-red-50 border-red-400'
+          : isTimeWarning
             ? 'bg-yellow-50 border-yellow-400'
             : 'bg-blue-50 border-blue-300'
-        }`}>
+          }`}>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
-                isTimeCritical
-                  ? 'bg-red-100 text-red-600'
-                  : isTimeWarning
+              <div className={`w-12 h-12 rounded-full flex items-center justify-center ${isTimeCritical
+                ? 'bg-red-100 text-red-600'
+                : isTimeWarning
                   ? 'bg-yellow-100 text-yellow-600'
                   : 'bg-blue-100 text-blue-600'
-              }`}>
+                }`}>
                 <i className={`fas fa-clock text-xl ${isTimeCritical ? 'animate-pulse' : ''}`}></i>
               </div>
               <div>
-                <p className={`text-sm font-semibold ${
-                  isTimeCritical ? 'text-red-900' : isTimeWarning ? 'text-yellow-900' : 'text-blue-900'
-                }`}>
+                <p className={`text-sm font-semibold ${isTimeCritical ? 'text-red-900' : isTimeWarning ? 'text-yellow-900' : 'text-blue-900'
+                  }`}>
                   {timeRemaining === 0 ? 'Reservation Expired' : 'Reservation Time Remaining'}
                 </p>
-                <p className={`text-xs ${
-                  isTimeCritical ? 'text-red-700' : isTimeWarning ? 'text-yellow-700' : 'text-blue-700'
-                }`}>
+                <p className={`text-xs ${isTimeCritical ? 'text-red-700' : isTimeWarning ? 'text-yellow-700' : 'text-blue-700'
+                  }`}>
                   {timeRemaining === 0
                     ? 'Please search and reserve again'
                     : isTimeCritical
-                    ? 'Complete purchase immediately!'
-                    : isTimeWarning
-                    ? 'Complete your purchase soon'
-                    : 'Complete your purchase within 15 minutes'}
+                      ? 'Complete purchase immediately!'
+                      : isTimeWarning
+                        ? 'Complete your purchase soon'
+                        : 'Complete your purchase within 15 minutes'}
                 </p>
               </div>
             </div>
-            <div className={`text-3xl font-mono font-bold ${
-              isTimeCritical
-                ? 'text-red-600'
-                : isTimeWarning
+            <div className={`text-3xl font-mono font-bold ${isTimeCritical
+              ? 'text-red-600'
+              : isTimeWarning
                 ? 'text-yellow-600'
                 : 'text-blue-600'
-            } ${isTimeCritical ? 'animate-pulse' : ''}`}>
+              } ${isTimeCritical ? 'animate-pulse' : ''}`}>
               {formatTime(timeRemaining)}
             </div>
           </div>
@@ -270,10 +267,18 @@ const WizardStep3Review: React.FC<WizardStep3ReviewProps> = ({
             <span className="text-sm text-gray-700">
               I agree to the{' '}
               <a href="#" className="text-blue-600 underline hover:text-blue-800">Terms & Conditions</a>{' '}
-              and authorize CloudiDR to manage EC2 capacity in my AWS account as described above.
+              and authorize XamOps to manage EC2 capacity in my AWS account as described above.
             </span>
           </label>
         </div>
+
+        {/* Purchase Error */}
+        {purchaseError && (
+          <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-300 rounded-xl text-sm text-red-700">
+            <i className="fas fa-exclamation-circle mt-0.5 flex-shrink-0"></i>
+            <span>{purchaseError}</span>
+          </div>
+        )}
 
         {/* Actions */}
         <div className="flex items-center justify-between pt-2">

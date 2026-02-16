@@ -4,7 +4,7 @@
  * Form for searching available capacity: name, account, region, instance type, etc.
  */
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import type { SearchCapacityForm } from '../../types/flexCompute';
 import { INSTANCE_TYPES, TIME_ZONES } from '../../types/flexCompute';
 
@@ -37,39 +37,77 @@ const WizardStep1Search: React.FC<WizardStep1SearchProps> = ({
   isSearching,
   accounts,
 }) => {
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    onSearch();
-  };
+  const [startDateError, setStartDateError] = useState('');
+  const [endDateError, setEndDateError] = useState('');
 
-  // Round datetime to nearest 15-minute increment
+  // Round wall-clock datetime string to nearest 15-minute increment (pure string math, no timezone conversion)
   const roundToQuarterHour = (datetimeStr: string): string => {
     if (!datetimeStr) return datetimeStr;
-
-    const date = new Date(datetimeStr);
-    const minutes = date.getMinutes();
-
-    // Round to nearest 15-minute increment
+    const [datePart, timePart] = datetimeStr.split('T');
+    const [hoursStr, minutesStr] = (timePart || '00:00').split(':');
+    let hours = parseInt(hoursStr, 10);
+    const minutes = parseInt(minutesStr, 10);
     const roundedMinutes = Math.round(minutes / 15) * 15;
-
     if (roundedMinutes === 60) {
-      date.setHours(date.getHours() + 1);
-      date.setMinutes(0);
-    } else {
-      date.setMinutes(roundedMinutes);
+      hours = (hours + 1) % 24;
+      return `${datePart}T${String(hours).padStart(2, '0')}:00`;
     }
-
-    // Format back to datetime-local format (YYYY-MM-DDTHH:mm)
-    return date.toISOString().slice(0, 16);
+    return `${datePart}T${String(hours).padStart(2, '0')}:${String(roundedMinutes).padStart(2, '0')}`;
   };
 
-  // Calculate minimum start time (30 minutes from now)
+  // Minimum start time = 30 min from now, rounded up to next 15-min slot,
+  // expressed as wall-clock time in the USER-SELECTED timezone (not browser local time).
+  // Uses Intl API with the IANA timezone name so DST is handled automatically.
   const minStartTime = useMemo(() => {
-    const now = new Date();
-    now.setMinutes(now.getMinutes() + 30);
-    // Format: YYYY-MM-DDTHH:mm (datetime-local format)
-    return now.toISOString().slice(0, 16);
-  }, []);
+    const future = new Date();
+    future.setMinutes(future.getMinutes() + 30);
+
+    // 'sv-SE' locale gives ISO-like "YYYY-MM-DD HH:mm:ss" in the requested timezone
+    const tzString = future.toLocaleString('sv-SE', { timeZone: form.timeZone });
+    // tzString example: "2026-02-16 14:37:00"
+    const [datePart, timePart] = tzString.split(' ');
+    const [h, m] = timePart.split(':').map(Number);
+
+    // Round UP to next 15-min slot
+    const roundedUp = Math.ceil(m / 15) * 15;
+    const finalH = roundedUp >= 60 ? (h + 1) % 24 : h;
+    const finalM = roundedUp >= 60 ? 0 : roundedUp;
+
+    return `${datePart}T${String(finalH).padStart(2, '0')}:${String(finalM).padStart(2, '0')}`;
+  }, [form.timeZone]);
+
+  const handleStartDateChange = (rawValue: string) => {
+    setStartDateError('');
+    setEndDateError('');
+    const rounded = roundToQuarterHour(rawValue);
+    if (rounded < minStartTime) {
+      setStartDateError('Start time must be at least 30 minutes from now.');
+      return;
+    }
+    // Clear end date if it's no longer strictly after the new start date
+    if (form.endDate && form.endDate <= rounded) {
+      onChange({ startDate: rounded, endDate: '' });
+      setEndDateError('End date/time must be after the start date/time.');
+    } else {
+      onChange({ startDate: rounded });
+    }
+  };
+
+  const handleEndDateChange = (rawValue: string) => {
+    setEndDateError('');
+    const rounded = roundToQuarterHour(rawValue);
+    if (form.startDate && rounded <= form.startDate) {
+      setEndDateError('End date/time must be strictly after the start date/time.');
+      return;
+    }
+    onChange({ endDate: rounded });
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (startDateError || endDateError) return;
+    onSearch();
+  };
 
   // Get available regions for selected CSP account
   const availableRegions = useMemo(() => {
@@ -88,6 +126,32 @@ const WizardStep1Search: React.FC<WizardStep1SearchProps> = ({
       value: `${region.operatingCspRegionAz.regionCode}/${region.operatingCspRegionAz.availabilityZoneId}`,
     }));
   }, [form.cspAccount, accounts]);
+
+  // Re-validate start date when timezone changes (min shifts, existing value may become invalid)
+  const handleTimezoneChange = (tz: string) => {
+    onChange({ timeZone: tz });
+    // minStartTime will recompute on next render; clear error optimistically,
+    // then the comparison in handleStartDateChange re-checks on next user interaction.
+    // Also proactively clear if current start date would become past in new timezone.
+    if (form.startDate) {
+      const future = new Date();
+      future.setMinutes(future.getMinutes() + 30);
+      const tzString = future.toLocaleString('sv-SE', { timeZone: tz });
+      const [datePart, timePart] = tzString.split(' ');
+      const [h, m] = timePart.split(':').map(Number);
+      const roundedUp = Math.ceil(m / 15) * 15;
+      const finalH = roundedUp >= 60 ? (h + 1) % 24 : h;
+      const finalM = roundedUp >= 60 ? 0 : roundedUp;
+      const newMin = `${datePart}T${String(finalH).padStart(2, '0')}:${String(finalM).padStart(2, '0')}`;
+      if (form.startDate < newMin) {
+        onChange({ timeZone: tz, startDate: '', endDate: '' });
+        setStartDateError('Start time is now in the past for the selected timezone. Please re-select.');
+        setEndDateError('');
+      } else {
+        setStartDateError('');
+      }
+    }
+  };
 
   // Handle region/zone selection
   const handleRegionZoneChange = (value: string) => {
@@ -124,7 +188,9 @@ const WizardStep1Search: React.FC<WizardStep1SearchProps> = ({
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">CSP Account</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              CSP Account <span className="text-red-500">*</span>
+            </label>
             <select
               value={form.cspAccount}
               onChange={(e) => onChange({ cspAccount: e.target.value })}
@@ -133,7 +199,7 @@ const WizardStep1Search: React.FC<WizardStep1SearchProps> = ({
             >
               <option value="">Select account...</option>
               {accounts.map((acc) => (
-                <option key={acc.id} value={acc.id}>{acc.name} ({acc.id})</option>
+                <option key={acc.id} value={acc.id}>{acc.alias} ({acc.cspAccountId})</option>
               ))}
             </select>
           </div>
@@ -142,7 +208,7 @@ const WizardStep1Search: React.FC<WizardStep1SearchProps> = ({
         {/* Row 2: Region/Zone Combined (CloudiDR style) */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1.5">
-            Regions Linked to Your CSP Account
+            Regions Linked to Your CSP Account <span className="text-red-500">*</span>
           </label>
           <select
             value={form.region && form.zoneId ? `${form.region}/${form.zoneId}` : ''}
@@ -169,7 +235,9 @@ const WizardStep1Search: React.FC<WizardStep1SearchProps> = ({
         {/* Row 3: Instance Type + Platform (fixed) + Tenancy (fixed) */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Instance Type</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              Instance Type <span className="text-red-500">*</span>
+            </label>
             <select
               value={form.instanceType}
               onChange={(e) => onChange({ instanceType: e.target.value })}
@@ -204,7 +272,9 @@ const WizardStep1Search: React.FC<WizardStep1SearchProps> = ({
         {/* Row 4: Quantity + Timezone */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Quantity</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              Quantity <span className="text-red-500">*</span>
+            </label>
             <input
               type="number"
               value={form.quantity}
@@ -218,7 +288,7 @@ const WizardStep1Search: React.FC<WizardStep1SearchProps> = ({
             <label className="block text-sm font-medium text-gray-700 mb-1.5">Time Zone</label>
             <select
               value={form.timeZone}
-              onChange={(e) => onChange({ timeZone: e.target.value })}
+              onChange={(e) => handleTimezoneChange(e.target.value)}
               className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
             >
               {TIME_ZONES.map((tz) => (
@@ -244,15 +314,24 @@ const WizardStep1Search: React.FC<WizardStep1SearchProps> = ({
             <input
               type="datetime-local"
               value={form.startDate}
-              onChange={(e) => onChange({ startDate: roundToQuarterHour(e.target.value) })}
+              onChange={(e) => handleStartDateChange(e.target.value)}
               min={minStartTime}
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              className={`w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none ${
+                startDateError ? 'border-red-400 bg-red-50' : 'border-gray-300'
+              }`}
               required
             />
-            <p className="text-xs text-gray-500 mt-1">
-              <i className="fas fa-info-circle mr-1"></i>
-              Earliest start time is 30 minutes from now. Times rounded to 15-min intervals (00, 15, 30, 45).
-            </p>
+            {startDateError ? (
+              <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
+                <i className="fas fa-exclamation-circle"></i>
+                {startDateError}
+              </p>
+            ) : (
+              <p className="text-xs text-gray-500 mt-1">
+                <i className="fas fa-info-circle mr-1"></i>
+                Earliest start time is 30 minutes from now. Times rounded to 15-min intervals.
+              </p>
+            )}
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">
@@ -264,15 +343,37 @@ const WizardStep1Search: React.FC<WizardStep1SearchProps> = ({
             <input
               type="datetime-local"
               value={form.endDate}
-              onChange={(e) => onChange({ endDate: roundToQuarterHour(e.target.value) })}
-              min={form.startDate || minStartTime}
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              onChange={(e) => handleEndDateChange(e.target.value)}
+              min={form.startDate ? (() => {
+                // min must be at least 15 min after start to enforce strictly-greater
+                const [datePart, timePart] = form.startDate.split('T');
+                const [h, m] = (timePart || '00:00').split(':').map(Number);
+                const nextSlot = m + 15;
+                if (nextSlot >= 60) return `${datePart}T${String(h + 1).padStart(2, '0')}:${String(nextSlot - 60).padStart(2, '0')}`;
+                return `${datePart}T${String(h).padStart(2, '0')}:${String(nextSlot).padStart(2, '0')}`;
+              })() : minStartTime}
+              disabled={!form.startDate}
+              className={`w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none ${
+                endDateError ? 'border-red-400 bg-red-50' : 'border-gray-300'
+              } disabled:bg-gray-50 disabled:text-gray-400 disabled:cursor-not-allowed`}
               required
             />
-            <p className="text-xs text-gray-500 mt-1">
-              <i className="fas fa-info-circle mr-1"></i>
-              Times rounded to 15-min intervals (00, 15, 30, 45).
-            </p>
+            {endDateError ? (
+              <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
+                <i className="fas fa-exclamation-circle"></i>
+                {endDateError}
+              </p>
+            ) : !form.startDate ? (
+              <p className="text-xs text-gray-400 mt-1">
+                <i className="fas fa-lock mr-1"></i>
+                Select a start date/time first.
+              </p>
+            ) : (
+              <p className="text-xs text-gray-500 mt-1">
+                <i className="fas fa-info-circle mr-1"></i>
+                Must be after start time. Times rounded to 15-min intervals.
+              </p>
+            )}
           </div>
         </div>
 
@@ -351,7 +452,20 @@ const WizardStep1Search: React.FC<WizardStep1SearchProps> = ({
         <div className="pt-2">
           <button
             type="submit"
-            disabled={isSearching || !form.capacityName || !form.cspAccount || !form.startDate || !form.endDate}
+            disabled={
+              isSearching ||
+              !form.capacityName ||
+              !form.cspAccount ||
+              !form.region ||
+              !form.zoneId ||
+              !form.instanceType ||
+              !form.quantity ||
+              form.quantity < 1 ||
+              !form.startDate ||
+              !form.endDate ||
+              !!startDateError ||
+              !!endDateError
+            }
             className="w-full py-3 px-6 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-blue-500/25"
           >
             {isSearching ? (

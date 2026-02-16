@@ -1,10 +1,14 @@
 package com.xammer.cloud.service;
 
+import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.CloudiDRCredentials;
 import com.xammer.cloud.domain.LinkedAccount;
+import com.xammer.cloud.domain.UserCloudAccountAccess;
 import com.xammer.cloud.dto.flexcompute.*;
+import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.CloudiDRCredentialsRepository;
 import com.xammer.cloud.repository.LinkedAccountRepository;
+import com.xammer.cloud.repository.UserCloudAccountAccessRepository;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,7 +19,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -26,6 +32,8 @@ public class FlexComputeService {
     private final CloudiDRApiClient apiClient;
     private final CloudiDRCredentialsRepository credentialsRepository;
     private final LinkedAccountRepository linkedAccountRepository;
+    private final UserCloudAccountAccessRepository userCloudAccountAccessRepository;
+    private final CloudAccountRepository cloudAccountRepository;
     private final EncryptionService encryptionService;
 
     @Value("${cloudidr.auth.email:}")
@@ -37,10 +45,14 @@ public class FlexComputeService {
     public FlexComputeService(CloudiDRApiClient apiClient,
                               CloudiDRCredentialsRepository credentialsRepository,
                               LinkedAccountRepository linkedAccountRepository,
+                              UserCloudAccountAccessRepository userCloudAccountAccessRepository,
+                              CloudAccountRepository cloudAccountRepository,
                               EncryptionService encryptionService) {
         this.apiClient = apiClient;
         this.credentialsRepository = credentialsRepository;
         this.linkedAccountRepository = linkedAccountRepository;
+        this.userCloudAccountAccessRepository = userCloudAccountAccessRepository;
+        this.cloudAccountRepository = cloudAccountRepository;
         this.encryptionService = encryptionService;
     }
 
@@ -235,6 +247,7 @@ public class FlexComputeService {
 
     /**
      * Get linked cloud accounts for the user (from CloudiDR API with accountRegions)
+     * SECURITY: Only returns accounts that are ACTIVE in CloudiDR AND user has access to in XamOps
      */
     public List<LinkedAccountResponse> getLinkedAccounts(Long userId) {
         logger.info("Fetching linked accounts for user {} from CloudiDR API", userId);
@@ -248,7 +261,72 @@ public class FlexComputeService {
             logger.warn("Failed to sync linked accounts to database: {}", e.getMessage());
         }
 
-        return apiAccounts;
+        // SECURITY FILTER: Only return accounts that meet both criteria:
+        // 1. Status is ACTIVE in CloudiDR
+        // 2. User has access to this account in XamOps (exists in their sidebar accounts)
+        List<LinkedAccountResponse> filteredAccounts = filterUserAccessibleAccounts(userId, apiAccounts);
+
+        logger.info("Filtered {} CloudiDR accounts to {} accessible accounts for user {}",
+                apiAccounts.size(), filteredAccounts.size(), userId);
+
+        return filteredAccounts;
+    }
+
+    /**
+     * Filter linked accounts to only show:
+     * 1. Accounts with ACTIVE status from CloudiDR
+     * 2. Accounts that the user has access to in XamOps (if XamOps access is configured)
+     *
+     * This prevents users from seeing other customers' account IDs
+     *
+     * FALLBACK: If user has no XamOps access configured, only filter by ACTIVE status
+     */
+    private List<LinkedAccountResponse> filterUserAccessibleAccounts(Long userId, List<LinkedAccountResponse> apiAccounts) {
+        // Get all CloudAccount IDs that this user has access to
+        List<UserCloudAccountAccess> userAccess = userCloudAccountAccessRepository.findByUserId(userId);
+
+        // Extract the AWS account IDs from the user's accessible accounts
+        Set<String> accessibleAwsAccountIds = new HashSet<>();
+        for (UserCloudAccountAccess access : userAccess) {
+            CloudAccount cloudAccount = access.getCloudAccount();
+            if (cloudAccount != null && cloudAccount.getAwsAccountId() != null) {
+                accessibleAwsAccountIds.add(cloudAccount.getAwsAccountId());
+            }
+        }
+
+        logger.info("User {} has access to {} AWS accounts in XamOps", userId, accessibleAwsAccountIds.size());
+
+        // FALLBACK: If no XamOps access is configured, only filter by ACTIVE status
+        boolean applyAccessFilter = !accessibleAwsAccountIds.isEmpty();
+
+        if (!applyAccessFilter) {
+            logger.warn("User {} has no XamOps account access configured - only filtering by ACTIVE status", userId);
+        }
+
+        // Filter the CloudiDR accounts
+        return apiAccounts.stream()
+                .filter(account -> {
+                    // Filter 1: Must be ACTIVE or LINKED status (always applied)
+                    // ACTIVE = actively linked, LINKED = successfully linked
+                    // Filter out: FAILED, PENDING, DISCONNECTED, etc.
+                    boolean isValidStatus = "ACTIVE".equalsIgnoreCase(account.getStatus()) ||
+                                           "LINKED".equalsIgnoreCase(account.getStatus());
+
+                    // Filter 2: Must exist in user's XamOps accessible accounts (only if access is configured)
+                    boolean hasAccess = !applyAccessFilter || accessibleAwsAccountIds.contains(account.getAccountId());
+
+                    if (!isValidStatus) {
+                        logger.info("Filtering out CloudiDR account {} - status is {} (not ACTIVE/LINKED)",
+                                account.getAccountId(), account.getStatus());
+                    }
+                    if (applyAccessFilter && !hasAccess) {
+                        logger.info("Filtering out CloudiDR account {} - user {} has no XamOps access",
+                                account.getAccountId(), userId);
+                    }
+
+                    return isValidStatus && hasAccess;
+                })
+                .collect(Collectors.toList());
     }
 
     /**
