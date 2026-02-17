@@ -212,7 +212,7 @@ const Sidebar: React.FC = () => {
                 {selectedAccountDisplay.provider === 'AWS' && (
                   <>
                     <NavItem href="/cloudsitter" icon="fas fa-clock" label="CloudSitter" isActive={isActive('/cloudsitter')} />
-                    <NavItem href="/spot-automation" icon="fas fa-bolt" label="Spot Automation" isActive={isActive('/spot-automation')} />
+
                   </>
                 )}
                 <NavItem href="/autospotting" icon="fas fa-magic" label="AutoSpotting" isActive={isActive('/autospotting')} />

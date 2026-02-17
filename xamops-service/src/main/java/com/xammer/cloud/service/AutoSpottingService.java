@@ -18,6 +18,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.services.autoscaling.AutoScalingClient;
+import software.amazon.awssdk.services.autoscaling.model.InstancesDistribution;
+import software.amazon.awssdk.services.autoscaling.model.LaunchTemplateOverrides;
+import software.amazon.awssdk.services.autoscaling.model.LaunchTemplateSpecification;
+import software.amazon.awssdk.services.autoscaling.model.MixedInstancesPolicy;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
@@ -38,8 +42,87 @@ import software.amazon.awssdk.services.costexplorer.model.Granularity;
 import software.amazon.awssdk.services.costexplorer.model.GetReservationCoverageResponse;
 import software.amazon.awssdk.services.costexplorer.model.GetSavingsPlansCoverageResponse;
 
+import com.xammer.cloud.dto.autospotting.RecommendationDto;
+
 @Service
 public class AutoSpottingService {
+
+
+    // ================= RECOMMENDATIONS =================
+
+    /**
+     * Generate optimization recommendations based on ASG state
+     */
+    public List<RecommendationDto> getRecommendations(Long cloudAccountId) {
+        logger.info("=== Generating Recommendations ===");
+        logger.info("CloudAccountId={}", cloudAccountId);
+
+        CloudAccount account = getByAwsAccountId(cloudAccountId);
+        List<RecommendationDto> recommendations = new ArrayList<>();
+        long idCounter = 1;
+
+        try {
+            List<AutoSpottingGroupDto> asgs = listAsgsAllRegionsWithCosts(cloudAccountId);
+
+            for (AutoSpottingGroupDto asg : asgs) {
+                // 1. HIGH PRIORITY: AutoSpotting is DISABLED
+                if (!asg.isEnabled) {
+                    double estimatedSavings = asg.currentHourlyCost * 0.70; // Assume 70% savings
+                    
+                    if (asg.currentHourlyCost > 0.05) { // Only if it has meaningful cost
+                         recommendations.add(RecommendationDto.builder()
+                                .id(idCounter++)
+                                .title("Enable Spot on \"" + asg.name + "\"")
+                                .description("Enabling Spot instances on this ASG could save approx. 70% of costs.")
+                                .potentialSavings(estimatedSavings * 730) // Monthly
+                                .priority("high")
+                                .asgName(asg.name)
+                                .region(asg.region)
+                                .build());
+                    }
+                }
+                
+                // 2. MEDIUM PRIORITY: Enabled but using standard Launch Configurations/Templates without Spot
+                // (This is a simplified heuristic - in real world we check if they have spot overrides in mixed instances policy)
+                else if (asg.isEnabled && asg.actualHourlySavings < 0.01 && asg.currentHourlyCost > 0.1) {
+                     recommendations.add(RecommendationDto.builder()
+                            .id(idCounter++)
+                            .title("Review Spot Configuration for \"" + asg.name + "\"")
+                            .description("AutoSpotting is enabled but no savings detected. Check if instance types are available in current AZs.")
+                            .potentialSavings(asg.currentHourlyCost * 0.50 * 730)
+                            .priority("medium")
+                            .asgName(asg.name)
+                            .region(asg.region)
+                            .build());
+                }
+            }
+            
+            // Sort by priority then savings
+            recommendations.sort((r1, r2) -> {
+                int p1 = getPriorityScore(r1.getPriority());
+                int p2 = getPriorityScore(r2.getPriority());
+                if (p1 != p2) return p2 - p1; // Higher priority first
+                return Double.compare(r2.getPotentialSavings(), r1.getPotentialSavings());
+            });
+
+            return recommendations;
+
+        } catch (Exception e) {
+            logger.error("Failed to generate recommendations: {}", e.getMessage(), e);
+            return Collections.emptyList();
+        }
+    }
+
+    private int getPriorityScore(String priority) {
+        if (priority == null) return 0;
+        switch (priority.toLowerCase()) {
+            case "high": return 3;
+            case "medium": return 2;
+            case "low": return 1;
+            default: return 0;
+        }
+    }
+
 
     private static final Logger logger = LoggerFactory.getLogger(AutoSpottingService.class);
     private static final String ASG_NAME_KEY = "AutoScalingGroupName";
@@ -50,6 +133,7 @@ public class AutoSpottingService {
     private final SpotOptimizationEventRepository eventRepository;
     private final DailySpotSavingsRepository savingsRepository;
     private final com.xammer.cloud.repository.AutoSpottingSettingsRepository settingsRepository;
+    private final AutoSpottingStackDeploymentService stackDeploymentService;
 
     // Cache for region discovery
     private final Map<String, CachedRegionInfo> regionCache = new ConcurrentHashMap<>();
@@ -74,13 +158,15 @@ public class AutoSpottingService {
             SpotPricingService spotPricingService,
             SpotOptimizationEventRepository eventRepository,
             DailySpotSavingsRepository savingsRepository,
-            com.xammer.cloud.repository.AutoSpottingSettingsRepository settingsRepository) {
+            com.xammer.cloud.repository.AutoSpottingSettingsRepository settingsRepository,
+            AutoSpottingStackDeploymentService stackDeploymentService) {
         this.awsClientProvider = awsClientProvider;
         this.cloudAccountRepository = cloudAccountRepository;
         this.spotPricingService = spotPricingService;
         this.eventRepository = eventRepository;
         this.savingsRepository = savingsRepository;
         this.settingsRepository = settingsRepository;
+        this.stackDeploymentService = stackDeploymentService;
         logger.info("AutoSpottingService initialized with table={} tagKey={} tagValue={} namespace={}",
                 tableName, tagKey, tagValue, metricNamespace);
     }
@@ -167,6 +253,23 @@ public class AutoSpottingService {
 
             logger.info("✓ Successfully registered account {} in AutoSpotting DynamoDB table '{}'",
                     account.getAwsAccountId(), tableName);
+
+            // 3. Async multi-region CloudFormation stack deployment
+            // Runs in background so registration returns immediately.
+            // createStack() calls are non-blocking — CloudFormation creates stacks asynchronously.
+            final CloudAccount accountRef = account;
+            java.util.concurrent.CompletableFuture.runAsync(() -> {
+                try {
+                    logger.info("Starting async multi-region stack deployment for account {}", accountRef.getAwsAccountId());
+                    List<String> deployed = stackDeploymentService.deployToAllRegions(accountRef);
+                    logger.info("✓ Stack deployed to {} region(s) for account {}: {}",
+                            deployed.size(), accountRef.getAwsAccountId(), deployed);
+                } catch (Exception ex) {
+                    logger.error("Background stack deployment failed for account {}: {}",
+                            accountRef.getAwsAccountId(), ex.getMessage(), ex);
+                }
+            });
+
             logger.info("=== AutoSpotting Registration Complete ===");
         } catch (Exception e) {
             logger.error("=== AutoSpotting Registration FAILED ===");
@@ -392,39 +495,34 @@ public class AutoSpottingService {
      * Fallback method when API is unavailable
      */
     public List<AutoSpottingGroupDto> listAsgsAllRegions(Long cloudAccountId) {
-        logger.info("=== Listing ASGs via AWS SDK (Fallback) ===");
+        logger.info("=== Listing ASGs via AWS SDK ===");
         logger.info("CloudAccountId={}", cloudAccountId);
 
         CloudAccount account = getByAwsAccountId(cloudAccountId);
         List<AutoSpottingGroupDto> allAsgs = new ArrayList<>();
 
         try {
-            // Discover regions where AutoSpotting is deployed
-            Set<String> enabledRegions = discoverAutoSpottingRegions(account);
+            // Get regions to scan — dynamic discovery with comprehensive fallback
+            Set<String> regionsToScan = getAllAwsRegions(account);
 
-            if (enabledRegions.isEmpty()) {
-                logger.warn("⚠️ No regions found with AutoSpotting member stack");
-                return Collections.emptyList();
-            }
+            logger.info("✓ Scanning {} region(s): {}", regionsToScan.size(), regionsToScan);
 
-            logger.info("✓ Scanning {} AutoSpotting-enabled region(s): {}",
-                    enabledRegions.size(), enabledRegions);
-
-            // Collect ASGs from all enabled regions
-            for (String region : enabledRegions) {
+            // Collect ASGs from all regions; errors per-region are non-fatal
+            for (String region : regionsToScan) {
                 try {
                     logger.debug("→ Scanning region {}", region);
                     List<AutoSpottingGroupDto> regionAsgs = listAsgsInRegion(account, region);
-                    allAsgs.addAll(regionAsgs);
-                    logger.debug("✓ Found {} ASG(s) in {}", regionAsgs.size(), region);
+                    if (!regionAsgs.isEmpty()) {
+                        allAsgs.addAll(regionAsgs);
+                        logger.info("✓ Found {} ASG(s) in {}", regionAsgs.size(), region);
+                    }
                 } catch (Exception e) {
-                    logger.error("✗ Failed to scan region {}: {}", region, e.getMessage());
-                    invalidateRegionInCache(account.getAwsAccountId(), region);
+                    logger.debug("✗ Region {} skipped: {}", region, e.getMessage());
                 }
             }
 
             long enabledCount = allAsgs.stream().filter(a -> a.isEnabled).count();
-            logger.info("=== Total: {} ASG(s) found, {} enabled ===", allAsgs.size(), enabledCount);
+            logger.info("=== Total: {} ASG(s) found, {} AutoSpotting-enabled ===", allAsgs.size(), enabledCount);
 
             return allAsgs;
         } catch (Exception e) {
@@ -449,8 +547,7 @@ public class AutoSpottingService {
         try {
             logger.debug("Creating AutoSpotting ASG client for account {} region {}",
                     account.getAwsAccountId(), region);
-            AutoScalingClient asgClient = awsClientProvider.getAutoSpottingAsgClient(
-                    account.getAwsAccountId(), region);
+            AutoScalingClient asgClient = getAutoScalingClientForAccount(account, region);
 
             return asgClient.describeAutoScalingGroups().autoScalingGroups().stream()
                     .map(asg -> {
@@ -504,15 +601,14 @@ public class AutoSpottingService {
         List<SpotInstanceDto> allInstances = new ArrayList<>();
 
         try {
-            // 1. Get enabled regions
-            Set<String> enabledRegions = discoverAutoSpottingRegions(account);
+            // 1. Get regions to scan
+            Set<String> enabledRegions = getAllAwsRegions(account);
 
             // 2. Iterate each region
             for (String region : enabledRegions) {
                 try {
                     // a. Get all ASGs in region
-                    AutoScalingClient asgClient = awsClientProvider.getAutoSpottingAsgClient(
-                            account.getAwsAccountId(), region);
+                    AutoScalingClient asgClient = getAutoScalingClientForAccount(account, region);
 
                     var asgResponse = asgClient.describeAutoScalingGroups();
 
@@ -654,8 +750,7 @@ public class AutoSpottingService {
      */
     private boolean isRegionAutoSpottingEnabled(CloudAccount account, String region) {
         try {
-            AutoScalingClient asgClient = awsClientProvider.getAutoSpottingAsgClient(
-                    account.getAwsAccountId(), region);
+            AutoScalingClient asgClient = getAutoScalingClientForAccount(account, region);
             asgClient.describeAutoScalingGroups(req -> req.maxRecords(1));
             return true;
         } catch (Exception e) {
@@ -667,17 +762,59 @@ public class AutoSpottingService {
     /**
      * Gets all available AWS regions
      */
+    private static final Set<String> DEFAULT_REGIONS = new HashSet<>(Arrays.asList(
+            "us-east-1", "us-east-2", "us-west-1", "us-west-2",
+            "ap-south-1", "ap-south-2", "ap-southeast-1", "ap-southeast-2",
+            "ap-northeast-1", "ap-northeast-2", "ap-northeast-3",
+            "eu-west-1", "eu-west-2", "eu-west-3",
+            "eu-central-1", "eu-central-2", "eu-north-1",
+            "ca-central-1", "sa-east-1", "me-south-1", "af-south-1"
+    ));
+
     private Set<String> getAllAwsRegions(CloudAccount account) {
         try {
             Ec2Client ec2Client = awsClientProvider.getEc2Client(account, "us-east-1");
-            return ec2Client.describeRegions().regions().stream()
+            Set<String> regions = ec2Client.describeRegions().regions().stream()
                     .filter(r -> r.optInStatus() == null || !r.optInStatus().equals("not-opted-in"))
                     .map(r -> r.regionName())
                     .collect(Collectors.toSet());
+            logger.info("Discovered {} regions from AWS", regions.size());
+            return regions;
         } catch (Exception e) {
-            logger.warn("Failed to get regions dynamically, using defaults");
-            return new HashSet<>(Arrays.asList(
-                    "us-east-1", "us-west-1", "ap-south-1", "ap-south-2", "eu-north-1"));
+            logger.warn("Failed to get regions dynamically ({}), using comprehensive defaults ({} regions)",
+                    e.getMessage(), DEFAULT_REGIONS.size());
+            return DEFAULT_REGIONS;
+        }
+    }
+
+    /**
+     * Creates a read-only AutoScalingClient, preferring the AutoSpotting execution role
+     * and falling back to the general XamOps cross-account role (which may be read-only).
+     */
+    private AutoScalingClient getAutoScalingClientForAccount(CloudAccount account, String region) {
+        try {
+            return awsClientProvider.getAutoSpottingAsgClient(account.getAwsAccountId(), region);
+        } catch (Exception e) {
+            logger.debug("AutoSpotting-specific role not available for account {} ({}), falling back to general role",
+                    account.getAwsAccountId(), e.getMessage());
+            return awsClientProvider.getAutoScalingClient(account, region);
+        }
+    }
+
+    /**
+     * Creates an AutoScalingClient for write operations (tag mutations).
+     * Requires the AutoSpotting-Execution-Role to be present in the customer account.
+     * Falls back to the general role but logs a clear warning about likely permission failure.
+     */
+    private AutoScalingClient getAutoScalingClientForWrite(CloudAccount account, String region) {
+        try {
+            return awsClientProvider.getAutoSpottingAsgClient(account.getAwsAccountId(), region);
+        } catch (Exception e) {
+            logger.warn("AutoSpotting-Execution-Role not available for account {} — " +
+                    "falling back to general role which may lack autoscaling:CreateOrUpdateTags / autoscaling:DeleteTags. " +
+                    "Add those permissions to the cross-account role or create AutoSpotting-Execution-Role. ({})",
+                    account.getAwsAccountId(), e.getMessage());
+            return awsClientProvider.getAutoScalingClient(account, region);
         }
     }
 
@@ -704,23 +841,188 @@ public class AutoSpottingService {
     // ================= ASG CONTROL (API-BASED) =================
 
     /**
-     * Enable AutoSpotting via direct ASG tagging
+     * Enable AutoSpotting: tags the ASG + updates Mixed Instances Policy.
+     * Returns an optional warning message (e.g. if ASG uses a Launch Configuration).
      */
-    public void enableAutoSpotting(Long cloudAccountId, String region, String asgName) {
-        logger.info("Enabling AutoSpotting: account={} region={} asg={}",
-                cloudAccountId, region, asgName);
+    public String enableAutoSpotting(Long cloudAccountId, String region, String asgName) {
+        logger.info("Enabling AutoSpotting: account={} region={} asg={}", cloudAccountId, region, asgName);
         toggleTag(cloudAccountId, region, asgName, tagKey, tagValue);
-        logger.info("AutoSpotting enabled via direct tagging for {}", asgName);
+        String warning = configureMixedInstancesPolicy(cloudAccountId, region, asgName, true);
+        logger.info("✓ AutoSpotting enabled for {}{}", asgName, warning != null ? " (warning: " + warning + ")" : "");
+        return warning;
     }
 
     /**
-     * Disable AutoSpotting via direct ASG tag removal
+     * Disable AutoSpotting: removes tag + reverts Mixed Instances Policy to 100% on-demand.
+     * Returns an optional warning message.
      */
-    public void disableAutoSpotting(Long cloudAccountId, String region, String asgName) {
-        logger.info("Disabling AutoSpotting: account={} region={} asg={}",
-                cloudAccountId, region, asgName);
+    public String disableAutoSpotting(Long cloudAccountId, String region, String asgName) {
+        logger.info("Disabling AutoSpotting: account={} region={} asg={}", cloudAccountId, region, asgName);
         removeTag(cloudAccountId, region, asgName, tagKey);
-        logger.info("AutoSpotting disabled via direct tag removal for {}", asgName);
+        String warning = configureMixedInstancesPolicy(cloudAccountId, region, asgName, false);
+        logger.info("✓ AutoSpotting disabled for {}{}", asgName, warning != null ? " (warning: " + warning + ")" : "");
+        return warning;
+    }
+
+    /**
+     * Configures (or reverts) the ASG's Mixed Instances Policy for spot instance usage.
+     * On enable: sets spot allocation with capacity-optimized strategy and instance type alternatives.
+     * On disable: reverts to 100% on-demand.
+     */
+    /**
+     * Returns null on success, or a warning string if the policy could not be fully applied.
+     */
+    private String configureMixedInstancesPolicy(Long cloudAccountId, String region, String asgName, boolean enableSpot) {
+        CloudAccount account = getByAwsAccountId(cloudAccountId);
+        try {
+            AutoScalingClient asgClient = getAutoScalingClientForWrite(account, region);
+
+            var asgResponse = asgClient.describeAutoScalingGroups(req -> req.autoScalingGroupNames(asgName));
+            if (asgResponse.autoScalingGroups().isEmpty()) {
+                logger.warn("ASG {} not found in region {}", asgName, region);
+                return "ASG not found in region " + region;
+            }
+            var asg = asgResponse.autoScalingGroups().get(0);
+
+            // Resolve launch template ID from ASG (direct or via existing mixed policy)
+            String ltId = null;
+            String ltVersion = "$Latest";
+            if (asg.launchTemplate() != null && asg.launchTemplate().launchTemplateId() != null) {
+                ltId = asg.launchTemplate().launchTemplateId();
+                ltVersion = asg.launchTemplate().version() != null ? asg.launchTemplate().version() : "$Latest";
+            } else if (asg.mixedInstancesPolicy() != null
+                    && asg.mixedInstancesPolicy().launchTemplate() != null
+                    && asg.mixedInstancesPolicy().launchTemplate().launchTemplateSpecification() != null) {
+                ltId = asg.mixedInstancesPolicy().launchTemplate().launchTemplateSpecification().launchTemplateId();
+                ltVersion = asg.mixedInstancesPolicy().launchTemplate().launchTemplateSpecification().version() != null
+                        ? asg.mixedInstancesPolicy().launchTemplate().launchTemplateSpecification().version()
+                        : "$Latest";
+            }
+
+            if (ltId == null) {
+                String msg = "Spot tag applied but ASG uses a Launch Configuration — " +
+                        "migrate to a Launch Template to enable automatic spot conversion.";
+                logger.warn("ASG {}: {}", asgName, msg);
+                return msg;
+            }
+
+            // Load account-level spot settings
+            Optional<AutoSpottingSettings> settingsOpt = settingsRepository.findByAccountId(account.getId());
+            int spotPercent = settingsOpt.map(AutoSpottingSettings::getMaxSpotPercentage).orElse(80);
+            int onDemandPercent = 100 - spotPercent;
+            int onDemandBase = settingsOpt.map(AutoSpottingSettings::getMinOnDemandNumber).orElse(0);
+
+            if (enableSpot) {
+                // Determine primary instance type and build alternatives
+                String primaryType = getPrimaryInstanceType(asg);
+                List<String> instanceTypes = getSpotInstanceTypeAlternatives(primaryType);
+
+                List<LaunchTemplateOverrides> overrides = instanceTypes.stream()
+                        .map(t -> LaunchTemplateOverrides.builder().instanceType(t).build())
+                        .collect(Collectors.toList());
+
+                String finalLtId = ltId;
+                String finalLtVersion = ltVersion;
+                asgClient.updateAutoScalingGroup(req -> req
+                        .autoScalingGroupName(asgName)
+                        .mixedInstancesPolicy(MixedInstancesPolicy.builder()
+                                .instancesDistribution(InstancesDistribution.builder()
+                                        .onDemandBaseCapacity(onDemandBase)
+                                        .onDemandPercentageAboveBaseCapacity(onDemandPercent)
+                                        .spotAllocationStrategy("capacity-optimized")
+                                        .build())
+                                .launchTemplate(software.amazon.awssdk.services.autoscaling.model.LaunchTemplate.builder()
+                                        .launchTemplateSpecification(LaunchTemplateSpecification.builder()
+                                                .launchTemplateId(finalLtId)
+                                                .version(finalLtVersion)
+                                                .build())
+                                        .overrides(overrides)
+                                        .build())
+                                .build()));
+
+                logger.info("✓ Mixed Instances Policy set: {}% spot, {} instance types, strategy=capacity-optimized for {}",
+                        spotPercent, instanceTypes.size(), asgName);
+            } else {
+                // Revert to 100% on-demand — keep the launch template but remove spot
+                String finalLtId = ltId;
+                String finalLtVersion = ltVersion;
+                asgClient.updateAutoScalingGroup(req -> req
+                        .autoScalingGroupName(asgName)
+                        .mixedInstancesPolicy(MixedInstancesPolicy.builder()
+                                .instancesDistribution(InstancesDistribution.builder()
+                                        .onDemandBaseCapacity(0)
+                                        .onDemandPercentageAboveBaseCapacity(100)
+                                        .build())
+                                .launchTemplate(software.amazon.awssdk.services.autoscaling.model.LaunchTemplate.builder()
+                                        .launchTemplateSpecification(LaunchTemplateSpecification.builder()
+                                                .launchTemplateId(finalLtId)
+                                                .version(finalLtVersion)
+                                                .build())
+                                        .build())
+                                .build()));
+
+                logger.info("✓ Mixed Instances Policy reverted to 100% on-demand for {}", asgName);
+            }
+            return null; // success
+        } catch (Exception e) {
+            logger.error("Failed to configure Mixed Instances Policy for ASG {}: {}", asgName, e.getMessage(), e);
+            throw new RuntimeException("Failed to configure Mixed Instances Policy: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Extracts the primary instance type from an ASG.
+     */
+    private String getPrimaryInstanceType(software.amazon.awssdk.services.autoscaling.model.AutoScalingGroup asg) {
+        // Try from existing mixed instances policy overrides
+        if (asg.mixedInstancesPolicy() != null
+                && asg.mixedInstancesPolicy().launchTemplate() != null
+                && !asg.mixedInstancesPolicy().launchTemplate().overrides().isEmpty()) {
+            String type = asg.mixedInstancesPolicy().launchTemplate().overrides().get(0).instanceType();
+            if (type != null) return type;
+        }
+        // Try from running instances
+        if (!asg.instances().isEmpty() && asg.instances().get(0).instanceType() != null) {
+            return asg.instances().get(0).instanceType();
+        }
+        return "t3.medium"; // safe default
+    }
+
+    /**
+     * Returns a list of spot-friendly instance type alternatives for the given primary type.
+     * Includes the primary type itself plus same-generation equivalents for better spot capacity.
+     */
+    private List<String> getSpotInstanceTypeAlternatives(String primaryType) {
+        Map<String, List<String>> alternatives = new HashMap<>();
+        // General purpose
+        alternatives.put("t3.micro",   Arrays.asList("t3.micro", "t3a.micro", "t2.micro"));
+        alternatives.put("t3.small",   Arrays.asList("t3.small", "t3a.small", "t2.small"));
+        alternatives.put("t3.medium",  Arrays.asList("t3.medium", "t3a.medium", "t2.medium"));
+        alternatives.put("t3.large",   Arrays.asList("t3.large", "t3a.large", "t2.large"));
+        alternatives.put("t3a.micro",  Arrays.asList("t3a.micro", "t3.micro", "t2.micro"));
+        alternatives.put("t3a.small",  Arrays.asList("t3a.small", "t3.small", "t2.small"));
+        alternatives.put("t3a.medium", Arrays.asList("t3a.medium", "t3.medium", "t2.medium"));
+        alternatives.put("t3a.large",  Arrays.asList("t3a.large", "t3.large", "t2.large"));
+        // Compute optimized
+        alternatives.put("m5.large",   Arrays.asList("m5.large", "m5a.large", "m4.large"));
+        alternatives.put("m5.xlarge",  Arrays.asList("m5.xlarge", "m5a.xlarge", "m4.xlarge"));
+        alternatives.put("m5.2xlarge", Arrays.asList("m5.2xlarge", "m5a.2xlarge", "m4.2xlarge"));
+        alternatives.put("m5a.large",  Arrays.asList("m5a.large", "m5.large", "m4.large"));
+        alternatives.put("m5a.xlarge", Arrays.asList("m5a.xlarge", "m5.xlarge", "m4.xlarge"));
+        alternatives.put("m6i.large",  Arrays.asList("m6i.large", "m6a.large", "m5.large"));
+        alternatives.put("m6i.xlarge", Arrays.asList("m6i.xlarge", "m6a.xlarge", "m5.xlarge"));
+        // CPU optimized
+        alternatives.put("c5.large",   Arrays.asList("c5.large", "c5a.large", "c4.large"));
+        alternatives.put("c5.xlarge",  Arrays.asList("c5.xlarge", "c5a.xlarge", "c4.xlarge"));
+        alternatives.put("c5a.large",  Arrays.asList("c5a.large", "c5.large", "c4.large"));
+        alternatives.put("c6i.large",  Arrays.asList("c6i.large", "c6a.large", "c5.large"));
+        // Memory optimized
+        alternatives.put("r5.large",   Arrays.asList("r5.large", "r5a.large", "r4.large"));
+        alternatives.put("r5.xlarge",  Arrays.asList("r5.xlarge", "r5a.xlarge", "r4.xlarge"));
+        alternatives.put("r5a.large",  Arrays.asList("r5a.large", "r5.large", "r4.large"));
+        alternatives.put("r6i.large",  Arrays.asList("r6i.large", "r6a.large", "r5.large"));
+
+        return alternatives.getOrDefault(primaryType, Arrays.asList(primaryType));
     }
 
     /**
@@ -730,8 +1032,7 @@ public class AutoSpottingService {
         CloudAccount account = getByAwsAccountId(cloudAccountId);
 
         try {
-            AutoScalingClient asgClient = awsClientProvider.getAutoSpottingAsgClient(
-                    account.getAwsAccountId(), region);
+            AutoScalingClient asgClient = getAutoScalingClientForWrite(account, region);
 
             asgClient.createOrUpdateTags(req -> req.tags(
                     software.amazon.awssdk.services.autoscaling.model.Tag.builder()
@@ -841,8 +1142,7 @@ public class AutoSpottingService {
         CloudAccount account = getByAwsAccountId(cloudAccountId);
 
         try {
-            AutoScalingClient asgClient = awsClientProvider.getAutoSpottingAsgClient(
-                    account.getAwsAccountId(), region);
+            AutoScalingClient asgClient = getAutoScalingClientForWrite(account, region);
 
             asgClient.deleteTags(req -> req.tags(
                     software.amazon.awssdk.services.autoscaling.model.Tag.builder()
@@ -870,8 +1170,7 @@ public class AutoSpottingService {
         try {
             Optional<AutoSpottingSettings> settingsOpt = settingsRepository.findByAccountId(account.getId());
 
-            AutoScalingClient asgClient = awsClientProvider.getAutoSpottingAsgClient(
-                    account.getAwsAccountId(), region);
+            AutoScalingClient asgClient = getAutoScalingClientForAccount(account, region);
             var asgResponse = asgClient.describeAutoScalingGroups(req ->
                     req.autoScalingGroupNames(asgName));
 
@@ -1040,8 +1339,7 @@ public class AutoSpottingService {
         List<String> instanceTypes = new ArrayList<>();
 
         try {
-            AutoScalingClient asgClient = awsClientProvider.getAutoSpottingAsgClient(
-                    account.getAwsAccountId(), asgDto.region);
+            AutoScalingClient asgClient = getAutoScalingClientForAccount(account, asgDto.region);
 
             var asgResponse = asgClient.describeAutoScalingGroups(req ->
                     req.autoScalingGroupNames(asgDto.name));

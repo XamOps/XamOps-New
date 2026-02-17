@@ -31,7 +31,7 @@ import WastePage from './pages/WastePage';
 import RightsizingPage from './pages/RightsizingPage';
 import ReservationPage from './pages/ReservationPage';
 import CloudSitterPage from './pages/CloudSitterPage';
-import SpotAutomationPage from './pages/SpotAutomationPage';
+
 import GrafanaDashboardPage from './pages/GrafanaDashboardPage';
 import CloudK8sPage from './pages/CloudK8sPage';
 import EksDetailsPage from './pages/EksDetailsPage';
@@ -107,7 +107,7 @@ import './styles/waste.css';
 import './styles/rightsizing.css';
 import './styles/reservation.css';
 import './styles/cloudsitter.css';
-import './styles/spotautomation.css';
+
 import './styles/actionsHistory.css';
 import './styles/grafana.css';
 import './styles/cloudk8s.css';
@@ -333,7 +333,7 @@ const AppContent: React.FC = () => {
             <Route path="/reservation" element={<ReservationPage />} />
             <Route path="/gcp-reservations" element={<GcpReservationsPage />} />
             <Route path="/cloudsitter" element={<CloudSitterPage />} />
-            <Route path="/spot-automation" element={<SpotAutomationPage />} />
+
             <Route path="/grafana-dashboard" element={<GrafanaDashboardPage />} />
             <Route path="/cloudk8s" element={<CloudK8sPage />} />
             <Route path="/gcp-cloudk8s" element={<GcpCloudK8sPage />} />

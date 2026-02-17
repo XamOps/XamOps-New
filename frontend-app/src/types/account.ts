@@ -8,6 +8,7 @@ export type CloudProvider = 'AWS' | 'GCP' | 'Azure';
 
 export interface Account {
   id: string;
+  dbId?: number; // Database ID for backend API calls
   name: string;
   provider: CloudProvider;
   status: 'CONNECTED' | 'DISCONNECTED' | 'ERROR';

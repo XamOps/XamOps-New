@@ -11,6 +11,17 @@ import java.util.concurrent.Executor;
 @EnableAsync
 public class AsyncConfig {
 
+    @Bean(name = "awsTaskExecutor")
+    public Executor awsTaskExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(10);
+        executor.setMaxPoolSize(50);
+        executor.setQueueCapacity(500);
+        executor.setThreadNamePrefix("AwsAsync-");
+        executor.initialize();
+        return executor;
+    }
+
     @Bean(name = "prowlerTaskExecutor")
     public Executor prowlerTaskExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();

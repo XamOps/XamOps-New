@@ -1,7 +1,14 @@
-import { defineConfig } from 'vite';
+import { defineConfig, createLogger } from 'vite';
 import react from '@vitejs/plugin-react';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
+
+const logger = createLogger();
+const originalWarn = logger.warn.bind(logger);
+logger.warn = (msg, options) => {
+  if (msg.includes('Failed to load source map')) return;
+  originalWarn(msg, options);
+};
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -9,7 +16,7 @@ const __dirname = dirname(__filename);
 // --- CONFIGURATION ---
 // Define the default auth port and target
 const authPort = process.env.AUTH_PORT || '8080';
-const authTarget = `http://localhost:${authPort}`;
+const authTarget = `http://127.0.0.1:${authPort}`;
 
 // --- HELPER FUNCTION ---
 // This function rewrites the backend's cookie to work with the frontend proxy
@@ -38,6 +45,8 @@ export default defineConfig({
     react(),
   ],
 
+  customLogger: logger,
+
   css: {
     devSourcemap: false,
   },
@@ -61,14 +70,14 @@ export default defineConfig({
     proxy: {
       // --- 0. WEBSOCKET PROXY (Must be first) ---
       '/xamops-ws': {
-        target: 'http://localhost:8080', // Support SockJS (http + ws upgrade)
+        target: 'http://127.0.0.1:8080', // Support SockJS (http + ws upgrade)
         ws: true,
         changeOrigin: true,
         secure: false,
       },
       // Terminal WebSocket
       '/terminal': {
-        target: 'http://localhost:8080',
+        target: 'http://127.0.0.1:8080',
         ws: true,
         changeOrigin: true,
         secure: false,
@@ -134,18 +143,18 @@ export default defineConfig({
       // --- 5. SPECIFIC SERVICE ENDPOINTS ---
       // Admin & Billops API requests always go to 8082 (billops-service)
       '/api/admin': {
-        target: 'http://localhost:8082',
+        target: 'http://127.0.0.1:8082',
         changeOrigin: true,
         secure: false,
       },
       '/api/billops': {
-        target: 'http://localhost:8082',
+        target: 'http://127.0.0.1:8082',
         changeOrigin: true,
         secure: false,
       },
       // CloudList API (needs longer timeout for large datasets)
       '/api/xamops/cloudlist': {
-        target: 'http://localhost:8080',
+        target: 'http://127.0.0.1:8080',
         changeOrigin: true,
         secure: false,
         timeout: 120000, // 120s timeout for cloudlist
@@ -153,7 +162,7 @@ export default defineConfig({
       },
       // General XamOps requests (catch-all for other xamops endpoints)
       '/api/xamops': {
-        target: 'http://localhost:8080',
+        target: 'http://127.0.0.1:8080',
         changeOrigin: true,
         secure: false,
         timeout: 60000, // 60s timeout
@@ -165,8 +174,8 @@ export default defineConfig({
       '/api/cicd': { target: authTarget, changeOrigin: true, secure: false },
       '/api/karpenter': { target: authTarget, changeOrigin: true, secure: false },
       '/api/ai': { target: authTarget, changeOrigin: true, secure: false },
-      '/api/dev_ops_script': { target: 'http://localhost:8080', changeOrigin: true, secure: false }, // DevOps In The Box scripts
-      '/api/autospotting': { target: 'http://localhost:8080', changeOrigin: true, secure: false },
+      '/api/dev_ops_script': { target: 'http://127.0.0.1:8080', changeOrigin: true, secure: false }, // DevOps In The Box scripts
+      '/api/autospotting': { target: 'http://127.0.0.1:8080', changeOrigin: true, secure: false },
 
 
     }

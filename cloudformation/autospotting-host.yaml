@@ -1,0 +1,115 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  AutoSpotting Host Stack - Deploy ONCE in the XamOps host account (605134457560), ap-south-1.
+  Creates the central EventBridge custom bus that receives events from all customer accounts,
+  and routes them to the existing SQS FIFO queue for consumption by the XamOps backend.
+
+Parameters:
+  SqsQueueArn:
+    Type: String
+    Description: ARN of the existing SQS FIFO queue for AutoSpotting events
+    Default: 'arn:aws:sqs:ap-south-1:605134457560:autospotting-events.fifo'
+
+  SqsQueueUrl:
+    Type: String
+    Description: URL of the existing SQS FIFO queue (for reference only)
+    Default: 'https://sqs.ap-south-1.amazonaws.com/605134457560/autospotting-events.fifo'
+
+Resources:
+
+  # ============================================================================
+  # Custom EventBridge Event Bus
+  # Customer accounts forward events here via cross-account EventBridge rules.
+  # Using a custom bus keeps AutoSpotting events isolated from the default bus.
+  # ============================================================================
+  AutoSpottingEventBus:
+    Type: AWS::Events::EventBus
+    Properties:
+      Name: autospotting-events
+
+  # ============================================================================
+  # Event Bus Resource Policy
+  # Allows any AWS account to put events on the autospotting-events bus.
+  # The XamOps backend validates every incoming account against its database,
+  # so events from unregistered accounts are silently ignored.
+  # ============================================================================
+  AutoSpottingEventBusPolicy:
+    Type: AWS::Events::EventBusPolicy
+    Properties:
+      EventBusName: !Ref AutoSpottingEventBus
+      StatementId: AllowCustomerAccountsToForwardEvents
+      Action: events:PutEvents
+      Principal: '*'
+
+  # ============================================================================
+  # EventBridge Rule: Route all incoming events to SQS
+  # Matches EC2 instance state changes and spot warnings from any customer account.
+  # Events arrive on the custom bus and are routed to the existing SQS FIFO queue.
+  # ============================================================================
+  SpotEventRoutingRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: autospotting-route-to-sqs
+      Description: Route incoming AutoSpotting events from customer accounts to SQS
+      EventBusName: !Ref AutoSpottingEventBus
+      State: ENABLED
+      EventPattern:
+        source:
+          - aws.ec2
+        detail-type:
+          - EC2 Instance State-change Notification
+          - EC2 Spot Instance Interruption Warning
+          - EC2 Instance Rebalance Recommendation
+      Targets:
+        - Arn: !Ref SqsQueueArn
+          Id: AutoSpottingSQSQueue
+          SqsParameters:
+            MessageGroupId: customer-events
+
+  # ============================================================================
+  # SQS Queue Policy
+  # Allows EventBridge (from this account only) to send messages to the queue.
+  # Scoped to the specific rule ARN for least-privilege.
+  # ============================================================================
+  SqsQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref SqsQueueUrl
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowEventBridgeToSendMessages
+            Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !Ref SqsQueueArn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !GetAtt SpotEventRoutingRule.Arn
+
+Outputs:
+  EventBusArn:
+    Description: ARN of the AutoSpotting central EventBridge bus
+    Value: !GetAtt AutoSpottingEventBus.Arn
+    Export:
+      Name: AutoSpotting-HostEventBusArn
+
+  EventBusName:
+    Description: Name of the AutoSpotting central EventBridge bus
+    Value: !Ref AutoSpottingEventBus
+    Export:
+      Name: AutoSpotting-HostEventBusName
+
+  RoutingRuleArn:
+    Description: ARN of the EventBridge rule routing events to SQS
+    Value: !GetAtt SpotEventRoutingRule.Arn
+
+  DeploymentInstructions:
+    Description: Next steps after deploying this host stack
+    Value: !Sub >
+      Host stack deployed in ${AWS::AccountId} / ${AWS::Region}.
+      Custom event bus: arn:aws:events:${AWS::Region}:${AWS::AccountId}:event-bus/autospotting-events.
+      Events from customer accounts will route to: ${SqsQueueUrl}.
+      Now deploy autospotting-customer.yaml in each customer account.

@@ -12,14 +12,52 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
 
+import com.xammer.cloud.dto.autospotting.RecommendationDto;
+
 @RestController
 @RequestMapping("/api/autospotting")
 @RequiredArgsConstructor
 public class AutoSpottingController {
 
+    /**
+     * Get optimization recommendations
+     * GET /api/autospotting/recommendations/{accountId}
+     */
+    @GetMapping("/recommendations/{accountId}")
+    public ResponseEntity<?> getRecommendations(@PathVariable String accountId) {
+        log.info("AutoSpottingController.getRecommendations called with accountId={}", accountId);
+        try {
+            Long dbId = resolveAccountId(accountId);
+            List<RecommendationDto> recommendations = autoSpottingService.getRecommendations(dbId);
+            return ResponseEntity.ok(recommendations);
+        } catch (Exception e) {
+            log.error("Failed to get recommendations: {}", e.getMessage(), e);
+            return ResponseEntity.status(500).body(Map.of(
+                    "success", false,
+                    "error", "Failed to fetch recommendations: " + e.getMessage()));
+        }
+    }
+
     private static final Logger log = LoggerFactory.getLogger(AutoSpottingController.class);
 
     private final AutoSpottingService autoSpottingService;
+    private final com.xammer.cloud.repository.CloudAccountRepository cloudAccountRepository;
+
+    /**
+     * Resolve AWS account ID string to numeric Long for service layer.
+     * Validates the account exists, then returns the numeric AWS account ID
+     * so the service's getByAwsAccountId(Long) can locate it correctly.
+     */
+    private Long resolveAccountId(String awsAccountId) {
+        cloudAccountRepository.findByAwsAccountIdOrGcpProjectIdOrAzureSubscriptionId(
+                awsAccountId, awsAccountId, awsAccountId)
+                .orElseThrow(() -> new RuntimeException("Account not found: " + awsAccountId));
+        try {
+            return Long.parseLong(awsAccountId);
+        } catch (NumberFormatException e) {
+            throw new RuntimeException("Invalid AWS account ID format: " + awsAccountId);
+        }
+    }
 
     // ================= ACCOUNT REGISTRATION =================
 
@@ -99,10 +137,11 @@ public class AutoSpottingController {
      * GET /api/autospotting/savings/{accountId}
      */
     @GetMapping("/savings/{accountId}")
-    public ResponseEntity<?> getSavings(@PathVariable Long accountId) {
+    public ResponseEntity<?> getSavings(@PathVariable String accountId) {
         log.info("AutoSpottingController.getSavings called with accountId={}", accountId);
         try {
-            DashboardData.SavingsSummary savings = autoSpottingService.getSavingsMetrics(accountId);
+            Long dbId = resolveAccountId(accountId);
+            DashboardData.SavingsSummary savings = autoSpottingService.getSavingsMetrics(dbId);
             return ResponseEntity.ok(savings);
         } catch (Exception e) {
             log.error("Failed to get savings metrics: {}", e.getMessage(), e);
@@ -119,11 +158,12 @@ public class AutoSpottingController {
      * GET /api/autospotting/asgs/all-regions/{accountId}
      */
     @GetMapping("/asgs/all-regions/{accountId}")
-    public ResponseEntity<?> listAsgsAllRegions(@PathVariable Long accountId) {
+    public ResponseEntity<?> listAsgsAllRegions(@PathVariable String accountId) {
         log.info("AutoSpottingController.listAsgsAllRegions called with accountId={}", accountId);
         try {
+            Long dbId = resolveAccountId(accountId);
             List<AutoSpottingService.AutoSpottingGroupDto> asgs = autoSpottingService
-                    .listAsgsAllRegionsWithCosts(accountId);
+                    .listAsgsAllRegionsWithCosts(dbId);
             return ResponseEntity.ok(asgs);
         } catch (Exception e) {
             log.error("Failed to list ASGs across all regions: {}", e.getMessage(), e);
@@ -193,10 +233,12 @@ public class AutoSpottingController {
                 accountId, region, asgName);
 
         try {
-            autoSpottingService.enableAutoSpotting(accountId, region, asgName);
-            return ResponseEntity.ok(Map.of(
-                    "success", true,
-                    "message", "AutoSpotting enabled successfully for " + asgName));
+            String warning = autoSpottingService.enableAutoSpotting(accountId, region, asgName);
+            Map<String, Object> body = new java.util.LinkedHashMap<>();
+            body.put("success", true);
+            body.put("message", "AutoSpotting enabled for " + asgName);
+            if (warning != null) body.put("warning", warning);
+            return ResponseEntity.ok(body);
         } catch (Exception e) {
             log.error("Failed to enable AutoSpotting: {}", e.getMessage(), e);
             return ResponseEntity.status(500).body(Map.of(
@@ -241,10 +283,12 @@ public class AutoSpottingController {
                 accountId, region, asgName);
 
         try {
-            autoSpottingService.disableAutoSpotting(accountId, region, asgName);
-            return ResponseEntity.ok(Map.of(
-                    "success", true,
-                    "message", "AutoSpotting disabled successfully for " + asgName));
+            String warning = autoSpottingService.disableAutoSpotting(accountId, region, asgName);
+            Map<String, Object> body = new java.util.LinkedHashMap<>();
+            body.put("success", true);
+            body.put("message", "AutoSpotting disabled for " + asgName);
+            if (warning != null) body.put("warning", warning);
+            return ResponseEntity.ok(body);
         } catch (Exception e) {
             log.error("Failed to disable AutoSpotting: {}", e.getMessage(), e);
             return ResponseEntity.status(500).body(Map.of(

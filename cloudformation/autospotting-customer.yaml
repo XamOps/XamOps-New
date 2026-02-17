@@ -1,173 +1,88 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'AutoSpotting Customer Stack - Deploy in customer accounts to enable spot instance optimization'
+Description: >
+  AutoSpotting Customer Stack - EventBridge cross-account forwarding.
+  Replaces Lambda+SQS with direct EventBridge bus forwarding (no Lambda required).
+  Deploy in every region of a customer account. Run with CreateIAMRole=true for the
+  first region only; all additional regions use CreateIAMRole=false.
 
 Parameters:
   XammerAccountId:
     Type: String
-    Description: Xammer AWS Account ID (where the central engine runs)
+    Description: XamOps host AWS Account ID (where the central EventBridge bus lives)
     Default: '605134457560'
-  
-  XammerSQSQueueUrl:
-    Type: String
-    Description: URL of the Xammer SQS queue for AutoSpotting events
-    Default: 'https://sqs.ap-south-1.amazonaws.com/605134457560/autospotting-events.fifo'
-  
+
   XammerRegion:
     Type: String
-    Description: AWS Region where Xammer infrastructure is deployed
+    Description: AWS Region where XamOps central EventBridge bus is deployed
     Default: 'ap-south-1'
-  
+
   EnableAutoSpotting:
     Type: String
     Default: 'true'
     AllowedValues:
       - 'true'
       - 'false'
-    Description: Enable or disable AutoSpotting event forwarding
-  
+    Description: Enable or disable AutoSpotting event forwarding in this region
 
+  CreateIAMRole:
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: >
+      Set to 'true' for the FIRST regional deployment (creates global IAM roles).
+      Set to 'false' for ADDITIONAL regions (roles already exist, skip creation).
+
+Conditions:
+  IsEnabled: !Equals [!Ref EnableAutoSpotting, 'true']
+  ShouldCreateIAMRole: !Equals [!Ref CreateIAMRole, 'true']
 
 Resources:
+
   # ============================================================================
-  # Lambda Function to Forward Events to Xammer SQS
+  # EventBridge Cross-Account Forwarding Role
+  # Allows EventBridge in this account to put events into the XamOps host bus.
+  # IAM roles are global - created once in the first region, reused by all others.
   # ============================================================================
-  
-  EventForwarderFunction:
-    Type: AWS::Lambda::Function
+  EventBridgeCrossAccountRole:
+    Type: AWS::IAM::Role
+    Condition: ShouldCreateIAMRole
     Properties:
-      FunctionName: autospotting-event-forwarder
-      Description: Forward EC2 spot instance events to Xammer AutoSpotting engine
-      Runtime: python3.11
-      Handler: index.lambda_handler
-      Role: !GetAtt EventForwarderRole.Arn
-      Timeout: 30
-      Environment:
-        Variables:
-          XAMMER_SQS_QUEUE_URL: !Ref XammerSQSQueueUrl
-          XAMMER_REGION: !Ref XammerRegion
-          CUSTOMER_ACCOUNT_ID: !Ref 'AWS::AccountId'
-      Code:
-        ZipFile: |
-          import json
-          import boto3
-          import os
-          from datetime import datetime
-          
-          sqs = boto3.client('sqs', region_name=os.environ['XAMMER_REGION'])
-          
-          def lambda_handler(event, context):
-              """Forward EC2 instance state change events to Xammer SQS queue"""
-              
-              print(f"Received event: {json.dumps(event)}")
-              
-              # Extract event details
-              detail = event.get('detail', {})
-              instance_id = detail.get('instance-id')
-              state = detail.get('state')
-              instance_lifecycle = detail.get('instance-lifecycle')
-              
-              # Only process spot instances
-              if instance_lifecycle != 'spot':
-                  print(f"Skipping non-spot instance: {instance_id}")
-                  return {'statusCode': 200, 'body': 'Not a spot instance'}
-              
-              # Enrich event with customer account info
-              enriched_event = {
-                  'version': event.get('version'),
-                  'id': event.get('id'),
-                  'detail-type': event.get('detail-type'),
-                  'source': event.get('source'),
-                  'account': os.environ['CUSTOMER_ACCOUNT_ID'],
-                  'time': event.get('time'),
-                  'region': event.get('region'),
-                  'resources': event.get('resources', []),
-                  'detail': detail
-              }
-              
-              # Send to Xammer SQS queue
-              try:
-                  response = sqs.send_message(
-                      QueueUrl=os.environ['XAMMER_SQS_QUEUE_URL'],
-                      MessageBody=json.dumps(enriched_event),
-                      MessageGroupId='customer-events',
-                      MessageDeduplicationId=f"{instance_id}-{state}-{event.get('time')}"
-                  )
-                  
-                  print(f"Forwarded event to Xammer SQS: {response['MessageId']}")
-                  
-                  return {
-                      'statusCode': 200,
-                      'body': json.dumps({
-                          'message': 'Event forwarded successfully',
-                          'messageId': response['MessageId']
-                      })
-                  }
-              
-              except Exception as e:
-                  print(f"Error forwarding event: {str(e)}")
-                  raise
+      RoleName: AutoSpotting-EventBridge-Role
+      Description: Allows EventBridge to forward AutoSpotting events to XamOps host
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: PutEventsToXamOpsHostBus
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: events:PutEvents
+                Resource: !Sub 'arn:aws:events:${XammerRegion}:${XammerAccountId}:event-bus/autospotting-events'
       Tags:
         - Key: Service
           Value: AutoSpotting
         - Key: ManagedBy
           Value: CloudFormation
 
-  # CloudWatch Logs for Lambda
-  EventForwarderLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub '/aws/lambda/${EventForwarderFunction}'
-      RetentionInDays: 7
-
   # ============================================================================
-  # IAM Role for Lambda Function
+  # Cross-Account Execution Role
+  # Assumed by the XamOps backend to manage Spot instances in this account.
+  # Uses the customer account ID as ExternalId for additional security.
   # ============================================================================
-  
-  EventForwarderRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: autospotting-event-forwarder-role
-      Description: IAM role for AutoSpotting event forwarder Lambda
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: SendToXammerSQS
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: AllowSendToXammerQueue
-                Effect: Allow
-                Action:
-                  - sqs:SendMessage
-                  - sqs:GetQueueUrl
-                Resource: !Sub 'arn:aws:sqs:${XammerRegion}:${XammerAccountId}:autospotting-events.fifo'
-              
-              - Sid: AllowEC2Describe
-                Effect: Allow
-                Action:
-                  - ec2:DescribeInstances
-                  - ec2:DescribeSpotPriceHistory
-                Resource: '*'
-      Tags:
-        - Key: Service
-          Value: AutoSpotting
-
-  # ============================================================================
-  # IAM Role for Xammer Backend (Cross-Account Execution)
-  # ============================================================================
-
   AutoSpottingExecutionRole:
     Type: AWS::IAM::Role
+    Condition: ShouldCreateIAMRole
     Properties:
-      RoleName: !Sub 'AutoSpotting-Execution-Role-${AWS::Region}'
-      Description: Role assumed by Xammer backend to manage Spot instances
+      RoleName: AutoSpotting-Execution-Role
+      Description: Role assumed by XamOps backend to manage Spot instances
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -180,29 +95,83 @@ Resources:
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
-              - Effect: Allow
+              # EC2 permissions - Resource: "*" is required for RunInstances because
+              # AutoScaling validates it against AMIs, subnets, security groups, etc.
+              - Sid: EC2Permissions
+                Effect: Allow
                 Action:
-                  - autoscaling:DescribeAutoScalingGroups
-                  - autoscaling:UpdateAutoScalingGroup
-                  - autoscaling:CreateOrUpdateTags
                   - ec2:DescribeInstances
+                  - ec2:DescribeRegions
                   - ec2:DescribeSpotPriceHistory
+                  - ec2:DescribeImages
+                  - ec2:DescribeSecurityGroups
+                  - ec2:DescribeSubnets
+                  - ec2:DescribeLaunchTemplates
+                  - ec2:DescribeLaunchTemplateVersions
+                  - ec2:RunInstances
                   - ec2:TerminateInstances
                   - ec2:CreateTags
+                Resource: '*'
+
+              # AutoScaling permissions
+              - Sid: AutoScalingPermissions
+                Effect: Allow
+                Action:
+                  - autoscaling:DescribeAutoScalingGroups
+                  - autoscaling:DescribeAutoScalingInstances
+                  - autoscaling:DescribeLaunchConfigurations
+                  - autoscaling:UpdateAutoScalingGroup
+                  - autoscaling:CreateOrUpdateTags
+                  - autoscaling:DeleteTags
+                Resource: '*'
+
+              # Pricing API (global endpoint)
+              - Sid: PricingPermissions
+                Effect: Allow
+                Action:
                   - pricing:GetProducts
                 Resource: '*'
+
+              # CloudFormation - scoped to autospotting stacks only
+              - Sid: CloudFormationPermissions
+                Effect: Allow
+                Action:
+                  - cloudformation:DescribeStacks
+                  - cloudformation:CreateStack
+                  - cloudformation:UpdateStack
+                  - cloudformation:DeleteStack
+                Resource: !Sub 'arn:aws:cloudformation:*:${AWS::AccountId}:stack/autospotting-*'
+
+              # IAM PassRole - needed when AutoScaling uses its service-linked role
+              - Sid: IAMPassRole
+                Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource: !Sub 'arn:aws:iam::${AWS::AccountId}:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling'
       Tags:
         - Key: Service
           Value: AutoSpotting
         - Key: ManagedBy
           Value: CloudFormation
-  
-  # Rule to capture spot instance launches
+
+  # ============================================================================
+  # EventBridge Rules - Forward events directly to XamOps host bus (no Lambda!)
+  #
+  # All rules target the XamOps EventBridge custom bus in ap-south-1.
+  # Cross-account + cross-region EventBridge forwarding is natively supported.
+  #
+  # NOTE: The old `instance-lifecycle: spot` filter has been removed.
+  # That field does NOT appear in EC2 State-change Notification events, so the
+  # old rules never matched anything. The backend filters spot vs on-demand
+  # instances via DescribeInstances after receiving the event.
+  # ============================================================================
+
+  # Instance launch events
   SpotInstanceLaunchRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: autospotting-spot-launch
-      Description: Capture spot instance launch events and forward to Xammer
+      Name: autospotting-instance-launch
+      Description: Forward EC2 instance launch events to XamOps host EventBridge bus
       State: !If [IsEnabled, ENABLED, DISABLED]
       EventPattern:
         source:
@@ -212,18 +181,20 @@ Resources:
         detail:
           state:
             - running
-          instance-lifecycle:
-            - spot
       Targets:
-        - Arn: !GetAtt EventForwarderFunction.Arn
-          Id: EventForwarderTarget
+        - Arn: !Sub 'arn:aws:events:${XammerRegion}:${XammerAccountId}:event-bus/autospotting-events'
+          Id: XamOpsHostBusLaunch
+          RoleArn: !If
+            - ShouldCreateIAMRole
+            - !GetAtt EventBridgeCrossAccountRole.Arn
+            - !Sub 'arn:aws:iam::${AWS::AccountId}:role/AutoSpotting-EventBridge-Role'
 
-  # Rule to capture spot instance terminations
+  # Instance termination / stopped events
   SpotInstanceTerminationRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: autospotting-spot-termination
-      Description: Capture spot instance termination events and forward to Xammer
+      Name: autospotting-instance-termination
+      Description: Forward EC2 instance termination events to XamOps host EventBridge bus
       State: !If [IsEnabled, ENABLED, DISABLED]
       EventPattern:
         source:
@@ -234,110 +205,81 @@ Resources:
           state:
             - terminated
             - stopped
-          instance-lifecycle:
-            - spot
       Targets:
-        - Arn: !GetAtt EventForwarderFunction.Arn
-          Id: EventForwarderTarget
+        - Arn: !Sub 'arn:aws:events:${XammerRegion}:${XammerAccountId}:event-bus/autospotting-events'
+          Id: XamOpsHostBusTermination
+          RoleArn: !If
+            - ShouldCreateIAMRole
+            - !GetAtt EventBridgeCrossAccountRole.Arn
+            - !Sub 'arn:aws:iam::${AWS::AccountId}:role/AutoSpotting-EventBridge-Role'
 
-  # Permission for EventBridge to invoke Lambda (Launch)
-  LaunchRuleLambdaPermission:
-    Type: AWS::Lambda::Permission
+  # Spot Interruption Warning (2-minute advance notice)
+  SpotInterruptionWarningRule:
+    Type: AWS::Events::Rule
     Properties:
-      FunctionName: !Ref EventForwarderFunction
-      Action: lambda:InvokeFunction
-      Principal: events.amazonaws.com
-      SourceArn: !GetAtt SpotInstanceLaunchRule.Arn
+      Name: autospotting-spot-interruption-warning
+      Description: Forward EC2 Spot Interruption Warning events to XamOps host
+      State: !If [IsEnabled, ENABLED, DISABLED]
+      EventPattern:
+        source:
+          - aws.ec2
+        detail-type:
+          - EC2 Spot Instance Interruption Warning
+      Targets:
+        - Arn: !Sub 'arn:aws:events:${XammerRegion}:${XammerAccountId}:event-bus/autospotting-events'
+          Id: XamOpsHostBusInterruption
+          RoleArn: !If
+            - ShouldCreateIAMRole
+            - !GetAtt EventBridgeCrossAccountRole.Arn
+            - !Sub 'arn:aws:iam::${AWS::AccountId}:role/AutoSpotting-EventBridge-Role'
 
-  # Permission for EventBridge to invoke Lambda (Termination)
-  TerminationRuleLambdaPermission:
-    Type: AWS::Lambda::Permission
+  # EC2 Instance Rebalance Recommendation (early warning before interruption)
+  RebalanceRecommendationRule:
+    Type: AWS::Events::Rule
     Properties:
-      FunctionName: !Ref EventForwarderFunction
-      Action: lambda:InvokeFunction
-      Principal: events.amazonaws.com
-      SourceArn: !GetAtt SpotInstanceTerminationRule.Arn
-
-  # ============================================================================
-  # CloudWatch Alarms
-  # ============================================================================
-  
-  LambdaErrorAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: autospotting-forwarder-errors
-      AlarmDescription: Alert when Lambda function encounters errors
-      MetricName: Errors
-      Namespace: AWS/Lambda
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 5
-      ComparisonOperator: GreaterThanThreshold
-      Dimensions:
-        - Name: FunctionName
-          Value: !Ref EventForwarderFunction
-      TreatMissingData: notBreaching
-
-  LambdaThrottleAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: autospotting-forwarder-throttles
-      AlarmDescription: Alert when Lambda function is throttled
-      MetricName: Throttles
-      Namespace: AWS/Lambda
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanThreshold
-      Dimensions:
-        - Name: FunctionName
-          Value: !Ref EventForwarderFunction
-      TreatMissingData: notBreaching
-
-Conditions:
-  IsEnabled: !Equals [!Ref EnableAutoSpotting, 'true']
+      Name: autospotting-rebalance-recommendation
+      Description: Forward EC2 Rebalance Recommendation events to XamOps host
+      State: !If [IsEnabled, ENABLED, DISABLED]
+      EventPattern:
+        source:
+          - aws.ec2
+        detail-type:
+          - EC2 Instance Rebalance Recommendation
+      Targets:
+        - Arn: !Sub 'arn:aws:events:${XammerRegion}:${XammerAccountId}:event-bus/autospotting-events'
+          Id: XamOpsHostBusRebalance
+          RoleArn: !If
+            - ShouldCreateIAMRole
+            - !GetAtt EventBridgeCrossAccountRole.Arn
+            - !Sub 'arn:aws:iam::${AWS::AccountId}:role/AutoSpotting-EventBridge-Role'
 
 Outputs:
-  LambdaFunctionArn:
-    Description: ARN of the event forwarder Lambda function
-    Value: !GetAtt EventForwarderFunction.Arn
+  EventBridgeCrossAccountRoleArn:
+    Condition: ShouldCreateIAMRole
+    Description: ARN of the EventBridge cross-account forwarding role
+    Value: !GetAtt EventBridgeCrossAccountRole.Arn
     Export:
-      Name: !Sub '${AWS::StackName}-LambdaArn'
-
-  LambdaRoleArn:
-    Description: ARN of the Lambda execution role
-    Value: !GetAtt EventForwarderRole.Arn
-    Export:
-      Name: !Sub '${AWS::StackName}-RoleArn'
-
-  LaunchRuleArn:
-    Description: ARN of the spot instance launch EventBridge rule
-    Value: !GetAtt SpotInstanceLaunchRule.Arn
-    Export:
-      Name: !Sub '${AWS::StackName}-LaunchRuleArn'
-
-  TerminationRuleArn:
-    Description: ARN of the spot instance termination EventBridge rule
-    Value: !GetAtt SpotInstanceTerminationRule.Arn
-    Export:
-      Name: !Sub '${AWS::StackName}-TerminationRuleArn'
+      Name: !Sub '${AWS::StackName}-EventBridgeRoleArn'
 
   AutoSpottingExecutionRoleArn:
-    Description: ARN of the cross-account role for Xammer backend
+    Condition: ShouldCreateIAMRole
+    Description: ARN of the cross-account execution role for XamOps backend
     Value: !GetAtt AutoSpottingExecutionRole.Arn
     Export:
       Name: !Sub '${AWS::StackName}-ExecutionRoleArn'
 
   Status:
-    Description: AutoSpotting status in this account
+    Description: AutoSpotting forwarding status in this account/region
     Value: !If [IsEnabled, 'ENABLED', 'DISABLED']
 
+  TargetEventBus:
+    Description: XamOps host EventBridge bus receiving events from this account
+    Value: !Sub 'arn:aws:events:${XammerRegion}:${XammerAccountId}:event-bus/autospotting-events'
+
   ConfigurationInstructions:
-    Description: Next steps
-    Value: !Sub |
-      AutoSpotting is now ${EnableAutoSpotting} in account ${AWS::AccountId}.
-      Events will be forwarded to: ${XammerSQSQueueUrl}
-      Monitor Lambda logs: /aws/lambda/${EventForwarderFunction}
-      To disable: Update stack with EnableAutoSpotting=false
+    Description: Next steps after deploying this stack
+    Value: !Sub >
+      AutoSpotting is ${EnableAutoSpotting} in ${AWS::AccountId} / ${AWS::Region}.
+      Events forward to arn:aws:events:${XammerRegion}:${XammerAccountId}:event-bus/autospotting-events.
+      No Lambda functions required - zero maintenance overhead.
+      To disable: update stack with EnableAutoSpotting=false.
