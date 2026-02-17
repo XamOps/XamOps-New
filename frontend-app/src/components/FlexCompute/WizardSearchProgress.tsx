@@ -146,7 +146,7 @@ const WizardSearchProgress: React.FC<WizardSearchProgressProps> = ({ status, isS
             </button>
             <button
               onClick={onNext}
-              disabled={isSearching}
+              disabled={isSearching || (status !== 'AVAILABLE_ALL' && status !== 'PARTIAL_AVAILABLE')}
               className="flex-1 py-3 px-6 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isSearching ? (
