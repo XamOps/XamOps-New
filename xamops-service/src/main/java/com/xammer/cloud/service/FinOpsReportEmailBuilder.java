@@ -56,6 +56,11 @@ public class FinOpsReportEmailBuilder {
         String generatedDate = LocalDate.now().format(DateTimeFormatter.ofPattern("MMMM dd, yyyy"));
         String providerBadge = getProviderBadge(cloudProvider);
 
+        // Currency based on cloud provider: GCP uses INR (₹), others use USD ($)
+        boolean isGcp = cloudProvider != null && cloudProvider.equalsIgnoreCase("GCP");
+        String currencySymbol = isGcp ? "₹" : "$";
+        String currencyLabel = isGcp ? "INR" : "USD";
+
         // --- HTML START ---
         sb.append("<!DOCTYPE html>");
         sb.append("<html lang='en'>");
@@ -113,7 +118,7 @@ public class FinOpsReportEmailBuilder {
                 "<div style='background: #ffffff; border-radius: 12px; padding: 20px; text-align: center; box-shadow: 0 2px 12px rgba(0,0,0,0.1); border: 1px solid #e8eef3;'>");
         sb.append(
                 "<p style='margin: 0 0 4px 0; color: #6b7280; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;'>Total Cost</p>");
-        sb.append("<p style='margin: 0; color: #1f2937; font-size: 24px; font-weight: 700;'>₹")
+        sb.append("<p style='margin: 0; color: #1f2937; font-size: 24px; font-weight: 700;'>").append(currencySymbol)
                 .append(String.format("%,.2f", totalCost)).append("</p>");
         sb.append("</div>");
         sb.append("</td>");
@@ -182,7 +187,7 @@ public class FinOpsReportEmailBuilder {
             sb.append(
                     "<th style='padding: 14px 16px; text-align: left; color: #ffffff; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;'>Region</th>");
             sb.append(
-                    "<th style='padding: 14px 16px; text-align: right; color: #ffffff; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;'>Cost (INR)</th>");
+                    "<th style='padding: 14px 16px; text-align: right; color: #ffffff; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;'>Cost (").append(currencyLabel).append(")</th>");
             sb.append("</tr>");
             sb.append("</thead>");
 
@@ -202,7 +207,7 @@ public class FinOpsReportEmailBuilder {
                         .append(item.getRegion()).append("</td>");
                 sb.append(
                         "<td style='padding: 14px 16px; text-align: right; font-size: 14px; font-weight: 600; color: ")
-                        .append(costColor).append("; border-bottom: 1px solid #e5e7eb;'>₹")
+                        .append(costColor).append("; border-bottom: 1px solid #e5e7eb;'>").append(currencySymbol)
                         .append(String.format("%,.2f", item.getCost())).append("</td>");
                 sb.append("</tr>");
                 rowIndex++;
@@ -215,7 +220,7 @@ public class FinOpsReportEmailBuilder {
             sb.append(
                     "<td colspan='2' style='padding: 16px; color: #ffffff; font-size: 15px; font-weight: 700;'>Total</td>");
             sb.append(
-                    "<td style='padding: 16px; text-align: right; color: #ffffff; font-size: 18px; font-weight: 700;'>₹")
+                    "<td style='padding: 16px; text-align: right; color: #ffffff; font-size: 18px; font-weight: 700;'>").append(currencySymbol)
                     .append(String.format("%,.2f", totalCost)).append("</td>");
             sb.append("</tr>");
             sb.append("</tfoot>");
@@ -248,7 +253,7 @@ public class FinOpsReportEmailBuilder {
                                     "<div style='display: flex; justify-content: space-between; margin-bottom: 4px;'>");
                             sb.append("<span style='color: #374151; font-size: 14px;'>").append(entry.getKey())
                                     .append("</span>");
-                            sb.append("<span style='color: #6b7280; font-size: 14px;'>₹")
+                            sb.append("<span style='color: #6b7280; font-size: 14px;'>").append(currencySymbol)
                                     .append(String.format("%,.2f", entry.getValue())).append(" (")
                                     .append(String.format("%.1f", percentage)).append("%)</span>");
                             sb.append("</div>");
