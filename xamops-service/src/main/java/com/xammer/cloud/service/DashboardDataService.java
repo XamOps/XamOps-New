@@ -358,6 +358,16 @@ public class DashboardDataService {
                     logger.error("Failed to cache dashboard for {}: {}", accountId, e.getMessage());
                 }
 
+                // ⭐ NEW: Cache Cloud List for AWS accounts (Grouped & Flat)
+                if ("AWS".equalsIgnoreCase(account.getProvider())) {
+                    try {
+                        cloudListService.getAllResourcesGrouped(accountId, true);
+                        logger.info("✓ Cloud List (Grouped) pre-cached for {} (AWS)", accountId);
+                    } catch (Exception e) {
+                        logger.error("Failed to pre-cache Cloud List for {}: {}", accountId, e.getMessage());
+                    }
+                }
+
                 // ⭐ NEW: Cache FinOps data for AWS accounts
                 if ("AWS".equalsIgnoreCase(account.getProvider())) {
                     try {
@@ -614,7 +624,8 @@ public class DashboardDataService {
         // 2. Determine Cache Key (User + Tenant Scoped)
         boolean isAdmin = isUserAdmin(userDetails);
         String clientScope = (userDetails != null && userDetails.getClientId() != null)
-                ? userDetails.getClientId().toString() : "system";
+                ? userDetails.getClientId().toString()
+                : "system";
         String scopedKey = SNAPSHOT_KEY_AWS + "::" + tenantId + "::" + clientScope;
 
         // 3. Try to fetch from Snapshot first
@@ -657,7 +668,8 @@ public class DashboardDataService {
         // Determine Cache Key (User + Tenant Scoped)
         boolean isAdmin = isUserAdmin(userDetails);
         String clientScope = (userDetails != null && userDetails.getClientId() != null)
-                ? userDetails.getClientId().toString() : "system";
+                ? userDetails.getClientId().toString()
+                : "system";
         String scopedKey = SNAPSHOT_KEY_GCP + "::" + tenantId + "::" + clientScope;
 
         // 1. Try to fetch from Snapshot
@@ -695,7 +707,8 @@ public class DashboardDataService {
         // Determine Cache Key (User + Tenant Scoped)
         boolean isAdmin = isUserAdmin(userDetails);
         String clientScope = (userDetails != null && userDetails.getClientId() != null)
-                ? userDetails.getClientId().toString() : "system";
+                ? userDetails.getClientId().toString()
+                : "system";
         String scopedKey = SNAPSHOT_KEY_AZURE + "::" + tenantId + "::" + clientScope;
 
         // 1. Try to fetch from Snapshot

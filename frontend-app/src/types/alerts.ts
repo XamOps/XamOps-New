@@ -5,7 +5,7 @@
  * Converted from: alerts.html (Alpine.js component)
  */
 
-export type AlertType = 'QUOTA' | 'ANOMALY';
+export type AlertType = 'QUOTA' | 'ANOMALY' | 'SECURITY';
 
 export interface QuotaAlert {
   id: string;

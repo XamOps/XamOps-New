@@ -48,14 +48,16 @@ public class AwsSecurityHubService {
 
     /**
      * Get security findings from AWS Security Hub across all active regions.
-     * REMOVED @Async - already called from async context (getAlertsWithDetails)
      */
-    public CompletableFuture<List<com.xammer.cloud.dto.AwsSecurityFinding>> getSecurityFindings(String accountId, boolean forceRefresh) {
+    @Async("awsTaskExecutor")
+    public CompletableFuture<List<com.xammer.cloud.dto.AwsSecurityFinding>> getSecurityFindings(String accountId,
+            boolean forceRefresh) {
         String cacheKey = CACHE_PREFIX + accountId;
 
         if (!forceRefresh) {
             Optional<List<com.xammer.cloud.dto.AwsSecurityFinding>> cached = redisCache.get(
-                    cacheKey, new TypeReference<List<com.xammer.cloud.dto.AwsSecurityFinding>>() {});
+                    cacheKey, new TypeReference<List<com.xammer.cloud.dto.AwsSecurityFinding>>() {
+                    });
             if (cached.isPresent()) {
                 logger.info("Returning cached SecurityHub findings for account {} ({} findings)",
                         accountId, cached.get().size());
@@ -71,8 +73,8 @@ public class AwsSecurityHubService {
 
                     for (DashboardData.RegionStatus region : activeRegions) {
                         try {
-                            List<com.xammer.cloud.dto.AwsSecurityFinding> regionFindings =
-                                    fetchFindingsForRegion(account, region.getRegionId());
+                            List<com.xammer.cloud.dto.AwsSecurityFinding> regionFindings = fetchFindingsForRegion(
+                                    account, region.getRegionId());
                             allFindings.addAll(regionFindings);
                         } catch (Exception e) {
                             logger.warn("Failed to fetch SecurityHub findings for region {}: {}",
@@ -89,9 +91,11 @@ public class AwsSecurityHubService {
     }
 
     /**
-     * Fetch findings for a specific region with filters for active, high-severity findings.
+     * Fetch findings for a specific region with filters for active, high-severity
+     * findings.
      */
-    private List<com.xammer.cloud.dto.AwsSecurityFinding> fetchFindingsForRegion(CloudAccount account, String regionId) {
+    private List<com.xammer.cloud.dto.AwsSecurityFinding> fetchFindingsForRegion(CloudAccount account,
+            String regionId) {
         List<com.xammer.cloud.dto.AwsSecurityFinding> findings = new ArrayList<>();
 
         try {
@@ -112,8 +116,7 @@ public class AwsSecurityHubService {
                                     StringFilter.builder()
                                             .value("HIGH")
                                             .comparison(StringFilterComparison.EQUALS)
-                                            .build()
-                            ))
+                                            .build()))
                             .workflowStatus(List.of(StringFilter.builder()
                                     .value("NEW")
                                     .comparison(StringFilterComparison.EQUALS)
@@ -146,7 +149,8 @@ public class AwsSecurityHubService {
     /**
      * Map AWS SDK Finding to our DTO.
      */
-    private com.xammer.cloud.dto.AwsSecurityFinding mapToDto(software.amazon.awssdk.services.securityhub.model.AwsSecurityFinding finding, String regionId) {
+    private com.xammer.cloud.dto.AwsSecurityFinding mapToDto(
+            software.amazon.awssdk.services.securityhub.model.AwsSecurityFinding finding, String regionId) {
         String resourceId = "";
         String resourceType = "";
 
@@ -188,14 +192,13 @@ public class AwsSecurityHubService {
                 regionId,
                 complianceStatus,
                 finding.productName(),
-                remediation
-        );
+                remediation);
     }
 
     /**
      * Convert security findings to AlertDto format for CloudGuard integration.
-     * REMOVED @Async - already called from async context (getAlertsWithDetails)
      */
+    @Async("awsTaskExecutor")
     public CompletableFuture<List<AlertDto>> getSecurityAlerts(String accountId, boolean forceRefresh) {
         return getSecurityFindings(accountId, forceRefresh)
                 .thenApply(findings -> {
@@ -223,8 +226,7 @@ public class AwsSecurityHubService {
                                         0, // usage not applicable for security
                                         0, // limit not applicable for security
                                         "SECURITY",
-                                        finding.getRegion()
-                                );
+                                        finding.getRegion());
                             })
                             .collect(Collectors.toList());
                 });
@@ -234,7 +236,8 @@ public class AwsSecurityHubService {
      * Sanitize string for use in alert ID.
      */
     private String sanitizeForId(String input) {
-        if (input == null || input.isEmpty()) return "unknown";
+        if (input == null || input.isEmpty())
+            return "unknown";
         String sanitized = input.toLowerCase().replaceAll("[^a-z0-9]", "-");
         return sanitized.substring(0, Math.min(sanitized.length(), 30));
     }
