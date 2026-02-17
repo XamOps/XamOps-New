@@ -104,8 +104,7 @@ export const useSpotAutomationData = ({ selectedAccountId }: UseSpotAutomationDa
     try {
       console.log('[SpotAutomation] Fetching cost data for account:', selectedAccountId);
 
-      const response = await apiClient.get(`/autospotting/costs/${selectedAccountId}`);
-      const data = response.data;
+      const data = await apiClient.get(`/api/autospotting/costs/${selectedAccountId}`);
 
       console.log('[SpotAutomation] Cost data received:', data);
 
@@ -188,10 +187,9 @@ export const useSpotAutomationData = ({ selectedAccountId }: UseSpotAutomationDa
 
       console.log(`[SpotAutomation] Fetching history data for ${timeRange}...`);
 
-      const response = await apiClient.get(
-        `/autospotting/costs/history/${selectedAccountId}?start=${start}&end=${end}&interval=${interval}`
+      const data = await apiClient.get(
+        `/api/autospotting/costs/history/${selectedAccountId}?start=${start}&end=${end}&interval=${interval}`
       );
-      const data = response.data;
 
       console.log('[SpotAutomation] History data received:', data);
 
@@ -230,7 +228,7 @@ export const useSpotAutomationData = ({ selectedAccountId }: UseSpotAutomationDa
 
     try {
       await apiClient.post(
-        `/autospotting/asgs/${selectedAccountId}/${endpoint}?region=${asg.region}&asgName=${encodeURIComponent(asg.name)}`
+        `/api/autospotting/asgs/${selectedAccountId}/${endpoint}?region=${asg.region}&asgName=${encodeURIComponent(asg.name)}`
       );
 
       console.log('[SpotAutomation] Toggle successful');
@@ -262,10 +260,9 @@ export const useSpotAutomationData = ({ selectedAccountId }: UseSpotAutomationDa
     try {
       console.log('[SpotAutomation] Generating CloudFormation URL...');
 
-      const response = await apiClient.get(
-        '/cloudformation/deploy-url?regions=&deployRegion=us-east-1'
+      const data = await apiClient.get(
+        '/api/cloudformation/deploy-url?regions=&deployRegion=us-east-1'
       );
-      const data = response.data;
 
       console.log('[SpotAutomation] CloudFormation URL generated:', data.url);
 
@@ -283,7 +280,7 @@ export const useSpotAutomationData = ({ selectedAccountId }: UseSpotAutomationDa
     try {
       console.log('[SpotAutomation] Syncing account:', accountId);
 
-      await apiClient.post('/cloudformation/sync-account', {
+      await apiClient.post('/api/cloudformation/sync-account', {
         accountId,
         accountName: accountName || `Customer-${accountId}`,
         regions: regions || 'all',

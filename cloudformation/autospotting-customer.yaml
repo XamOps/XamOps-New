@@ -166,7 +166,7 @@ Resources:
   AutoSpottingExecutionRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub 'AutoSpotting-Execution-Role-${AWS::Region}'
+      RoleName: AutoSpotting-Execution-Role
       Description: Role assumed by Xammer backend to manage Spot instances
       AssumeRolePolicyDocument:
         Version: '2012-10-17'

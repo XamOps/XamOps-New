@@ -237,19 +237,11 @@ public class CloudFormationController {
         log.info("🚀 Generating CloudFormation deploy URL for region: {}", deployRegion);
 
         try {
-            // Bypass strict health check if needed, but we keep the logic here for logging
-            // isMainStackHealthy();
-
-            String targetRegions = getRegionsExcludingDeploymentRegion(regions, deployRegion);
-            log.info("📍 StackSet regions (excluding deploy region): {}", targetRegions);
-
             String cfUrl = buildCloudFormationQuickCreateUrl(
                     CUSTOMER_STACK_NAME,
                     TEMPLATE_S3_URL,
                     MAIN_ACCOUNT_ID,
                     MAIN_REGION,
-                    LAMBDA_EXECUTION_ROLE_ARN,
-                    targetRegions,
                     deployRegion);
 
             Map<String, Object> response = new HashMap<>();
@@ -340,7 +332,9 @@ public class CloudFormationController {
 
     private String buildCloudFormationQuickCreateUrl(
             String stackName, String templateUrl, String mainAccountId, String mainRegion,
-            String lambdaRoleArn, String regions, String deployRegion) throws UnsupportedEncodingException {
+            String deployRegion) throws UnsupportedEncodingException {
+
+        String sqsQueueUrl = "https://sqs." + mainRegion + ".amazonaws.com/" + mainAccountId + "/autospotting-events.fifo";
 
         StringBuilder url = new StringBuilder();
         url.append("https://console.aws.amazon.com/cloudformation/home");
@@ -348,12 +342,10 @@ public class CloudFormationController {
         url.append("#/stacks/quickcreate");
         url.append("?stackName=").append(URLEncoder.encode(stackName, StandardCharsets.UTF_8.toString()));
         url.append("&templateURL=").append(URLEncoder.encode(templateUrl, StandardCharsets.UTF_8.toString()));
-        url.append("&param_MainAccountId=").append(mainAccountId);
-        url.append("&param_MainRegion=").append(mainRegion);
-        url.append("&param_AutoSpottingLambdaRoleArn=")
-                .append(URLEncoder.encode(lambdaRoleArn, StandardCharsets.UTF_8.toString()));
-        url.append("&param_Regions=").append(URLEncoder.encode(regions, StandardCharsets.UTF_8.toString()));
-        url.append("&param_DeployRegionalStackSet=true");
+        url.append("&param_XammerAccountId=").append(mainAccountId);
+        url.append("&param_XammerSQSQueueUrl=").append(URLEncoder.encode(sqsQueueUrl, StandardCharsets.UTF_8.toString()));
+        url.append("&param_XammerRegion=").append(mainRegion);
+        url.append("&param_EnableAutoSpotting=true");
         return url.toString();
     }
 }
