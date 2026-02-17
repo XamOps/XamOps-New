@@ -39,6 +39,9 @@ public class EventRecord {
     @JsonProperty("new_lifecycle")
     private String newLifecycle;
 
+    @JsonProperty("result")
+    private String result;
+
     @JsonProperty("reason")
     private String reason;
 

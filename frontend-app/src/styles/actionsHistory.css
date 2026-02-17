@@ -85,7 +85,6 @@
 .actions-history-container table thead th {
   position: sticky;
   top: 0;
-  background-color: #f9fafb;
   z-index: 10;
   backdrop-filter: blur(10px);
 }
@@ -240,25 +239,7 @@
   outline-offset: 2px;
 }
 
-/* Dark mode support (optional) */
-@media (prefers-color-scheme: dark) {
-  .actions-history-container .bg-white {
-    background-color: #1a202c;
-    color: #e2e8f0;
-  }
-
-  .actions-history-container .text-gray-900 {
-    color: #e2e8f0;
-  }
-
-  .actions-history-container .text-gray-600 {
-    color: #a0aec0;
-  }
-
-  .actions-history-container .border-gray-200 {
-    border-color: #2d3748;
-  }
-}
+/* Dark mode is handled globally by the .dark class in style.css */
 
 /* Print styles */
 @media print {

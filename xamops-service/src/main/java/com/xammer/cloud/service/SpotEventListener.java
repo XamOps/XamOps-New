@@ -89,9 +89,10 @@ public class SpotEventListener {
     private void processEvent(String messageBody) throws Exception {
         JsonNode root = objectMapper.readTree(messageBody);
 
-        // EventBridge events wrapped in SQS usually have a 'detail' section
+        // EventBridge events wrapped in SQS have 'source', 'detail-type', and 'detail'
         JsonNode detail = root.path("detail");
         String eventSource = root.path("source").asText();
+        String detailType = root.path("detail-type").asText();
         String accountId = root.path("account").asText();
         String region = root.path("region").asText();
 
@@ -100,7 +101,8 @@ public class SpotEventListener {
             return;
         }
 
-        logger.info("Processing scaling event from account {} in region {}: {}", accountId, region, eventSource);
+        logger.info("Processing event from account={} region={} source={} type={}",
+                accountId, region, eventSource, detailType);
 
         // 1. Find the CloudAccount in our database
         Optional<CloudAccount> accountOpt = cloudAccountRepository.findByProviderAccountId(accountId);
@@ -117,8 +119,13 @@ public class SpotEventListener {
             return;
         }
 
-        // 3. Delegate to AutoSpottingService for swap logic
-        // The service will check ASG tags and hourly pricing
-        autoSpottingService.handleScalingEvent(account, region, detail);
+        // 3. Route by event type
+        if ("EC2 Spot Instance Interruption Warning".equals(detailType)) {
+            // 2-minute warning before Spot termination — handle immediately
+            autoSpottingService.handleSpotInterruption(account, region, detail);
+        } else {
+            // ASG lifecycle events (Launch/Terminate)
+            autoSpottingService.handleScalingEvent(account, region, detail);
+        }
     }
 }

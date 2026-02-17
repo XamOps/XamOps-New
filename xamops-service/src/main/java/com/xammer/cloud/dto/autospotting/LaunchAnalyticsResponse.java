@@ -41,11 +41,17 @@ public class LaunchAnalyticsResponse {
         @JsonProperty("instance_type")
         private String instanceType;
 
+        @JsonProperty("region")
+        private String region;
+
         @JsonProperty("success_rate")
         private Double successRate;
 
         @JsonProperty("total_launches")
         private Integer totalLaunches;
+
+        @JsonProperty("avg_launch_time")
+        private String avgLaunchTime;
 
         @JsonProperty("score")
         private Double score;

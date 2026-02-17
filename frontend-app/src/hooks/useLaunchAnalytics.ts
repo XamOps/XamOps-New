@@ -72,7 +72,7 @@ export const useLaunchAnalytics = (accountId: string) => {
       });
 
       const response = await apiClient.get(
-        `/autospotting/analytics/launches/${accountId}?${params}`
+        `/api/autospotting/analytics/launches/${accountId}?${params}`
       );
 
       // Transform backend snake_case to camelCase

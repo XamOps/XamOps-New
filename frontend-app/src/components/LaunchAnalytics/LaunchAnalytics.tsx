@@ -49,84 +49,61 @@ const LaunchAnalytics: React.FC<LaunchAnalyticsProps> = ({ accountId }) => {
 
   return (
     <div className="launch-analytics-container">
-      {/* Header with gradient background */}
-      <div className="bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-700 rounded-2xl shadow-xl p-8 mb-6 text-white">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
-          <div>
-            <h2 className="text-3xl font-bold mb-2 flex items-center gap-3">
-              <i className="fas fa-chart-line"></i>
-              Launch Analytics
-            </h2>
-            <p className="text-blue-100 text-sm">Spot instance launch success metrics and recommendations</p>
-          </div>
-
-          <div className="flex flex-wrap items-end gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-blue-100 mb-2 uppercase tracking-wide">
-                From
-              </label>
-              <input
-                type="date"
-                value={filters.startDate}
-                onChange={(e) => handleDateChange('startDate', e.target.value)}
-                max={filters.endDate}
-                className="px-4 py-2.5 bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg text-white placeholder-blue-200 focus:ring-2 focus:ring-white/50 focus:border-transparent text-sm font-medium transition-all hover:bg-white/15"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-blue-100 mb-2 uppercase tracking-wide">
-                To
-              </label>
-              <input
-                type="date"
-                value={filters.endDate}
-                onChange={(e) => handleDateChange('endDate', e.target.value)}
-                min={filters.startDate}
-                max={new Date().toISOString().split('T')[0]}
-                className="px-4 py-2.5 bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg text-white placeholder-blue-200 focus:ring-2 focus:ring-white/50 focus:border-transparent text-sm font-medium transition-all hover:bg-white/15"
-              />
-            </div>
-
-            <button
-              onClick={handleRefresh}
-              disabled={loading}
-              className="px-6 py-2.5 bg-white text-blue-700 rounded-lg hover:bg-blue-50 disabled:bg-white/50 disabled:cursor-not-allowed transition-all font-semibold text-sm flex items-center shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 active:translate-y-0"
-            >
-              <i className={`fas mr-2 ${loading ? 'fa-spinner fa-spin' : 'fa-sync-alt'}`}></i>
-              <span>{loading ? 'Loading...' : 'Refresh'}</span>
-            </button>
-          </div>
+      {/* Compact filter bar */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 px-4 py-3 mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <i className="fas fa-chart-line text-blue-600 text-sm"></i>
+          <span className="font-bold text-gray-800 text-sm">Launch Analytics</span>
+          <span className="text-gray-400 text-xs hidden sm:inline">— Spot instance launch metrics</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">From</label>
+          <input
+            type="date"
+            value={filters.startDate}
+            onChange={(e) => handleDateChange('startDate', e.target.value)}
+            max={filters.endDate}
+            className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">To</label>
+          <input
+            type="date"
+            value={filters.endDate}
+            onChange={(e) => handleDateChange('endDate', e.target.value)}
+            min={filters.startDate}
+            max={new Date().toISOString().split('T')[0]}
+            className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+          <button
+            onClick={handleRefresh}
+            disabled={loading}
+            className="px-4 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-semibold text-xs flex items-center gap-1.5 shadow-sm"
+          >
+            <i className={`fas ${loading ? 'fa-spinner fa-spin' : 'fa-sync-alt'}`}></i>
+            {loading ? 'Loading...' : 'Refresh'}
+          </button>
         </div>
       </div>
 
       {/* Error State */}
       {error && (
-        <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-6 rounded-lg">
-          <div className="flex items-center">
-            <i className="fas fa-exclamation-triangle text-red-500 text-xl mr-3"></i>
-            <div>
-              <p className="text-red-800 font-semibold">Failed to load analytics</p>
-              <p className="text-red-600 text-sm mt-1">{error}</p>
-            </div>
+        <div className="bg-red-50 border-l-4 border-red-500 p-3 mb-4 rounded-lg flex items-center gap-3">
+          <i className="fas fa-exclamation-triangle text-red-500"></i>
+          <div>
+            <p className="text-red-800 font-semibold text-sm">Failed to load analytics</p>
+            <p className="text-red-600 text-xs mt-0.5">{error}</p>
           </div>
         </div>
       )}
 
-      {/* Loading State */}
-      {loading && (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-16 text-center mb-6">
-          <i className="fas fa-spinner fa-spin text-6xl text-blue-600 mb-4"></i>
-          <p className="text-gray-700 font-semibold text-xl mb-2">Loading analytics data...</p>
-          <p className="text-gray-500 text-sm">Analyzing spot instance launch patterns</p>
-        </div>
-      )}
+      {/* Sticky KPI Cards */}
+      <div className="sticky top-0 z-20 bg-gray-50 pb-3 pt-0">
+        <LaunchAnalyticsKPIs data={data} />
+      </div>
 
       {/* Main Content */}
       {!loading && (
         <>
-          {/* KPI Cards */}
-          <LaunchAnalyticsKPIs data={data} />
-
           {/* Two Column Layout - Heatmap and Region Chart */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
             <SpotMarketHeatmap data={data.byInstanceType} />
@@ -139,6 +116,20 @@ const LaunchAnalytics: React.FC<LaunchAnalyticsProps> = ({ accountId }) => {
             <RecommendedTypesCard data={data.recommendations} />
           </div>
         </>
+      )}
+
+      {/* Loading skeleton for charts */}
+      {loading && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {[1, 2, 3, 4].map(i => (
+            <div key={i} className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 animate-pulse">
+              <div className="h-4 bg-gray-200 rounded w-1/3 mb-4"></div>
+              <div className="space-y-3">
+                {[1,2,3].map(j => <div key={j} className="h-3 bg-gray-200 rounded w-full"></div>)}
+              </div>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
