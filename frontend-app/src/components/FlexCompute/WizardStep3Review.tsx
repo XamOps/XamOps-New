@@ -256,7 +256,10 @@ const WizardStep3Review: React.FC<WizardStep3ReviewProps> = ({
         </div>
 
         {/* Terms */}
-        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
+        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 space-y-3">
+          <p className="text-xs text-gray-600 leading-relaxed">
+            In the rare event of a disaster recovery scenario necessitating capacity withdrawal, we may reclaim your Purchased Capacity to support recovery efforts for other customers. By using our services, you agree to this policy and accept that our liability is limited to the refund specified. These terms are governed by the laws of our jurisdiction.
+          </p>
           <label className="flex items-start gap-3 cursor-pointer">
             <input
               type="checkbox"

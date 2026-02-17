@@ -17,6 +17,7 @@ import type {
 const defaultKPIs: FlexComputeKPIs = {
   totalSavings: 0,
   totalCost: 0,
+  awsCost: 0,
   totalUsageHours: 0,
   remainingHours: 0,
 };
@@ -77,6 +78,7 @@ export const useFlexComputeData = () => {
         (acc, item) => ({
           totalSavings: acc.totalSavings + (item.totalSavings || 0),
           totalCost: acc.totalCost + (item.totalCost || 0),
+          awsCost: acc.awsCost + (item.awsPrice || 0),
           totalUsageHours: acc.totalUsageHours + (item.totalUsageHours || 0),
           remainingHours: acc.remainingHours + (item.remainingHours || 0),
         }),
@@ -415,8 +417,8 @@ export const useFlexComputeData = () => {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Configuration failed');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(parseApiError(response.status, errorData, 'configure'));
       }
 
       return true;
@@ -487,8 +489,8 @@ export const useFlexComputeData = () => {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Extend failed');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(parseApiError(response.status, errorData, 'extend'));
       }
 
       await fetchCapacities();
@@ -515,8 +517,8 @@ export const useFlexComputeData = () => {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Cancel failed');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(parseApiError(response.status, errorData, 'cancel'));
       }
 
       await fetchCapacities();

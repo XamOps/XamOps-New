@@ -13,6 +13,7 @@ interface FlexComputeTableProps {
   isLoading: boolean;
   onCancelCapacity: (cidrId: string) => Promise<boolean>;
   onExtendCapacity: (cidrId: string, endDate: string, endTime: string, utcOffset: string) => Promise<boolean>;
+  onContinuePurchase?: (capacity: FlexComputeCapacity) => void;
   // Pagination
   currentPage: number;
   pageSize: number;
@@ -62,11 +63,18 @@ const formatCurrency = (value: number): string => {
 
 const PAGE_SIZE_OPTIONS = [5, 10, 20, 50];
 
+const isReadyForPurchase = (cap: FlexComputeCapacity): boolean => {
+  const status = (cap.policyStatus || '').toLowerCase().replace(/ /g, '_');
+  const opState = (cap.policyOperatingState || '').toLowerCase().replace(/ /g, '_');
+  return status === 'ready_for_purchase' || opState === 'ready_for_purchase';
+};
+
 const FlexComputeTable: React.FC<FlexComputeTableProps> = ({
   capacities,
   isLoading,
   onCancelCapacity,
   onExtendCapacity,
+  onContinuePurchase,
   currentPage,
   pageSize,
   totalElements,
@@ -288,7 +296,7 @@ const FlexComputeTable: React.FC<FlexComputeTableProps> = ({
                           className="fixed inset-0 z-10"
                           onClick={() => setOpenDropdown(null)}
                         ></div>
-                        <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-20">
+                        <div className="absolute right-0 mt-2 w-52 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-20">
                           <button
                             onClick={() => {
                               setOpenDropdown(null);
@@ -299,6 +307,18 @@ const FlexComputeTable: React.FC<FlexComputeTableProps> = ({
                             <i className="fas fa-eye w-4"></i>
                             View Detail
                           </button>
+                          {isReadyForPurchase(cap) && onContinuePurchase && (
+                            <button
+                              onClick={() => {
+                                setOpenDropdown(null);
+                                onContinuePurchase(cap);
+                              }}
+                              className="w-full text-left px-4 py-2 text-sm text-green-700 hover:bg-green-50 transition-colors flex items-center gap-2 font-medium"
+                            >
+                              <i className="fas fa-shopping-cart w-4"></i>
+                              Continue Purchase
+                            </button>
+                          )}
                           <button
                             onClick={() => handleCancel(cap.id, cap.name)}
                             disabled={cancelling === cap.id}

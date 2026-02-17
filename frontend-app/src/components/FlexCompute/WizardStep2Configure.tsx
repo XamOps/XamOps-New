@@ -4,7 +4,7 @@
  * Optional configuration: VPC, Security Group, SSH Key, EBS Volume, AMI
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import type { ConfigureCapacityForm } from '../../types/flexCompute';
 
 interface WizardStep2ConfigureProps {
@@ -13,6 +13,43 @@ interface WizardStep2ConfigureProps {
   onNext: () => void;
   onBack: () => void;
 }
+
+const tooltips: Record<string, string> = {
+  vpcId: `1. Open the AWS Management Console and navigate to EC2.\n2. In the left navigation pane, select VPC (or Your VPCs).\n3. Locate the VPC you want to use and copy the VPC ID (e.g., vpc-12345abc).`,
+  securityGroupId: `1. Open the AWS Management Console and navigate to EC2.\n2. In the left navigation pane, select Security Groups.\n3. Choose the relevant security group and copy the Security Group ID (e.g., sg-012345abc).`,
+  sshKeyName: `1. Open the AWS Management Console and navigate to EC2.\n2. In the left navigation pane, select Key Pairs.\n3. Copy the Key Pair Name (not the file name), e.g., my-ec2-keypair.`,
+  ebsVolumeSize: `1. Specify the size of the EBS volume in gigabytes (GB).\nDefault AMI Image - /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2`,
+  amiImageId: `1. Open the AWS Management Console and navigate to EC2.\n2. In the left navigation pane, select AMIs (under Images).\n3. Copy the AMI ID (e.g., ami-123456abc).`,
+};
+
+const TooltipIcon: React.FC<{ field: string }> = ({ field }) => {
+  const [visible, setVisible] = useState(false);
+  const text = tooltips[field];
+  if (!text) return null;
+
+  return (
+    <span className="relative inline-block ml-1.5 align-middle">
+      <button
+        type="button"
+        onMouseEnter={() => setVisible(true)}
+        onMouseLeave={() => setVisible(false)}
+        onFocus={() => setVisible(true)}
+        onBlur={() => setVisible(false)}
+        className="w-4 h-4 rounded-full border border-blue-400 text-blue-500 text-xs font-bold flex items-center justify-center hover:bg-blue-50 transition-colors focus:outline-none"
+        aria-label="Help"
+      >
+        ?
+      </button>
+      {visible && (
+        <div className="absolute z-50 left-6 top-0 w-72 bg-gray-900 text-white text-xs rounded-lg p-3 shadow-xl whitespace-pre-line leading-relaxed">
+          {text}
+          {/* Arrow */}
+          <span className="absolute -left-1.5 top-2 w-3 h-3 bg-gray-900 rotate-45"></span>
+        </div>
+      )}
+    </span>
+  );
+};
 
 const WizardStep2Configure: React.FC<WizardStep2ConfigureProps> = ({
   form,
@@ -40,6 +77,7 @@ const WizardStep2Configure: React.FC<WizardStep2ConfigureProps> = ({
             <label className="block text-sm font-medium text-gray-700 mb-1.5">
               <i className="fas fa-network-wired mr-1.5 text-gray-400"></i>
               VPC ID
+              <TooltipIcon field="vpcId" />
             </label>
             <input
               type="text"
@@ -53,6 +91,7 @@ const WizardStep2Configure: React.FC<WizardStep2ConfigureProps> = ({
             <label className="block text-sm font-medium text-gray-700 mb-1.5">
               <i className="fas fa-shield-alt mr-1.5 text-gray-400"></i>
               Security Group ID
+              <TooltipIcon field="securityGroupId" />
             </label>
             <input
               type="text"
@@ -69,6 +108,7 @@ const WizardStep2Configure: React.FC<WizardStep2ConfigureProps> = ({
             <label className="block text-sm font-medium text-gray-700 mb-1.5">
               <i className="fas fa-key mr-1.5 text-gray-400"></i>
               SSH Key Name
+              <TooltipIcon field="sshKeyName" />
             </label>
             <input
               type="text"
@@ -82,6 +122,7 @@ const WizardStep2Configure: React.FC<WizardStep2ConfigureProps> = ({
             <label className="block text-sm font-medium text-gray-700 mb-1.5">
               <i className="fas fa-hdd mr-1.5 text-gray-400"></i>
               EBS Volume Size (GiB)
+              <TooltipIcon field="ebsVolumeSize" />
             </label>
             <input
               type="number"
@@ -98,6 +139,7 @@ const WizardStep2Configure: React.FC<WizardStep2ConfigureProps> = ({
           <label className="block text-sm font-medium text-gray-700 mb-1.5">
             <i className="fas fa-image mr-1.5 text-gray-400"></i>
             AMI Image ID
+            <TooltipIcon field="amiImageId" />
           </label>
           <input
             type="text"

@@ -45,6 +45,7 @@ export interface FlexComputeCapacity {
 export interface FlexComputeKPIs {
   totalSavings: number;
   totalCost: number;
+  awsCost: number;
   totalUsageHours: number;
   remainingHours: number;
 }
