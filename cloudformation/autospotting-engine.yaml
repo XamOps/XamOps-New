@@ -1,0 +1,321 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'AutoSpotting Engine Infrastructure - Centralized event processing for spot instance optimization'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: production
+    AllowedValues:
+      - development
+      - staging
+      - production
+    Description: Environment name for resource tagging
+
+  BackendServiceUrl:
+    Type: String
+    Description: URL of the XamOps backend service that will poll this queue
+    Default: https://api.xamops.com
+
+  BackendPrincipalArn:
+    Type: String
+    Description: ARN of the IAM User/Role that runs the backend (for local dev or cross-account access)
+    Default: 'arn:aws:iam::605134457560:user/sahil'
+
+Resources:
+  # ============================================================================
+  # SQS FIFO Queue for AutoSpotting Events
+  # ============================================================================
+  AutoSpottingEventQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: autospotting-events.fifo
+      FifoQueue: true
+      ContentBasedDeduplication: true
+      MessageRetentionPeriod: 1209600  # 14 days
+      VisibilityTimeout: 300  # 5 minutes
+      ReceiveMessageWaitTimeSeconds: 20  # Long polling
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt AutoSpottingDLQ.Arn
+        maxReceiveCount: 3
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Service
+          Value: AutoSpotting
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  # Dead Letter Queue for failed messages
+  AutoSpottingDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: autospotting-events-dlq.fifo
+      FifoQueue: true
+      MessageRetentionPeriod: 1209600  # 14 days
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Service
+          Value: AutoSpotting-DLQ
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  # Queue Policy to allow EventBridge to send messages
+  AutoSpottingQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref AutoSpottingEventQueue
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowEventBridgeToSendMessages
+            Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action:
+              - sqs:SendMessage
+            Resource: !GetAtt AutoSpottingEventQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !GetAtt EC2InstanceLaunchRule.Arn
+
+          - Sid: AllowEventBridgeToSendTerminationMessages
+            Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action:
+              - sqs:SendMessage
+            Resource: !GetAtt AutoSpottingEventQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !GetAtt EC2InstanceTerminationRule.Arn
+
+          - Sid: AllowBackendToPollMessages
+            Effect: Allow
+            Principal:
+              AWS: !Ref BackendPrincipalArn
+            Action:
+              - sqs:ReceiveMessage
+              - sqs:DeleteMessage
+              - sqs:GetQueueAttributes
+            Resource: !GetAtt AutoSpottingEventQueue.Arn
+
+  # ============================================================================
+  # EventBridge Rules to Capture EC2 Instance State Changes
+  # ============================================================================
+  
+  # Rule to capture EC2 instance launches (spot instances)
+  EC2InstanceLaunchRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: autospotting-instance-launch
+      Description: Capture EC2 spot instance launch events for AutoSpotting
+      State: ENABLED
+      EventPattern:
+        source:
+          - aws.ec2
+        detail-type:
+          - EC2 Instance State-change Notification
+        detail:
+          state:
+            - running
+          instance-lifecycle:
+            - spot
+      Targets:
+        - Arn: !GetAtt AutoSpottingEventQueue.Arn
+          Id: AutoSpottingQueueTarget
+          SqsParameters:
+            MessageGroupId: instance-events
+
+  # Rule to capture EC2 instance terminations (spot instances)
+  EC2InstanceTerminationRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: autospotting-instance-termination
+      Description: Capture EC2 spot instance termination events for AutoSpotting
+      State: ENABLED
+      EventPattern:
+        source:
+          - aws.ec2
+        detail-type:
+          - EC2 Instance State-change Notification
+        detail:
+          state:
+            - terminated
+            - stopped
+          instance-lifecycle:
+            - spot
+      Targets:
+        - Arn: !GetAtt AutoSpottingEventQueue.Arn
+          Id: AutoSpottingQueueTarget
+          SqsParameters:
+            MessageGroupId: instance-events
+
+  # ============================================================================
+  # CloudWatch Alarms for Monitoring
+  # ============================================================================
+  
+  # Alarm for DLQ messages (indicates processing failures)
+  DLQMessagesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: autospotting-dlq-messages
+      AlarmDescription: Alert when messages appear in AutoSpotting DLQ
+      MetricName: ApproximateNumberOfMessagesVisible
+      Namespace: AWS/SQS
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt AutoSpottingDLQ.QueueName
+      TreatMissingData: notBreaching
+
+  # Alarm for queue age (indicates processing delays)
+  QueueAgeAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: autospotting-queue-age
+      AlarmDescription: Alert when messages are not being processed timely
+      MetricName: ApproximateAgeOfOldestMessage
+      Namespace: AWS/SQS
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 600  # 10 minutes
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt AutoSpottingEventQueue.QueueName
+      TreatMissingData: notBreaching
+
+  # ============================================================================
+  # IAM Role for Backend Service (Optional - for EC2/ECS deployment)
+  # ============================================================================
+  
+  BackendServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'autospotting-backend-${Environment}'
+      Description: IAM role for XamOps backend to poll AutoSpotting queue
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+                - ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/CloudWatchLogsFullAccess
+      Policies:
+        - PolicyName: AutoSpottingQueueAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: AllowSQSOperations
+                Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                Resource:
+                  - !GetAtt AutoSpottingEventQueue.Arn
+                  - !GetAtt AutoSpottingDLQ.Arn
+              
+              - Sid: AllowEC2DescribeForPricing
+                Effect: Allow
+                Action:
+                  - ec2:DescribeInstances
+                  - ec2:DescribeSpotPriceHistory
+                  - ec2:DescribeInstanceTypes
+                Resource: '*'
+              
+              - Sid: AllowPricingAPI
+                Effect: Allow
+                Action:
+                  - pricing:GetProducts
+                Resource: '*'
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Service
+          Value: AutoSpotting
+
+  # Instance Profile for EC2 instances running the backend
+  BackendInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub 'autospotting-backend-${Environment}'
+      Roles:
+        - !Ref BackendServiceRole
+
+  # ============================================================================
+  # SSM Parameters for Configuration
+  # ============================================================================
+  
+  QueueUrlParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /autospotting/queue-url
+      Description: SQS Queue URL for AutoSpotting events
+      Type: String
+      Value: !Ref AutoSpottingEventQueue
+      Tags:
+        Environment: !Ref Environment
+        Service: AutoSpotting
+
+  QueueArnParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /autospotting/queue-arn
+      Description: SQS Queue ARN for AutoSpotting events
+      Type: String
+      Value: !GetAtt AutoSpottingEventQueue.Arn
+      Tags:
+        Environment: !Ref Environment
+        Service: AutoSpotting
+
+Outputs:
+  QueueUrl:
+    Description: URL of the AutoSpotting SQS FIFO queue
+    Value: !Ref AutoSpottingEventQueue
+    Export:
+      Name: !Sub '${AWS::StackName}-QueueUrl'
+
+  QueueArn:
+    Description: ARN of the AutoSpotting SQS FIFO queue
+    Value: !GetAtt AutoSpottingEventQueue.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-QueueArn'
+
+  DLQUrl:
+    Description: URL of the AutoSpotting Dead Letter Queue
+    Value: !Ref AutoSpottingDLQ
+    Export:
+      Name: !Sub '${AWS::StackName}-DLQUrl'
+
+  BackendRoleArn:
+    Description: ARN of the IAM role for backend service
+    Value: !GetAtt BackendServiceRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-BackendRoleArn'
+
+  InstanceProfileArn:
+    Description: ARN of the instance profile for EC2 backend
+    Value: !GetAtt BackendInstanceProfile.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-InstanceProfileArn'
+
+  ConfigurationInstructions:
+    Description: Next steps to configure your backend
+    Value: !Sub |
+      1. Update application.properties with: autospotting.sqs.queue-url=${AutoSpottingEventQueue}
+      2. Ensure backend has IAM permissions to poll the queue
+      3. Monitor CloudWatch alarms: ${DLQMessagesAlarm} and ${QueueAgeAlarm}
+      4. Check DLQ for failed messages: ${AutoSpottingDLQ}

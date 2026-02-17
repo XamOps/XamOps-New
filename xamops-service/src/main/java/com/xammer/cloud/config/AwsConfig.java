@@ -12,79 +12,67 @@ import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.pricing.PricingClient;
 import software.amazon.awssdk.services.rds.RdsClient;
-import software.amazon.awssdk.services.s3.S3Client; // --- ADDED ---
-import software.amazon.awssdk.services.s3.presigner.S3Presigner; // --- ADDED ---
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
+import software.amazon.awssdk.services.sqs.SqsClient;
 import software.amazon.awssdk.services.sts.StsClient;
 
+/**
+ * AWS SDK v2 Configuration
+ * Provides AWS service clients as Spring beans.
+ */
 @Configuration
 public class AwsConfig {
 
-    @Value("${aws.region}")
-    private String region;
+    @Value("${cloud.aws.region.static:ap-south-1}")
+    private String awsRegion;
 
-    // Optional: Use specific S3 region if different, otherwise default to main
-    // region
-    @Value("${app.s3.region:ap-south-1}")
-    private String s3Region;
+    @Bean
+    public SqsClient sqsClient() {
+        return SqsClient.builder()
+                .region(Region.of(awsRegion))
+                .credentialsProvider(DefaultCredentialsProvider.create())
+                .build();
+    }
 
-    private DefaultCredentialsProvider getCredentialsProvider() {
-        return DefaultCredentialsProvider.create();
+    @Bean
+    public PricingClient pricingClient() {
+        // Pricing API is only available in us-east-1
+        return PricingClient.builder()
+                .region(Region.US_EAST_1)
+                .credentialsProvider(DefaultCredentialsProvider.create())
+                .build();
     }
 
     @Bean
     public StsClient stsClient() {
         return StsClient.builder()
-                .region(Region.of(region))
-                .credentialsProvider(getCredentialsProvider())
+                .region(Region.of(awsRegion))
+                .credentialsProvider(DefaultCredentialsProvider.create())
                 .build();
     }
 
     @Bean
     public CloudFormationClient cloudFormationClient() {
         return CloudFormationClient.builder()
-                .region(Region.of(region))
-                .credentialsProvider(getCredentialsProvider())
+                .region(Region.of(awsRegion))
+                .credentialsProvider(DefaultCredentialsProvider.create())
                 .build();
     }
 
-    @Bean
-    public PricingClient pricingClient() {
-        return PricingClient.builder()
-                .credentialsProvider(getCredentialsProvider())
-                .region(Region.US_EAST_1)
-                .build();
-    }
-
-    @Bean
-    public Ec2Client ec2Client() {
-        return Ec2Client.builder()
-                .region(Region.of(region))
-                .credentialsProvider(getCredentialsProvider())
-                .build();
-    }
-
-    @Bean
-    public RdsClient rdsClient() {
-        return RdsClient.builder()
-                .region(Region.of(region))
-                .credentialsProvider(getCredentialsProvider())
-                .build();
-    }
-
-    // --- NEW BEANS FOR FILE UPLOAD ---
     @Bean
     public S3Client s3Client() {
         return S3Client.builder()
-                .region(Region.of(s3Region))
-                .credentialsProvider(getCredentialsProvider())
+                .region(Region.of(awsRegion))
+                .credentialsProvider(DefaultCredentialsProvider.create())
                 .build();
     }
 
     @Bean
     public S3Presigner s3Presigner() {
         return S3Presigner.builder()
-                .region(Region.of(s3Region))
-                .credentialsProvider(getCredentialsProvider())
+                .region(Region.of(awsRegion))
+                .credentialsProvider(DefaultCredentialsProvider.create())
                 .build();
     }
     // ---------------------------------
@@ -127,4 +115,19 @@ public class AwsConfig {
                 .build();
     }
 
+    @Bean
+    public Ec2Client ec2Client() {
+        return Ec2Client.builder()
+                .region(Region.of(awsRegion))
+                .credentialsProvider(DefaultCredentialsProvider.create())
+                .build();
+    }
+
+    @Bean
+    public RdsClient rdsClient() {
+        return RdsClient.builder()
+                .region(Region.of(awsRegion))
+                .credentialsProvider(DefaultCredentialsProvider.create())
+                .build();
+    }
 }

@@ -167,6 +167,7 @@ export default defineConfig({
       '/api/ai': { target: authTarget, changeOrigin: true, secure: false },
       '/api/dev_ops_script': { target: 'http://localhost:8080', changeOrigin: true, secure: false }, // DevOps In The Box scripts
       '/api/flexcompute': { target: 'http://localhost:8080', changeOrigin: true, secure: false }, // FlexCompute (CloudiDR)
+      '/api/autospotting': { target: 'http://localhost:8080', changeOrigin: true, secure: false },
 
 
     }
