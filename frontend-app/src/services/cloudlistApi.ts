@@ -17,16 +17,22 @@ import type { PaginatedServicesResponse } from '../types/cloudlist';
 export const fetchCloudlistServicesPaginated = async (
   accountId: string,
   page: number = 0,
-  servicesPerPage: number = 5
+  servicesPerPage: number = 5,
+  signal?: AbortSignal
 ): Promise<PaginatedServicesResponse> => {
   const url = `/api/xamops/cloudlist/services-paginated?accountId=${accountId}&page=${page}&servicesPerPage=${servicesPerPage}`;
   console.log('📡 [CloudList] Fetching services:', url);
 
   try {
-    const result = await apiClient.get<PaginatedServicesResponse>(url);
+    const result = await apiClient.get<PaginatedServicesResponse>(url, signal ? { signal } : undefined);
     console.log('✅ [CloudList] Services fetched successfully:', result);
     return result;
   } catch (error: any) {
+    // Don't log abort errors - they're expected during cleanup
+    if (error?.name === 'AbortError') {
+      throw error;
+    }
+
     console.error('❌ [CloudList] Error fetching services:', error);
 
     // Handle timeout or incomplete chunked encoding errors

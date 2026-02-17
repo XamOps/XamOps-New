@@ -217,7 +217,7 @@ export const apiFetchJson = async <T = any>(url: string | URL, options: FetchOpt
 export default {
   fetch: apiFetch,
   fetchJson: apiFetchJson,
-  get: <T = any>(url: string) => apiFetchJson<T>(url, { method: 'GET' }),
+  get: <T = any>(url: string, options?: FetchOptions) => apiFetchJson<T>(url, { method: 'GET', ...options }),
   post: <T = any>(url: string, body?: any) =>
     apiFetchJson<T>(url, {
       method: 'POST',

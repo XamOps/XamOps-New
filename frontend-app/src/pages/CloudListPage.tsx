@@ -52,6 +52,7 @@ const CloudListPage: React.FC = () => {
   const isConnectingRef = useRef<boolean>(false);
   const isMountedRef = useRef<boolean>(true);
   const refreshTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Constants
   const servicesPerPage = 5;
@@ -136,6 +137,13 @@ const CloudListPage: React.FC = () => {
       return;
     }
 
+    // Cancel any in-flight request before starting a new one
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    abortControllerRef.current = new AbortController();
+    const signal = abortControllerRef.current.signal;
+
     if (isMountedRef.current) {
       setIsLoading(true);
       setCurrentPage(0);
@@ -147,7 +155,7 @@ const CloudListPage: React.FC = () => {
 
     try {
       console.log('🔄 [CloudList] Loading resources for account:', selectedAccountId);
-      const data = await fetchCloudlistServicesPaginated(selectedAccountId, 0, servicesPerPage);
+      const data = await fetchCloudlistServicesPaginated(selectedAccountId, 0, servicesPerPage, signal);
 
       if (!isMountedRef.current) return;
 
@@ -167,15 +175,26 @@ const CloudListPage: React.FC = () => {
         console.log(`✅ Cached ${ec2Group.resources.length} EC2 instances for CloudSitter`);
       }
     } catch (error: any) {
+      // Silently ignore aborted requests (expected during cleanup/remount)
+      if (error?.name === 'AbortError') return;
+
       console.error('❌ [CloudList] Error loading resources:', error);
 
       if (!isMountedRef.current) return;
 
-      // Check if it's a timeout or network error (like 503 Service Unavailable)
+      // Check if it's a network or transient error
       const errorMsg = error?.message || '';
-      if (errorMsg.includes('503') || errorMsg.includes('timeout') || errorMsg.includes('INCOMPLETE_CHUNKED_ENCODING')) {
-        setStatusMessage('Backend is fetching data from AWS in the background. Please wait a few minutes and refresh.');
+      if (errorMsg.includes('503') || errorMsg.includes('timeout') ||
+          errorMsg.includes('INCOMPLETE_CHUNKED_ENCODING') || errorMsg.includes('Failed to fetch')) {
+        setStatusMessage('Network error. Retrying...');
         setStatusColor('yellow');
+        // Auto-retry once after 2s for transient network errors
+        setTimeout(() => {
+          if (isMountedRef.current) {
+            loadInitialResources(false);
+          }
+        }, 2000);
+        return;
       } else {
         setStatusMessage('Update failed - ' + (errorMsg || 'Unknown error'));
         setStatusColor('red');
@@ -484,6 +503,11 @@ const CloudListPage: React.FC = () => {
 
     return () => {
       isMountedRef.current = false;
+      // Abort any in-flight fetch requests before disconnecting WebSocket
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
       disconnectWebSocket();
       if (refreshTimeoutRef.current) {
         clearTimeout(refreshTimeoutRef.current);
