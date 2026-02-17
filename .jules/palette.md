@@ -1,3 +1,7 @@
 ## 2025-05-14 - Accessible Interactive Components Pattern
 **Learning:** Many interactive components in this application (like the account selector and toggles) were implemented using `div` elements with click handlers. This breaks keyboard accessibility and screen reader support. Using semantic `button` elements and appropriate ARIA roles (like `role="switch"` or `aria-haspopup`) is essential for accessibility. Additionally, the `vite-plugin-html-include` pattern means that improvements to shared fragments like `_sidebar.html` have an outsized positive impact on the overall application's UX.
 **Action:** Always check if a clickable `div` can be replaced with a `button` and ensure shared fragments are prioritized for accessibility improvements.
+
+## 2026-02-18 - Password Visibility and Accessible Forms
+**Learning:** Adding password visibility toggles to forms with custom focus animations requires careful DOM nesting to avoid breaking existing CSS focus-based logic. Using `relative` containers for inputs allows for absolute-positioned toggles that don't disrupt the flow, but `pr-10` is necessary to prevent text from overlapping the toggle icon. Standardizing OTP inputs with `inputmode="numeric"` significantly improves mobile UX for authentication flows.
+**Action:** Use `relative` wrapper containers and `pr-10` padding when adding interactive elements (like visibility toggles) to form inputs to maintain layout and accessibility.
