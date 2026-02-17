@@ -2,5 +2,17 @@
     "java.configuration.updateBuildConfiguration": "automatic",
     "java.compile.nullAnalysis.mode": "automatic",
     "java.jdt.ls.vmargs": "-XX:+UseParallelGC -XX:GCTimeRatio=4 -XX:AdaptiveSizePolicyWeight=90 -Dsun.zip.disableMemoryMapping=true -Xmx8G -Xms100m -Xlog:disable",
-    "java.debug.settings.onBuildFailureProceed": true
+    "java.debug.settings.onBuildFailureProceed": true,
+    "java.jdt.ls.java.home": "/Library/Java/JavaVirtualMachines/temurin-25.jdk/Contents/Home",
+    "java.configuration.runtimes": [
+        {
+            "name": "JavaSE-17",
+            "path": "/Library/Java/JavaVirtualMachines/temurin-25.jdk/Contents/Home",
+            "default": true
+        },
+        {
+            "name": "JavaSE-25",
+            "path": "/Library/Java/JavaVirtualMachines/temurin-25.jdk/Contents/Home"
+        }
+    ]
 }

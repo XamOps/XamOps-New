@@ -93,6 +93,16 @@ export const useAlertsData = ({
             description: alert.description,
             region: alert.region,
           };
+        } else if (alert.type === 'SECURITY') {
+          return {
+            id: alert.id,
+            service: alert.service,
+            type: 'SECURITY' as const,
+            name: alert.name,
+            usage: alert.usage,
+            description: alert.description,
+            region: alert.region,
+          };
         }
         return null;
       })

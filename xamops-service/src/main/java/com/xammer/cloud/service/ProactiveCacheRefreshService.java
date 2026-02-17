@@ -527,7 +527,8 @@ public class ProactiveCacheRefreshService {
                         // Save to database
                         String alertsKey = "alerts-" + accountId;
                         dashboardDataService.saveAlertsSnapshot(alertsKey, alerts);
-                        logger.info("✓ Alerts cached for {} (database) - {} alerts", accountId, alerts.size());
+                        int alertCount = alerts.getAlerts() != null ? alerts.getAlerts().size() : 0;
+                        logger.info("✓ Alerts cached for {} (database) - {} alerts", accountId, alertCount);
 
                         count++;
                     } catch (Exception e) {

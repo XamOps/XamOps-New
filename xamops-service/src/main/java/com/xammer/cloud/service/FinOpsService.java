@@ -704,7 +704,7 @@ public class FinOpsService {
         return CompletableFuture.completedFuture(result);
     }
 
-    // REMOVED @Async - already called from async context (getAlertsWithDetails)
+    @Async("awsTaskExecutor")
     public CompletableFuture<List<DashboardData.CostAnomaly>> getCostAnomalies(CloudAccount account,
             boolean forceRefresh) {
         String cacheKey = "costAnomalies-" + account.getAwsAccountId();

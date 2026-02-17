@@ -359,13 +359,35 @@ public class CloudListService {
             boolean forceRefresh) {
         try {
             String cacheKey = "groupedCloudlistResources-" + accountId;
+            String dbSnapshotKey = "CLOUD_LIST_GROUPED::" + accountId;
+
             if (!forceRefresh) {
+                // 1. Try Redis cache first (Fastest)
                 Optional<List<DashboardData.ServiceGroupDto>> cachedData = redisCache.get(cacheKey,
                         new TypeReference<>() {
                         });
                 if (cachedData.isPresent()) {
-                    logger.debug("Returning cached grouped resources for account {}", accountId);
+                    logger.info("✅ Serving grouped cloud list from Redis cache for account {}", accountId);
                     return CompletableFuture.completedFuture(cachedData.get());
+                }
+
+                // 2. Fallback to Database Snapshot (Instant load from Phase 2)
+                try {
+                    Optional<CachedData> dbCache = cachedDataRepository.findById(dbSnapshotKey);
+                    if (dbCache.isPresent() && dbCache.get().getJsonData() != null) {
+                        List<DashboardData.ServiceGroupDto> data = objectMapper.readValue(
+                                dbCache.get().getJsonData(),
+                                new TypeReference<List<DashboardData.ServiceGroupDto>>() {
+                                });
+                        if (data != null && !data.isEmpty()) {
+                            logger.info("✅ Serving grouped cloud list from DB Snapshot for account {}", accountId);
+                            // Populate Redis for subsequent hits
+                            redisCache.put(cacheKey, data, 60);
+                            return CompletableFuture.completedFuture(data);
+                        }
+                    }
+                } catch (Exception e) {
+                    logger.warn("Failed to read grouped cloud list snapshot: {}", e.getMessage());
                 }
             }
 
@@ -380,7 +402,9 @@ public class CloudListService {
                         .collect(Collectors.toList());
                 logger.debug("Grouped Cloudlist resources into {} service groups for account {}", groupedList.size(),
                         accountId);
-                redisCache.put(cacheKey, groupedList, 10);
+                // Save to Redis (60m) and DB Snapshot (Permanent until refresh)
+                redisCache.put(cacheKey, groupedList, 60);
+                saveGroupedResourcesSnapshot(accountId, groupedList);
                 return groupedList;
             });
         } catch (Exception e) {
@@ -476,28 +500,11 @@ public class CloudListService {
                                 .flatMap(Collection::stream)
                                 .collect(Collectors.toList());
 
-                        logger.debug("Fetched a total of {} resources for Cloudlist for account {}",
+                        logger.info("✅ Fetched {} total resources for Cloudlist for account {}",
                                 allResources.size(), account.getAwsAccountId());
-                        redisCache.put(cacheKey, allResources, 10);
-
-                        // ✅ NEW: Archive AWS Cloud List to Main Postgres Database for Superset
-                        try {
-                            String dbKey = "CLOUD_LIST::" + account.getAwsAccountId() + "::" + LocalDate.now();
-                            String json = objectMapper.writeValueAsString(allResources);
-
-                            CachedData archivalData = cachedDataRepository.findById(dbKey).orElse(new CachedData());
-                            archivalData.setCacheKey(dbKey);
-                            archivalData.setJsonData(json);
-                            archivalData.setLastUpdated(LocalDateTime.now());
-
-                            cachedDataRepository.save(archivalData);
-                            logger.info("✅ Archived AWS Cloud List data to DB for account {}",
-                                    account.getAwsAccountId());
-                        } catch (Exception e) {
-                            logger.error("❌ Failed to archive AWS Cloud List data to database", e);
-                        }
-                        // --------------------------------------------------------------------
-
+                        // Cache for 60 minutes to ensure instant loads
+                        redisCache.put(cacheKey, allResources, 60);
+                        saveResourcesSnapshot(account.getAwsAccountId(), allResources);
                         return allResources;
                     });
         });
@@ -606,7 +613,8 @@ public class CloudListService {
                                         .collect(Collectors.toList());
 
                                 if (!results.isEmpty()) {
-                                    redisCache.put(cacheKey, results, 10);
+                                    // Increased to 60 minutes to reduce heavy AWS discovery calls
+                                    redisCache.put(cacheKey, results, 60);
                                     saveRegionStatusToDb(accountId, results);
                                 }
                                 return results;
@@ -1614,5 +1622,33 @@ public class CloudListService {
                 return Collections.emptyList();
             }
         });
+    }
+
+    private void saveResourcesSnapshot(String accountId, List<ResourceDto> resources) {
+        try {
+            String dbCacheKey = "CLOUD_LIST::" + accountId;
+            CachedData cache = cachedDataRepository.findById(dbCacheKey).orElse(new CachedData());
+            cache.setCacheKey(dbCacheKey);
+            cache.setJsonData(objectMapper.writeValueAsString(resources));
+            cache.setLastUpdated(LocalDateTime.now());
+            cachedDataRepository.save(cache);
+            logger.info("✅ Saved flat Cloud List snapshot to database for account {}", accountId);
+        } catch (Exception e) {
+            logger.error("❌ Failed to save flat Cloud List snapshot to database: {}", e.getMessage());
+        }
+    }
+
+    private void saveGroupedResourcesSnapshot(String accountId, List<DashboardData.ServiceGroupDto> groupedResources) {
+        try {
+            String dbCacheKey = "CLOUD_LIST_GROUPED::" + accountId;
+            CachedData cache = cachedDataRepository.findById(dbCacheKey).orElse(new CachedData());
+            cache.setCacheKey(dbCacheKey);
+            cache.setJsonData(objectMapper.writeValueAsString(groupedResources));
+            cache.setLastUpdated(LocalDateTime.now());
+            cachedDataRepository.save(cache);
+            logger.info("✅ Saved grouped Cloud List snapshot to database for account {}", accountId);
+        } catch (Exception e) {
+            logger.error("❌ Failed to save grouped Cloud List snapshot to database: {}", e.getMessage());
+        }
     }
 }
