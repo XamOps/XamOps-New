@@ -70,6 +70,8 @@ import UserManagementPage from './pages/UserManagementPage';
 import MyProfilePage from './pages/MyProfilePage';
 import ComplianceOpsPage from './pages/ComplianceOpsPage';
 import BillOpsAdminUserManagerPage from './pages/BillOpsAdminUserManagerPage';
+import AutoSpottingAdminDashboardPage from './pages/AutoSpottingAdminDashboardPage';
+import AutoSpottingCustomerDashboardPage from './pages/AutoSpottingCustomerDashboardPage';
 import ClientDetailsPage from './pages/ClientDetailsPage';
 import GcpDashboard from './pages/GcpDashboard';
 import GcpFinOpsPage from './pages/GcpFinOpsPage';

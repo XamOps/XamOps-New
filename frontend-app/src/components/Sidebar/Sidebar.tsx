@@ -182,6 +182,7 @@ const Sidebar: React.FC = () => {
               <NavItem href="/billops-admin-credits" icon="fas fa-coins" label="Credit Requests" isActive={isActive('/billops-admin-credits')} />
               <NavItem href="/billops-admin-agreements" icon="fas fa-file-signature" label="Agreement Admin" isActive={isActive('/billops-admin-agreements')} />
               <NavItem href="/billops-client-details" icon="fas fa-users-cog" label="Client Details" isActive={isActive('/billops-client-details')} />
+              <NavItem href="/autospotting-admin" icon="fas fa-magic" label="AutoSpotting Admin" isActive={isActive('/autospotting-admin')} />
             </>
           )}
 
@@ -215,6 +216,7 @@ const Sidebar: React.FC = () => {
                     <NavItem href="/flex-compute" icon="fas fa-microchip" label="Flex Compute" isActive={isActive('/flex-compute')} />
                   </>
                 )}
+                <NavItem href="/autospotting" icon="fas fa-magic" label="AutoSpotting" isActive={isActive('/autospotting')} />
               </NavSection>
 
               <NavSection
