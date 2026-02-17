@@ -70,8 +70,6 @@ import UserManagementPage from './pages/UserManagementPage';
 import MyProfilePage from './pages/MyProfilePage';
 import ComplianceOpsPage from './pages/ComplianceOpsPage';
 import BillOpsAdminUserManagerPage from './pages/BillOpsAdminUserManagerPage';
-import AutoSpottingAdminDashboardPage from './pages/AutoSpottingAdminDashboardPage';
-import AutoSpottingCustomerDashboardPage from './pages/AutoSpottingCustomerDashboardPage';
 import ClientDetailsPage from './pages/ClientDetailsPage';
 import GcpDashboard from './pages/GcpDashboard';
 import GcpFinOpsPage from './pages/GcpFinOpsPage';
@@ -341,6 +339,7 @@ const AppContent: React.FC = () => {
               <Route path="/gcp-reservations" element={<GcpReservationsPage />} />
               <Route path="/cloudsitter" element={<CloudSitterPage />} />
               <Route path="/spot-automation" element={<SpotAutomationPage />} />
+              <Route path="/autospotting" element={<SpotAutomationPage />} />
               <Route path="/flex-compute" element={<FlexComputePage />} />
               <Route path="/grafana-dashboard" element={<GrafanaDashboardPage />} />
               <Route path="/cloudk8s" element={<CloudK8sPage />} />

@@ -447,10 +447,9 @@ public class AutoSpottingService {
      */
     private List<AutoSpottingGroupDto> listAsgsInRegion(CloudAccount account, String region) {
         try {
-            logger.debug("Creating AutoSpotting ASG client for account {} region {}",
+            logger.debug("Creating ASG client for account {} region {}",
                     account.getAwsAccountId(), region);
-            AutoScalingClient asgClient = awsClientProvider.getAutoSpottingAsgClient(
-                    account.getAwsAccountId(), region);
+            AutoScalingClient asgClient = awsClientProvider.getAutoScalingClient(account, region);
 
             return asgClient.describeAutoScalingGroups().autoScalingGroups().stream()
                     .map(asg -> {
@@ -511,8 +510,7 @@ public class AutoSpottingService {
             for (String region : enabledRegions) {
                 try {
                     // a. Get all ASGs in region
-                    AutoScalingClient asgClient = awsClientProvider.getAutoSpottingAsgClient(
-                            account.getAwsAccountId(), region);
+                    AutoScalingClient asgClient = awsClientProvider.getAutoScalingClient(account, region);
 
                     var asgResponse = asgClient.describeAutoScalingGroups();
 
@@ -650,16 +648,15 @@ public class AutoSpottingService {
     }
 
     /**
-     * Checks if AutoSpotting is enabled in a region
+     * Checks if the account's cross-account role can access AutoScaling in the given region.
      */
     private boolean isRegionAutoSpottingEnabled(CloudAccount account, String region) {
         try {
-            AutoScalingClient asgClient = awsClientProvider.getAutoSpottingAsgClient(
-                    account.getAwsAccountId(), region);
+            AutoScalingClient asgClient = awsClientProvider.getAutoScalingClient(account, region);
             asgClient.describeAutoScalingGroups(req -> req.maxRecords(1));
             return true;
         } catch (Exception e) {
-            logger.debug("✗ AutoSpotting not enabled in {}", region);
+            logger.warn("✗ Region {} not accessible for account {}: {}", region, account.getAwsAccountId(), e.getMessage());
             return false;
         }
     }
@@ -704,50 +701,143 @@ public class AutoSpottingService {
     // ================= ASG CONTROL (API-BASED) =================
 
     /**
-     * Enable AutoSpotting via direct ASG tagging
+     * Enable AutoSpotting:
+     * 1. Adds spot-enabled tag as a marker
+     * 2. Updates ASG MixedInstancesPolicy so new/replacement instances launch as Spot
+     * 3. Starts an instance refresh to gradually replace existing OD instances
      */
     public void enableAutoSpotting(Long cloudAccountId, String region, String asgName) {
-        logger.info("Enabling AutoSpotting: account={} region={} asg={}",
-                cloudAccountId, region, asgName);
-        toggleTag(cloudAccountId, region, asgName, tagKey, tagValue);
-        logger.info("AutoSpotting enabled via direct tagging for {}", asgName);
-    }
-
-    /**
-     * Disable AutoSpotting via direct ASG tag removal
-     */
-    public void disableAutoSpotting(Long cloudAccountId, String region, String asgName) {
-        logger.info("Disabling AutoSpotting: account={} region={} asg={}",
-                cloudAccountId, region, asgName);
-        removeTag(cloudAccountId, region, asgName, tagKey);
-        logger.info("AutoSpotting disabled via direct tag removal for {}", asgName);
-    }
-
-    /**
-     * Legacy tag-based enable (fallback)
-     */
-    private void toggleTag(Long cloudAccountId, String region, String asgName, String key, String value) {
+        logger.info("Enabling AutoSpotting: account={} region={} asg={}", cloudAccountId, region, asgName);
         CloudAccount account = getByAwsAccountId(cloudAccountId);
 
         try {
             AutoScalingClient asgClient = awsClientProvider.getAutoSpottingAsgClient(
                     account.getAwsAccountId(), region);
 
+            // 1. Add the marker tag
             asgClient.createOrUpdateTags(req -> req.tags(
                     software.amazon.awssdk.services.autoscaling.model.Tag.builder()
                             .resourceId(asgName)
                             .resourceType("auto-scaling-group")
-                            .key(key)
-                            .value(value)
+                            .key(tagKey)
+                            .value(tagValue)
                             .propagateAtLaunch(false)
                             .build()));
+            logger.info("✓ Tag '{}={}' added to ASG {}", tagKey, tagValue, asgName);
 
-            logger.info("✓ Enabled via direct tagging: {}", asgName);
+            // 2. Fetch current ASG config to build MixedInstancesPolicy
+            var asgResponse = asgClient.describeAutoScalingGroups(req -> req.autoScalingGroupNames(asgName));
+            if (asgResponse.autoScalingGroups().isEmpty()) {
+                logger.warn("ASG {} not found — tag applied but Spot policy NOT updated", asgName);
+                return;
+            }
+            var asg = asgResponse.autoScalingGroups().get(0);
+
+            software.amazon.awssdk.services.autoscaling.model.MixedInstancesPolicy mixedPolicy = null;
+
+            if (asg.mixedInstancesPolicy() != null && asg.mixedInstancesPolicy().launchTemplate() != null) {
+                // Already has MixedInstancesPolicy — just flip the on-demand percentage to 0
+                mixedPolicy = software.amazon.awssdk.services.autoscaling.model.MixedInstancesPolicy.builder()
+                        .launchTemplate(asg.mixedInstancesPolicy().launchTemplate())
+                        .instancesDistribution(d -> d
+                                .onDemandBaseCapacity(0)
+                                .onDemandPercentageAboveBaseCapacity(0)
+                                .spotAllocationStrategy("capacity-optimized"))
+                        .build();
+
+            } else if (asg.launchTemplate() != null) {
+                // Has a standalone LaunchTemplate — wrap it in MixedInstancesPolicy
+                var lt = asg.launchTemplate();
+                mixedPolicy = software.amazon.awssdk.services.autoscaling.model.MixedInstancesPolicy.builder()
+                        .launchTemplate(ltp -> ltp
+                                .launchTemplateSpecification(lts -> lts
+                                        .launchTemplateId(lt.launchTemplateId())
+                                        .version(lt.version() != null ? lt.version() : "$Default")))
+                        .instancesDistribution(d -> d
+                                .onDemandBaseCapacity(0)
+                                .onDemandPercentageAboveBaseCapacity(0)
+                                .spotAllocationStrategy("capacity-optimized"))
+                        .build();
+
+            } else {
+                logger.warn("ASG {} uses a LaunchConfiguration (not LaunchTemplate). " +
+                        "Cannot configure MixedInstancesPolicy. Tag was applied but Spot NOT enabled.", asgName);
+                return;
+            }
+
+            // 3. Apply the updated MixedInstancesPolicy
+            final var finalPolicy = mixedPolicy;
+            asgClient.updateAutoScalingGroup(req -> req
+                    .autoScalingGroupName(asgName)
+                    .mixedInstancesPolicy(finalPolicy));
+            logger.info("✓ MixedInstancesPolicy updated (OnDemandPercentage=0, strategy=capacity-optimized) for {}", asgName);
+
+            // 4. Start an instance refresh so existing OD instances are gradually replaced with Spot
+            try {
+                asgClient.startInstanceRefresh(req -> req
+                        .autoScalingGroupName(asgName)
+                        .preferences(p -> p
+                                .minHealthyPercentage(80)
+                                .instanceWarmup(300)));
+                logger.info("✓ Instance refresh started for {} — existing OD instances will be replaced with Spot", asgName);
+            } catch (Exception e) {
+                // Instance refresh failure is non-fatal — policy is already updated
+                logger.warn("Could not start instance refresh for {} (policy already updated): {}", asgName, e.getMessage());
+            }
+
         } catch (Exception e) {
-            logger.error("Failed to add tag: {}", e.getMessage());
+            logger.error("Failed to enable AutoSpotting for {}: {}", asgName, e.getMessage(), e);
             throw new RuntimeException("Failed to enable AutoSpotting: " + e.getMessage(), e);
         }
     }
+
+    /**
+     * Disable AutoSpotting:
+     * 1. Removes the spot-enabled tag
+     * 2. Sets OnDemandPercentageAboveBaseCapacity=100 so new instances launch as OD
+     */
+    public void disableAutoSpotting(Long cloudAccountId, String region, String asgName) {
+        logger.info("Disabling AutoSpotting: account={} region={} asg={}", cloudAccountId, region, asgName);
+        CloudAccount account = getByAwsAccountId(cloudAccountId);
+
+        try {
+            AutoScalingClient asgClient = awsClientProvider.getAutoSpottingAsgClient(
+                    account.getAwsAccountId(), region);
+
+            // 1. Remove the marker tag
+            asgClient.deleteTags(req -> req.tags(
+                    software.amazon.awssdk.services.autoscaling.model.Tag.builder()
+                            .resourceId(asgName)
+                            .resourceType("auto-scaling-group")
+                            .key(tagKey)
+                            .build()));
+            logger.info("✓ Tag '{}' removed from ASG {}", tagKey, asgName);
+
+            // 2. Revert MixedInstancesPolicy to 100% OD if it exists
+            var asgResponse = asgClient.describeAutoScalingGroups(req -> req.autoScalingGroupNames(asgName));
+            if (!asgResponse.autoScalingGroups().isEmpty()) {
+                var asg = asgResponse.autoScalingGroups().get(0);
+                if (asg.mixedInstancesPolicy() != null && asg.mixedInstancesPolicy().launchTemplate() != null) {
+                    var revertedPolicy = software.amazon.awssdk.services.autoscaling.model.MixedInstancesPolicy.builder()
+                            .launchTemplate(asg.mixedInstancesPolicy().launchTemplate())
+                            .instancesDistribution(d -> d
+                                    .onDemandBaseCapacity(0)
+                                    .onDemandPercentageAboveBaseCapacity(100))
+                            .build();
+
+                    asgClient.updateAutoScalingGroup(req -> req
+                            .autoScalingGroupName(asgName)
+                            .mixedInstancesPolicy(revertedPolicy));
+                    logger.info("✓ MixedInstancesPolicy reverted to OnDemand-only for {}", asgName);
+                }
+            }
+
+        } catch (Exception e) {
+            logger.error("Failed to disable AutoSpotting for {}: {}", asgName, e.getMessage(), e);
+            throw new RuntimeException("Failed to disable AutoSpotting: " + e.getMessage(), e);
+        }
+    }
+
 
     /**
      * Handles a scaling event from EventBridge/SQS.
@@ -837,26 +927,6 @@ public class AutoSpottingService {
     /**
      * Legacy tag-based disable (fallback)
      */
-    private void removeTag(Long cloudAccountId, String region, String asgName, String key) {
-        CloudAccount account = getByAwsAccountId(cloudAccountId);
-
-        try {
-            AutoScalingClient asgClient = awsClientProvider.getAutoSpottingAsgClient(
-                    account.getAwsAccountId(), region);
-
-            asgClient.deleteTags(req -> req.tags(
-                    software.amazon.awssdk.services.autoscaling.model.Tag.builder()
-                            .resourceId(asgName)
-                            .resourceType("auto-scaling-group")
-                            .key(key)
-                            .build()));
-
-            logger.info("✓ Disabled via direct tag removal: {}", asgName);
-        } catch (Exception e) {
-            logger.error("Failed to remove tag: {}", e.getMessage());
-            throw new RuntimeException("Failed to disable AutoSpotting: " + e.getMessage(), e);
-        }
-    }
 
     // ================= ASG CONFIGURATION (API-BASED) =================
 
@@ -870,8 +940,7 @@ public class AutoSpottingService {
         try {
             Optional<AutoSpottingSettings> settingsOpt = settingsRepository.findByAccountId(account.getId());
 
-            AutoScalingClient asgClient = awsClientProvider.getAutoSpottingAsgClient(
-                    account.getAwsAccountId(), region);
+            AutoScalingClient asgClient = awsClientProvider.getAutoScalingClient(account, region);
             var asgResponse = asgClient.describeAutoScalingGroups(req ->
                     req.autoScalingGroupNames(asgName));
 
@@ -941,9 +1010,9 @@ public class AutoSpottingService {
 
             if (configUpdate.getEnabled() != null) {
                 if (configUpdate.getEnabled()) {
-                    toggleTag(cloudAccountId, region, asgName, tagKey, tagValue);
+                    enableAutoSpotting(cloudAccountId, region, asgName);
                 } else {
-                    removeTag(cloudAccountId, region, asgName, tagKey);
+                    disableAutoSpotting(cloudAccountId, region, asgName);
                 }
             }
 
@@ -1040,8 +1109,7 @@ public class AutoSpottingService {
         List<String> instanceTypes = new ArrayList<>();
 
         try {
-            AutoScalingClient asgClient = awsClientProvider.getAutoSpottingAsgClient(
-                    account.getAwsAccountId(), asgDto.region);
+            AutoScalingClient asgClient = awsClientProvider.getAutoScalingClient(account, asgDto.region);
 
             var asgResponse = asgClient.describeAutoScalingGroups(req ->
                     req.autoScalingGroupNames(asgDto.name));
