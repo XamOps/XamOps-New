@@ -15,7 +15,7 @@ import { useFlexComputeData } from '../hooks/useFlexComputeData';
 import FlexComputeKPICards from '../components/FlexCompute/FlexComputeKPICards';
 import FlexComputeTable from '../components/FlexCompute/FlexComputeTable';
 import FlexComputeWizard from '../components/FlexCompute/FlexComputeWizard';
-import type { FlexComputeTab } from '../types/flexCompute';
+import type { FlexComputeTab, FlexComputeCapacity, CapacityPricing } from '../types/flexCompute';
 
 const FlexComputePage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<FlexComputeTab>('dashboard');
@@ -49,6 +49,34 @@ const FlexComputePage: React.FC = () => {
       accountRegions: acc.accountRegions,
     }));
   }, [linkedAccounts]);
+
+  // Pricing pre-loaded from an existing READY_FOR_PURCHASE capacity
+  const [continuePricing, setContinuePricing] = useState<CapacityPricing | null>(null);
+
+  const handleContinuePurchase = (cap: FlexComputeCapacity) => {
+    // Build a CapacityPricing from the existing capacity record
+    const [regionCode, zoneId] = (cap.regionZoneId || '/').split('/');
+    const pricing: CapacityPricing = {
+      capacityId: cap.id,
+      capacityName: cap.name,
+      instanceType: cap.instanceType,
+      region: cap.region || regionCode || '',
+      zoneId: cap.zoneId || zoneId || '',
+      quantity: cap.quantities,
+      platform: cap.platform || '',
+      tenancy: cap.tenancy || '',
+      ourPrice: cap.ourPrice || 0,
+      awsPrice: cap.awsPrice || 0,
+      savingsPercent: cap.savingsPercent || 0,
+      fees: 0,
+      total: cap.ourPrice || 0,
+      startDate: cap.startDate,
+      endDate: cap.endDate,
+      status: cap.policyStatus,
+    };
+    setContinuePricing(pricing);
+    setActiveTab('create');
+  };
 
   // Toast notification
   const [toast, setToast] = useState<{ show: boolean; message: string; type: 'success' | 'error' }>({
@@ -123,6 +151,7 @@ const FlexComputePage: React.FC = () => {
               isLoading={isLoading}
               onCancelCapacity={cancelCapacity}
               onExtendCapacity={extendCapacity}
+              onContinuePurchase={handleContinuePurchase}
               currentPage={currentPage}
               pageSize={pageSize}
               totalElements={totalElements}
@@ -134,7 +163,20 @@ const FlexComputePage: React.FC = () => {
 
         {activeTab === 'create' && (
           <div className="flex-compute-wizard">
+            {continuePricing && (
+              <div className="mb-4 px-4 py-3 bg-yellow-50 border border-yellow-300 rounded-xl text-sm text-yellow-800 flex items-center gap-2">
+                <i className="fas fa-info-circle"></i>
+                Resuming purchase for <strong className="mx-1">{continuePricing.capacityName}</strong> — review the details and confirm.
+                <button
+                  onClick={() => setContinuePricing(null)}
+                  className="ml-auto text-yellow-600 hover:text-yellow-800 text-xs underline"
+                >
+                  Start new reservation instead
+                </button>
+              </div>
+            )}
             <FlexComputeWizard
+              key={continuePricing?.capacityId || 'new'}
               accounts={accountOptions}
               searchCapacity={searchCapacity}
               reserveCapacity={reserveCapacity}
@@ -142,7 +184,9 @@ const FlexComputePage: React.FC = () => {
               purchaseCapacity={purchaseCapacity}
               isSearching={isSearching}
               isPurchasing={isPurchasing}
+              initialPricing={continuePricing}
               onComplete={() => {
+                setContinuePricing(null);
                 setActiveTab('dashboard');
                 showToast('Capacity reservation created successfully!', 'success');
               }}

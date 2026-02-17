@@ -7,7 +7,10 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 
@@ -115,6 +118,25 @@ public class CapacityDescriptionResponse {
         return capacityConfiguration != null ? capacityConfiguration.getAutoRenewalEnabled() : false;
     }
 
+    /**
+     * Parse an ISO 8601 datetime string to an Instant, handling both offset-aware
+     * ("2026-02-28T15:30:00Z", "2026-02-28T15:30:00+05:30") and naive
+     * ("2026-02-28T15:30:00") formats. Naive datetimes are assumed to be UTC.
+     */
+    private static Instant parseAsInstant(String dateTimeStr) {
+        if (dateTimeStr == null) return null;
+        try {
+            return OffsetDateTime.parse(dateTimeStr, DateTimeFormatter.ISO_OFFSET_DATE_TIME).toInstant();
+        } catch (Exception e1) {
+            try {
+                return LocalDateTime.parse(dateTimeStr, DateTimeFormatter.ISO_DATE_TIME)
+                        .toInstant(ZoneOffset.UTC);
+            } catch (Exception e2) {
+                return null;
+            }
+        }
+    }
+
     @JsonGetter("totalUsageHours")
     public Double getTotalUsageHours() {
         if (capacityConfiguration == null
@@ -124,16 +146,12 @@ public class CapacityDescriptionResponse {
         }
 
         try {
-            // Parse ISO 8601 timestamps
-            DateTimeFormatter formatter = DateTimeFormatter.ISO_DATE_TIME;
-            LocalDateTime start = LocalDateTime.parse(capacityConfiguration.getLaunchDateTime(), formatter);
-            LocalDateTime end = LocalDateTime.parse(capacityConfiguration.getEndDateTime(), formatter);
-
-            // Calculate hours between start and end
-            long hours = ChronoUnit.HOURS.between(start, end);
-            return (double) hours;
+            Instant start = parseAsInstant(capacityConfiguration.getLaunchDateTime());
+            Instant end = parseAsInstant(capacityConfiguration.getEndDateTime());
+            if (start == null || end == null) return 0.0;
+            long seconds = ChronoUnit.SECONDS.between(start, end);
+            return seconds > 0 ? seconds / 3600.0 : 0.0;
         } catch (Exception e) {
-            // If parsing fails, return 0
             return 0.0;
         }
     }
@@ -145,16 +163,10 @@ public class CapacityDescriptionResponse {
         }
 
         try {
-            // Parse end date
-            DateTimeFormatter formatter = DateTimeFormatter.ISO_DATE_TIME;
-            LocalDateTime end = LocalDateTime.parse(capacityConfiguration.getEndDateTime(), formatter);
-            LocalDateTime now = LocalDateTime.now();
-
-            // Calculate remaining hours from now to end
-            long hours = ChronoUnit.HOURS.between(now, end);
-
-            // Return 0 if already expired (negative hours)
-            return hours > 0 ? (double) hours : 0.0;
+            Instant end = parseAsInstant(capacityConfiguration.getEndDateTime());
+            if (end == null) return 0.0;
+            long seconds = ChronoUnit.SECONDS.between(Instant.now(), end);
+            return seconds > 0 ? seconds / 3600.0 : 0.0;
         } catch (Exception e) {
             return 0.0;
         }

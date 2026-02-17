@@ -429,7 +429,7 @@ public class CloudiDRApiClient {
 
         } catch (HttpClientErrorException e) {
             logger.error("CloudiDR cancel-capacity failed: HTTP {} - {}", e.getStatusCode(), e.getResponseBodyAsString());
-            throw new RuntimeException("Cancel capacity failed: " + e.getStatusCode(), e);
+            throw new RuntimeException("Cancel capacity failed: " + e.getStatusCode() + " - " + e.getResponseBodyAsString(), e);
         } catch (Exception e) {
             logger.error("CloudiDR cancel-capacity error: {}", e.getMessage(), e);
             throw new RuntimeException("Cancel capacity failed: " + e.getMessage(), e);

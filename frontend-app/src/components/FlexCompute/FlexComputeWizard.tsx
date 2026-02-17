@@ -41,6 +41,7 @@ interface FlexComputeWizardProps {
   isSearching: boolean;
   isPurchasing: boolean;
   onComplete: () => void;
+  initialPricing?: CapacityPricing | null;
 }
 
 const FlexComputeWizard: React.FC<FlexComputeWizardProps> = ({
@@ -52,11 +53,14 @@ const FlexComputeWizard: React.FC<FlexComputeWizardProps> = ({
   isSearching,
   isPurchasing,
   onComplete,
+  initialPricing,
 }) => {
-  const [step, setStep] = useState<WizardStep>('search');
+  const [step, setStep] = useState<WizardStep>(initialPricing ? 'review' : 'search');
   const [searchForm, setSearchForm] = useState<SearchCapacityForm>(INITIAL_SEARCH_FORM);
-  const [configureForm, setConfigureForm] = useState<ConfigureCapacityForm>(INITIAL_CONFIGURE_FORM);
-  const [pricing, setPricing] = useState<CapacityPricing | null>(null);
+  const [configureForm, setConfigureForm] = useState<ConfigureCapacityForm>(
+    initialPricing ? { ...INITIAL_CONFIGURE_FORM, capacityId: initialPricing.capacityId } : INITIAL_CONFIGURE_FORM
+  );
+  const [pricing, setPricing] = useState<CapacityPricing | null>(initialPricing || null);
   const [searchStatus, setSearchStatus] = useState<string | undefined>(undefined);
   const [reservationData, setReservationData] = useState<any>(null); // Store the reserve response (cidrId, pricing, etc.)
   const [isReserving, setIsReserving] = useState(false);

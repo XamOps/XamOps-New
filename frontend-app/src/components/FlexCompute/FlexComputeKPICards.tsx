@@ -38,8 +38,8 @@ const kpiConfig = [
     format: formatCurrency,
   },
   {
-    key: 'totalCost' as const,
-    label: 'Total Cost',
+    key: 'awsCost' as const,
+    label: 'AWS On-Demand Cost',
     icon: 'fas fa-dollar-sign',
     gradient: 'from-blue-500 to-indigo-600',
     bgColor: 'bg-blue-50',
