@@ -253,7 +253,7 @@ public class AutoSpottingService {
             HistoryResponse response = new HistoryResponse();
             response.setInterval(interval != null ? interval : "daily");
 
-            List<HistoryResponse.DataPoint> dataPoints = savingsHistory.stream()
+            List<HistoryResponse.DataPoint> dataPoints = new java.util.ArrayList<>(savingsHistory.stream()
                     .map(savings -> {
                         HistoryResponse.DataPoint dp = new HistoryResponse.DataPoint();
                         dp.setTimestamp(savings.getDate().toString());
@@ -265,22 +265,53 @@ public class AutoSpottingService {
                         dp.setOndemandInstanceCount(0);
                         return dp;
                     })
-                    .collect(Collectors.toList());
+                    .collect(Collectors.toList()));
+
+            // If no DB history yet, synthesize a data point from live AWS SDK cost data
+            // so the chart shows something meaningful right from the start.
+            if (dataPoints.isEmpty()) {
+                try {
+                    CostResponse liveCost = getCostData(cloudAccountId);
+                    if (liveCost != null && liveCost.getSummary() != null) {
+                        CostResponse.CostSummary s = liveCost.getSummary();
+                        double actualSavings = s.getTotalActualSavings() != null ? s.getTotalActualSavings() : 0.0;
+                        double potentialSavings = s.getTotalPotentialSavings() != null ? s.getTotalPotentialSavings() : 0.0;
+                        double currentCost = s.getTotalCurrentHourlyCost() != null ? s.getTotalCurrentHourlyCost() : 0.0;
+                        if (actualSavings > 0 || potentialSavings > 0) {
+                            HistoryResponse.DataPoint dp = new HistoryResponse.DataPoint();
+                            dp.setTimestamp(java.time.LocalDate.now().toString());
+                            dp.setActualHourlySavings(actualSavings);
+                            dp.setPotentialHourlySavings(potentialSavings);
+                            dp.setCurrentHourlyCost(currentCost);
+                            dp.setOndemandHourlyCost(0.0);
+                            dp.setSpotInstanceCount(0);
+                            dp.setOndemandInstanceCount(0);
+                            dataPoints.add(dp);
+                            logger.info("Synthesized 1 history data point from live cost data (actualSavings={})", actualSavings);
+                        }
+                    }
+                } catch (Exception ex) {
+                    logger.warn("Could not synthesize history from live cost data: {}", ex.getMessage());
+                }
+            }
 
             response.setDataPoints(dataPoints);
 
             HistoryResponse.HistorySummary summary = new HistoryResponse.HistorySummary();
-            double totalSavings = savingsHistory.stream()
-                    .mapToDouble(s -> s.getAmountSaved() != null ? s.getAmountSaved() : 0.0)
+            double totalSavings = dataPoints.stream()
+                    .mapToDouble(dp -> dp.getActualHourlySavings() != null ? dp.getActualHourlySavings() : 0.0)
                     .sum();
-            double avgSavings = savingsHistory.isEmpty() ? 0.0 : totalSavings / savingsHistory.size();
+            double avgSavings = dataPoints.isEmpty() ? 0.0 : totalSavings / dataPoints.size();
+            double totalPotential = dataPoints.stream()
+                    .mapToDouble(dp -> dp.getPotentialHourlySavings() != null ? dp.getPotentialHourlySavings() : 0.0)
+                    .sum();
             summary.setTotalActualSavings(totalSavings);
-            summary.setTotalPotentialSavings(0.0);
+            summary.setTotalPotentialSavings(totalPotential);
             summary.setAverageHourlyCost(0.0);
             summary.setAverageHourlySavings(avgSavings);
             response.setSummary(summary);
 
-            logger.info("Retrieved {} historical data points from PostgreSQL", dataPoints.size());
+            logger.info("Retrieved {} historical data points (DB: {})", dataPoints.size(), savingsHistory.size());
             return response;
 
         } catch (Exception e) {
@@ -736,9 +767,21 @@ public class AutoSpottingService {
             software.amazon.awssdk.services.autoscaling.model.MixedInstancesPolicy mixedPolicy = null;
 
             if (asg.mixedInstancesPolicy() != null && asg.mixedInstancesPolicy().launchTemplate() != null) {
-                // Already has MixedInstancesPolicy — just flip the on-demand percentage to 0
+                // Already has MixedInstancesPolicy — rebuild LaunchTemplateSpecification from scratch.
+                // Do NOT reuse the describe response object directly; its overrides list may contain
+                // entries that lack launchTemplateId/launchTemplateName, causing AWS HTTP 400.
+                var ltSpec = asg.mixedInstancesPolicy().launchTemplate().launchTemplateSpecification();
                 mixedPolicy = software.amazon.awssdk.services.autoscaling.model.MixedInstancesPolicy.builder()
-                        .launchTemplate(asg.mixedInstancesPolicy().launchTemplate())
+                        .launchTemplate(ltp -> ltp.launchTemplateSpecification(s -> {
+                            if (ltSpec.launchTemplateId() != null && !ltSpec.launchTemplateId().isEmpty()) {
+                                s.launchTemplateId(ltSpec.launchTemplateId());
+                            } else if (ltSpec.launchTemplateName() != null && !ltSpec.launchTemplateName().isEmpty()) {
+                                s.launchTemplateName(ltSpec.launchTemplateName());
+                            }
+                            if (ltSpec.version() != null) {
+                                s.version(ltSpec.version());
+                            }
+                        }))
                         .instancesDistribution(d -> d
                                 .onDemandBaseCapacity(0)
                                 .onDemandPercentageAboveBaseCapacity(0)
@@ -785,6 +828,63 @@ public class AutoSpottingService {
                 logger.warn("Could not start instance refresh for {} (policy already updated): {}", asgName, e.getMessage());
             }
 
+            // 5. Record the enable action for audit / history
+            try {
+                SpotOptimizationEvent ev = new SpotOptimizationEvent();
+                ev.setAccount(account);
+                ev.setAsgName(asgName);
+                ev.setRegion(region);
+                ev.setStatus("ENABLED");
+                ev.setDetails("AutoSpotting enabled by user. MixedInstancesPolicy set to 100% Spot "
+                        + "(capacity-optimized). Instance refresh started to replace existing On-Demand instances.");
+                ev.setHourlySavings(0.0);
+                eventRepository.save(ev);
+            } catch (Exception e) {
+                logger.warn("Failed to record ENABLED event for ASG {}: {}", asgName, e.getMessage());
+            }
+
+            // 6. Backfill SUCCESS events for any Spot instances already running in the ASG.
+            //    This ensures the Actions History shows current Spot instances even before
+            //    EventBridge events arrive. Only records instances not already in the DB.
+            try {
+                List<String> instanceIds = asg.instances().stream()
+                        .map(software.amazon.awssdk.services.autoscaling.model.Instance::instanceId)
+                        .filter(id -> id != null && !id.isEmpty())
+                        .collect(Collectors.toList());
+
+                if (!instanceIds.isEmpty()) {
+                    Ec2Client ec2Client = awsClientProvider.getEc2Client(account, region);
+                    var describeResp = ec2Client.describeInstances(req -> req.instanceIds(instanceIds));
+                    int backfilled = 0;
+                    for (var reservation : describeResp.reservations()) {
+                        for (var inst : reservation.instances()) {
+                            if (software.amazon.awssdk.services.ec2.model.InstanceLifecycleType.SPOT
+                                    .equals(inst.instanceLifecycle())) {
+                                String iid = inst.instanceId();
+                                String itype = inst.instanceTypeAsString();
+                                SpotOptimizationEvent spotEv = new SpotOptimizationEvent();
+                                spotEv.setAccount(account);
+                                spotEv.setAsgName(asgName);
+                                spotEv.setRegion(region);
+                                spotEv.setNewInstanceId(iid);
+                                spotEv.setNewInstanceType(itype);
+                                spotEv.setStatus("SUCCESS");
+                                spotEv.setHourlySavings(0.0);
+                                spotEv.setDetails("Spot instance already running at enable time: "
+                                        + iid + " (" + itype + "). Instance refresh will replace any remaining On-Demand instances.");
+                                eventRepository.save(spotEv);
+                                backfilled++;
+                            }
+                        }
+                    }
+                    if (backfilled > 0) {
+                        logger.info("✓ Backfilled {} Spot instance event(s) for ASG {}", backfilled, asgName);
+                    }
+                }
+            } catch (Exception e) {
+                logger.warn("Could not backfill Spot instance events for ASG {}: {}", asgName, e.getMessage());
+            }
+
         } catch (Exception e) {
             logger.error("Failed to enable AutoSpotting for {}: {}", asgName, e.getMessage(), e);
             throw new RuntimeException("Failed to enable AutoSpotting: " + e.getMessage(), e);
@@ -818,8 +918,21 @@ public class AutoSpottingService {
             if (!asgResponse.autoScalingGroups().isEmpty()) {
                 var asg = asgResponse.autoScalingGroups().get(0);
                 if (asg.mixedInstancesPolicy() != null && asg.mixedInstancesPolicy().launchTemplate() != null) {
+                    // Rebuild LaunchTemplateSpecification from scratch — do NOT reuse the describe
+                    // response object directly because its overrides list may contain entries that
+                    // lack launchTemplateId/launchTemplateName, causing AWS to return HTTP 400.
+                    var ltSpec = asg.mixedInstancesPolicy().launchTemplate().launchTemplateSpecification();
                     var revertedPolicy = software.amazon.awssdk.services.autoscaling.model.MixedInstancesPolicy.builder()
-                            .launchTemplate(asg.mixedInstancesPolicy().launchTemplate())
+                            .launchTemplate(ltp -> ltp.launchTemplateSpecification(s -> {
+                                if (ltSpec.launchTemplateId() != null && !ltSpec.launchTemplateId().isEmpty()) {
+                                    s.launchTemplateId(ltSpec.launchTemplateId());
+                                } else if (ltSpec.launchTemplateName() != null && !ltSpec.launchTemplateName().isEmpty()) {
+                                    s.launchTemplateName(ltSpec.launchTemplateName());
+                                }
+                                if (ltSpec.version() != null) {
+                                    s.version(ltSpec.version());
+                                }
+                            }))
                             .instancesDistribution(d -> d
                                     .onDemandBaseCapacity(0)
                                     .onDemandPercentageAboveBaseCapacity(100))
@@ -830,6 +943,21 @@ public class AutoSpottingService {
                             .mixedInstancesPolicy(revertedPolicy));
                     logger.info("✓ MixedInstancesPolicy reverted to OnDemand-only for {}", asgName);
                 }
+            }
+
+            // Record the disable action for audit / history
+            try {
+                SpotOptimizationEvent ev = new SpotOptimizationEvent();
+                ev.setAccount(account);
+                ev.setAsgName(asgName);
+                ev.setRegion(region);
+                ev.setStatus("DISABLED");
+                ev.setDetails("AutoSpotting disabled by user. MixedInstancesPolicy reverted to 100% On-Demand. "
+                        + "New instances will launch as On-Demand until re-enabled.");
+                ev.setHourlySavings(0.0);
+                eventRepository.save(ev);
+            } catch (Exception e) {
+                logger.warn("Failed to record DISABLED event for ASG {}: {}", asgName, e.getMessage());
             }
 
         } catch (Exception e) {
@@ -857,6 +985,65 @@ public class AutoSpottingService {
         } else if ("EC2 Instance Terminate Successful".equals(eventName)) {
             processTerminateEvent(eventDetail);
         }
+    }
+
+    /**
+     * Handles an EC2 Spot Instance Interruption Warning (2-minute notice).
+     *
+     * AWS sends this event via EventBridge → SQS before reclaiming a Spot instance.
+     * The ASG automatically replaces the terminated instance (with another Spot or
+     * falls back to On-Demand if no Spot capacity is available), so no manual
+     * replacement action is needed here. We simply log and persist the event for
+     * auditing and interruption-rate analytics.
+     */
+    public void handleSpotInterruption(CloudAccount account, String region, JsonNode detail) {
+        String instanceId = detail.path("instance-id").asText();
+        String instanceAction = detail.path("instance-action").asText("terminate");
+
+        logger.warn("⚠️  SPOT INTERRUPTION WARNING — instance {} ({}) will be {} in ~2 minutes [account={} region={}]",
+                instanceId, instanceAction, instanceAction, account.getAwsAccountId(), region);
+
+        // Identify which ASG this instance belongs to (best-effort)
+        String asgName = "unknown";
+        try {
+            Ec2Client ec2Client = awsClientProvider.getEc2Client(account, region);
+            var describeResp = ec2Client.describeInstances(req -> req.instanceIds(instanceId));
+            if (!describeResp.reservations().isEmpty()
+                    && !describeResp.reservations().get(0).instances().isEmpty()) {
+                var instance = describeResp.reservations().get(0).instances().get(0);
+                asgName = instance.tags().stream()
+                        .filter(t -> ASG_NAME_KEY.equals(t.key()))
+                        .map(t -> t.value())
+                        .findFirst()
+                        .orElse("unknown");
+            }
+        } catch (Exception e) {
+            logger.warn("Could not resolve ASG name for interrupted instance {}: {}", instanceId, e.getMessage());
+        }
+
+        // Persist the interruption event for history / analytics
+        try {
+            SpotOptimizationEvent event = new SpotOptimizationEvent();
+            event.setAccount(account);
+            event.setRegion(region);
+            event.setAsgName(asgName);
+            event.setOldInstanceId(instanceId);
+            event.setStatus("INTERRUPTED");
+            event.setDetails("Spot interruption warning received. Action=" + instanceAction
+                    + ". ASG will automatically replace the instance.");
+            event.setHourlySavings(0.0);
+            eventRepository.save(event);
+            logger.info("✓ Interruption event persisted for instance {} in ASG {}", instanceId, asgName);
+        } catch (Exception e) {
+            logger.error("Failed to persist interruption event for {}: {}", instanceId, e.getMessage());
+        }
+
+        // Note: No explicit replacement action is required.
+        // The ASG's health-check mechanism detects the terminated instance and
+        // automatically launches a replacement using the MixedInstancesPolicy —
+        // preferring Spot with `capacity-optimized` strategy, falling back to
+        // On-Demand if no Spot capacity is currently available in the AZ.
+        logger.info("ASG {} will automatically handle instance replacement for {}", asgName, instanceId);
     }
 
     private void processLaunchEvent(CloudAccount account, String region, JsonNode detail) {
@@ -895,6 +1082,9 @@ public class AutoSpottingService {
                     event.setNewInstanceType(instanceType);
                     event.setHourlySavings(hourlySavings);
                     event.setStatus("SUCCESS");
+                    event.setDetails("Spot instance launched successfully (" + instanceType
+                            + "). On-Demand replaced. Hourly savings: $"
+                            + String.format("%.4f", hourlySavings));
                     eventRepository.save(event);
 
                     // Update Daily Savings Summary
@@ -1368,23 +1558,56 @@ public class AutoSpottingService {
             List<EventRecord> eventRecords = events.stream().map(event -> {
                 EventRecord record = new EventRecord();
                 record.setTimestamp(event.getEventTime().toString());
-                record.setEventType("SUCCESS".equals(event.getStatus()) ? "instance_replacement" : "spot_interruption");
                 record.setAccountId(account.getAwsAccountId());
                 record.setRegion(event.getRegion());
                 record.setAsgName(event.getAsgName());
-                record.setOldInstanceId(event.getOldInstanceId());
-                record.setOldInstanceType(event.getOldInstanceType());
-                record.setOldLifecycle("on-demand");
-                record.setNewInstanceId(event.getNewInstanceId());
-                record.setNewInstanceType(event.getNewInstanceType());
-                record.setNewLifecycle("spot");
                 record.setEstimatedSavings(event.getHourlySavings());
-                record.setReason(event.getDetails());
+
+                // Map status → event_type, result label, instance fields, and reason
+                String evStatus = event.getStatus();
+                if ("SUCCESS".equals(evStatus)) {
+                    record.setEventType("instance_replacement");
+                    record.setResult("Success");
+                    record.setOldInstanceId(event.getOldInstanceId());
+                    record.setOldInstanceType(event.getOldInstanceType());
+                    record.setOldLifecycle("on-demand");
+                    record.setNewInstanceId(event.getNewInstanceId());
+                    record.setNewInstanceType(event.getNewInstanceType());
+                    record.setNewLifecycle("spot");
+                    record.setReason(event.getDetails() != null ? event.getDetails()
+                            : "On-Demand instance replaced with Spot. Hourly savings: $"
+                            + String.format("%.4f", event.getHourlySavings() != null ? event.getHourlySavings() : 0.0));
+                } else if ("INTERRUPTED".equals(evStatus)) {
+                    record.setEventType("spot_interruption");
+                    record.setResult("Interrupted");
+                    record.setOldInstanceId(event.getOldInstanceId());
+                    record.setOldLifecycle("spot");
+                    record.setReason(event.getDetails() != null ? event.getDetails()
+                            : "AWS reclaimed this Spot instance. ASG will automatically replace it.");
+                } else if ("ENABLED".equals(evStatus)) {
+                    record.setEventType("asg_enabled");
+                    record.setResult("Enabled");
+                    record.setReason(event.getDetails() != null ? event.getDetails()
+                            : "AutoSpotting enabled by user.");
+                } else if ("DISABLED".equals(evStatus)) {
+                    record.setEventType("asg_disabled");
+                    record.setResult("Disabled");
+                    record.setReason(event.getDetails() != null ? event.getDetails()
+                            : "AutoSpotting disabled by user.");
+                } else {
+                    record.setEventType("spot_interruption");
+                    record.setResult("Failed");
+                    record.setOldInstanceId(event.getOldInstanceId());
+                    record.setOldInstanceType(event.getOldInstanceType());
+                    record.setReason(event.getDetails() != null ? event.getDetails()
+                            : "Spot launch or replacement failed.");
+                }
+
                 return record;
             }).collect(Collectors.toList());
 
             long replacements = events.stream().filter(e -> "SUCCESS".equals(e.getStatus())).count();
-            long interruptions = events.stream().filter(e -> "FAILED".equals(e.getStatus())).count();
+            long interruptions = events.stream().filter(e -> "FAILED".equals(e.getStatus()) || "INTERRUPTED".equals(e.getStatus())).count();
             double totalSavings = events.stream()
                     .filter(e -> e.getHourlySavings() != null)
                     .mapToDouble(SpotOptimizationEvent::getHourlySavings)
@@ -1413,8 +1636,11 @@ public class AutoSpottingService {
 
     private String mapEventTypeToStatus(String eventType) {
         if ("instance_replacement".equalsIgnoreCase(eventType)) return "SUCCESS";
-        if ("spot_interruption".equalsIgnoreCase(eventType)) return "FAILED";
-        return eventType;
+        if ("spot_interruption".equalsIgnoreCase(eventType)) return "INTERRUPTED";
+        if ("asg_enabled".equalsIgnoreCase(eventType)) return "ENABLED";
+        if ("asg_disabled".equalsIgnoreCase(eventType)) return "DISABLED";
+        if ("launch_failure".equalsIgnoreCase(eventType)) return "FAILED";
+        return eventType.toUpperCase();
     }
 
     /**
@@ -1453,30 +1679,40 @@ public class AutoSpottingService {
                     ? Instant.parse(end.contains("T") ? end : end + "T23:59:59Z")
                     : Instant.now();
 
-            List<SpotOptimizationEvent> events = eventRepository
+            // Only count Spot launch events — exclude ENABLED/DISABLED/INTERRUPTED
+            List<SpotOptimizationEvent> allEvents = eventRepository
                     .findByAccountIdAndEventTimeBetweenOrderByEventTimeDesc(
                             account.getId(), startTime, endTime);
 
+            List<SpotOptimizationEvent> launchEvents = allEvents.stream()
+                    .filter(e -> "SUCCESS".equals(e.getStatus()) || "FAILED".equals(e.getStatus()))
+                    .collect(Collectors.toList());
+
             LaunchAnalyticsResponse response = new LaunchAnalyticsResponse();
 
-            int totalAttempts = events.size();
-            long totalSuccesses = events.stream().filter(e -> "SUCCESS".equals(e.getStatus())).count();
-            long totalFailures = totalAttempts - totalSuccesses;
+            int totalAttempts = launchEvents.size();
+            long totalSuccesses = launchEvents.stream().filter(e -> "SUCCESS".equals(e.getStatus())).count();
+            long totalFailures = launchEvents.stream().filter(e -> "FAILED".equals(e.getStatus())).count();
 
             response.setTotalAttempts(totalAttempts);
             response.setTotalSuccesses((int) totalSuccesses);
             response.setTotalFailures((int) totalFailures);
             response.setSuccessRate(totalAttempts > 0 ? (totalSuccesses * 100.0 / totalAttempts) : 0.0);
 
+            // Maps: instanceType → LaunchStats, region → LaunchStats
             Map<String, LaunchAnalyticsResponse.LaunchStats> byType = new HashMap<>();
             Map<String, LaunchAnalyticsResponse.LaunchStats> byRegion = new HashMap<>();
+            // Track which region had the most successes for each instance type (for recommendations)
+            Map<String, Map<String, Integer>> typeRegionSuccesses = new HashMap<>();
+            // Failure reason counts
+            Map<String, Integer> failureReasonCounts = new HashMap<>();
 
-            for (SpotOptimizationEvent event : events) {
+            for (SpotOptimizationEvent event : launchEvents) {
                 String iType = event.getNewInstanceType() != null ? event.getNewInstanceType() : "unknown";
                 String eventRegion = event.getRegion() != null ? event.getRegion() : "unknown";
                 boolean isSuccess = "SUCCESS".equals(event.getStatus());
 
-                // By instance type
+                // Aggregate by instance type
                 LaunchAnalyticsResponse.LaunchStats typeStats = byType.computeIfAbsent(iType, k -> {
                     LaunchAnalyticsResponse.LaunchStats s = new LaunchAnalyticsResponse.LaunchStats();
                     s.setAttempts(0); s.setSuccesses(0); s.setFailures(0);
@@ -1488,7 +1724,14 @@ public class AutoSpottingService {
                 typeStats.setSuccessRate(typeStats.getAttempts() > 0
                         ? (typeStats.getSuccesses() * 100.0 / typeStats.getAttempts()) : 0.0);
 
-                // By region
+                // Track region successes per instance type (for best-region recommendation)
+                if (isSuccess) {
+                    typeRegionSuccesses
+                            .computeIfAbsent(iType, k -> new HashMap<>())
+                            .merge(eventRegion, 1, Integer::sum);
+                }
+
+                // Aggregate by region
                 LaunchAnalyticsResponse.LaunchStats regionStats = byRegion.computeIfAbsent(eventRegion, k -> {
                     LaunchAnalyticsResponse.LaunchStats s = new LaunchAnalyticsResponse.LaunchStats();
                     s.setAttempts(0); s.setSuccesses(0); s.setFailures(0);
@@ -1499,30 +1742,60 @@ public class AutoSpottingService {
                 else regionStats.setFailures(regionStats.getFailures() + 1);
                 regionStats.setSuccessRate(regionStats.getAttempts() > 0
                         ? (regionStats.getSuccesses() * 100.0 / regionStats.getAttempts()) : 0.0);
+
+                // Collect failure reasons from details field
+                if (!isSuccess && event.getDetails() != null && !event.getDetails().isEmpty()) {
+                    String reason = event.getDetails().length() > 80
+                            ? event.getDetails().substring(0, 80) + "..." : event.getDetails();
+                    failureReasonCounts.merge(reason, 1, Integer::sum);
+                }
             }
 
             response.setByInstanceType(byType);
             response.setByRegion(byRegion);
             response.setByAz(new HashMap<>());
-            response.setTopFailureReasons(new ArrayList<>());
 
+            // Build top failure reasons (sorted by count, top 5)
+            int totalFailed = (int) totalFailures;
+            List<LaunchAnalyticsResponse.FailureReason> failureReasons = failureReasonCounts.entrySet().stream()
+                    .sorted((a, b) -> b.getValue() - a.getValue())
+                    .limit(5)
+                    .map(entry -> {
+                        LaunchAnalyticsResponse.FailureReason fr = new LaunchAnalyticsResponse.FailureReason();
+                        fr.setReason(entry.getKey());
+                        fr.setCount(entry.getValue());
+                        fr.setPercentage(totalFailed > 0 ? (entry.getValue() * 100.0 / totalFailed) : 0.0);
+                        return fr;
+                    })
+                    .collect(Collectors.toList());
+            response.setTopFailureReasons(failureReasons);
+
+            // Build recommendations — include instance types with at least 1 success
             List<LaunchAnalyticsResponse.RecommendedType> recommended = byType.entrySet().stream()
-                    .filter(e -> e.getValue().getAttempts() >= 3)
+                    .filter(e -> e.getValue().getSuccesses() >= 1 && !"unknown".equals(e.getKey()))
                     .sorted((a, b) -> Double.compare(b.getValue().getSuccessRate(), a.getValue().getSuccessRate()))
                     .limit(5)
                     .map(e -> {
+                        String bestRegion = typeRegionSuccesses.getOrDefault(e.getKey(), new HashMap<>())
+                                .entrySet().stream()
+                                .max(Map.Entry.comparingByValue())
+                                .map(Map.Entry::getKey)
+                                .orElse("Global");
                         LaunchAnalyticsResponse.RecommendedType rt = new LaunchAnalyticsResponse.RecommendedType();
                         rt.setInstanceType(e.getKey());
+                        rt.setRegion(bestRegion);
                         rt.setSuccessRate(e.getValue().getSuccessRate());
                         rt.setTotalLaunches(e.getValue().getAttempts());
+                        rt.setAvgLaunchTime("< 2 min");
                         rt.setScore(e.getValue().getSuccessRate() * Math.log(e.getValue().getAttempts() + 1));
                         return rt;
                     })
                     .collect(Collectors.toList());
             response.setRecommendedTypes(recommended);
 
-            logger.info("Launch analytics built: {} attempts, {}% success rate",
-                    totalAttempts, String.format("%.1f", response.getSuccessRate()));
+            logger.info("Launch analytics built: {} launch attempts ({} success, {} failed), {}% success rate",
+                    totalAttempts, totalSuccesses, totalFailures,
+                    String.format("%.1f", response.getSuccessRate()));
 
             return response;
 

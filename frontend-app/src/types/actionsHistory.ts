@@ -7,6 +7,7 @@
 export interface ActionsHistoryEvent {
   timestamp: string;
   event_type: string;
+  result?: string;
   asg_name: string;
   region: string;
   old_instance_id?: string;

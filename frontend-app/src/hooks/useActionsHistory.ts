@@ -197,7 +197,7 @@ export const useActionsHistory = ({
    */
   const resetFilters = useCallback((): ActionsHistoryFilters => {
     const defaultFilters: ActionsHistoryFilters = {
-      startDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+      startDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
         .toISOString()
         .split('T')[0],
       endDate: new Date().toISOString().split('T')[0],
