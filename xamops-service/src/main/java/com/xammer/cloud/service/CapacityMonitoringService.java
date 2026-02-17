@@ -135,6 +135,8 @@ public class CapacityMonitoringService {
             // Check each capacity
             for (CapacityDescriptionResponse capacity : capacityList.getValues()) {
                 try {
+                    // Check if capacity just became active (deployed) and send notification
+                    checkDeploymentStatus(userId, userEmail, capacity);
                     checkCapacityThresholds(userId, userEmail, capacity);
                 } catch (Exception e) {
                     logger.error("Error checking capacity {}: {}", capacity.getCidrId(), e.getMessage(), e);
@@ -142,6 +144,55 @@ public class CapacityMonitoringService {
             }
         } catch (Exception e) {
             logger.error("Error monitoring capacities for user {}: {}", userId, e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Check if a capacity has transitioned to active/running state and send deployment notification.
+     * Uses thresholdPercent=0 as a sentinel to track deployment notifications.
+     */
+    private void checkDeploymentStatus(Long userId, String userEmail, CapacityDescriptionResponse capacity) {
+        String status = capacity.getPolicyStatus();
+        if (status == null) return;
+
+        // Only send deployment notification for ACTIVE or RUNNING capacities
+        if (!"ACTIVE".equalsIgnoreCase(status) && !"RUNNING".equalsIgnoreCase(status)) {
+            return;
+        }
+
+        String cidrId = capacity.getCidrId();
+
+        // Check if we already sent a deployment notification for this capacity
+        if (notificationHistoryRepository.hasDeploymentNotificationBeenSent(cidrId)) {
+            logger.debug("Deployment notification already sent for capacity {}, skipping", cidrId);
+            return;
+        }
+
+        try {
+            logger.info("Sending deployment notification for capacity {} to user {} ({})",
+                    cidrId, userId, userEmail);
+
+            String htmlBody = emailBuilder.buildCapacityDeployedEmail(capacity, userEmail);
+            String subject = String.format("XamOps FlexCompute - Capacity Deployed: %s", capacity.getPolicyName());
+
+            emailService.sendHtmlEmail(userEmail, subject, htmlBody);
+
+            // Record notification in history (thresholdPercent=0 marks deployment notification)
+            CapacityNotificationHistory history = new CapacityNotificationHistory(
+                    userId,
+                    cidrId,
+                    0, // sentinel value for deployment notification
+                    0.0,
+                    false,
+                    capacity.getPolicyName(),
+                    userEmail
+            );
+            notificationHistoryRepository.save(history);
+
+            logger.info("Successfully sent deployment notification for capacity {} to {}", cidrId, userEmail);
+
+        } catch (Exception e) {
+            logger.error("Failed to send deployment notification for capacity {}: {}", cidrId, e.getMessage(), e);
         }
     }
 

@@ -40,6 +40,12 @@ public interface CapacityNotificationHistoryRepository extends JpaRepository<Cap
                                                                @Param("endTime") Instant endTime);
 
     /**
+     * Check if a deployment notification (thresholdPercent=0) has been sent for a capacity
+     */
+    @Query("SELECT CASE WHEN COUNT(n) > 0 THEN true ELSE false END FROM CapacityNotificationHistory n WHERE n.cidrId = :cidrId AND n.thresholdPercent = 0")
+    boolean hasDeploymentNotificationBeenSent(@Param("cidrId") String cidrId);
+
+    /**
      * Delete old notification history (cleanup for capacities older than X days)
      */
     void deleteByNotifiedAtBefore(Instant cutoffDate);

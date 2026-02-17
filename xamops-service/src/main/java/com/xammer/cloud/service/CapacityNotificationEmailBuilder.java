@@ -103,6 +103,37 @@ public class CapacityNotificationEmailBuilder {
         return sb.toString();
     }
 
+    /**
+     * Build HTML email for capacity deployment notification (queued/scheduled -> active/running).
+     */
+    public String buildCapacityDeployedEmail(CapacityDescriptionResponse capacity, String userEmail) {
+        StringBuilder sb = new StringBuilder();
+        String generatedDate = LocalDate.now().format(DateTimeFormatter.ofPattern("MMMM dd, yyyy"));
+
+        sb.append(getHtmlHeader("XamOps FlexCompute - Capacity Now Active"));
+        sb.append(getBodyStart());
+        sb.append(getMainContainerStart());
+        sb.append(getEmailCardStart());
+
+        // Success Header
+        sb.append(getDeployedHeader(capacity));
+
+        // Capacity Details
+        sb.append(getDeployedDetailsSection(capacity));
+
+        // Next Steps
+        sb.append(getDeployedNextStepsSection());
+
+        // Footer
+        sb.append(getFooter(generatedDate));
+
+        sb.append(getEmailCardEnd());
+        sb.append(getMainContainerEnd());
+        sb.append(getBodyEnd());
+
+        return sb.toString();
+    }
+
     // ============ Private Helper Methods ============
 
     private String getHtmlHeader(String title) {
@@ -403,6 +434,74 @@ public class CapacityNotificationEmailBuilder {
                 "<div style='display: flex; gap: 12px;'>" +
                 "<a href='#' style='display: inline-block; background: " + PRIMARY_GRADIENT + "; color: #ffffff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 600;'>View in Dashboard</a>" +
                 "<a href='#' style='display: inline-block; background: #f1f5f9; color: #475569; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 600;'>Launch Instances</a>" +
+                "</div>" +
+                "</div></td></tr>";
+    }
+
+    // ============ Deployed Email Helper Methods ============
+
+    private String getDeployedHeader(CapacityDescriptionResponse capacity) {
+        return "<tr>" +
+                "<td style='background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); padding: 40px 40px 30px 40px;'>" +
+                "<table role='presentation' style='width: 100%;'><tr><td>" +
+                "<div style='margin-bottom: 20px;'>" +
+                "<span style='display: inline-block; background-color: rgba(255,255,255,0.2); padding: 8px 16px; border-radius: 8px; color: #ffffff; font-size: 14px; font-weight: 600; letter-spacing: 1px;'>XAMOPS</span>" +
+                "<span style='display: inline-block; background-color: rgba(255,255,255,0.3); padding: 6px 12px; border-radius: 6px; color: #ffffff; font-size: 12px; font-weight: 600; margin-left: 10px;'>" + SUCCESS_ICON + " DEPLOYED</span>" +
+                "</div>" +
+                "<div style='font-size: 48px; margin-bottom: 16px;'>" + ROCKET_ICON + "</div>" +
+                "<h1 style='margin: 0 0 8px 0; color: #ffffff; font-size: 26px; font-weight: 700;'>Capacity Is Now Active!</h1>" +
+                "<p style='margin: 0; color: rgba(255,255,255,0.9); font-size: 16px; font-weight: 500;'>" + escapeHtml(capacity.getPolicyName()) + "</p>" +
+                "<p style='margin: 8px 0 0 0; color: rgba(255,255,255,0.85); font-size: 15px;'>" + escapeHtml(capacity.getInstanceType()) + " | " + escapeHtml(capacity.getRegionZoneId()) + "</p>" +
+                "</td></tr></table>" +
+                "</td></tr>";
+    }
+
+    private String getDeployedDetailsSection(CapacityDescriptionResponse capacity) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("<tr><td style='padding: 30px 40px;'>");
+
+        // Success Message
+        sb.append("<div style='background-color: #ecfdf5; border-radius: 10px; padding: 16px 20px; margin-bottom: 24px; border-left: 4px solid #059669;'>");
+        sb.append("<p style='margin: 0; color: #1e293b; font-size: 15px;'>");
+        sb.append(SUCCESS_ICON).append(" Your FlexCompute capacity reservation has been successfully deployed and is now <strong>active</strong>. ");
+        sb.append("Your reserved EC2 instances are ready to use.");
+        sb.append("</p>");
+        sb.append("</div>");
+
+        // Details Table
+        sb.append("<h2 style='margin: 0 0 16px 0; color: #1f2937; font-size: 18px; font-weight: 600;'>Capacity Details</h2>");
+        sb.append("<table role='presentation' style='width: 100%; border-collapse: collapse;'>");
+
+        sb.append(getDetailRow("Capacity Name", escapeHtml(capacity.getPolicyName())));
+        sb.append(getDetailRow("Capacity ID", "<code style='background-color: #f3f4f6; padding: 4px 8px; border-radius: 4px; font-size: 13px;'>" + escapeHtml(capacity.getCidrId()) + "</code>"));
+        sb.append(getDetailRow("Account", escapeHtml(capacity.getCspAccountName())));
+        sb.append(getDetailRow("Instance Type", "<strong>" + escapeHtml(capacity.getInstanceType()) + "</strong>"));
+        sb.append(getDetailRow("Quantity", "<strong>" + capacity.getQuantities() + " instances</strong>"));
+        sb.append(getDetailRow("Region / Zone", escapeHtml(capacity.getRegionZoneId())));
+        sb.append(getDetailRow("Start Date", formatDateTime(capacity.getStartDate())));
+        sb.append(getDetailRow("End Date", formatDateTime(capacity.getEndDate())));
+        sb.append(getDetailRow("Duration", String.format("%.1f hours", capacity.getTotalUsageHours())));
+        sb.append(getDetailRow("Status", "<span style='background-color: #ecfdf5; color: #059669; padding: 4px 12px; border-radius: 9999px; font-size: 12px; font-weight: 600;'>" +
+                escapeHtml(capacity.getPolicyStatus()) + "</span>"));
+
+        sb.append("</table>");
+        sb.append("</td></tr>");
+
+        return sb.toString();
+    }
+
+    private String getDeployedNextStepsSection() {
+        return "<tr><td style='padding: 0 40px 30px 40px;'>" +
+                "<div style='background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%); border-radius: 12px; padding: 24px; border: 1px solid #e2e8f0;'>" +
+                "<h3 style='margin: 0 0 12px 0; color: #1f2937; font-size: 16px; font-weight: 600;'>What Happens Next?</h3>" +
+                "<ul style='margin: 0 0 16px 0; padding-left: 20px; color: #475569; font-size: 14px; line-height: 1.8;'>" +
+                "<li>Your EC2 instances are now running with the reserved capacity</li>" +
+                "<li>Monitor your capacity usage in the XamOps FlexCompute dashboard</li>" +
+                "<li>You'll receive email notifications at 80% and 90% capacity consumption</li>" +
+                "<li>Extend your capacity end time if needed before it expires</li>" +
+                "</ul>" +
+                "<div style='display: flex; gap: 12px;'>" +
+                "<a href='#' style='display: inline-block; background: " + PRIMARY_GRADIENT + "; color: #ffffff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 600;'>View in Dashboard</a>" +
                 "</div>" +
                 "</div></td></tr>";
     }
