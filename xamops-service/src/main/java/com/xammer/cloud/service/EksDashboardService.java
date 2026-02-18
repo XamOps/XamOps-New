@@ -122,8 +122,9 @@ public class EksDashboardService {
                 String promUrl = getPrometheusUrl(account, clusterName);
 
                 if (promUrl == null) {
-                    logger.warn("⚠️ No Prometheus URL found for cluster: {}. Returning empty dashboard.", clusterName);
-                    return createEmptyDashboard(clusterName, region, version, status);
+                    logger.warn(
+                            "⚠️ No Prometheus URL found for cluster: {}. Continuing with empty metrics (data may be enriched by agent later).",
+                            clusterName);
                 }
 
                 logger.info("🎯 Fetching fresh dashboard data for cluster: {} (forceRefresh={})", clusterName,
@@ -149,7 +150,8 @@ public class EksDashboardService {
                 dashboard.setPodResourceMetrics(buildPodResourceMetrics(promUrl, clusterName));
 
                 // Fetch K8s integrations (Kubescape, Trivy, Karpenter, OpenCost)
-                // Supports dual data sources: kubeconfig (direct K8s API) and agent (pushed data)
+                // Supports dual data sources: kubeconfig (direct K8s API) and agent (pushed
+                // data)
                 try {
                     String awsAccountIdStr = account.getAwsAccountId();
                     Long providerId = null;
@@ -178,28 +180,36 @@ public class EksDashboardService {
 
                     if (configOpt.isPresent()) {
                         KubernetesClusterConfig config = configOpt.get();
-                        // Default to "agent" mode - XamOps Agent is the standard for both public and private clusters
-                        String dataSourceMode = config.getDataSourceMode() != null ? config.getDataSourceMode() : "agent";
-                        logger.info("✅ Found cluster config: id={}, clusterName={}, dataSourceMode={}, kubeconfigLength={}",
+                        // Default to "agent" mode - XamOps Agent is the standard for both public and
+                        // private clusters
+                        String dataSourceMode = config.getDataSourceMode() != null ? config.getDataSourceMode()
+                                : "agent";
+                        logger.info(
+                                "✅ Found cluster config: id={}, clusterName={}, dataSourceMode={}, kubeconfigLength={}",
                                 config.getId(), config.getClusterName(), dataSourceMode,
                                 config.getKubeconfigYaml() != null ? config.getKubeconfigYaml().length() : 0);
 
                         // ========== AGENT DATA SOURCE ==========
                         // If mode is 'agent' or 'hybrid', try to get data from agent cache first
                         if ("agent".equals(dataSourceMode) || "hybrid".equals(dataSourceMode)) {
-                            logger.info("📡 Using AGENT data source for cluster: {} (mode={})", clusterName, dataSourceMode);
+                            logger.info("📡 Using AGENT data source for cluster: {} (mode={})", clusterName,
+                                    dataSourceMode);
 
                             // Check if agent data is available
-                            if (agentDataTransformerService != null && agentDataTransformerService.hasAgentData(config.getId())) {
+                            if (agentDataTransformerService != null
+                                    && agentDataTransformerService.hasAgentData(config.getId())) {
                                 logger.info("✅ Agent data found, transforming for dashboard...");
 
                                 // 1. Trivy from agent
                                 try {
-                                    TrivyDashboard agentTrivy = agentDataTransformerService.transformTrivyData(config.getId());
+                                    TrivyDashboard agentTrivy = agentDataTransformerService
+                                            .transformTrivyData(config.getId());
                                     if (agentTrivy != null && !agentTrivy.getWorkloads().isEmpty()) {
                                         dashboard.setTrivy(agentTrivy);
-                                        logger.info("📊 Trivy data from agent: {} workloads, {} critical vulnerabilities",
-                                                agentTrivy.getWorkloads().size(), agentTrivy.getSummary().getTotalCritical());
+                                        logger.info(
+                                                "📊 Trivy data from agent: {} workloads, {} critical vulnerabilities",
+                                                agentTrivy.getWorkloads().size(),
+                                                agentTrivy.getSummary().getTotalCritical());
                                     }
                                 } catch (Exception trivyEx) {
                                     logger.warn("⚠️ Error getting Trivy data from agent: {}", trivyEx.getMessage());
@@ -208,52 +218,60 @@ public class EksDashboardService {
                                 // 2. Kubescape from agent
                                 if (Boolean.TRUE.equals(config.getKubescapeEnabled())) {
                                     try {
-                                        KubescapeDashboard agentKubescape = agentDataTransformerService.transformKubescapeData(config.getId());
+                                        KubescapeDashboard agentKubescape = agentDataTransformerService
+                                                .transformKubescapeData(config.getId());
                                         if (agentKubescape != null && agentKubescape.getConfigScans() != null) {
                                             dashboard.setKubescape(agentKubescape);
                                             logger.info("📊 Kubescape data from agent: compliance={}%",
                                                     agentKubescape.getOverallComplianceScore());
                                         }
                                     } catch (Exception kubescapeEx) {
-                                        logger.warn("⚠️ Error getting Kubescape data from agent: {}", kubescapeEx.getMessage());
+                                        logger.warn("⚠️ Error getting Kubescape data from agent: {}",
+                                                kubescapeEx.getMessage());
                                     }
                                 }
 
                                 // 3. OpenCost from agent
                                 if (Boolean.TRUE.equals(config.getOpencostEnabled())) {
                                     try {
-                                        OpenCostDashboard agentOpenCost = agentDataTransformerService.transformOpenCostData(config.getId());
+                                        OpenCostDashboard agentOpenCost = agentDataTransformerService
+                                                .transformOpenCostData(config.getId());
                                         if (agentOpenCost != null && agentOpenCost.isEnabled()) {
                                             agentOpenCost.setClusterName(clusterName);
                                             dashboard.setOpenCost(agentOpenCost);
                                             logger.info("💰 OpenCost data from agent: {} namespaces, dailyCost=${}",
                                                     agentOpenCost.getNamespaceAllocations().size(),
-                                                    String.format("%.2f", agentOpenCost.getSummary().getTotalDailyCost()));
+                                                    String.format("%.2f",
+                                                            agentOpenCost.getSummary().getTotalDailyCost()));
                                             populateCostAllocationsFromOpenCost(dashboard);
                                         }
                                     } catch (Exception openCostEx) {
-                                        logger.warn("⚠️ Error getting OpenCost data from agent: {}", openCostEx.getMessage());
+                                        logger.warn("⚠️ Error getting OpenCost data from agent: {}",
+                                                openCostEx.getMessage());
                                     }
                                 }
 
                                 // 4. Karpenter from agent
                                 if (Boolean.TRUE.equals(config.getKarpenterEnabled())) {
                                     try {
-                                        KarpenterDashboard agentKarpenter = agentDataTransformerService.transformKarpenterData(config.getId());
+                                        KarpenterDashboard agentKarpenter = agentDataTransformerService
+                                                .transformKarpenterData(config.getId());
                                         if (agentKarpenter != null && agentKarpenter.isInstalled()) {
                                             dashboard.setKarpenter(agentKarpenter);
                                             logger.info("🚀 Karpenter data from agent: {} NodePools, {} NodeClaims",
-                                                    agentKarpenter.getTotalNodePools(), agentKarpenter.getTotalNodeClaims());
+                                                    agentKarpenter.getTotalNodePools(),
+                                                    agentKarpenter.getTotalNodeClaims());
                                         }
                                     } catch (Exception karpenterEx) {
-                                        logger.warn("⚠️ Error getting Karpenter data from agent: {}", karpenterEx.getMessage());
+                                        logger.warn("⚠️ Error getting Karpenter data from agent: {}",
+                                                karpenterEx.getMessage());
                                     }
                                 }
 
                                 // 5. Cluster Metadata from agent (nodes, pods, namespaces)
                                 try {
-                                    AgentDataTransformerService.ClusterMetadataResult clusterMeta =
-                                            agentDataTransformerService.transformClusterMetadata(config.getId());
+                                    AgentDataTransformerService.ClusterMetadataResult clusterMeta = agentDataTransformerService
+                                            .transformClusterMetadata(config.getId());
                                     if (clusterMeta.getTotalNodes() > 0 || clusterMeta.getTotalPods() > 0) {
                                         // Update the cluster overview with agent data
                                         ClusterOverview overview = dashboard.getClusterOverview();
@@ -261,13 +279,15 @@ public class EksDashboardService {
                                             overview.setTotalNodes(clusterMeta.getTotalNodes());
                                             overview.setTotalPods(clusterMeta.getTotalPods());
                                             overview.setTotalNamespaces(clusterMeta.getTotalNamespaces());
-                                            logger.info("📊 Cluster metadata from agent: {} nodes, {} pods, {} namespaces",
+                                            logger.info(
+                                                    "📊 Cluster metadata from agent: {} nodes, {} pods, {} namespaces",
                                                     clusterMeta.getTotalNodes(), clusterMeta.getTotalPods(),
                                                     clusterMeta.getTotalNamespaces());
                                         }
                                     }
                                 } catch (Exception metaEx) {
-                                    logger.warn("⚠️ Error getting cluster metadata from agent: {}", metaEx.getMessage());
+                                    logger.warn("⚠️ Error getting cluster metadata from agent: {}",
+                                            metaEx.getMessage());
                                 }
 
                                 logger.info("✅ Agent data processed for cluster: {}", clusterName);
@@ -277,7 +297,8 @@ public class EksDashboardService {
                                     logger.info("ℹ️ Agent-only mode, skipping kubeconfig data fetch");
                                 }
                             } else {
-                                logger.warn("⚠️ Agent mode but no agent data available for cluster: {} (agent may not have pushed yet)",
+                                logger.warn(
+                                        "⚠️ Agent mode but no agent data available for cluster: {} (agent may not have pushed yet)",
                                         clusterName);
                             }
                         }
@@ -290,12 +311,14 @@ public class EksDashboardService {
                                 ("hybrid".equals(dataSourceMode) && kubeconfig != null && !kubeconfig.isEmpty());
 
                         if (shouldUseKubeconfig && kubeconfig != null && !kubeconfig.isEmpty()) {
-                            logger.info("🔗 Using KUBECONFIG data source for cluster: {} (mode={})", clusterName, dataSourceMode);
+                            logger.info("🔗 Using KUBECONFIG data source for cluster: {} (mode={})", clusterName,
+                                    dataSourceMode);
                             try (KubernetesClient client = k8sClientFactory.createFromKubeconfig(kubeconfig)) {
                                 logger.info("✅ K8s client created successfully");
 
                                 // 1. Kubescape (Conditional) - only if not already populated by agent
-                                if (Boolean.TRUE.equals(config.getKubescapeEnabled()) && dashboard.getKubescape() == null) {
+                                if (Boolean.TRUE.equals(config.getKubescapeEnabled())
+                                        && dashboard.getKubescape() == null) {
                                     KubescapeDashboard kDashboard = kubescapeService.fetchDashboardData(
                                             client,
                                             clusterName,
@@ -321,7 +344,8 @@ public class EksDashboardService {
                                     try {
                                         KarpenterDashboard karDashboard = karpenterService.fetchDashboardData(client);
                                         dashboard.setKarpenter(karDashboard);
-                                        logger.info("📊 Karpenter data fetched via kubeconfig: installed={}, nodePools={}",
+                                        logger.info(
+                                                "📊 Karpenter data fetched via kubeconfig: installed={}, nodePools={}",
                                                 karDashboard.isInstalled(), karDashboard.getTotalNodePools());
                                     } catch (Exception karpenterEx) {
                                         logger.error("❌ Error fetching Karpenter data for cluster: {}", clusterName,
@@ -759,6 +783,14 @@ public class EksDashboardService {
         CostMetrics costMetrics = dashboard.getCostMetrics();
 
         try {
+            // ✅ Update summary costs from OpenCost
+            if (openCost.getSummary() != null) {
+                costMetrics.setDailyCost(openCost.getSummary().getTotalDailyCost());
+                costMetrics.setMonthlyCost(openCost.getSummary().getTotalMonthlyCost());
+                logger.info("💰 Updated summary costs from OpenCost: daily=${}, monthly=${}",
+                        costMetrics.getDailyCost(), costMetrics.getMonthlyCost());
+            }
+
             // Convert OpenCost NamespaceAllocations to CostMetrics.NamespaceCostAllocation
             List<CostMetrics.NamespaceCostAllocation> namespaceCosts = new ArrayList<>();
             for (OpenCostDashboard.NamespaceAllocation na : openCost.getNamespaceAllocations()) {
@@ -801,6 +833,46 @@ public class EksDashboardService {
             namespaceCosts.sort((a, b) -> Double.compare(b.getDailyCost(), a.getDailyCost()));
             costMetrics.setNamespaceCosts(namespaceCosts);
             logger.info("✅ Populated {} namespace cost allocations from OpenCost", namespaceCosts.size());
+
+            // ✅ Convert OpenCost NodeAllocations to CostMetrics.NodeCost
+            List<CostMetrics.NodeCost> nodeCosts = new ArrayList<>();
+            if (openCost.getNodeAllocations() != null && !openCost.getNodeAllocations().isEmpty()) {
+                for (OpenCostDashboard.NodeAllocation na : openCost.getNodeAllocations()) {
+                    if (na.getNode() == null || na.getNode().contains("__idle__")) {
+                        continue;
+                    }
+
+                    CostMetrics.NodeCost nc = new CostMetrics.NodeCost();
+                    nc.setNodeName(na.getNode());
+
+                    // Estimate hourly rate
+                    double totalCost = na.getTotalCost() != null ? na.getTotalCost() : 0.0;
+                    double minutes = na.getMinutes() != null ? na.getMinutes() : 0.0;
+                    nc.setHourlyRate(minutes > 0 ? (totalCost / minutes) * 60 : 0.0);
+
+                    // Convert to daily cost
+                    double dailyCost = totalCost;
+                    if (minutes > 0 && minutes < 1440) {
+                        dailyCost = (totalCost / minutes) * 1440;
+                    }
+                    nc.setDailyCost(Math.round(dailyCost * 100.0) / 100.0);
+
+                    nc.setInstanceType(na.getInstanceType() != null ? na.getInstanceType() : "Unknown");
+                    nc.setCapacityType(Boolean.TRUE.equals(na.getPreemptible()) ? "spot" : "on-demand");
+
+                    // CPU usage percent if available
+                    if (na.getCpuCores() != null && na.getCpuCores() > 0) {
+                        double cpuUsed = na.getCpuCoreUsageAverage() != null ? na.getCpuCoreUsageAverage() : 0.0;
+                        nc.setCpuUsagePercent((cpuUsed / na.getCpuCores()) * 100);
+                    } else {
+                        nc.setCpuUsagePercent(0.0);
+                    }
+
+                    nodeCosts.add(nc);
+                }
+                costMetrics.setNodeCosts(nodeCosts);
+                logger.info("✅ Populated {} node cost allocations from OpenCost", nodeCosts.size());
+            }
 
             // Convert OpenCost ControllerAllocations to CostMetrics.WorkloadCostAllocation
             List<CostMetrics.WorkloadCostAllocation> workloadCosts = new ArrayList<>();
@@ -1143,7 +1215,8 @@ public class EksDashboardService {
         Map<String, Double> containerMem = prometheusService.getContainerMemoryUsage(promUrl, clusterName);
         Map<String, Double> containerFs = prometheusService.getContainerFsUsage(promUrl, clusterName);
 
-        // Fetch container info, running status, and restarts from Prometheus for fallback
+        // Fetch container info, running status, and restarts from Prometheus for
+        // fallback
         List<Map<String, String>> containerInfoList = prometheusService.getContainerInfo(promUrl, clusterName);
         Map<String, Boolean> containerRunningStatus = prometheusService.getContainerRunningStatus(promUrl, clusterName);
         Map<String, Double> containerRestarts = prometheusService.getContainerRestarts(promUrl, clusterName);
@@ -1276,16 +1349,19 @@ public class EksDashboardService {
                 }
 
                 pod.setContainerStatuses(containerStatuses);
-                logger.debug("✅ Added {} container statuses from K8s API for pod: {}", containerStatuses.size(), podName);
+                logger.debug("✅ Added {} container statuses from K8s API for pod: {}", containerStatuses.size(),
+                        podName);
             } else {
-                // ✅ FALLBACK: Populate containerStatuses from Prometheus when K8s API is not available
+                // ✅ FALLBACK: Populate containerStatuses from Prometheus when K8s API is not
+                // available
                 List<WorkloadHealth.PodHealth.ContainerStatus> containerStatuses = new ArrayList<>();
                 List<Map<String, String>> podContainers = containersByPod.get(podName);
 
                 if (podContainers != null) {
                     for (Map<String, String> containerInfo : podContainers) {
                         String containerName = containerInfo.get("container");
-                        if (containerName == null || containerName.isEmpty()) continue;
+                        if (containerName == null || containerName.isEmpty())
+                            continue;
 
                         String key = podName + "/" + containerName;
 
@@ -1307,7 +1383,8 @@ public class EksDashboardService {
                 }
 
                 pod.setContainerStatuses(containerStatuses);
-                logger.debug("✅ Added {} container statuses from Prometheus for pod: {}", containerStatuses.size(), podName);
+                logger.debug("✅ Added {} container statuses from Prometheus for pod: {}", containerStatuses.size(),
+                        podName);
             }
 
             pods.add(pod);
