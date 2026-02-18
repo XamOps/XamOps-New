@@ -49,11 +49,97 @@ const GcpCloudK8sHelpModal: React.FC<GcpCloudK8sHelpModalProps> = ({ isOpen, onC
 
         {/* Content */}
         <div className="mt-6 pr-2 space-y-6">
+
+          {/* Quick Start (Recommended) */}
+          <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <i className="fas fa-bolt text-indigo-600"></i>
+              <h2 className="text-base font-extrabold text-indigo-800 uppercase tracking-wide">Quick Start (Recommended)</h2>
+            </div>
+            <p className="text-sm text-indigo-700 mb-3">
+              Install <strong>kube-prometheus-stack</strong> — one Helm chart that bundles Prometheus, kube-state-metrics, and node-exporter.
+              Run in <strong>Google Cloud Shell</strong>.
+            </p>
+
+            <div className="relative mb-3">
+              <div className="absolute top-2 right-2 z-10">
+                <button
+                  onClick={() => copyToClipboard(`helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo update
+helm install kube-prom prometheus-community/kube-prometheus-stack \\
+  -n monitoring --create-namespace \\
+  --set prometheus.service.type=LoadBalancer`, 'qs-install')}
+                  className="px-2 py-1 bg-gray-700 hover:bg-gray-600 text-white text-xs rounded shadow transition-colors border border-gray-600"
+                >
+                  {copiedStep === 'qs-install' ? (
+                    <><i className="fas fa-check"></i> Copied!</>
+                  ) : (
+                    <><i className="far fa-copy"></i> Copy</>
+                  )}
+                </button>
+              </div>
+              <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto text-sm font-mono leading-relaxed border border-gray-700">
+{`helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo update
+helm install kube-prom prometheus-community/kube-prometheus-stack \\
+  -n monitoring --create-namespace \\
+  --set prometheus.service.type=LoadBalancer`}
+              </pre>
+            </div>
+
+            <p className="text-sm text-indigo-700 mb-2">Get the Prometheus external IP (wait ~2 min after install):</p>
+            <div className="relative">
+              <div className="absolute top-2 right-2 z-10">
+                <button
+                  onClick={() => copyToClipboard(`kubectl get svc -n monitoring kube-prom-kube-prometheus-prometheus`, 'qs-ip')}
+                  className="px-2 py-1 bg-gray-700 hover:bg-gray-600 text-white text-xs rounded shadow transition-colors border border-gray-600"
+                >
+                  {copiedStep === 'qs-ip' ? (
+                    <><i className="fas fa-check"></i> Copied!</>
+                  ) : (
+                    <><i className="far fa-copy"></i> Copy</>
+                  )}
+                </button>
+              </div>
+              <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto text-sm font-mono leading-relaxed border border-gray-700">
+{`kubectl get svc -n monitoring kube-prom-kube-prometheus-prometheus
+# Look for EXTERNAL-IP → your Prometheus URL = http://<EXTERNAL-IP>:9090`}
+              </pre>
+            </div>
+          </div>
+
+          {/* Connect to XamOps */}
+          <div className="bg-green-50 border border-green-200 rounded-xl p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <i className="fas fa-plug text-green-600"></i>
+              <h2 className="text-base font-extrabold text-green-800 uppercase tracking-wide">Connect to XamOps</h2>
+            </div>
+            <ol className="space-y-2 text-sm text-green-700">
+              <li className="flex items-start gap-2">
+                <span className="w-5 h-5 rounded-full bg-green-200 text-green-800 text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">1</span>
+                <span>Find your cluster in the GKE Clusters list above.</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="w-5 h-5 rounded-full bg-green-200 text-green-800 text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">2</span>
+                <span>Click the <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-yellow-400 text-yellow-900 text-xs font-bold rounded">⚡ Enable Monitoring</span> button on the cluster row.</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="w-5 h-5 rounded-full bg-green-200 text-green-800 text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">3</span>
+                <span>Enter your Prometheus URL: <code className="font-mono bg-green-100 px-1 rounded">http://&lt;EXTERNAL-IP&gt;:9090</code></span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="w-5 h-5 rounded-full bg-green-200 text-green-800 text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">4</span>
+                <span>Click <strong>OK</strong> — XamOps will connect and start showing live metrics in the cluster details page.</span>
+              </li>
+            </ol>
+          </div>
+
+          <hr className="border-gray-200" />
+
           {/* Overview */}
           <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded-r">
             <p className="text-sm text-blue-700">
-              <strong>Overview:</strong> This guide helps you set up comprehensive monitoring for GKE clusters including
-              node metrics, pod metrics, and security monitoring with Falco. Metrics are forwarded to a central monitoring instance.
+              <strong>Alternative (Manual Install):</strong> If you prefer to install components individually — or need Falco for security monitoring — follow the steps below.
             </p>
           </div>
 
@@ -194,7 +280,8 @@ helm upgrade --install node-exporter prometheus-community/prometheus-node-export
 
               <h3 className="doc-h3">Step 5: Install Falco Security Monitoring</h3>
               <p className="doc-p">Falco provides runtime security monitoring and threat detection.</p>
-              <div className="relative group my-4">
+              <p className="text-xs text-gray-500 mb-2 mt-3">5a — Install Falco with Falcosidekick:</p>
+              <div className="relative group my-2">
                 <div className="absolute top-2 right-2 z-10">
                   <button
                     onClick={() => copyToClipboard(`helm repo add falcosecurity https://falcosecurity.github.io/charts
@@ -203,11 +290,10 @@ helm upgrade --install falco falcosecurity/falco \\
   --namespace falco \\
   --create-namespace \\
   --set falcosidekick.enabled=true \\
-  --set falcosidekick.config.prometheus.enabled=true \\
-  --wait`, 'step5')}
+  --wait`, 'step5a')}
                     className="px-2 py-1 bg-gray-700 hover:bg-gray-600 text-white text-xs rounded shadow transition-colors border border-gray-600"
                   >
-                    {copiedStep === 'step5' ? (
+                    {copiedStep === 'step5a' ? (
                       <><i className="fas fa-check"></i> Copied!</>
                     ) : (
                       <><i className="far fa-copy"></i> Copy</>
@@ -221,10 +307,137 @@ helm upgrade --install falco falcosecurity/falco \\
   --namespace falco \\
   --create-namespace \\
   --set falcosidekick.enabled=true \\
-  --set falcosidekick.config.prometheus.enabled=true \\
   --wait`}
                 </pre>
               </div>
+              <p className="text-xs text-gray-500 mb-2 mt-4">5b — Enable Falcosidekick's Prometheus ServiceMonitor:</p>
+              <div className="relative group my-2">
+                <div className="absolute top-2 right-2 z-10">
+                  <button
+                    onClick={() => copyToClipboard(`helm upgrade falco falcosecurity/falco -n falco \\
+  --reuse-values \\
+  --set falcosidekick.serviceMonitor.enabled=true`, 'step5b')}
+                    className="px-2 py-1 bg-gray-700 hover:bg-gray-600 text-white text-xs rounded shadow transition-colors border border-gray-600"
+                  >
+                    {copiedStep === 'step5b' ? (
+                      <><i className="fas fa-check"></i> Copied!</>
+                    ) : (
+                      <><i className="far fa-copy"></i> Copy</>
+                    )}
+                  </button>
+                </div>
+                <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto text-sm font-mono leading-relaxed border border-gray-700">
+{`helm upgrade falco falcosecurity/falco -n falco \\
+  --reuse-values \\
+  --set falcosidekick.serviceMonitor.enabled=true`}
+                </pre>
+              </div>
+              <p className="text-xs text-gray-500 mb-2 mt-4">5c — Allow kube-prometheus-stack to discover all ServiceMonitors:</p>
+              <div className="relative group my-2">
+                <div className="absolute top-2 right-2 z-10">
+                  <button
+                    onClick={() => copyToClipboard(`helm upgrade kube-prom prometheus-community/kube-prometheus-stack -n monitoring \\
+  --reuse-values \\
+  --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false`, 'step5c')}
+                    className="px-2 py-1 bg-gray-700 hover:bg-gray-600 text-white text-xs rounded shadow transition-colors border border-gray-600"
+                  >
+                    {copiedStep === 'step5c' ? (
+                      <><i className="fas fa-check"></i> Copied!</>
+                    ) : (
+                      <><i className="far fa-copy"></i> Copy</>
+                    )}
+                  </button>
+                </div>
+                <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto text-sm font-mono leading-relaxed border border-gray-700">
+{`helm upgrade kube-prom prometheus-community/kube-prometheus-stack -n monitoring \\
+  --reuse-values \\
+  --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false`}
+                </pre>
+              </div>
+              <div className="mt-3 bg-amber-50 border-l-4 border-amber-400 p-3 rounded-r text-xs text-amber-700">
+                <strong>Why step 5c?</strong> kube-prometheus-stack only scrapes ServiceMonitors with the label <code className="bg-amber-100 px-1 rounded">release: kube-prom</code> by default.
+                Setting <code className="bg-amber-100 px-1 rounded">serviceMonitorSelectorNilUsesHelmValues=false</code> makes Prometheus discover <em>all</em> ServiceMonitors cluster-wide, including Falcosidekick's.
+                Wait ~60 seconds after running this, then refresh the Security tab.
+              </div>
+
+              <h3 className="doc-h3 mt-6">Step 6: Install Kubescape (Optional — Compliance Scanner)</h3>
+              <p className="doc-p">Kubescape Operator scans your cluster against CIS benchmarks and Kubernetes best practices.</p>
+              <p className="text-xs text-gray-500 mb-2 mt-3">Replace <code className="bg-gray-100 px-1 rounded">my-cluster</code> with your GKE cluster name:</p>
+              <div className="relative group my-2">
+                <div className="absolute top-2 right-2 z-10">
+                  <button
+                    onClick={() => copyToClipboard(`helm repo add kubescape https://kubescape.github.io/helm-charts/
+helm repo update
+helm install kubescape kubescape/kubescape-operator \\
+  -n kubescape --create-namespace \\
+  --set clusterName=my-cluster`, 'step6')}
+                    className="px-2 py-1 bg-gray-700 hover:bg-gray-600 text-white text-xs rounded shadow transition-colors border border-gray-600"
+                  >
+                    {copiedStep === 'step6' ? (
+                      <><i className="fas fa-check"></i> Copied!</>
+                    ) : (
+                      <><i className="far fa-copy"></i> Copy</>
+                    )}
+                  </button>
+                </div>
+                <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto text-sm font-mono leading-relaxed border border-gray-700">
+{`helm repo add kubescape https://kubescape.github.io/helm-charts/
+helm repo update
+helm install kubescape kubescape/kubescape-operator \\
+  -n kubescape --create-namespace \\
+  --set clusterName=my-cluster`}
+                </pre>
+              </div>
+
+              <h3 className="doc-h3 mt-6">Step 7: Install Trivy Operator (Optional — Image Vulnerability Scanner)</h3>
+              <p className="doc-p">Trivy Operator scans all running container images for CVEs and reports results as Prometheus metrics.</p>
+              <p className="text-xs text-gray-500 mb-2 mt-3">7a — Install Trivy Operator:</p>
+              <div className="relative group my-2">
+                <div className="absolute top-2 right-2 z-10">
+                  <button
+                    onClick={() => copyToClipboard(`helm repo add aqua https://aquasecurity.github.io/helm-charts/
+helm repo update
+helm install trivy-operator aqua/trivy-operator \\
+  -n trivy-system --create-namespace`, 'step7a')}
+                    className="px-2 py-1 bg-gray-700 hover:bg-gray-600 text-white text-xs rounded shadow transition-colors border border-gray-600"
+                  >
+                    {copiedStep === 'step7a' ? (
+                      <><i className="fas fa-check"></i> Copied!</>
+                    ) : (
+                      <><i className="far fa-copy"></i> Copy</>
+                    )}
+                  </button>
+                </div>
+                <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto text-sm font-mono leading-relaxed border border-gray-700">
+{`helm repo add aqua https://aquasecurity.github.io/helm-charts/
+helm repo update
+helm install trivy-operator aqua/trivy-operator \\
+  -n trivy-system --create-namespace`}
+                </pre>
+              </div>
+              <p className="text-xs text-gray-500 mb-2 mt-4">7b — Enable ServiceMonitor (kube-prom's discovery is already configured from Step 5c):</p>
+              <div className="relative group my-2">
+                <div className="absolute top-2 right-2 z-10">
+                  <button
+                    onClick={() => copyToClipboard(`helm upgrade trivy-operator aqua/trivy-operator -n trivy-system \\
+  --reuse-values \\
+  --set serviceMonitor.enabled=true`, 'step7b')}
+                    className="px-2 py-1 bg-gray-700 hover:bg-gray-600 text-white text-xs rounded shadow transition-colors border border-gray-600"
+                  >
+                    {copiedStep === 'step7b' ? (
+                      <><i className="fas fa-check"></i> Copied!</>
+                    ) : (
+                      <><i className="far fa-copy"></i> Copy</>
+                    )}
+                  </button>
+                </div>
+                <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto text-sm font-mono leading-relaxed border border-gray-700">
+{`helm upgrade trivy-operator aqua/trivy-operator -n trivy-system \\
+  --reuse-values \\
+  --set serviceMonitor.enabled=true`}
+                </pre>
+              </div>
+              <p className="text-xs text-gray-400 mt-1">Wait ~2 minutes for the initial image scan, then refresh the Security tab.</p>
             </div>
           </section>
 
@@ -237,16 +450,18 @@ helm upgrade --install falco falcosecurity/falco \\
             </h2>
 
             <div className="mb-6">
-              <h3 className="doc-h3">Step 6: Check Running Pods</h3>
+              <h3 className="doc-h3">Step 8: Check Running Pods</h3>
               <div className="relative group my-4">
                 <div className="absolute top-2 right-2 z-10">
                   <button
                     onClick={() => copyToClipboard(`kubectl get pods -n monitoring
 kubectl get pods -n kube-system | grep kube-state-metrics
-kubectl get pods -n falco`, 'step6')}
+kubectl get pods -n falco
+kubectl get pods -n kubescape
+kubectl get pods -n trivy-system`, 'step8')}
                     className="px-2 py-1 bg-gray-700 hover:bg-gray-600 text-white text-xs rounded shadow transition-colors border border-gray-600"
                   >
-                    {copiedStep === 'step6' ? (
+                    {copiedStep === 'step8' ? (
                       <><i className="fas fa-check"></i> Copied!</>
                     ) : (
                       <><i className="far fa-copy"></i> Copy</>
@@ -256,7 +471,9 @@ kubectl get pods -n falco`, 'step6')}
                 <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto text-sm font-mono leading-relaxed border border-gray-700">
 {`kubectl get pods -n monitoring
 kubectl get pods -n kube-system | grep kube-state-metrics
-kubectl get pods -n falco`}
+kubectl get pods -n falco
+kubectl get pods -n kubescape
+kubectl get pods -n trivy-system`}
                 </pre>
               </div>
             </div>
