@@ -3,11 +3,12 @@ package com.xammer.cloud.service.gcp;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.google.cloud.billing.budgets.v1.*;
 import com.google.type.Money;
-import com.xammer.cloud.domain.User;
+import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.gcp.GcpBudgetCreateRequestDto;
 import com.xammer.cloud.dto.gcp.GcpBudgetDto;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.UserRepository;
+import com.xammer.cloud.service.EmailService;
 import com.xammer.cloud.service.RedisCacheService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -25,6 +26,7 @@ public class GcpBudgetService {
     private final CloudAccountRepository cloudAccountRepository;
     private final UserRepository userRepository;
     private final RedisCacheService redisCacheService;
+    private final EmailService emailService;
 
     @Value("${gcp.budget.mock:false}")
     private boolean useMockData;
@@ -33,13 +35,15 @@ public class GcpBudgetService {
     private static final String MOCK_BUDGETS_CACHE_PREFIX = "gcp:mock-budgets:";
 
     public GcpBudgetService(GcpClientProvider gcpClientProvider,
-                           CloudAccountRepository cloudAccountRepository,
-                           UserRepository userRepository,
-                           RedisCacheService redisCacheService) {
+            CloudAccountRepository cloudAccountRepository,
+            UserRepository userRepository,
+            RedisCacheService redisCacheService,
+            EmailService emailService) {
         this.gcpClientProvider = gcpClientProvider;
         this.cloudAccountRepository = cloudAccountRepository;
         this.userRepository = userRepository;
         this.redisCacheService = redisCacheService;
+        this.emailService = emailService;
     }
 
     /**
@@ -53,23 +57,30 @@ public class GcpBudgetService {
      * Synchronous version of getBudgets for internal use.
      * Returns both GCP API budgets and locally stored mock budgets.
      */
-    public List<GcpBudgetDto> getBudgetsSync(String gcpProjectId) {
-        String cacheKey = BUDGET_CACHE_PREFIX + gcpProjectId;
+    public List<GcpBudgetDto> getBudgetsSync(String accountId) {
+        String cacheKey = BUDGET_CACHE_PREFIX + accountId;
 
         // Check cache first
         Optional<List<GcpBudgetDto>> cached = redisCacheService.get(cacheKey,
-                new TypeReference<List<GcpBudgetDto>>() {});
+                new TypeReference<List<GcpBudgetDto>>() {
+                });
         if (cached.isPresent()) {
-            log.info("Returning cached budgets for GCP project {}", gcpProjectId);
+            log.info("Returning cached budgets for account {}", accountId);
             return cached.get();
         }
+
+        // Robust account lookup
+        CloudAccount account = cloudAccountRepository.findByProviderAccountId(accountId)
+                .orElseThrow(() -> new RuntimeException("Account not found for ID: " + accountId));
+        String gcpProjectId = account.getGcpProjectId();
 
         List<GcpBudgetDto> allBudgets = new ArrayList<>();
 
         // Always include mock/local budgets from Redis
         String mockCacheKey = MOCK_BUDGETS_CACHE_PREFIX + gcpProjectId;
         Optional<List<GcpBudgetDto>> mockBudgets = redisCacheService.get(mockCacheKey,
-                new TypeReference<List<GcpBudgetDto>>() {});
+                new TypeReference<List<GcpBudgetDto>>() {
+                });
         if (mockBudgets.isPresent()) {
             allBudgets.addAll(mockBudgets.get());
             log.info("Found {} local budgets for project {}", mockBudgets.get().size(), gcpProjectId);
@@ -134,50 +145,106 @@ public class GcpBudgetService {
      * Create a new budget for a GCP project.
      * Falls back to storing in Redis if GCP API permissions are unavailable.
      */
-    public GcpBudgetDto createBudget(String gcpProjectId, GcpBudgetCreateRequestDto request, String username) {
+    public GcpBudgetDto createBudget(String accountId, GcpBudgetCreateRequestDto request, String username) {
+        // Robust account lookup
+        CloudAccount account = cloudAccountRepository.findByProviderAccountId(accountId)
+                .orElseThrow(() -> new RuntimeException("Account not found for ID: " + accountId));
+        String gcpProjectId = account.getGcpProjectId();
+
         log.info("Creating GCP budget '{}' for project {} by user {}",
                 request.getBudgetName(), gcpProjectId, username);
 
+        GcpBudgetDto result;
+
         // Mock data mode - store in Redis
         if (useMockData) {
-            return createMockBudget(gcpProjectId, request);
+            result = createMockBudget(accountId, gcpProjectId, request);
+        } else {
+            // Try real GCP API first
+            try {
+                result = createBudgetViaGcpApi(accountId, gcpProjectId, request, username);
+            } catch (Exception e) {
+                log.error("Failed to create budget via GCP API for project {}: {}. Falling back to local storage.",
+                        gcpProjectId, e.getMessage());
+
+                // Log if it might be a permission issue
+                if (e.getMessage() != null &&
+                        (e.getMessage().contains("PERMISSION_DENIED")
+                                || e.getMessage().contains("does not have permission"))) {
+                    log.info(
+                            "Note: This appears to be a permission issue for project {}. To use real GCP budgets, grant 'Billing Account Administrator' or 'Budget Admin' role.",
+                            gcpProjectId);
+                }
+
+                result = createMockBudget(accountId, gcpProjectId, request);
+            }
         }
 
-        // Try real GCP API first
+        // Send budget-creation notification email (failure must not block the response)
+        sendBudgetCreatedEmail(request, gcpProjectId, username);
+
+        return result;
+    }
+
+    private void sendBudgetCreatedEmail(GcpBudgetCreateRequestDto request, String gcpProjectId, String username) {
         try {
-            return createBudgetViaGcpApi(gcpProjectId, request, username);
-        } catch (Exception e) {
-            // Check if it's a permission error - fall back to mock mode
-            if (e.getMessage() != null &&
-                (e.getMessage().contains("PERMISSION_DENIED") ||
-                 e.getMessage().contains("does not have permission"))) {
-                log.warn("GCP Budget API permission denied for project {}. Falling back to local storage. " +
-                        "To use real GCP budgets, grant 'Billing Account Administrator' or 'Budget Admin' role.",
-                        gcpProjectId);
-                return createMockBudget(gcpProjectId, request);
-            }
-            throw e;
+            userRepository.findByUsername(username).ifPresent(user -> {
+                String email = user.getEmail();
+                if (email != null && !email.isBlank()) {
+                    String subject = "GCP Budget Created: " + request.getBudgetName();
+                    String html = buildBudgetCreatedEmail(request, gcpProjectId, email);
+                    emailService.sendHtmlEmail(email, subject, html);
+                    log.info("Budget creation notification sent to {} for project {}", email, gcpProjectId);
+                }
+            });
+        } catch (Exception ex) {
+            log.warn("Failed to send budget creation email for project {}: {}", gcpProjectId, ex.getMessage());
         }
     }
 
+    private String buildBudgetCreatedEmail(GcpBudgetCreateRequestDto request, String gcpProjectId, String email) {
+        String currency = request.getCurrencyCode() != null ? request.getCurrencyCode() : "USD";
+        return "<html><body style=\"font-family:Arial,sans-serif;background:#f5f7fa;padding:24px\">"
+                + "<div style=\"max-width:560px;margin:auto;background:#fff;border-radius:8px;padding:32px;border:1px solid #e0e0e0\">"
+                + "<h2 style=\"color:#1976D2;margin-top:0\">GCP Budget Created</h2>"
+                + "<p>A new budget has been set up for your GCP project.</p>"
+                + "<table style=\"width:100%;border-collapse:collapse;margin:16px 0\">"
+                + "<tr><td style=\"padding:8px 0;color:#555;width:40%\"><b>Budget Name</b></td>"
+                + "<td style=\"padding:8px 0\">" + request.getBudgetName() + "</td></tr>"
+                + "<tr><td style=\"padding:8px 0;color:#555\"><b>Limit</b></td>"
+                + "<td style=\"padding:8px 0\">" + currency + " " + request.getBudgetLimit() + "</td></tr>"
+                + "<tr><td style=\"padding:8px 0;color:#555\"><b>GCP Project</b></td>"
+                + "<td style=\"padding:8px 0\">" + gcpProjectId + "</td></tr>"
+                + "<tr><td style=\"padding:8px 0;color:#555\"><b>Alert Thresholds</b></td>"
+                + "<td style=\"padding:8px 0\">50%, 80%, 90%, 100% of budget</td></tr>"
+                + "</table>"
+                + "<p style=\"color:#888;font-size:12px\">You will be alerted as spending approaches these thresholds.<br>"
+                + "This notification was sent to " + email + ".</p>"
+                + "<hr style=\"border:none;border-top:1px solid #eee;margin:24px 0\">"
+                + "<p style=\"color:#aaa;font-size:11px;text-align:center\">XamOps Cloud FinOps Platform</p>"
+                + "</div></body></html>";
+    }
+
     /**
-     * Create a mock budget stored in Redis (for testing or when GCP permissions are unavailable).
+     * Create a mock budget stored in Redis (for testing or when GCP permissions are
+     * unavailable).
      */
-    private GcpBudgetDto createMockBudget(String gcpProjectId, GcpBudgetCreateRequestDto request) {
+    private GcpBudgetDto createMockBudget(String accountId, String gcpProjectId, GcpBudgetCreateRequestDto request) {
         log.info("[LOCAL] Creating local budget '{}' with limit {} for project {}",
                 request.getBudgetName(), request.getBudgetLimit(), gcpProjectId);
 
         GcpBudgetDto newBudget = new GcpBudgetDto(
                 request.getBudgetName(),
                 request.getBudgetLimit(),
-                0.0,  // actual spend
-                request.getBudgetLimit() * 0.7  // forecasted (placeholder)
+                0.0, // actual spend
+                request.getBudgetLimit() * 0.7 // forecasted (placeholder)
         );
 
         // Get existing mock budgets and add the new one
         String mockCacheKey = MOCK_BUDGETS_CACHE_PREFIX + gcpProjectId;
         List<GcpBudgetDto> existingBudgets = redisCacheService.get(mockCacheKey,
-                new TypeReference<List<GcpBudgetDto>>() {}).orElse(new ArrayList<>());
+                new TypeReference<List<GcpBudgetDto>>() {
+                }).orElse(new ArrayList<>());
 
         // Check for duplicate name
         boolean exists = existingBudgets.stream()
@@ -189,7 +256,7 @@ public class GcpBudgetService {
         existingBudgets.add(newBudget);
         redisCacheService.put(mockCacheKey, existingBudgets, 1440); // Cache for 24 hours
 
-        evictBudgetCache(gcpProjectId);
+        evictBudgetCache(accountId, gcpProjectId);
         log.info("Successfully created local budget '{}' for project {}", request.getBudgetName(), gcpProjectId);
         return newBudget;
     }
@@ -197,7 +264,8 @@ public class GcpBudgetService {
     /**
      * Create budget via actual GCP Cloud Billing Budgets API.
      */
-    private GcpBudgetDto createBudgetViaGcpApi(String gcpProjectId, GcpBudgetCreateRequestDto request, String username) {
+    private GcpBudgetDto createBudgetViaGcpApi(String accountId, String gcpProjectId, GcpBudgetCreateRequestDto request,
+            String username) {
         // Validate budget limit
         if (request.getBudgetLimit() <= 0) {
             throw new IllegalArgumentException("Budget limit must be greater than 0, got: " + request.getBudgetLimit());
@@ -223,50 +291,66 @@ public class GcpBudgetService {
             long units = (long) request.getBudgetLimit();
             int nanos = (int) ((request.getBudgetLimit() - units) * 1_000_000_000);
 
-            Money budgetMoney = Money.newBuilder()
+            Money.Builder moneyBuilder = Money.newBuilder()
                     .setCurrencyCode(currencyCode)
-                    .setUnits(units)
-                    .setNanos(nanos)
-                    .build();
+                    .setUnits(units);
+            if (nanos > 0) {
+                moneyBuilder.setNanos(nanos);
+            }
+            Money budgetMoney = moneyBuilder.build();
 
             BudgetAmount budgetAmount = BudgetAmount.newBuilder()
                     .setSpecifiedAmount(budgetMoney)
                     .build();
 
-            // Build budget filter - set empty to apply to entire billing account
-            Filter budgetFilter = Filter.newBuilder().build();
-
-            // Build budget - keep it simple like AWS
+            // Build budget with standard monthly filter and threshold mappings
             Budget.Builder budgetBuilder = Budget.newBuilder()
                     .setDisplayName(request.getBudgetName())
-                    .setBudgetFilter(budgetFilter)
-                    .setAmount(budgetAmount);
+                    .setAmount(budgetAmount)
+                    .setBudgetFilter(Filter.newBuilder()
+                            .addProjects("projects/" + gcpProjectId)
+                            .setCalendarPeriod(CalendarPeriod.MONTH)
+                            .build());
 
-            // Only add NotificationsRule if we have notification channels configured
-            // For now, we skip this to avoid INVALID_ARGUMENT errors
-            // Future enhancement: create notification channel first, then add it here
-            // NotificationsRule notificationsRule = NotificationsRule.newBuilder()
-            //     .setDisableDefaultIamRecipients(false)
-            //     .addMonitoringNotificationChannels("projects/.../notificationChannels/...")
-            //     .build();
-            // budgetBuilder.setNotificationsRule(notificationsRule);
+            // Add alert threshold rules
+            List<Double> thresholds = (request.getAlertThresholds() != null && !request.getAlertThresholds().isEmpty())
+                    ? request.getAlertThresholds()
+                    : List.of(0.5, 0.8, 0.9, 1.0);
+
+            for (Double threshold : thresholds) {
+                budgetBuilder.addThresholdRules(ThresholdRule.newBuilder()
+                        .setThresholdPercent(threshold)
+                        .setSpendBasis(ThresholdRule.Basis.CURRENT_SPEND)
+                        .build());
+            }
 
             Budget budget = budgetBuilder.build();
+
+            log.info("Built Budget object: {}", budget.toString());
 
             CreateBudgetRequest createRequest = CreateBudgetRequest.newBuilder()
                     .setParent(parent)
                     .setBudget(budget)
                     .build();
 
-            log.info("Creating GCP budget with: parent={}, displayName={}, amount={} {}, budgetLimit={}",
-                    parent, request.getBudgetName(), units, currencyCode, request.getBudgetLimit());
+            log.info("Creating GCP budget with: parent={}, displayName={}, amount={} {}, project={}",
+                    parent, request.getBudgetName(), units, currencyCode, gcpProjectId);
 
             Budget createdBudget = client.createBudget(createRequest);
             log.info("Successfully created GCP budget via API: {}", createdBudget.getName());
 
-            evictBudgetCache(gcpProjectId);
+            evictBudgetCache(accountId, gcpProjectId);
             return new GcpBudgetDto(request.getBudgetName(), request.getBudgetLimit(), 0.0, 0.0);
 
+        } catch (com.google.api.gax.rpc.ApiException e) {
+            String details = "";
+            if (e.getCause() instanceof io.grpc.StatusRuntimeException) {
+                io.grpc.StatusRuntimeException statusEx = (io.grpc.StatusRuntimeException) e.getCause();
+                details = " | Trailers: " + statusEx.getTrailers();
+            }
+            log.error("GCP API Error creating budget '{}' for project {}: StatusCode={}, Reason={}, Message={}{}",
+                    request.getBudgetName(), gcpProjectId, e.getStatusCode(), e.getReason(), e.getMessage(), details);
+            throw new RuntimeException("GCP API Error: " + e.getMessage(), e);
         } catch (Exception e) {
             log.error("Failed to create GCP budget '{}' for project {}: {}",
                     request.getBudgetName(), gcpProjectId, e.getMessage(), e);
@@ -278,7 +362,12 @@ public class GcpBudgetService {
      * Delete a budget by name for a GCP project.
      * Handles both GCP API budgets and locally stored budgets.
      */
-    public void deleteBudget(String gcpProjectId, String budgetName) {
+    public void deleteBudget(String accountId, String budgetName) {
+        // Robust account lookup
+        CloudAccount account = cloudAccountRepository.findByProviderAccountId(accountId)
+                .orElseThrow(() -> new RuntimeException("Account not found for ID: " + accountId));
+        String gcpProjectId = account.getGcpProjectId();
+
         log.info("Deleting GCP budget '{}' for project {}", budgetName, gcpProjectId);
 
         // First, try to delete from local/mock storage
@@ -286,7 +375,7 @@ public class GcpBudgetService {
 
         // If mock mode or deleted from local, we're done
         if (useMockData) {
-            evictBudgetCache(gcpProjectId);
+            evictBudgetCache(accountId, gcpProjectId);
             return;
         }
 
@@ -298,7 +387,7 @@ public class GcpBudgetService {
             if (deletedFromLocal) {
                 log.info("Budget '{}' was deleted from local storage. GCP API delete skipped: {}",
                         budgetName, e.getMessage());
-                evictBudgetCache(gcpProjectId);
+                evictBudgetCache(accountId, gcpProjectId);
                 return;
             }
 
@@ -306,24 +395,26 @@ public class GcpBudgetService {
             if (e.getMessage() != null && e.getMessage().contains("PERMISSION_DENIED")) {
                 log.warn("GCP Budget API permission denied. Cannot delete budget '{}' from GCP.", budgetName);
                 if (deletedFromLocal) {
-                    evictBudgetCache(gcpProjectId);
+                    evictBudgetCache(accountId, gcpProjectId);
                     return;
                 }
             }
             throw e;
         }
 
-        evictBudgetCache(gcpProjectId);
+        evictBudgetCache(accountId, gcpProjectId);
     }
 
     /**
      * Delete a budget from local Redis storage.
+     * 
      * @return true if budget was found and deleted
      */
     private boolean deleteLocalBudget(String gcpProjectId, String budgetName) {
         String mockCacheKey = MOCK_BUDGETS_CACHE_PREFIX + gcpProjectId;
         Optional<List<GcpBudgetDto>> mockBudgets = redisCacheService.get(mockCacheKey,
-                new TypeReference<List<GcpBudgetDto>>() {});
+                new TypeReference<List<GcpBudgetDto>>() {
+                });
 
         if (mockBudgets.isPresent()) {
             List<GcpBudgetDto> budgets = new ArrayList<>(mockBudgets.get());
@@ -394,10 +485,16 @@ public class GcpBudgetService {
     /**
      * Evict budget cache for a GCP project.
      */
-    private void evictBudgetCache(String gcpProjectId) {
-        String cacheKey = BUDGET_CACHE_PREFIX + gcpProjectId;
-        redisCacheService.evict(cacheKey);
-        redisCacheService.evict("gcp:finops-report:" + gcpProjectId);
+    private void evictBudgetCache(String accountId, String gcpProjectId) {
+        // Evict by both IDs to be safe, as fetching uses accountId but internal logic
+        // often uses gcpProjectId
+        redisCacheService.evict(BUDGET_CACHE_PREFIX + accountId);
+        redisCacheService.evict("gcp:finops-report:" + accountId);
+
+        if (gcpProjectId != null && !gcpProjectId.equals(accountId)) {
+            redisCacheService.evict(BUDGET_CACHE_PREFIX + gcpProjectId);
+            redisCacheService.evict("gcp:finops-report:" + gcpProjectId);
+        }
     }
 
     /**
@@ -406,9 +503,11 @@ public class GcpBudgetService {
     private GcpBudgetDto mapToDto(Budget budget) {
         double limit = 0.0;
         if (budget.hasAmount() && budget.getAmount().hasSpecifiedAmount()) {
-            limit = budget.getAmount().getSpecifiedAmount().getUnits();
+            Money money = budget.getAmount().getSpecifiedAmount();
+            limit = money.getUnits() + (money.getNanos() / 1_000_000_000.0);
         }
-        // GCP Budget API doesn't provide actual spend directly - would need to query billing data
+        // GCP Budget API doesn't provide actual spend directly - would need to query
+        // billing data
         double actual = 0.0;
         double forecast = 0.0;
         return new GcpBudgetDto(budget.getDisplayName(), limit, actual, forecast);
@@ -421,7 +520,6 @@ public class GcpBudgetService {
         return List.of(
                 new GcpBudgetDto("Monthly Cloud Run Budget", 500.0, 234.50, 450.0),
                 new GcpBudgetDto("Compute Engine Budget", 1000.0, 750.25, 920.0),
-                new GcpBudgetDto("BigQuery Analysis Budget", 200.0, 89.99, 110.0)
-        );
+                new GcpBudgetDto("BigQuery Analysis Budget", 200.0, 89.99, 110.0));
     }
 }

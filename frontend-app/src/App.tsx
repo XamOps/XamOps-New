@@ -35,6 +35,7 @@ import SpotAutomationPage from './pages/SpotAutomationPage';
 import GrafanaDashboardPage from './pages/GrafanaDashboardPage';
 import CloudK8sPage from './pages/CloudK8sPage';
 import EksDetailsPage from './pages/EksDetailsPage';
+import GkeDetailsPage from './pages/GkeDetailsPage';
 import SecurityPage from './pages/SecurityPage';
 import PerformancePage from './pages/PerformancePage';
 import AlertsPage from './pages/AlertsPage';
@@ -346,6 +347,7 @@ const AppContent: React.FC = () => {
               <Route path="/gcp-cloudk8s" element={<GcpCloudK8sPage />} />
               <Route path="/azure-cloudk8s" element={<AzureCloudK8sPage />} />
               <Route path="/eks-details" element={<EksDetailsPage />} />
+              <Route path="/gke-details" element={<GkeDetailsPage />} />
               <Route path="/security" element={<SecurityPage />} />
               <Route path="/gcp-security" element={<GcpSecurityPage />} />
               <Route path="/performance" element={<PerformancePage />} />

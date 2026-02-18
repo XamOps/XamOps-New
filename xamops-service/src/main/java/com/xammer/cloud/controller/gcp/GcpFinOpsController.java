@@ -12,7 +12,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.security.Principal;
-import java.util.List;
+import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
@@ -182,13 +182,14 @@ public class GcpFinOpsController {
          * Get all budgets for a GCP project.
          */
         @GetMapping("/budgets")
-        public CompletableFuture<ResponseEntity<List<GcpBudgetDto>>> getBudgets(@RequestParam String accountId) {
+        public CompletableFuture<ResponseEntity<?>> getBudgets(@RequestParam String accountId) {
                 log.info("Fetching budgets for GCP project: {}", accountId);
                 return gcpBudgetService.getBudgets(accountId)
-                                .thenApply(ResponseEntity::ok)
+                                .<ResponseEntity<?>>thenApply(ResponseEntity::ok)
                                 .exceptionally(ex -> {
                                         log.error("Failed to fetch budgets for project {}", accountId, ex);
-                                        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(null);
+                                        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                                                        .body(Collections.emptyList());
                                 });
         }
 
@@ -196,7 +197,7 @@ public class GcpFinOpsController {
          * Create a new budget for a GCP project.
          */
         @PostMapping("/budgets")
-        public ResponseEntity<GcpBudgetDto> createBudget(
+        public ResponseEntity<?> createBudget(
                         @RequestParam String accountId,
                         @RequestBody GcpBudgetCreateRequestDto budgetRequest,
                         Principal principal) {
@@ -207,10 +208,16 @@ public class GcpFinOpsController {
                                         budgetRequest.getBudgetName(), accountId, username);
 
                         GcpBudgetDto createdBudget = gcpBudgetService.createBudget(accountId, budgetRequest, username);
+
+                        // Invalidate database snapshot to ensure dashboard reflects new budget
+                        dashboardDataService.deleteSnapshot("gcp-finops-" + accountId);
+
                         return ResponseEntity.status(HttpStatus.CREATED).body(createdBudget);
                 } catch (Exception e) {
                         log.error("Error creating budget for GCP project {}", accountId, e);
-                        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(null);
+                        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                                        .body(Collections.singletonMap("error",
+                                                        "Failed to create budget: " + e.getMessage()));
                 }
         }
 
@@ -218,18 +225,23 @@ public class GcpFinOpsController {
          * Delete a budget by name for a GCP project.
          */
         @DeleteMapping("/budgets")
-        public ResponseEntity<Map<String, String>> deleteBudget(
+        public ResponseEntity<?> deleteBudget(
                         @RequestParam String accountId,
                         @RequestParam String budgetName) {
 
                 try {
                         log.info("Deleting budget '{}' for GCP project {}", budgetName, accountId);
                         gcpBudgetService.deleteBudget(accountId, budgetName);
+
+                        // Invalidate database snapshot
+                        dashboardDataService.deleteSnapshot("gcp-finops-" + accountId);
+
                         return ResponseEntity.ok(Map.of("message", "Budget deleted successfully"));
                 } catch (Exception e) {
                         log.error("Error deleting budget '{}' for GCP project {}", budgetName, accountId, e);
                         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                                        .body(Map.of("error", e.getMessage()));
+                                        .body(Collections.singletonMap("error",
+                                                        "Failed to delete budget: " + e.getMessage()));
                 }
         }
 
