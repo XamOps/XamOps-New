@@ -1,71 +1,172 @@
-import React from 'react';
-import { Link } from 'react-router-dom';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAccounts } from '../contexts/AccountContext';
+import { useTopbar } from '../contexts/TopbarContext';
+import apiClient from '../utils/apiClient';
+import clsx from 'clsx';
+import AzureCloudK8sClusterTable from '../components/AzureCloudK8s/AzureCloudK8sClusterTable';
+import AzureCloudK8sIntegrations from '../components/AzureCloudK8s/AzureCloudK8sIntegrations';
+import AzureCloudK8sHelpModal from '../components/AzureCloudK8s/AzureCloudK8sHelpModal';
+import { AKSCluster } from '../types/aksTypes';
 
 const AzureCloudK8sPage: React.FC = () => {
-  return (
-    <div className="flex-1 p-6 flex items-center justify-center min-h-[calc(100vh-80px)]">
-      <div className="text-center p-12 bg-white rounded-2xl shadow-xl max-w-lg w-full border border-gray-100">
-        {/* Azure AKS Icon */}
-        <div className="w-24 h-24 bg-gradient-to-br from-blue-500 to-cyan-600 rounded-2xl flex items-center justify-center mx-auto mb-8 shadow-lg shadow-blue-500/30">
-          <i className="fas fa-dharmachakra text-4xl text-white"></i>
-        </div>
+  const navigate = useNavigate();
+  const { selectedAccountIds, selectedAccountDisplay } = useAccounts();
+  const selectedAccountId = selectedAccountIds[0] || null;
+  const { setActions, clearActions } = useTopbar();
 
-        {/* Coming Soon Badge */}
-        <div className="inline-flex items-center gap-2 px-4 py-2 bg-amber-50 border border-amber-200 rounded-full mb-6">
-          <i className="fas fa-clock text-amber-500"></i>
-          <span className="text-sm font-semibold text-amber-700">Coming Soon</span>
-        </div>
+  const [clusters, setClusters] = useState<AKSCluster[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
 
-        <h1 className="text-3xl font-bold text-gray-800 mb-3">Azure Kubernetes Service</h1>
-        <p className="text-gray-500 mb-8 leading-relaxed">
-          AKS cluster management and monitoring is currently under development.
-          We're working hard to bring you comprehensive Azure Kubernetes insights.
-        </p>
+  const fetchClusters = useCallback(async (forceRefresh = false) => {
+    if (!selectedAccountId) {
+      setIsLoading(false);
+      setClusters([]);
+      return;
+    }
 
-        {/* Feature Preview */}
-        <div className="bg-gray-50 rounded-xl p-6 mb-8 text-left">
-          <h3 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
-            <i className="fas fa-sparkles text-blue-500"></i>
-            Upcoming Features
-          </h3>
-          <ul className="space-y-3">
-            <li className="flex items-center gap-3 text-sm text-gray-600">
-              <div className="w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center">
-                <i className="fas fa-check text-blue-600 text-xs"></i>
-              </div>
-              AKS Cluster Overview & Health
-            </li>
-            <li className="flex items-center gap-3 text-sm text-gray-600">
-              <div className="w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center">
-                <i className="fas fa-check text-blue-600 text-xs"></i>
-              </div>
-              Node Pool Management
-            </li>
-            <li className="flex items-center gap-3 text-sm text-gray-600">
-              <div className="w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center">
-                <i className="fas fa-check text-blue-600 text-xs"></i>
-              </div>
-              Workload & Pod Monitoring
-            </li>
-            <li className="flex items-center gap-3 text-sm text-gray-600">
-              <div className="w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center">
-                <i className="fas fa-check text-blue-600 text-xs"></i>
-              </div>
-              Cost Analysis & Optimization
-            </li>
-          </ul>
-        </div>
+    const cacheKey = `aksClusters-${selectedAccountId}`;
 
-        {/* Back Button */}
-        <Link
-          to="/azure-dashboard"
-          className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-cyan-600 text-white rounded-xl font-semibold hover:shadow-lg hover:shadow-blue-500/30 transition-all"
+    if (forceRefresh) {
+      sessionStorage.removeItem(cacheKey);
+    }
+
+    const cachedData = sessionStorage.getItem(cacheKey);
+    if (cachedData && !forceRefresh) {
+      const parsed = JSON.parse(cachedData).map((c: AKSCluster) => ({
+        ...c,
+        isEnabling: false,
+      }));
+      setClusters(parsed);
+      setIsLoading(false);
+      return;
+    }
+
+    setIsLoading(true);
+    if (forceRefresh) setIsRefreshing(true);
+
+    try {
+      const data = await apiClient.get<AKSCluster[]>(
+        `/api/xamops/aks/clusters?accountIds=${selectedAccountId}`
+      );
+
+      const processed = data.map((c: AKSCluster) => ({ ...c, isEnabling: false }));
+      setClusters(processed);
+      sessionStorage.setItem(cacheKey, JSON.stringify(data));
+    } catch (err: any) {
+      console.error('Failed to fetch AKS clusters', err);
+      setClusters([]);
+    } finally {
+      setIsLoading(false);
+      setIsRefreshing(false);
+    }
+  }, [selectedAccountId]);
+
+  const enableMonitoring = useCallback(async (cluster: AKSCluster) => {
+    if (!selectedAccountId) return;
+
+    const prometheusUrl = window.prompt(
+      `Enter Prometheus URL for cluster "${cluster.name}":\n\n` +
+      `Example: http://20.62.148.90:9090\n\n` +
+      `(Run: kubectl get svc -n monitoring to find the EXTERNAL-IP)`
+    );
+    if (!prometheusUrl) return;
+
+    setClusters(prev =>
+      prev.map(c =>
+        c.name === cluster.name && c.resourceGroup === cluster.resourceGroup
+          ? { ...c, isEnabling: true }
+          : c
+      )
+    );
+
+    try {
+      await apiClient.post(
+        `/api/xamops/aks/${cluster.name}/connect?accountId=${selectedAccountId}&prometheusUrl=${encodeURIComponent(prometheusUrl)}`
+      );
+      alert(`Monitoring connected for ${cluster.name}. Refreshing cluster list...`);
+      setTimeout(() => fetchClusters(true), 3000);
+    } catch (err: any) {
+      alert(`Error: ${err.message}`);
+      console.error('Failed to connect monitoring', err);
+    } finally {
+      setClusters(prev =>
+        prev.map(c =>
+          c.name === cluster.name && c.resourceGroup === cluster.resourceGroup
+            ? { ...c, isEnabling: false }
+            : c
+        )
+      );
+    }
+  }, [selectedAccountId, fetchClusters]);
+
+  const navigateToDetails = useCallback((cluster: AKSCluster) => {
+    navigate(`/aks-details?name=${encodeURIComponent(cluster.name)}&resourceGroup=${encodeURIComponent(cluster.resourceGroup)}&accountIds=${selectedAccountId}`);
+  }, [navigate, selectedAccountId]);
+
+  // Load on mount and account change
+  useEffect(() => {
+    fetchClusters(false);
+  }, [fetchClusters]);
+
+  useEffect(() => {
+    const handleAccountChanged = () => fetchClusters(false);
+    window.addEventListener('account-changed', handleAccountChanged);
+    return () => window.removeEventListener('account-changed', handleAccountChanged);
+  }, [fetchClusters]);
+
+  // Redirect if non-Azure account selected
+  useEffect(() => {
+    if (selectedAccountDisplay.provider && selectedAccountDisplay.provider !== 'Azure') {
+      navigate('/cloudk8s');
+    }
+  }, [selectedAccountDisplay.provider, navigate]);
+
+  // Topbar: Refresh button
+  useEffect(() => {
+    setActions(
+      <div className="flex items-center gap-3">
+        <button
+          onClick={() => fetchClusters(true)}
+          disabled={isRefreshing}
+          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all disabled:opacity-50 active:scale-95"
         >
-          <i className="fas fa-arrow-left"></i>
-          Back to Dashboard
-        </Link>
+          <i className={clsx('fas fa-sync-alt', isRefreshing && 'animate-spin')}></i>
+          <span>{isRefreshing ? 'Refreshing...' : 'Refresh Now'}</span>
+        </button>
       </div>
-    </div>
+    );
+    return () => clearActions();
+  }, [setActions, clearActions, isRefreshing, fetchClusters]);
+
+  return (
+    <main className="flex-1 flex flex-col min-h-screen bg-gray-50">
+      <div className="flex-1 p-4 md:p-8 space-y-8">
+        <AzureCloudK8sClusterTable
+          clusters={clusters}
+          isLoading={isLoading}
+          onEnableMonitoring={enableMonitoring}
+          onViewDetails={navigateToDetails}
+        />
+        <AzureCloudK8sIntegrations />
+      </div>
+
+      {/* Floating Help Button */}
+      <button
+        onClick={() => setIsHelpModalOpen(true)}
+        className="fixed bottom-8 right-8 w-14 h-14 bg-gradient-to-br from-blue-500 to-cyan-600 rounded-full flex items-center justify-center text-white text-2xl shadow-lg cursor-pointer hover:scale-110 hover:shadow-xl transition-all z-30 group"
+        aria-label="Open setup guide"
+      >
+        <i className="fas fa-question group-hover:animate-pulse"></i>
+      </button>
+
+      <AzureCloudK8sHelpModal
+        isOpen={isHelpModalOpen}
+        onClose={() => setIsHelpModalOpen(false)}
+      />
+    </main>
   );
 };
 
