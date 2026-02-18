@@ -156,23 +156,54 @@ public class PrometheusService {
     // ============================================================================================
 
     public List<Map<String, String>> getNodeInfo(String prometheusUrl, String clusterName) {
+        // Filter by job="kube-state-metrics" to avoid duplicates from opencost
         String query = String.format(
-                "last_over_time(xamops_eks_kube_node_info{cluster_name=\"%s\"}[24h])",
+                "last_over_time(xamops_eks_kube_node_info{cluster_name=\"%s\", job=\"kube-state-metrics\"}[24h])",
                 clusterName);
         List<Map<String, String>> nodes = fetchMetricLabels(
                 prometheusUrl, query,
-                Arrays.asList("node", "internal_ip", "os_image", "kubelet_version", "provider_id"));
+                Arrays.asList("node", "internal_ip", "os_image", "kubelet_version", "provider_id", "kernel_version", "container_runtime_version"));
 
-        // Fallback: try without cluster filter
+        // Fallback 1: try without job filter
+        if (nodes.isEmpty()) {
+            logger.warn("No nodes found with job filter, trying without job filter");
+            query = String.format(
+                    "last_over_time(xamops_eks_kube_node_info{cluster_name=\"%s\"}[24h])",
+                    clusterName);
+            nodes = fetchMetricLabels(prometheusUrl, query,
+                    Arrays.asList("node", "internal_ip", "os_image", "kubelet_version", "provider_id", "kernel_version", "container_runtime_version"));
+
+            // Deduplicate by node name
+            nodes = deduplicateByKey(nodes, "node");
+        }
+
+        // Fallback 2: try without cluster filter
         if (nodes.isEmpty()) {
             logger.warn("No nodes found with cluster_name filter, trying standard kube_node_info");
             query = "kube_node_info";
             nodes = fetchMetricLabels(prometheusUrl, query,
-                    Arrays.asList("node", "internal_ip", "os_image", "kubelet_version", "provider_id"));
+                    Arrays.asList("node", "internal_ip", "os_image", "kubelet_version", "provider_id", "kernel_version", "container_runtime_version"));
+
+            // Deduplicate by node name
+            nodes = deduplicateByKey(nodes, "node");
         }
 
-        logger.info("Found {} nodes for cluster {}", nodes.size(), clusterName);
+        logger.info("Found {} unique nodes for cluster {}", nodes.size(), clusterName);
         return nodes;
+    }
+
+    /**
+     * Deduplicate a list of maps by a specific key
+     */
+    private List<Map<String, String>> deduplicateByKey(List<Map<String, String>> list, String key) {
+        Map<String, Map<String, String>> uniqueMap = new LinkedHashMap<>();
+        for (Map<String, String> item : list) {
+            String keyValue = item.get(key);
+            if (keyValue != null && !uniqueMap.containsKey(keyValue)) {
+                uniqueMap.put(keyValue, item);
+            }
+        }
+        return new ArrayList<>(uniqueMap.values());
     }
 
     public Map<String, Map<String, Double>> getNodeCapacity(String prometheusUrl, String clusterName) {
@@ -2241,7 +2272,7 @@ public class PrometheusService {
      * Get container running status
      * Filter by job="kube-state-metrics" to avoid duplicates from opencost
      */
-    private Map<String, Boolean> getContainerRunningStatus(String prometheusUrl, String clusterName) {
+    public Map<String, Boolean> getContainerRunningStatus(String prometheusUrl, String clusterName) {
         // First try with job filter for deduplication
         String query = String.format(
                 "xamops_eks_kube_pod_container_status_running{cluster_name=\"%s\", job=\"kube-state-metrics\"}",
