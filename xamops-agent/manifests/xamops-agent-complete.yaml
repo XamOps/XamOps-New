@@ -1,0 +1,490 @@
+# =============================================================================
+# XamOps Agent - Complete Kubernetes Deployment
+# =============================================================================
+# This agent collects data from:
+# - Trivy (VulnerabilityReports)
+# - Kubescape (ConfigurationScanSummaries)
+# - OpenCost (Allocation API)
+# - Karpenter (NodePools, NodeClaims, EC2NodeClasses)
+#
+# Works for: Public clusters, Private clusters, Any size (small to large)
+# =============================================================================
+
+---
+# Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: xamops-system
+  labels:
+    app.kubernetes.io/name: xamops-agent
+    app.kubernetes.io/component: monitoring
+
+---
+# ServiceAccount
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: xamops-agent-sa
+  namespace: xamops-system
+  labels:
+    app.kubernetes.io/name: xamops-agent
+
+---
+# =============================================================================
+# ClusterRole - READ-ONLY permissions for all required resources
+# =============================================================================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: xamops-agent-role
+  labels:
+    app.kubernetes.io/name: xamops-agent
+rules:
+  # -------------------------------------------------------------------------
+  # Core Kubernetes Resources (for general cluster info and pod health)
+  # -------------------------------------------------------------------------
+  - apiGroups: [""]
+    resources:
+      - pods
+      - nodes
+      - namespaces
+      - services
+      - endpoints
+      - persistentvolumes
+      - persistentvolumeclaims
+      - resourcequotas
+      - limitranges
+      - serviceaccounts
+      - events
+      - configmaps
+    verbs: [get, list, watch]
+
+  # -------------------------------------------------------------------------
+  # Apps Resources (deployments, daemonsets, etc.)
+  # -------------------------------------------------------------------------
+  - apiGroups: [apps]
+    resources:
+      - deployments
+      - daemonsets
+      - statefulsets
+      - replicasets
+    verbs: [get, list, watch]
+
+  # -------------------------------------------------------------------------
+  # Batch Resources (jobs, cronjobs)
+  # -------------------------------------------------------------------------
+  - apiGroups: [batch]
+    resources:
+      - jobs
+      - cronjobs
+    verbs: [get, list, watch]
+
+  # -------------------------------------------------------------------------
+  # Networking Resources
+  # -------------------------------------------------------------------------
+  - apiGroups: [networking.k8s.io]
+    resources:
+      - ingresses
+      - networkpolicies
+    verbs: [get, list, watch]
+
+  # -------------------------------------------------------------------------
+  # TRIVY - Vulnerability Scanning (aquasecurity.github.io)
+  # -------------------------------------------------------------------------
+  - apiGroups: [aquasecurity.github.io]
+    resources:
+      - vulnerabilityreports
+      - configauditreports
+      - exposedsecretreports
+      - rbacassessmentreports
+      - infraassessmentreports
+      - clustercompliancereports
+      - clusterconfigauditreports
+      - clusterinfraassessmentreports
+      - clusterrbacassessmentreports
+    verbs: [get, list, watch]
+
+  # -------------------------------------------------------------------------
+  # KUBESCAPE - Compliance Scanning (spdx.softwarecomposition.kubescape.io)
+  # -------------------------------------------------------------------------
+  - apiGroups: [spdx.softwarecomposition.kubescape.io]
+    resources:
+      - configurationscansummaries
+      - vulnerabilitymanifestsummaries
+      - workloadconfigurationscans
+      - vulnerabilitymanifests
+      - applicationprofiles
+      - applicationactivities
+      - networkneighborhoods
+      - generatednetworkpolicies
+      - knownservers
+      - openvulnerabilityexchangecontainers
+      - sbomspdxv2p3filtereds
+      - sbomspdxv2p3s
+      - sbomsynopsess
+      - seccompprofiles
+      - workloadconfigurationscansummaries
+    verbs: [get, list, watch]
+
+  # Kubescape.io API group
+  - apiGroups: [kubescape.io]
+    resources:
+      - workloadconfigurationscans
+      - workloadconfigurationscansummaries
+    verbs: [get, list, watch]
+
+  # -------------------------------------------------------------------------
+  # KARPENTER - Node Autoscaling (karpenter.sh, karpenter.k8s.aws)
+  # -------------------------------------------------------------------------
+  - apiGroups: [karpenter.sh]
+    resources:
+      - nodepools
+      - nodeclaims
+    verbs: [get, list, watch]
+
+  - apiGroups: [karpenter.k8s.aws]
+    resources:
+      - ec2nodeclasses
+    verbs: [get, list, watch]
+
+  # Legacy Karpenter resources (for older versions)
+  - apiGroups: [karpenter.sh]
+    resources:
+      - provisioners
+      - machines
+    verbs: [get, list, watch]
+
+  # -------------------------------------------------------------------------
+  # CRD Discovery (to check which tools are installed)
+  # -------------------------------------------------------------------------
+  - apiGroups: [apiextensions.k8s.io]
+    resources:
+      - customresourcedefinitions
+    verbs: [get, list]
+
+  # -------------------------------------------------------------------------
+  # Metrics API (for real-time resource usage)
+  # -------------------------------------------------------------------------
+  - apiGroups: [metrics.k8s.io]
+    resources:
+      - nodes
+      - pods
+    verbs: [get, list]
+
+  # -------------------------------------------------------------------------
+  # Storage Classes (for cost allocation)
+  # -------------------------------------------------------------------------
+  - apiGroups: [storage.k8s.io]
+    resources:
+      - storageclasses
+    verbs: [get, list, watch]
+
+  # -------------------------------------------------------------------------
+  # Autoscaling (HPA/VPA)
+  # -------------------------------------------------------------------------
+  - apiGroups: [autoscaling]
+    resources:
+      - horizontalpodautoscalers
+    verbs: [get, list, watch]
+
+  - apiGroups: [autoscaling.k8s.io]
+    resources:
+      - verticalpodautoscalers
+    verbs: [get, list, watch]
+
+---
+# ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: xamops-agent-binding
+  labels:
+    app.kubernetes.io/name: xamops-agent
+subjects:
+  - kind: ServiceAccount
+    name: xamops-agent-sa
+    namespace: xamops-system
+roleRef:
+  kind: ClusterRole
+  name: xamops-agent-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# =============================================================================
+# ConfigMap - Agent Configuration
+# =============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: xamops-agent-config
+  namespace: xamops-system
+  labels:
+    app.kubernetes.io/name: xamops-agent
+data:
+  # Collection intervals (in seconds)
+  COLLECT_INTERVAL: "300"        # How often to collect data (5 minutes)
+  PUSH_INTERVAL: "300"           # How often to push to XamOps server
+  HEARTBEAT_INTERVAL: "60"       # How often to send heartbeat (1 minute)
+
+  # Collectors to enable (true/false)
+  COLLECTOR_TRIVY: "true"
+  COLLECTOR_KUBESCAPE: "true"
+  COLLECTOR_OPENCOST: "true"
+  COLLECTOR_KARPENTER: "true"
+  COLLECTOR_METRICS: "true"
+
+  # OpenCost configuration (internal cluster service)
+  OPENCOST_SERVICE_URL: "http://opencost.opencost.svc.cluster.local:9003"
+  OPENCOST_ALLOCATION_WINDOW: "1d"
+
+  # Batch settings (for large clusters)
+  BATCH_SIZE: "100"              # Max items per batch
+  MAX_RETRIES: "3"               # Retry attempts on failure
+  RETRY_DELAY: "5"               # Seconds between retries
+
+  # Logging
+  LOG_LEVEL: "info"              # debug, info, warn, error
+
+---
+# =============================================================================
+# Secret - Agent Configuration
+# =============================================================================
+# This secret contains the configuration for the XamOps agent.
+# The API key is the SAME for ALL clusters across ALL environments.
+# The agent identifies itself using CLUSTER_NAME + CLOUD_ACCOUNT_ID in the payload.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: xamops-agent-credentials
+  namespace: xamops-system
+  labels:
+    app.kubernetes.io/name: xamops-agent
+type: Opaque
+stringData:
+  # Global API key - SAME for ALL clusters (DO NOT CHANGE)
+  XAMOPS_API_KEY: "xamops_SecureAgentKey2024XamOps"
+
+  # XamOps server URL (change based on environment)
+  XAMOPS_SERVER_URL: "https://live.xamops.com"
+
+  # ============================================
+  # CHANGE THESE VALUES FOR EACH CLUSTER:
+  # ============================================
+  CLUSTER_NAME: "your-cluster-name"
+  CLOUD_ACCOUNT_ID: "123456789"
+
+---
+# =============================================================================
+# Deployment - XamOps Agent
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: xamops-agent
+  namespace: xamops-system
+  labels:
+    app.kubernetes.io/name: xamops-agent
+    app.kubernetes.io/component: collector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: xamops-agent
+  template:
+    metadata:
+      labels:
+        app: xamops-agent
+        app.kubernetes.io/name: xamops-agent
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: xamops-agent-sa
+
+      # Security context
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+
+      # Anti-affinity to spread across nodes (for HA in multi-replica setup)
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: xamops-agent
+                topologyKey: kubernetes.io/hostname
+
+      containers:
+        - name: agent
+          # Use your agent image
+          image: xamops/agent:latest
+          imagePullPolicy: Always
+
+          # Environment variables from ConfigMap and Secret
+          envFrom:
+            - configMapRef:
+                name: xamops-agent-config
+            - secretRef:
+                name: xamops-agent-credentials
+
+          # Resource limits - IMPORTANT for large clusters
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+
+          # Health checks
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          # Ports
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+
+          # Security context for container
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+
+          # Volume mounts
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: cache
+              mountPath: /app/cache
+
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: cache
+          emptyDir:
+            sizeLimit: 100Mi
+
+      # Tolerations (optional - for running on specific nodes)
+      tolerations:
+        - key: "node-role.kubernetes.io/control-plane"
+          operator: "Exists"
+          effect: "NoSchedule"
+
+      # Priority class (optional - for critical workloads)
+      # priorityClassName: system-cluster-critical
+
+---
+# =============================================================================
+# Service - For health checks and metrics
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: xamops-agent
+  namespace: xamops-system
+  labels:
+    app.kubernetes.io/name: xamops-agent
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+      name: http
+  selector:
+    app: xamops-agent
+
+---
+# =============================================================================
+# NetworkPolicy - Restrict egress to only required destinations
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: xamops-agent-network-policy
+  namespace: xamops-system
+spec:
+  podSelector:
+    matchLabels:
+      app: xamops-agent
+  policyTypes:
+    - Egress
+    - Ingress
+  ingress:
+    # Allow health check probes
+    - ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    # Allow DNS
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+    # Allow Kubernetes API
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 443
+    # Allow OpenCost service
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: opencost
+      ports:
+        - protocol: TCP
+          port: 9003
+    # Allow HTTPS to XamOps server (external)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+
+---
+# =============================================================================
+# PodDisruptionBudget - For high availability
+# =============================================================================
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: xamops-agent-pdb
+  namespace: xamops-system
+spec:
+  minAvailable: 0
+  selector:
+    matchLabels:
+      app: xamops-agent

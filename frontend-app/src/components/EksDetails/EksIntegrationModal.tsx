@@ -272,7 +272,7 @@ const OverviewTab: React.FC = () => (
           </div>
           <h5 className="font-semibold text-gray-800">Part 3</h5>
         </div>
-        <p className="text-sm text-gray-600">Security Tools - Trivy + Kubescape + Kubeconfig Generation</p>
+        <p className="text-sm text-gray-600">Security Tools - Trivy + Kubescape + XamOps Agent / Kubeconfig</p>
       </div>
       <div className="bg-gradient-to-br from-orange-50 to-amber-50 border border-orange-200 rounded-lg p-4">
         <div className="flex items-center gap-3 mb-2">
@@ -1199,7 +1199,381 @@ kubectl get configurationscansummaries -A
 kubectl get vulnerabilitymanifestsummaries -A`} />
     </CollapsibleSection>
 
-    <CollapsibleSection title="Step 3.5: Generate Kubeconfig for Application" icon="fas fa-key" iconColor="text-yellow-500">
+    <CollapsibleSection title="Step 3.4.1: Test Falco Alerts (Demo)" icon="fas fa-exclamation-triangle" iconColor="text-red-500">
+      <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
+        <p className="text-sm text-red-800">
+          <i className="fas fa-flask mr-2"></i>
+          <strong>Demo Purpose Only:</strong> These commands trigger Falco security alerts to verify detection is working.
+        </p>
+      </div>
+
+      <h5 className="font-semibold text-gray-700 mb-2">Test 1: Shell Spawned in Container (Most Common)</h5>
+      <CodeBlock
+        title="Trigger shell detection alert"
+        code={`# Create a test pod and exec into it
+kubectl run falco-test --image=busybox --restart=Never -- sleep 3600
+
+# Wait for pod to be ready
+kubectl wait --for=condition=Ready pod/falco-test --timeout=60s
+
+# Execute shell - this triggers "Terminal shell in container" alert
+kubectl exec -it falco-test -- /bin/sh -c "whoami && ls -la /etc"
+
+# Clean up
+kubectl delete pod falco-test --force --grace-period=0`}
+      />
+
+      <h5 className="font-semibold text-gray-700 mt-4 mb-2">Test 2: Read Sensitive Files</h5>
+      <CodeBlock
+        title="Trigger sensitive file read alert"
+        code={`kubectl run falco-test2 --image=busybox --restart=Never -- sh -c "cat /etc/shadow; sleep 10"
+
+# Wait and check logs
+sleep 15
+kubectl delete pod falco-test2 --force --grace-period=0`}
+      />
+
+      <h5 className="font-semibold text-gray-700 mt-4 mb-2">Test 3: Network Tools in Container</h5>
+      <CodeBlock
+        title="Trigger network tool alert"
+        code={`kubectl run falco-test3 --image=nicolaka/netshoot --restart=Never -- sh -c "nmap --version; sleep 10"
+
+# Clean up
+sleep 15
+kubectl delete pod falco-test3 --force --grace-period=0`}
+      />
+
+      <h5 className="font-semibold text-gray-700 mt-4 mb-2">Test 4: Privileged Container (Warning)</h5>
+      <CodeBlock
+        title="Trigger privileged container alert"
+        code={`kubectl run falco-priv-test --image=busybox --restart=Never --overrides='{
+  "spec": {
+    "containers": [{
+      "name": "falco-priv-test",
+      "image": "busybox",
+      "command": ["sleep", "30"],
+      "securityContext": {"privileged": true}
+    }]
+  }
+}'
+
+# Clean up after 30 seconds
+sleep 35
+kubectl delete pod falco-priv-test --force --grace-period=0`}
+      />
+
+      <h5 className="font-semibold text-gray-700 mt-4 mb-2">Verify Falco Detected the Events</h5>
+      <CodeBlock
+        title="Check Falco logs and metrics"
+        code={`# Check Falco detected the events
+kubectl logs -n falco -l app.kubernetes.io/name=falco --tail=20
+
+# Check Falcosidekick received events
+kubectl logs -n falco -l app.kubernetes.io/name=falcosidekick --tail=20
+
+# Check metrics endpoint (from within cluster)
+kubectl run curl-test --image=curlimages/curl --restart=Never --rm -it -- \\
+  curl -s http://falco-falcosidekick.falco.svc.cluster.local:2801/metrics | grep falco_events
+
+# Verify in Prometheus (on monitoring instance)
+curl -s 'http://localhost:9090/api/v1/query?query=falcosecurity_falcosidekick_falco_events_total' | jq`}
+      />
+
+      <div className="bg-green-50 border border-green-200 rounded-lg p-3 mt-4">
+        <p className="text-sm text-green-800">
+          <i className="fas fa-check-circle mr-2"></i>
+          <strong>Expected Result:</strong> Falco should detect these events within seconds. Check the Falco tab in XamOps dashboard after running tests.
+        </p>
+      </div>
+    </CollapsibleSection>
+
+    <CollapsibleSection title="Step 3.5: Install XamOps Agent (Recommended for Private Clusters)" icon="fas fa-robot" iconColor="text-indigo-500">
+      <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 mb-4">
+        <p className="text-sm text-indigo-800">
+          <i className="fas fa-info-circle mr-2"></i>
+          <strong>XamOps Agent</strong> is the recommended approach for private clusters. It pushes data outbound, so no inbound cluster access is needed. The agent collects Trivy, Kubescape, OpenCost, Karpenter, and cluster metadata.
+        </p>
+      </div>
+
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+        <h5 className="font-semibold text-blue-800 mb-2 flex items-center gap-2">
+          <i className="fas fa-docker"></i>
+          Docker Image (Auto-pulled by Kubernetes)
+        </h5>
+        <p className="text-sm text-blue-700 mb-2">
+          Image: <code className="bg-blue-100 px-2 py-1 rounded">docker.io/xamops/agent:latest</code>
+        </p>
+        <p className="text-xs text-blue-600">
+          <i className="fas fa-info-circle mr-1"></i>
+          <strong>Note:</strong> You do NOT need to run <code>docker pull</code> manually. When you run <code>kubectl apply</code>, Kubernetes automatically pulls the image from Docker Hub.
+        </p>
+      </div>
+
+      <h5 className="font-semibold text-gray-700 mb-2">YAML-based Installation</h5>
+      <VariableNote variables={['<CLUSTER_NAME>', '<CLOUD_ACCOUNT_ID>']} />
+
+      <p className="text-sm text-gray-600 mb-2">Step 1: Create namespace and RBAC</p>
+      <CodeBlock
+        title="xamops-agent-rbac.yaml"
+        code={`kubectl apply -f - << 'EOF'
+# Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: xamops-system
+  labels:
+    app.kubernetes.io/name: xamops-agent
+---
+# ServiceAccount
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: xamops-agent-sa
+  namespace: xamops-system
+---
+# ClusterRole - READ-ONLY permissions
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: xamops-agent-role
+rules:
+  # Core K8s resources
+  - apiGroups: [""]
+    resources: [pods, nodes, namespaces, services, events]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments, daemonsets, statefulsets, replicasets]
+    verbs: [get, list, watch]
+  - apiGroups: [batch]
+    resources: [jobs, cronjobs]
+    verbs: [get, list, watch]
+  # Trivy
+  - apiGroups: [aquasecurity.github.io]
+    resources: [vulnerabilityreports, configauditreports, exposedsecretreports]
+    verbs: [get, list, watch]
+  # Kubescape
+  - apiGroups: [spdx.softwarecomposition.kubescape.io]
+    resources: [configurationscansummaries, vulnerabilitymanifestsummaries, workloadconfigurationscans]
+    verbs: [get, list, watch]
+  - apiGroups: [kubescape.io]
+    resources: [workloadconfigurationscans, workloadconfigurationscansummaries]
+    verbs: [get, list, watch]
+  # Karpenter
+  - apiGroups: [karpenter.sh]
+    resources: [nodepools, nodeclaims]
+    verbs: [get, list, watch]
+  - apiGroups: [karpenter.k8s.aws]
+    resources: [ec2nodeclasses]
+    verbs: [get, list, watch]
+  # CRD Discovery
+  - apiGroups: [apiextensions.k8s.io]
+    resources: [customresourcedefinitions]
+    verbs: [get, list]
+  # Metrics
+  - apiGroups: [metrics.k8s.io]
+    resources: [nodes, pods]
+    verbs: [get, list]
+---
+# ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: xamops-agent-binding
+subjects:
+  - kind: ServiceAccount
+    name: xamops-agent-sa
+    namespace: xamops-system
+roleRef:
+  kind: ClusterRole
+  name: xamops-agent-role
+  apiGroup: rbac.authorization.k8s.io
+EOF`}
+      />
+
+      <p className="text-sm text-gray-600 mt-4 mb-2">Step 2: Create ConfigMap and Secret</p>
+      <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-3">
+        <p className="text-sm text-amber-800">
+          <i className="fas fa-edit mr-2"></i>
+          <strong>Replace these 2 values:</strong>
+        </p>
+        <ul className="text-sm text-amber-700 mt-1 ml-4 list-disc">
+          <li><code>&lt;CLUSTER_NAME&gt;</code> → Your EKS cluster name</li>
+          <li><code>&lt;CLOUD_ACCOUNT_ID&gt;</code> → Your AWS account ID (12 digits)</li>
+        </ul>
+      </div>
+      <CodeBlock
+        title="xamops-agent-config.yaml"
+        code={`kubectl apply -f - << 'EOF'
+# ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: xamops-agent-config
+  namespace: xamops-system
+data:
+  COLLECT_INTERVAL: "300"
+  PUSH_INTERVAL: "300"
+  HEARTBEAT_INTERVAL: "60"
+  COLLECTOR_TRIVY: "true"
+  COLLECTOR_KUBESCAPE: "true"
+  COLLECTOR_OPENCOST: "true"
+  COLLECTOR_KARPENTER: "true"
+  COLLECTOR_METRICS: "true"
+  OPENCOST_SERVICE_URL: "http://opencost.opencost.svc.cluster.local:9003"
+  LOG_LEVEL: "info"
+---
+# Secret - CHANGE CLUSTER_NAME and CLOUD_ACCOUNT_ID below
+apiVersion: v1
+kind: Secret
+metadata:
+  name: xamops-agent-credentials
+  namespace: xamops-system
+type: Opaque
+stringData:
+  # DO NOT CHANGE this API key (pre-configured for all clusters):
+  XAMOPS_API_KEY: "xamops_SecureAgentKey2024XamOps"
+
+  # CHANGE these values to match your environment and cluster:
+  XAMOPS_SERVER_URL: "<XAMOPS_SERVER_URL>"   # See environment URLs below
+  CLUSTER_NAME: "<CLUSTER_NAME>"
+  CLOUD_ACCOUNT_ID: "<CLOUD_ACCOUNT_ID>"
+EOF`}
+      />
+
+      <p className="text-sm text-gray-600 mt-4 mb-2">Step 3: Deploy the Agent</p>
+      <CodeBlock
+        title="xamops-agent-deployment.yaml"
+        code={`kubectl apply -f - << 'EOF'
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: xamops-agent
+  namespace: xamops-system
+  labels:
+    app: xamops-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: xamops-agent
+  template:
+    metadata:
+      labels:
+        app: xamops-agent
+    spec:
+      serviceAccountName: xamops-agent-sa
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: agent
+          image: xamops/agent:latest
+          imagePullPolicy: Always
+          envFrom:
+            - configMapRef:
+                name: xamops-agent-config
+            - secretRef:
+                name: xamops-agent-credentials
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          ports:
+            - containerPort: 8080
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: xamops-agent
+  namespace: xamops-system
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: 8080
+  selector:
+    app: xamops-agent
+EOF`}
+      />
+
+      <p className="text-sm text-gray-600 mt-4 mb-2">Step 4: Verify installation</p>
+      <CodeBlock code={`# Check pod is running
+kubectl get pods -n xamops-system
+
+# Check logs for successful data push
+kubectl logs -n xamops-system -l app=xamops-agent --tail=50
+
+# Look for "Data pushed successfully" messages
+kubectl logs -n xamops-system -l app=xamops-agent | grep -i "push\\|success\\|sent"`} />
+
+      <div className="bg-green-50 border border-green-200 rounded-lg p-4 mt-4">
+        <h5 className="font-semibold text-green-800 mb-2">What the Agent Collects:</h5>
+        <ul className="text-sm text-green-700 space-y-1">
+          <li><i className="fas fa-bug mr-2"></i><strong>Trivy:</strong> VulnerabilityReports (security vulnerabilities)</li>
+          <li><i className="fas fa-clipboard-check mr-2"></i><strong>Kubescape:</strong> ConfigurationScanSummaries (compliance)</li>
+          <li><i className="fas fa-coins mr-2"></i><strong>OpenCost:</strong> Allocation data (cost per namespace)</li>
+          <li><i className="fas fa-expand-arrows-alt mr-2"></i><strong>Karpenter:</strong> NodePools, NodeClaims, EC2NodeClasses</li>
+          <li><i className="fas fa-server mr-2"></i><strong>Metadata:</strong> Nodes, namespaces, pods summary</li>
+        </ul>
+      </div>
+
+      <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mt-4">
+        <h5 className="font-semibold text-gray-800 mb-2">How It Works:</h5>
+        <div className="text-sm text-gray-700 space-y-2">
+          <p>1. Agent runs in your cluster as a Deployment (1 replica)</p>
+          <p>2. Every 5 minutes, it reads Trivy CRDs, Kubescape CRDs, and calls OpenCost API</p>
+          <p>3. Agent POSTs data to <code className="bg-gray-100 px-1 rounded">&lt;XAMOPS_SERVER_URL&gt;/api/v1/agent/ingest</code></p>
+          <p>4. XamOps backend identifies your cluster using CLUSTER_NAME + CLOUD_ACCOUNT_ID</p>
+          <p>5. Data appears in XamOps Dashboard (Security, Compliance, Cost tabs)</p>
+        </div>
+      </div>
+
+      <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4 mt-4">
+        <h5 className="font-semibold text-indigo-800 mb-2">Environment URLs:</h5>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left border-b border-indigo-200">
+              <th className="py-1">Environment</th>
+              <th className="py-1">XAMOPS_SERVER_URL</th>
+            </tr>
+          </thead>
+          <tbody className="text-indigo-700">
+            <tr><td className="py-1">Production</td><td><code className="bg-indigo-100 px-1 rounded">https://live.xamops.com</code></td></tr>
+            <tr><td className="py-1">UAT</td><td><code className="bg-indigo-100 px-1 rounded">https://uat.xamops.com</code></td></tr>
+            <tr><td className="py-1">Prep</td><td><code className="bg-indigo-100 px-1 rounded">https://prep.xamops.com</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mt-4">
+        <h5 className="font-semibold text-amber-800 mb-2">Variables Summary:</h5>
+        <div className="text-sm text-amber-700 space-y-2">
+          <p><strong>Client must change (3 values):</strong></p>
+          <p className="ml-4"><code className="bg-amber-100 px-1 rounded">XAMOPS_SERVER_URL</code> → Select from environment table above</p>
+          <p className="ml-4"><code className="bg-amber-100 px-1 rounded">CLUSTER_NAME</code> → Your EKS cluster name (e.g., my-production-cluster)</p>
+          <p className="ml-4"><code className="bg-amber-100 px-1 rounded">CLOUD_ACCOUNT_ID</code> → Your AWS account ID (e.g., 123456789012)</p>
+          <p className="mt-2"><strong>Pre-configured (do NOT change):</strong></p>
+          <p className="ml-4"><code className="bg-amber-100 px-1 rounded">XAMOPS_API_KEY</code> → xamops_SecureAgentKey2024XamOps (same for all clusters)</p>
+        </div>
+      </div>
+    </CollapsibleSection>
+
+    <CollapsibleSection title="Step 3.6: Generate Kubeconfig (Alternative for Public Clusters)" icon="fas fa-key" iconColor="text-yellow-500">
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
+        <p className="text-sm text-blue-800">
+          <i className="fas fa-info-circle mr-2"></i>
+          Use this method <strong>ONLY if</strong> your cluster API is publicly accessible. For private clusters, use the XamOps Agent (Step 3.5) instead.
+        </p>
+      </div>
       <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
         <p className="text-sm text-red-800">
           <i className="fas fa-exclamation-triangle mr-2"></i>
@@ -1297,7 +1671,23 @@ kubectl get pods -n falco
 kubectl get pods -n opencost
 kubectl get pods -n trivy-system
 kubectl get pods -n kubescape
-kubectl get pods -l app=cost-exporter`} />
+kubectl get pods -l app=cost-exporter
+kubectl get pods -n xamops-system  # XamOps Agent (if installed)`} />
+    </CollapsibleSection>
+
+    <CollapsibleSection title="Test 1.5: Verify XamOps Agent (if using agent mode)" icon="fas fa-robot" iconColor="text-indigo-500">
+      <CodeBlock code={`# Check XamOps Agent pods
+kubectl get pods -n xamops-system
+
+# Check agent logs
+kubectl logs -n xamops-system -l app=xamops-agent --tail=50
+
+# Verify agent is pushing data (check for successful push messages)
+kubectl logs -n xamops-system -l app=xamops-agent | grep -i "push\\|success\\|sent"
+
+# Check agent status in XamOps Dashboard
+# Go to: EKS Details -> Integration Status
+# Agent should show as "active" with recent check-in time`} />
     </CollapsibleSection>
 
     <CollapsibleSection title="Test 2: Verify Metrics in Prometheus" icon="fas fa-chart-line" iconColor="text-orange-500">
@@ -1368,7 +1758,9 @@ kubectl get vulnerabilitymanifestsummaries -A | head -10`} />
         Completion Checklist
       </h4>
       <p className="text-sm text-green-700 mb-4">Before handing off to application team:</p>
-      <ul className="space-y-2 text-sm text-green-700">
+
+      <h5 className="font-semibold text-green-800 mb-2">Core Monitoring:</h5>
+      <ul className="space-y-2 text-sm text-green-700 mb-4">
         <li className="flex items-center gap-2"><input type="checkbox" className="rounded" /> All pods in Running state</li>
         <li className="flex items-center gap-2"><input type="checkbox" className="rounded" /> container_cpu_usage_seconds_total returns &gt; 0 in Prometheus</li>
         <li className="flex items-center gap-2"><input type="checkbox" className="rounded" /> container_memory_working_set_bytes returns &gt; 0 in Prometheus</li>
@@ -1376,9 +1768,21 @@ kubectl get vulnerabilitymanifestsummaries -A | head -10`} />
         <li className="flex items-center gap-2"><input type="checkbox" className="rounded" /> OpenCost API returns cost data</li>
         <li className="flex items-center gap-2"><input type="checkbox" className="rounded" /> Trivy vulnerability reports exist</li>
         <li className="flex items-center gap-2"><input type="checkbox" className="rounded" /> Kubescape scan summaries exist</li>
-        <li className="flex items-center gap-2"><input type="checkbox" className="rounded" /> xamops-kubeconfig.yaml file generated</li>
         <li className="flex items-center gap-2"><input type="checkbox" className="rounded" /> Cost exporter showing daily costs</li>
       </ul>
+
+      <h5 className="font-semibold text-green-800 mb-2">Data Source (Choose ONE):</h5>
+      <ul className="space-y-2 text-sm text-green-700 mb-4">
+        <li className="flex items-center gap-2"><input type="checkbox" className="rounded" /> <strong>Option A (Agent):</strong> XamOps Agent running and pushing data (check status in XamOps Dashboard)</li>
+        <li className="flex items-center gap-2"><input type="checkbox" className="rounded" /> <strong>Option B (Kubeconfig):</strong> xamops-kubeconfig.yaml file generated and uploaded</li>
+      </ul>
+
+      <div className="bg-indigo-100 border border-indigo-300 rounded p-3 mt-3">
+        <p className="text-sm text-indigo-800">
+          <i className="fas fa-lightbulb mr-2"></i>
+          <strong>Recommendation:</strong> Use XamOps Agent (Option A) for private clusters or hybrid mode for best coverage.
+        </p>
+      </div>
     </div>
 
     <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
@@ -1398,6 +1802,27 @@ kubectl get vulnerabilitymanifestsummaries -A | head -10`} />
         <p>
           <strong>Kubernetes API (using kubeconfig):</strong><br />
           Use the generated <code className="bg-blue-100 px-2 py-1 rounded">xamops-kubeconfig.yaml</code> file
+        </p>
+      </div>
+
+      <h4 className="font-bold text-blue-800 mt-6 mb-4 flex items-center gap-2">
+        <i className="fas fa-robot"></i>
+        XamOps Agent Endpoints (If Using Agent Mode)
+      </h4>
+      <div className="space-y-3 text-sm text-blue-700">
+        <p>
+          <strong>Agent Ingest API:</strong><br />
+          <code className="bg-blue-100 px-2 py-1 rounded">POST &lt;XAMOPS_SERVER_URL&gt;/api/v1/agent/ingest</code><br />
+          <span className="text-xs text-gray-500">Authorization: Bearer &lt;API_KEY&gt;</span>
+        </p>
+        <p>
+          <strong>Agent Heartbeat:</strong><br />
+          <code className="bg-blue-100 px-2 py-1 rounded">POST &lt;XAMOPS_SERVER_URL&gt;/api/v1/agent/heartbeat</code><br />
+          <span className="text-xs text-gray-500">Authorization: Bearer &lt;API_KEY&gt;</span>
+        </p>
+        <p>
+          <strong>Agent Status Check:</strong><br />
+          <code className="bg-blue-100 px-2 py-1 rounded">GET &lt;XAMOPS_SERVER_URL&gt;/api/v1/agent/status?clusterName=&lt;NAME&gt;&amp;cloudAccountId=&lt;ID&gt;</code>
         </p>
       </div>
     </div>
@@ -1437,6 +1862,33 @@ const Part5Tab: React.FC = () => (
           <li>Kubescape helm install: <span className="text-amber-600 font-medium">&lt;CLUSTER_NAME&gt;</span></li>
           <li>EBS CSI Driver: <span className="text-amber-600 font-medium">&lt;CLUSTER_NAME&gt;</span>, <span className="text-amber-600 font-medium">&lt;REGION&gt;</span></li>
         </ul>
+
+        <h5 className="font-semibold text-gray-700 mt-6 mb-3 flex items-center gap-2">
+          <i className="fas fa-robot text-indigo-500"></i>
+          XamOps Agent (if using agent mode)
+        </h5>
+        <ul className="list-disc list-inside space-y-2 text-gray-700 ml-4">
+          <li><code className="bg-gray-100 px-1 rounded">xamops-agent-credentials Secret</code>: <span className="text-amber-600 font-medium">&lt;XAMOPS_SERVER_URL&gt;</span>, <span className="text-amber-600 font-medium">&lt;CLUSTER_NAME&gt;</span>, <span className="text-amber-600 font-medium">&lt;CLOUD_ACCOUNT_ID&gt;</span></li>
+        </ul>
+
+        <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 mt-4">
+          <p className="text-sm text-indigo-800">
+            <i className="fas fa-info-circle mr-2"></i>
+            <strong>Pre-configured (do NOT change):</strong> XAMOPS_API_KEY is the same for all clusters.
+          </p>
+        </div>
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-2">
+          <p className="text-sm text-blue-800">
+            <i className="fas fa-globe mr-2"></i>
+            <strong>Environment URLs:</strong> Production: <code>https://live.xamops.com</code> | UAT: <code>https://uat.xamops.com</code> | Prep: <code>https://prep.xamops.com</code>
+          </p>
+        </div>
+        <div className="bg-green-50 border border-green-200 rounded-lg p-3 mt-2">
+          <p className="text-sm text-green-800">
+            <i className="fas fa-check-circle mr-2"></i>
+            <strong>3 values to change:</strong> XAMOPS_SERVER_URL (environment), CLUSTER_NAME (your EKS cluster name), CLOUD_ACCOUNT_ID (12-digit AWS account ID)
+          </p>
+        </div>
       </div>
     </div>
 
@@ -1449,8 +1901,12 @@ const Part5Tab: React.FC = () => (
         <li><strong>cAdvisor job in Prometheus strips xamops_eks_ prefix</strong> - Required for OpenCost CPU/memory</li>
         <li><strong>RBAC permissions for otel-collector-stats-reader</strong> - Required for container metrics</li>
         <li><strong>Cost metrics have double prefix xamops_eks_xamops_eks_</strong> - This is expected</li>
-        <li><strong>Wait 5 minutes after Trivy/Kubescape install</strong> before generating kubeconfig</li>
+        <li><strong>Wait 5 minutes after Trivy/Kubescape install</strong> before generating kubeconfig or installing agent</li>
         <li><strong>Use PRIVATE IP</strong> for monitoring instance in all cluster configs</li>
+        <li><strong>XamOps Agent</strong> is recommended for private clusters (no inbound access required)</li>
+        <li><strong>XamOps Agent uses global API key</strong> - Same key for all clusters, DO NOT change it</li>
+        <li><strong>Agent identifies cluster</strong> by CLUSTER_NAME + CLOUD_ACCOUNT_ID (these must be unique per cluster)</li>
+        <li><strong>Data sync</strong> happens every 5 minutes automatically via agent push</li>
       </ol>
     </div>
 
@@ -1488,6 +1944,60 @@ kubectl describe sa cost-exporter`} />
           <CodeBlock code={`kubectl get pods -n trivy-system
 kubectl get pods -n kubescape
 # Wait 5-10 minutes for initial scans`} />
+        </div>
+
+        <div>
+          <h5 className="font-semibold text-red-700">XamOps Agent not pushing data</h5>
+          <CodeBlock code={`# Check agent pod status
+kubectl get pods -n xamops-system
+kubectl describe pod -n xamops-system -l app=xamops-agent
+
+# Check agent logs for errors
+kubectl logs -n xamops-system -l app=xamops-agent --tail=100
+
+# Verify environment variables are set correctly
+kubectl exec -n xamops-system -l app=xamops-agent -- env | grep -E 'CLUSTER_NAME|CLOUD_ACCOUNT_ID|XAMOPS'
+
+# Test connectivity to XamOps server
+kubectl exec -n xamops-system -l app=xamops-agent -- wget -qO- --timeout=5 https://live.xamops.com/health || echo "Cannot reach server"
+
+# Check OpenCost is accessible (required for cost data)
+kubectl exec -n xamops-system -l app=xamops-agent -- wget -qO- --timeout=5 http://opencost.opencost.svc.cluster.local:9003/allocation/compute?window=1h || echo "OpenCost not accessible"`} />
+        </div>
+
+        <div>
+          <h5 className="font-semibold text-red-700">Falco not showing alerts</h5>
+          <CodeBlock code={`# Check Falco pods are running
+kubectl get pods -n falco
+
+# Check Falcosidekick is running
+kubectl get deployment -n falco falco-falcosidekick
+
+# Check Falco is detecting events (run a test)
+kubectl run falco-test --image=busybox --restart=Never -- sh -c "cat /etc/shadow"
+sleep 5
+kubectl logs -n falco -l app.kubernetes.io/name=falco --tail=20 | grep -i "shadow\\|sensitive"
+kubectl delete pod falco-test --force
+
+# Check Falcosidekick metrics endpoint
+kubectl port-forward -n falco svc/falco-falcosidekick 2801:2801 &
+curl -s http://localhost:2801/metrics | grep falco
+pkill -f 'port-forward.*falcosidekick'`} />
+        </div>
+
+        <div>
+          <h5 className="font-semibold text-red-700">Container metrics empty (Containers tab)</h5>
+          <CodeBlock code={`# Check cAdvisor metrics are being scraped
+curl -s 'http://localhost:9090/api/v1/query?query=container_cpu_usage_seconds_total' | jq '.data.result | length'
+
+# If 0, check OTel collector has cAdvisor job
+kubectl get configmap -n default otel-collector-opentelemetry-collector -o yaml | grep -A30 "kubernetes-cadvisor"
+
+# Check RBAC for node/stats access
+kubectl get clusterrolebinding otel-collector-stats-reader -o yaml
+
+# Verify OTel collector can access node metrics
+kubectl logs -l app.kubernetes.io/name=opentelemetry-collector --tail=50 | grep -i "cadvisor\\|error"`} />
         </div>
       </div>
     </div>
