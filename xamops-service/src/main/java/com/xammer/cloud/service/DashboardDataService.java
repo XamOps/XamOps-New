@@ -414,6 +414,13 @@ public class DashboardDataService {
         }
     }
 
+    public void deleteSnapshot(String key) {
+        if (StringUtils.hasText(key)) {
+            cachedDataRepository.findById(key).ifPresent(cachedDataRepository::delete);
+            logger.info("Deleted database snapshot for key: {}", key);
+        }
+    }
+
     private DashboardData getSnapshot(String key) {
         Optional<CachedData> cached = cachedDataRepository.findById(key);
         if (cached.isPresent()) {

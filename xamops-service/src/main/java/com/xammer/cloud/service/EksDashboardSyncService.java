@@ -35,13 +35,14 @@ import java.util.Optional;
  *
  * Features:
  * - Cache warmup on application startup (instant page loads from day 1)
- * - Scheduled sync at 4 AM daily for all clusters (fresh data every morning)
+ * - Scheduled sync at 3 AM daily for all clusters (fresh data every morning)
  * - On-demand sync when user clicks "Sync Data" button (live data on demand)
  * - Database-backed caching for instant page loads
+ * - Dual data source support: kubeconfig-based fetch OR agent-pushed data
  *
  * Flow:
  * 1. On app startup: warmCacheOnStartup() populates cache for all clusters
- * 2. Every 6 hours: scheduledSyncAllClusters() refreshes cache with fresh data
+ * 2. Every day at 3 AM: scheduledSyncAllClusters() refreshes cache with fresh data
  * 3. On page load: Returns cached data from database (instant)
  * 4. On "Sync Data" click: Returns cached data immediately, fetches fresh data in background
  */
@@ -106,12 +107,15 @@ public class EksDashboardSyncService {
     }
 
     /**
-     * Scheduled job to sync all EKS clusters every 6 hours.
-     * Cron: 0 0 *\/6 * * ? = At minute 0 past every 6th hour (00:00, 06:00, 12:00, 18:00)
+     * Scheduled job to sync all EKS clusters daily at 3 AM.
+     * Cron: 0 0 3 * * ? = At 03:00:00 every day (local server time)
+     *
+     * This runs once daily to refresh cached data for all clusters.
+     * For immediate updates, users can click "Sync Data" in the UI.
      */
-    @Scheduled(cron = "0 0 */6 * * ?")
+    @Scheduled(cron = "0 0 3 * * ?")
     public void scheduledSyncAllClusters() {
-        logger.info("🕐 Starting scheduled EKS dashboard sync (every 6 hours)...");
+        logger.info("🕐 Starting scheduled EKS dashboard sync (daily 3 AM)...");
         syncAllClusters();
         logger.info("✅ Scheduled EKS dashboard sync completed");
     }
