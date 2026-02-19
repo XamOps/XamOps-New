@@ -98,6 +98,13 @@ const GcpCloudK8sPage: React.FC = () => {
   const enableMonitoring = useCallback(async (cluster: GKECluster) => {
     if (!selectedAccountId) return;
 
+    const prometheusUrl = window.prompt(
+      `Enter Prometheus URL for cluster "${cluster.name}":\n\n` +
+      `Example: http://34.66.208.65:9090\n\n` +
+      `(Run: kubectl get svc -n monitoring to find the EXTERNAL-IP)`
+    );
+    if (!prometheusUrl) return;
+
     setClusters(prev =>
       prev.map(c =>
         c.name === cluster.name && c.location === cluster.location
@@ -106,20 +113,20 @@ const GcpCloudK8sPage: React.FC = () => {
       )
     );
 
-    const { name, location } = cluster;
+    const { name } = cluster;
 
     try {
       await apiClient.post(
-        `/api/xamops/gke/${name}/enable-monitoring?accountId=${selectedAccountId}&location=${location}`
+        `/api/xamops/gke/${name}/connect?accountId=${selectedAccountId}&prometheusUrl=${encodeURIComponent(prometheusUrl)}`
       );
 
-      alert(`Successfully initiated monitoring for ${name}. It may take a few minutes to connect.`);
+      alert(`Monitoring connected for ${name}. Refreshing cluster list...`);
 
-      // Refresh clusters after a delay
-      setTimeout(() => fetchClusters(true), 5000);
+      // Refresh clusters after a short delay
+      setTimeout(() => fetchClusters(true), 3000);
     } catch (err: any) {
       alert(`Error: ${err.message}`);
-      console.error('Failed to enable monitoring', err);
+      console.error('Failed to connect monitoring', err);
     } finally {
       setClusters(prev =>
         prev.map(c =>
@@ -133,14 +140,10 @@ const GcpCloudK8sPage: React.FC = () => {
 
   /**
    * Navigate to cluster details
-   * TODO: Create GKE details page similar to EKS details
    */
   const navigateToDetails = useCallback((cluster: GKECluster) => {
-    // For now, we'll navigate to a placeholder or show an alert
-    // Later: navigate(`/gke-details?name=${cluster.name}&location=${cluster.location}&accountIds=${selectedAccountId}`);
-
-    alert(`GKE cluster details page coming soon!\n\nCluster: ${cluster.name}\nLocation: ${cluster.location}\nVersion: ${cluster.version}`);
-  }, [selectedAccountId]);
+    navigate(`/gke-details?name=${cluster.name}&location=${cluster.location}&accountIds=${selectedAccountId}`);
+  }, [navigate, selectedAccountId]);
 
   // Initialize on mount and when account changes
   useEffect(() => {

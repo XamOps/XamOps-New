@@ -23,8 +23,24 @@ public class KubernetesClusterConfig {
     @Column(name = "k8s_version")
     private String k8sVersion;
 
-    @Column(name = "kubeconfig_yaml", columnDefinition = "TEXT", nullable = false)
+    @Column(name = "kubeconfig_yaml", columnDefinition = "TEXT")
     private String kubeconfigYaml;
+
+    // ===== XamOps Agent Fields =====
+    @Column(name = "agent_api_key", length = 64, unique = true)
+    private String agentApiKey;
+
+    @Column(name = "agent_version", length = 20)
+    private String agentVersion;
+
+    @Column(name = "last_agent_checkin")
+    private LocalDateTime lastAgentCheckin;
+
+    @Column(name = "agent_status", length = 20)
+    private String agentStatus = "pending"; // pending | active | inactive | error
+
+    @Column(name = "data_source_mode", length = 20)
+    private String dataSourceMode = "agent"; // agent | kubeconfig | hybrid (agent is default for both public/private clusters)
 
     @Column(name = "kubescape_enabled")
     private Boolean kubescapeEnabled = false;
@@ -139,5 +155,68 @@ public class KubernetesClusterConfig {
 
     public void setUpdatedAt(LocalDateTime updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    // ===== Agent Field Getters and Setters =====
+    public String getAgentApiKey() {
+        return agentApiKey;
+    }
+
+    public void setAgentApiKey(String agentApiKey) {
+        this.agentApiKey = agentApiKey;
+    }
+
+    public String getAgentVersion() {
+        return agentVersion;
+    }
+
+    public void setAgentVersion(String agentVersion) {
+        this.agentVersion = agentVersion;
+    }
+
+    public LocalDateTime getLastAgentCheckin() {
+        return lastAgentCheckin;
+    }
+
+    public void setLastAgentCheckin(LocalDateTime lastAgentCheckin) {
+        this.lastAgentCheckin = lastAgentCheckin;
+    }
+
+    public String getAgentStatus() {
+        return agentStatus;
+    }
+
+    public void setAgentStatus(String agentStatus) {
+        this.agentStatus = agentStatus;
+    }
+
+    public String getDataSourceMode() {
+        return dataSourceMode;
+    }
+
+    public void setDataSourceMode(String dataSourceMode) {
+        this.dataSourceMode = dataSourceMode;
+    }
+
+    /**
+     * Check if cluster uses agent-based data collection
+     */
+    public boolean isAgentEnabled() {
+        return "agent".equals(dataSourceMode) || "hybrid".equals(dataSourceMode);
+    }
+
+    /**
+     * Check if cluster uses kubeconfig-based data collection
+     */
+    public boolean isKubeconfigEnabled() {
+        return "kubeconfig".equals(dataSourceMode) || "hybrid".equals(dataSourceMode);
+    }
+
+    /**
+     * Check if agent is currently active (checked in within last 15 minutes)
+     */
+    public boolean isAgentActive() {
+        if (lastAgentCheckin == null) return false;
+        return lastAgentCheckin.isAfter(LocalDateTime.now().minusMinutes(15));
     }
 }

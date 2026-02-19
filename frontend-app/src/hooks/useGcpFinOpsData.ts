@@ -132,7 +132,8 @@ export const useGcpFinOpsData = ({
       });
 
       if (!response.ok) {
-        throw new Error('Failed to create budget');
+        const errorBody = await response.json().catch(() => ({}));
+        throw new Error((errorBody as { error?: string }).error || 'Failed to create budget');
       }
 
       const createdBudget = await response.json();

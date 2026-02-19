@@ -284,8 +284,14 @@ export const GcpFinOpsPage: React.FC = () => {
             <GcpFinOpsKPISection kpis={reportData.kpis} />
 
             {/* Budgets Section */}
+            {/* Enrich budgets with MTD spend — GCP Budget API doesn't expose per-budget actual spend,
+                so we use the total project MTD spend (same as how AWS shows it). */}
             <GcpFinOpsBudgets
-              budgets={reportData.budgets}
+              budgets={(reportData.budgets || []).map((b) => ({
+                ...b,
+                actualSpend: b.actualSpend || reportData.kpis?.monthToDateSpend || 0,
+                forecastedSpend: b.forecastedSpend || reportData.kpis?.forecastedSpend || 0,
+              }))}
               onCreateBudget={() => setIsBudgetModalOpen(true)}
               onScheduleReport={() => setIsScheduleModalOpen(true)}
               onDeleteBudget={handleDeleteBudget}

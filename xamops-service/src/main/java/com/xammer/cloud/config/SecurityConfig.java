@@ -140,6 +140,9 @@ public class SecurityConfig {
                                                                 new AntPathRequestMatcher("/gcp-alerts"),
                                                                 new AntPathRequestMatcher("/terminal"),
 
+                                                                // XamOps Agent API (authenticates via API key, not session)
+                                                                new AntPathRequestMatcher("/api/v1/agent/**"),
+
                                                                 // Public APIs
                                                                 // new AntPathRequestMatcher("/api/ai/**"),
                                                                 new AntPathRequestMatcher("/api/cicd/github/runs"),
@@ -184,7 +187,9 @@ public class SecurityConfig {
                                 "http://localhost:5173",
                                 "https://live.xamops.com",
                                 "https://prep.xamops.com",
-                                "https://uat.xamops.com"));
+                                "https://uat.xamops.com",
+                                "https://*.ngrok-free.dev",
+                                "https://*.ngrok.io"));
                 configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
                 configuration.setAllowedHeaders(Arrays.asList("*"));
                 configuration.setAllowCredentials(true);

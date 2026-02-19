@@ -150,7 +150,16 @@ public class GcpFinOpsReportService {
 
             report.setWastedResources(wasteFuture.join());
             report.setRightsizingRecommendations(recommendationsFuture.join());
-            report.setBudgets(budgetsFuture.join());
+
+            // GCP Budget API doesn't expose per-budget actual spend.
+            // Each budget is project-scoped, so actual spend = total project MTD spend (same as AWS behaviour).
+            List<GcpBudgetDto> budgets = budgetsFuture.join();
+            budgets.forEach(b -> {
+                b.setActualSpend(mtdSpend);
+                b.setForecastedSpend(kpis.getForecastedSpend());
+            });
+            report.setBudgets(budgets);
+
             report.setCostAnomalies(costAnomaliesFuture.join());
 
             // ✅ Cache the complete report
@@ -298,7 +307,16 @@ public class GcpFinOpsReportService {
 
             report.setWastedResources(wasteFuture.join());
             report.setRightsizingRecommendations(recommendationsFuture.join());
-            report.setBudgets(budgetsFuture.join());
+
+            // GCP Budget API doesn't expose per-budget actual spend.
+            // Each budget is project-scoped, so actual spend = total project MTD spend (same as AWS behaviour).
+            List<GcpBudgetDto> budgets = budgetsFuture.join();
+            budgets.forEach(b -> {
+                b.setActualSpend(mtdSpend);
+                b.setForecastedSpend(kpis.getForecastedSpend());
+            });
+            report.setBudgets(budgets);
+
             report.setCostAnomalies(costAnomaliesFuture.join());
 
             // Cache the report

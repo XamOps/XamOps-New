@@ -1,0 +1,71 @@
+package com.xammer.cloud.repository;
+
+import com.xammer.cloud.domain.AgentDataCache;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
+
+@Repository
+public interface AgentDataCacheRepository extends JpaRepository<AgentDataCache, Long> {
+
+    /**
+     * Find cached data by cluster and data type
+     */
+    Optional<AgentDataCache> findByClusterConfigIdAndDataType(Long clusterConfigId, String dataType);
+
+    /**
+     * Find all cached data for a cluster
+     */
+    List<AgentDataCache> findByClusterConfigId(Long clusterConfigId);
+
+    /**
+     * Find all cached data by type
+     */
+    List<AgentDataCache> findByDataType(String dataType);
+
+    /**
+     * Check if data exists for cluster and type
+     */
+    boolean existsByClusterConfigIdAndDataType(Long clusterConfigId, String dataType);
+
+    /**
+     * Delete all cached data for a cluster
+     */
+    void deleteByClusterConfigId(Long clusterConfigId);
+
+    /**
+     * Delete cached data by cluster and type
+     */
+    void deleteByClusterConfigIdAndDataType(Long clusterConfigId, String dataType);
+
+    /**
+     * Find stale data older than specified time
+     */
+    @Query("SELECT a FROM AgentDataCache a WHERE a.collectedAt < :cutoff")
+    List<AgentDataCache> findStaleData(@Param("cutoff") LocalDateTime cutoff);
+
+    /**
+     * Delete stale data older than specified time
+     */
+    @Modifying
+    @Query("DELETE FROM AgentDataCache a WHERE a.collectedAt < :cutoff")
+    int deleteStaleData(@Param("cutoff") LocalDateTime cutoff);
+
+    /**
+     * Get latest collected timestamp for a cluster
+     */
+    @Query("SELECT MAX(a.collectedAt) FROM AgentDataCache a WHERE a.clusterConfigId = :clusterConfigId")
+    LocalDateTime getLatestCollectedAt(@Param("clusterConfigId") Long clusterConfigId);
+
+    /**
+     * Count data types available for a cluster
+     */
+    @Query("SELECT COUNT(DISTINCT a.dataType) FROM AgentDataCache a WHERE a.clusterConfigId = :clusterConfigId")
+    int countDataTypesByCluster(@Param("clusterConfigId") Long clusterConfigId);
+}
