@@ -267,32 +267,69 @@ public class AutoSpottingService {
                     })
                     .collect(Collectors.toList()));
 
-            // If no DB history yet, synthesize a data point from live AWS SDK cost data
-            // so the chart shows something meaningful right from the start.
+            // If DailySpotSavings is empty, fall back to SpotOptimizationEvent grouped by date.
+            // This avoids any AWS API calls (especially Cost Explorer) and still gives a
+            // meaningful chart from day one.
             if (dataPoints.isEmpty()) {
                 try {
-                    CostResponse liveCost = getCostData(cloudAccountId);
-                    if (liveCost != null && liveCost.getSummary() != null) {
-                        CostResponse.CostSummary s = liveCost.getSummary();
-                        double actualSavings = s.getTotalActualSavings() != null ? s.getTotalActualSavings() : 0.0;
-                        double potentialSavings = s.getTotalPotentialSavings() != null ? s.getTotalPotentialSavings() : 0.0;
-                        double currentCost = s.getTotalCurrentHourlyCost() != null ? s.getTotalCurrentHourlyCost() : 0.0;
-                        if (actualSavings > 0 || potentialSavings > 0) {
-                            HistoryResponse.DataPoint dp = new HistoryResponse.DataPoint();
-                            dp.setTimestamp(java.time.LocalDate.now().toString());
-                            dp.setActualHourlySavings(actualSavings);
-                            dp.setPotentialHourlySavings(potentialSavings);
-                            dp.setCurrentHourlyCost(currentCost);
-                            dp.setOndemandHourlyCost(0.0);
-                            dp.setSpotInstanceCount(0);
-                            dp.setOndemandInstanceCount(0);
-                            dataPoints.add(dp);
-                            logger.info("Synthesized 1 history data point from live cost data (actualSavings={})", actualSavings);
-                        }
+                    Instant iStart = startDate.atStartOfDay(java.time.ZoneOffset.UTC).toInstant();
+                    Instant iEnd   = endDate.plusDays(1).atStartOfDay(java.time.ZoneOffset.UTC).toInstant();
+                    List<SpotOptimizationEvent> spotEvents =
+                            eventRepository.findByAccountIdAndEventTimeBetweenAndStatusOrderByEventTimeDesc(
+                                    account.getId(), iStart, iEnd, "SUCCESS");
+
+                    java.util.Map<LocalDate, Double> savingsByDate = spotEvents.stream()
+                            .filter(e -> e.getHourlySavings() != null && e.getHourlySavings() > 0)
+                            .collect(Collectors.groupingBy(
+                                    e -> e.getEventTime().atZone(java.time.ZoneOffset.UTC).toLocalDate(),
+                                    Collectors.summingDouble(SpotOptimizationEvent::getHourlySavings)
+                            ));
+
+                    savingsByDate.entrySet().stream()
+                            .sorted(java.util.Map.Entry.comparingByKey())
+                            .forEach(entry -> {
+                                HistoryResponse.DataPoint dp = new HistoryResponse.DataPoint();
+                                dp.setTimestamp(entry.getKey().toString());
+                                dp.setActualHourlySavings(entry.getValue());
+                                dp.setPotentialHourlySavings(0.0);
+                                dp.setCurrentHourlyCost(0.0);
+                                dp.setOndemandHourlyCost(0.0);
+                                dp.setSpotInstanceCount(0);
+                                dp.setOndemandInstanceCount(0);
+                                dataPoints.add(dp);
+                            });
+
+                    if (!dataPoints.isEmpty()) {
+                        logger.info("Built {} history data point(s) from SpotOptimizationEvent table", dataPoints.size());
                     }
                 } catch (Exception ex) {
-                    logger.warn("Could not synthesize history from live cost data: {}", ex.getMessage());
+                    logger.warn("Could not build history from SpotOptimizationEvent: {}", ex.getMessage());
                 }
+            }
+
+            // Gap-fill: insert $0 data points for every date in the range that has no entry.
+            // This gives the chart a proper x-axis even for days with no activity.
+            long rangeDays = startDate.until(endDate, java.time.temporal.ChronoUnit.DAYS) + 1;
+            if (rangeDays <= 90) {
+                java.util.Set<LocalDate> covered = dataPoints.stream()
+                        .map(dp -> LocalDate.parse(dp.getTimestamp().substring(0, 10)))
+                        .collect(java.util.stream.Collectors.toCollection(java.util.HashSet::new));
+                LocalDate cur = startDate;
+                while (!cur.isAfter(endDate)) {
+                    if (!covered.contains(cur)) {
+                        HistoryResponse.DataPoint dp = new HistoryResponse.DataPoint();
+                        dp.setTimestamp(cur.toString());
+                        dp.setActualHourlySavings(0.0);
+                        dp.setPotentialHourlySavings(0.0);
+                        dp.setCurrentHourlyCost(0.0);
+                        dp.setOndemandHourlyCost(0.0);
+                        dp.setSpotInstanceCount(0);
+                        dp.setOndemandInstanceCount(0);
+                        dataPoints.add(dp);
+                    }
+                    cur = cur.plusDays(1);
+                }
+                dataPoints.sort(java.util.Comparator.comparing(dp -> LocalDate.parse(dp.getTimestamp().substring(0, 10))));
             }
 
             response.setDataPoints(dataPoints);
@@ -767,21 +804,10 @@ public class AutoSpottingService {
             software.amazon.awssdk.services.autoscaling.model.MixedInstancesPolicy mixedPolicy = null;
 
             if (asg.mixedInstancesPolicy() != null && asg.mixedInstancesPolicy().launchTemplate() != null) {
-                // Already has MixedInstancesPolicy — rebuild LaunchTemplateSpecification from scratch.
-                // Do NOT reuse the describe response object directly; its overrides list may contain
-                // entries that lack launchTemplateId/launchTemplateName, causing AWS HTTP 400.
-                var ltSpec = asg.mixedInstancesPolicy().launchTemplate().launchTemplateSpecification();
+                // ASG already has a MixedInstancesPolicy — update instancesDistribution ONLY.
+                // Do NOT re-specify the launch template: AWS preserves the existing one,
+                // and omitting it avoids the ec2:UseLaunchTemplate IAM check.
                 mixedPolicy = software.amazon.awssdk.services.autoscaling.model.MixedInstancesPolicy.builder()
-                        .launchTemplate(ltp -> ltp.launchTemplateSpecification(s -> {
-                            if (ltSpec.launchTemplateId() != null && !ltSpec.launchTemplateId().isEmpty()) {
-                                s.launchTemplateId(ltSpec.launchTemplateId());
-                            } else if (ltSpec.launchTemplateName() != null && !ltSpec.launchTemplateName().isEmpty()) {
-                                s.launchTemplateName(ltSpec.launchTemplateName());
-                            }
-                            if (ltSpec.version() != null) {
-                                s.version(ltSpec.version());
-                            }
-                        }))
                         .instancesDistribution(d -> d
                                 .onDemandBaseCapacity(0)
                                 .onDemandPercentageAboveBaseCapacity(0)
@@ -862,6 +888,16 @@ public class AutoSpottingService {
                                     .equals(inst.instanceLifecycle())) {
                                 String iid = inst.instanceId();
                                 String itype = inst.instanceTypeAsString();
+                                // Calculate real savings: OD price minus current Spot price
+                                double odPrice = 0.0;
+                                double spotPrice = 0.0;
+                                try {
+                                    odPrice = spotPricingService.getHourlyOnDemandPrice(itype, region);
+                                    spotPrice = spotPricingService.getHourlySpotPrice(itype, region, account);
+                                } catch (Exception priceEx) {
+                                    logger.debug("Could not fetch prices for {}: {}", itype, priceEx.getMessage());
+                                }
+                                double savings = Math.max(0.0, odPrice - spotPrice);
                                 SpotOptimizationEvent spotEv = new SpotOptimizationEvent();
                                 spotEv.setAccount(account);
                                 spotEv.setAsgName(asgName);
@@ -869,7 +905,7 @@ public class AutoSpottingService {
                                 spotEv.setNewInstanceId(iid);
                                 spotEv.setNewInstanceType(itype);
                                 spotEv.setStatus("SUCCESS");
-                                spotEv.setHourlySavings(0.0);
+                                spotEv.setHourlySavings(savings);
                                 spotEv.setDetails("Spot instance already running at enable time: "
                                         + iid + " (" + itype + "). Instance refresh will replace any remaining On-Demand instances.");
                                 eventRepository.save(spotEv);
@@ -889,6 +925,85 @@ public class AutoSpottingService {
             logger.error("Failed to enable AutoSpotting for {}: {}", asgName, e.getMessage(), e);
             throw new RuntimeException("Failed to enable AutoSpotting: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * Backfill SUCCESS events for any Spot instances currently running in the ASG
+     * that are not yet recorded in the database.
+     *
+     * This is a non-disruptive, user-triggered operation that fills the gap when
+     * instances launched during instance refresh (after enable) before the
+     * EventBridge pipeline was fully working.
+     *
+     * @return number of new events backfilled
+     */
+    public int backfillSpotEvents(Long cloudAccountId, String region, String asgName) {
+        CloudAccount account = getByAwsAccountId(cloudAccountId);
+
+        AutoScalingClient asgClient = awsClientProvider.getAutoScalingClient(account, region);
+        var asgResponse = asgClient.describeAutoScalingGroups(req -> req.autoScalingGroupNames(asgName));
+        if (asgResponse.autoScalingGroups().isEmpty()) {
+            throw new RuntimeException("ASG not found: " + asgName);
+        }
+
+        var asg = asgResponse.autoScalingGroups().get(0);
+        List<String> instanceIds = asg.instances().stream()
+                .map(software.amazon.awssdk.services.autoscaling.model.Instance::instanceId)
+                .filter(id -> id != null && !id.isEmpty())
+                .collect(Collectors.toList());
+
+        if (instanceIds.isEmpty()) {
+            return 0;
+        }
+
+        Ec2Client ec2Client = awsClientProvider.getEc2Client(account, region);
+        var describeResp = ec2Client.describeInstances(req -> req.instanceIds(instanceIds));
+
+        int backfilled = 0;
+        for (var reservation : describeResp.reservations()) {
+            for (var inst : reservation.instances()) {
+                if (!software.amazon.awssdk.services.ec2.model.InstanceLifecycleType.SPOT
+                        .equals(inst.instanceLifecycle())) {
+                    continue;
+                }
+
+                String instanceId = inst.instanceId();
+                if (eventRepository.existsByAccountIdAndNewInstanceId(account.getId(), instanceId)) {
+                    continue; // already recorded, skip
+                }
+
+                String instanceType = inst.instanceTypeAsString();
+                double savings = 0.0;
+                try {
+                    double odPrice = spotPricingService.getHourlyOnDemandPrice(instanceType, region);
+                    double spotPrice = spotPricingService.getHourlySpotPrice(instanceType, region, account);
+                    savings = Math.max(0.0, odPrice - spotPrice);
+                } catch (Exception e) {
+                    logger.debug("Could not fetch prices for {}: {}", instanceType, e.getMessage());
+                }
+
+                SpotOptimizationEvent event = new SpotOptimizationEvent();
+                event.setAccount(account);
+                event.setAsgName(asgName);
+                event.setRegion(region);
+                event.setNewInstanceId(instanceId);
+                event.setNewInstanceType(instanceType);
+                event.setHourlySavings(savings);
+                event.setStatus("SUCCESS");
+                event.setDetails("Spot instance detected via manual sync: " + instanceId
+                        + " (" + instanceType + "). Savings: $"
+                        + String.format("%.4f", savings) + "/hr.");
+                eventRepository.save(event);
+                backfilled++;
+
+                logger.info("✓ Sync backfilled Spot instance {} ({}) in ASG {} [account={} region={}]",
+                        instanceId, instanceType, asgName, account.getAwsAccountId(), region);
+            }
+        }
+
+        logger.info("Sync complete: {} new Spot event(s) backfilled for ASG {} [account={} region={}]",
+                backfilled, asgName, account.getAwsAccountId(), region);
+        return backfilled;
     }
 
     /**
@@ -917,30 +1032,18 @@ public class AutoSpottingService {
             var asgResponse = asgClient.describeAutoScalingGroups(req -> req.autoScalingGroupNames(asgName));
             if (!asgResponse.autoScalingGroups().isEmpty()) {
                 var asg = asgResponse.autoScalingGroups().get(0);
-                if (asg.mixedInstancesPolicy() != null && asg.mixedInstancesPolicy().launchTemplate() != null) {
-                    // Rebuild LaunchTemplateSpecification from scratch — do NOT reuse the describe
-                    // response object directly because its overrides list may contain entries that
-                    // lack launchTemplateId/launchTemplateName, causing AWS to return HTTP 400.
-                    var ltSpec = asg.mixedInstancesPolicy().launchTemplate().launchTemplateSpecification();
-                    var revertedPolicy = software.amazon.awssdk.services.autoscaling.model.MixedInstancesPolicy.builder()
-                            .launchTemplate(ltp -> ltp.launchTemplateSpecification(s -> {
-                                if (ltSpec.launchTemplateId() != null && !ltSpec.launchTemplateId().isEmpty()) {
-                                    s.launchTemplateId(ltSpec.launchTemplateId());
-                                } else if (ltSpec.launchTemplateName() != null && !ltSpec.launchTemplateName().isEmpty()) {
-                                    s.launchTemplateName(ltSpec.launchTemplateName());
-                                }
-                                if (ltSpec.version() != null) {
-                                    s.version(ltSpec.version());
-                                }
-                            }))
-                            .instancesDistribution(d -> d
-                                    .onDemandBaseCapacity(0)
-                                    .onDemandPercentageAboveBaseCapacity(100))
-                            .build();
-
+                if (asg.mixedInstancesPolicy() != null) {
+                    // Update instancesDistribution ONLY back to 100% OD.
+                    // Do NOT re-specify the launch template: AWS preserves the existing one,
+                    // and omitting it avoids the ec2:UseLaunchTemplate IAM check.
                     asgClient.updateAutoScalingGroup(req -> req
                             .autoScalingGroupName(asgName)
-                            .mixedInstancesPolicy(revertedPolicy));
+                            .mixedInstancesPolicy(
+                                    software.amazon.awssdk.services.autoscaling.model.MixedInstancesPolicy.builder()
+                                            .instancesDistribution(d -> d
+                                                    .onDemandBaseCapacity(0)
+                                                    .onDemandPercentageAboveBaseCapacity(100))
+                                            .build()));
                     logger.info("✓ MixedInstancesPolicy reverted to OnDemand-only for {}", asgName);
                 }
             }
@@ -972,18 +1075,21 @@ public class AutoSpottingService {
      * This is the entry point for the centralized AutoSpotting engine logic.
      */
     public void handleScalingEvent(CloudAccount account, String region, JsonNode eventDetail) {
-        String eventName = eventDetail.path("Event").asText();
-        String asgName = eventDetail.path(ASG_NAME_KEY).asText();
+        // CloudFormation stacks send EC2 Instance State-change Notification events.
+        // Format: { "instance-id": "i-...", "state": "running", "instance-lifecycle": "spot" }
+        // (NOT the old ASG lifecycle hook format with "Event" / "EC2InstanceId" fields)
+        String state = eventDetail.path("state").asText();
+        String instanceId = eventDetail.path("instance-id").asText();
 
-        logger.info("AutoSpotting: Handling event {} for ASG {} in account {}", eventName, asgName,
-                account.getAwsAccountId());
+        logger.info("AutoSpotting: Handling state-change event state={} instance={} account={}",
+                state, instanceId, account.getAwsAccountId());
 
-        // For now, we only care about successful launches to record savings
-        // and terminations to stop recording savings (or just track swaps)
-        if ("EC2 Instance Launch Successful".equals(eventName)) {
+        if ("running".equals(state)) {
             processLaunchEvent(account, region, eventDetail);
-        } else if ("EC2 Instance Terminate Successful".equals(eventName)) {
+        } else if ("terminated".equals(state) || "stopped".equals(state)) {
             processTerminateEvent(eventDetail);
+        } else {
+            logger.debug("Ignoring state-change event with state={}", state);
         }
     }
 
@@ -1047,14 +1153,12 @@ public class AutoSpottingService {
     }
 
     private void processLaunchEvent(CloudAccount account, String region, JsonNode detail) {
-        String asgName = detail.path(ASG_NAME_KEY).asText();
-        String instanceId = detail.path("EC2InstanceId").asText();
-
-        // In a real swap, we'd know the old instance type.
-        // For simplicity in this centralized version, we check if the new instance is a
-        // SPOT instance
-        // and calculate savings based on what a standard instance of that type would
-        // cost vs spot.
+        // EC2 state-change event format uses "instance-id" (not "EC2InstanceId")
+        String instanceId = detail.path("instance-id").asText();
+        if (instanceId.isEmpty()) {
+            logger.warn("processLaunchEvent: missing instance-id in event detail");
+            return;
+        }
 
         try {
             Ec2Client ec2Client = awsClientProvider.getEc2Client(account, region);
@@ -1065,10 +1169,17 @@ public class AutoSpottingService {
                 var instance = describeResponse.reservations().get(0).instances().get(0);
                 String instanceType = instance.instanceTypeAsString();
 
+                // Resolve ASG name from the instance's aws:autoscaling:groupName tag
+                String asgName = instance.tags().stream()
+                        .filter(t -> ASG_NAME_KEY.equals(t.key()))
+                        .map(software.amazon.awssdk.services.ec2.model.Tag::value)
+                        .findFirst()
+                        .orElse("unknown");
+
                 // Check if it's a spot instance
                 if (instance.instanceLifecycleAsString().equalsIgnoreCase("spot")) {
-                    double hourlySavings = spotPricingService.calculateHourlySavings(instanceType, instanceType, region,
-                            account);
+                    double hourlySavings = spotPricingService.calculateHourlySavings(
+                            instanceType, instanceType, region, account);
 
                     logger.info("✓ Detected new SPOT instance {} ({}) in ASG {}. Hourly savings: ${}",
                             instanceId, instanceType, asgName, String.format("%.4f", hourlySavings));
@@ -1089,6 +1200,24 @@ public class AutoSpottingService {
 
                     // Update Daily Savings Summary
                     updateDailySavings(account, hourlySavings);
+                } else if ("unknown".equals(asgName)) {
+                    // OD instance not in an ASG — not related to AutoSpotting, ignore
+                    logger.debug("OD instance {} not in an ASG, skipping", instanceId);
+                } else {
+                    // OD instance launched in an AutoSpotting-enabled ASG — Spot was unavailable (fallback)
+                    logger.warn("⚠️  OD FALLBACK — Spot unavailable for ASG {}, launched OD instance {} ({})",
+                            asgName, instanceId, instanceType);
+                    SpotOptimizationEvent failedEvent = new SpotOptimizationEvent();
+                    failedEvent.setAccount(account);
+                    failedEvent.setAsgName(asgName);
+                    failedEvent.setRegion(region);
+                    failedEvent.setNewInstanceId(instanceId);
+                    failedEvent.setNewInstanceType(instanceType);
+                    failedEvent.setHourlySavings(0.0);
+                    failedEvent.setStatus("FAILED");
+                    failedEvent.setDetails("Spot unavailable — On-Demand fallback launched (" + instanceType
+                            + "). ASG will retry Spot when capacity is available.");
+                    eventRepository.save(failedEvent);
                 }
             }
         } catch (Exception e) {
@@ -1577,6 +1706,17 @@ public class AutoSpottingService {
                     record.setReason(event.getDetails() != null ? event.getDetails()
                             : "On-Demand instance replaced with Spot. Hourly savings: $"
                             + String.format("%.4f", event.getHourlySavings() != null ? event.getHourlySavings() : 0.0));
+                    // Populate per-row pricing for the UI (uses @Cacheable, so no repeated API calls)
+                    if (event.getNewInstanceType() != null && event.getRegion() != null) {
+                        try {
+                            double odPrice = spotPricingService.getHourlyOnDemandPrice(event.getNewInstanceType(), event.getRegion());
+                            double spotPrice = Math.max(0.0, odPrice - (event.getHourlySavings() != null ? event.getHourlySavings() : 0.0));
+                            record.setOldHourlyPrice(odPrice);
+                            record.setNewHourlyPrice(spotPrice);
+                        } catch (Exception priceEx) {
+                            logger.debug("Could not fetch prices for event {}: {}", event.getId(), priceEx.getMessage());
+                        }
+                    }
                 } else if ("INTERRUPTED".equals(evStatus)) {
                     record.setEventType("spot_interruption");
                     record.setResult("Interrupted");
@@ -1594,8 +1734,16 @@ public class AutoSpottingService {
                     record.setResult("Disabled");
                     record.setReason(event.getDetails() != null ? event.getDetails()
                             : "AutoSpotting disabled by user.");
+                } else if ("FAILED".equals(evStatus)) {
+                    record.setEventType("launch_failure");
+                    record.setResult("Failed");
+                    record.setNewInstanceId(event.getNewInstanceId());
+                    record.setNewInstanceType(event.getNewInstanceType());
+                    record.setNewLifecycle("on-demand");
+                    record.setReason(event.getDetails() != null ? event.getDetails()
+                            : "Spot unavailable — On-Demand fallback launched.");
                 } else {
-                    record.setEventType("spot_interruption");
+                    record.setEventType("launch_failure");
                     record.setResult("Failed");
                     record.setOldInstanceId(event.getOldInstanceId());
                     record.setOldInstanceType(event.getOldInstanceType());

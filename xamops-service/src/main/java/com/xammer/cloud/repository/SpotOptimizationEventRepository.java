@@ -24,4 +24,7 @@ public interface SpotOptimizationEventRepository extends JpaRepository<SpotOptim
 
     long countByAccountIdAndStatusAndEventTimeBetween(
             Long accountId, String status, Instant start, Instant end);
+
+    boolean existsByAccountIdAndNewInstanceId(Long accountId, String newInstanceId);
+
 }

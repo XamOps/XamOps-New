@@ -254,6 +254,20 @@ export const useSpotAutomationData = ({ selectedAccountId }: UseSpotAutomationDa
   }, [selectedAccountId, fetchCostData]);
 
   /**
+   * Sync (backfill) SUCCESS events for Spot instances currently running in an ASG
+   * that are not yet recorded in the database. Non-disruptive — does not change ASG config.
+   */
+  const syncASG = useCallback(async (asg: ASG): Promise<{ backfilled: number; message: string }> => {
+    if (!selectedAccountId) {
+      throw new Error('No account selected');
+    }
+    const data = await apiClient.post(
+      `/api/autospotting/asgs/${selectedAccountId}/sync?region=${asg.region}&asgName=${encodeURIComponent(asg.name)}`
+    );
+    return { backfilled: data.backfilled ?? 0, message: data.message ?? '' };
+  }, [selectedAccountId]);
+
+  /**
    * Generate CloudFormation deployment URL
    */
   const generateDeploymentUrl = useCallback(async (): Promise<string> => {
@@ -272,29 +286,6 @@ export const useSpotAutomationData = ({ selectedAccountId }: UseSpotAutomationDa
       throw err;
     }
   }, []);
-
-  /**
-   * Sync customer account
-   */
-  const syncAccount = useCallback(async (accountId: string, accountName: string, regions: string): Promise<void> => {
-    try {
-      console.log('[SpotAutomation] Syncing account:', accountId);
-
-      await apiClient.post('/api/cloudformation/sync-account', {
-        accountId,
-        accountName: accountName || `Customer-${accountId}`,
-        regions: regions || 'all',
-      });
-
-      console.log('[SpotAutomation] Account synced successfully');
-
-      // Refresh cost data
-      fetchCostData(true);
-    } catch (err) {
-      console.error('[SpotAutomation] Error syncing account:', err);
-      throw err;
-    }
-  }, [fetchCostData]);
 
   // Load data when account changes
   useEffect(() => {
@@ -324,7 +315,7 @@ export const useSpotAutomationData = ({ selectedAccountId }: UseSpotAutomationDa
     fetchCostData,
     fetchHistoryData,
     toggleASG,
+    syncASG,
     generateDeploymentUrl,
-    syncAccount,
   };
 };
