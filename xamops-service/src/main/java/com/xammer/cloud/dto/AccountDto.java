@@ -13,6 +13,7 @@ public class AccountDto {
     private String grafanaIp;
     private String grafanaDashboardUid;
     private String grafanaDashboardSlug;
+    private String billingExportTable;
 
     public AccountDto() {
     }
@@ -124,5 +125,13 @@ public class AccountDto {
 
     public void setGrafanaDashboardSlug(String grafanaDashboardSlug) {
         this.grafanaDashboardSlug = grafanaDashboardSlug;
+    }
+
+    public String getBillingExportTable() {
+        return billingExportTable;
+    }
+
+    public void setBillingExportTable(String billingExportTable) {
+        this.billingExportTable = billingExportTable;
     }
 }

@@ -214,6 +214,26 @@ public class AccountManagerController {
         return ResponseEntity.ok(Map.of("message", "GCP Account added successfully."));
     }
 
+    @PutMapping("/accounts/{accountId}/billing-table")
+    public ResponseEntity<?> updateBillingTable(@PathVariable Long accountId,
+            @RequestBody Map<String, String> payload) {
+        String billingExportTable = payload.get("billingExportTable");
+        if (billingExportTable == null || billingExportTable.trim().isEmpty()) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("message", "billingExportTable is required in the request body."));
+        }
+
+        try {
+            gcpDataService.updateBillingTable(accountId, billingExportTable.trim());
+            return ResponseEntity.ok()
+                    .body(Map.of("message", "Billing export table updated successfully."));
+        } catch (Exception e) {
+            logger.error("Failed to update billing table for account {}: {}", accountId, e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("message", e.getMessage()));
+        }
+    }
+
     @PostMapping("/accounts/{accountId}/monitoring")
     public ResponseEntity<?> updateMonitoringEndpoint(@PathVariable String accountId,
             @RequestBody Map<String, String> payload) {
@@ -275,6 +295,7 @@ public class AccountManagerController {
                 account.getProvider());
 
         dto.setGrafanaIp(account.getGrafanaIp());
+        dto.setBillingExportTable(account.getBillingExportTable());
 
         return dto;
     }

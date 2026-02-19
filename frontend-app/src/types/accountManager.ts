@@ -15,6 +15,7 @@ export interface CloudAccount {
   access?: string;
   externalId?: string;
   azureSubscriptionId?: string;
+  billingExportTable?: string;
 }
 
 export interface GitHubConfig {

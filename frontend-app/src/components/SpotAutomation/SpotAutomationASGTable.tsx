@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import type { ASG, SpotCosts } from '../../hooks/useSpotAutomationData';
+import InstanceTypeConfigModal from './InstanceTypeConfigModal';
 
 interface SpotAutomationASGTableProps {
   asgs: ASG[];
@@ -8,6 +9,8 @@ interface SpotAutomationASGTableProps {
   isLoading: boolean;
   onToggleASG: (asg: ASG) => Promise<void>;
   onSyncASG: (asg: ASG) => Promise<{ backfilled: number; message: string }>;
+  onGetInstanceTypeConfig: (region: string, asgName: string) => Promise<string[]>;
+  onSaveInstanceTypeConfig: (region: string, asgName: string, instanceTypes: string[]) => Promise<void>;
   onRefresh: () => void;
 }
 
@@ -18,11 +21,20 @@ const SpotAutomationASGTable: React.FC<SpotAutomationASGTableProps> = ({
   isLoading,
   onToggleASG,
   onSyncASG,
+  onGetInstanceTypeConfig,
+  onSaveInstanceTypeConfig,
   onRefresh,
 }) => {
   const [togglingASGs, setTogglingASGs] = useState<Set<string>>(new Set());
   const [syncingASGs, setSyncingASGs] = useState<Set<string>>(new Set());
   const [syncToast, setSyncToast] = useState<{ asgKey: string; message: string } | null>(null);
+
+  // Instance type config modal state
+  const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
+  const [configModalASG, setConfigModalASG] = useState<ASG | null>(null);
+  const [currentInstanceTypes, setCurrentInstanceTypes] = useState<string[]>([]);
+  const [isLoadingConfig, setIsLoadingConfig] = useState(false);
+  const [isSavingConfig, setIsSavingConfig] = useState(false);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -78,6 +90,40 @@ const SpotAutomationASGTable: React.FC<SpotAutomationASGTableProps> = ({
     }
   };
 
+  const handleOpenConfigModal = async (asg: ASG) => {
+    setConfigModalASG(asg);
+    setIsLoadingConfig(true);
+    setIsConfigModalOpen(true);
+    try {
+      const types = await onGetInstanceTypeConfig(asg.region, asg.name);
+      setCurrentInstanceTypes(types);
+    } catch (err) {
+      console.error('Error loading instance type config:', err);
+      setCurrentInstanceTypes([]);
+    } finally {
+      setIsLoadingConfig(false);
+    }
+  };
+
+  const handleCloseConfigModal = () => {
+    setIsConfigModalOpen(false);
+    setConfigModalASG(null);
+    setCurrentInstanceTypes([]);
+  };
+
+  const handleSaveConfig = async (instanceTypes: string[]) => {
+    if (!configModalASG) return;
+    setIsSavingConfig(true);
+    try {
+      await onSaveInstanceTypeConfig(configModalASG.region, configModalASG.name, instanceTypes);
+      handleCloseConfigModal();
+    } catch (err) {
+      console.error('Error saving instance type config:', err);
+    } finally {
+      setIsSavingConfig(false);
+    }
+  };
+
   const enabledCount = asgs.filter((a) => a.isEnabled).length;
   const disabledCount = asgs.filter((a) => !a.isEnabled).length;
 
@@ -112,15 +158,26 @@ const SpotAutomationASGTable: React.FC<SpotAutomationASGTableProps> = ({
               <th className="px-6 py-4 font-bold">Spot/OD</th>
               <th className="px-6 py-4 font-bold">Hourly Cost</th>
               <th className="px-6 py-4 font-bold">Monthly Cost</th>
-              <th className="px-6 py-4 font-bold">Actual Savings/mo</th>
+              <th className="px-6 py-4 font-bold">
+                <div className="flex items-center">
+                  <span>Actual Savings/mo</span>
+                  <div className="group relative ml-2">
+                    <i className="fas fa-info-circle text-gray-400 hover:text-gray-600 cursor-help"></i>
+                    <div className="hidden group-hover:block absolute top-full left-1/2 -translate-x-1/2 mt-2 w-64 bg-gray-900 text-white text-xs rounded-lg p-3 shadow-xl z-[100]">
+                      Monthly savings you're already getting from Spot instances currently running in this ASG.
+                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-[-1px] w-3 h-3 bg-gray-900 transform rotate-45"></div>
+                    </div>
+                  </div>
+                </div>
+              </th>
               <th className="px-6 py-4 font-bold">
                 <div className="flex items-center">
                   <span>Potential Savings/mo</span>
                   <div className="group relative ml-2">
                     <i className="fas fa-info-circle text-gray-400 hover:text-gray-600 cursor-help"></i>
-                    <div className="hidden group-hover:block absolute bottom-full right-0 mb-2 w-64 bg-gray-900 text-white text-xs rounded-lg p-3 shadow-xl z-50">
+                    <div className="hidden group-hover:block absolute top-full left-1/2 -translate-x-1/2 mt-2 w-64 bg-gray-900 text-white text-xs rounded-lg p-3 shadow-xl z-[100]">
                       Estimated monthly savings if all on-demand instances in this ASG were converted to Spot instances.
-                      <div className="absolute top-full right-4 -mt-1 w-3 h-3 bg-gray-900 transform rotate-45"></div>
+                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-[-1px] w-3 h-3 bg-gray-900 transform rotate-45"></div>
                     </div>
                   </div>
                 </div>
@@ -250,21 +307,31 @@ const SpotAutomationASGTable: React.FC<SpotAutomationASGTableProps> = ({
                         </div>
                       </div>
                       {asg.isEnabled && (
-                        <div className="relative">
+                        <div className="flex items-center space-x-2 mt-2">
+                          <div className="relative">
+                            <button
+                              onClick={() => handleSync(asg)}
+                              disabled={syncingASGs.has(asgKey)}
+                              title="Sync Spot events to Actions History"
+                              className="text-xs text-indigo-500 hover:text-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 px-2 py-1 rounded hover:bg-indigo-50 transition-colors"
+                            >
+                              <i className={`fas ${syncingASGs.has(asgKey) ? 'fa-spinner fa-spin' : 'fa-sync-alt'}`}></i>
+                              <span>{syncingASGs.has(asgKey) ? 'Syncing...' : 'Sync'}</span>
+                            </button>
+                            {syncToast?.asgKey === asgKey && (
+                              <div className="absolute right-0 top-8 z-30 bg-gray-800 text-white text-xs rounded-lg px-3 py-2 shadow-lg whitespace-nowrap">
+                                {syncToast.message}
+                              </div>
+                            )}
+                          </div>
                           <button
-                            onClick={() => handleSync(asg)}
-                            disabled={syncingASGs.has(asgKey)}
-                            title="Sync Spot events to Actions History"
-                            className="text-xs text-indigo-500 hover:text-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 px-2 py-1 rounded hover:bg-indigo-50 transition-colors"
+                            onClick={() => handleOpenConfigModal(asg)}
+                            title="Configure instance types for Spot diversification"
+                            className="text-xs text-purple-500 hover:text-purple-700 flex items-center gap-1 px-2 py-1 rounded hover:bg-purple-50 transition-colors"
                           >
-                            <i className={`fas ${syncingASGs.has(asgKey) ? 'fa-spinner fa-spin' : 'fa-sync-alt'}`}></i>
-                            <span>{syncingASGs.has(asgKey) ? 'Syncing...' : 'Sync'}</span>
+                            <i className="fas fa-cog"></i>
+                            <span>Config</span>
                           </button>
-                          {syncToast?.asgKey === asgKey && (
-                            <div className="absolute right-0 top-8 z-30 bg-gray-800 text-white text-xs rounded-lg px-3 py-2 shadow-lg whitespace-nowrap">
-                              {syncToast.message}
-                            </div>
-                          )}
                         </div>
                       )}
                     </td>
@@ -301,6 +368,19 @@ const SpotAutomationASGTable: React.FC<SpotAutomationASGTableProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Instance Type Configuration Modal */}
+      {configModalASG && (
+        <InstanceTypeConfigModal
+          isOpen={isConfigModalOpen}
+          isSaving={isSavingConfig}
+          asgName={configModalASG.name}
+          region={configModalASG.region}
+          currentTypes={isLoadingConfig ? [] : currentInstanceTypes}
+          onClose={handleCloseConfigModal}
+          onSave={handleSaveConfig}
+        />
       )}
     </div>
   );

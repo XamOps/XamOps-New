@@ -50,6 +50,7 @@ public class AutoSpottingService {
     private final SpotOptimizationEventRepository eventRepository;
     private final DailySpotSavingsRepository savingsRepository;
     private final com.xammer.cloud.repository.AutoSpottingSettingsRepository settingsRepository;
+    private final com.xammer.cloud.repository.AsgSpotConfigRepository asgSpotConfigRepository;
 
     // Cache for region discovery
     private final Map<String, CachedRegionInfo> regionCache = new ConcurrentHashMap<>();
@@ -74,13 +75,15 @@ public class AutoSpottingService {
             SpotPricingService spotPricingService,
             SpotOptimizationEventRepository eventRepository,
             DailySpotSavingsRepository savingsRepository,
-            com.xammer.cloud.repository.AutoSpottingSettingsRepository settingsRepository) {
+            com.xammer.cloud.repository.AutoSpottingSettingsRepository settingsRepository,
+            com.xammer.cloud.repository.AsgSpotConfigRepository asgSpotConfigRepository) {
         this.awsClientProvider = awsClientProvider;
         this.cloudAccountRepository = cloudAccountRepository;
         this.spotPricingService = spotPricingService;
         this.eventRepository = eventRepository;
         this.savingsRepository = savingsRepository;
         this.settingsRepository = settingsRepository;
+        this.asgSpotConfigRepository = asgSpotConfigRepository;
         logger.info("AutoSpottingService initialized with table={} tagKey={} tagValue={} namespace={}",
                 tableName, tagKey, tagValue, metricNamespace);
     }
@@ -801,6 +804,18 @@ public class AutoSpottingService {
             }
             var asg = asgResponse.autoScalingGroups().get(0);
 
+            // Get configured instance types for Spot diversification
+            List<String> configuredTypes = getConfiguredInstanceTypes(cloudAccountId, region, asgName);
+            List<software.amazon.awssdk.services.autoscaling.model.LaunchTemplateOverrides> overrides = null;
+            if (!configuredTypes.isEmpty()) {
+                overrides = configuredTypes.stream()
+                        .map(type -> software.amazon.awssdk.services.autoscaling.model.LaunchTemplateOverrides.builder()
+                                .instanceType(type)
+                                .build())
+                        .collect(Collectors.toList());
+                logger.info("Using configured instance types for {}: {}", asgName, String.join(", ", configuredTypes));
+            }
+
             software.amazon.awssdk.services.autoscaling.model.MixedInstancesPolicy mixedPolicy = null;
 
             if (asg.mixedInstancesPolicy() != null && asg.mixedInstancesPolicy().launchTemplate() != null) {
@@ -817,11 +832,13 @@ public class AutoSpottingService {
             } else if (asg.launchTemplate() != null) {
                 // Has a standalone LaunchTemplate — wrap it in MixedInstancesPolicy
                 var lt = asg.launchTemplate();
+                final var finalOverrides = overrides;
                 mixedPolicy = software.amazon.awssdk.services.autoscaling.model.MixedInstancesPolicy.builder()
                         .launchTemplate(ltp -> ltp
                                 .launchTemplateSpecification(lts -> lts
                                         .launchTemplateId(lt.launchTemplateId())
-                                        .version(lt.version() != null ? lt.version() : "$Default")))
+                                        .version(lt.version() != null ? lt.version() : "$Default"))
+                                .overrides(finalOverrides != null ? finalOverrides : Collections.emptyList()))
                         .instancesDistribution(d -> d
                                 .onDemandBaseCapacity(0)
                                 .onDemandPercentageAboveBaseCapacity(0)
@@ -1004,6 +1021,45 @@ public class AutoSpottingService {
         logger.info("Sync complete: {} new Spot event(s) backfilled for ASG {} [account={} region={}]",
                 backfilled, asgName, account.getAwsAccountId(), region);
         return backfilled;
+    }
+
+    // ================= INSTANCE TYPE CONFIGURATION =================
+
+    /**
+     * Get configured instance types for an ASG.
+     * Returns alternative instance types for Spot diversification.
+     */
+    public List<String> getConfiguredInstanceTypes(Long cloudAccountId, String region, String asgName) {
+        CloudAccount account = getByAwsAccountId(cloudAccountId);
+        return asgSpotConfigRepository
+                .findByAccountIdAndRegionAndAsgName(account.getId(), region, asgName)
+                .map(config -> {
+                    if (config.getAllowedInstanceTypes() != null && !config.getAllowedInstanceTypes().isEmpty()) {
+                        return Arrays.asList(config.getAllowedInstanceTypes().split(","));
+                    }
+                    return Collections.<String>emptyList();
+                })
+                .orElse(Collections.<String>emptyList());
+    }
+
+    /**
+     * Save instance type configuration for an ASG.
+     * Stores alternative instance types that will be used when enabling AutoSpotting.
+     */
+    public void saveInstanceTypeConfig(Long cloudAccountId, String region, String asgName, List<String> instanceTypes) {
+        CloudAccount account = getByAwsAccountId(cloudAccountId);
+        com.xammer.cloud.domain.AsgSpotConfig config = asgSpotConfigRepository
+                .findByAccountIdAndRegionAndAsgName(account.getId(), region, asgName)
+                .orElse(new com.xammer.cloud.domain.AsgSpotConfig());
+
+        config.setAccount(account);
+        config.setRegion(region);
+        config.setAsgName(asgName);
+        config.setAllowedInstanceTypes(instanceTypes != null ? String.join(",", instanceTypes) : null);
+        asgSpotConfigRepository.save(config);
+
+        logger.info("✓ Instance type config saved for ASG {} in {}: types={}",
+                asgName, region, config.getAllowedInstanceTypes());
     }
 
     /**

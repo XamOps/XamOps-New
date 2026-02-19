@@ -43,6 +43,7 @@ const AccountManagerPage: React.FC = () => {
     removeGitHubConfig,
     removeJenkinsConfig,
     verifyAccount,
+    updateBillingTable,
   } = useAccountManager();
 
   console.log('🏗️ AccountManagerPage render:', {
@@ -170,6 +171,7 @@ const AccountManagerPage: React.FC = () => {
           isLoading={isLoading}
           onVerify={handleOpenVerificationModal}
           onRemove={handleRemoveAccount}
+          onUpdateBillingTable={updateBillingTable}
         />
 
         {/* GitHub Repositories Table */}

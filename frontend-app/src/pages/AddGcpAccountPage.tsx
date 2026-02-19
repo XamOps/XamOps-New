@@ -254,6 +254,7 @@ const AddGcpAccountPage: React.FC = () => {
                   <label htmlFor="billingTable" className="form-label">
                     <i className="fas fa-database" style={{ color: 'var(--aa-gcp-gradient)' }}></i>
                     BigQuery Billing Export Table
+                    <span style={{ fontSize: '0.75rem', fontWeight: 400, color: '#94a3b8', marginLeft: '0.5rem' }}>(Optional)</span>
                   </label>
                   <input
                     type="text"
@@ -262,8 +263,10 @@ const AddGcpAccountPage: React.FC = () => {
                     onChange={(e) => setBillingTable(e.target.value)}
                     placeholder="project_id.billing_export.gcp_billing_export_v1_XXXXXX..."
                     className="form-input mono"
-                    required
                   />
+                  <p style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.5rem' }}>
+                    BigQuery billing export table may take up to 24 hours to be created after enabling billing export. You can add this later from Account Manager.
+                  </p>
                 </div>
 
                 {/* Action Buttons */}

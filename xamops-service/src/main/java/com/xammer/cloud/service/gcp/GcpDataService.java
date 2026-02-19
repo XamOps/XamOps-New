@@ -800,6 +800,25 @@ public class GcpDataService {
         }
     }
 
+    @Transactional
+    public CloudAccount updateBillingTable(Long accountId, String billingTable) {
+        CloudAccount account = cloudAccountRepository.findById(accountId)
+                .orElseThrow(() -> new RuntimeException("GCP account not found with ID: " + accountId));
+
+        if (!"GCP".equals(account.getProvider())) {
+            throw new RuntimeException("Account is not a GCP account");
+        }
+
+        if (billingTable != null && !billingTable.isEmpty()) {
+            validateBillingTableFormat(billingTable);
+        }
+
+        account.setBillingExportTable(billingTable);
+        CloudAccount saved = cloudAccountRepository.save(account);
+        log.info("Updated billing export table for account {}: {}", accountId, billingTable);
+        return saved;
+    }
+
     private String extractServiceAccountEmail(String serviceAccountKey) {
         try {
             JsonNode jsonNode = objectMapper.readTree(serviceAccountKey);
