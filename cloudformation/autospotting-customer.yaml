@@ -56,26 +56,34 @@ Resources:
           sqs = boto3.client('sqs', region_name=os.environ['XAMMER_REGION'])
           
           def lambda_handler(event, context):
-              """Forward EC2 instance state change events to Xammer SQS queue"""
-              
+              """Forward EC2 spot events and interruption warnings to Xammer SQS queue"""
+
               print(f"Received event: {json.dumps(event)}")
-              
-              # Extract event details
+
+              detail_type = event.get('detail-type', '')
               detail = event.get('detail', {})
-              instance_id = detail.get('instance-id')
-              state = detail.get('state')
-              instance_lifecycle = detail.get('instance-lifecycle')
-              
-              # Only process spot instances
-              if instance_lifecycle != 'spot':
-                  print(f"Skipping non-spot instance: {instance_id}")
-                  return {'statusCode': 200, 'body': 'Not a spot instance'}
-              
-              # Enrich event with customer account info
+              instance_id = detail.get('instance-id', 'unknown')
+              state = detail.get('state', '')
+              instance_lifecycle = detail.get('instance-lifecycle', '')
+
+              # Always forward Spot interruption warnings (no instance-lifecycle field)
+              is_interruption = (detail_type == 'EC2 Spot Instance Interruption Warning')
+
+              # For state-change events: forward Spot launches and OD launches
+              # (OD launches indicate Spot was unavailable — useful for fallback tracking)
+              is_spot_launch = (state == 'running' and instance_lifecycle == 'spot')
+              is_od_launch = (state == 'running' and instance_lifecycle == 'normal')
+              is_termination = (state in ('terminated', 'stopped') and instance_lifecycle == 'spot')
+
+              if not (is_interruption or is_spot_launch or is_od_launch or is_termination):
+                  print(f"Skipping event: detail-type={detail_type} state={state} lifecycle={instance_lifecycle}")
+                  return {'statusCode': 200, 'body': 'Event not relevant'}
+
+              # Enrich event with customer account info and forward to Xammer SQS
               enriched_event = {
                   'version': event.get('version'),
                   'id': event.get('id'),
-                  'detail-type': event.get('detail-type'),
+                  'detail-type': detail_type,
                   'source': event.get('source'),
                   'account': os.environ['CUSTOMER_ACCOUNT_ID'],
                   'time': event.get('time'),
@@ -83,18 +91,18 @@ Resources:
                   'resources': event.get('resources', []),
                   'detail': detail
               }
-              
-              # Send to Xammer SQS queue
+
               try:
+                  dedup_id = f"{instance_id}-{state or detail_type}-{event.get('time', '')}"
                   response = sqs.send_message(
                       QueueUrl=os.environ['XAMMER_SQS_QUEUE_URL'],
                       MessageBody=json.dumps(enriched_event),
                       MessageGroupId='customer-events',
-                      MessageDeduplicationId=f"{instance_id}-{state}-{event.get('time')}"
+                      MessageDeduplicationId=dedup_id
                   )
-                  
-                  print(f"Forwarded event to Xammer SQS: {response['MessageId']}")
-                  
+
+                  print(f"Forwarded {detail_type} event for {instance_id}: {response['MessageId']}")
+
                   return {
                       'statusCode': 200,
                       'body': json.dumps({
@@ -102,7 +110,7 @@ Resources:
                           'messageId': response['MessageId']
                       })
                   }
-              
+
               except Exception as e:
                   print(f"Error forwarding event: {str(e)}")
                   raise
@@ -185,8 +193,16 @@ Resources:
                   - autoscaling:DescribeAutoScalingGroups
                   - autoscaling:UpdateAutoScalingGroup
                   - autoscaling:CreateOrUpdateTags
+                  - autoscaling:DeleteTags
+                  - autoscaling:StartInstanceRefresh
+                  - autoscaling:DescribeInstanceRefreshes
                   - ec2:DescribeInstances
                   - ec2:DescribeSpotPriceHistory
+                  - ec2:DescribeInstanceTypes
+                  - ec2:DescribeLaunchTemplates
+                  - ec2:DescribeLaunchTemplateVersions
+                  - ec2:RunInstances
+                  - ec2:CreateLaunchTemplateVersion
                   - ec2:TerminateInstances
                   - ec2:CreateTags
                   - pricing:GetProducts
@@ -258,6 +274,61 @@ Resources:
       Principal: events.amazonaws.com
       SourceArn: !GetAtt SpotInstanceTerminationRule.Arn
 
+  # Rule to capture Spot interruption warnings (2-minute notice before reclaim)
+  SpotInterruptionRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: autospotting-spot-interruption
+      Description: Capture Spot interruption warnings and forward to Xammer (2-min notice)
+      State: !If [IsEnabled, ENABLED, DISABLED]
+      EventPattern:
+        source:
+          - aws.ec2
+        detail-type:
+          - EC2 Spot Instance Interruption Warning
+      Targets:
+        - Arn: !GetAtt EventForwarderFunction.Arn
+          Id: InterruptionEventForwarderTarget
+
+  # Permission for EventBridge to invoke Lambda (Interruption)
+  InterruptionRuleLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref EventForwarderFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt SpotInterruptionRule.Arn
+
+  # Rule to capture on-demand instance launches (fallback when Spot is unavailable)
+  ODFallbackRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: autospotting-od-fallback
+      Description: Capture OD instance launches to detect when Spot is unavailable
+      State: !If [IsEnabled, ENABLED, DISABLED]
+      EventPattern:
+        source:
+          - aws.ec2
+        detail-type:
+          - EC2 Instance State-change Notification
+        detail:
+          state:
+            - running
+          instance-lifecycle:
+            - normal
+      Targets:
+        - Arn: !GetAtt EventForwarderFunction.Arn
+          Id: ODFallbackEventForwarderTarget
+
+  # Permission for EventBridge to invoke Lambda (OD Fallback)
+  ODFallbackRuleLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref EventForwarderFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt ODFallbackRule.Arn
+
   # ============================================================================
   # CloudWatch Alarms
   # ============================================================================
@@ -323,6 +394,18 @@ Outputs:
     Value: !GetAtt SpotInstanceTerminationRule.Arn
     Export:
       Name: !Sub '${AWS::StackName}-TerminationRuleArn'
+
+  InterruptionRuleArn:
+    Description: ARN of the spot interruption warning EventBridge rule
+    Value: !GetAtt SpotInterruptionRule.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-InterruptionRuleArn'
+
+  ODFallbackRuleArn:
+    Description: ARN of the on-demand fallback EventBridge rule
+    Value: !GetAtt ODFallbackRule.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-ODFallbackRuleArn'
 
   AutoSpottingExecutionRoleArn:
     Description: ARN of the cross-account role for Xammer backend

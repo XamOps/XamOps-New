@@ -30,7 +30,6 @@ import SpotAutomationKPIs from '../components/SpotAutomation/SpotAutomationKPIs'
 import SpotAutomationChart from '../components/SpotAutomation/SpotAutomationChart';
 import SpotAutomationASGTable from '../components/SpotAutomation/SpotAutomationASGTable';
 import DeploymentModal from '../components/SpotAutomation/DeploymentModal';
-import SyncAccountModal from '../components/SpotAutomation/SyncAccountModal';
 import ActionsHistory from '../components/ActionsHistory/ActionsHistory';
 import LaunchAnalytics from '../components/LaunchAnalytics/LaunchAnalytics';
 
@@ -49,15 +48,14 @@ const SpotAutomationPage: React.FC = () => {
     isLoading,
     isLoadingHistory,
     toggleASG,
+    syncASG,
     fetchCostData,
     fetchHistoryData,
     generateDeploymentUrl,
-    syncAccount,
   } = useSpotAutomationData({ selectedAccountId });
 
   // Modal states
   const [isDeploymentModalOpen, setIsDeploymentModalOpen] = useState(false);
-  const [isSyncAccountModalOpen, setIsSyncAccountModalOpen] = useState(false);
   const [historyTimeRange, setHistoryTimeRange] = useState<'last24h' | 'last7d' | 'last30d'>('last7d');
 
   // Tab state
@@ -90,15 +88,6 @@ const SpotAutomationPage: React.FC = () => {
     }
   };
 
-  const handleSyncAccount = async (accountId: string, accountName: string, regions: string) => {
-    try {
-      await syncAccount(accountId, accountName, regions);
-      showToast(`Account ${accountId} synced successfully!`, 'success');
-    } catch (err) {
-      throw err; // Let the modal handle the error
-    }
-  };
-
   const handleTimeRangeChange = (range: 'last24h' | 'last7d' | 'last30d') => {
     setHistoryTimeRange(range);
     fetchHistoryData(range);
@@ -110,7 +99,6 @@ const SpotAutomationPage: React.FC = () => {
     <div className="flex-1 flex flex-col min-h-screen bg-gray-50 relative">
       {/* Header */}
       <SpotAutomationHeader
-        onSyncAccount={() => setIsSyncAccountModalOpen(true)}
         onDeployToAWS={() => setIsDeploymentModalOpen(true)}
         disabled={false}
       />
@@ -182,6 +170,7 @@ const SpotAutomationPage: React.FC = () => {
               totalInstances={totalInstances}
               isLoading={isLoading}
               onToggleASG={handleToggleASG}
+              onSyncASG={syncASG}
               onRefresh={() => fetchCostData(true)}
             />
           </div>
@@ -203,12 +192,6 @@ const SpotAutomationPage: React.FC = () => {
         isOpen={isDeploymentModalOpen}
         onClose={() => setIsDeploymentModalOpen(false)}
         onGenerateUrl={generateDeploymentUrl}
-      />
-
-      <SyncAccountModal
-        isOpen={isSyncAccountModalOpen}
-        onClose={() => setIsSyncAccountModalOpen(false)}
-        onSync={handleSyncAccount}
       />
 
       {/* Toast Notification */}

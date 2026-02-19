@@ -205,6 +205,37 @@ public class AutoSpottingController {
         }
     }
 
+    // ================= MANUAL SYNC / BACKFILL =================
+
+    /**
+     * Manually sync (backfill) SUCCESS events for Spot instances currently running
+     * in the given ASG that are not yet recorded in the database.
+     * POST /api/autospotting/asgs/{accountId}/sync?region=ap-south-1&asgName=my-asg
+     */
+    @PostMapping("/asgs/{accountId}/sync")
+    public ResponseEntity<?> syncSpotEvents(
+            @PathVariable Long accountId,
+            @RequestParam String region,
+            @RequestParam String asgName) {
+
+        log.info("AutoSpottingController.syncSpotEvents called: accountId={} region={} asgName={}",
+                accountId, region, asgName);
+        try {
+            int backfilled = autoSpottingService.backfillSpotEvents(accountId, region, asgName);
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "backfilled", backfilled,
+                    "message", backfilled > 0
+                            ? backfilled + " Spot event(s) synced to Actions History."
+                            : "No new Spot instances found to sync."));
+        } catch (Exception e) {
+            log.error("Failed to sync Spot events: {}", e.getMessage(), e);
+            return ResponseEntity.status(500).body(Map.of(
+                    "success", false,
+                    "error", e.getMessage()));
+        }
+    }
+
     // ================= INSTANCE LISTING =================
 
     /**

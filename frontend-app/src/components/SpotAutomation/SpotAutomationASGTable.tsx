@@ -7,6 +7,7 @@ interface SpotAutomationASGTableProps {
   totalInstances: number;
   isLoading: boolean;
   onToggleASG: (asg: ASG) => Promise<void>;
+  onSyncASG: (asg: ASG) => Promise<{ backfilled: number; message: string }>;
   onRefresh: () => void;
 }
 
@@ -16,9 +17,12 @@ const SpotAutomationASGTable: React.FC<SpotAutomationASGTableProps> = ({
   totalInstances,
   isLoading,
   onToggleASG,
+  onSyncASG,
   onRefresh,
 }) => {
   const [togglingASGs, setTogglingASGs] = useState<Set<string>>(new Set());
+  const [syncingASGs, setSyncingASGs] = useState<Set<string>>(new Set());
+  const [syncToast, setSyncToast] = useState<{ asgKey: string; message: string } | null>(null);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -47,6 +51,26 @@ const SpotAutomationASGTable: React.FC<SpotAutomationASGTableProps> = ({
       await onToggleASG(asg);
     } finally {
       setTogglingASGs((prev) => {
+        const next = new Set(prev);
+        next.delete(asgKey);
+        return next;
+      });
+    }
+  };
+
+  const handleSync = async (asg: ASG) => {
+    const asgKey = `${asg.name}-${asg.region}`;
+    if (syncingASGs.has(asgKey)) return;
+    setSyncingASGs((prev) => new Set(prev).add(asgKey));
+    try {
+      const result = await onSyncASG(asg);
+      setSyncToast({ asgKey, message: result.message });
+      setTimeout(() => setSyncToast(null), 4000);
+    } catch (err) {
+      setSyncToast({ asgKey, message: 'Sync failed. Check backend logs.' });
+      setTimeout(() => setSyncToast(null), 4000);
+    } finally {
+      setSyncingASGs((prev) => {
         const next = new Set(prev);
         next.delete(asgKey);
         return next;
@@ -225,6 +249,24 @@ const SpotAutomationASGTable: React.FC<SpotAutomationASGTableProps> = ({
                           {isToggling && <i className="fas fa-spinner fa-spin text-gray-400 text-xs"></i>}
                         </div>
                       </div>
+                      {asg.isEnabled && (
+                        <div className="relative">
+                          <button
+                            onClick={() => handleSync(asg)}
+                            disabled={syncingASGs.has(asgKey)}
+                            title="Sync Spot events to Actions History"
+                            className="text-xs text-indigo-500 hover:text-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 px-2 py-1 rounded hover:bg-indigo-50 transition-colors"
+                          >
+                            <i className={`fas ${syncingASGs.has(asgKey) ? 'fa-spinner fa-spin' : 'fa-sync-alt'}`}></i>
+                            <span>{syncingASGs.has(asgKey) ? 'Syncing...' : 'Sync'}</span>
+                          </button>
+                          {syncToast?.asgKey === asgKey && (
+                            <div className="absolute right-0 top-8 z-30 bg-gray-800 text-white text-xs rounded-lg px-3 py-2 shadow-lg whitespace-nowrap">
+                              {syncToast.message}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </td>
                   </tr>
                 );

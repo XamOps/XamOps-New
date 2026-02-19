@@ -91,6 +91,28 @@ Resources:
               ArnEquals:
                 aws:SourceArn: !GetAtt EC2InstanceTerminationRule.Arn
 
+          - Sid: AllowEventBridgeToSendInterruptionMessages
+            Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action:
+              - sqs:SendMessage
+            Resource: !GetAtt AutoSpottingEventQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !GetAtt SpotInterruptionRule.Arn
+
+          - Sid: AllowEventBridgeToSendODFallbackMessages
+            Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action:
+              - sqs:SendMessage
+            Resource: !GetAtt AutoSpottingEventQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !GetAtt EC2InstanceODFallbackRule.Arn
+
           - Sid: AllowBackendToPollMessages
             Effect: Allow
             Principal:
@@ -149,6 +171,47 @@ Resources:
       Targets:
         - Arn: !GetAtt AutoSpottingEventQueue.Arn
           Id: AutoSpottingQueueTarget
+          SqsParameters:
+            MessageGroupId: instance-events
+
+  # Rule to capture Spot instance interruption warnings (2-minute notice)
+  SpotInterruptionRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: autospotting-spot-interruption
+      Description: Capture Spot instance interruption warnings for AutoSpotting
+      State: ENABLED
+      EventPattern:
+        source:
+          - aws.ec2
+        detail-type:
+          - EC2 Spot Instance Interruption Warning
+      Targets:
+        - Arn: !GetAtt AutoSpottingEventQueue.Arn
+          Id: AutoSpottingInterruptionTarget
+          SqsParameters:
+            MessageGroupId: interruption-events
+
+  # Rule to capture on-demand instance launches — indicates Spot was unavailable (fallback)
+  EC2InstanceODFallbackRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: autospotting-od-fallback
+      Description: Capture on-demand instance launches to detect Spot unavailability fallback
+      State: ENABLED
+      EventPattern:
+        source:
+          - aws.ec2
+        detail-type:
+          - EC2 Instance State-change Notification
+        detail:
+          state:
+            - running
+          instance-lifecycle:
+            - normal
+      Targets:
+        - Arn: !GetAtt AutoSpottingEventQueue.Arn
+          Id: AutoSpottingODFallbackTarget
           SqsParameters:
             MessageGroupId: instance-events
 

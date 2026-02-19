@@ -361,8 +361,8 @@ const ActionsHistory: React.FC<ActionsHistoryProps> = ({ accountId }) => {
 
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className="text-xs font-semibold text-gray-700">{event.old_instance_type || '-'}</span>
-                      {event.old_hourly_price !== undefined && (
-                        <div className="text-[10px] text-gray-500">${(event.old_hourly_price || 0).toFixed(4)}</div>
+                      {event.old_hourly_price != null && (
+                        <div className="text-[10px] text-gray-500">${(event.old_hourly_price).toFixed(4)}/hr OD</div>
                       )}
                     </td>
 
@@ -379,8 +379,8 @@ const ActionsHistory: React.FC<ActionsHistoryProps> = ({ accountId }) => {
 
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className="text-xs font-semibold text-gray-700">{event.new_instance_type || '-'}</span>
-                      {event.new_hourly_price !== undefined && (
-                        <div className="text-[10px] text-gray-500">${(event.new_hourly_price || 0).toFixed(4)}</div>
+                      {event.new_hourly_price != null && (
+                        <div className="text-[10px] text-gray-500">${(event.new_hourly_price).toFixed(4)}/hr Spot</div>
                       )}
                     </td>
 

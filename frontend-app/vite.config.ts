@@ -65,6 +65,14 @@ export default defineConfig({
         ws: true,
         changeOrigin: true,
         secure: false,
+        configure: (proxy: any) => {
+          proxy.on('error', (err: any) => {
+            // EPIPE/ECONNRESET are normal when clients disconnect or backend restarts
+            if (err.code !== 'EPIPE' && err.code !== 'ECONNRESET') {
+              console.error('[xamops-ws proxy error]', err.message);
+            }
+          });
+        },
       },
       // Terminal WebSocket
       '/terminal': {
@@ -72,6 +80,13 @@ export default defineConfig({
         ws: true,
         changeOrigin: true,
         secure: false,
+        configure: (proxy: any) => {
+          proxy.on('error', (err: any) => {
+            if (err.code !== 'EPIPE' && err.code !== 'ECONNRESET') {
+              console.error('[terminal proxy error]', err.message);
+            }
+          });
+        },
       },
       // --- 1. CORE AUTHENTICATION ---
       '/login': {
