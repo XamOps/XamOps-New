@@ -124,8 +124,8 @@ export function useAddGcpAccount(): UseAddGcpAccountReturn {
    */
   const addAccount = useCallback(async () => {
     // Validate all required fields
-    if (!accountName.trim() || !projectId.trim() || !serviceAccountKey.trim() || !billingTable.trim()) {
-      alert('Please fill in all required fields:\n\n• Account Name\n• GCP Project ID\n• Service Account Key (JSON)\n• BigQuery Billing Export Table');
+    if (!accountName.trim() || !projectId.trim() || !serviceAccountKey.trim()) {
+      alert('Please fill in all required fields:\n\n• Account Name\n• GCP Project ID\n• Service Account Key (JSON)');
       return;
     }
 
@@ -141,17 +141,19 @@ export function useAddGcpAccount(): UseAddGcpAccountReturn {
       return;
     }
 
-    // Validate billing table format (project.dataset.table)
-    const tableParts = billingTable.trim().split('.');
-    if (tableParts.length !== 3) {
-      alert('Invalid BigQuery table format.\n\nExpected format: project.dataset.table\n\nExample:\nmy-project.billing_export.gcp_billing_export_v1_XXXXXX_XXXXXX_XXXXXX');
-      return;
-    }
+    // Validate billing table format (project.dataset.table) only if provided
+    if (billingTable.trim()) {
+      const tableParts = billingTable.trim().split('.');
+      if (tableParts.length !== 3) {
+        alert('Invalid BigQuery table format.\n\nExpected format: project.dataset.table\n\nExample:\nmy-project.billing_export.gcp_billing_export_v1_XXXXXX_XXXXXX_XXXXXX');
+        return;
+      }
 
-    // Check if any part is empty
-    if (tableParts.some(part => !part.trim())) {
-      alert('Invalid BigQuery table format.\n\nEach part (project, dataset, table) must not be empty.');
-      return;
+      // Check if any part is empty
+      if (tableParts.some(part => !part.trim())) {
+        alert('Invalid BigQuery table format.\n\nEach part (project, dataset, table) must not be empty.');
+        return;
+      }
     }
 
     setIsLoading(true);
@@ -164,7 +166,7 @@ export function useAddGcpAccount(): UseAddGcpAccountReturn {
           accountName: accountName.trim(),
           projectId: projectId.trim(),
           serviceAccountKey: serviceAccountKey.trim(),
-          billingExportTable: billingTable.trim(),
+          ...(billingTable.trim() && { billingExportTable: billingTable.trim() }),
         }),
       });
 

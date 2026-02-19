@@ -2,8 +2,10 @@ package com.xammer.cloud.service.gcp;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.google.cloud.bigquery.*;
+import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.DetailedCostDto; // <-- NEW IMPORT
 import com.xammer.cloud.dto.gcp.GcpCostDto;
+import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.service.RedisCacheService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -24,6 +26,7 @@ public class GcpCostService {
 
     private final GcpClientProvider gcpClientProvider;
     private final RedisCacheService redisCacheService;
+    private final CloudAccountRepository cloudAccountRepository;
     private final ExecutorService executor = Executors.newCachedThreadPool();
 
     @Value("${gcp.billing.export-table-name:}")
@@ -40,9 +43,11 @@ public class GcpCostService {
     // --- NEW CACHE KEY ---
     private static final String COST_BY_SERVICE_REGION_CACHE_PREFIX = "gcp:cost-by-service-region:";
 
-    public GcpCostService(GcpClientProvider gcpClientProvider, RedisCacheService redisCacheService) {
+    public GcpCostService(GcpClientProvider gcpClientProvider, RedisCacheService redisCacheService,
+            CloudAccountRepository cloudAccountRepository) {
         this.gcpClientProvider = gcpClientProvider;
         this.redisCacheService = redisCacheService;
+        this.cloudAccountRepository = cloudAccountRepository;
     }
 
     // --- NEW METHOD FOR DETAILED REPORTING ---
@@ -490,9 +495,25 @@ public class GcpCostService {
     }
 
     private Optional<String> getBillingTableName(BigQuery bigquery, String gcpProjectId) {
+        // Priority 1: Check billing table stored in CloudAccount
+        try {
+            Optional<CloudAccount> accountOpt = cloudAccountRepository.findByGcpProjectId(gcpProjectId);
+            if (accountOpt.isPresent()) {
+                String storedTable = accountOpt.get().getBillingExportTable();
+                if (storedTable != null && !storedTable.isBlank()) {
+                    log.info("Using billing table from CloudAccount for project {}: {}", gcpProjectId, storedTable);
+                    return Optional.of(storedTable);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to lookup billing table from CloudAccount for project {}: {}", gcpProjectId, e.getMessage());
+        }
+
+        // Priority 2: Check application property
         if (billingExportTableName != null && !billingExportTableName.isBlank())
             return Optional.of(billingExportTableName);
 
+        // Priority 3: Dynamic discovery from BigQuery datasets
         try {
             for (Dataset dataset : bigquery.listDatasets(gcpProjectId).iterateAll()) {
                 for (Table table : bigquery.listTables(dataset.getDatasetId()).iterateAll()) {

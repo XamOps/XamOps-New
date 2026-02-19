@@ -29,7 +29,6 @@ import SpotAutomationHeader from '../components/SpotAutomation/SpotAutomationHea
 import SpotAutomationKPIs from '../components/SpotAutomation/SpotAutomationKPIs';
 import SpotAutomationChart from '../components/SpotAutomation/SpotAutomationChart';
 import SpotAutomationASGTable from '../components/SpotAutomation/SpotAutomationASGTable';
-import DeploymentModal from '../components/SpotAutomation/DeploymentModal';
 import ActionsHistory from '../components/ActionsHistory/ActionsHistory';
 import LaunchAnalytics from '../components/LaunchAnalytics/LaunchAnalytics';
 
@@ -49,13 +48,13 @@ const SpotAutomationPage: React.FC = () => {
     isLoadingHistory,
     toggleASG,
     syncASG,
+    getInstanceTypeConfig,
+    saveInstanceTypeConfig,
     fetchCostData,
     fetchHistoryData,
-    generateDeploymentUrl,
   } = useSpotAutomationData({ selectedAccountId });
 
   // Modal states
-  const [isDeploymentModalOpen, setIsDeploymentModalOpen] = useState(false);
   const [historyTimeRange, setHistoryTimeRange] = useState<'last24h' | 'last7d' | 'last30d'>('last7d');
 
   // Tab state
@@ -98,10 +97,7 @@ const SpotAutomationPage: React.FC = () => {
   return (
     <div className="flex-1 flex flex-col min-h-screen bg-gray-50 relative">
       {/* Header */}
-      <SpotAutomationHeader
-        onDeployToAWS={() => setIsDeploymentModalOpen(true)}
-        disabled={false}
-      />
+      <SpotAutomationHeader />
 
       {/* Tab Navigation */}
       <div className="bg-white border-b border-gray-200 px-8">
@@ -171,6 +167,8 @@ const SpotAutomationPage: React.FC = () => {
               isLoading={isLoading}
               onToggleASG={handleToggleASG}
               onSyncASG={syncASG}
+              onGetInstanceTypeConfig={getInstanceTypeConfig}
+              onSaveInstanceTypeConfig={saveInstanceTypeConfig}
               onRefresh={() => fetchCostData(true)}
             />
           </div>
@@ -186,13 +184,6 @@ const SpotAutomationPage: React.FC = () => {
           <ActionsHistory accountId={selectedAccountId} />
         )}
       </div>
-
-      {/* Modals */}
-      <DeploymentModal
-        isOpen={isDeploymentModalOpen}
-        onClose={() => setIsDeploymentModalOpen(false)}
-        onGenerateUrl={generateDeploymentUrl}
-      />
 
       {/* Toast Notification */}
       {toast.show && (

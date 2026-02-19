@@ -26,6 +26,7 @@ interface UseAccountManagerReturn {
   removeGitHubConfig: (config: GitHubConfig) => Promise<boolean>;
   removeJenkinsConfig: (config: JenkinsConfig) => Promise<boolean>;
   verifyAccount: (details: VerificationDetails) => Promise<{ success: boolean; error?: string }>;
+  updateBillingTable: (accountDbId: number, billingTable: string) => Promise<{ success: boolean; error?: string }>;
 
   // Helpers
   getStatusColor: (status: string, type: 'badge' | 'icon') => string;
@@ -204,6 +205,30 @@ export function useAccountManager(): UseAccountManagerReturn {
   }, [fetchAccounts]);
 
   /**
+   * Update billing export table for a GCP account
+   */
+  const updateBillingTable = useCallback(async (accountDbId: number, billingTable: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const res = await apiFetch(`/api/xamops/account-manager/accounts/${accountDbId}/billing-table`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ billingExportTable: billingTable }),
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        return { success: false, error: errorData.message || 'Failed to update billing table.' };
+      }
+
+      // Refresh accounts after update
+      await fetchAccounts();
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : 'Unknown error' };
+    }
+  }, [fetchAccounts]);
+
+  /**
    * Get status color classes
    */
   const getStatusColor = useCallback((status: string, type: 'badge' | 'icon'): string => {
@@ -248,6 +273,7 @@ export function useAccountManager(): UseAccountManagerReturn {
     removeGitHubConfig,
     removeJenkinsConfig,
     verifyAccount,
+    updateBillingTable,
     getStatusColor,
   };
 }

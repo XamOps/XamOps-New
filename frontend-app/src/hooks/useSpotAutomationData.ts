@@ -268,6 +268,45 @@ export const useSpotAutomationData = ({ selectedAccountId }: UseSpotAutomationDa
   }, [selectedAccountId]);
 
   /**
+   * Get configured instance types for an ASG
+   */
+  const getInstanceTypeConfig = useCallback(async (region: string, asgName: string): Promise<string[]> => {
+    if (!selectedAccountId) {
+      throw new Error('No account selected');
+    }
+    try {
+      console.log(`[SpotAutomation] Fetching instance type config for ${asgName} in ${region}`);
+      const data = await apiClient.get(
+        `/api/autospotting/asgs/${selectedAccountId}/instance-types?region=${region}&asgName=${encodeURIComponent(asgName)}`
+      );
+      return data.instanceTypes || [];
+    } catch (err) {
+      console.error('[SpotAutomation] Error fetching instance type config:', err);
+      throw err;
+    }
+  }, [selectedAccountId]);
+
+  /**
+   * Save instance type configuration for an ASG
+   */
+  const saveInstanceTypeConfig = useCallback(async (region: string, asgName: string, instanceTypes: string[]): Promise<void> => {
+    if (!selectedAccountId) {
+      throw new Error('No account selected');
+    }
+    try {
+      console.log(`[SpotAutomation] Saving instance type config for ${asgName} in ${region}:`, instanceTypes);
+      await apiClient.put(
+        `/api/autospotting/asgs/${selectedAccountId}/instance-types?region=${region}&asgName=${encodeURIComponent(asgName)}`,
+        { instanceTypes }
+      );
+      console.log('[SpotAutomation] Instance type config saved successfully');
+    } catch (err) {
+      console.error('[SpotAutomation] Error saving instance type config:', err);
+      throw err;
+    }
+  }, [selectedAccountId]);
+
+  /**
    * Generate CloudFormation deployment URL
    */
   const generateDeploymentUrl = useCallback(async (): Promise<string> => {
@@ -316,6 +355,8 @@ export const useSpotAutomationData = ({ selectedAccountId }: UseSpotAutomationDa
     fetchHistoryData,
     toggleASG,
     syncASG,
+    getInstanceTypeConfig,
+    saveInstanceTypeConfig,
     generateDeploymentUrl,
   };
 };

@@ -12,6 +12,7 @@ public class AccountDto {
     private String externalId;
     private String provider;
     private String grafanaIp;
+    private String billingExportTable;
 
     public AccountDto() {}
 
@@ -51,5 +52,13 @@ public class AccountDto {
 
     public void setGrafanaIp(String grafanaIp) {
         this.grafanaIp = grafanaIp;
+    }
+
+    public String getBillingExportTable() {
+        return billingExportTable;
+    }
+
+    public void setBillingExportTable(String billingExportTable) {
+        this.billingExportTable = billingExportTable;
     }
 }

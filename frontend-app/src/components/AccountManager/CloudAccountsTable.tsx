@@ -4,7 +4,7 @@
  * Table displaying connected cloud accounts with actions
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { CloudAccount } from '../../types/accountManager';
 
@@ -13,6 +13,7 @@ interface CloudAccountsTableProps {
   isLoading: boolean;
   onVerify: (account: CloudAccount) => void;
   onRemove: (account: CloudAccount) => void;
+  onUpdateBillingTable?: (accountDbId: number, billingTable: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 const CloudAccountsTable: React.FC<CloudAccountsTableProps> = ({
@@ -20,7 +21,12 @@ const CloudAccountsTable: React.FC<CloudAccountsTableProps> = ({
   isLoading,
   onVerify,
   onRemove,
+  onUpdateBillingTable,
 }) => {
+  const [billingModalAccount, setBillingModalAccount] = useState<CloudAccount | null>(null);
+  const [billingTableInput, setBillingTableInput] = useState('');
+  const [billingModalLoading, setBillingModalLoading] = useState(false);
+
   const getProviderIcon = (provider: string) => {
     switch (provider) {
       case 'AWS':
@@ -36,6 +42,44 @@ const CloudAccountsTable: React.FC<CloudAccountsTableProps> = ({
 
   const getAccountId = (account: CloudAccount) => {
     return account.id || account.azureSubscriptionId || 'N/A';
+  };
+
+  const openBillingModal = (account: CloudAccount) => {
+    setBillingModalAccount(account);
+    setBillingTableInput(account.billingExportTable || '');
+  };
+
+  const closeBillingModal = () => {
+    setBillingModalAccount(null);
+    setBillingTableInput('');
+    setBillingModalLoading(false);
+  };
+
+  const handleSaveBillingTable = async () => {
+    if (!billingModalAccount || !onUpdateBillingTable) return;
+
+    const trimmed = billingTableInput.trim();
+    if (!trimmed) {
+      alert('Please enter the BigQuery billing export table name.');
+      return;
+    }
+
+    const parts = trimmed.split('.');
+    if (parts.length !== 3 || parts.some(p => !p.trim())) {
+      alert('Invalid format. Expected: project.dataset.table\n\nExample: my-project.billing_export.gcp_billing_export_v1_XXXXXX_XXXXXX_XXXXXX');
+      return;
+    }
+
+    setBillingModalLoading(true);
+    const result = await onUpdateBillingTable(billingModalAccount.dbId, trimmed);
+    setBillingModalLoading(false);
+
+    if (result.success) {
+      alert('Billing export table updated successfully!');
+      closeBillingModal();
+    } else {
+      alert(`Failed to update: ${result.error}`);
+    }
   };
 
   return (
@@ -109,6 +153,9 @@ const CloudAccountsTable: React.FC<CloudAccountsTableProps> = ({
                 const dotClasses = isConnected ? 'bg-emerald-500 animate-pulse' :
                   isPending ? 'bg-amber-500' : 'bg-rose-500';
 
+                const isGcp = account.provider === 'GCP';
+                const hasBillingTable = !!account.billingExportTable;
+
                 return (
                   <tr
                     key={account.dbId}
@@ -153,6 +200,25 @@ const CloudAccountsTable: React.FC<CloudAccountsTableProps> = ({
                             <i className="fas fa-check text-xs" />
                           </button>
                         )}
+                        {isGcp && !hasBillingTable && (
+                          <button
+                            onClick={() => openBillingModal(account)}
+                            className="h-8 rounded-lg px-2.5 bg-amber-50 text-amber-600 hover:bg-amber-600 hover:text-white transition-all flex items-center justify-center gap-1.5 shadow-sm border border-amber-200"
+                            title="Configure BigQuery Billing Table"
+                          >
+                            <i className="fas fa-database text-xs" />
+                            <span className="text-[10px] font-bold">Configure Billing</span>
+                          </button>
+                        )}
+                        {isGcp && hasBillingTable && (
+                          <button
+                            onClick={() => openBillingModal(account)}
+                            className="h-8 w-8 rounded-lg bg-slate-100 text-slate-500 hover:bg-indigo-500 hover:text-white transition-all flex items-center justify-center shadow-sm"
+                            title={`Billing Table: ${account.billingExportTable}`}
+                          >
+                            <i className="fas fa-database text-xs" />
+                          </button>
+                        )}
                         <button
                           onClick={() => onRemove(account)}
                           className="h-8 w-8 rounded-lg bg-rose-50 text-rose-500 hover:bg-rose-500 hover:text-white transition-all flex items-center justify-center shadow-sm"
@@ -167,6 +233,64 @@ const CloudAccountsTable: React.FC<CloudAccountsTableProps> = ({
               })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Billing Table Modal */}
+      {billingModalAccount && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+          onClick={closeBillingModal}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-6 py-5 border-b border-slate-100 bg-slate-50/50">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-200">
+                  <i className="fas fa-database text-white" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    {billingModalAccount.billingExportTable ? 'Update' : 'Configure'} Billing Export Table
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">{billingModalAccount.name}</p>
+                </div>
+              </div>
+            </div>
+            <div className="px-6 py-5">
+              <label className="block text-xs font-bold text-slate-700 mb-2">
+                BigQuery Billing Export Table
+              </label>
+              <input
+                type="text"
+                value={billingTableInput}
+                onChange={(e) => setBillingTableInput(e.target.value)}
+                placeholder="project_id.billing_export.gcp_billing_export_v1_XXXXXX..."
+                className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all"
+                autoFocus
+              />
+              <p className="text-[11px] text-slate-400 mt-2">
+                Format: <code className="bg-slate-100 px-1 py-0.5 rounded">project.dataset.table</code> — Find this in GCP Console under Billing &gt; Billing export &gt; BigQuery export.
+              </p>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/30 flex justify-end gap-3">
+              <button
+                onClick={closeBillingModal}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveBillingTable}
+                disabled={billingModalLoading}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 disabled:opacity-50"
+              >
+                {billingModalLoading ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

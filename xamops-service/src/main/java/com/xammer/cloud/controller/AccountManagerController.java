@@ -256,6 +256,7 @@ public class AccountManagerController {
         dto.setGrafanaIp(account.getGrafanaIp());
         dto.setGrafanaDashboardUid(account.getGrafanaDashboardUid());
         dto.setGrafanaDashboardSlug(account.getGrafanaDashboardSlug());
+        dto.setBillingExportTable(account.getBillingExportTable());
         return dto;
     }
 
@@ -333,6 +334,26 @@ public class AccountManagerController {
             logger.error("Error adding/updating Azure account", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body("An unexpected error occurred while processing the account.");
+        }
+    }
+
+    @PutMapping("/accounts/{accountId}/billing-table")
+    public ResponseEntity<?> updateBillingTable(@PathVariable Long accountId,
+            @RequestBody Map<String, String> payload) {
+        String billingExportTable = payload.get("billingExportTable");
+        if (billingExportTable == null || billingExportTable.trim().isEmpty()) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("message", "billingExportTable is required in the request body."));
+        }
+
+        try {
+            gcpDataService.updateBillingTable(accountId, billingExportTable.trim());
+            return ResponseEntity.ok()
+                    .body(Map.of("message", "Billing export table updated successfully."));
+        } catch (Exception e) {
+            logger.error("Failed to update billing table for account {}: {}", accountId, e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("message", e.getMessage()));
         }
     }
 

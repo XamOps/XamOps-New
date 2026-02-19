@@ -9,6 +9,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -230,6 +231,66 @@ public class AutoSpottingController {
                             : "No new Spot instances found to sync."));
         } catch (Exception e) {
             log.error("Failed to sync Spot events: {}", e.getMessage(), e);
+            return ResponseEntity.status(500).body(Map.of(
+                    "success", false,
+                    "error", e.getMessage()));
+        }
+    }
+
+    // ================= INSTANCE TYPE CONFIGURATION =================
+
+    /**
+     * Get configured instance types for an ASG (for Spot diversification)
+     * GET
+     * /api/autospotting/asgs/{accountId}/instance-types?region=ap-south-1&asgName=my-asg
+     */
+    @GetMapping("/asgs/{accountId}/instance-types")
+    public ResponseEntity<?> getInstanceTypeConfig(
+            @PathVariable Long accountId,
+            @RequestParam String region,
+            @RequestParam String asgName) {
+
+        log.info("AutoSpottingController.getInstanceTypeConfig called: accountId={} region={} asgName={}",
+                accountId, region, asgName);
+        try {
+            List<String> types = autoSpottingService.getConfiguredInstanceTypes(accountId, region, asgName);
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "allowedInstanceTypes", types));
+        } catch (Exception e) {
+            log.error("Failed to get instance type config: {}", e.getMessage(), e);
+            return ResponseEntity.status(500).body(Map.of(
+                    "success", false,
+                    "error", e.getMessage()));
+        }
+    }
+
+    /**
+     * Update configured instance types for an ASG
+     * PUT
+     * /api/autospotting/asgs/{accountId}/instance-types?region=ap-south-1&asgName=my-asg
+     * Body: { "allowedInstanceTypes": ["t3.micro", "t3a.micro", "t3.small"] }
+     */
+    @PutMapping("/asgs/{accountId}/instance-types")
+    public ResponseEntity<?> updateInstanceTypeConfig(
+            @PathVariable Long accountId,
+            @RequestParam String region,
+            @RequestParam String asgName,
+            @RequestBody Map<String, Object> body) {
+
+        log.info("AutoSpottingController.updateInstanceTypeConfig called: accountId={} region={} asgName={}",
+                accountId, region, asgName);
+        try {
+            @SuppressWarnings("unchecked")
+            List<String> types = (List<String>) body.get("instanceTypes");
+            autoSpottingService.saveInstanceTypeConfig(accountId, region, asgName,
+                    types != null ? types : Collections.emptyList());
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "message", "Instance type configuration saved successfully.",
+                    "instanceTypes", types != null ? types : Collections.emptyList()));
+        } catch (Exception e) {
+            log.error("Failed to update instance type config: {}", e.getMessage(), e);
             return ResponseEntity.status(500).body(Map.of(
                     "success", false,
                     "error", e.getMessage()));
