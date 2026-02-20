@@ -4,7 +4,16 @@ import com.google.api.services.sqladmin.SQLAdmin;
 import com.google.api.services.sqladmin.model.BackupRun;
 import com.google.api.services.sqladmin.model.DatabaseInstance;
 import com.google.api.services.sqladmin.model.InstancesListResponse;
-import com.google.cloud.bigquery.*;
+import com.google.cloud.bigquery.BigQuery;
+import com.google.cloud.bigquery.BigQueryException;
+import com.google.cloud.bigquery.Dataset;
+import com.google.cloud.bigquery.Field;
+import com.google.cloud.bigquery.FieldValue;
+import com.google.cloud.bigquery.FieldValueList;
+import com.google.cloud.bigquery.QueryJobConfiguration;
+import com.google.cloud.bigquery.QueryParameterValue;
+import com.google.cloud.bigquery.Table;
+import com.google.cloud.bigquery.TableResult;
 import com.google.cloud.compute.v1.*;
 import com.google.cloud.recommender.v1.Recommendation;
 import com.google.cloud.recommender.v1.RecommenderClient;
@@ -1673,32 +1682,28 @@ public class GcpOptimizationService {
             String sqlInstanceLabelKey = "cloudsql.googleapis.com/instance_name";
 
             String query = String.format(
-                    "SELECT SUM(cost) as total_cost, currency " + // Select currency as well
+                    "SELECT SUM(cost) as total_cost, currency " +
                             "FROM `%s` " +
-                            "WHERE DATE(_PARTITIONTIME) >= '%s' " + // Use _PARTITIONTIME if table is partitioned
-                            // "WHERE DATE(usage_start_time) >= '%s' " + // Use usage_start_time if not
-                            // partitioned
-                            "  AND DATE(_PARTITIONTIME) < '%s' " +
-                            // " AND DATE(usage_start_time) <= '%s' " +
+                            "WHERE DATE(_PARTITIONTIME) >= @startDate " +
+                            "  AND DATE(_PARTITIONTIME) < @endDate " +
                             "  AND service.description = 'Cloud SQL' " +
-                            "  AND project.id = '%s' " +
-                            // Query 'labels' array (UNNEST)
-                            "  AND EXISTS (SELECT 1 FROM UNNEST(labels) AS l WHERE l.key = '%s' AND l.value = '%s') " +
+                            "  AND project.id = @projectId " +
+                            "  AND EXISTS (SELECT 1 FROM UNNEST(labels) AS l WHERE l.key = @labelKey AND l.value = @instanceName) " +
                             "  AND cost > 0 " +
-                            "GROUP BY currency", // Group by currency
-                    tableNameOpt.get(),
-                    startDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
-                    today.plusDays(1).format(DateTimeFormatter.ISO_LOCAL_DATE), // Partition date is exclusive upper
-                                                                                // bound
-                    // today.format(DateTimeFormatter.ISO_LOCAL_DATE), // Use for usage_start_time
-                    gcpProjectId,
-                    sqlInstanceLabelKey,
-                    instanceName);
+                            "GROUP BY currency",
+                    tableNameOpt.get());
 
             log.info("📊 Querying 30-day cost for Cloud SQL instance: {}", instanceName);
-            log.debug("BigQuery SQL: {}", query);
 
-            TableResult results = bigquery.query(QueryJobConfiguration.newBuilder(query).build());
+            QueryJobConfiguration queryConfig = QueryJobConfiguration.newBuilder(query)
+                    .addNamedParameter("startDate", QueryParameterValue.date(startDate.toString()))
+                    .addNamedParameter("endDate", QueryParameterValue.date(today.plusDays(1).toString()))
+                    .addNamedParameter("projectId", QueryParameterValue.string(gcpProjectId))
+                    .addNamedParameter("labelKey", QueryParameterValue.string(sqlInstanceLabelKey))
+                    .addNamedParameter("instanceName", QueryParameterValue.string(instanceName))
+                    .build();
+
+            TableResult results = bigquery.query(queryConfig);
 
             double totalCostInr = 0.0;
             boolean dataFound = false;
