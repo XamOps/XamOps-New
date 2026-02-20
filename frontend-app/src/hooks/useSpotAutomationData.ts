@@ -9,8 +9,9 @@
  * - Account syncing
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import apiClient from '../utils/apiClient';
+import { useAutoSpottingCache } from '../contexts/AutoSpottingCacheContext';
 
 export interface ASG {
   name: string;
@@ -56,6 +57,16 @@ interface UseSpotAutomationDataProps {
 }
 
 export const useSpotAutomationData = ({ selectedAccountId }: UseSpotAutomationDataProps) => {
+  const { getSpotAutomationData, setSpotAutomationData } = useAutoSpottingCache();
+  const isInitialLoad = useRef(true);
+  const hasHistoryData = useRef(false);
+
+  // Use refs to avoid dependency loops with cache functions
+  const getCacheRef = useRef(getSpotAutomationData);
+  getCacheRef.current = getSpotAutomationData;
+  const setCacheRef = useRef(setSpotAutomationData);
+  setCacheRef.current = setSpotAutomationData;
+
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<Error | null>(null);
@@ -94,9 +105,30 @@ export const useSpotAutomationData = ({ selectedAccountId }: UseSpotAutomationDa
       return;
     }
 
+    // Check cache on initial load
+    if (!refresh && isInitialLoad.current) {
+      const cachedData = getCacheRef.current(selectedAccountId);
+      if (cachedData) {
+        console.log('[SpotAutomation] Using cached data');
+        setAsgs(cachedData.asgs);
+        setCosts(cachedData.costs);
+        setSavings(cachedData.savings);
+        setEnabledRegionsCount(cachedData.enabledRegionsCount);
+        setTotalInstances(cachedData.totalInstances);
+        setHistoryData(cachedData.historyData);
+        setHistorySummary(cachedData.historySummary);
+        if (cachedData.historyData && cachedData.historyData.length > 0) {
+          hasHistoryData.current = true;
+        }
+        setIsLoading(false);
+        isInitialLoad.current = false;
+        // Continue to fetch fresh data in background
+      }
+    }
+
     if (refresh) {
       setIsRefreshing(true);
-    } else {
+    } else if (isInitialLoad.current) {
       setIsLoading(true);
     }
     setError(null);
@@ -145,6 +177,25 @@ export const useSpotAutomationData = ({ selectedAccountId }: UseSpotAutomationDa
         setTotalInstances(asgData.reduce((sum, asg) => sum + asg.instanceCount, 0));
 
         console.log(`[SpotAutomation] Loaded ${asgData.length} ASGs`);
+        // Update cache with cost data, preserving any existing history data
+        const existingCache = getCacheRef.current(selectedAccountId);
+        setCacheRef.current(selectedAccountId, {
+          asgs: asgData,
+          costs: {
+            currentHourly: data.summary?.total_current_hourly_cost || 0.0,
+            currentMonthlyCost: (data.summary?.total_current_hourly_cost || 0) * 730,
+            onDemandHourly: data.summary?.total_ondemand_hourly_cost || 0.0,
+            hourlyActualSavings: data.summary?.total_actual_savings || 0.0,
+          },
+          savings: {
+            actualMonthlySavings: (data.summary?.total_actual_savings || 0) * 730,
+            potentialMonthlySavings: (data.summary?.total_potential_savings || 0) * 730,
+          },
+          enabledRegionsCount: new Set(asgData.map((a: ASG) => a.region)).size,
+          totalInstances: asgData.reduce((sum: number, asg: ASG) => sum + asg.instanceCount, 0),
+          historyData: existingCache?.historyData || [],
+          historySummary: existingCache?.historySummary || { total_savings: 0, average_hourly_savings: 0, peak_savings: 0 },
+        });
       } else {
         setAsgs([]);
         setEnabledRegionsCount(0);
@@ -156,6 +207,7 @@ export const useSpotAutomationData = ({ selectedAccountId }: UseSpotAutomationDa
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
+      isInitialLoad.current = false;
     }
   }, [selectedAccountId]);
 
@@ -167,7 +219,10 @@ export const useSpotAutomationData = ({ selectedAccountId }: UseSpotAutomationDa
       return;
     }
 
-    setIsLoadingHistory(true);
+    // Only show loading spinner if we don't already have data
+    if (!hasHistoryData.current) {
+      setIsLoadingHistory(true);
+    }
 
     try {
       let start: string, end: string, interval: string;
@@ -194,6 +249,9 @@ export const useSpotAutomationData = ({ selectedAccountId }: UseSpotAutomationDa
       console.log('[SpotAutomation] History data received:', data);
 
       setHistoryData(data.data_points || []);
+      if (data.data_points && data.data_points.length > 0) {
+        hasHistoryData.current = true;
+      }
 
       const summary = data.summary || {};
       const maxSavings = (data.data_points || []).reduce(
@@ -201,11 +259,35 @@ export const useSpotAutomationData = ({ selectedAccountId }: UseSpotAutomationDa
         0
       );
 
-      setHistorySummary({
+      const newSummary = {
         total_savings: summary.total_savings || 0,
         average_hourly_savings: summary.average_hourly_savings || 0,
         peak_savings: maxSavings,
-      });
+      };
+      setHistorySummary(newSummary);
+
+      // Update cache with history data
+      if (selectedAccountId) {
+        const existing = getCacheRef.current(selectedAccountId);
+        if (existing) {
+          setCacheRef.current(selectedAccountId, {
+            ...existing,
+            historyData: data.data_points || [],
+            historySummary: newSummary,
+          });
+        } else {
+          // Create a partial cache entry so history data isn't lost
+          setCacheRef.current(selectedAccountId, {
+            asgs: [],
+            costs: { currentHourly: 0, currentMonthlyCost: 0, onDemandHourly: 0, hourlyActualSavings: 0 },
+            savings: { actualMonthlySavings: 0, potentialMonthlySavings: 0 },
+            enabledRegionsCount: 0,
+            totalInstances: 0,
+            historyData: data.data_points || [],
+            historySummary: newSummary,
+          });
+        }
+      }
     } catch (err) {
       console.error('[SpotAutomation] Error fetching history data:', err);
     } finally {
@@ -333,6 +415,28 @@ export const useSpotAutomationData = ({ selectedAccountId }: UseSpotAutomationDa
       fetchHistoryData('last7d');
     }
   }, [selectedAccountId, fetchCostData, fetchHistoryData]);
+
+  // Inject today's real-time savings into chart when backend returns $0 for today
+  // but KPI data shows non-zero savings (backend getCostData() fails silently in history endpoint)
+  useEffect(() => {
+    if (costs.hourlyActualSavings <= 0 || historyData.length === 0) return;
+
+    const todayStr = new Date().toISOString().substring(0, 10);
+    const todayIdx = historyData.findIndex((d) => d.timestamp.startsWith(todayStr));
+
+    if (todayIdx === -1) return;
+
+    const todayPoint = historyData[todayIdx];
+    if ((todayPoint.total_actual_savings || 0) === 0) {
+      const updated = [...historyData];
+      updated[todayIdx] = {
+        ...todayPoint,
+        total_actual_savings: costs.hourlyActualSavings,
+        total_potential_savings: todayPoint.total_potential_savings || 0,
+      };
+      setHistoryData(updated);
+    }
+  }, [costs.hourlyActualSavings, historyData]);
 
   return {
     // Data

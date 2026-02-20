@@ -1,4 +1,4 @@
-package com.xammer.billops.domain; // <--- This MUST match the folder structure
+package com.xammer.billops.domain;
 
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -6,16 +6,16 @@ import javax.persistence.*;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "support_message") // Maps to the same DB table
 @Data
 @NoArgsConstructor
+@Table(name = "support_message")
 public class SupportMessage {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "TEXT")
     private String content;
 
     @Column(nullable = false)
@@ -27,21 +27,6 @@ public class SupportMessage {
     @Column(nullable = false)
     private String status; 
 
-    // In BillOps, we treat the User relation as a simple ID or map it loosely
-    // to avoid needing the entire User entity code if it's complex.
-    // If you have a User entity in BillOps, you can use @ManyToOne like in XamOps.
-    // For safety/simplicity given the error, we often map the ID directly or use the existing User class if available.
-    
-    // Option A: If you HAVE a User.java in billops/domain:
-    /*
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "user_id", nullable = false)
-    private User sender;
-    */
-
-    // Option B: If BillOps doesn't strictly need the User object relation here, 
-    // we can map the column purely for reading. 
-    // HOWEVER, to match your Repository code likely expecting "userId", let's use the ID field.
     @Column(name = "user_id")
     private Long userId; 
 
@@ -57,5 +42,24 @@ public class SupportMessage {
     @Column(name = "sender_username")
     private String senderUsername;
 
-
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+    public String getContent() { return content; }
+    public void setContent(String content) { this.content = content; }
+    public LocalDateTime getTimestamp() { return timestamp; }
+    public void setTimestamp(LocalDateTime timestamp) { this.timestamp = timestamp; }
+    public boolean isUserMessage() { return isUserMessage; }
+    public void setUserMessage(boolean userMessage) { isUserMessage = userMessage; }
+    public String getStatus() { return status; }
+    public void setStatus(String status) { this.status = status; }
+    public Long getUserId() { return userId; }
+    public void setUserId(Long userId) { this.userId = userId; }
+    public String getAccountId() { return accountId; }
+    public void setAccountId(String accountId) { this.accountId = accountId; }
+    public String getAccountName() { return accountName; }
+    public void setAccountName(String accountName) { this.accountName = accountName; }
+    public String getCloudProvider() { return cloudProvider; }
+    public void setCloudProvider(String cloudProvider) { this.cloudProvider = cloudProvider; }
+    public String getSenderUsername() { return senderUsername; }
+    public void setSenderUsername(String senderUsername) { this.senderUsername = senderUsername; }
 }

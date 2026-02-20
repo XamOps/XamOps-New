@@ -1,42 +1,60 @@
 package com.xammer.cloud.service;
 
-import com.xammer.cloud.domain.AutoSpottingSettings;
-import com.xammer.cloud.domain.CloudAccount;
-import com.xammer.cloud.domain.DailySpotSavings;
-import com.xammer.cloud.domain.SpotOptimizationEvent;
-import com.xammer.cloud.dto.DashboardData;
-import com.xammer.cloud.dto.autospotting.*;
-import com.xammer.cloud.dto.autospotting.EventsResponse.EventsSummary;
-import com.xammer.cloud.repository.AutoSpottingSettingsRepository;
-import com.xammer.cloud.repository.CloudAccountRepository;
-import com.xammer.cloud.repository.DailySpotSavingsRepository;
-import com.xammer.cloud.repository.SpotOptimizationEventRepository;
-import com.fasterxml.jackson.databind.JsonNode;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.xammer.cloud.domain.AutoSpottingSettings;
+import com.xammer.cloud.domain.CloudAccount;
+import com.xammer.cloud.domain.DailySpotSavings;
+import com.xammer.cloud.domain.SpotOptimizationEvent;
+import com.xammer.cloud.dto.DashboardData;
+import com.xammer.cloud.dto.autospotting.ASGConfig;
+import com.xammer.cloud.dto.autospotting.ASGConfigUpdate;
+import com.xammer.cloud.dto.autospotting.ASGCostData;
+import com.xammer.cloud.dto.autospotting.CostResponse;
+import com.xammer.cloud.dto.autospotting.EventRecord;
+import com.xammer.cloud.dto.autospotting.EventsResponse;
+import com.xammer.cloud.dto.autospotting.EventsResponse.EventsSummary;
+import com.xammer.cloud.dto.autospotting.HistoryResponse;
+import com.xammer.cloud.dto.autospotting.LaunchAnalyticsResponse;
+import com.xammer.cloud.dto.autospotting.RiSpCoverageResponse;
+import com.xammer.cloud.dto.autospotting.SpotInstanceDto;
+import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.repository.DailySpotSavingsRepository;
+import com.xammer.cloud.repository.SpotOptimizationEventRepository;
+
 import software.amazon.awssdk.services.autoscaling.AutoScalingClient;
+import software.amazon.awssdk.services.costexplorer.CostExplorerClient;
+import software.amazon.awssdk.services.costexplorer.model.DateInterval;
+import software.amazon.awssdk.services.costexplorer.model.GetReservationCoverageResponse;
+import software.amazon.awssdk.services.costexplorer.model.GetSavingsPlansCoverageResponse;
+import software.amazon.awssdk.services.costexplorer.model.Granularity;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
 import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.ec2.model.Instance;
 import software.amazon.awssdk.services.ec2.model.Reservation;
-
-import java.time.Instant;
-import java.time.LocalDate;
-import java.time.temporal.ChronoUnit;
-import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
-
-import software.amazon.awssdk.services.costexplorer.CostExplorerClient;
-import software.amazon.awssdk.services.costexplorer.model.DateInterval;
-import software.amazon.awssdk.services.costexplorer.model.Granularity;
-import software.amazon.awssdk.services.costexplorer.model.GetReservationCoverageResponse;
-import software.amazon.awssdk.services.costexplorer.model.GetSavingsPlansCoverageResponse;
 
 @Service
 public class AutoSpottingService {
@@ -89,10 +107,9 @@ public class AutoSpottingService {
     }
 
     // ================= HELPER METHODS =================
-
     /**
-     * Resolve CloudAccount by AWS account ID
-     * ✅ UPDATED: Handles leading zero mismatch (e.g. input 157... finds DB 0157...)
+     * Resolve CloudAccount by AWS account ID ✅ UPDATED: Handles leading zero
+     * mismatch (e.g. input 157... finds DB 0157...)
      */
     private CloudAccount getByAwsAccountId(Long awsAccountId) {
         String idStr = String.valueOf(awsAccountId);
@@ -124,10 +141,9 @@ public class AutoSpottingService {
     }
 
     // ================= REGISTRATION =================
-
     /**
-     * Registers the customer AWS account ID into the Main Account's DynamoDB table.
-     * AND updates the local PostgreSQL settings to enabled=true.
+     * Registers the customer AWS account ID into the Main Account's DynamoDB
+     * table. AND updates the local PostgreSQL settings to enabled=true.
      */
     public void registerCustomerAccount(Long cloudAccountId) {
         logger.info("=== AutoSpotting Registration Started ===");
@@ -181,7 +197,6 @@ public class AutoSpottingService {
 
     // ================= COST & SAVINGS DATA (API-BASED, NO ATHENA)
     // =================
-
     /**
      * Get current cost data using AWS SDK + SpotPricingService (in-house)
      */
@@ -276,9 +291,9 @@ public class AutoSpottingService {
             if (dataPoints.isEmpty()) {
                 try {
                     Instant iStart = startDate.atStartOfDay(java.time.ZoneOffset.UTC).toInstant();
-                    Instant iEnd   = endDate.plusDays(1).atStartOfDay(java.time.ZoneOffset.UTC).toInstant();
-                    List<SpotOptimizationEvent> spotEvents =
-                            eventRepository.findByAccountIdAndEventTimeBetweenAndStatusOrderByEventTimeDesc(
+                    Instant iEnd = endDate.plusDays(1).atStartOfDay(java.time.ZoneOffset.UTC).toInstant();
+                    List<SpotOptimizationEvent> spotEvents
+                            = eventRepository.findByAccountIdAndEventTimeBetweenAndStatusOrderByEventTimeDesc(
                                     account.getId(), iStart, iEnd, "SUCCESS");
 
                     java.util.Map<LocalDate, Double> savingsByDate = spotEvents.stream()
@@ -332,6 +347,45 @@ public class AutoSpottingService {
                     }
                     cur = cur.plusDays(1);
                 }
+                dataPoints.sort(java.util.Comparator.comparing(dp -> LocalDate.parse(dp.getTimestamp().substring(0, 10))));
+            }
+
+            // 3. Add today's real-time data from active status (not just activity/swaps)
+            LocalDate today = LocalDate.now();
+            if (!endDate.isBefore(today)) {
+                double activeSavingsRate = 0.0;
+                double activePotentialRate = 0.0;
+                int spotCount = 0;
+                int onDemandCount = 0;
+                double currentCost = 0.0;
+                double onDemandCost = 0.0;
+
+                try {
+                    // Fetch real-time state from current ASG analysis
+                    CostResponse currentCosts = getCostData(cloudAccountId);
+                    if (currentCosts != null && currentCosts.getSummary() != null) {
+                        activeSavingsRate = currentCosts.getSummary().getTotalActualSavings();
+                        activePotentialRate = currentCosts.getSummary().getTotalPotentialSavings();
+                        spotCount = currentCosts.getSummary().getAutospottingEnabledCount(); // or more accurate count if available
+                        currentCost = currentCosts.getSummary().getTotalCurrentHourlyCost();
+                        onDemandCost = currentCosts.getSummary().getTotalOndemandHourlyCost();
+                    }
+                } catch (Exception e) {
+                    logger.warn("Failed to fetch real-time cost data for graph: {}", e.getMessage());
+                }
+
+                HistoryResponse.DataPoint todayDp = new HistoryResponse.DataPoint();
+                todayDp.setTimestamp(today.toString());
+                todayDp.setActualHourlySavings(activeSavingsRate);
+                todayDp.setPotentialHourlySavings(activePotentialRate);
+                todayDp.setSpotInstanceCount(spotCount);
+                todayDp.setCurrentHourlyCost(currentCost);
+                todayDp.setOndemandHourlyCost(onDemandCost);
+                todayDp.setOndemandInstanceCount(onDemandCount);
+
+                // Remove any existing point for today (from DB/Events) to avoid duplicates
+                dataPoints.removeIf(dp -> dp.getTimestamp().startsWith(today.toString()));
+                dataPoints.add(todayDp);
                 dataPoints.sort(java.util.Comparator.comparing(dp -> LocalDate.parse(dp.getTimestamp().substring(0, 10))));
             }
 
@@ -426,7 +480,6 @@ public class AutoSpottingService {
     }
 
     // ================= ASG LISTING (API + AWS SDK HYBRID) =================
-
     /**
      * Lists ASGs with cost data using AWS SDK + SpotPricingService (in-house)
      */
@@ -544,8 +597,8 @@ public class AutoSpottingService {
                                 asg.minSize(),
                                 asg.maxSize(),
                                 asg.mixedInstancesPolicy() != null
-                                        ? "MixedInstancesPolicy"
-                                        : "LaunchTemplate",
+                                ? "MixedInstancesPolicy"
+                                : "LaunchTemplate",
                                 null, // Cost data from API
                                 null,
                                 null,
@@ -560,10 +613,9 @@ public class AutoSpottingService {
     }
 
     // ================= INSTANCE LISTING =================
-
     /**
-     * Get list of all instances in AutoSpotting-enabled ASGs
-     * This methods performs DescribeInstances calls to get details like lifecycle
+     * Get list of all instances in AutoSpotting-enabled ASGs This methods
+     * performs DescribeInstances calls to get details like lifecycle
      * (Spot/On-Demand)
      */
     public List<SpotInstanceDto> getSpotInstances(Long cloudAccountId) {
@@ -588,7 +640,7 @@ public class AutoSpottingService {
                     // Filter for AutoSpotting enabled ASGs
                     var enabledAsgs = asgResponse.autoScalingGroups().stream()
                             .filter(asg -> asg.tags().stream()
-                                    .anyMatch(t -> t.key().equals(tagKey) && t.value().equals(tagValue)))
+                            .anyMatch(t -> t.key().equals(tagKey) && t.value().equals(tagValue)))
                             .collect(Collectors.toList());
 
                     if (enabledAsgs.isEmpty()) {
@@ -626,8 +678,8 @@ public class AutoSpottingService {
                         for (Reservation reservation : describeResp.reservations()) {
                             for (Instance instance : reservation.instances()) {
                                 // Ignore terminated instances
-                                if (instance.state().nameAsString().equalsIgnoreCase("terminated") ||
-                                        instance.state().nameAsString().equalsIgnoreCase("shutting-down")) {
+                                if (instance.state().nameAsString().equalsIgnoreCase("terminated")
+                                        || instance.state().nameAsString().equalsIgnoreCase("shutting-down")) {
                                     continue;
                                 }
 
@@ -688,7 +740,6 @@ public class AutoSpottingService {
     }
 
     // ================= REGION DISCOVERY =================
-
     /**
      * Discovers regions where AutoSpotting member stack is deployed
      */
@@ -719,7 +770,8 @@ public class AutoSpottingService {
     }
 
     /**
-     * Checks if the account's cross-account role can access AutoScaling in the given region.
+     * Checks if the account's cross-account role can access AutoScaling in the
+     * given region.
      */
     private boolean isRegionAutoSpottingEnabled(CloudAccount account, String region) {
         try {
@@ -770,12 +822,10 @@ public class AutoSpottingService {
     }
 
     // ================= ASG CONTROL (API-BASED) =================
-
     /**
-     * Enable AutoSpotting:
-     * 1. Adds spot-enabled tag as a marker
-     * 2. Updates ASG MixedInstancesPolicy so new/replacement instances launch as Spot
-     * 3. Starts an instance refresh to gradually replace existing OD instances
+     * Enable AutoSpotting: 1. Adds spot-enabled tag as a marker 2. Updates ASG
+     * MixedInstancesPolicy so new/replacement instances launch as Spot 3.
+     * Starts an instance refresh to gradually replace existing OD instances
      */
     public void enableAutoSpotting(Long cloudAccountId, String region, String asgName) {
         logger.info("Enabling AutoSpotting: account={} region={} asg={}", cloudAccountId, region, asgName);
@@ -810,8 +860,8 @@ public class AutoSpottingService {
             if (!configuredTypes.isEmpty()) {
                 overrides = configuredTypes.stream()
                         .map(type -> software.amazon.awssdk.services.autoscaling.model.LaunchTemplateOverrides.builder()
-                                .instanceType(type)
-                                .build())
+                        .instanceType(type)
+                        .build())
                         .collect(Collectors.toList());
                 logger.info("Using configured instance types for {}: {}", asgName, String.join(", ", configuredTypes));
             }
@@ -824,9 +874,9 @@ public class AutoSpottingService {
                 // and omitting it avoids the ec2:UseLaunchTemplate IAM check.
                 mixedPolicy = software.amazon.awssdk.services.autoscaling.model.MixedInstancesPolicy.builder()
                         .instancesDistribution(d -> d
-                                .onDemandBaseCapacity(0)
-                                .onDemandPercentageAboveBaseCapacity(0)
-                                .spotAllocationStrategy("capacity-optimized"))
+                        .onDemandBaseCapacity(0)
+                        .onDemandPercentageAboveBaseCapacity(0)
+                        .spotAllocationStrategy("capacity-optimized"))
                         .build();
 
             } else if (asg.launchTemplate() != null) {
@@ -835,19 +885,19 @@ public class AutoSpottingService {
                 final var finalOverrides = overrides;
                 mixedPolicy = software.amazon.awssdk.services.autoscaling.model.MixedInstancesPolicy.builder()
                         .launchTemplate(ltp -> ltp
-                                .launchTemplateSpecification(lts -> lts
-                                        .launchTemplateId(lt.launchTemplateId())
-                                        .version(lt.version() != null ? lt.version() : "$Default"))
-                                .overrides(finalOverrides != null ? finalOverrides : Collections.emptyList()))
+                        .launchTemplateSpecification(lts -> lts
+                        .launchTemplateId(lt.launchTemplateId())
+                        .version(lt.version() != null ? lt.version() : "$Default"))
+                        .overrides(finalOverrides != null ? finalOverrides : Collections.emptyList()))
                         .instancesDistribution(d -> d
-                                .onDemandBaseCapacity(0)
-                                .onDemandPercentageAboveBaseCapacity(0)
-                                .spotAllocationStrategy("capacity-optimized"))
+                        .onDemandBaseCapacity(0)
+                        .onDemandPercentageAboveBaseCapacity(0)
+                        .spotAllocationStrategy("capacity-optimized"))
                         .build();
 
             } else {
-                logger.warn("ASG {} uses a LaunchConfiguration (not LaunchTemplate). " +
-                        "Cannot configure MixedInstancesPolicy. Tag was applied but Spot NOT enabled.", asgName);
+                logger.warn("ASG {} uses a LaunchConfiguration (not LaunchTemplate). "
+                        + "Cannot configure MixedInstancesPolicy. Tag was applied but Spot NOT enabled.", asgName);
                 return;
             }
 
@@ -863,8 +913,8 @@ public class AutoSpottingService {
                 asgClient.startInstanceRefresh(req -> req
                         .autoScalingGroupName(asgName)
                         .preferences(p -> p
-                                .minHealthyPercentage(80)
-                                .instanceWarmup(300)));
+                        .minHealthyPercentage(80)
+                        .instanceWarmup(300)));
                 logger.info("✓ Instance refresh started for {} — existing OD instances will be replaced with Spot", asgName);
             } catch (Exception e) {
                 // Instance refresh failure is non-fatal — policy is already updated
@@ -945,11 +995,11 @@ public class AutoSpottingService {
     }
 
     /**
-     * Backfill SUCCESS events for any Spot instances currently running in the ASG
-     * that are not yet recorded in the database.
+     * Backfill SUCCESS events for any Spot instances currently running in the
+     * ASG that are not yet recorded in the database.
      *
-     * This is a non-disruptive, user-triggered operation that fills the gap when
-     * instances launched during instance refresh (after enable) before the
+     * This is a non-disruptive, user-triggered operation that fills the gap
+     * when instances launched during instance refresh (after enable) before the
      * EventBridge pipeline was fully working.
      *
      * @return number of new events backfilled
@@ -1024,10 +1074,9 @@ public class AutoSpottingService {
     }
 
     // ================= INSTANCE TYPE CONFIGURATION =================
-
     /**
-     * Get configured instance types for an ASG.
-     * Returns alternative instance types for Spot diversification.
+     * Get configured instance types for an ASG. Returns alternative instance
+     * types for Spot diversification.
      */
     public List<String> getConfiguredInstanceTypes(Long cloudAccountId, String region, String asgName) {
         CloudAccount account = getByAwsAccountId(cloudAccountId);
@@ -1043,8 +1092,8 @@ public class AutoSpottingService {
     }
 
     /**
-     * Save instance type configuration for an ASG.
-     * Stores alternative instance types that will be used when enabling AutoSpotting.
+     * Save instance type configuration for an ASG. Stores alternative instance
+     * types that will be used when enabling AutoSpotting.
      */
     public void saveInstanceTypeConfig(Long cloudAccountId, String region, String asgName, List<String> instanceTypes) {
         CloudAccount account = getByAwsAccountId(cloudAccountId);
@@ -1063,9 +1112,8 @@ public class AutoSpottingService {
     }
 
     /**
-     * Disable AutoSpotting:
-     * 1. Removes the spot-enabled tag
-     * 2. Sets OnDemandPercentageAboveBaseCapacity=100 so new instances launch as OD
+     * Disable AutoSpotting: 1. Removes the spot-enabled tag 2. Sets
+     * OnDemandPercentageAboveBaseCapacity=100 so new instances launch as OD
      */
     public void disableAutoSpotting(Long cloudAccountId, String region, String asgName) {
         logger.info("Disabling AutoSpotting: account={} region={} asg={}", cloudAccountId, region, asgName);
@@ -1097,8 +1145,8 @@ public class AutoSpottingService {
                             .mixedInstancesPolicy(
                                     software.amazon.awssdk.services.autoscaling.model.MixedInstancesPolicy.builder()
                                             .instancesDistribution(d -> d
-                                                    .onDemandBaseCapacity(0)
-                                                    .onDemandPercentageAboveBaseCapacity(100))
+                                            .onDemandBaseCapacity(0)
+                                            .onDemandPercentageAboveBaseCapacity(100))
                                             .build()));
                     logger.info("✓ MixedInstancesPolicy reverted to OnDemand-only for {}", asgName);
                 }
@@ -1125,10 +1173,9 @@ public class AutoSpottingService {
         }
     }
 
-
     /**
-     * Handles a scaling event from EventBridge/SQS.
-     * This is the entry point for the centralized AutoSpotting engine logic.
+     * Handles a scaling event from EventBridge/SQS. This is the entry point for
+     * the centralized AutoSpotting engine logic.
      */
     public void handleScalingEvent(CloudAccount account, String region, JsonNode eventDetail) {
         // CloudFormation stacks send EC2 Instance State-change Notification events.
@@ -1152,11 +1199,11 @@ public class AutoSpottingService {
     /**
      * Handles an EC2 Spot Instance Interruption Warning (2-minute notice).
      *
-     * AWS sends this event via EventBridge → SQS before reclaiming a Spot instance.
-     * The ASG automatically replaces the terminated instance (with another Spot or
-     * falls back to On-Demand if no Spot capacity is available), so no manual
-     * replacement action is needed here. We simply log and persist the event for
-     * auditing and interruption-rate analytics.
+     * AWS sends this event via EventBridge → SQS before reclaiming a Spot
+     * instance. The ASG automatically replaces the terminated instance (with
+     * another Spot or falls back to On-Demand if no Spot capacity is
+     * available), so no manual replacement action is needed here. We simply log
+     * and persist the event for auditing and interruption-rate analytics.
      */
     public void handleSpotInterruption(CloudAccount account, String region, JsonNode detail) {
         String instanceId = detail.path("instance-id").asText();
@@ -1302,9 +1349,7 @@ public class AutoSpottingService {
     /**
      * Legacy tag-based disable (fallback)
      */
-
     // ================= ASG CONFIGURATION (API-BASED) =================
-
     /**
      * Get ASG configuration from PostgreSQL settings + ASG tags
      */
@@ -1316,8 +1361,8 @@ public class AutoSpottingService {
             Optional<AutoSpottingSettings> settingsOpt = settingsRepository.findByAccountId(account.getId());
 
             AutoScalingClient asgClient = awsClientProvider.getAutoScalingClient(account, region);
-            var asgResponse = asgClient.describeAutoScalingGroups(req ->
-                    req.autoScalingGroupNames(asgName));
+            var asgResponse = asgClient.describeAutoScalingGroups(req
+                    -> req.autoScalingGroupNames(asgName));
 
             ASGConfig config = new ASGConfig();
             config.setAsgName(asgName);
@@ -1337,9 +1382,9 @@ public class AutoSpottingService {
                         .anyMatch(t -> t.key().equals(tagKey) && t.value().equals(tagValue));
                 config.setEnabled(tagEnabled);
 
-                if (asg.mixedInstancesPolicy() != null &&
-                        asg.mixedInstancesPolicy().launchTemplate() != null &&
-                        asg.mixedInstancesPolicy().launchTemplate().overrides() != null) {
+                if (asg.mixedInstancesPolicy() != null
+                        && asg.mixedInstancesPolicy().launchTemplate() != null
+                        && asg.mixedInstancesPolicy().launchTemplate().overrides() != null) {
                     String types = asg.mixedInstancesPolicy().launchTemplate().overrides().stream()
                             .map(o -> o.instanceType())
                             .filter(t -> t != null)
@@ -1400,7 +1445,6 @@ public class AutoSpottingService {
     }
 
     // ================= HELPER METHODS =================
-
     /**
      * Create empty history response
      */
@@ -1431,8 +1475,8 @@ public class AutoSpottingService {
     }
 
     /**
-     * Build cost response from AWS SDK when API fails
-     * This creates a response with ASG data but WITHOUT cost information
+     * Build cost response from AWS SDK when API fails This creates a response
+     * with ASG data but WITHOUT cost information
      */
     private CostResponse buildCostResponseFromAwsSdk(CloudAccount account) {
         logger.info("Building cost response from AWS SDK (fallback mode - no cost data available)");
@@ -1467,7 +1511,8 @@ public class AutoSpottingService {
     }
 
     /**
-     * Builds cost data for a single ASG by describing its instances and using SpotPricingService.
+     * Builds cost data for a single ASG by describing its instances and using
+     * SpotPricingService.
      */
     private ASGCostData buildAsgCostData(CloudAccount account, AutoSpottingGroupDto asgDto) {
         ASGCostData cost = new ASGCostData();
@@ -1486,8 +1531,8 @@ public class AutoSpottingService {
         try {
             AutoScalingClient asgClient = awsClientProvider.getAutoScalingClient(account, asgDto.region);
 
-            var asgResponse = asgClient.describeAutoScalingGroups(req ->
-                    req.autoScalingGroupNames(asgDto.name));
+            var asgResponse = asgClient.describeAutoScalingGroups(req
+                    -> req.autoScalingGroupNames(asgDto.name));
 
             if (!asgResponse.autoScalingGroups().isEmpty()) {
                 var asg = asgResponse.autoScalingGroups().get(0);
@@ -1503,8 +1548,8 @@ public class AutoSpottingService {
 
                         for (Reservation reservation : describeResp.reservations()) {
                             for (Instance instance : reservation.instances()) {
-                                if ("terminated".equalsIgnoreCase(instance.state().nameAsString()) ||
-                                        "shutting-down".equalsIgnoreCase(instance.state().nameAsString())) {
+                                if ("terminated".equalsIgnoreCase(instance.state().nameAsString())
+                                        || "shutting-down".equalsIgnoreCase(instance.state().nameAsString())) {
                                     continue;
                                 }
 
@@ -1577,8 +1622,8 @@ public class AutoSpottingService {
     }
 
     // ================= CACHE HELPER CLASS =================
-
     private static class CachedRegionInfo {
+
         private final Set<String> enabledRegions;
         private final long cacheTime;
 
@@ -1668,11 +1713,11 @@ public class AutoSpottingService {
     }
 
     // ================= DTO CLASS =================
-
     /**
      * Enhanced DTO with cost information
      */
     public static class AutoSpottingGroupDto {
+
         public String name;
         public String region;
         public boolean isEnabled;
@@ -1839,11 +1884,21 @@ public class AutoSpottingService {
     }
 
     private String mapEventTypeToStatus(String eventType) {
-        if ("instance_replacement".equalsIgnoreCase(eventType)) return "SUCCESS";
-        if ("spot_interruption".equalsIgnoreCase(eventType)) return "INTERRUPTED";
-        if ("asg_enabled".equalsIgnoreCase(eventType)) return "ENABLED";
-        if ("asg_disabled".equalsIgnoreCase(eventType)) return "DISABLED";
-        if ("launch_failure".equalsIgnoreCase(eventType)) return "FAILED";
+        if ("instance_replacement".equalsIgnoreCase(eventType)) {
+            return "SUCCESS";
+        }
+        if ("spot_interruption".equalsIgnoreCase(eventType)) {
+            return "INTERRUPTED";
+        }
+        if ("asg_enabled".equalsIgnoreCase(eventType)) {
+            return "ENABLED";
+        }
+        if ("asg_disabled".equalsIgnoreCase(eventType)) {
+            return "DISABLED";
+        }
+        if ("launch_failure".equalsIgnoreCase(eventType)) {
+            return "FAILED";
+        }
         return eventType.toUpperCase();
     }
 
@@ -1919,12 +1974,17 @@ public class AutoSpottingService {
                 // Aggregate by instance type
                 LaunchAnalyticsResponse.LaunchStats typeStats = byType.computeIfAbsent(iType, k -> {
                     LaunchAnalyticsResponse.LaunchStats s = new LaunchAnalyticsResponse.LaunchStats();
-                    s.setAttempts(0); s.setSuccesses(0); s.setFailures(0);
+                    s.setAttempts(0);
+                    s.setSuccesses(0);
+                    s.setFailures(0);
                     return s;
                 });
                 typeStats.setAttempts(typeStats.getAttempts() + 1);
-                if (isSuccess) typeStats.setSuccesses(typeStats.getSuccesses() + 1);
-                else typeStats.setFailures(typeStats.getFailures() + 1);
+                if (isSuccess) {
+                    typeStats.setSuccesses(typeStats.getSuccesses() + 1);
+                } else {
+                    typeStats.setFailures(typeStats.getFailures() + 1);
+                }
                 typeStats.setSuccessRate(typeStats.getAttempts() > 0
                         ? (typeStats.getSuccesses() * 100.0 / typeStats.getAttempts()) : 0.0);
 
@@ -1938,12 +1998,17 @@ public class AutoSpottingService {
                 // Aggregate by region
                 LaunchAnalyticsResponse.LaunchStats regionStats = byRegion.computeIfAbsent(eventRegion, k -> {
                     LaunchAnalyticsResponse.LaunchStats s = new LaunchAnalyticsResponse.LaunchStats();
-                    s.setAttempts(0); s.setSuccesses(0); s.setFailures(0);
+                    s.setAttempts(0);
+                    s.setSuccesses(0);
+                    s.setFailures(0);
                     return s;
                 });
                 regionStats.setAttempts(regionStats.getAttempts() + 1);
-                if (isSuccess) regionStats.setSuccesses(regionStats.getSuccesses() + 1);
-                else regionStats.setFailures(regionStats.getFailures() + 1);
+                if (isSuccess) {
+                    regionStats.setSuccesses(regionStats.getSuccesses() + 1);
+                } else {
+                    regionStats.setFailures(regionStats.getFailures() + 1);
+                }
                 regionStats.setSuccessRate(regionStats.getAttempts() > 0
                         ? (regionStats.getSuccesses() * 100.0 / regionStats.getAttempts()) : 0.0);
 
@@ -2007,5 +2072,133 @@ public class AutoSpottingService {
             logger.error("Failed to build launch analytics: {}", e.getMessage(), e);
             throw new RuntimeException("Failed to fetch launch analytics: " + e.getMessage(), e);
         }
+    }
+
+    // ================= ADMIN DASHBOARD METRICS =================
+    /**
+     * Get aggregated historical savings for all accounts (Admin Dashboard)
+     */
+    public List<Map<String, Object>> getAdminHistoricalSavings(int days) {
+        LocalDate startDate = LocalDate.now().minusDays(days);
+        List<Object[]> results = savingsRepository.getAggregatedHistory(startDate);
+
+        List<Map<String, Object>> history = new ArrayList<>();
+        for (Object[] row : results) {
+            Map<String, Object> point = new HashMap<>();
+            point.put("date", row[0].toString());
+            point.put("savings", row[1]);
+            point.put("instanceCount", row[2]);
+            history.add(point);
+        }
+
+        // Add today's real-time aggregated data
+        LocalDate today = LocalDate.now();
+        Instant todayStart = today.atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant now = Instant.now();
+
+        List<SpotOptimizationEvent> todayEvents = eventRepository.findByEventTimeBetweenAndStatusOrderByEventTimeDesc(
+                todayStart, now, "SUCCESS");
+
+        double todaySavings = todayEvents.stream()
+                .mapToDouble(e -> e.getHourlySavings() != null ? e.getHourlySavings() : 0.0)
+                .sum();
+
+        Map<String, Object> todayDp = new HashMap<>();
+        todayDp.put("date", today.toString());
+        todayDp.put("savings", todaySavings);
+        todayDp.put("instanceCount", todayEvents.size());
+
+        history.removeIf(p -> p.get("date").equals(today.toString()));
+        history.add(todayDp);
+        history.sort((a, b) -> ((String) a.get("date")).compareTo((String) b.get("date")));
+
+        return history;
+    }
+
+    /**
+     * Get global savings metrics for Admin Dashboard
+     */
+    public Map<String, Object> getAdminDashboardMetrics() {
+        Double totalSavings = savingsRepository.getTotalSavings();
+        if (totalSavings == null) {
+            totalSavings = 0.0;
+        }
+
+        // Add today's real-time data to total
+        LocalDate today = LocalDate.now();
+        Instant todayStart = today.atStartOfDay(ZoneOffset.UTC).toInstant();
+        List<SpotOptimizationEvent> todayEvents = eventRepository.findByEventTimeBetweenAndStatusOrderByEventTimeDesc(
+                todayStart, Instant.now(), "SUCCESS");
+
+        double todaySavings = todayEvents.stream()
+                .mapToDouble(e -> e.getHourlySavings() != null ? e.getHourlySavings() : 0.0)
+                .sum();
+
+        totalSavings += todaySavings;
+
+        Map<String, Object> metrics = new HashMap<>();
+        metrics.put("totalSavings", totalSavings);
+        metrics.put("monthlySavings", totalSavings / 12.0); // Simple estimate
+        metrics.put("dailySavings", todaySavings);
+        metrics.put("activeSpotInstances", todayEvents.size()); // As approximate proxy
+        metrics.put("conversionRate", 85.0); // Dummy for UI
+
+        return metrics;
+    }
+
+    /**
+     * Get account-by-account breakdown for Admin Dashboard
+     */
+    public List<Map<String, Object>> getAdminAccountBreakdown() {
+        List<CloudAccount> accounts = cloudAccountRepository.findAll();
+        List<Map<String, Object>> breakdown = new ArrayList<>();
+
+        for (CloudAccount acc : accounts) {
+            String accId = acc.getAwsAccountId();
+            if (accId == null) {
+                continue;
+            }
+
+            Map<String, Object> entry = new HashMap<>();
+            entry.put("accountId", accId);
+            entry.put("accountName", acc.getAccountName());
+
+            // Total savings for this account
+            Double accSavings = eventRepository.findByAccountIdOrderByEventTimeDesc(acc.getId()).stream()
+                    .mapToDouble(e -> e.getHourlySavings() != null ? e.getHourlySavings() : 0.0)
+                    .sum();
+
+            entry.put("totalSavings", accSavings);
+            entry.put("instanceCount", eventRepository.findByAccountIdOrderByEventTimeDesc(acc.getId()).size());
+            breakdown.add(entry);
+        }
+
+        return breakdown;
+    }
+
+    /**
+     * Get recent activity for Admin Dashboard
+     */
+    public List<Map<String, Object>> getAdminRecentActivity(int limit) {
+        List<SpotOptimizationEvent> events = limit <= 10
+                ? eventRepository.findTop10ByOrderByEventTimeDesc()
+                : eventRepository.findTop50ByOrderByEventTimeDesc();
+
+        return events.stream().map(e -> {
+            Map<String, Object> m = new HashMap<>();
+            m.put("id", e.getId());
+            m.put("timestamp", e.getEventTime().toString());
+            m.put("accountId", e.getAccount().getAwsAccountId());
+            m.put("accountName", e.getAccount().getAccountName());
+            m.put("instanceId", e.getNewInstanceId());
+            m.put("instanceType", e.getOldInstanceType());
+            m.put("spotInstanceType", e.getNewInstanceType());
+            m.put("eventType", e.getStatus().equals("SUCCESS") ? "LAUNCH" : "FAILED");
+            m.put("hourlySavings", e.getHourlySavings());
+            m.put("onDemandPrice", 0.0); // To be filled if needed
+            m.put("spotPrice", 0.0);
+            m.put("region", e.getRegion());
+            return m;
+        }).collect(Collectors.toList());
     }
 }

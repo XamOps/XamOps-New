@@ -29,6 +29,11 @@ public class Invoice {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    private String awsAccountId;
+
+    public String getAwsAccountId() { return awsAccountId; }
+    public void setAwsAccountId(String awsAccountId) { this.awsAccountId = awsAccountId; }
+
     private String invoiceNumber;
     private LocalDate invoiceDate;
     private String billingPeriod;

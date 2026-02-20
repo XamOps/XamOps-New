@@ -14,6 +14,9 @@ public class InvoiceUpdateDto {
 
     private List<LineItemUpdateDto> lineItems;
 
+    public List<LineItemUpdateDto> getLineItems() { return lineItems; }
+    public void setLineItems(List<LineItemUpdateDto> lineItems) { this.lineItems = lineItems; }
+
     /**
      * Represents a single line item within the update payload.
      * Contains all the editable fields for an invoice line item.
@@ -28,5 +31,19 @@ public class InvoiceUpdateDto {
         private BigDecimal cost;
                 private boolean hidden;
 
+        public String getServiceName() { return serviceName; }
+        public void setServiceName(String serviceName) { this.serviceName = serviceName; }
+        public String getRegionName() { return regionName; }
+        public void setRegionName(String regionName) { this.regionName = regionName; }
+        public String getResourceName() { return resourceName; }
+        public void setResourceName(String resourceName) { this.resourceName = resourceName; }
+        public String getUsageQuantity() { return usageQuantity; }
+        public void setUsageQuantity(String usageQuantity) { this.usageQuantity = usageQuantity; }
+        public String getUnit() { return unit; }
+        public void setUnit(String unit) { this.unit = unit; }
+        public BigDecimal getCost() { return cost; }
+        public void setCost(BigDecimal cost) { this.cost = cost; }
+        public boolean isHidden() { return hidden; }
+        public void setHidden(boolean hidden) { this.hidden = hidden; }
     }
 }
