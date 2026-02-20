@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import type { ASG, SpotCosts } from '../../hooks/useSpotAutomationData';
 import InstanceTypeConfigModal from './InstanceTypeConfigModal';
 
@@ -7,6 +8,7 @@ interface SpotAutomationASGTableProps {
   costs: SpotCosts;
   totalInstances: number;
   isLoading: boolean;
+  selectedAccountId: string | null;
   onToggleASG: (asg: ASG) => Promise<void>;
   onSyncASG: (asg: ASG) => Promise<{ backfilled: number; message: string }>;
   onGetInstanceTypeConfig: (region: string, asgName: string) => Promise<string[]>;
@@ -19,6 +21,7 @@ const SpotAutomationASGTable: React.FC<SpotAutomationASGTableProps> = ({
   costs,
   totalInstances,
   isLoading,
+  selectedAccountId,
   onToggleASG,
   onSyncASG,
   onGetInstanceTypeConfig,
@@ -222,10 +225,14 @@ const SpotAutomationASGTable: React.FC<SpotAutomationASGTableProps> = ({
                 return (
                   <tr key={asgKey} className="hover:bg-blue-50 transition-colors">
                     <td className="px-6 py-4">
-                      <div className="flex items-center">
-                        <i className="fas fa-layer-group text-gray-400 mr-3 text-lg"></i>
-                        <div className="font-semibold text-gray-900">{asg.name}</div>
-                      </div>
+                      <Link
+                        to={`/asg-detail?asgName=${encodeURIComponent(asg.name)}&region=${asg.region}&accountIds=${selectedAccountId}`}
+                        className="flex items-center hover:text-blue-600 transition-colors group"
+                      >
+                        <i className="fas fa-layer-group text-gray-400 mr-3 text-lg group-hover:text-blue-500"></i>
+                        <div className="font-semibold text-gray-900 group-hover:underline">{asg.name}</div>
+                        <i className="fas fa-external-link-alt ml-2 text-xs text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity"></i>
+                      </Link>
                     </td>
                     <td className="px-6 py-4">
                       <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">

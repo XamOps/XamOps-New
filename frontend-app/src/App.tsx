@@ -33,6 +33,7 @@ import RightsizingPage from './pages/RightsizingPage';
 import ReservationPage from './pages/ReservationPage';
 import CloudSitterPage from './pages/CloudSitterPage';
 import SpotAutomationPage from './pages/SpotAutomationPage';
+import ASGDetailPage from './pages/ASGDetailPage';
 import GrafanaDashboardPage from './pages/GrafanaDashboardPage';
 import CloudK8sPage from './pages/CloudK8sPage';
 import EksDetailsPage from './pages/EksDetailsPage';
@@ -344,6 +345,7 @@ const AppContent: React.FC = () => {
               <Route path="/cloudsitter" element={<CloudSitterPage />} />
               <Route path="/spot-automation" element={<SpotAutomationPage />} />
               <Route path="/autospotting" element={<SpotAutomationPage />} />
+              <Route path="/asg-detail" element={<ASGDetailPage />} />
               <Route path="/flex-compute" element={<FlexComputePage />} />
               <Route path="/grafana-dashboard" element={<GrafanaDashboardPage />} />
               <Route path="/cloudk8s" element={<CloudK8sPage />} />

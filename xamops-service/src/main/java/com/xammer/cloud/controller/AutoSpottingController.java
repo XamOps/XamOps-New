@@ -301,13 +301,30 @@ public class AutoSpottingController {
 
     /**
      * Get list of all instances in enabled ASGs with Spot/On-Demand status
-     * GET /api/autospotting/instances/{accountId}
+     * GET /api/autospotting/instances/{accountId}?asgName=xxx&region=xxx
      */
     @GetMapping("/instances/{accountId}")
-    public ResponseEntity<?> getSpotInstances(@PathVariable Long accountId) {
-        log.info("AutoSpottingController.getSpotInstances called with accountId={}", accountId);
+    public ResponseEntity<?> getSpotInstances(
+            @PathVariable Long accountId,
+            @RequestParam(required = false) String asgName,
+            @RequestParam(required = false) String region) {
+        log.info("AutoSpottingController.getSpotInstances called with accountId={}, asgName={}, region={}",
+                accountId, asgName, region);
         try {
             List<SpotInstanceDto> instances = autoSpottingService.getSpotInstances(accountId);
+
+            // Filter by asgName and region if provided
+            if (asgName != null && !asgName.isEmpty()) {
+                instances = instances.stream()
+                        .filter(i -> asgName.equals(i.getAsgName()))
+                        .collect(java.util.stream.Collectors.toList());
+            }
+            if (region != null && !region.isEmpty()) {
+                instances = instances.stream()
+                        .filter(i -> region.equals(i.getRegion()))
+                        .collect(java.util.stream.Collectors.toList());
+            }
+
             return ResponseEntity.ok(instances);
         } catch (Exception e) {
             log.error("Failed to list spot instances: {}", e.getMessage(), e);
