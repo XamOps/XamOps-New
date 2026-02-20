@@ -1,33 +1,18 @@
 package com.xammer.cloud.domain;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
-
 import com.xammer.billops.domain.Client;
-import javax.persistence.CascadeType;
-import javax.persistence.Column;
-import javax.persistence.Entity;
-import javax.persistence.FetchType;
-import javax.persistence.GeneratedValue;
-import javax.persistence.GenerationType;
-import javax.persistence.Id;
-import javax.persistence.JoinColumn;
-import javax.persistence.ManyToOne;
-import javax.persistence.OneToMany;
-import javax.persistence.SequenceGenerator;
-import javax.persistence.Table;import lombok.Data;
+import lombok.Data;
 import lombok.NoArgsConstructor;
-import org.springframework.security.core.GrantedAuthority; // --- IMPORT ---
-import org.springframework.security.core.authority.SimpleGrantedAuthority; // --- IMPORT ---
-import org.springframework.security.core.userdetails.UserDetails; // --- IMPORT ---
-
-import java.util.Collection; // --- IMPORT ---
-import java.util.Collections; // --- IMPORT ---
+import javax.persistence.*;
+import java.util.Collection;
+import java.util.Collections;
 
 @Entity
-@Table(name = "app_user")
+@Table(name = "users")
 @Data
 @NoArgsConstructor
-public class User implements UserDetails { // --- IMPLEMENT UserDetails ---
+public class User {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -39,18 +24,20 @@ public class User implements UserDetails { // --- IMPLEMENT UserDetails ---
     @Column(nullable = false)
     private String password;
 
-    // --- START: ADDED EMAIL FIELD ---
-    @Column(nullable = false)
     private String email;
-    // --- END: ADDED EMAIL FIELD ---
 
     @Column(nullable = false)
-    private String role; // e.g., "ROLE_USER", "ROLE_ADMIN", "ROLE_BILLOPS", "ROLE_XAMOPS", "ROLE_BILLOPS_ADMIN"
+    private String role;
+
+    private boolean enabled = true;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "client_id", nullable = false)
     @JsonIgnore
     private Client client;
+
+    public User() {
+    }
 
     public User(String username, String password, Client client) {
         this.username = username;
@@ -59,59 +46,18 @@ public class User implements UserDetails { // --- IMPLEMENT UserDetails ---
         this.role = "ROLE_USER";
     }
 
-    // --- Manually added getter/setter for email ---
-    public String getEmail() {
-        return email;
-    }
-
-    public void setEmail(String email) {
-        this.email = email;
-    }
-
-    // --- START: IMPLEMENTED UserDetails METHODS ---
-    @Override
-    @JsonIgnore
-    public Collection<? extends GrantedAuthority> getAuthorities() {
-        return Collections.singletonList(new SimpleGrantedAuthority(this.role));
-    }
-
-    @Override
-    public String getPassword() {
-        return this.password;
-    }
-
-    @Override
-    public String getUsername() {
-        return this.username;
-    }
-
-    @Override
-    @JsonIgnore
-    public boolean isAccountNonExpired() {
-        return true;
-    }
-
-    @Override
-    @JsonIgnore
-    public boolean isAccountNonLocked() {
-        return true;
-    }
-
-    @Override
-    @JsonIgnore
-    public boolean isCredentialsNonExpired() {
-        return true;
-    }
-
-    @Override
-    @JsonIgnore
-    public boolean isEnabled() {
-        return true;
-    }
-
-    public void setEnabled(boolean b) {
-        // TODO Auto-generated method stub
-        throw new UnsupportedOperationException("Unimplemented method 'setEnabled'");
-    }
-    // --- END: IMPLEMENTED UserDetails METHODS ---
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+    public String getUsername() { return username; }
+    public void setUsername(String username) { this.username = username; }
+    public String getPassword() { return password; }
+    public void setPassword(String password) { this.password = password; }
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
+    public String getRole() { return role; }
+    public void setRole(String role) { this.role = role; }
+    public boolean isEnabled() { return enabled; }
+    public void setEnabled(boolean enabled) { this.enabled = enabled; }
+    public Client getClient() { return client; }
+    public void setClient(Client client) { this.client = client; }
 }

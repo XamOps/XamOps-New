@@ -28,8 +28,8 @@ import java.util.Optional;
  * tenant's users table
  */
 @Service
-@Slf4j
 public class CustomUserDetailsService implements UserDetailsService {
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(CustomUserDetailsService.class);
 
     @Autowired
     private UserRepository userRepository;

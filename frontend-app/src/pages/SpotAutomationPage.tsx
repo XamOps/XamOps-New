@@ -31,6 +31,7 @@ import SpotAutomationChart from '../components/SpotAutomation/SpotAutomationChar
 import SpotAutomationASGTable from '../components/SpotAutomation/SpotAutomationASGTable';
 import ActionsHistory from '../components/ActionsHistory/ActionsHistory';
 import LaunchAnalytics from '../components/LaunchAnalytics/LaunchAnalytics';
+import { SpotAutomationSkeleton } from '../components/Shared/Skeleton';
 
 const SpotAutomationPage: React.FC = () => {
   const { selectedAccountIds } = useAccounts();
@@ -142,36 +143,40 @@ const SpotAutomationPage: React.FC = () => {
       <div className="flex-1 p-8">
         {/* Dashboard Tab */}
         {activeTab === 'dashboard' && (
-          <div className="space-y-8">
-            <SpotAutomationKPIs
-              costs={costs}
-              savings={savings}
-              enabledASGsCount={enabledASGsCount}
-              totalASGsCount={asgs.length}
-              enabledRegionsCount={enabledRegionsCount}
-            />
+          isLoading && asgs.length === 0 ? (
+            <SpotAutomationSkeleton />
+          ) : (
+            <div className="space-y-8">
+              <SpotAutomationKPIs
+                costs={costs}
+                savings={savings}
+                enabledASGsCount={enabledASGsCount}
+                totalASGsCount={asgs.length}
+                enabledRegionsCount={enabledRegionsCount}
+              />
 
-            <SpotAutomationChart
-              historyData={historyData}
-              historySummary={historySummary}
-              timeRange={historyTimeRange}
-              isLoading={isLoadingHistory}
-              onTimeRangeChange={handleTimeRangeChange}
-              onRefresh={() => fetchHistoryData(historyTimeRange)}
-            />
+              <SpotAutomationChart
+                historyData={historyData}
+                historySummary={historySummary}
+                timeRange={historyTimeRange}
+                isLoading={isLoadingHistory}
+                onTimeRangeChange={handleTimeRangeChange}
+                onRefresh={() => fetchHistoryData(historyTimeRange)}
+              />
 
-            <SpotAutomationASGTable
-              asgs={asgs}
-              costs={costs}
-              totalInstances={totalInstances}
-              isLoading={isLoading}
-              onToggleASG={handleToggleASG}
-              onSyncASG={syncASG}
-              onGetInstanceTypeConfig={getInstanceTypeConfig}
-              onSaveInstanceTypeConfig={saveInstanceTypeConfig}
-              onRefresh={() => fetchCostData(true)}
-            />
-          </div>
+              <SpotAutomationASGTable
+                asgs={asgs}
+                costs={costs}
+                totalInstances={totalInstances}
+                isLoading={isLoading}
+                onToggleASG={handleToggleASG}
+                onSyncASG={syncASG}
+                onGetInstanceTypeConfig={getInstanceTypeConfig}
+                onSaveInstanceTypeConfig={saveInstanceTypeConfig}
+                onRefresh={() => fetchCostData(true)}
+              />
+            </div>
+          )
         )}
 
         {/* Launch Analytics Tab */}

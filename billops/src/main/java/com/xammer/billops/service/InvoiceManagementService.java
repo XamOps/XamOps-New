@@ -617,10 +617,17 @@ public class InvoiceManagementService {
 
                         ResourceCostDto serviceAsResource = new ResourceCostDto(service.getServiceName(),
                                 "Service-level total", totalServiceCost, 1.0, "N/A");
-                        RegionCostDto globalRegion = new RegionCostDto("global", totalServiceCost,
-                                List.of(serviceAsResource));
-                        ServiceCostDetailDto serviceDetail = new ServiceCostDetailDto(service.getServiceName(),
-                                totalServiceCost, List.of(globalRegion));
+                        
+                        RegionCostDto globalRegion = new RegionCostDto();
+                        globalRegion.setRegionName("global");
+                        globalRegion.setCost(totalServiceCost);
+                        globalRegion.setResources(List.of(serviceAsResource));
+
+                        ServiceCostDetailDto serviceDetail = new ServiceCostDetailDto();
+                        serviceDetail.setServiceName(service.getServiceName());
+                        serviceDetail.setCost(totalServiceCost);
+                        serviceDetail.setRegionCosts(List.of(globalRegion));
+                        
                         detailedReport.add(serviceDetail);
                     }
                 }
@@ -643,9 +650,17 @@ public class InvoiceManagementService {
                         // creation
                         ResourceCostDto serviceAsResource = new ResourceCostDto(service.getServiceName(),
                                 "Service Cost", amount, 1.0, "N/A");
-                        RegionCostDto globalRegion = new RegionCostDto("Global", amount, List.of(serviceAsResource));
-                        ServiceCostDetailDto serviceDetail = new ServiceCostDetailDto(service.getServiceName(), amount,
-                                List.of(globalRegion));
+
+                        RegionCostDto globalRegion = new RegionCostDto();
+                        globalRegion.setRegionName("Global");
+                        globalRegion.setCost(amount);
+                        globalRegion.setResources(List.of(serviceAsResource));
+
+                        ServiceCostDetailDto serviceDetail = new ServiceCostDetailDto();
+                        serviceDetail.setServiceName(service.getServiceName());
+                        serviceDetail.setCost(amount);
+                        serviceDetail.setRegionCosts(List.of(globalRegion));
+
                         detailedReport.add(serviceDetail);
                     }
                 }

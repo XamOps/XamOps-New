@@ -1,18 +1,17 @@
 {
     "java.configuration.updateBuildConfiguration": "automatic",
     "java.compile.nullAnalysis.mode": "automatic",
-    "java.jdt.ls.vmargs": "-XX:+UseParallelGC -XX:GCTimeRatio=4 -XX:AdaptiveSizePolicyWeight=90 -Dsun.zip.disableMemoryMapping=true -Xmx8G -Xms100m -Xlog:disable",
+    "java.jdt.ls.vmargs": "-Xmx4G -Xms100m",
     "java.debug.settings.onBuildFailureProceed": true,
-    "java.jdt.ls.java.home": "/Library/Java/JavaVirtualMachines/temurin-25.jdk/Contents/Home",
+    "java.jdt.ls.java.home": "/opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home",
+    "java.import.maven.enabled": true,
     "java.configuration.runtimes": [
         {
             "name": "JavaSE-17",
-            "path": "/Library/Java/JavaVirtualMachines/temurin-25.jdk/Contents/Home",
+            "path": "/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home",
             "default": true
-        },
-        {
-            "name": "JavaSE-25",
-            "path": "/Library/Java/JavaVirtualMachines/temurin-25.jdk/Contents/Home"
         }
-    ]
+    ],
+    "java.maven.downloadSources": false,
+    "java.autobuild.enabled": true
 }

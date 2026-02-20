@@ -11,48 +11,21 @@
  * - Account breakdown visualization
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import Chart from 'chart.js/auto';
 import { useTopbar } from '../contexts/TopbarContext';
-
-interface SavingsMetrics {
-    totalSavings: number;
-    monthlySavings: number;
-    dailySavings: number;
-    activeSpotInstances: number;
-    conversionRate: number;
-}
-
-interface SpotActivity {
-    id: number;
-    timestamp: string;
-    accountId: string;
-    accountName: string;
-    instanceId: string;
-    instanceType: string;
-    spotInstanceType: string;
-    eventType: 'LAUNCH' | 'TERMINATE';
-    hourlySavings: number;
-    onDemandPrice: number;
-    spotPrice: number;
-    region: string;
-}
-
-interface HistoricalSavings {
-    date: string;
-    savings: number;
-    instanceCount: number;
-}
-
-interface AccountSavings {
-    accountId: string;
-    accountName: string;
-    totalSavings: number;
-    instanceCount: number;
-}
+import { useAutoSpottingCache } from '../contexts/AutoSpottingCacheContext';
+import { DashboardSkeleton } from '../components/Shared/Skeleton';
+import {
+    SavingsMetrics,
+    SpotActivity,
+    HistoricalSavings,
+    AccountSavings
+} from '../types/autospotting';
 
 const AutoSpottingAdminDashboardPage: React.FC = () => {
     const { setActions, clearActions } = useTopbar();
+    const { getAdminData, setAdminData } = useAutoSpottingCache();
 
     // State
     const [metrics, setMetrics] = useState<SavingsMetrics | null>(null);
@@ -62,6 +35,7 @@ const AutoSpottingAdminDashboardPage: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [dateRange, setDateRange] = useState('7d'); // 7d, 30d, 90d
+    const [isInitialLoad, setIsInitialLoad] = useState(true);
 
     // Chart refs
     const savingsChartRef = useRef<HTMLCanvasElement>(null);
@@ -69,30 +43,28 @@ const AutoSpottingAdminDashboardPage: React.FC = () => {
     const savingsChartInstance = useRef<Chart<'line'> | null>(null);
     const accountChartInstance = useRef<Chart<'doughnut'> | null>(null);
 
-    // Topbar actions
-    useEffect(() => {
-        setActions(
-            <div className="flex items-center gap-2">
-                <button
-                    onClick={fetchDashboardData}
-                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold shadow-lg shadow-indigo-500/20 hover:bg-indigo-700 transition-all"
-                >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                    </svg>
-                    Refresh
-                </button>
-            </div>
-        );
-
-        return () => clearActions();
-    }, [setActions, clearActions]);
-
     // Fetch dashboard data
-    const fetchDashboardData = async () => {
+    const fetchDashboardData = useCallback(async (isRefresh = false) => {
         try {
-            setLoading(true);
+            if (!isRefresh && !metrics) {
+                setLoading(true);
+            }
             setError(null);
+
+            // Check cache first
+            if (!isRefresh && isInitialLoad) {
+                const cachedData = getAdminData(dateRange);
+                if (cachedData) {
+                    console.log('[AutoSpotting Admin] Using cached data');
+                    setMetrics(cachedData.metrics);
+                    setRecentActivity(cachedData.recentActivity);
+                    setHistoricalData(cachedData.historicalData);
+                    setAccountBreakdown(cachedData.accountBreakdown);
+                    setLoading(false);
+                    setIsInitialLoad(false);
+                    // Refresh in background
+                }
+            }
 
             // Fetch all data in parallel
             const [metricsRes, activityRes, historicalRes, breakdownRes] = await Promise.all([
@@ -117,13 +89,41 @@ const AutoSpottingAdminDashboardPage: React.FC = () => {
             setRecentActivity(activityData);
             setHistoricalData(historicalData);
             setAccountBreakdown(breakdownData);
+
+            // Update cache
+            setAdminData(dateRange, {
+                metrics: metricsData,
+                recentActivity: activityData,
+                historicalData,
+                accountBreakdown: breakdownData
+            });
         } catch (err) {
             console.error('Error fetching dashboard data:', err);
             setError(err instanceof Error ? err.message : 'Failed to load dashboard');
         } finally {
             setLoading(false);
+            setIsInitialLoad(false);
         }
-    };
+    }, [dateRange, metrics, isInitialLoad, getAdminData, setAdminData]);
+
+    // Topbar actions
+    useEffect(() => {
+        setActions(
+            <div className="flex items-center gap-2">
+                <button
+                    onClick={() => fetchDashboardData(true)}
+                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold shadow-lg shadow-indigo-500/20 hover:bg-indigo-700 transition-all"
+                >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Refresh
+                </button>
+            </div>
+        );
+
+        return () => clearActions();
+    }, [setActions, clearActions, fetchDashboardData]);
 
     // Initial data fetch
     useEffect(() => {
@@ -290,14 +290,7 @@ const AutoSpottingAdminDashboardPage: React.FC = () => {
     }, [accountBreakdown]);
 
     if (loading && !metrics) {
-        return (
-            <div className="flex items-center justify-center min-h-screen bg-slate-900">
-                <div className="text-center">
-                    <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-amber-500 border-t-transparent"></div>
-                    <p className="mt-4 text-slate-400 font-['Fira_Sans']">Loading AutoSpotting data...</p>
-                </div>
-            </div>
-        );
+        return <DashboardSkeleton />;
     }
 
     if (error) {
@@ -307,7 +300,7 @@ const AutoSpottingAdminDashboardPage: React.FC = () => {
                     <h3 className="text-red-400 font-['Fira_Code'] text-lg mb-2">Error Loading Dashboard</h3>
                     <p className="text-slate-300 font-['Fira_Sans']">{error}</p>
                     <button
-                        onClick={fetchDashboardData}
+                        onClick={() => fetchDashboardData(true)}
                         className="mt-4 px-4 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg transition-colors font-['Fira_Sans']"
                     >
                         Retry

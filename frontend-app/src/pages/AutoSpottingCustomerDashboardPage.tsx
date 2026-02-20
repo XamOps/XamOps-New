@@ -12,53 +12,24 @@
  * - Cost comparison charts
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import Chart from 'chart.js/auto';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useAccounts } from '../contexts/AccountContext';
-
-interface CustomerSavings {
-    currentMonthlyCost: number;
-    onDemandMonthlyCost: number;
-    actualMonthlySavings: number;
-    potentialMonthlySavings: number;
-    totalAsgs: number;
-    enabledAsgs: number;
-}
-
-interface SpotInstance {
-    instanceId: string;
-    instanceType: string;
-    availabilityZone: string;
-    lifecycle: string; // "spot" or "on-demand"
-    state: string;
-    asgName: string;
-    region: string;
-    estimatedHourlySavings: number;
-    launchTime: string;
-}
-
-interface ActivityEvent {
-    id: string;
-    timestamp: string;
-    description: string;
-    eventType: string;
-    savings?: number;
-    region?: string;
-    asgName?: string;
-}
-
-interface Recommendation {
-    id: number;
-    title: string;
-    description: string;
-    potentialSavings: number;
-    priority: 'high' | 'medium' | 'low';
-}
+import { useAutoSpottingCache } from '../contexts/AutoSpottingCacheContext';
+import { DashboardSkeleton } from '../components/Shared/Skeleton';
+import {
+    CustomerSavings,
+    SpotInstance,
+    ActivityEvent,
+    Recommendation
+} from '../types/autospotting';
 
 const AutoSpottingCustomerDashboardPage: React.FC = () => {
     const { setActions, clearActions } = useTopbar();
     const { selectedAccountDisplay } = useAccounts();
+    const { getCustomerData, setCustomerData } = useAutoSpottingCache();
+
     const selectedAccount = selectedAccountDisplay.id && selectedAccountDisplay.id !== 'No account selected' ? { accountId: selectedAccountDisplay.id, accountName: selectedAccountDisplay.name } : null;
 
     // State
@@ -68,39 +39,39 @@ const AutoSpottingCustomerDashboardPage: React.FC = () => {
     const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [isInitialLoad, setIsInitialLoad] = useState(true);
 
     // Chart refs
     const savingsChartRef = useRef<HTMLCanvasElement>(null);
     const savingsChartInstance = useRef<Chart<'bar'> | null>(null);
 
-    // Topbar actions
-    useEffect(() => {
-        setActions(
-            <div className="flex items-center gap-2">
-                <button
-                    onClick={fetchDashboardData}
-                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold shadow-lg shadow-indigo-500/20 hover:bg-indigo-700 transition-all"
-                >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                    </svg>
-                    Refresh
-                </button>
-            </div>
-        );
-
-        return () => clearActions();
-    }, [setActions, clearActions]);
 
     // Fetch dashboard data
-    const fetchDashboardData = async () => {
+    const fetchDashboardData = useCallback(async (isRefresh = false) => {
         if (!selectedAccount) return;
 
         try {
-            setLoading(true);
+            if (!isRefresh && !savings) {
+                setLoading(true);
+            }
             setError(null);
 
             const accountId = selectedAccount.accountId;
+
+            // Check cache first
+            if (!isRefresh && isInitialLoad) {
+                const cachedData = getCustomerData(accountId);
+                if (cachedData) {
+                    console.log('[AutoSpotting] Using cached data');
+                    setSavings(cachedData.savings);
+                    setSpotInstances(cachedData.spotInstances);
+                    setRecentActivity(cachedData.recentActivity);
+                    setRecommendations(cachedData.recommendations);
+                    setLoading(false);
+                    setIsInitialLoad(false);
+                    // We still fetch in background to refresh cache
+                }
+            }
 
             // Fetch all data in parallel
             const [savingsRes, instancesRes, activityRes] = await Promise.all([
@@ -110,11 +81,6 @@ const AutoSpottingCustomerDashboardPage: React.FC = () => {
             ]);
 
             if (!savingsRes.ok || !instancesRes.ok || !activityRes.ok) {
-                console.error("Fetch failed:", {
-                    savings: savingsRes.status,
-                    instances: instancesRes.status,
-                    activity: activityRes.status
-                });
                 throw new Error('Failed to fetch AutoSpotting data');
             }
 
@@ -124,28 +90,22 @@ const AutoSpottingCustomerDashboardPage: React.FC = () => {
                 activityRes.json()
             ]);
 
-            // Map savings data
-            setSavings(savingsData);
-
-            // Map instances data
-            setSpotInstances(instancesData);
-
+            let mappedActivity: ActivityEvent[] = [];
             // Map activity data
             if (activityData && activityData.events) {
-                const mappedActivity: ActivityEvent[] = activityData.events.map((event: any, index: number) => ({
+                mappedActivity = activityData.events.map((event: any, index: number) => ({
                     id: `${event.time}-${index}`,
-                    timestamp: event.timestamp || event.time, // Handle potential API diffs
+                    timestamp: event.timestamp || event.time,
                     description: event.description || event.eventType || event.type,
                     eventType: event.eventType || event.type,
                     savings: event.savings || event.estimatedSavings,
                     region: event.region,
                     asgName: event.asgName
                 }));
-                setRecentActivity(mappedActivity);
             }
 
-            // Mock recommendations for now
-            setRecommendations([
+            // Mock recommendations
+            const mockRecommendations: Recommendation[] = [
                 {
                     id: 1,
                     title: 'Enable Spot on "payment-service"',
@@ -160,15 +120,49 @@ const AutoSpottingCustomerDashboardPage: React.FC = () => {
                     potentialSavings: 45.50,
                     priority: 'medium'
                 }
-            ]);
+            ];
+
+            // Update state
+            setSavings(savingsData);
+            setSpotInstances(instancesData);
+            setRecentActivity(mappedActivity);
+            setRecommendations(mockRecommendations);
+
+            // Update cache
+            setCustomerData(accountId, {
+                savings: savingsData,
+                spotInstances: instancesData,
+                recentActivity: mappedActivity,
+                recommendations: mockRecommendations
+            });
 
         } catch (err) {
             console.error('Error fetching dashboard data:', err);
             setError(err instanceof Error ? err.message : 'Failed to load dashboard');
         } finally {
             setLoading(false);
+            setIsInitialLoad(false);
         }
-    };
+    }, [selectedAccount, savings, isInitialLoad, getCustomerData, setCustomerData]);
+
+    // Topbar actions
+    useEffect(() => {
+        setActions(
+            <div className="flex items-center gap-2">
+                <button
+                    onClick={() => fetchDashboardData(true)}
+                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold shadow-lg shadow-indigo-500/20 hover:bg-indigo-700 transition-all"
+                >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Refresh
+                </button>
+            </div>
+        );
+
+        return () => clearActions();
+    }, [setActions, clearActions, fetchDashboardData]);
 
     // Initial data fetch
     useEffect(() => {
@@ -267,14 +261,7 @@ const AutoSpottingCustomerDashboardPage: React.FC = () => {
     }, [savings]);
 
     if (loading && !savings) {
-        return (
-            <div className="flex items-center justify-center min-h-screen bg-slate-900">
-                <div className="text-center">
-                    <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-amber-500 border-t-transparent"></div>
-                    <p className="mt-4 text-slate-400 font-['Fira_Sans']">Loading AutoSpotting data...</p>
-                </div>
-            </div>
-        );
+        return <DashboardSkeleton />;
     }
 
     if (error) {
@@ -284,7 +271,7 @@ const AutoSpottingCustomerDashboardPage: React.FC = () => {
                     <h3 className="text-red-400 font-['Fira_Code'] text-lg mb-2">Error Loading Dashboard</h3>
                     <p className="text-slate-300 font-['Fira_Sans']">{error}</p>
                     <button
-                        onClick={fetchDashboardData}
+                        onClick={() => fetchDashboardData(true)}
                         className="mt-4 px-4 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg transition-colors font-['Fira_Sans']"
                     >
                         Retry

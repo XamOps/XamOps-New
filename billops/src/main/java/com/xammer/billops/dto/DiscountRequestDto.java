@@ -7,4 +7,9 @@ import java.math.BigDecimal;
 public class DiscountRequestDto {
     private String serviceName;
     private BigDecimal percentage;
+
+    public String getServiceName() { return serviceName; }
+    public void setServiceName(String serviceName) { this.serviceName = serviceName; }
+    public BigDecimal getPercentage() { return percentage; }
+    public void setPercentage(BigDecimal percentage) { this.percentage = percentage; }
 }

@@ -18,6 +18,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AccountProvider } from './contexts/AccountContext';
 import { VPCProvider } from './contexts/VPCContext';
 import { EksDashboardCacheProvider } from './contexts/EksDashboardCacheContext';
+import { AutoSpottingCacheProvider } from './contexts/AutoSpottingCacheContext';
 import { Sidebar } from './components/Sidebar';
 import { TopbarProvider } from './contexts/TopbarContext';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
@@ -61,6 +62,7 @@ import BillOpsTicketsPage from './pages/BillOpsTicketsPage';
 import BillOpsTicketDetailPage from './pages/BillOpsTicketDetailPage';
 import BillOpsSupportDashboardPage from './pages/BillOpsSupportDashboardPage';
 import BillOpsAdminDashboardPage from './pages/BillOpsAdminDashboardPage';
+import AutoSpottingAdminDashboardPage from './pages/AutoSpottingAdminDashboardPage';
 import BillOpsAdminInvoicesPage from './pages/BillOpsAdminInvoicesPage';
 import BillOpsAdminCreditsPage from './pages/BillOpsAdminCreditsPage';
 import BillOpsAdminTicketsPage from './pages/BillOpsAdminTicketsPage';
@@ -383,6 +385,7 @@ const AppContent: React.FC = () => {
               <Route path="/billops-ticket-detail" element={<BillOpsTicketDetailPage />} />
               <Route path="/billops-support-dashboard" element={<BillOpsSupportDashboardPage />} />
               <Route path="/billops-admin-dashboard" element={<BillOpsAdminDashboardPage />} />
+              <Route path="/autospotting-admin" element={<AutoSpottingAdminDashboardPage />} />
               <Route path="/billops-admin-invoices" element={<BillOpsAdminInvoicesPage />} />
               <Route path="/billops-admin-credits" element={<BillOpsAdminCreditsPage />} />
               <Route path="/billops-admin-tickets" element={<BillOpsAdminTicketsPage />} />
@@ -415,7 +418,9 @@ const App: React.FC = () => {
         <AccountProvider>
           <VPCProvider>
             <EksDashboardCacheProvider>
-              <AppContent />
+              <AutoSpottingCacheProvider>
+                <AppContent />
+              </AutoSpottingCacheProvider>
             </EksDashboardCacheProvider>
           </VPCProvider>
         </AccountProvider>
