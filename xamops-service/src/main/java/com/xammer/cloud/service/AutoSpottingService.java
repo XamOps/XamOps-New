@@ -713,6 +713,17 @@ public class AutoSpottingService {
                                         .region(region)
                                         .estimatedHourlySavings(estimatedSavings)
                                         .launchTime(instance.launchTime().toString())
+                                        .vpcId(instance.vpcId())
+                                        .subnetId(instance.subnetId())
+                                        .imageId(instance.imageId())
+                                        .privateIpAddress(instance.privateIpAddress())
+                                        .publicIpAddress(instance.publicIpAddress())
+                                        .securityGroups(instance.securityGroups().stream()
+                                                .map(sg -> SpotInstanceDto.SecurityGroupInfo.builder()
+                                                        .groupId(sg.groupId())
+                                                        .groupName(sg.groupName())
+                                                        .build())
+                                                .collect(Collectors.toList()))
                                         .build());
                             }
                         }

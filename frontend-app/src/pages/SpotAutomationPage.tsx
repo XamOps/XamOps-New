@@ -169,6 +169,7 @@ const SpotAutomationPage: React.FC = () => {
                 costs={costs}
                 totalInstances={totalInstances}
                 isLoading={isLoading}
+                selectedAccountId={selectedAccountId}
                 onToggleASG={handleToggleASG}
                 onSyncASG={syncASG}
                 onGetInstanceTypeConfig={getInstanceTypeConfig}

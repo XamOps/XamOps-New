@@ -52,6 +52,29 @@ export interface HistorySummary {
   peak_savings: number;
 }
 
+export interface SecurityGroupInfo {
+  groupId: string;
+  groupName: string;
+}
+
+export interface InstanceDetail {
+  instanceId: string;
+  instanceType: string;
+  availabilityZone: string;
+  lifecycle: string;
+  state: string;
+  asgName: string;
+  region: string;
+  estimatedHourlySavings: number;
+  launchTime: string;
+  vpcId: string;
+  subnetId: string;
+  imageId: string;
+  privateIpAddress: string;
+  publicIpAddress: string;
+  securityGroups: SecurityGroupInfo[];
+}
+
 interface UseSpotAutomationDataProps {
   selectedAccountId: string | null;
 }
