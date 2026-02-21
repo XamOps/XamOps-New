@@ -1673,32 +1673,22 @@ public class GcpOptimizationService {
             String sqlInstanceLabelKey = "cloudsql.googleapis.com/instance_name";
 
             String query = String.format(
-                    "SELECT SUM(cost) as total_cost, currency " + // Select currency as well
-                            "FROM `%s` " +
-                            "WHERE DATE(_PARTITIONTIME) >= '%s' " + // Use _PARTITIONTIME if table is partitioned
-                            // "WHERE DATE(usage_start_time) >= '%s' " + // Use usage_start_time if not
-                            // partitioned
-                            "  AND DATE(_PARTITIONTIME) < '%s' " +
-                            // " AND DATE(usage_start_time) <= '%s' " +
-                            "  AND service.description = 'Cloud SQL' " +
-                            "  AND project.id = '%s' " +
-                            // Query 'labels' array (UNNEST)
-                            "  AND EXISTS (SELECT 1 FROM UNNEST(labels) AS l WHERE l.key = '%s' AND l.value = '%s') " +
-                            "  AND cost > 0 " +
-                            "GROUP BY currency", // Group by currency
-                    tableNameOpt.get(),
-                    startDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
-                    today.plusDays(1).format(DateTimeFormatter.ISO_LOCAL_DATE), // Partition date is exclusive upper
-                                                                                // bound
-                    // today.format(DateTimeFormatter.ISO_LOCAL_DATE), // Use for usage_start_time
-                    gcpProjectId,
-                    sqlInstanceLabelKey,
-                    instanceName);
+                    "SELECT SUM(cost) as total_cost, currency FROM `%s` " +
+                    "WHERE DATE(_PARTITIONTIME) >= @start AND DATE(_PARTITIONTIME) < @end " +
+                    "AND service.description = 'Cloud SQL' AND project.id = @projectId " +
+                    "AND EXISTS (SELECT 1 FROM UNNEST(labels) AS l WHERE l.key = @labelKey AND l.value = @instanceName) " +
+                    "AND cost > 0 GROUP BY currency", tableNameOpt.get());
+
+            QueryJobConfiguration queryConfig = QueryJobConfiguration.newBuilder(query)
+                    .addNamedParameter("start", QueryParameterValue.string(startDate.toString()))
+                    .addNamedParameter("end", QueryParameterValue.string(today.plusDays(1).toString()))
+                    .addNamedParameter("projectId", QueryParameterValue.string(gcpProjectId))
+                    .addNamedParameter("labelKey", QueryParameterValue.string(sqlInstanceLabelKey))
+                    .addNamedParameter("instanceName", QueryParameterValue.string(instanceName))
+                    .build();
 
             log.info("📊 Querying 30-day cost for Cloud SQL instance: {}", instanceName);
-            log.debug("BigQuery SQL: {}", query);
-
-            TableResult results = bigquery.query(QueryJobConfiguration.newBuilder(query).build());
+            TableResult results = bigquery.query(queryConfig);
 
             double totalCostInr = 0.0;
             boolean dataFound = false;
