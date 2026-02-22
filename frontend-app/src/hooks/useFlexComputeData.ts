@@ -29,7 +29,20 @@ export const useFlexComputeData = () => {
   const [isLoading, setIsLoading] = useState(false);
 
   // Linked accounts from CloudiDR
-  const [linkedAccounts, setLinkedAccounts] = useState<Array<{ accountId: string; accountName: string; provider: string; status: string }>>([]);
+  const [linkedAccounts, setLinkedAccounts] = useState<Array<{
+    accountId: string;
+    accountName: string;
+    provider: string;
+    status: string;
+    accountRegions?: Array<{
+      id: number;
+      operatingCspRegionAz: {
+        regionCode: string;
+        regionType: string;
+        availabilityZoneId: string;
+      };
+    }>;
+  }>>([]);
   const [accountsLoading, setAccountsLoading] = useState(false);
 
   // Wizard data
@@ -45,7 +58,7 @@ export const useFlexComputeData = () => {
   const [pageSize, setPageSize] = useState(10);
   const [totalElements, setTotalElements] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
-  const [statusFilter, setStatusFilter] = useState<string[]>([]);
+  const [_statusFilter, setStatusFilter] = useState<string[]>([]);
 
   /**
    * Fetch KPIs by loading ALL ACTIVE/COMPLETED capacities (separate from paginated table data)
@@ -169,9 +182,9 @@ export const useFlexComputeData = () => {
   const getUtcOffsetHours = (timezone: string): number => {
     const now = new Date();
     const utcStr = now.toLocaleString('sv-SE', { timeZone: 'UTC' });
-    const tzStr  = now.toLocaleString('sv-SE', { timeZone: timezone });
+    const tzStr = now.toLocaleString('sv-SE', { timeZone: timezone });
     const utcDate = new Date(utcStr.replace(' ', 'T') + 'Z');
-    const tzDate  = new Date(tzStr.replace(' ', 'T') + 'Z');
+    const tzDate = new Date(tzStr.replace(' ', 'T') + 'Z');
     const offsetMinutes = (tzDate.getTime() - utcDate.getTime()) / 60000;
     return Math.round(offsetMinutes / 60);
   };
@@ -202,7 +215,7 @@ export const useFlexComputeData = () => {
 
     // Step 3: correction = (what we want) − (what timezone currently shows)
     const wantedMs = Date.UTC(year, month - 1, day, hours, minutes);
-    const gotMs    = Date.UTC(ty, tm - 1, td, th, tmin);
+    const gotMs = Date.UTC(ty, tm - 1, td, th, tmin);
     const actualUtc = new Date(provisional.getTime() + (wantedMs - gotMs));
 
     // Step 4: round to nearest 15-min interval in UTC
@@ -282,7 +295,7 @@ export const useFlexComputeData = () => {
 
       // Convert wall-clock times to UTC before sending — backend validates against server UTC
       const startUtc = wallClockToUtc(form.startDate, form.timeZone);
-      const endUtc   = wallClockToUtc(form.endDate,   form.timeZone);
+      const endUtc = wallClockToUtc(form.endDate, form.timeZone);
 
       const response = await fetch('/api/flexcompute/capacity/search', {
         method: 'POST',
@@ -350,7 +363,7 @@ export const useFlexComputeData = () => {
 
       // Convert wall-clock times to UTC — backend validates startTime against server UTC
       const startUtc = wallClockToUtc(form.startDate, form.timeZone);
-      const endUtc   = wallClockToUtc(form.endDate,   form.timeZone);
+      const endUtc = wallClockToUtc(form.endDate, form.timeZone);
 
       const requestBody = {
         accountId: form.cspAccount,

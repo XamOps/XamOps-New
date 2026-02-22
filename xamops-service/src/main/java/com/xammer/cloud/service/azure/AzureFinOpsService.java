@@ -6,6 +6,9 @@ import com.xammer.cloud.domain.User;
 import com.xammer.cloud.dto.FinOpsReportScheduleDto;
 import com.xammer.cloud.dto.azure.AzureDashboardData;
 import com.xammer.cloud.dto.azure.AzureFinOpsReportDto;
+import com.xammer.cloud.dto.azure.AzureRightsizingRecommendation;
+import com.xammer.cloud.dto.azure.AzureRightsizingResponse;
+import com.xammer.cloud.dto.azure.AzureWasteItem;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.FinOpsReportScheduleRepository;
 import com.xammer.cloud.service.CostService;
@@ -34,6 +37,12 @@ public class AzureFinOpsService {
 
     @Autowired
     private AzureCostManagementService costManagementService;
+
+    @Autowired
+    private AzureRightsizingService rightsizingService;
+
+    @Autowired
+    private AzureWasteService wasteService;
 
     @Autowired
     private CloudAccountRepository cloudAccountRepository;
@@ -108,10 +117,23 @@ public class AzureFinOpsService {
                             (a, b) -> b
                         ));
 
-                    // TODO: Implement calculateMomAndYoyChanges in CostService
-                    // For now, setting to 0
-                    logger.warn("FIXME: costService.calculateMomAndYoyChanges is not implemented. MoM/YoY will be 0.");
-                    kpis.setMomChange(0.0);
+                    // Calculate MoM change using the two most recent non-forecast entries
+                    List<Double> actualCosts = new ArrayList<>();
+                    for (int i = labels.size() - 1; i >= 0; i--) {
+                        boolean isForecast = i < anomalies.size() && Boolean.TRUE.equals(anomalies.get(i));
+                        if (!isForecast) {
+                            actualCosts.add(costs.get(i));
+                        }
+                        if (actualCosts.size() == 2) break;
+                    }
+                    if (actualCosts.size() >= 2 && actualCosts.get(1) != 0.0) {
+                        double current = actualCosts.get(0);
+                        double previous = actualCosts.get(1);
+                        kpis.setMomChange(((current - previous) / previous) * 100.0);
+                        logger.info("MoM change for {}: {:.2f}%", subscriptionId, kpis.getMomChange());
+                    } else {
+                        kpis.setMomChange(0.0);
+                    }
                     kpis.setYoyChange(0.0);
                 } else {
                     // Set defaults if cost history data is malformed
@@ -182,6 +204,60 @@ public class AzureFinOpsService {
             logger.error("Failed to get cost by region for {}: {}", subscriptionId, e.getMessage());
             report.setCostByRegion(Collections.emptyList());
         }
+
+        // --- STEP 4: Get Rightsizing Recommendations ---
+        List<AzureFinOpsReportDto.RightsizingItem> rightsizingItems = new ArrayList<>();
+        try {
+            AzureRightsizingResponse rightsizingResponse = rightsizingService.getRecommendations(subscriptionId, false);
+            if (rightsizingResponse != null && rightsizingResponse.getRecommendations() != null) {
+                for (AzureRightsizingRecommendation r : rightsizingResponse.getRecommendations()) {
+                    rightsizingItems.add(new AzureFinOpsReportDto.RightsizingItem(
+                        r.getResourceName(),
+                        r.getResourceType(),
+                        r.getCurrentSku(),
+                        r.getTargetSku(),
+                        r.getMonthlySavings(),
+                        r.getAnnualSavings(),
+                        r.getImpact(),
+                        r.getLocation()
+                    ));
+                }
+                logger.info("Added {} rightsizing items to FinOps report for {}", rightsizingItems.size(), subscriptionId);
+            }
+        } catch (Exception e) {
+            logger.warn("Failed to get rightsizing data for FinOps report {}: {}", subscriptionId, e.getMessage());
+        }
+        report.setRightsizingItems(rightsizingItems);
+
+        // --- STEP 5: Get Waste Items ---
+        List<AzureFinOpsReportDto.WasteItem> wasteItems = new ArrayList<>();
+        try {
+            List<AzureWasteItem> wasteRaw = wasteService.getWasteItems(subscriptionId, false);
+            if (wasteRaw != null) {
+                for (AzureWasteItem w : wasteRaw) {
+                    wasteItems.add(new AzureFinOpsReportDto.WasteItem(
+                        w.getResourceId(),
+                        w.getResourceName(),
+                        w.getResourceType(),
+                        w.getRegion(),
+                        w.getReason(),
+                        w.getMonthlySavings()
+                    ));
+                }
+                logger.info("Added {} waste items to FinOps report for {}", wasteItems.size(), subscriptionId);
+            }
+        } catch (Exception e) {
+            logger.warn("Failed to get waste data for FinOps report {}: {}", subscriptionId, e.getMessage());
+        }
+        report.setWasteItems(wasteItems);
+
+        // --- STEP 6: Calculate Total Potential Savings ---
+        double totalPotentialSavings = rightsizingItems.stream()
+                .mapToDouble(AzureFinOpsReportDto.RightsizingItem::getMonthlySavings).sum()
+            + wasteItems.stream()
+                .mapToDouble(AzureFinOpsReportDto.WasteItem::getMonthlySavings).sum();
+        report.setTotalPotentialSavings(totalPotentialSavings);
+        logger.info("Total potential savings for {}: ${}", subscriptionId, totalPotentialSavings);
 
         return report;
     }

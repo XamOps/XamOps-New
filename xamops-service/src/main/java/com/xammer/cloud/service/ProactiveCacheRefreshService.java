@@ -6,6 +6,7 @@ import com.xammer.cloud.domain.JobExecutionHistory;
 import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.JobExecutionHistoryRepository;
+import com.xammer.cloud.service.azure.AzureDashboardService;
 import com.xammer.cloud.service.gcp.GcpDataService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -41,6 +42,7 @@ public class ProactiveCacheRefreshService {
     private final OptimizationService optimizationService;
     private final CloudGuardService cloudGuardService; // For alerts
     private final GcpDataService gcpDataService; // For GCP dashboard caching
+    private final AzureDashboardService azureDashboardService; // For Azure dashboard caching
 
     private final JobExecutionHistoryRepository jobExecutionHistoryRepository;
     private final JdbcTemplate masterJdbcTemplate;
@@ -62,6 +64,7 @@ public class ProactiveCacheRefreshService {
             OptimizationService optimizationService,
             CloudGuardService cloudGuardService,
             GcpDataService gcpDataService,
+            AzureDashboardService azureDashboardService,
             JobExecutionHistoryRepository jobExecutionHistoryRepository,
             @Qualifier("masterDataSource") DataSource masterDataSource,
             com.xammer.cloud.config.SchedulingEnvironmentConfig envConfig) {
@@ -77,6 +80,7 @@ public class ProactiveCacheRefreshService {
         this.optimizationService = optimizationService;
         this.cloudGuardService = cloudGuardService;
         this.gcpDataService = gcpDataService;
+        this.azureDashboardService = azureDashboardService;
         this.jobExecutionHistoryRepository = jobExecutionHistoryRepository;
         this.masterJdbcTemplate = new JdbcTemplate(masterDataSource);
         this.envConfig = envConfig;
@@ -543,6 +547,64 @@ public class ProactiveCacheRefreshService {
 
             } catch (Exception e) {
                 logger.error("❌ Failed alerts refresh for tenant {}", tenantId, e);
+                if (jobHistory.getId() != null) {
+                    jobHistory.setStatus("FAILURE");
+                    jobHistory.setErrorMessage(e.getMessage());
+                    jobHistory.setEndTime(LocalDateTime.now());
+                    jobExecutionHistoryRepository.save(jobHistory);
+                }
+            } finally {
+                TenantContext.clear();
+            }
+        }
+    }
+
+    // ===================================================================================
+    // 4:30 AM -> Azure Dashboard Refresh (Daily)
+    // Caches Azure dashboard data (cost, inventory, IAM) to database for fast access
+    // ===================================================================================
+    @Scheduled(cron = "0 30 4 * * ?")
+    public void refreshAzureDashboardData() {
+        logger.info("--- [4:30 AM] Starting Azure Dashboard Data Refresh ---");
+        List<String> tenants = fetchActiveTenants();
+
+        for (String tenantId : tenants) {
+            JobExecutionHistory jobHistory = new JobExecutionHistory("REFRESH_AZURE_DASHBOARD", tenantId,
+                    LocalDateTime.now(), "RUNNING");
+            try {
+                TenantContext.setCurrentTenant(tenantId);
+                jobHistory = jobExecutionHistoryRepository.save(jobHistory);
+
+                int count = 0;
+                for (CloudAccount account : getAllAccounts()) {
+                    if (!"Azure".equalsIgnoreCase(account.getProvider())) {
+                        continue;
+                    }
+
+                    String subscriptionId = account.getAzureSubscriptionId();
+                    if (subscriptionId == null || subscriptionId.isEmpty()) {
+                        continue;
+                    }
+
+                    try {
+                        azureDashboardService.refreshAndCacheDashboard(subscriptionId);
+                        logger.info("✓ Azure Dashboard cached for subscription: {}", subscriptionId);
+                        count++;
+                    } catch (Exception e) {
+                        logger.error("Failed Azure Dashboard refresh for subscription {}: {}", subscriptionId,
+                                e.getMessage());
+                    }
+                }
+
+                jobHistory.setStatus("SUCCESS");
+                jobHistory.setItemsProcessed(count);
+                jobHistory.setEndTime(LocalDateTime.now());
+                jobExecutionHistoryRepository.save(jobHistory);
+                logger.info("✅ Azure Dashboard refresh complete for tenant {} - {} subscriptions cached", tenantId,
+                        count);
+
+            } catch (Exception e) {
+                logger.error("❌ Failed Azure dashboard refresh for tenant {}", tenantId, e);
                 if (jobHistory.getId() != null) {
                     jobHistory.setStatus("FAILURE");
                     jobHistory.setErrorMessage(e.getMessage());

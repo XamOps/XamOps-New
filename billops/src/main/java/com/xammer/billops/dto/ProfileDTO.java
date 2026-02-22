@@ -21,20 +21,61 @@ public class ProfileDTO {
 
     private List<CloudAccountInfo> cloudAccounts;
 
-    public Long getId() { return id; }
-    public void setId(Long id) { this.id = id; }
-    public String getUsername() { return username; }
-    public void setUsername(String username) { this.username = username; }
-    public String getEmail() { return email; }
-    public void setEmail(String email) { this.email = email; }
-    public String getRole() { return role; }
-    public void setRole(String role) { this.role = role; }
-    public String getClientName() { return clientName; }
-    public void setClientName(String clientName) { this.clientName = clientName; }
-    public boolean isPrimaryUser() { return primaryUser; }
-    public void setPrimaryUser(boolean primaryUser) { this.primaryUser = primaryUser; }
-    public List<CloudAccountInfo> getCloudAccounts() { return cloudAccounts; }
-    public void setCloudAccounts(List<CloudAccountInfo> cloudAccounts) { this.cloudAccounts = cloudAccounts; }
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+
+    public String getUsername() {
+        return username;
+    }
+
+    public void setUsername(String username) {
+        this.username = username;
+    }
+
+    public String getEmail() {
+        return email;
+    }
+
+    public void setEmail(String email) {
+        this.email = email;
+    }
+
+    public String getRole() {
+        return role;
+    }
+
+    public void setRole(String role) {
+        this.role = role;
+    }
+
+    public String getClientName() {
+        return clientName;
+    }
+
+    public void setClientName(String clientName) {
+        this.clientName = clientName;
+    }
+
+    public boolean isPrimaryUser() {
+        return primaryUser;
+    }
+
+    public void setPrimaryUser(boolean primaryUser) {
+        this.primaryUser = primaryUser;
+    }
+
+    public List<CloudAccountInfo> getCloudAccounts() {
+        return cloudAccounts;
+    }
+
+    public void setCloudAccounts(List<CloudAccountInfo> cloudAccounts) {
+        this.cloudAccounts = cloudAccounts;
+    }
 
     @Data
     @NoArgsConstructor
@@ -45,8 +86,8 @@ public class ProfileDTO {
         private String accountName;
         private String provider;
 
-        public CloudAccountInfo() {
-        }
+        // public CloudAccountInfo() {
+        // }
 
         public CloudAccountInfo(Long id, String accountId, String accountName) {
             this.id = id;
@@ -54,13 +95,36 @@ public class ProfileDTO {
             this.accountName = accountName;
         }
 
-        public Long getId() { return id; }
-        public void setId(Long id) { this.id = id; }
-        public String getAccountId() { return accountId; }
-        public void setAccountId(String accountId) { this.accountId = accountId; }
-        public String getAccountName() { return accountName; }
-        public void setAccountName(String accountName) { this.accountName = accountName; }
-        public String getProvider() { return provider; }
-        public void setProvider(String provider) { this.provider = provider; }
+        public Long getId() {
+            return id;
+        }
+
+        public void setId(Long id) {
+            this.id = id;
+        }
+
+        public String getAccountId() {
+            return accountId;
+        }
+
+        public void setAccountId(String accountId) {
+            this.accountId = accountId;
+        }
+
+        public String getAccountName() {
+            return accountName;
+        }
+
+        public void setAccountName(String accountName) {
+            this.accountName = accountName;
+        }
+
+        public String getProvider() {
+            return provider;
+        }
+
+        public void setProvider(String provider) {
+            this.provider = provider;
+        }
     }
 }

@@ -224,6 +224,7 @@ public class AzureDashboardService {
         data.setCostAnomalies(Collections.emptyList());
         data.setMonthToDateSpend(0.0);
         data.setForecastedSpend(0.0);
+        data.setLastMonthSpend(0.0);
         data.setVmRecommendations(Collections.emptyList());
         data.setDiskRecommendations(Collections.emptyList());
         data.setFunctionRecommendations(Collections.emptyList());
@@ -290,6 +291,12 @@ public class AzureDashboardService {
             dashboardData.setBillingSummary(Collections.emptyList());
         }
 
+        // 1b. Get Cost by Region from Cache
+        String regionCacheKey = AzureBillingDataIngestionService.AZURE_COST_BY_REGION_CACHE_PREFIX + accountId;
+        Optional<java.util.Map<String, Double>> costByRegion = redisCache.get(regionCacheKey,
+                new TypeReference<java.util.Map<String, Double>>() {});
+        dashboardData.setCostByRegion(costByRegion.orElse(new java.util.HashMap<>()));
+
         // 2. Get Cost History from Cache
         Optional<AzureDashboardData.CostHistory> costHistory = redisCache.get(historyCacheKey,
                 AzureDashboardData.CostHistory.class);
@@ -297,38 +304,53 @@ public class AzureDashboardService {
         if (costHistory.isPresent()) {
             dashboardData.setCostHistory(costHistory.get());
 
-            // *** CRITICAL FIX: Separate MTD from Forecasted Spend ***
             AzureDashboardData.CostHistory history = costHistory.get();
             List<String> labels = history.getLabels();
             List<Double> costs = history.getCosts();
             List<Boolean> anomalies = history.getAnomalies();
 
             if (labels != null && costs != null && anomalies != null && labels.size() == costs.size()) {
-                // MTD = sum of ACTUAL costs only (anomalies = false)
-                double mtdSpend = IntStream.range(0, labels.size())
-                        .filter(i -> !Boolean.TRUE.equals(anomalies.get(i)))
-                        .mapToDouble(costs::get)
-                        .sum();
+                // Look up costs by month label — MTD = current month only, Last Month = previous month only
+                String currentMonthLabel = java.time.LocalDate.now()
+                        .format(DateTimeFormatter.ofPattern("MMM yyyy"));
+                String lastMonthLabel = java.time.LocalDate.now().minusMonths(1)
+                        .format(DateTimeFormatter.ofPattern("MMM yyyy"));
 
-                // Forecasted = sum of FORECAST costs only (anomalies = true)
-                double forecastedSpend = IntStream.range(0, labels.size())
-                        .filter(i -> Boolean.TRUE.equals(anomalies.get(i)))
-                        .mapToDouble(costs::get)
-                        .sum();
+                double mtdSpend = 0.0;
+                double lastMonthSpend = 0.0;
+                double forecastedSpend = 0.0;
+
+                for (int i = 0; i < labels.size(); i++) {
+                    String label = labels.get(i);
+                    double cost = costs.get(i);
+                    boolean isForecast = Boolean.TRUE.equals(anomalies.get(i));
+
+                    if (isForecast) {
+                        forecastedSpend += cost;
+                    } else if (label.equals(currentMonthLabel)) {
+                        mtdSpend = cost;
+                    } else if (label.equals(lastMonthLabel)) {
+                        lastMonthSpend = cost;
+                    }
+                }
 
                 dashboardData.setMonthToDateSpend(mtdSpend);
                 dashboardData.setForecastedSpend(forecastedSpend);
+                dashboardData.setLastMonthSpend(lastMonthSpend);
 
-                log.info("Dashboard KPIs - MTD: ${}, Forecasted: ${}", mtdSpend, forecastedSpend);
+                log.info("Dashboard KPIs for {} — MTD: {}, Last Month: {}, Forecasted: {}",
+                        accountId, mtdSpend, lastMonthSpend, forecastedSpend);
             } else {
                 dashboardData.setMonthToDateSpend(0.0);
                 dashboardData.setForecastedSpend(0.0);
+                dashboardData.setLastMonthSpend(0.0);
             }
         } else {
             log.warn("No cached cost history found for {}. Data will be missing until next ingestion.", accountId);
             dashboardData.setCostHistory(new AzureDashboardData.CostHistory());
             dashboardData.setMonthToDateSpend(0.0);
             dashboardData.setForecastedSpend(0.0);
+            dashboardData.setLastMonthSpend(0.0);
         }
     }
 

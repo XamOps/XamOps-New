@@ -101,9 +101,9 @@ public class AzureCostManagementService {
                     .withTimeframe(TimeframeType.MONTH_TO_DATE)
                     .withDataSet(new ExportDataset()
                         .withConfiguration(new ExportDatasetConfiguration()
-                            // Note: This column list differs from the one in AzureBillingDataIngestionService.
-                            // You should make these lists consistent across both files.
-                            .withColumns(List.of("ResourceGroup", "ResourceType", "Meter", "Cost", "UsageDate"))) 
+                            // Columns aligned with AzureBillingDataIngestionService parser expectations
+                            .withColumns(List.of("ProductName", "CostInUSD", "Date", "ResourceLocation",
+                                    "ResourceGroup", "ResourceType", "Meter")))
                         .withGranularity(GranularityType.DAILY));
 
             // Create ExportDeliveryInfo with ExportDeliveryDestination
