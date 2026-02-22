@@ -49,8 +49,6 @@ const SpotAutomationPage: React.FC = () => {
     isLoadingHistory,
     toggleASG,
     syncASG,
-    getInstanceTypeConfig,
-    saveInstanceTypeConfig,
     fetchCostData,
     fetchHistoryData,
   } = useSpotAutomationData({ selectedAccountId });
@@ -172,8 +170,6 @@ const SpotAutomationPage: React.FC = () => {
                 selectedAccountId={selectedAccountId}
                 onToggleASG={handleToggleASG}
                 onSyncASG={syncASG}
-                onGetInstanceTypeConfig={getInstanceTypeConfig}
-                onSaveInstanceTypeConfig={saveInstanceTypeConfig}
                 onRefresh={() => fetchCostData(true)}
               />
             </div>
