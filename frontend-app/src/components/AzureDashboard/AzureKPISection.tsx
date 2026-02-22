@@ -88,7 +88,7 @@ const KPICard: React.FC<KPICardProps> = ({
             borderWidth: 1,
             cornerRadius: 6,
             callbacks: {
-              label: (context: any) => `Value: $${context.parsed.y?.toLocaleString('en-US') || 0}`
+              label: (context: any) => `Value: ₹${context.parsed.y?.toLocaleString('en-IN') || 0}`
             }
           }
         },
@@ -140,7 +140,7 @@ const KPICard: React.FC<KPICardProps> = ({
 
 const AzureKPISection: React.FC<AzureKPISectionProps> = ({ kpiData, costHistory, isLoading }) => {
   const formatCurrency = (num: number): string => {
-    return '$' + (num != null ? num.toLocaleString('en-US', {
+    return '₹' + (num != null ? num.toLocaleString('en-IN', {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2
     }) : '0.00');

@@ -14,19 +14,37 @@ public class AwsCreditDto {
     private BigDecimal remainingCredit;
     private List<CreditDetailDto> creditDetails;
 
-    public AwsCreditDto() {
+    // public AwsCreditDto() {
+    // }
+
+    // public AwsCreditDto(BigDecimal totalCredit, BigDecimal remainingCredit,
+    // List<CreditDetailDto> creditDetails) {
+    // this.totalCredit = totalCredit;
+    // this.remainingCredit = remainingCredit;
+    // this.creditDetails = creditDetails;
+    // }
+
+    public BigDecimal getTotalCredit() {
+        return totalCredit;
     }
 
-    public AwsCreditDto(BigDecimal totalCredit, BigDecimal remainingCredit, List<CreditDetailDto> creditDetails) {
+    public void setTotalCredit(BigDecimal totalCredit) {
         this.totalCredit = totalCredit;
+    }
+
+    public BigDecimal getRemainingCredit() {
+        return remainingCredit;
+    }
+
+    public void setRemainingCredit(BigDecimal remainingCredit) {
         this.remainingCredit = remainingCredit;
+    }
+
+    public List<CreditDetailDto> getCreditDetails() {
+        return creditDetails;
+    }
+
+    public void setCreditDetails(List<CreditDetailDto> creditDetails) {
         this.creditDetails = creditDetails;
     }
-
-    public BigDecimal getTotalCredit() { return totalCredit; }
-    public void setTotalCredit(BigDecimal totalCredit) { this.totalCredit = totalCredit; }
-    public BigDecimal getRemainingCredit() { return remainingCredit; }
-    public void setRemainingCredit(BigDecimal remainingCredit) { this.remainingCredit = remainingCredit; }
-    public List<CreditDetailDto> getCreditDetails() { return creditDetails; }
-    public void setCreditDetails(List<CreditDetailDto> creditDetails) { this.creditDetails = creditDetails; }
 }

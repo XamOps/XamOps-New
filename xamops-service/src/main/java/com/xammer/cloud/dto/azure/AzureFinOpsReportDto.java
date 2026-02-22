@@ -11,7 +11,10 @@ public class AzureFinOpsReportDto {
 
     private Kpis kpis;
     private List<CostBreakdown> costBreakdown;
-    private List<CostByRegion> costByRegion; // NEW
+    private List<CostByRegion> costByRegion;
+    private double totalPotentialSavings;
+    private List<RightsizingItem> rightsizingItems;
+    private List<WasteItem> wasteItems;
 
     // Inner class for KPIs
     @Data
@@ -34,12 +37,40 @@ public class AzureFinOpsReportDto {
         private double change; // MoM change
     }
 
-    // NEW: Inner class for Cost by Region
+    // Inner class for Cost by Region
     @Data
     @NoArgsConstructor
     @AllArgsConstructor
     public static class CostByRegion {
         private String region;
         private double cost;
+    }
+
+    // Inner class for Rightsizing items (mapped from AzureRightsizingRecommendation)
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class RightsizingItem {
+        private String resourceName;
+        private String resourceType;
+        private String currentSku;
+        private String targetSku;
+        private double monthlySavings;
+        private double annualSavings;
+        private String impact;
+        private String location;
+    }
+
+    // Inner class for Waste items (mapped from AzureWasteItem)
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class WasteItem {
+        private String resourceId;
+        private String resourceName;
+        private String resourceType;
+        private String region;
+        private String reason;
+        private double monthlySavings;
     }
 }

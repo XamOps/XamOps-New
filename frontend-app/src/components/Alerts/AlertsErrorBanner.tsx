@@ -53,7 +53,6 @@ export const AlertsErrorBanner: React.FC<AlertsErrorBannerProps> = ({
     }
   };
 
-  const severityClass = isPartialSuccess ? 'warning' : 'error';
   const borderColor = isPartialSuccess ? 'border-l-yellow-500' : 'border-l-red-500';
   const bgColor = isPartialSuccess ? 'bg-yellow-50' : 'bg-red-50';
   const iconColor = isPartialSuccess ? 'text-yellow-600' : 'text-red-600';

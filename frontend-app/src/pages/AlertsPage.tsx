@@ -49,7 +49,6 @@ const AlertsPage: React.FC = () => {
     services,
     alertCounts,
     errors,
-    metadata,
     hasErrors,
     isPartialSuccess,
     loadAlerts,
@@ -104,7 +103,7 @@ const AlertsPage: React.FC = () => {
         {activeTab === 'cloudguard' && selectedAccountId && (
           <div className="alerts-cloudguard-content alerts-fade-in">
             {/* KPI Cards */}
-            <AlertsKPICards alertCounts={alertCounts} isLoading={isLoading} metadata={metadata} />
+            <AlertsKPICards alertCounts={alertCounts} isLoading={isLoading} />
 
             {/* Error Banner */}
             {hasErrors && (

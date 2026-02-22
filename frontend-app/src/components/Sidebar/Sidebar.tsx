@@ -204,11 +204,11 @@ const Sidebar: React.FC = () => {
                 isOpen={openDropdown === 'finops'}
                 onToggle={() => toggleDropdown('finops')}
               >
-                <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-cost' : '/cost'} icon="fas fa-dollar-sign" label="Cost Management" isActive={isActive('/cost') || isActive('/gcp-cost')} />
-                <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-reservations' : '/reservation'} icon="fas fa-file-contract" label="Reservation Management" isActive={isActive('/reservation') || isActive('/gcp-reservations')} />
+                <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-cost' : selectedAccountDisplay.provider === 'Azure' ? '/azure-cost' : '/cost'} icon="fas fa-dollar-sign" label="Cost Management" isActive={isActive('/cost') || isActive('/gcp-cost') || isActive('/azure-cost')} />
+                <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-reservations' : selectedAccountDisplay.provider === 'Azure' ? '/azure-reservations' : '/reservation'} icon="fas fa-file-contract" label="Reservation Management" isActive={isActive('/reservation') || isActive('/gcp-reservations') || isActive('/azure-reservations')} />
                 <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-finops' : selectedAccountDisplay.provider === 'Azure' ? '/azure-finops' : '/finops'} icon="fas fa-file-invoice-dollar" label="FinOps Reports" isActive={isActive('/finops') || isActive('/gcp-finops') || isActive('/azure-finops')} />
-                <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-waste' : '/waste'} icon="fas fa-recycle" label="Waste Management" isActive={isActive('/waste') || isActive('/gcp-waste')} />
-                <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-rightsizing' : '/rightsizing'} icon="fas fa-compress-arrows-alt" label="Rightsizing" isActive={isActive('/rightsizing') || isActive('/gcp-rightsizing')} />
+                <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-waste' : selectedAccountDisplay.provider === 'Azure' ? '/azure-waste' : '/waste'} icon="fas fa-recycle" label="Waste Management" isActive={isActive('/waste') || isActive('/gcp-waste') || isActive('/azure-waste')} />
+                <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-rightsizing' : selectedAccountDisplay.provider === 'Azure' ? '/azure-rightsizing' : '/rightsizing'} icon="fas fa-compress-arrows-alt" label="Rightsizing" isActive={isActive('/rightsizing') || isActive('/gcp-rightsizing') || isActive('/azure-rightsizing')} />
                 {selectedAccountDisplay.provider === 'AWS' && (
                   <>
                     <NavItem href="/cloudsitter" icon="fas fa-clock" label="CloudSitter" isActive={isActive('/cloudsitter')} />
@@ -242,10 +242,10 @@ const Sidebar: React.FC = () => {
                 isOpen={openDropdown === 'security'}
                 onToggle={() => toggleDropdown('security')}
               >
-                <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-security' : '/security'} icon="fas fa-shield-alt" label="Security Center" isActive={isActive('/security') || isActive('/gcp-security')} />
+                <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-security' : selectedAccountDisplay.provider === 'Azure' ? '/azure-security' : '/security'} icon="fas fa-shield-alt" label="Security Center" isActive={isActive('/security') || isActive('/gcp-security') || isActive('/azure-security')} />
                 <NavItem href="/complianceops" icon="fas fa-file-contract" label="ComplianceOps" isActive={isActive('/complianceops')} />
-                <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-performance' : '/performance'} icon="fas fa-chart-line" label="Performance Insights" isActive={isActive('/performance') || isActive('/gcp-performance')} />
-                <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-alerts' : '/alerts'} icon="fas fa-bell" label="Alerts" isActive={isActive('/alerts') || isActive('/gcp-alerts')} />
+                <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-performance' : selectedAccountDisplay.provider === 'Azure' ? '/azure-performance' : '/performance'} icon="fas fa-chart-line" label="Performance Insights" isActive={isActive('/performance') || isActive('/gcp-performance') || isActive('/azure-performance')} />
+                <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-alerts' : selectedAccountDisplay.provider === 'Azure' ? '/azure-alerts' : '/alerts'} icon="fas fa-bell" label="Alerts" isActive={isActive('/alerts') || isActive('/gcp-alerts') || isActive('/azure-alerts')} />
               </NavSection>
 
               <NavSection

@@ -82,11 +82,17 @@ import GcpFinOpsPage from './pages/GcpFinOpsPage';
 import GcpCostPage from './pages/GcpCostPage';
 import GcpWastePage from './pages/GcpWastePage';
 import GcpRightsizingPage from './pages/GcpRightsizingPage';
+import AzureRightsizingPage from './pages/AzureRightsizingPage';
+import AzureWastePage from './pages/AzureWastePage';
 import GcpReservationsPage from './pages/GcpReservationsPage';
+import AzureReservationsPage from './pages/AzureReservationsPage';
 import GcpCloudK8sPage from './pages/GcpCloudK8sPage';
 import GcpSecurityPage from './pages/GcpSecurityPage';
+import AzureSecurityPage from './pages/AzureSecurityPage';
 import GcpPerformancePage from './pages/GcpPerformancePage';
+import AzurePerformancePage from './pages/AzurePerformancePage';
 import GcpAlertsPage from './pages/GcpAlertsPage';
+import AzureAlertsPage from './pages/AzureAlertsPage';
 import GcpBillingPage from './pages/GcpBillingPage';
 import CalculatorPage from './pages/CalculatorPage';
 import GcpCloudListPage from './pages/GcpCloudListPage';
@@ -95,6 +101,7 @@ import GcpCloudMapPage from './pages/GcpCloudMapPage';
 import AzureDashboard from './pages/AzureDashboard';
 import AzureCloudList from './pages/AzureCloudList';
 import AzureFinOpsPage from './pages/AzureFinOpsPage';
+import AzureCostPage from './pages/AzureCostPage';
 import FlexComputePage from './pages/FlexComputePage';
 import AzureCloudK8sPage from './pages/AzureCloudK8sPage';
 import { SupportChatWidget } from './components/SupportChat';
@@ -337,12 +344,16 @@ const AppContent: React.FC = () => {
               <Route path="/gcp-finops" element={<GcpFinOpsPage />} />
               <Route path="/cost" element={<CostPage />} />
               <Route path="/gcp-cost" element={<GcpCostPage />} />
+              <Route path="/azure-cost" element={<AzureCostPage />} />
               <Route path="/waste" element={<WastePage />} />
               <Route path="/gcp-waste" element={<GcpWastePage />} />
+              <Route path="/azure-waste" element={<AzureWastePage />} />
               <Route path="/rightsizing" element={<RightsizingPage />} />
               <Route path="/gcp-rightsizing" element={<GcpRightsizingPage />} />
+              <Route path="/azure-rightsizing" element={<AzureRightsizingPage />} />
               <Route path="/reservation" element={<ReservationPage />} />
               <Route path="/gcp-reservations" element={<GcpReservationsPage />} />
+              <Route path="/azure-reservations" element={<AzureReservationsPage />} />
               <Route path="/cloudsitter" element={<CloudSitterPage />} />
               <Route path="/spot-automation" element={<SpotAutomationPage />} />
               <Route path="/autospotting" element={<SpotAutomationPage />} />
@@ -358,10 +369,13 @@ const AppContent: React.FC = () => {
               <Route path="/aks-details" element={<AksDetailsPage />} />
               <Route path="/security" element={<SecurityPage />} />
               <Route path="/gcp-security" element={<GcpSecurityPage />} />
+              <Route path="/azure-security" element={<AzureSecurityPage />} />
               <Route path="/performance" element={<PerformancePage />} />
               <Route path="/gcp-performance" element={<GcpPerformancePage />} />
+              <Route path="/azure-performance" element={<AzurePerformancePage />} />
               <Route path="/alerts" element={<AlertsPage />} />
               <Route path="/gcp-alerts" element={<GcpAlertsPage />} />
+              <Route path="/azure-alerts" element={<AzureAlertsPage />} />
               <Route path="/tickets" element={<TicketsPage />} />
               <Route path="/ticket-detail" element={<TicketDetailPage />} />
               <Route path="/cloudlist" element={<CloudListPage />} />

@@ -99,6 +99,7 @@ export interface AzureDashboardData {
   costHistory: AzureCostHistory;
   optimization: AzureOptimizationData;
   billingSummary: AzureBillingItem[];
+  costByRegion: Record<string, number>;
   optimizationSummary: AzureOptimizationSummary;
   vmRecommendations: AzureVMRecommendation[];
   diskRecommendations: AzureDiskRecommendation[];
