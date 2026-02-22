@@ -35,5 +35,16 @@ public class DashboardStartupRunner implements ApplicationListener<ApplicationRe
                 logger.error("❌ [DashboardStartup] Failed to run initial aggregation", e);
             }
         }).start();
+
+        // Run Azure dashboard refresh in a separate thread (billing ingestion + DB cache update)
+        new Thread(() -> {
+            try {
+                Thread.sleep(10000); // Slightly later than AWS/GCP to avoid startup contention
+                logger.info("🔷 [DashboardStartup] Triggering Azure dashboard refresh...");
+                proactiveCacheRefreshService.refreshAzureDashboardData();
+            } catch (Exception e) {
+                logger.error("❌ [DashboardStartup] Failed to run Azure dashboard refresh", e);
+            }
+        }).start();
     }
 }

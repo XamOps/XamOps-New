@@ -204,8 +204,8 @@ export const useAzureDashboardData = ({
 
     // Set up new timer
     refreshTimerRef.current = setInterval(() => {
-      console.log('🔷 Azure Dashboard: Auto-refresh triggered');
-      loadDashboardData(true);
+      console.log('🔷 Azure Dashboard: Auto-refresh triggered (cache read)');
+      loadDashboardData(false);
     }, refreshInterval * 1000);
 
     // Cleanup

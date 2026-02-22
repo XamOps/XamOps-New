@@ -14,8 +14,8 @@ public class RegionCostDto {
     private double cost;
     private List<ResourceCostDto> resources;
 
-    public RegionCostDto() {
-    }
+    // public RegionCostDto() {
+    // }
 
     public RegionCostDto(String region, double cost) {
         this.region = region;
@@ -30,12 +30,35 @@ public class RegionCostDto {
         this.resources = resources;
     }
 
-    public String getRegion() { return region; }
-    public void setRegion(String region) { this.region = region; }
-    public String getRegionName() { return regionName; }
-    public void setRegionName(String regionName) { this.regionName = regionName; }
-    public double getCost() { return cost; }
-    public void setCost(double cost) { this.cost = cost; }
-    public List<ResourceCostDto> getResources() { return resources; }
-    public void setResources(List<ResourceCostDto> resources) { this.resources = resources; }
+    public String getRegion() {
+        return region;
+    }
+
+    public void setRegion(String region) {
+        this.region = region;
+    }
+
+    public String getRegionName() {
+        return regionName;
+    }
+
+    public void setRegionName(String regionName) {
+        this.regionName = regionName;
+    }
+
+    public double getCost() {
+        return cost;
+    }
+
+    public void setCost(double cost) {
+        this.cost = cost;
+    }
+
+    public List<ResourceCostDto> getResources() {
+        return resources;
+    }
+
+    public void setResources(List<ResourceCostDto> resources) {
+        this.resources = resources;
+    }
 }

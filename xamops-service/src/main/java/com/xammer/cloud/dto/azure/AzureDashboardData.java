@@ -2,7 +2,9 @@ package com.xammer.cloud.dto.azure;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.xammer.cloud.dto.DashboardData;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Main DTO for the Azure Dashboard.
@@ -18,9 +20,13 @@ public class AzureDashboardData {
     private List<RegionStatus> regionStatus;
     private List<CostAnomaly> costAnomalies;
 
+    // Cost by region map (populated from Redis cache)
+    private Map<String, Double> costByRegion = new HashMap<>();
+
     // *** ADDED: KPI fields for dashboard display ***
     private double monthToDateSpend;
     private double forecastedSpend;
+    private double lastMonthSpend;
 
     // Recommendations
     private List<RightsizingRecommendation> vmRecommendations;
@@ -98,6 +104,22 @@ public class AzureDashboardData {
 
     public void setForecastedSpend(double forecastedSpend) {
         this.forecastedSpend = forecastedSpend;
+    }
+
+    public double getLastMonthSpend() {
+        return lastMonthSpend;
+    }
+
+    public void setLastMonthSpend(double lastMonthSpend) {
+        this.lastMonthSpend = lastMonthSpend;
+    }
+
+    public Map<String, Double> getCostByRegion() {
+        return costByRegion;
+    }
+
+    public void setCostByRegion(Map<String, Double> costByRegion) {
+        this.costByRegion = costByRegion != null ? costByRegion : new HashMap<>();
     }
 
     public List<RightsizingRecommendation> getVmRecommendations() {

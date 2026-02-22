@@ -63,14 +63,39 @@ export interface AzureReportSchedule {
   cloudAccountId: string;
 }
 
+// New types matching the updated backend DTO
+export interface AzureFinOpsRightsizingItem {
+  resourceName: string;
+  resourceType: string;
+  currentSku: string;
+  targetSku: string;
+  monthlySavings: number;
+  annualSavings: number;
+  impact: string;
+  location: string;
+}
+
+export interface AzureFinOpsWasteItem {
+  resourceId: string;
+  resourceName: string;
+  resourceType: string;
+  region: string;
+  reason: string;
+  monthlySavings: number;
+}
+
 export interface AzureFinOpsReportData {
   kpis: AzureFinOpsKPIs;
   costBreakdown: AzureCostBreakdownItem[];
   costByRegion: AzureCostByRegionItem[];
-  rightsizingRecommendations: AzureRightsizingRecommendation[];
-  wastedResources: AzureWastedResource[];
-  costAnomalies: AzureCostAnomaly[];
-  budgets: AzureBudget[];
+  totalPotentialSavings: number;
+  rightsizingItems: AzureFinOpsRightsizingItem[];
+  wasteItems: AzureFinOpsWasteItem[];
+  // Legacy fields kept for backward compatibility
+  rightsizingRecommendations?: AzureRightsizingRecommendation[];
+  wastedResources?: AzureWastedResource[];
+  costAnomalies?: AzureCostAnomaly[];
+  budgets?: AzureBudget[];
 }
 
 export interface AzureNewBudget {
