@@ -45,6 +45,7 @@ public class AzureBillingDataIngestionService {
     public static final String AZURE_BILLING_SUMMARY_CACHE_PREFIX = "azure:billing-summary:";
     public static final String AZURE_COST_HISTORY_CACHE_PREFIX = "azure:cost-history:";
     public static final String AZURE_COST_BY_REGION_CACHE_PREFIX = "azure:cost-by-region:";
+    public static final String AZURE_SERVICE_MONTHLY_CACHE_PREFIX = "azure:service-monthly:";
 
     public AzureBillingDataIngestionService(CloudAccountRepository cloudAccountRepository,
             AzureClientProvider clientProvider,
@@ -103,7 +104,11 @@ public class AzureBillingDataIngestionService {
             return;
         }
 
-        processAndCacheData(subscriptionId, data.costByService, data.costByDate, data.costByRegion, new HashMap<>());
+        Map<String, Double> serviceMapForBilling = data.currentMonthCostByService.isEmpty()
+                ? data.costByService : data.currentMonthCostByService;
+        Map<String, Double> regionMapForBilling = data.currentMonthCostByRegion.isEmpty()
+                ? data.costByRegion : data.currentMonthCostByRegion;
+        processAndCacheData(subscriptionId, serviceMapForBilling, data.costByDate, regionMapForBilling, new HashMap<>(), data.costByServiceByDate);
     }
 
     private void ingestDataViaBlob(CloudAccount account) {
@@ -122,9 +127,11 @@ public class AzureBillingDataIngestionService {
 
         try {
             String storageUrl = String.format("https://%s.blob.core.windows.net", storageAccountName);
+
+            // Use OAuth credential (SP has Storage Blob Data Reader assigned by setup script)
             BlobServiceClient blobServiceClient = new BlobServiceClientBuilder()
                     .endpoint(storageUrl)
-                    .credential(clientProvider.getCredential(subscriptionId))
+                    .credential(clientProvider.getCredential(account))
                     .buildClient();
 
             // Recursively find the latest CSV
@@ -175,15 +182,45 @@ public class AzureBillingDataIngestionService {
             Map<String, Double> costByDate = new HashMap<>(); // Actual costs
             Map<String, Double> forecastByDate = new HashMap<>(); // Forecast costs
             Map<String, Double> costByRegion = new HashMap<>();
+            Map<String, Double> currentMonthCostByService = new HashMap<>();
+            Map<String, Double> currentMonthCostByRegion = new HashMap<>();
+            Map<String, Map<String, Double>> costByServiceByDate = new HashMap<>();
 
             DateTimeFormatter azureDateFormatter = DateTimeFormatter.ofPattern("MM/dd/yyyy");
             LocalDate today = LocalDate.now();
+            String currentMonthKey = today.format(DateTimeFormatter.ofPattern("MMM yyyy"));
+
+            // Resolve cost column: new exports use "CostInUSD", old exports use "Cost"
+            String costColumn;
+            if (headerMap.containsKey("CostInUSD")) {
+                costColumn = "CostInUSD";
+            } else if (headerMap.containsKey("Cost")) {
+                costColumn = "Cost";
+            } else {
+                costColumn = "costInUsd"; // legacy fallback
+            }
+
+            // Resolve date column: new exports use "Date", old exports use "UsageDate"
+            String dateColumn = headerMap.containsKey("Date") ? "Date" : "UsageDate";
+
+            // Resolve service column: new exports use "ProductName", old exports use "Meter"
+            String serviceColumn;
+            if (headerMap.containsKey("ProductName")) {
+                serviceColumn = "ProductName";
+            } else if (headerMap.containsKey("Meter")) {
+                serviceColumn = "Meter";
+            } else {
+                serviceColumn = "MeterCategory";
+            }
+
+            log.info("CSV column mapping for {}: cost={}, date={}, service={}", subscriptionId, costColumn,
+                    dateColumn, serviceColumn);
 
             for (CSVRecord record : csvParser) {
                 try {
-                    String service = record.get("ProductName");
-                    double cost = Double.parseDouble(record.get("costInUsd"));
-                    String dateStr = record.get("date");
+                    String service = record.get(serviceColumn);
+                    double cost = Double.parseDouble(record.get(costColumn));
+                    String dateStr = record.get(dateColumn);
 
                     String region = "Unassigned";
                     try {
@@ -219,6 +256,18 @@ public class AzureBillingDataIngestionService {
                     costByService.put(service, costByService.getOrDefault(service, 0.0) + cost);
                     costByRegion.put(region, costByRegion.getOrDefault(region, 0.0) + cost);
 
+                    // Track per-service monthly costs for service trend chart
+                    costByServiceByDate
+                            .computeIfAbsent(service, k -> new HashMap<>())
+                            .merge(monthYear, cost, Double::sum);
+
+                    if (!isForecast && monthYear.equals(currentMonthKey)) {
+                        currentMonthCostByService.put(service,
+                            currentMonthCostByService.getOrDefault(service, 0.0) + cost);
+                        currentMonthCostByRegion.put(region,
+                            currentMonthCostByRegion.getOrDefault(region, 0.0) + cost);
+                    }
+
                     if (isForecast) {
                         forecastByDate.put(monthYear, forecastByDate.getOrDefault(monthYear, 0.0) + cost);
                     } else {
@@ -233,10 +282,16 @@ public class AzureBillingDataIngestionService {
             csvParser.close();
             reader.close();
 
-            processAndCacheData(subscriptionId, costByService, costByDate, costByRegion, forecastByDate);
+            Map<String, Double> serviceMapForBilling = currentMonthCostByService.isEmpty()
+                    ? costByService : currentMonthCostByService;
+            Map<String, Double> regionMapForBilling = currentMonthCostByRegion.isEmpty()
+                    ? costByRegion : currentMonthCostByRegion;
+            processAndCacheData(subscriptionId, serviceMapForBilling, costByDate, regionMapForBilling, forecastByDate, costByServiceByDate);
 
         } catch (Exception e) {
-            log.error("Failed to ingest cost data for Azure account {}: {}", subscriptionId, e.getMessage(), e);
+            log.error("Failed to ingest cost data via Blob for Azure account {}: {}. Falling back to Cost Management API.",
+                    subscriptionId, e.getMessage());
+            ingestDataViaApi(account);
         }
     }
 
@@ -244,7 +299,8 @@ public class AzureBillingDataIngestionService {
             Map<String, Double> costByService,
             Map<String, Double> costByDate,
             Map<String, Double> costByRegion,
-            Map<String, Double> forecastByDate) {
+            Map<String, Double> forecastByDate,
+            Map<String, Map<String, Double>> costByServiceByDate) {
 
         // Handle forecast calculation if missing (same logic as before)
         if (forecastByDate.isEmpty() && !costByDate.isEmpty()) {
@@ -330,5 +386,10 @@ public class AzureBillingDataIngestionService {
         String historyCacheKey = AZURE_COST_HISTORY_CACHE_PREFIX + subscriptionId;
         redisCache.put(historyCacheKey, costHistory, 60 * 24);
         log.info("✅ Cached cost history for {}: {} entries", subscriptionId, labels.size());
+
+        // 4. Cache per-service monthly breakdown for service trend chart
+        String serviceMonthlyKey = AZURE_SERVICE_MONTHLY_CACHE_PREFIX + subscriptionId;
+        redisCache.put(serviceMonthlyKey, costByServiceByDate, 60 * 24);
+        log.info("✅ Cached service monthly breakdown for {}: {} services", subscriptionId, costByServiceByDate.size());
     }
 }

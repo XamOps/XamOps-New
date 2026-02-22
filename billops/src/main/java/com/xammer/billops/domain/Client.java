@@ -46,31 +46,90 @@ public class Client {
     @JsonIgnore
     private List<CloudAccount> cloudAccounts;
 
-    public Client() {
-    }
+    // public Client() {
+    // }
 
     public Client(String name) {
         this.name = name;
     }
 
-    public Long getId() { return id; }
-    public void setId(Long id) { this.id = id; }
-    public String getName() { return name; }
-    public void setName(String name) { this.name = name; }
-    public String getAddress() { return address; }
-    public void setAddress(String address) { this.address = address; }
-    public String getGstin() { return gstin; }
-    public void setGstin(String gstin) { this.gstin = gstin; }
-    public String getStateName() { return stateName; }
-    public void setStateName(String stateName) { this.stateName = stateName; }
-    public String getStateCode() { return stateCode; }
-    public void setStateCode(String stateCode) { this.stateCode = stateCode; }
-    public String getPan() { return pan; }
-    public void setPan(String pan) { this.pan = pan; }
-    public String getCin() { return cin; }
-    public void setCin(String cin) { this.cin = cin; }
-    public List<User> getUsers() { return users; }
-    public void setUsers(List<User> users) { this.users = users; }
-    public List<CloudAccount> getCloudAccounts() { return cloudAccounts; }
-    public void setCloudAccounts(List<CloudAccount> cloudAccounts) { this.cloudAccounts = cloudAccounts; }
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public String getAddress() {
+        return address;
+    }
+
+    public void setAddress(String address) {
+        this.address = address;
+    }
+
+    public String getGstin() {
+        return gstin;
+    }
+
+    public void setGstin(String gstin) {
+        this.gstin = gstin;
+    }
+
+    public String getStateName() {
+        return stateName;
+    }
+
+    public void setStateName(String stateName) {
+        this.stateName = stateName;
+    }
+
+    public String getStateCode() {
+        return stateCode;
+    }
+
+    public void setStateCode(String stateCode) {
+        this.stateCode = stateCode;
+    }
+
+    public String getPan() {
+        return pan;
+    }
+
+    public void setPan(String pan) {
+        this.pan = pan;
+    }
+
+    public String getCin() {
+        return cin;
+    }
+
+    public void setCin(String cin) {
+        this.cin = cin;
+    }
+
+    public List<User> getUsers() {
+        return users;
+    }
+
+    public void setUsers(List<User> users) {
+        this.users = users;
+    }
+
+    public List<CloudAccount> getCloudAccounts() {
+        return cloudAccounts;
+    }
+
+    public void setCloudAccounts(List<CloudAccount> cloudAccounts) {
+        this.cloudAccounts = cloudAccounts;
+    }
 }

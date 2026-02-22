@@ -11,10 +11,10 @@ const NODES_PER_PAGE = 5;
 
 const getPoolStatusChip = (status: string) => {
   const s = status?.toUpperCase();
-  if (s === 'RUNNING')      return 'bg-green-100 text-green-700';
+  if (s === 'RUNNING') return 'bg-green-100 text-green-700';
   if (s === 'PROVISIONING') return 'bg-blue-100 text-blue-700';
-  if (s === 'RECONCILING')  return 'bg-amber-100 text-amber-700';
-  if (s === 'STOPPING')     return 'bg-red-100 text-red-700';
+  if (s === 'RECONCILING') return 'bg-amber-100 text-amber-700';
+  if (s === 'STOPPING') return 'bg-red-100 text-red-700';
   return 'bg-gray-100 text-gray-600';
 };
 
@@ -175,10 +175,10 @@ const GkeNodesTab: React.FC<{ gkeData: any }> = ({ gkeData }) => {
             {/* Health summary */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
               {[
-                { label: 'Ready',           value: getNodeConditionCount('ready'),         color: 'bg-green-50 text-green-600',  icon: 'fa-check-circle' },
-                { label: 'Disk Pressure',   value: getNodeConditionCount('diskPressure'),   color: 'bg-red-50 text-red-600',     icon: 'fa-hdd' },
+                { label: 'Ready', value: getNodeConditionCount('ready'), color: 'bg-green-50 text-green-600', icon: 'fa-check-circle' },
+                { label: 'Disk Pressure', value: getNodeConditionCount('diskPressure'), color: 'bg-red-50 text-red-600', icon: 'fa-hdd' },
                 { label: 'Memory Pressure', value: getNodeConditionCount('memoryPressure'), color: 'bg-amber-50 text-amber-600', icon: 'fa-memory' },
-                { label: 'Total Nodes',     value: nodes.length,                           color: 'bg-blue-50 text-blue-600',   icon: 'fa-server' },
+                { label: 'Total Nodes', value: nodes.length, color: 'bg-blue-50 text-blue-600', icon: 'fa-server' },
               ].map(({ label, value, color, icon }) => (
                 <div key={label} className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
                   <div className="flex items-center gap-3 mb-2">
@@ -238,7 +238,7 @@ const GkeNodesTab: React.FC<{ gkeData: any }> = ({ gkeData }) => {
                       <div>
                         <div className="flex justify-between text-xs text-gray-500 mb-1">
                           <span>CPU</span>
-                          <span className="font-medium text-gray-700">{(node.cpuUsageMillicores ?? node.cpuUsage * 1000 ?? 0).toFixed(0)}m</span>
+                          <span className="font-medium text-gray-700">{(node.cpuUsageMillicores ?? (node.cpuUsage != null ? node.cpuUsage * 1000 : 0)).toFixed(0)}m</span>
                         </div>
                         <UtilBar value={Math.round((node.cpuUsage ?? 0) * 100)} />
                       </div>

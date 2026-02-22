@@ -18,7 +18,7 @@ const AzureCostSection: React.FC<AzureCostSectionProps> = ({ costHistory, billin
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const formatCurrency = (num: number): string => {
-    return '$' + (num != null ? num.toLocaleString('en-US', {
+    return '₹' + (num != null ? num.toLocaleString('en-IN', {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2
     }) : '0.00');
@@ -168,7 +168,7 @@ const AzureCostSection: React.FC<AzureCostSectionProps> = ({ costHistory, billin
               <thead className="text-[10px] text-slate-400 uppercase tracking-widest font-extrabold">
                 <tr>
                   <th className="px-4 py-2">Service</th>
-                  <th className="px-4 py-2 text-right">Cost (USD)</th>
+                  <th className="px-4 py-2 text-right">Cost (₹)</th>
                 </tr>
               </thead>
               <tbody>

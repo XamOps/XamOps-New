@@ -57,6 +57,7 @@ export const fetchAzureDashboardData = async (
       },
       regionStatus: rawData.regionStatus || [],
       costHistory: rawData.costHistory || { labels: [], costs: [], anomalies: [] },
+      costByRegion: rawData.costByRegion || {},
       optimization: {
         summary: rawData.optimizationSummary || {
           totalPotentialSavings: 0,
