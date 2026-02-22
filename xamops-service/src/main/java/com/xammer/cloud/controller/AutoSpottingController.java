@@ -25,6 +25,12 @@ public class AutoSpottingController {
 
     private final AutoSpottingService autoSpottingService;
 
+    @org.springframework.beans.factory.annotation.Value("${autospotting.api.key}")
+    private String autospottingApiKey;
+
+    @org.springframework.beans.factory.annotation.Value("${autospotting.api.base-url}")
+    private String autospottingBaseUrl;
+
     // ================= ACCOUNT REGISTRATION =================
 
     /**
@@ -445,10 +451,7 @@ public class AutoSpottingController {
      * itself
      */
     private String testManualConnection(String accountId) throws Exception {
-        // Hardcoded for testing - in production, inject via @Value
-        String apiKey = "sHX4wpgTYZhdBI8LxrM8lhkY8eFgsIg2";
-        String baseUrl = "https://do0ezmdybge0h.cloudfront.net/api";
-        String urlString = baseUrl + "/v1/costs?account_id=" + accountId;
+        String urlString = autospottingBaseUrl + "/v1/costs?account_id=" + accountId;
 
         log.info("Manual HTTP GET: {}", urlString);
 
@@ -461,14 +464,14 @@ public class AutoSpottingController {
         // Set headers
         conn.setRequestProperty("Content-Type", "application/json");
         conn.setRequestProperty("Accept", "application/json");
-        conn.setRequestProperty("X-Api-Key", apiKey);
+        conn.setRequestProperty("X-Api-Key", autospottingApiKey);
 
         log.info("Request headers set:");
         log.info("  Content-Type: application/json");
         log.info("  Accept: application/json");
         log.info("  X-Api-Key: {}... (length={})",
-                apiKey.substring(0, Math.min(10, apiKey.length())),
-                apiKey.length());
+                autospottingApiKey != null && autospottingApiKey.length() > 10 ? autospottingApiKey.substring(0, 10) : "N/A",
+                autospottingApiKey != null ? autospottingApiKey.length() : 0);
 
         // Get response
         int responseCode = conn.getResponseCode();
