@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { ASG, SpotCosts } from '../../hooks/useSpotAutomationData';
-import InstanceTypeConfigModal from './InstanceTypeConfigModal';
 
 interface SpotAutomationASGTableProps {
   asgs: ASG[];
@@ -11,8 +10,6 @@ interface SpotAutomationASGTableProps {
   selectedAccountId: string | null;
   onToggleASG: (asg: ASG) => Promise<void>;
   onSyncASG: (asg: ASG) => Promise<{ backfilled: number; message: string }>;
-  onGetInstanceTypeConfig: (region: string, asgName: string) => Promise<string[]>;
-  onSaveInstanceTypeConfig: (region: string, asgName: string, instanceTypes: string[]) => Promise<void>;
   onRefresh: () => void;
 }
 
@@ -24,20 +21,11 @@ const SpotAutomationASGTable: React.FC<SpotAutomationASGTableProps> = ({
   selectedAccountId,
   onToggleASG,
   onSyncASG,
-  onGetInstanceTypeConfig,
-  onSaveInstanceTypeConfig,
   onRefresh,
 }) => {
   const [togglingASGs, setTogglingASGs] = useState<Set<string>>(new Set());
   const [syncingASGs, setSyncingASGs] = useState<Set<string>>(new Set());
   const [syncToast, setSyncToast] = useState<{ asgKey: string; message: string } | null>(null);
-
-  // Instance type config modal state
-  const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
-  const [configModalASG, setConfigModalASG] = useState<ASG | null>(null);
-  const [currentInstanceTypes, setCurrentInstanceTypes] = useState<string[]>([]);
-  const [isLoadingConfig, setIsLoadingConfig] = useState(false);
-  const [isSavingConfig, setIsSavingConfig] = useState(false);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -90,40 +78,6 @@ const SpotAutomationASGTable: React.FC<SpotAutomationASGTableProps> = ({
         next.delete(asgKey);
         return next;
       });
-    }
-  };
-
-  const handleOpenConfigModal = async (asg: ASG) => {
-    setConfigModalASG(asg);
-    setIsLoadingConfig(true);
-    setIsConfigModalOpen(true);
-    try {
-      const types = await onGetInstanceTypeConfig(asg.region, asg.name);
-      setCurrentInstanceTypes(types);
-    } catch (err) {
-      console.error('Error loading instance type config:', err);
-      setCurrentInstanceTypes([]);
-    } finally {
-      setIsLoadingConfig(false);
-    }
-  };
-
-  const handleCloseConfigModal = () => {
-    setIsConfigModalOpen(false);
-    setConfigModalASG(null);
-    setCurrentInstanceTypes([]);
-  };
-
-  const handleSaveConfig = async (instanceTypes: string[]) => {
-    if (!configModalASG) return;
-    setIsSavingConfig(true);
-    try {
-      await onSaveInstanceTypeConfig(configModalASG.region, configModalASG.name, instanceTypes);
-      handleCloseConfigModal();
-    } catch (err) {
-      console.error('Error saving instance type config:', err);
-    } finally {
-      setIsSavingConfig(false);
     }
   };
 
@@ -331,14 +285,14 @@ const SpotAutomationASGTable: React.FC<SpotAutomationASGTableProps> = ({
                               </div>
                             )}
                           </div>
-                          <button
-                            onClick={() => handleOpenConfigModal(asg)}
-                            title="Configure instance types for Spot diversification"
+                          <Link
+                            to={`/asg-config?asgName=${encodeURIComponent(asg.name)}&region=${asg.region}&accountIds=${selectedAccountId}`}
+                            title="Configure instance types and Spot settings"
                             className="text-xs text-purple-500 hover:text-purple-700 flex items-center gap-1 px-2 py-1 rounded hover:bg-purple-50 transition-colors"
                           >
                             <i className="fas fa-cog"></i>
                             <span>Config</span>
-                          </button>
+                          </Link>
                         </div>
                       )}
                     </td>
@@ -375,19 +329,6 @@ const SpotAutomationASGTable: React.FC<SpotAutomationASGTableProps> = ({
             </div>
           </div>
         </div>
-      )}
-
-      {/* Instance Type Configuration Modal */}
-      {configModalASG && (
-        <InstanceTypeConfigModal
-          isOpen={isConfigModalOpen}
-          isSaving={isSavingConfig}
-          asgName={configModalASG.name}
-          region={configModalASG.region}
-          currentTypes={isLoadingConfig ? [] : currentInstanceTypes}
-          onClose={handleCloseConfigModal}
-          onSave={handleSaveConfig}
-        />
       )}
     </div>
   );

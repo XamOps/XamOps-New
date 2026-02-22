@@ -268,29 +268,119 @@ public class AutoSpottingController {
     /**
      * Update configured instance types for an ASG
      * PUT
-     * /api/autospotting/asgs/{accountId}/instance-types?region=ap-south-1&asgName=my-asg
-     * Body: { "allowedInstanceTypes": ["t3.micro", "t3a.micro", "t3.small"] }
+     * /api/autospotting/asgs/{accountId}/instance-types?region=ap-south-1&asgName=my-asg&apply=true
+     * Body: { "instanceTypes": ["t3.micro", "t3a.micro", "t3.small"] }
      */
     @PutMapping("/asgs/{accountId}/instance-types")
     public ResponseEntity<?> updateInstanceTypeConfig(
             @PathVariable Long accountId,
             @RequestParam String region,
             @RequestParam String asgName,
+            @RequestParam(defaultValue = "true") boolean apply,
             @RequestBody Map<String, Object> body) {
 
-        log.info("AutoSpottingController.updateInstanceTypeConfig called: accountId={} region={} asgName={}",
-                accountId, region, asgName);
+        log.info("AutoSpottingController.updateInstanceTypeConfig: accountId={} region={} asgName={} apply={}",
+                accountId, region, asgName, apply);
         try {
             @SuppressWarnings("unchecked")
             List<String> types = (List<String>) body.get("instanceTypes");
             autoSpottingService.saveInstanceTypeConfig(accountId, region, asgName,
-                    types != null ? types : Collections.emptyList());
+                    types != null ? types : Collections.emptyList(),
+                    apply);
+
+            String message = apply
+                ? "Instance type configuration saved and applied successfully. Instance refresh started."
+                : "Instance type configuration saved successfully. Enable AutoSpotting to apply.";
+
             return ResponseEntity.ok(Map.of(
                     "success", true,
-                    "message", "Instance type configuration saved successfully.",
-                    "instanceTypes", types != null ? types : Collections.emptyList()));
+                    "message", message,
+                    "instanceTypes", types != null ? types : Collections.emptyList(),
+                    "applied", apply));
+        } catch (IllegalStateException e) {
+            // AutoSpotting not enabled - config saved but not applied
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "message", "Configuration saved but not applied: " + e.getMessage(),
+                    "applied", false));
         } catch (Exception e) {
-            log.error("Failed to update instance type config: {}", e.getMessage(), e);
+            log.error("Failed to update/apply instance type config: {}", e.getMessage(), e);
+            return ResponseEntity.status(500).body(Map.of(
+                    "success", false,
+                    "error", e.getMessage()));
+        }
+    }
+
+    // ================= SPOT/ON-DEMAND CONFIGURATION =================
+
+    /**
+     * Get Spot/On-Demand configuration for an ASG
+     * GET /api/autospotting/asgs/{accountId}/spot-config?region=ap-south-1&asgName=my-asg
+     * Returns: { "configMode": "percentage", "spotPercentage": 75 }
+     *       OR { "configMode": "count", "onDemandCount": 2 }
+     */
+    @GetMapping("/asgs/{accountId}/spot-config")
+    public ResponseEntity<?> getSpotConfig(
+            @PathVariable Long accountId,
+            @RequestParam String region,
+            @RequestParam String asgName) {
+
+        log.info("AutoSpottingController.getSpotConfig called: accountId={} region={} asgName={}",
+                accountId, region, asgName);
+        try {
+            Map<String, Object> config = autoSpottingService.getSpotConfig(accountId, region, asgName);
+            return ResponseEntity.ok(config);
+        } catch (Exception e) {
+            log.error("Failed to get spot config: {}", e.getMessage(), e);
+            return ResponseEntity.status(500).body(Map.of(
+                    "success", false,
+                    "error", e.getMessage()));
+        }
+    }
+
+    /**
+     * Save Spot/On-Demand configuration for an ASG
+     * PUT /api/autospotting/asgs/{accountId}/spot-config?region=ap-south-1&asgName=my-asg&apply=true
+     * Body: { "spotPercentage": 75 } OR { "onDemandCount": 2 }
+     */
+    @PutMapping("/asgs/{accountId}/spot-config")
+    public ResponseEntity<?> saveSpotConfig(
+            @PathVariable Long accountId,
+            @RequestParam String region,
+            @RequestParam String asgName,
+            @RequestParam(defaultValue = "true") boolean apply,
+            @RequestBody Map<String, Object> body) {
+
+        log.info("AutoSpottingController.saveSpotConfig: accountId={} region={} asgName={} apply={} body={}",
+                accountId, region, asgName, apply, body);
+        try {
+            Integer spotPercentage = body.containsKey("spotPercentage")
+                    ? ((Number) body.get("spotPercentage")).intValue()
+                    : null;
+            Integer onDemandCount = body.containsKey("onDemandCount")
+                    ? ((Number) body.get("onDemandCount")).intValue()
+                    : null;
+
+            autoSpottingService.saveSpotConfig(accountId, region, asgName,
+                                              spotPercentage, onDemandCount,
+                                              apply);
+
+            String message = apply
+                ? "Spot configuration saved and applied successfully. Instance refresh started."
+                : "Spot configuration saved successfully. Enable AutoSpotting to apply.";
+
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "message", message,
+                    "applied", apply));
+        } catch (IllegalStateException e) {
+            // AutoSpotting not enabled - config saved but not applied
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "message", "Configuration saved but not applied: " + e.getMessage(),
+                    "applied", false));
+        } catch (Exception e) {
+            log.error("Failed to save/apply spot config: {}", e.getMessage(), e);
             return ResponseEntity.status(500).body(Map.of(
                     "success", false,
                     "error", e.getMessage()));

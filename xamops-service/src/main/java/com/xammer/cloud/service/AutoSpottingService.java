@@ -877,16 +877,35 @@ public class AutoSpottingService {
                 logger.info("Using configured instance types for {}: {}", asgName, String.join(", ", configuredTypes));
             }
 
+            // Get Spot/On-Demand configuration
+            Map<String, Object> spotConfig = getSpotConfig(cloudAccountId, region, asgName);
+            int onDemandBase = 0;
+            int onDemandPercentage = 0;
+
+            String configMode = (String) spotConfig.get("configMode");
+            if ("percentage".equals(configMode)) {
+                int spotPercentage = (Integer) spotConfig.get("spotPercentage");
+                onDemandPercentage = 100 - spotPercentage;
+                logger.info("Using percentage mode for {}: {}% Spot ({}% On-Demand)",
+                        asgName, spotPercentage, onDemandPercentage);
+            } else if ("count".equals(configMode)) {
+                onDemandBase = (Integer) spotConfig.get("onDemandCount");
+                logger.info("Using count mode for {}: {} On-Demand base (rest Spot)",
+                        asgName, onDemandBase);
+            }
+
             software.amazon.awssdk.services.autoscaling.model.MixedInstancesPolicy mixedPolicy = null;
 
             if (asg.mixedInstancesPolicy() != null && asg.mixedInstancesPolicy().launchTemplate() != null) {
                 // ASG already has a MixedInstancesPolicy — update instancesDistribution ONLY.
                 // Do NOT re-specify the launch template: AWS preserves the existing one,
                 // and omitting it avoids the ec2:UseLaunchTemplate IAM check.
+                final int finalOnDemandBase = onDemandBase;
+                final int finalOnDemandPercentage = onDemandPercentage;
                 mixedPolicy = software.amazon.awssdk.services.autoscaling.model.MixedInstancesPolicy.builder()
                         .instancesDistribution(d -> d
-                        .onDemandBaseCapacity(0)
-                        .onDemandPercentageAboveBaseCapacity(0)
+                        .onDemandBaseCapacity(finalOnDemandBase)
+                        .onDemandPercentageAboveBaseCapacity(finalOnDemandPercentage)
                         .spotAllocationStrategy("capacity-optimized"))
                         .build();
 
@@ -894,6 +913,8 @@ public class AutoSpottingService {
                 // Has a standalone LaunchTemplate — wrap it in MixedInstancesPolicy
                 var lt = asg.launchTemplate();
                 final var finalOverrides = overrides;
+                final int finalOnDemandBase = onDemandBase;
+                final int finalOnDemandPercentage = onDemandPercentage;
                 mixedPolicy = software.amazon.awssdk.services.autoscaling.model.MixedInstancesPolicy.builder()
                         .launchTemplate(ltp -> ltp
                         .launchTemplateSpecification(lts -> lts
@@ -901,8 +922,8 @@ public class AutoSpottingService {
                         .version(lt.version() != null ? lt.version() : "$Default"))
                         .overrides(finalOverrides != null ? finalOverrides : Collections.emptyList()))
                         .instancesDistribution(d -> d
-                        .onDemandBaseCapacity(0)
-                        .onDemandPercentageAboveBaseCapacity(0)
+                        .onDemandBaseCapacity(finalOnDemandBase)
+                        .onDemandPercentageAboveBaseCapacity(finalOnDemandPercentage)
                         .spotAllocationStrategy("capacity-optimized"))
                         .build();
 
@@ -917,7 +938,8 @@ public class AutoSpottingService {
             asgClient.updateAutoScalingGroup(req -> req
                     .autoScalingGroupName(asgName)
                     .mixedInstancesPolicy(finalPolicy));
-            logger.info("✓ MixedInstancesPolicy updated (OnDemandPercentage=0, strategy=capacity-optimized) for {}", asgName);
+            logger.info("✓ MixedInstancesPolicy updated for {}: OnDemandBase={}, OnDemandPercentage={}%, strategy=capacity-optimized",
+                    asgName, onDemandBase, onDemandPercentage);
 
             // 4. Start an instance refresh so existing OD instances are gradually replaced with Spot
             try {
@@ -1105,21 +1127,390 @@ public class AutoSpottingService {
     /**
      * Save instance type configuration for an ASG. Stores alternative instance
      * types that will be used when enabling AutoSpotting.
+     * @param applyImmediately if true, applies config to running ASG (if AutoSpotting enabled)
      */
-    public void saveInstanceTypeConfig(Long cloudAccountId, String region, String asgName, List<String> instanceTypes) {
+    public void saveInstanceTypeConfig(Long cloudAccountId, String region, String asgName, List<String> instanceTypes,
+                                       boolean applyImmediately) {
         CloudAccount account = getByAwsAccountId(cloudAccountId);
         com.xammer.cloud.domain.AsgSpotConfig config = asgSpotConfigRepository
                 .findByAccountIdAndRegionAndAsgName(account.getId(), region, asgName)
                 .orElse(new com.xammer.cloud.domain.AsgSpotConfig());
 
+        // Capture old instance types for audit log
+        String oldTypes = config.getAllowedInstanceTypes();
+        String newTypes = instanceTypes != null ? String.join(",", instanceTypes) : null;
+
         config.setAccount(account);
         config.setRegion(region);
         config.setAsgName(asgName);
-        config.setAllowedInstanceTypes(instanceTypes != null ? String.join(",", instanceTypes) : null);
+        config.setAllowedInstanceTypes(newTypes);
         asgSpotConfigRepository.save(config);
 
         logger.info("✓ Instance type config saved for ASG {} in {}: types={}",
                 asgName, region, config.getAllowedInstanceTypes());
+
+        // Record audit event for instance type configuration change
+        try {
+            String changeDescription;
+            if (oldTypes == null || oldTypes.isEmpty()) {
+                changeDescription = String.format("CONFIG_SAVE: Instance types configured: [%s]", newTypes != null ? newTypes : "none");
+            } else if (newTypes == null || newTypes.isEmpty()) {
+                changeDescription = String.format("CONFIG_SAVE: Instance types removed (was: [%s])", oldTypes);
+            } else if (!oldTypes.equals(newTypes)) {
+                changeDescription = String.format("CONFIG_SAVE: Instance types updated: [%s]→[%s]", oldTypes, newTypes);
+            } else {
+                changeDescription = "CONFIG_SAVE: Instance types unchanged";
+            }
+
+            SpotOptimizationEvent ev = new SpotOptimizationEvent();
+            ev.setAccount(account);
+            ev.setAsgName(asgName);
+            ev.setRegion(region);
+            ev.setStatus("SUCCESS");
+            ev.setDetails(changeDescription + (applyImmediately ? " (Applied immediately)" : " (Not applied - save only)"));
+            ev.setEventTime(java.time.Instant.now());
+            eventRepository.save(ev);
+        } catch (Exception e) {
+            logger.error("Failed to record instance type config event: {}", e.getMessage());
+        }
+
+        // Apply to running ASG if requested
+        if (applyImmediately) {
+            try {
+                applySpotConfiguration(cloudAccountId, region, asgName);
+            } catch (IllegalStateException e) {
+                logger.info("Config saved but not applied - AutoSpotting not enabled: {}", e.getMessage());
+                // Don't throw - config was saved successfully
+            }
+        }
+    }
+
+    // ================= SPOT/ON-DEMAND CONFIGURATION =================
+
+    /**
+     * Get Spot/On-Demand configuration for an ASG.
+     * Returns spotPercentage (0-100) or onDemandCount (fixed number).
+     */
+    public Map<String, Object> getSpotConfig(Long cloudAccountId, String region, String asgName) {
+        CloudAccount account = getByAwsAccountId(cloudAccountId);
+        return asgSpotConfigRepository
+                .findByAccountIdAndRegionAndAsgName(account.getId(), region, asgName)
+                .map(config -> {
+                    Map<String, Object> result = new HashMap<>();
+                    if (config.getSpotPercentage() != null) {
+                        result.put("configMode", "percentage");
+                        result.put("spotPercentage", config.getSpotPercentage());
+                    } else if (config.getOnDemandCount() != null) {
+                        result.put("configMode", "count");
+                        result.put("onDemandCount", config.getOnDemandCount());
+                    } else {
+                        // Default: 75% Spot (percentage mode)
+                        result.put("configMode", "percentage");
+                        result.put("spotPercentage", 75);
+                    }
+                    return result;
+                })
+                .orElseGet(() -> {
+                    // No config found - return default
+                    Map<String, Object> result = new HashMap<>();
+                    result.put("configMode", "percentage");
+                    result.put("spotPercentage", 75);
+                    return result;
+                });
+    }
+
+    /**
+     * Save Spot/On-Demand configuration for an ASG.
+     * Either spotPercentage (0-100) OR onDemandCount (fixed number) should be provided.
+     * @param applyImmediately if true, applies config to running ASG (if AutoSpotting enabled)
+     */
+    public void saveSpotConfig(Long cloudAccountId, String region, String asgName,
+                                Integer spotPercentage, Integer onDemandCount,
+                                boolean applyImmediately) {
+        CloudAccount account = getByAwsAccountId(cloudAccountId);
+        com.xammer.cloud.domain.AsgSpotConfig config = asgSpotConfigRepository
+                .findByAccountIdAndRegionAndAsgName(account.getId(), region, asgName)
+                .orElse(new com.xammer.cloud.domain.AsgSpotConfig());
+
+        // Capture old values for audit log
+        Integer oldSpotPercentage = config.getSpotPercentage();
+        Integer oldOnDemandCount = config.getOnDemandCount();
+
+        config.setAccount(account);
+        config.setRegion(region);
+        config.setAsgName(asgName);
+
+        // Clear both fields first (mutually exclusive)
+        config.setSpotPercentage(null);
+        config.setOnDemandCount(null);
+
+        // Set the appropriate field
+        String changeDescription;
+        if (spotPercentage != null) {
+            config.setSpotPercentage(Math.max(0, Math.min(100, spotPercentage)));
+            logger.info("✓ Spot config saved for ASG {} in {}: spotPercentage={}%",
+                    asgName, region, spotPercentage);
+
+            // Build change description
+            if (oldSpotPercentage != null && !oldSpotPercentage.equals(spotPercentage)) {
+                changeDescription = String.format("CONFIG_SAVE: Spot percentage changed: %d%%→%d%%", oldSpotPercentage, spotPercentage);
+            } else if (oldOnDemandCount != null) {
+                changeDescription = String.format("CONFIG_SAVE: Changed from count mode (OnDemand=%d) to percentage mode (Spot=%d%%)", oldOnDemandCount, spotPercentage);
+            } else {
+                changeDescription = String.format("CONFIG_SAVE: Spot percentage set to %d%%", spotPercentage);
+            }
+        } else if (onDemandCount != null) {
+            config.setOnDemandCount(Math.max(0, onDemandCount));
+            logger.info("✓ Spot config saved for ASG {} in {}: onDemandCount={}",
+                    asgName, region, onDemandCount);
+
+            // Build change description
+            if (oldOnDemandCount != null && !oldOnDemandCount.equals(onDemandCount)) {
+                changeDescription = String.format("CONFIG_SAVE: OnDemand count changed: %d→%d", oldOnDemandCount, onDemandCount);
+            } else if (oldSpotPercentage != null) {
+                changeDescription = String.format("CONFIG_SAVE: Changed from percentage mode (Spot=%d%%) to count mode (OnDemand=%d)", oldSpotPercentage, onDemandCount);
+            } else {
+                changeDescription = String.format("CONFIG_SAVE: OnDemand count set to %d", onDemandCount);
+            }
+        } else {
+            changeDescription = "CONFIG_SAVE: Spot configuration cleared";
+        }
+
+        asgSpotConfigRepository.save(config);
+
+        // Record audit event for Spot/On-Demand configuration change
+        try {
+            SpotOptimizationEvent ev = new SpotOptimizationEvent();
+            ev.setAccount(account);
+            ev.setAsgName(asgName);
+            ev.setRegion(region);
+            ev.setStatus("SUCCESS");
+            ev.setDetails(changeDescription + (applyImmediately ? " (Applied immediately)" : " (Not applied - save only)"));
+            ev.setEventTime(java.time.Instant.now());
+            eventRepository.save(ev);
+        } catch (Exception e) {
+            logger.error("Failed to record spot config event: {}", e.getMessage());
+        }
+
+        // Apply to running ASG if requested
+        if (applyImmediately) {
+            try {
+                applySpotConfiguration(cloudAccountId, region, asgName);
+            } catch (IllegalStateException e) {
+                logger.info("Config saved but not applied - AutoSpotting not enabled: {}", e.getMessage());
+                // Don't throw - config was saved successfully
+            }
+        }
+    }
+
+    /**
+     * Apply the saved Spot/On-Demand configuration to a running ASG.
+     * Only works if AutoSpotting is already enabled for this ASG.
+     * Updates the MixedInstancesPolicy and triggers instance refresh.
+     */
+    public void applySpotConfiguration(Long cloudAccountId, String region, String asgName) {
+        logger.info("Applying Spot configuration to running ASG: account={} region={} asg={}",
+                cloudAccountId, region, asgName);
+        CloudAccount account = getByAwsAccountId(cloudAccountId);
+
+        try {
+            AutoScalingClient asgClient = awsClientProvider.getAutoSpottingAsgClient(
+                    account.getAwsAccountId(), region);
+
+            // 1. Fetch current ASG configuration
+            var asgResponse = asgClient.describeAutoScalingGroups(req -> req.autoScalingGroupNames(asgName));
+            if (asgResponse.autoScalingGroups().isEmpty()) {
+                logger.error("ASG {} not found", asgName);
+                throw new IllegalArgumentException("ASG not found: " + asgName);
+            }
+            var asg = asgResponse.autoScalingGroups().get(0);
+
+            // 2. Check if AutoSpotting is enabled by verifying MixedInstancesPolicy exists
+            // When AutoSpotting is enabled, it creates a MixedInstancesPolicy
+            // If ASG only has a standalone LaunchTemplate, AutoSpotting isn't enabled yet
+            if (asg.mixedInstancesPolicy() == null || asg.mixedInstancesPolicy().launchTemplate() == null) {
+                if (asg.launchTemplate() != null) {
+                    logger.warn("Cannot apply config - AutoSpotting not enabled for ASG: {} (no MixedInstancesPolicy)", asgName);
+                    throw new IllegalStateException(
+                            "AutoSpotting must be enabled before applying configuration changes. " +
+                            "Please enable AutoSpotting first by toggling it ON.");
+                } else {
+                    logger.error("ASG {} uses LaunchConfiguration (not LaunchTemplate)", asgName);
+                    throw new IllegalStateException(
+                            "ASG must use a LaunchTemplate to apply Spot configuration. " +
+                            "LaunchConfiguration is not supported.");
+                }
+            }
+
+            // 3. Get configured instance types for Spot diversification
+            List<String> configuredTypes = getConfiguredInstanceTypes(cloudAccountId, region, asgName);
+            List<software.amazon.awssdk.services.autoscaling.model.LaunchTemplateOverrides> overrides = null;
+            if (!configuredTypes.isEmpty()) {
+                overrides = configuredTypes.stream()
+                        .map(type -> software.amazon.awssdk.services.autoscaling.model.LaunchTemplateOverrides.builder()
+                                .instanceType(type)
+                                .build())
+                        .collect(Collectors.toList());
+                logger.info("Using configured instance types for {}: {}", asgName, String.join(", ", configuredTypes));
+            }
+
+            // 4. Get Spot/On-Demand configuration
+            Map<String, Object> spotConfig = getSpotConfig(cloudAccountId, region, asgName);
+            int onDemandBase = 0;
+            int onDemandPercentage = 0;
+
+            String configMode = (String) spotConfig.get("configMode");
+            if ("percentage".equals(configMode)) {
+                int spotPercentage = (Integer) spotConfig.get("spotPercentage");
+                onDemandPercentage = 100 - spotPercentage;
+                logger.info("Applying percentage mode for {}: {}% Spot ({}% On-Demand)",
+                        asgName, spotPercentage, onDemandPercentage);
+            } else if ("count".equals(configMode)) {
+                onDemandBase = (Integer) spotConfig.get("onDemandCount");
+                logger.info("Applying count mode for {}: {} On-Demand base (rest Spot)",
+                        asgName, onDemandBase);
+            }
+
+            // 5. Capture existing configuration for audit logging
+            var existingPolicy = asg.mixedInstancesPolicy();
+            var existingLaunchTemplate = existingPolicy.launchTemplate();
+            var existingLtSpec = existingLaunchTemplate.launchTemplateSpecification();
+
+            // Capture old values for change tracking
+            int oldOnDemandBase = 0;
+            int oldOnDemandPercentage = 0;
+            List<String> oldInstanceTypes = new java.util.ArrayList<>();
+
+            if (existingPolicy.instancesDistribution() != null) {
+                var oldDistribution = existingPolicy.instancesDistribution();
+                oldOnDemandBase = oldDistribution.onDemandBaseCapacity() != null ? oldDistribution.onDemandBaseCapacity() : 0;
+                oldOnDemandPercentage = oldDistribution.onDemandPercentageAboveBaseCapacity() != null
+                    ? oldDistribution.onDemandPercentageAboveBaseCapacity() : 0;
+            }
+
+            if (existingLaunchTemplate.overrides() != null && !existingLaunchTemplate.overrides().isEmpty()) {
+                oldInstanceTypes = existingLaunchTemplate.overrides().stream()
+                    .map(o -> o.instanceType())
+                    .filter(t -> t != null && !t.isEmpty())
+                    .collect(Collectors.toList());
+            }
+
+            final var finalOverrides = overrides;
+            final int finalOnDemandBase = onDemandBase;
+            final int finalOnDemandPercentage = onDemandPercentage;
+
+            // 6. Build updated MixedInstancesPolicy
+
+            // Build LaunchTemplateSpecification - AWS requires EITHER ID or Name, not both
+            var ltSpecBuilder = software.amazon.awssdk.services.autoscaling.model.LaunchTemplateSpecification.builder();
+            if (existingLtSpec.launchTemplateId() != null) {
+                ltSpecBuilder.launchTemplateId(existingLtSpec.launchTemplateId());
+            } else if (existingLtSpec.launchTemplateName() != null) {
+                ltSpecBuilder.launchTemplateName(existingLtSpec.launchTemplateName());
+            }
+            ltSpecBuilder.version(existingLtSpec.version() != null ? existingLtSpec.version() : "$Default");
+            var ltSpec = ltSpecBuilder.build();
+
+            software.amazon.awssdk.services.autoscaling.model.MixedInstancesPolicy mixedPolicy =
+                    software.amazon.awssdk.services.autoscaling.model.MixedInstancesPolicy.builder()
+                            .launchTemplate(ltp -> ltp
+                                    .launchTemplateSpecification(ltSpec)
+                                    .overrides(finalOverrides != null && !finalOverrides.isEmpty()
+                                            ? finalOverrides
+                                            : existingLaunchTemplate.overrides())) // Preserve existing if no new ones
+                            .instancesDistribution(d -> d
+                                    .onDemandBaseCapacity(finalOnDemandBase)
+                                    .onDemandPercentageAboveBaseCapacity(finalOnDemandPercentage)
+                                    .spotAllocationStrategy("capacity-optimized"))
+                            .build();
+
+            // 7. Apply the updated MixedInstancesPolicy
+            final var finalPolicy = mixedPolicy;
+            asgClient.updateAutoScalingGroup(req -> req
+                    .autoScalingGroupName(asgName)
+                    .mixedInstancesPolicy(finalPolicy));
+            logger.info("✓ MixedInstancesPolicy updated for {}: OnDemandBase={}, OnDemandPercentage={}%",
+                    asgName, onDemandBase, onDemandPercentage);
+
+            // 8. Start instance refresh to apply changes
+            try {
+                asgClient.startInstanceRefresh(req -> req
+                        .autoScalingGroupName(asgName)
+                        .preferences(p -> p
+                                .minHealthyPercentage(80)
+                                .instanceWarmup(300)));
+                logger.info("✓ Instance refresh started for {} to apply new Spot configuration", asgName);
+            } catch (Exception e) {
+                // Instance refresh failure is non-fatal - policy is already updated
+                logger.warn("Could not start instance refresh for {} (policy already updated): {}",
+                       asgName, e.getMessage());
+            }
+
+            // 9. Record detailed audit event with before/after changes
+            try {
+                StringBuilder changeLog = new StringBuilder("CONFIG_UPDATE: Configuration applied");
+
+                // Track distribution changes
+                if (oldOnDemandBase != onDemandBase || oldOnDemandPercentage != onDemandPercentage) {
+                    changeLog.append(" | Spot/On-Demand: ");
+                    if (oldOnDemandBase != onDemandBase) {
+                        changeLog.append(String.format("OnDemandBase %d→%d", oldOnDemandBase, onDemandBase));
+                    }
+                    if (oldOnDemandPercentage != onDemandPercentage) {
+                        if (oldOnDemandBase != onDemandBase) changeLog.append(", ");
+                        int oldSpotPct = 100 - oldOnDemandPercentage;
+                        int newSpotPct = 100 - onDemandPercentage;
+                        changeLog.append(String.format("Spot %d%%→%d%%", oldSpotPct, newSpotPct));
+                    }
+                }
+
+                // Track instance type changes
+                if (configuredTypes != null && !configuredTypes.isEmpty()) {
+                    boolean typesChanged = !oldInstanceTypes.equals(configuredTypes);
+                    if (typesChanged) {
+                        changeLog.append(" | Instance Types: ");
+                        if (oldInstanceTypes.isEmpty()) {
+                            changeLog.append(String.format("Added [%s]", String.join(", ", configuredTypes)));
+                        } else {
+                            changeLog.append(String.format("[%s]→[%s]",
+                                String.join(", ", oldInstanceTypes),
+                                String.join(", ", configuredTypes)));
+                        }
+                    }
+                }
+
+                SpotOptimizationEvent ev = new SpotOptimizationEvent();
+                ev.setAccount(account);
+                ev.setAsgName(asgName);
+                ev.setRegion(region);
+                ev.setStatus("SUCCESS");
+                ev.setDetails(changeLog.toString());
+                ev.setEventTime(java.time.Instant.now());
+                eventRepository.save(ev);
+                logger.info("✓ Audit event recorded: {}", changeLog.toString());
+            } catch (Exception e) {
+                logger.error("Failed to record config update event: {}", e.getMessage());
+            }
+
+        } catch (Exception e) {
+            logger.error("Failed to apply Spot configuration for {}: {}", asgName, e.getMessage(), e);
+
+            // Record failure event
+            try {
+                SpotOptimizationEvent ev = new SpotOptimizationEvent();
+                ev.setAccount(account);
+                ev.setAsgName(asgName);
+                ev.setRegion(region);
+                ev.setStatus("FAILED");
+                ev.setDetails("CONFIG_UPDATE: Failed to update - " + e.getMessage());
+                ev.setEventTime(java.time.Instant.now());
+                eventRepository.save(ev);
+            } catch (Exception auditError) {
+                logger.error("Failed to record config update failure event: {}", auditError.getMessage());
+            }
+
+            throw e;
+        }
     }
 
     /**

@@ -46,4 +46,22 @@ public class AsgSpotConfig {
      */
     @Column(name = "spot_allocation_strategy")
     private String spotAllocationStrategy = "capacity-optimized";
+
+    /**
+     * Target percentage of Spot instances (0-100).
+     * When set, AWS maintains this Spot percentage automatically.
+     * Mutually exclusive with onDemandCount.
+     * Example: spotPercentage=75 means 75% Spot, 25% On-Demand
+     */
+    @Column(name = "spot_percentage")
+    private Integer spotPercentage;
+
+    /**
+     * Fixed number of On-Demand instances to maintain.
+     * All instances above this count will be Spot.
+     * Mutually exclusive with spotPercentage.
+     * Example: onDemandCount=2 means always keep 2 On-Demand, rest are Spot
+     */
+    @Column(name = "on_demand_count")
+    private Integer onDemandCount;
 }

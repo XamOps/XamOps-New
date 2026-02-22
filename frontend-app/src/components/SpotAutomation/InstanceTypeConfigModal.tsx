@@ -12,8 +12,14 @@ interface InstanceTypeConfigModalProps {
   asgName: string;
   region: string;
   currentTypes: string[];
+  currentSpotPercentage?: number;
+  currentOnDemandCount?: number;
   onClose: () => void;
-  onSave: (instanceTypes: string[]) => void;
+  onSave: (config: {
+    instanceTypes: string[];
+    spotPercentage?: number;
+    onDemandCount?: number;
+  }) => void;
 }
 
 // Common instance type families grouped by type
@@ -31,16 +37,24 @@ const InstanceTypeConfigModal: React.FC<InstanceTypeConfigModalProps> = ({
   asgName,
   region,
   currentTypes,
+  currentSpotPercentage = 75,
+  currentOnDemandCount,
   onClose,
   onSave,
 }) => {
   const [selectedTypes, setSelectedTypes] = useState<Set<string>>(new Set(currentTypes));
   const [customType, setCustomType] = useState('');
+  const [configMode, setConfigMode] = useState<'percentage' | 'count'>('percentage');
+  const [spotPercentage, setSpotPercentage] = useState(currentSpotPercentage);
+  const [onDemandCount, setOnDemandCount] = useState<number>(currentOnDemandCount || 0);
 
-  // Update selectedTypes when currentTypes changes (modal opens with new data)
+  // Update state when props change (modal opens with new data)
   useEffect(() => {
     setSelectedTypes(new Set(currentTypes));
-  }, [currentTypes]);
+    setSpotPercentage(currentSpotPercentage);
+    setOnDemandCount(currentOnDemandCount || 0);
+    setConfigMode(currentOnDemandCount !== undefined && currentOnDemandCount >= 0 ? 'count' : 'percentage');
+  }, [currentTypes, currentSpotPercentage, currentOnDemandCount]);
 
   const handleToggleType = (type: string) => {
     setSelectedTypes((prev) => {
@@ -71,12 +85,19 @@ const InstanceTypeConfigModal: React.FC<InstanceTypeConfigModalProps> = ({
   };
 
   const handleSave = () => {
-    onSave(Array.from(selectedTypes));
+    onSave({
+      instanceTypes: Array.from(selectedTypes),
+      spotPercentage: configMode === 'percentage' ? spotPercentage : undefined,
+      onDemandCount: configMode === 'count' ? onDemandCount : undefined,
+    });
   };
 
   const handleClose = () => {
     setSelectedTypes(new Set(currentTypes));
     setCustomType('');
+    setSpotPercentage(currentSpotPercentage);
+    setOnDemandCount(currentOnDemandCount || 0);
+    setConfigMode(currentOnDemandCount !== undefined && currentOnDemandCount >= 0 ? 'count' : 'percentage');
     onClose();
   };
 
@@ -125,6 +146,109 @@ const InstanceTypeConfigModal: React.FC<InstanceTypeConfigModalProps> = ({
                 AWS will automatically switch to similar instance types to keep your application running smoothly
                 and save you money. Think of it as having a backup plan!
               </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Spot/On-Demand Configuration */}
+        <div className="mb-6 border border-gray-200 rounded-lg p-6 bg-gradient-to-br from-green-50 to-blue-50">
+          <h4 className="font-bold text-gray-800 mb-4 flex items-center text-lg">
+            <i className="fas fa-sliders-h text-green-600 mr-2"></i>
+            Spot/On-Demand Configuration
+          </h4>
+
+          {/* Radio Button Group */}
+          <div className="space-y-4">
+            {/* % Spot Instances Option */}
+            <div className="flex items-start space-x-3">
+              <input
+                type="radio"
+                id="percentage-mode"
+                name="config-mode"
+                checked={configMode === 'percentage'}
+                onChange={() => setConfigMode('percentage')}
+                className="mt-1 w-4 h-4 text-indigo-600"
+              />
+              <div className="flex-1">
+                <label htmlFor="percentage-mode" className="flex items-center space-x-2 cursor-pointer">
+                  <span className="font-semibold text-gray-700">% Spot instances</span>
+                  <div className="group relative">
+                    <i className="fas fa-info-circle text-gray-400 hover:text-gray-600"></i>
+                    <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block w-64 p-2 bg-gray-800 text-white text-xs rounded-lg shadow-lg z-10">
+                      Set the target percentage of Spot instances. AWS will maintain this ratio automatically.
+                    </div>
+                  </div>
+                </label>
+
+                {configMode === 'percentage' && (
+                  <div className="mt-3">
+                    <div className="flex items-center space-x-4">
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={spotPercentage}
+                        onChange={(e) => setSpotPercentage(Number(e.target.value))}
+                        className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                        style={{
+                          background: `linear-gradient(to right, rgb(79 70 229) 0%, rgb(79 70 229) ${spotPercentage}%, rgb(229 231 235) ${spotPercentage}%, rgb(229 231 235) 100%)`
+                        }}
+                      />
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        value={spotPercentage}
+                        onChange={(e) => setSpotPercentage(Math.min(100, Math.max(0, Number(e.target.value))))}
+                        className="w-20 px-3 py-2 border border-gray-300 rounded-lg text-center font-semibold focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
+                      />
+                    </div>
+                    <div className="flex justify-between text-xs text-gray-500 mt-2">
+                      <span>0% (All On-Demand)</span>
+                      <span>100% (All Spot)</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Specific On-Demand Count Option */}
+            <div className="flex items-start space-x-3">
+              <input
+                type="radio"
+                id="count-mode"
+                name="config-mode"
+                checked={configMode === 'count'}
+                onChange={() => setConfigMode('count')}
+                className="mt-1 w-4 h-4 text-indigo-600"
+              />
+              <div className="flex-1">
+                <label htmlFor="count-mode" className="flex items-center space-x-2 cursor-pointer">
+                  <span className="font-semibold text-gray-700">Specific on-demand count</span>
+                  <div className="group relative">
+                    <i className="fas fa-info-circle text-gray-400 hover:text-gray-600"></i>
+                    <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block w-64 p-2 bg-gray-800 text-white text-xs rounded-lg shadow-lg z-10">
+                      Set a fixed number of On-Demand instances. All other instances will be Spot.
+                    </div>
+                  </div>
+                </label>
+
+                {configMode === 'count' && (
+                  <div className="mt-3">
+                    <input
+                      type="number"
+                      min="0"
+                      value={onDemandCount}
+                      onChange={(e) => setOnDemandCount(Math.max(0, Number(e.target.value)))}
+                      placeholder="Enter count..."
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Number of On-Demand instances to maintain. Remaining will be Spot.
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
