@@ -28,7 +28,7 @@ export const Skeleton: React.FC<SkeletonProps> = ({
     return (
         <div
             className={clsx(
-                "animate-pulse bg-slate-800",
+                "animate-pulse bg-slate-200",
                 variant === 'circular' ? 'rounded-full' : variant === 'rounded' ? 'rounded-lg' : 'rounded',
                 className
             )}
@@ -102,9 +102,9 @@ export const SpotAutomationSkeleton: React.FC = () => {
 
 export const DashboardSkeleton: React.FC = () => {
     return (
-        <div className="min-h-screen bg-slate-900 p-6 space-y-6">
+        <div className="min-h-screen bg-slate-50 p-6 space-y-6">
             {/* Header Skeleton */}
-            <div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-6 shadow-2xl">
+            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
                 <Skeleton className="h-8 w-64 mb-2" />
                 <Skeleton className="h-4 w-96" />
             </div>
@@ -112,7 +112,7 @@ export const DashboardSkeleton: React.FC = () => {
             {/* KPI Cards Skeleton */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 {[1, 2, 3, 4].map((i) => (
-                    <div key={i} className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-6 shadow-xl">
+                    <div key={i} className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
                         <div className="flex items-start justify-between">
                             <div className="space-y-3 flex-1">
                                 <Skeleton className="h-4 w-24" />
@@ -127,11 +127,11 @@ export const DashboardSkeleton: React.FC = () => {
 
             {/* Main Content Skeleton */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-2 backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-6 shadow-xl h-80">
+                <div className="lg:col-span-2 bg-white border border-slate-200 rounded-2xl p-6 shadow-sm h-80">
                     <Skeleton className="h-6 w-48 mb-6" />
                     <Skeleton className="h-64 w-full" />
                 </div>
-                <div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-6 shadow-xl h-80 overflow-hidden">
+                <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm h-80 overflow-hidden">
                     <Skeleton className="h-6 w-48 mb-4" />
                     <div className="space-y-4">
                         {[1, 2, 3, 4, 5].map((i) => (
@@ -143,7 +143,7 @@ export const DashboardSkeleton: React.FC = () => {
 
             {/* Bottom Section Skeleton */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-6 shadow-xl h-64">
+                <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm h-64">
                     <Skeleton className="h-6 w-48 mb-4" />
                     <div className="space-y-3">
                         {[1, 2, 3].map((i) => (
@@ -151,7 +151,7 @@ export const DashboardSkeleton: React.FC = () => {
                         ))}
                     </div>
                 </div>
-                <div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-6 shadow-xl h-64">
+                <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm h-64">
                     <Skeleton className="h-6 w-48 mb-4" />
                     <div className="space-y-3">
                         {[1, 2, 3].map((i) => (

@@ -62,9 +62,6 @@ public class AppUser {
     public void setCreatedBy(Long createdBy) { this.createdBy = createdBy; }
 
     // Constructors
-    public AppUser() {
-    }
-
     public AppUser(String username, String password, String email, String role, Client client) {
         this.username = username;
         this.password = password;

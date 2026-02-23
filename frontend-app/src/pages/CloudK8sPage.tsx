@@ -90,45 +90,6 @@ const CloudK8sPage: React.FC = () => {
   }, [selectedAccountId]);
 
   /**
-   * Enable monitoring for a cluster
-   */
-  const enableMonitoring = useCallback(async (cluster: EKSCluster) => {
-    if (!selectedAccountId) return;
-
-    setClusters(prev =>
-      prev.map(c =>
-        c.name === cluster.name && c.region === cluster.region
-          ? { ...c, isEnabling: true }
-          : c
-      )
-    );
-
-    const { name, region } = cluster;
-
-    try {
-      await apiClient.post(
-        `/api/xamops/eks/${name}/enable-monitoring?accountId=${selectedAccountId}&region=${region}`
-      );
-
-      alert(`Successfully initiated monitoring for ${name}. It may take a few minutes to connect.`);
-
-      // Refresh clusters after a delay
-      setTimeout(() => fetchClusters(true), 5000);
-    } catch (err: any) {
-      alert(`Error: ${err.message}`);
-      console.error('Failed to enable monitoring', err);
-    } finally {
-      setClusters(prev =>
-        prev.map(c =>
-          c.name === cluster.name && c.region === cluster.region
-            ? { ...c, isEnabling: false }
-            : c
-        )
-      );
-    }
-  }, [selectedAccountId, fetchClusters]);
-
-  /**
    * Navigate to cluster details
    */
   const navigateToDetails = useCallback((cluster: EKSCluster) => {
@@ -164,7 +125,6 @@ const CloudK8sPage: React.FC = () => {
           <CloudK8sClusterTable
             clusters={clusters}
             isLoading={isLoading}
-            onEnableMonitoring={enableMonitoring}
             onViewDetails={navigateToDetails}
           />
 

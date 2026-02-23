@@ -109,7 +109,6 @@ public class InvoiceManagementService {
     }
 
     // --- PDF GENERATION START ---
-
     public ByteArrayInputStream generatePdfForInvoice(Long invoiceId) {
         InvoiceDto invoiceDto = getInvoiceForAdmin(invoiceId);
         return generatePdfFromDto(invoiceDto);
@@ -117,9 +116,7 @@ public class InvoiceManagementService {
 
     public ByteArrayInputStream generatePdfFromDto(InvoiceDto dto) {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
-        try (PdfWriter writer = new PdfWriter(out);
-                PdfDocument pdf = new PdfDocument(writer);
-                Document document = new Document(pdf, PageSize.A4)) {
+        try (PdfWriter writer = new PdfWriter(out); PdfDocument pdf = new PdfDocument(writer); Document document = new Document(pdf, PageSize.A4)) {
 
             document.setMargins(20, 20, 20, 20);
 
@@ -150,7 +147,7 @@ public class InvoiceManagementService {
         document.add(title);
 
         // Create the main grid table: 2 Columns (Left 50%, Right 50%)
-        Table mainTable = new Table(UnitValue.createPercentArray(new float[] { 50, 50 })).useAllAvailableWidth();
+        Table mainTable = new Table(UnitValue.createPercentArray(new float[]{50, 50})).useAllAvailableWidth();
 
         // --- FETCH CLIENT DETAILS FROM DB ---
         Client client = clientRepository.findById(dto.getClientId()).orElse(new Client("Unknown"));
@@ -183,12 +180,15 @@ public class InvoiceManagementService {
                 .add(new com.itextpdf.layout.element.Text(clientName).setBold().setFontSize(9));
 
         // Improved Logic: Only add lines if data exists to avoid empty "Code: " lines
-        if (!clientAddress.isEmpty())
+        if (!clientAddress.isEmpty()) {
             consigneeInfo.add("\n" + clientAddress);
-        if (!clientGstin.isEmpty())
+        }
+        if (!clientGstin.isEmpty()) {
             consigneeInfo.add("\nGSTIN/UIN: " + clientGstin);
-        if (!stateName.isEmpty())
+        }
+        if (!stateName.isEmpty()) {
             consigneeInfo.add("\nState Name: " + stateName + ", Code: " + stateCode);
+        }
 
         consigneeInfo.setFontSize(8).setPaddingLeft(5).setPaddingBottom(5);
 
@@ -199,13 +199,13 @@ public class InvoiceManagementService {
         Cell rightCell = new Cell().setPadding(0).setBorder(new SolidBorder(ColorConstants.BLACK, 0.5f));
 
         // Nested Table for Metadata Grid
-        Table metaTable = new Table(UnitValue.createPercentArray(new float[] { 50, 50 })).useAllAvailableWidth();
+        Table metaTable = new Table(UnitValue.createPercentArray(new float[]{50, 50})).useAllAvailableWidth();
 
         // Row 1
         addMetaCell(metaTable, "Invoice No.", dto.getInvoiceNumber());
         addMetaCell(metaTable, "Dated",
                 dto.getInvoiceDate() != null ? dto.getInvoiceDate().format(DateTimeFormatter.ofPattern("dd-MMM-yy"))
-                        : "");
+                : "");
 
         // Row 2
         addMetaCell(metaTable, "Delivery Note", "");
@@ -241,10 +241,12 @@ public class InvoiceManagementService {
                 .add(new com.itextpdf.layout.element.Text(clientName).setBold().setFontSize(9));
 
         // Improved Logic: Only add lines if data exists
-        if (!clientAddress.isEmpty())
+        if (!clientAddress.isEmpty()) {
             buyerInfo.add("\n" + clientAddress);
-        if (!clientGstin.isEmpty())
+        }
+        if (!clientGstin.isEmpty()) {
             buyerInfo.add("\nGSTIN/UIN: " + clientGstin);
+        }
         if (!stateName.isEmpty()) {
             buyerInfo.add("\nState Name: " + stateName + ", Code: " + stateCode);
             buyerInfo.add("\nPlace of Supply: " + stateName);
@@ -268,11 +270,11 @@ public class InvoiceManagementService {
 
     private BigDecimal addMainTable(Document document, InvoiceDto dto) {
         // Columns: SI No, Description, HSN/SAC, Quantity, Rate, Per, Disc %, Amount
-        float[] colWidths = { 5, 43, 10, 8, 12, 5, 7, 10 };
+        float[] colWidths = {5, 43, 10, 8, 12, 5, 7, 10};
         Table table = new Table(UnitValue.createPercentArray(colWidths)).useAllAvailableWidth();
 
-        String[] headers = { "SI No.", "Description of Services", "HSN/SAC", "Quantity", "Rate", "per", "Disc. %",
-                "Amount" };
+        String[] headers = {"SI No.", "Description of Services", "HSN/SAC", "Quantity", "Rate", "per", "Disc. %",
+            "Amount"};
         for (String h : headers) {
             table.addHeaderCell(new Cell().add(new Paragraph(h).setBold().setFontSize(8))
                     .setTextAlignment(TextAlignment.CENTER)
@@ -301,9 +303,9 @@ public class InvoiceManagementService {
             if (dto.getDiscounts() != null) {
                 for (InvoiceDto.DiscountDto d : dto.getDiscounts()) {
                     // Check discount names broadly
-                    if ("AWS Consumption Charge".equalsIgnoreCase(d.getServiceName()) ||
-                            "Google Cloud Consumption".equalsIgnoreCase(d.getServiceName()) ||
-                            "ALL".equalsIgnoreCase(d.getServiceName())) {
+                    if ("AWS Consumption Charge".equalsIgnoreCase(d.getServiceName())
+                            || "Google Cloud Consumption".equalsIgnoreCase(d.getServiceName())
+                            || "ALL".equalsIgnoreCase(d.getServiceName())) {
                         discountPercent = d.getPercentage();
                         BigDecimal pct = discountPercent.divide(new BigDecimal(100), 4, RoundingMode.HALF_UP);
                         discountAmount = stdTotal.multiply(pct).setScale(2, RoundingMode.HALF_UP);
@@ -413,10 +415,10 @@ public class InvoiceManagementService {
     private void addTaxSection(Document document, BigDecimal taxable, BigDecimal tax) {
         document.add(new Paragraph("\n"));
 
-        float[] widths = { 15, 20, 15, 25, 25 };
+        float[] widths = {15, 20, 15, 25, 25};
         Table table = new Table(UnitValue.createPercentArray(widths)).useAllAvailableWidth();
 
-        String[] headers = { "HSN/SAC", "Taxable Value", "Rate", "IGST Amount", "Total Tax Amount" };
+        String[] headers = {"HSN/SAC", "Taxable Value", "Rate", "IGST Amount", "Total Tax Amount"};
         for (String h : headers) {
             table.addHeaderCell(new Cell().add(new Paragraph(h).setBold().setFontSize(8))
                     .setTextAlignment(TextAlignment.CENTER)
@@ -443,7 +445,7 @@ public class InvoiceManagementService {
     private void addFooter(Document document, BigDecimal total) {
         document.add(new Paragraph("\n"));
 
-        Table footerTable = new Table(UnitValue.createPercentArray(new float[] { 50, 50 })).useAllAvailableWidth();
+        Table footerTable = new Table(UnitValue.createPercentArray(new float[]{50, 50})).useAllAvailableWidth();
 
         Cell bankCell = new Cell().setBorder(new SolidBorder(ColorConstants.BLACK, 0.5f)).setPadding(5);
         bankCell.add(new Paragraph("Company's Bank Details").setBold().setUnderline().setFontSize(9));
@@ -473,17 +475,16 @@ public class InvoiceManagementService {
     }
 
     // --- END PDF GENERATION ---
-
     // --- HELPER METHODS ---
-
     public InvoiceDto applyDiscountToTemporaryInvoice(InvoiceDto invoiceDto, DiscountRequestDto discountRequest) {
         InvoiceDto.DiscountDto newDiscount = new InvoiceDto.DiscountDto();
         newDiscount.setServiceName(discountRequest.getServiceName());
         newDiscount.setPercentage(discountRequest.getPercentage());
         newDiscount.setDescription(String.format("%.2f%% discount for %s", discountRequest.getPercentage(),
                 discountRequest.getServiceName()));
-        if (invoiceDto.getDiscounts() == null)
+        if (invoiceDto.getDiscounts() == null) {
             invoiceDto.setDiscounts(new ArrayList<>());
+        }
         invoiceDto.getDiscounts().add(newDiscount);
         recalculateTotalsForDto(invoiceDto);
         return invoiceDto;
@@ -522,8 +523,9 @@ public class InvoiceManagementService {
         }
         invoiceDto.setDiscountAmount(totalDiscount.setScale(2, RoundingMode.HALF_UP));
         BigDecimal taxableValue = preDiscountTotal.subtract(totalDiscount);
-        if (taxableValue.compareTo(BigDecimal.ZERO) < 0)
+        if (taxableValue.compareTo(BigDecimal.ZERO) < 0) {
             taxableValue = BigDecimal.ZERO;
+        }
         BigDecimal taxAmount = taxableValue.multiply(IGST_RATE).setScale(2, RoundingMode.HALF_UP);
         invoiceDto.setTaxAmount(taxAmount);
         invoiceDto.setAmount(taxableValue.add(taxAmount));
@@ -532,8 +534,9 @@ public class InvoiceManagementService {
     @Transactional(readOnly = true)
     public Invoice generateTemporaryInvoiceForUser(String accountId, int year, int month) {
         List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
-        if (accounts.isEmpty())
+        if (accounts.isEmpty()) {
             throw new RuntimeException("Cloud account not found");
+        }
         CloudAccount cloudAccount = accounts.get(0);
         List<ServiceCostDetailDto> detailedReport = billingService
                 .getDetailedBillingReport(Collections.singletonList(accountId), year, month, false);
@@ -594,7 +597,7 @@ public class InvoiceManagementService {
     }
 
     @Transactional
-    @CacheEvict(value = { "invoices", "invoiceDtos" }, allEntries = true)
+    @CacheEvict(value = {"invoices", "invoiceDtos"}, allEntries = true)
     public Invoice generateDraftInvoice(String accountId, int year, int month) {
         // ✅ 1. Find Account by ANY Provider ID (AWS, GCP, or Azure)
         CloudAccount cloudAccount = cloudAccountRepository
@@ -612,12 +615,13 @@ public class InvoiceManagementService {
                     for (GcpBillingDashboardDto.ServiceBreakdown service : dashboardDto.getServiceBreakdown()) {
                         BigDecimal serviceAmount = Optional.ofNullable(service.getAmount()).orElse(BigDecimal.ZERO);
                         double totalServiceCost = serviceAmount.doubleValue();
-                        if (totalServiceCost <= 0)
+                        if (totalServiceCost <= 0) {
                             continue;
+                        }
 
                         ResourceCostDto serviceAsResource = new ResourceCostDto(service.getServiceName(),
                                 "Service-level total", totalServiceCost, 1.0, "N/A");
-                        
+
                         RegionCostDto globalRegion = new RegionCostDto();
                         globalRegion.setRegionName("global");
                         globalRegion.setCost(totalServiceCost);
@@ -627,7 +631,7 @@ public class InvoiceManagementService {
                         serviceDetail.setServiceName(service.getServiceName());
                         serviceDetail.setCost(totalServiceCost);
                         serviceDetail.setRegionCosts(List.of(globalRegion));
-                        
+
                         detailedReport.add(serviceDetail);
                     }
                 }
@@ -643,8 +647,9 @@ public class InvoiceManagementService {
                 if (dashboardDto != null && dashboardDto.getServiceBreakdown() != null) {
                     for (var service : dashboardDto.getServiceBreakdown()) {
                         double amount = service.getAmount() != null ? service.getAmount() : 0.0;
-                        if (amount <= 0)
+                        if (amount <= 0) {
                             continue;
+                        }
 
                         // Map Azure service breakdown to generic DTO structure for consistent line item
                         // creation
@@ -704,8 +709,9 @@ public class InvoiceManagementService {
                 } else {
                     for (var resourceDto : resources) {
                         double costValue = Optional.ofNullable(resourceDto.getCost()).orElse(0.0);
-                        if (costValue <= 0)
+                        if (costValue <= 0) {
                             continue;
+                        }
                         InvoiceLineItem lineItem = new InvoiceLineItem();
                         lineItem.setInvoice(invoice);
                         lineItem.setServiceName(serviceDto.getServiceName());
@@ -729,12 +735,13 @@ public class InvoiceManagementService {
     }
 
     @Transactional
-    @CacheEvict(value = { "invoices", "invoiceDtos" }, allEntries = true)
+    @CacheEvict(value = {"invoices", "invoiceDtos"}, allEntries = true)
     public Invoice applyDiscountToInvoice(Long invoiceId, String serviceName, BigDecimal percentage) {
         Invoice invoice = invoiceRepository.findById(invoiceId)
                 .orElseThrow(() -> new RuntimeException("Invoice not found: " + invoiceId));
-        if (invoice.getStatus() == Invoice.InvoiceStatus.FINALIZED)
+        if (invoice.getStatus() == Invoice.InvoiceStatus.FINALIZED) {
             throw new IllegalStateException("Cannot apply discount to finalized invoice.");
+        }
 
         Discount discount = new Discount();
         discount.setInvoice(invoice);
@@ -751,22 +758,27 @@ public class InvoiceManagementService {
         discount.setPercentage(percentage.setScale(2, RoundingMode.HALF_UP));
 
         String desc = "";
-        if ("ALL".equalsIgnoreCase(serviceName))
-            desc = "Overall Bill Discount";
-        else if ("AWS Consumption Charge".equalsIgnoreCase(serviceName))
-            desc = "AWS Consumption Discount";
-        else
+        if ("ALL".equalsIgnoreCase(serviceName)) {
+            desc = "Overall Bill Discount"; 
+        }else if ("AWS Consumption Charge".equalsIgnoreCase(serviceName)) {
+            desc = "AWS Consumption Discount"; 
+        }else {
             desc = serviceName + " Discount";
+        }
         discount.setDescription(String.format("%.2f%% %s", percentage, desc));
 
-        if (invoice.getDiscounts() == null)
+        if (invoice.getDiscounts() == null) {
             invoice.setDiscounts(new ArrayList<>());
+        }
         boolean exists = false;
-        for (Discount d : invoice.getDiscounts())
-            if (d == discount)
+        for (Discount d : invoice.getDiscounts()) {
+            if (d == discount) {
                 exists = true;
-        if (!exists)
+            }
+        }
+        if (!exists) {
             invoice.getDiscounts().add(discount);
+        }
 
         recalculateTotals(invoice);
         Invoice saved = invoiceRepository.save(invoice);
@@ -775,12 +787,13 @@ public class InvoiceManagementService {
     }
 
     @Transactional
-    @CacheEvict(value = { "invoices", "invoiceDtos" }, allEntries = true)
+    @CacheEvict(value = {"invoices", "invoiceDtos"}, allEntries = true)
     public Invoice removeDiscountFromInvoice(Long invoiceId, Long discountId) {
         Invoice invoice = invoiceRepository.findById(invoiceId)
                 .orElseThrow(() -> new RuntimeException("Invoice not found"));
-        if (invoice.getStatus() == Invoice.InvoiceStatus.FINALIZED)
+        if (invoice.getStatus() == Invoice.InvoiceStatus.FINALIZED) {
             throw new IllegalStateException("Cannot modify finalized invoice");
+        }
         Optional<Discount> toRemove = invoice.getDiscounts().stream().filter(d -> d.getId().equals(discountId))
                 .findFirst();
         if (toRemove.isPresent()) {
@@ -833,8 +846,9 @@ public class InvoiceManagementService {
         invoice.setDiscountAmount(totalDiscount.setScale(4, RoundingMode.HALF_UP));
 
         BigDecimal taxableValue = preDiscountTotal.subtract(totalDiscount);
-        if (taxableValue.compareTo(BigDecimal.ZERO) < 0)
+        if (taxableValue.compareTo(BigDecimal.ZERO) < 0) {
             taxableValue = BigDecimal.ZERO;
+        }
 
         BigDecimal taxAmount = taxableValue.multiply(IGST_RATE).setScale(4, RoundingMode.HALF_UP);
         invoice.setTaxAmount(taxAmount);
@@ -844,7 +858,7 @@ public class InvoiceManagementService {
     }
 
     @Transactional
-    @CacheEvict(value = { "invoices", "invoiceDtos" }, allEntries = true)
+    @CacheEvict(value = {"invoices", "invoiceDtos"}, allEntries = true)
     public Invoice finalizeInvoice(Long invoiceId) {
         Invoice invoice = invoiceRepository.findById(invoiceId)
                 .orElseThrow(() -> new RuntimeException("Invoice not found"));
@@ -861,8 +875,9 @@ public class InvoiceManagementService {
                 String text = String.format("Invoice %s is finalized. Total: %s", finalizedInvoice.getInvoiceNumber(),
                         finalizedInvoice.getAmount());
                 for (AppUser user : users) {
-                    if (user.getEmail() != null)
+                    if (user.getEmail() != null) {
                         emailService.sendSimpleMessage(user.getEmail(), subject, text);
+                    }
                 }
             }
         } catch (Exception e) {
@@ -884,8 +899,9 @@ public class InvoiceManagementService {
         String billingPeriod = YearMonth.of(year, month).format(DateTimeFormatter.ofPattern("yyyy-MM"));
         List<Invoice> invoices = invoiceRepository.findByCloudAccountIdAndBillingPeriodAndStatus(cloudAccount.getId(),
                 billingPeriod, Invoice.InvoiceStatus.FINALIZED);
-        if (invoices.isEmpty())
+        if (invoices.isEmpty()) {
             return null;
+        }
         return InvoiceDto.fromEntity(invoices.get(0));
     }
 
@@ -898,12 +914,13 @@ public class InvoiceManagementService {
     }
 
     @Transactional
-    @CacheEvict(value = { "invoices", "invoiceDtos" }, allEntries = true)
+    @CacheEvict(value = {"invoices", "invoiceDtos"}, allEntries = true)
     public Invoice mergeDraftInvoices(Long targetInvoiceId, Long sourceInvoiceId) {
         Invoice target = invoiceRepository.findById(targetInvoiceId).orElseThrow();
         Invoice source = invoiceRepository.findById(sourceInvoiceId).orElseThrow();
-        if (target.getStatus() != Invoice.InvoiceStatus.DRAFT || source.getStatus() != Invoice.InvoiceStatus.DRAFT)
+        if (target.getStatus() != Invoice.InvoiceStatus.DRAFT || source.getStatus() != Invoice.InvoiceStatus.DRAFT) {
             throw new IllegalStateException("Both must be draft");
+        }
 
         List<Discount> targetDiscounts = Optional.ofNullable(target.getDiscounts()).orElse(Collections.emptyList());
         for (Discount discount : targetDiscounts) {
@@ -938,15 +955,17 @@ public class InvoiceManagementService {
     }
 
     @Transactional
-    @CacheEvict(value = { "invoices", "invoiceDtos" }, allEntries = true)
+    @CacheEvict(value = {"invoices", "invoiceDtos"}, allEntries = true)
     public Invoice updateInvoice(Long invoiceId, InvoiceUpdateDto invoiceUpdateDto) {
         Invoice invoice = invoiceRepository.findById(invoiceId).orElseThrow();
-        if (invoice.getStatus() == Invoice.InvoiceStatus.FINALIZED)
+        if (invoice.getStatus() == Invoice.InvoiceStatus.FINALIZED) {
             throw new IllegalStateException("Cannot edit finalized");
-        if (invoice.getLineItems() == null)
-            invoice.setLineItems(new ArrayList<>());
-        else
+        }
+        if (invoice.getLineItems() == null) {
+            invoice.setLineItems(new ArrayList<>()); 
+        }else {
             invoice.getLineItems().clear();
+        }
         List<InvoiceUpdateDto.LineItemUpdateDto> lineItemDtos = Optional.ofNullable(invoiceUpdateDto.getLineItems())
                 .orElse(Collections.emptyList());
         for (InvoiceUpdateDto.LineItemUpdateDto itemDto : lineItemDtos) {
@@ -970,8 +989,9 @@ public class InvoiceManagementService {
 
     private String getTenantCacheKey(String key) {
         String tenantId = com.xammer.billops.config.multitenancy.TenantContext.getCurrentTenant();
-        if (tenantId == null)
+        if (tenantId == null) {
             tenantId = "default";
+        }
         return key + ":" + tenantId;
     }
 
@@ -1004,7 +1024,7 @@ public class InvoiceManagementService {
     }
 
     @Transactional
-    @CacheEvict(value = { "invoices", "invoiceDtos" }, allEntries = true)
+    @CacheEvict(value = {"invoices", "invoiceDtos"}, allEntries = true)
     public Invoice generateCloudFrontInvoice(String accountId, int year, int month,
             List<CloudFrontUsageDto> usageData) {
         CloudAccount cloudAccount = cloudAccountRepository.findByAwsAccountId(accountId).stream().findFirst()
@@ -1037,11 +1057,12 @@ public class InvoiceManagementService {
     }
 
     @Transactional
-    @CacheEvict(value = { "invoices", "invoiceDtos" }, allEntries = true)
+    @CacheEvict(value = {"invoices", "invoiceDtos"}, allEntries = true)
     public Invoice updateInvoiceLineItems(Long invoiceId, List<AdminCloudFrontController.LineItemUpdate> updates) {
         Invoice invoice = invoiceRepository.findById(invoiceId).orElseThrow();
-        if (invoice.getStatus() != Invoice.InvoiceStatus.DRAFT)
+        if (invoice.getStatus() != Invoice.InvoiceStatus.DRAFT) {
             throw new RuntimeException("Cannot edit finalized");
+        }
         for (AdminCloudFrontController.LineItemUpdate update : updates) {
             InvoiceLineItem item = invoice.getLineItems().stream().filter(li -> li.getId().equals(update.id))
                     .findFirst().orElseThrow();
@@ -1063,14 +1084,16 @@ public class InvoiceManagementService {
     }
 
     private String formatCurrency(BigDecimal value) {
-        if (value == null)
+        if (value == null) {
             return "0.00";
+        }
         return new DecimalFormat("#,##0.00").format(value);
     }
 
     private String formatMonth(String billingPeriod) {
-        if (billingPeriod == null)
+        if (billingPeriod == null) {
             return "";
+        }
         try {
             String[] parts = billingPeriod.split("-");
             int year = Integer.parseInt(parts[0]);

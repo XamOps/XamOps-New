@@ -14,6 +14,7 @@ import {
 
 interface UseActionsHistoryOptions {
   accountId: string | null;
+  provider?: string;
   autoLoad?: boolean;
 }
 
@@ -60,6 +61,7 @@ if (!window.actionsHistoryCache) {
 
 export const useActionsHistory = ({
   accountId,
+  provider,
   autoLoad = false,
 }: UseActionsHistoryOptions): UseActionsHistoryReturn => {
   const [events, setEvents] = useState<ActionsHistoryEvent[]>(
@@ -144,8 +146,12 @@ export const useActionsHistory = ({
         if (filters.eventType) params.append('eventType', filters.eventType);
         if (filters.asgName) params.append('asgName', filters.asgName);
 
+        const apiEndpoint = provider === 'GCP'
+          ? `/api/gcp/autospotting/events/${accountId}`
+          : `/api/autospotting/events/${accountId}`;
+
         const response = await fetch(
-          `${BACKEND_BASE_URL}/api/autospotting/events/${accountId}?${params}`,
+          `${BACKEND_BASE_URL}${apiEndpoint}?${params}`,
           {
             signal: abortControllerRef.current.signal,
             credentials: 'include',
@@ -189,7 +195,7 @@ export const useActionsHistory = ({
         setLoading(false);
       }
     },
-    [accountId, calculateMTBI]
+    [accountId, provider, calculateMTBI]
   );
 
   /**

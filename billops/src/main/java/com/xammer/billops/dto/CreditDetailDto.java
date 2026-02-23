@@ -15,15 +15,7 @@ public class CreditDetailDto {
     private BigDecimal amountUsed;
     private BigDecimal amountRemaining;
 
-    public CreditDetailDto() {
-    }
-
-    public CreditDetailDto(String creditName, LocalDate expirationDate, BigDecimal amountUsed, BigDecimal amountRemaining) {
-        this.creditName = creditName;
-        this.expirationDate = expirationDate;
-        this.amountUsed = amountUsed;
-        this.amountRemaining = amountRemaining;
-    }
+    
 
     public String getCreditName() { return creditName; }
     public void setCreditName(String creditName) { this.creditName = creditName; }

@@ -323,6 +323,51 @@ export const formatTimeAgo = (dateString: string): string => {
   return formatDate(dateString);
 };
 
+// GCP AutoSpotting APIs
+export const fetchGcpAutoSpottingMigs = async (accountId: string): Promise<any[]> => {
+  try {
+    const response = await axios.get(`/api/gcp/autospotting/migs/all-regions/${accountId}`);
+    return response.data;
+  } catch (error) {
+    console.error('❌ GCP API: Failed to fetch MIGs', error);
+    throw error;
+  }
+};
+
+export const fetchGcpSpotInstances = async (accountId: string): Promise<any[]> => {
+  try {
+    const response = await axios.get(`/api/gcp/autospotting/instances/${accountId}`);
+    return response.data;
+  } catch (error) {
+    console.error('❌ GCP API: Failed to fetch spot instances', error);
+    throw error;
+  }
+};
+
+export const enableGcpAutoSpotting = async (accountId: number, region: string, migName: string): Promise<any> => {
+  try {
+    const response = await axios.post(`/api/gcp/autospotting/enable`, null, {
+      params: { accountId, region, migName }
+    });
+    return response.data;
+  } catch (error) {
+    console.error('❌ GCP API: Failed to enable AutoSpotting', error);
+    throw error;
+  }
+};
+
+export const disableGcpAutoSpotting = async (accountId: number, region: string, migName: string): Promise<any> => {
+  try {
+    const response = await axios.post(`/api/gcp/autospotting/disable`, null, {
+      params: { accountId, region, migName }
+    });
+    return response.data;
+  } catch (error) {
+    console.error('❌ GCP API: Failed to disable AutoSpotting', error);
+    throw error;
+  }
+};
+
 export default {
   fetchGcpDashboardData,
   fetchGcpMultiAccountDashboardData,
@@ -336,4 +381,8 @@ export default {
   formatCompactNumber,
   formatDate,
   formatTimeAgo,
+  fetchGcpAutoSpottingMigs,
+  fetchGcpSpotInstances,
+  enableGcpAutoSpotting,
+  disableGcpAutoSpotting,
 };

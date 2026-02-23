@@ -18,6 +18,7 @@ import GcpMapSection from '../components/GcpDashboard/GcpMapSection';
 import GcpInventorySection from '../components/GcpDashboard/GcpInventorySection';
 import GcpCostSection from '../components/GcpDashboard/GcpCostSection';
 import GcpOptimizationSection from '../components/GcpDashboard/GcpOptimizationSection';
+import GcpAutoSpottingSection from '../components/GcpDashboard/GcpAutoSpottingSection';
 
 // Highcharts loaded from CDN (still needed for map if GcpMapSection uses window.Highcharts)
 declare global {
@@ -362,6 +363,11 @@ const GcpDashboard: React.FC = () => {
           />
         )}
       </div>
+
+      {/* AutoSpotting Section */}
+      {selectedAccountIds.length === 1 && (
+        <GcpAutoSpottingSection accountId={selectedAccountIds[0]} />
+      )}
 
       {/* Optimization Section */}
       {widgetVisibility.optimization && singleData && singleData.optimization && (

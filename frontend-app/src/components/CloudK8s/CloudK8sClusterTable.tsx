@@ -11,14 +11,12 @@ import Skeleton from '../Shared/Skeleton';
 interface CloudK8sClusterTableProps {
   clusters: EKSCluster[];
   isLoading: boolean;
-  onEnableMonitoring: (cluster: EKSCluster) => void;
   onViewDetails: (cluster: EKSCluster) => void;
 }
 
 const CloudK8sClusterTable: React.FC<CloudK8sClusterTableProps> = ({
   clusters,
   isLoading,
-  onEnableMonitoring,
   onViewDetails
 }) => {
   return (
@@ -95,23 +93,10 @@ const CloudK8sClusterTable: React.FC<CloudK8sClusterTableProps> = ({
                         Connected
                       </span>
                     ) : (
-                      <button
-                        onClick={() => onEnableMonitoring(cluster)}
-                        disabled={cluster.isEnabling}
-                        className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-gradient-to-r from-yellow-500 to-orange-500 text-white hover:from-yellow-600 hover:to-orange-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm hover:shadow"
-                      >
-                        {cluster.isEnabling ? (
-                          <>
-                            <i className="fas fa-spinner fa-spin mr-1.5"></i>
-                            Enabling...
-                          </>
-                        ) : (
-                          <>
-                            <i className="fas fa-magic mr-1.5"></i>
-                            Enable Monitoring
-                          </>
-                        )}
-                      </button>
+                      <span className="status-badge bg-gray-100 text-gray-600 border border-gray-200">
+                        <i className="fas fa-times-circle mr-1.5"></i>
+                        Not Connected
+                      </span>
                     )}
                   </td>
                   <td className="px-6 py-4 text-center">

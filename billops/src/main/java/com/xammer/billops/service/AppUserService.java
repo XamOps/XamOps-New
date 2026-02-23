@@ -102,12 +102,12 @@ public class AppUserService {
         // --- Handle Client ---
         Client client = user.getClient();
         if (client == null) {
-            client = new Client();
+            client = new Client(dto.getClientName());
             user.setClient(client);
+        } else {
+            // Update client name if client already exists
+            client.setName(dto.getClientName());
         }
-
-        // Update client name
-        client.setName(dto.getClientName());
 
         // Only update password if not empty
         if (dto.getPassword() != null && !dto.getPassword().trim().isEmpty()) {

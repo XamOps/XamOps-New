@@ -895,4 +895,60 @@ public class GcpClientProvider {
         });
     }
 
+    public Optional<InstanceGroupManagersClient> getInstanceGroupManagersClient(String gcpProjectId) {
+        return getCredentials(gcpProjectId).map(credentials -> {
+            try {
+                InstanceGroupManagersSettings settings = InstanceGroupManagersSettings.newBuilder()
+                        .setCredentialsProvider(() -> credentials)
+                        .build();
+                return InstanceGroupManagersClient.create(settings);
+            } catch (IOException e) {
+                log.error("Failed to create InstanceGroupManagersClient for project ID: {}", gcpProjectId, e);
+                return null;
+            }
+        });
+    }
+
+    public Optional<RegionInstanceGroupManagersClient> getRegionInstanceGroupManagersClient(String gcpProjectId) {
+        return getCredentials(gcpProjectId).map(credentials -> {
+            try {
+                RegionInstanceGroupManagersSettings settings = RegionInstanceGroupManagersSettings.newBuilder()
+                        .setCredentialsProvider(() -> credentials)
+                        .build();
+                return RegionInstanceGroupManagersClient.create(settings);
+            } catch (IOException e) {
+                log.error("Failed to create RegionInstanceGroupManagersClient for project ID: {}", gcpProjectId, e);
+                return null;
+            }
+        });
+    }
+
+    public Optional<InstanceTemplatesClient> getInstanceTemplatesClient(String gcpProjectId) {
+        return getCredentials(gcpProjectId).map(credentials -> {
+            try {
+                InstanceTemplatesSettings settings = InstanceTemplatesSettings.newBuilder()
+                        .setCredentialsProvider(() -> credentials)
+                        .build();
+                return InstanceTemplatesClient.create(settings);
+            } catch (IOException e) {
+                log.error("Failed to create InstanceTemplatesClient for project ID: {}", gcpProjectId, e);
+                return null;
+            }
+        });
+    }
+
+    public Optional<RegionInstanceTemplatesClient> getRegionInstanceTemplatesClient(String gcpProjectId) {
+        return getCredentials(gcpProjectId).map(credentials -> {
+            try {
+                RegionInstanceTemplatesSettings settings = RegionInstanceTemplatesSettings.newBuilder()
+                        .setCredentialsProvider(() -> credentials)
+                        .build();
+                return RegionInstanceTemplatesClient.create(settings);
+            } catch (IOException e) {
+                log.error("Failed to create RegionInstanceTemplatesClient for project ID: {}", gcpProjectId, e);
+                return null;
+            }
+        });
+    }
+
 }

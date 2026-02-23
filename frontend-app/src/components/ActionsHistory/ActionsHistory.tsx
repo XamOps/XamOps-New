@@ -19,11 +19,13 @@ import { ActionsHistoryFilters } from '../../types/actionsHistory';
 
 interface ActionsHistoryProps {
   accountId: string | null;
+  provider?: string;
 }
 
-const ActionsHistory: React.FC<ActionsHistoryProps> = ({ accountId }) => {
+const ActionsHistory: React.FC<ActionsHistoryProps> = ({ accountId, provider }) => {
   const { events, summary, loading, error, loadEvents, resetFilters } = useActionsHistory({
     accountId,
+    provider,
     autoLoad: false,
   });
 
@@ -111,11 +113,11 @@ const ActionsHistory: React.FC<ActionsHistoryProps> = ({ accountId }) => {
   const getResultBadge = (result: string | undefined) => {
     if (!result) return <span className="text-xs text-gray-400">-</span>;
     const styles: Record<string, { bg: string; icon: string }> = {
-      Success:     { bg: 'bg-emerald-100 text-emerald-800', icon: 'fa-check-circle' },
-      Interrupted: { bg: 'bg-orange-100 text-orange-800',  icon: 'fa-exclamation-triangle' },
-      Enabled:     { bg: 'bg-teal-100 text-teal-800',      icon: 'fa-toggle-on' },
-      Disabled:    { bg: 'bg-gray-200 text-gray-600',      icon: 'fa-toggle-off' },
-      Failed:      { bg: 'bg-red-100 text-red-800',        icon: 'fa-times-circle' },
+      Success: { bg: 'bg-emerald-100 text-emerald-800', icon: 'fa-check-circle' },
+      Interrupted: { bg: 'bg-orange-100 text-orange-800', icon: 'fa-exclamation-triangle' },
+      Enabled: { bg: 'bg-teal-100 text-teal-800', icon: 'fa-toggle-on' },
+      Disabled: { bg: 'bg-gray-200 text-gray-600', icon: 'fa-toggle-off' },
+      Failed: { bg: 'bg-red-100 text-red-800', icon: 'fa-times-circle' },
     };
     const s = styles[result] ?? { bg: 'bg-gray-100 text-gray-700', icon: 'fa-info-circle' };
     return (
