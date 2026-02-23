@@ -1,3 +1,7 @@
 ## 2025-05-14 - Accessible Interactive Components Pattern
 **Learning:** Many interactive components in this application (like the account selector and toggles) were implemented using `div` elements with click handlers. This breaks keyboard accessibility and screen reader support. Using semantic `button` elements and appropriate ARIA roles (like `role="switch"` or `aria-haspopup`) is essential for accessibility. Additionally, the `vite-plugin-html-include` pattern means that improvements to shared fragments like `_sidebar.html` have an outsized positive impact on the overall application's UX.
 **Action:** Always check if a clickable `div` can be replaced with a `button` and ensure shared fragments are prioritized for accessibility improvements.
+
+## 2026-02-23 - Search Interface Micro-UX and Accessibility
+**Learning:** Search interfaces without a clear action and empty state feedback create a "dead end" experience. Adding a clear button and an explicit "No results found" message with a reset action significantly improves the user's "wayfinding." From an accessibility standpoint, icon-only buttons require `aria-label`, and empty state feedback should use `aria-live="polite"` and `role="alert"` to ensure screen reader users are notified of content changes. Standard focus rings (`focus-visible:ring-2`) are also critical for keyboard users navigating compact search inputs.
+**Action:** Always include clear buttons and empty state feedback in search-like interfaces; ensure icons have labels and state changes are announced to screen readers.

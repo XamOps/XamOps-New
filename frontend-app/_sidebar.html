@@ -776,10 +776,16 @@
                     </div>
                 </div>
 
-                <div class="p-3 border-b bg-gray-50">
+                <div class="p-3 border-b bg-gray-50 relative">
                     <input type="text" x-model="searchTerm" placeholder="Search accounts..."
                         aria-label="Search accounts"
-                        class="w-full px-3 py-2 text-sm rounded-lg focus:outline-none border focus:ring-2 focus:ring-indigo-500">
+                        class="w-full px-3 py-2 pr-8 text-sm rounded-lg focus:outline-none border focus:ring-2 focus:ring-indigo-500">
+                    <button x-show="searchTerm !== ''" @click="searchTerm = ''"
+                        class="absolute right-5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-full transition-colors"
+                        title="Clear search"
+                        aria-label="Clear search">
+                        <i class="fas fa-times-circle"></i>
+                    </button>
                 </div>
 
                 <div x-show="multiAccountMode && isDashboardPage" class="p-2 border-b bg-gray-50 flex flex-col gap-2">
@@ -800,6 +806,16 @@
                 </div>
 
                 <div class="py-1 max-h-60 overflow-y-auto sidebar-scroll">
+                    <template x-if="filteredAccounts.length === 0 && searchTerm !== ''">
+                        <div class="px-4 py-8 text-center" role="alert" aria-live="polite">
+                            <i class="fas fa-search text-gray-300 text-3xl mb-3"></i>
+                            <p class="text-sm text-gray-500 font-medium">No accounts match your search</p>
+                            <button @click="searchTerm = ''" class="mt-2 text-xs text-indigo-600 hover:text-indigo-800 font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded px-1 transition-all focus:underline">
+                                Clear search
+                            </button>
+                        </div>
+                    </template>
+
                     <template x-if="awsAccounts.length > 0">
                         <div>
                             <div class="px-3 py-2 text-xs font-semibold text-gray-400 uppercase bg-gray-50">
