@@ -2,7 +2,8 @@ package com.xammer.cloud.controller.gcp;
 
 import com.xammer.cloud.dto.gcp.GcpCostDto;
 import com.xammer.cloud.service.gcp.GcpCostService;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -15,8 +16,9 @@ import java.util.concurrent.CompletableFuture;
 
 @RestController
 @RequestMapping("/api/xamops/gcp/costs")
-@Slf4j
 public class GcpCostController {
+
+    private static final Logger log = LoggerFactory.getLogger(GcpCostController.class);
 
     private final GcpCostService gcpCostService;
 

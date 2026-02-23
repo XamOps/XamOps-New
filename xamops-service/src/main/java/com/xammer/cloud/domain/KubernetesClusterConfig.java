@@ -51,6 +51,12 @@ public class KubernetesClusterConfig {
     @Column(name = "opencost_enabled")
     private Boolean opencostEnabled = false;
 
+    @Column(name = "is_private")
+    private Boolean isPrivate;
+
+    @Column(name = "cluster_type_detected_at")
+    private LocalDateTime clusterTypeDetectedAt;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
@@ -196,6 +202,22 @@ public class KubernetesClusterConfig {
 
     public void setDataSourceMode(String dataSourceMode) {
         this.dataSourceMode = dataSourceMode;
+    }
+
+    public Boolean getIsPrivate() {
+        return isPrivate;
+    }
+
+    public void setIsPrivate(Boolean isPrivate) {
+        this.isPrivate = isPrivate;
+    }
+
+    public LocalDateTime getClusterTypeDetectedAt() {
+        return clusterTypeDetectedAt;
+    }
+
+    public void setClusterTypeDetectedAt(LocalDateTime clusterTypeDetectedAt) {
+        this.clusterTypeDetectedAt = clusterTypeDetectedAt;
     }
 
     /**

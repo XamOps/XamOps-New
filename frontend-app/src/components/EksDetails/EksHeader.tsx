@@ -96,6 +96,13 @@ const EksHeader: React.FC<EksHeaderProps> = ({
               {getTimeSince(lastUpdateTimestamp)}
             </div>
           </div>
+          <Link
+            to={`/k8s-rightsizing?name=${clusterName}&accountId=${accountId}`}
+            className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white rounded-lg font-semibold shadow-sm transition-all"
+          >
+            <i className="fas fa-chart-line text-sm"></i>
+            <span>Right-Sizing</span>
+          </Link>
           <button
             onClick={onOpenIntegrationGuide}
             className="flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 hover:border-gray-300 hover:bg-gray-50 text-gray-700 rounded-lg font-semibold transition-all"

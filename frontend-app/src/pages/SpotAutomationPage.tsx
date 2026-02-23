@@ -103,33 +103,30 @@ const SpotAutomationPage: React.FC = () => {
         <nav className="flex space-x-8" aria-label="Tabs">
           <button
             onClick={() => setActiveTab('dashboard')}
-            className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-              activeTab === 'dashboard'
+            className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'dashboard'
                 ? 'border-blue-500 text-blue-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
+              }`}
           >
             <i className="fas fa-tachometer-alt mr-2"></i>
             Dashboard
           </button>
           <button
             onClick={() => setActiveTab('analytics')}
-            className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-              activeTab === 'analytics'
+            className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'analytics'
                 ? 'border-blue-500 text-blue-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
+              }`}
           >
             <i className="fas fa-chart-line mr-2"></i>
             Launch Analytics
           </button>
           <button
             onClick={() => setActiveTab('history')}
-            className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-              activeTab === 'history'
+            className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'history'
                 ? 'border-blue-500 text-blue-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
+              }`}
           >
             <i className="fas fa-history mr-2"></i>
             Actions History

@@ -91,6 +91,14 @@ const EksDetailsPage: React.FC = () => {
           </div>
         </div>
 
+        <Link
+          to={`/k8s-rightsizing?name=${clusterName}&accountId=${accountId}`}
+          className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white text-xs font-bold rounded-xl shadow-lg shadow-green-200 transition-all active:scale-95"
+        >
+          <i className="fas fa-chart-line"></i>
+          <span>Right-Sizing</span>
+        </Link>
+
         <button
           onClick={() => setShowIntegrationGuide(true)}
           className="flex items-center gap-2 px-4 py-2 bg-white text-gray-700 text-xs font-bold rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-all active:scale-95"

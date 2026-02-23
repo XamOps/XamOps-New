@@ -1473,7 +1473,7 @@ public class PrometheusService {
         return result;
     }
 
-    private Double fetchScalarValue(String baseUrl, String query) {
+    public Double fetchScalarValue(String baseUrl, String query) {
         if (baseUrl == null || baseUrl.isEmpty()) {
             logger.warn("Prometheus URL is null or empty");
             return 0.0;
