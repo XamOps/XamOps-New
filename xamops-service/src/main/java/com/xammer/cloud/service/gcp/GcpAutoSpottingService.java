@@ -15,6 +15,8 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.scheduling.annotation.Scheduled;
+
 
 import java.time.LocalDate;
 import java.util.*;
@@ -344,12 +346,183 @@ public class GcpAutoSpottingService {
         return response;
     }
 
-    public List<SpotOptimizationEvent> getEvents(String accountId, int limit) {
+    /**
+     * Get events (actions history) for GCP AutoSpotting
+     * Similar to AWS implementation but for GCP MIGs
+     */
+    public com.xammer.cloud.dto.autospotting.EventsResponse getEvents(
+            String accountId, String start, String end, String eventType, String migName) {
+        log.info("📋 [GCP] Fetching events from database for accountId={}", accountId);
+        log.info("📋 [GCP] Filters - start={}, end={}, eventType={}, migName={}", start, end, eventType, migName);
+        
         CloudAccount account = resolveAccount(accountId);
-        return eventRepository.findByAccountIdOrderByEventTimeDesc(account.getId())
-                .stream()
-                .limit(limit)
-                .collect(Collectors.toList());
+        
+        try {
+            java.time.Instant startTime = (start != null && !start.isEmpty()) 
+                ? java.time.Instant.parse(start) 
+                : java.time.Instant.now().minus(7, java.time.temporal.ChronoUnit.DAYS);
+            java.time.Instant endTime = (end != null && !end.isEmpty()) 
+                ? java.time.Instant.parse(end) 
+                : java.time.Instant.now();
+            
+            List<SpotOptimizationEvent> events;
+            
+            // Filter events based on parameters
+            if (migName != null && !migName.isEmpty()) {
+                events = eventRepository.findByAccountIdAndAsgNameAndEventTimeBetweenOrderByEventTimeDesc(
+                    account.getId(), migName, startTime, endTime);
+            } else if (eventType != null && !eventType.isEmpty()) {
+                String status = mapEventTypeToStatus(eventType);
+                events = eventRepository.findByAccountIdAndEventTimeBetweenAndStatusOrderByEventTimeDesc(
+                    account.getId(), startTime, endTime, status);
+            } else {
+                events = eventRepository.findByAccountIdAndEventTimeBetweenOrderByEventTimeDesc(
+                    account.getId(), startTime, endTime);
+            }
+            
+            // Transform events to EventRecord format
+            List<com.xammer.cloud.dto.autospotting.EventRecord> eventRecords = events.stream().map(event -> {
+                com.xammer.cloud.dto.autospotting.EventRecord record = new com.xammer.cloud.dto.autospotting.EventRecord();
+                record.setTimestamp(event.getEventTime().toString());
+                record.setAccountId(account.getGcpProjectId());
+                record.setRegion(event.getRegion());
+                record.setAsgName(event.getAsgName()); // MIG name
+                record.setEstimatedSavings(event.getHourlySavings());
+                
+                // Map status to event_type, result, and details
+                String evStatus = event.getStatus();
+                if ("SUCCESS".equals(evStatus)) {
+                    record.setEventType("instance_replacement");
+                    record.setResult("Success");
+                    record.setOldInstanceId(event.getOldInstanceId());
+                    record.setOldInstanceType(event.getOldInstanceType());
+                    record.setOldLifecycle("on-demand");
+                    record.setNewInstanceId(event.getNewInstanceId());
+                    record.setNewInstanceType(event.getNewInstanceType());
+                    record.setNewLifecycle("spot");
+                    record.setReason(event.getDetails() != null ? event.getDetails()
+                        : "On-Demand instance replaced with Spot VM. Hourly savings: ₹"
+                        + String.format("%.4f", event.getHourlySavings() != null ? event.getHourlySavings() : 0.0));
+                } else if ("INTERRUPTED".equals(evStatus)) {
+                    record.setEventType("spot_interruption");
+                    record.setResult("Interrupted");
+                    record.setOldInstanceId(event.getOldInstanceId());
+                    record.setOldLifecycle("spot");
+                    record.setReason(event.getDetails() != null ? event.getDetails()
+                        : "GCP reclaimed this Spot VM. MIG will automatically replace it.");
+                } else if ("ENABLED".equals(evStatus)) {
+                    record.setEventType("mig_enabled");
+                    record.setResult("Enabled");
+                    record.setReason(event.getDetails() != null ? event.getDetails()
+                        : "AutoSpotting enabled for MIG by user.");
+                } else if ("DISABLED".equals(evStatus)) {
+                    record.setEventType("mig_disabled");
+                    record.setResult("Disabled");
+                    record.setReason(event.getDetails() != null ? event.getDetails()
+                        : "AutoSpotting disabled for MIG by user.");
+                } else if ("FAILED".equals(evStatus)) {
+                    record.setEventType("launch_failure");
+                    record.setResult("Failed");
+                    record.setNewInstanceId(event.getNewInstanceId());
+                    record.setNewInstanceType(event.getNewInstanceType());
+                    record.setNewLifecycle("on-demand");
+                    record.setReason(event.getDetails() != null ? event.getDetails()
+                        : "Spot unavailable — On-Demand VM launched as fallback.");
+                } else {
+                    record.setEventType("launch_failure");
+                    record.setResult("Failed");
+                    record.setReason(event.getDetails() != null ? event.getDetails()
+                        : "Spot launch or replacement failed.");
+                }
+                
+                return record;
+            }).collect(Collectors.toList());
+            
+            // Calculate summary statistics
+            int totalReplacements = (int) eventRecords.stream()
+                .filter(e -> "instance_replacement".equals(e.getEventType()))
+                .count();
+            int totalInterruptions = (int) eventRecords.stream()
+                .filter(e -> "spot_interruption".equals(e.getEventType()))
+                .count();
+
+            // Debug: Log each event's savings
+            eventRecords.stream()
+                .filter(e -> e.getEstimatedSavings() != null)
+                .forEach(e -> log.info("🔍 [GCP Events Debug] Event savings: ₹{}",
+                    String.format("%.4f", e.getEstimatedSavings())));
+
+            double totalSavings = eventRecords.stream()
+                .filter(e -> e.getEstimatedSavings() != null)
+                .mapToDouble(com.xammer.cloud.dto.autospotting.EventRecord::getEstimatedSavings)
+                .sum();
+
+            log.info("🔍 [GCP Events Debug] Calculated total savings: ₹{}", String.format("%.4f", totalSavings));
+            
+            // Build response
+            com.xammer.cloud.dto.autospotting.EventsResponse response = new com.xammer.cloud.dto.autospotting.EventsResponse();
+            response.setStart(startTime.toString());
+            response.setEnd(endTime.toString());
+            response.setCount(eventRecords.size());
+            response.setEvents(eventRecords);
+            
+            com.xammer.cloud.dto.autospotting.EventsResponse.EventsSummary summary = 
+                new com.xammer.cloud.dto.autospotting.EventsResponse.EventsSummary();
+            summary.setTotalReplacements(totalReplacements);
+            summary.setTotalInterruptions(totalInterruptions);
+            summary.setTotalEstimatedSavings(totalSavings);
+            response.setSummary(summary);
+            
+            log.info("✅ [GCP] Retrieved {} events with {} replacements, {} interruptions, ₹{} total savings",
+                eventRecords.size(), totalReplacements, totalInterruptions, String.format("%.2f", totalSavings));
+            
+            return response;
+            
+        } catch (Exception e) {
+            log.error("❌ [GCP] Failed to fetch events: {}", e.getMessage(), e);
+            // Return empty response on error
+            return createEmptyEventsResponse();
+        }
+    }
+    
+    /**
+     * Map event type to status for filtering
+     */
+    private String mapEventTypeToStatus(String eventType) {
+        switch (eventType) {
+            case "instance_replacement":
+                return "SUCCESS";
+            case "spot_interruption":
+                return "INTERRUPTED";
+            case "mig_enabled":
+            case "asg_enabled":
+                return "ENABLED";
+            case "mig_disabled":
+            case "asg_disabled":
+                return "DISABLED";
+            case "launch_failure":
+                return "FAILED";
+            default:
+                return "";
+        }
+    }
+    
+    /**
+     * Create empty events response
+     */
+    private com.xammer.cloud.dto.autospotting.EventsResponse createEmptyEventsResponse() {
+        com.xammer.cloud.dto.autospotting.EventsResponse response = new com.xammer.cloud.dto.autospotting.EventsResponse();
+        response.setEvents(Collections.emptyList());
+        response.setCount(0);
+        
+        com.xammer.cloud.dto.autospotting.EventsResponse.EventsSummary summary = 
+            new com.xammer.cloud.dto.autospotting.EventsResponse.EventsSummary();
+        summary.setTotalReplacements(0);
+        summary.setTotalInterruptions(0);
+        summary.setTotalEstimatedSavings(0.0);
+        response.setSummary(summary);
+        
+        return response;
     }
 
     public List<SpotInstanceDto> getSpotInstances(String accountId) {
@@ -712,13 +885,19 @@ public class GcpAutoSpottingService {
     private void recordSavingsEvent(CloudAccount account, String migName, String region,
                                     int instanceCount, double hourlySavingsPerInstance, boolean enabled) {
         try {
+            double totalHourlySavings = instanceCount * hourlySavingsPerInstance;
+            log.info("🔍 [GCP Event Record Debug] instanceCount={}, savingsPerInstance=₹{}, total=₹{}",
+                instanceCount,
+                String.format("%.4f", hourlySavingsPerInstance),
+                String.format("%.4f", totalHourlySavings));
+
             // Record optimization event
             SpotOptimizationEvent event = new SpotOptimizationEvent();
             event.setAccount(account);
             event.setAsgName(migName);
             event.setRegion(region);
             event.setStatus(enabled ? "ENABLED" : "DISABLED");
-            event.setHourlySavings(instanceCount * hourlySavingsPerInstance);
+            event.setHourlySavings(totalHourlySavings);
             event.setDetails(String.format("%s AutoSpotting for MIG %s with %d instance(s)",
                 enabled ? "Enabled" : "Disabled", migName, instanceCount));
             event.setEventTime(java.time.Instant.now());
@@ -763,6 +942,101 @@ public class GcpAutoSpottingService {
 
         } catch (Exception e) {
             log.warn("⚠️ [GCP] Failed to update daily savings: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Scheduled job to record daily savings for all active spot instances
+     * Runs every day at 11:30 PM
+     */
+    @Scheduled(cron = "0 30 23 * * *")
+    public void recordDailySavingsForAllAccounts() {
+        log.info("🕐 [GCP] Starting scheduled daily savings recording...");
+        
+        try {
+            // Get all GCP accounts
+            List<CloudAccount> gcpAccounts = cloudAccountRepository.findByProvider("GCP");
+            
+            for (CloudAccount account : gcpAccounts) {
+                try {
+                    recordDailySavingsForAccount(account);
+                } catch (Exception e) {
+                    log.error("❌ [GCP] Failed to record daily savings for account {}: {}", 
+                        account.getGcpProjectId(), e.getMessage());
+                }
+            }
+            
+            log.info("✅ [GCP] Completed scheduled daily savings recording");
+        } catch (Exception e) {
+            log.error("❌ [GCP] Failed to execute scheduled daily savings job: {}", e.getMessage());
+        }
+    }
+    
+    /**
+     * Record daily savings for a specific account based on currently running spot instances
+     */
+    private void recordDailySavingsForAccount(CloudAccount account) {
+        String accountId = String.valueOf(account.getId());
+        String gcpProjectId = account.getGcpProjectId();
+        
+        log.info("📊 [GCP] Recording daily savings for account: {}", gcpProjectId);
+        
+        // Get all MIGs with their current state
+        List<GcpAutoSpottingGroupDto> migs = listMigsAllRegionsWithCosts(accountId);
+        
+        // Calculate total daily savings from all spot instances
+        double totalDailySavings = 0.0;
+        int totalSpotInstances = 0;
+        
+        for (GcpAutoSpottingGroupDto mig : migs) {
+            if (mig.isEnabled && mig.spotInstanceCount > 0) {
+                // Calculate hourly savings per instance
+                try {
+                    GcpPricingService.PricingInfo pricing = pricingService.getMachineTypePricing(
+                        mig.machineType != null ? mig.machineType : "n1-standard-1",
+                        mig.region
+                    );
+                    
+                    double hourlySavingsPerInstance = pricing.getOnDemandPrice() - pricing.getSpotPrice();
+                    // Daily savings = hourly savings × 24 hours × number of spot instances
+                    double dailySavingsForMig = hourlySavingsPerInstance * 24 * mig.spotInstanceCount;
+                    
+                    totalDailySavings += dailySavingsForMig;
+                    totalSpotInstances += mig.spotInstanceCount;
+                    
+                    log.debug("💰 [GCP] MIG {} has {} spot instances, daily savings: ₹{}", 
+                        mig.name, mig.spotInstanceCount, String.format("%.2f", dailySavingsForMig));
+                        
+                } catch (Exception e) {
+                    log.warn("⚠️ [GCP] Failed to calculate savings for MIG {}: {}", mig.name, e.getMessage());
+                }
+            }
+        }
+        
+        // Only record if there are actual spot instances running
+        if (totalSpotInstances > 0 && totalDailySavings > 0) {
+            LocalDate today = LocalDate.now();
+            
+            // Find or create today's savings record
+            Optional<DailySpotSavings> existingOpt = 
+                savingsRepository.findByAccountIdAndDate(account.getId(), today);
+            
+            DailySpotSavings dailySavings;
+            if (existingOpt.isPresent()) {
+                dailySavings = existingOpt.get();
+                // For scheduled recording, we SET the amount (not add), as this is the total daily savings
+                dailySavings.setAmountSaved(totalDailySavings);
+            } else {
+                dailySavings = new DailySpotSavings(account, today);
+                dailySavings.setAmountSaved(totalDailySavings);
+                dailySavings.setSwapCount(0); // No swap event, just daily tracking
+            }
+            
+            savingsRepository.save(dailySavings);
+            log.info("💾 [GCP] Recorded daily savings for {}: ₹{} from {} spot instances", 
+                gcpProjectId, String.format("%.2f", totalDailySavings), totalSpotInstances);
+        } else {
+            log.debug("ℹ️ [GCP] No spot instances running for account: {}", gcpProjectId);
         }
     }
 }

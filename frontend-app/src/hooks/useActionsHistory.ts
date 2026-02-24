@@ -165,6 +165,10 @@ export const useActionsHistory = ({
 
         const data: ActionsHistoryData = await response.json();
 
+        console.log('🔍 [Actions History] Raw API response:', data);
+        console.log('🔍 [Actions History] Summary data:', data.summary);
+        console.log('🔍 [Actions History] total_estimated_savings:', data.summary?.total_estimated_savings);
+
         const eventsData = data.events || [];
         const summaryData = data.summary || {
           total_replacements: 0,

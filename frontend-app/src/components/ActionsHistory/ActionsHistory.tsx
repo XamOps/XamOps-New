@@ -236,12 +236,12 @@ const ActionsHistory: React.FC<ActionsHistoryProps> = ({ accountId, provider }) 
               <div>
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Est. Hourly Savings</p>
                 <h3 className="text-2xl font-bold text-purple-600 mt-1">
-                  ${(summary.total_estimated_savings || 0).toFixed(4)}
+                  ₹{(summary.total_estimated_savings || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
                 </h3>
                 <p className="text-xs text-gray-400 mt-0.5">from replacements</p>
               </div>
               <div className="p-2.5 bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg">
-                <i className="fas fa-dollar-sign text-purple-600 text-lg"></i>
+                <i className="fas fa-indian-rupee-sign text-purple-600 text-lg"></i>
               </div>
             </div>
           </div>
@@ -364,7 +364,7 @@ const ActionsHistory: React.FC<ActionsHistoryProps> = ({ accountId, provider }) 
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className="text-xs font-semibold text-gray-700">{event.old_instance_type || '-'}</span>
                       {event.old_hourly_price != null && (
-                        <div className="text-[10px] text-gray-500">${(event.old_hourly_price).toFixed(4)}/hr OD</div>
+                        <div className="text-[10px] text-gray-500">₹{(event.old_hourly_price).toFixed(4)}/hr OD</div>
                       )}
                     </td>
 
@@ -382,14 +382,14 @@ const ActionsHistory: React.FC<ActionsHistoryProps> = ({ accountId, provider }) 
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className="text-xs font-semibold text-gray-700">{event.new_instance_type || '-'}</span>
                       {event.new_hourly_price != null && (
-                        <div className="text-[10px] text-gray-500">${(event.new_hourly_price).toFixed(4)}/hr Spot</div>
+                        <div className="text-[10px] text-gray-500">₹{(event.new_hourly_price).toFixed(4)}/hr Spot</div>
                       )}
                     </td>
 
                     <td className="px-6 py-4 whitespace-nowrap">
                       {event.estimated_savings && event.estimated_savings > 0 ? (
                         <span className="text-sm font-bold text-emerald-600">
-                          ${(event.estimated_savings).toFixed(4)}
+                          ₹{(event.estimated_savings).toFixed(4)}
                         </span>
                       ) : (
                         <span className="text-xs text-gray-400">-</span>
