@@ -8,6 +8,7 @@ import {
   mapInventoryToResources,
 } from '../api/azureDashboardApi';
 import { useAuth } from '../contexts/AuthContext';
+import { useAccounts } from '../contexts/AccountContext';
 import '../styles/azureDashboard.css';
 
 // Import components
@@ -26,8 +27,19 @@ declare global {
 }
 
 const AzureDashboard: React.FC = () => {
-  // Get selected account IDs from session storage
-  const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
+  // Get selected account IDs from session storage - initialized synchronously
+  const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>(() => {
+    const storedAccountIds = sessionStorage.getItem('selectedAccountIds');
+    if (storedAccountIds) {
+      try {
+        return JSON.parse(storedAccountIds);
+      } catch (err) {
+        console.error('❌ Azure Dashboard: Failed to parse selected account IDs:', err);
+        return [];
+      }
+    }
+    return [];
+  });
 
   // Dashboard data hook
   const { data, loading, error, refresh, lastUpdated } =
@@ -43,6 +55,7 @@ const AzureDashboard: React.FC = () => {
     tenantList,
     tenantUsers,
   } = useAuth();
+  const { isLoading: accountsLoading } = useAccounts();
 
   // Widget visibility state
   const [widgetVisibility] = useState({
@@ -62,20 +75,6 @@ const AzureDashboard: React.FC = () => {
     setTimeout(() => setNotification(null), 4000);
   };
 
-  // Load selected accounts from session storage
-  useEffect(() => {
-    const storedAccountIds = sessionStorage.getItem('selectedAccountIds');
-
-    if (storedAccountIds) {
-      try {
-        const accountIds = JSON.parse(storedAccountIds);
-        setSelectedAccountIds(accountIds);
-      } catch (err) {
-        console.error('❌ Azure Dashboard: Failed to parse selected account IDs:', err);
-      }
-    }
-  }, []);
-
   // Extract and transform dashboard data
   const dashboardData = useMemo(() => {
     if (!data) return null;
@@ -93,6 +92,21 @@ const AzureDashboard: React.FC = () => {
     return resources.reduce((acc, curr) => acc + (curr.count || 0), 0);
   }, [resources]);
 
+
+  // Show loading while accounts are being fetched
+  if (accountsLoading && selectedAccountIds.length === 0) {
+    return (
+      <div className="flex-1 p-6 flex items-center justify-center min-h-[calc(100vh-80px)]">
+        <div className="text-center p-8 glass-card max-w-lg w-full">
+          <div className="w-20 h-20 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-6">
+            <i className="fas fa-spinner fa-spin text-3xl text-blue-600"></i>
+          </div>
+          <h2 className="text-2xl font-bold text-gray-800 mb-2">Loading Accounts...</h2>
+          <p className="text-gray-500 mb-8">Please wait while we fetch your Azure subscriptions.</p>
+        </div>
+      </div>
+    );
+  }
 
   // Handle empty state
   if (selectedAccountIds.length === 0) {

@@ -2,6 +2,8 @@ import React, { useEffect } from 'react';
 import { useRispCoverage } from '../../hooks/useRispCoverage';
 import RispCoverageKPIs from './RispCoverageKPIs';
 import RispCoverageTable from './RispCoverageTable';
+import RispSettings from './RispSettings';
+import { useTopbar } from '../../contexts/TopbarContext';
 import '../../styles/rispCoverage.css';
 
 interface RispCoverageProps {
@@ -10,6 +12,7 @@ interface RispCoverageProps {
 
 const RispCoverage: React.FC<RispCoverageProps> = ({ accountId }) => {
   const { loading, error, data, fetchRispCoverage } = useRispCoverage(accountId);
+  const { setActions } = useTopbar();
 
   // Load data on mount and when account changes
   useEffect(() => {
@@ -21,6 +24,23 @@ const RispCoverage: React.FC<RispCoverageProps> = ({ accountId }) => {
   const handleRefresh = () => {
     fetchRispCoverage();
   };
+
+  // Add refresh button to topbar
+  useEffect(() => {
+    setActions(
+      <button
+        onClick={handleRefresh}
+        disabled={loading}
+        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed transition-all font-semibold text-sm flex items-center shadow-md"
+      >
+        <i className={`fas mr-2 ${loading ? 'fa-spinner fa-spin' : 'fa-sync-alt'}`}></i>
+        <span>{loading ? 'Refreshing...' : 'Refresh'}</span>
+      </button>
+    );
+
+    // Cleanup: remove actions when component unmounts
+    return () => setActions(null);
+  }, [loading, setActions]);
 
   if (!accountId) {
     return (
@@ -36,32 +56,6 @@ const RispCoverage: React.FC<RispCoverageProps> = ({ accountId }) => {
 
   return (
     <div className="risp-coverage-container">
-      {/* Header with gradient background */}
-      <div className="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-2xl shadow-xl p-8 mb-6 text-white">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div>
-            <h2 className="text-3xl font-bold mb-2 flex items-center gap-3">
-              <i className="fas fa-chart-pie"></i>
-              RI/SP Coverage & Utilization
-            </h2>
-            <p className="text-blue-100 text-sm">
-              Monitor Reserved Instance and Savings Plan coverage to optimize Spot/On-Demand provisioning
-            </p>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <button
-              onClick={handleRefresh}
-              disabled={loading}
-              className="px-6 py-2.5 bg-white text-blue-700 rounded-lg hover:bg-blue-50 disabled:bg-white/50 disabled:cursor-not-allowed transition-all font-semibold text-sm flex items-center shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 active:translate-y-0"
-            >
-              <i className={`fas mr-2 ${loading ? 'fa-spinner fa-spin' : 'fa-sync-alt'}`}></i>
-              <span>{loading ? 'Loading...' : 'Refresh'}</span>
-            </button>
-          </div>
-        </div>
-      </div>
-
       {/* Error State */}
       {error && (
         <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-6 rounded-lg">
@@ -127,6 +121,9 @@ const RispCoverage: React.FC<RispCoverageProps> = ({ accountId }) => {
               </div>
             </div>
           </div>
+
+          {/* RI/SP Respect Settings */}
+          <RispSettings accountId={accountId} />
         </div>
       )}
     </div>
