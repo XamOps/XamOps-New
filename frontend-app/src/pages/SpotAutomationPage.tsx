@@ -31,6 +31,7 @@ import SpotAutomationChart from '../components/SpotAutomation/SpotAutomationChar
 import SpotAutomationASGTable from '../components/SpotAutomation/SpotAutomationASGTable';
 import ActionsHistory from '../components/ActionsHistory/ActionsHistory';
 import LaunchAnalytics from '../components/LaunchAnalytics/LaunchAnalytics';
+import RispCoverage from '../components/RispCoverage/RispCoverage';
 import { SpotAutomationSkeleton } from '../components/Shared/Skeleton';
 
 const SpotAutomationPage: React.FC = () => {
@@ -57,7 +58,7 @@ const SpotAutomationPage: React.FC = () => {
   const [historyTimeRange, setHistoryTimeRange] = useState<'last24h' | 'last7d' | 'last30d'>('last7d');
 
   // Tab state
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'analytics' | 'history'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'analytics' | 'history' | 'risp-coverage'>('dashboard');
 
   // Toast notification state
   const [toast, setToast] = useState<{ show: boolean; message: string; type: 'success' | 'error' }>({
@@ -131,6 +132,16 @@ const SpotAutomationPage: React.FC = () => {
             <i className="fas fa-history mr-2"></i>
             Actions History
           </button>
+          <button
+            onClick={() => setActiveTab('risp-coverage')}
+            className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'risp-coverage'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+          >
+            <i className="fas fa-chart-pie mr-2"></i>
+            RI/SP Coverage
+          </button>
         </nav>
       </div>
 
@@ -182,6 +193,11 @@ const SpotAutomationPage: React.FC = () => {
         {activeTab === 'history' && (
           <ActionsHistory accountId={selectedAccountId} />
         )}
+        {/* RI/SP Coverage Tab */}
+        {activeTab === 'risp-coverage' && (
+          <RispCoverage accountId={selectedAccountId} />
+        )}
+
       </div>
 
       {/* Toast Notification */}

@@ -624,4 +624,59 @@ public class AutoSpottingController {
         }
     }
 
+    /**
+     * Get AutoSpotting settings including RI/SP respect configuration
+     */
+    @GetMapping("/settings/{accountId}")
+    public ResponseEntity<?> getSettings(@PathVariable Long accountId) {
+        log.info("AutoSpottingController.getSettings called with accountId={}", accountId);
+
+        try {
+            Map<String, Object> settings = autoSpottingService.getSettings(accountId);
+            return ResponseEntity.ok(settings);
+
+        } catch (Exception e) {
+            log.error("Failed to get AutoSpotting settings: {}", e.getMessage(), e);
+            return ResponseEntity.status(500).body(Map.of(
+                    "success", false,
+                    "error", "Failed to fetch settings: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Update RI/SP respect configuration
+     * 
+     * @param accountId The cloud account ID
+     * @param request JSON body with:
+     *   - respectRiSpCommitments (boolean)
+     *   - riSpUtilizationThreshold (integer, 0-100)
+     */
+    @PutMapping("/settings/{accountId}/risp-respect")
+    public ResponseEntity<?> updateRispRespectSettings(
+            @PathVariable Long accountId,
+            @RequestBody Map<String, Object> request) {
+
+        log.info("AutoSpottingController.updateRispRespectSettings called with accountId={}, request={}", 
+                accountId, request);
+
+        try {
+            Boolean respectRiSp = (Boolean) request.get("respectRiSpCommitments");
+            Integer threshold = (Integer) request.get("riSpUtilizationThreshold");
+
+            autoSpottingService.updateRispRespectSettings(accountId, respectRiSp, threshold);
+
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "message", "RI/SP respect settings updated successfully",
+                    "respectRiSpCommitments", respectRiSp != null ? respectRiSp : false,
+                    "riSpUtilizationThreshold", threshold != null ? threshold : 90));
+
+        } catch (Exception e) {
+            log.error("Failed to update RI/SP respect settings: {}", e.getMessage(), e);
+            return ResponseEntity.status(500).body(Map.of(
+                    "success", false,
+                    "error", "Failed to update settings: " + e.getMessage()));
+        }
+    }
+
 }
