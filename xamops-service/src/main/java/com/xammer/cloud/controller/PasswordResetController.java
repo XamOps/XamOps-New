@@ -12,12 +12,17 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import java.security.SecureRandom;
 import java.util.Optional;
-import java.util.Random;
 
 @RestController
 @RequestMapping("/api/auth")
 public class PasswordResetController {
+
+    private static final Logger logger = LoggerFactory.getLogger(PasswordResetController.class);
+    private final SecureRandom secureRandom = new SecureRandom();
 
     @Autowired
     private UserRepository userRepository;
@@ -38,7 +43,7 @@ public class PasswordResetController {
      * Helper: Looks up the user in the Global Master DB to find their Tenant ID,
      * then switches the current thread's context to that Tenant.
      */
-    private void setTenantContextForUser(String username) {
+    private boolean setTenantContextForUser(String username) {
         // 1. Global Lookup
         Optional<GlobalUserDto> globalUserOpt = masterDatabaseService.findGlobalUser(username);
         
@@ -46,9 +51,9 @@ public class PasswordResetController {
             String tenantId = globalUserOpt.get().getTenantId();
             // 2. Context Switch
             TenantContext.setCurrentTenant(tenantId);
-        } else {
-            throw new RuntimeException("User not found in Global Directory");
+            return true;
         }
+        return false;
     }
 
     // 1. Send OTP
@@ -56,39 +61,38 @@ public class PasswordResetController {
     public ResponseEntity<?> sendOtp(@RequestParam String username, @RequestParam String email) {
         try {
             // ✅ FIX: Switch to the correct database for this user
-            setTenantContextForUser(username);
+            boolean userFound = setTenantContextForUser(username);
 
-            // Find user in their specific Tenant DB
-            User user = userRepository.findByUsername(username)
-                    .orElseThrow(() -> new RuntimeException("User not found"));
+            if (userFound) {
+                // Find user in their specific Tenant DB
+                Optional<User> userOpt = userRepository.findByUsername(username);
 
-            // Verify email matches
-            if (user.getEmail() == null || !user.getEmail().equalsIgnoreCase(email)) {
-                return ResponseEntity.badRequest().body("Email does not match our records.");
+                // Verify email matches
+                if (userOpt.isPresent() && userOpt.get().getEmail() != null &&
+                    userOpt.get().getEmail().equalsIgnoreCase(email)) {
+
+                    // Generate cryptographically secure 6-digit OTP
+                    String otp = String.format("%06d", secureRandom.nextInt(1000000));
+
+                    // Save OTP to Redis (Expires in 5 minutes)
+                    redisCacheService.saveOtp(username, otp);
+
+                    // Send Email
+                    String subject = "BillOps Password Reset Code";
+                    String body = "<h3>Password Reset Request</h3>" +
+                                  "<p>Your verification code is: <strong>" + otp + "</strong></p>" +
+                                  "<p>This code expires in 5 minutes.</p>";
+
+                    emailService.sendHtmlEmail(email, subject, body);
+                }
             }
 
-            // Generate 6-digit OTP
-            String otp = String.format("%06d", new Random().nextInt(999999));
-            
-            // Save OTP to Redis (Expires in 5 minutes)
-            redisCacheService.saveOtp(username, otp);
-
-            // Send Email
-            String subject = "BillOps Password Reset Code";
-            String body = "<h3>Password Reset Request</h3>" +
-                          "<p>Your verification code is: <strong>" + otp + "</strong></p>" +
-                          "<p>This code expires in 5 minutes.</p>";
-            
-            // Log for debugging (in case email fails)
-            System.out.println(">>> OTP for " + username + ": " + otp);
-            
-            emailService.sendHtmlEmail(email, subject, body);
-
-            return ResponseEntity.ok().body("OTP sent to your email.");
+            // Return generic message regardless of user existence to prevent enumeration
+            return ResponseEntity.ok().body("If your account exists, an OTP has been sent to your email.");
 
         } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.badRequest().body("Error: " + e.getMessage());
+            logger.error("Failed to process forgot-password request for user: {}", username, e);
+            return ResponseEntity.ok().body("If your account exists, an OTP has been sent to your email.");
         }
     }
 
@@ -118,7 +122,11 @@ public class PasswordResetController {
             }
 
             // ✅ FIX: Switch to the correct database to update the password
-            setTenantContextForUser(username);
+            boolean userFound = setTenantContextForUser(username);
+
+            if (!userFound) {
+                return ResponseEntity.badRequest().body("Invalid request.");
+            }
 
             User user = userRepository.findByUsername(username)
                     .orElseThrow(() -> new RuntimeException("User not found"));
@@ -133,7 +141,8 @@ public class PasswordResetController {
             return ResponseEntity.ok().body("Password updated successfully.");
 
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body("Failed to reset password: " + e.getMessage());
+            logger.error("Failed to reset password for user: {}", username, e);
+            return ResponseEntity.badRequest().body("An error occurred during password reset.");
         }
     }
 }
