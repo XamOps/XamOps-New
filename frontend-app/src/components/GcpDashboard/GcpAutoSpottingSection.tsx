@@ -1,14 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { fetchGcpAutoSpottingMigs, enableGcpAutoSpotting, disableGcpAutoSpotting } from '../../api/gcpDashboardApi';
+import { useNavigate } from 'react-router-dom';
+import { fetchGcpAutoSpottingMigs } from '../../api/gcpDashboardApi';
 
 interface GcpAutoSpottingSectionProps {
     accountId: string;
 }
 
 const GcpAutoSpottingSection: React.FC<GcpAutoSpottingSectionProps> = ({ accountId }) => {
+    const navigate = useNavigate();
     const [migs, setMigs] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
-    const [actionLoading, setActionLoading] = useState<string | null>(null);
 
     const loadData = async () => {
         try {
@@ -28,28 +29,13 @@ const GcpAutoSpottingSection: React.FC<GcpAutoSpottingSectionProps> = ({ account
         }
     }, [accountId]);
 
-    const handleEnable = async (mig: any) => {
-        try {
-            setActionLoading(mig.name);
-            await enableGcpAutoSpotting(Number(accountId), mig.region, mig.name);
-            await loadData();
-        } catch (error) {
-            alert('Failed to enable AutoSpotting: ' + error);
-        } finally {
-            setActionLoading(null);
-        }
-    };
-
-    const handleDisable = async (mig: any) => {
-        try {
-            setActionLoading(mig.name);
-            await disableGcpAutoSpotting(Number(accountId), mig.region, mig.name);
-            await loadData();
-        } catch (error) {
-            alert('Failed to disable AutoSpotting: ' + error);
-        } finally {
-            setActionLoading(null);
-        }
+    const handleRowClick = (mig: any) => {
+        navigate('/gcp-autospotting-manage', {
+            state: {
+                accountId,
+                mig
+            }
+        });
     };
 
     if (loading) {
@@ -97,12 +83,16 @@ const GcpAutoSpottingSection: React.FC<GcpAutoSpottingSectionProps> = ({ account
                             <th className="pb-3 text-xs font-black text-gray-400 uppercase tracking-widest">Region/Zone</th>
                             <th className="pb-3 text-xs font-black text-gray-400 uppercase tracking-widest">Instances</th>
                             <th className="pb-3 text-xs font-black text-gray-400 uppercase tracking-widest text-right">Potential Savings</th>
-                            <th className="pb-3 text-xs font-black text-gray-400 uppercase tracking-widest text-center">AutoSpotting</th>
+                            <th className="pb-3 text-xs font-black text-gray-400 uppercase tracking-widest text-center">Status</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-50">
                         {migs.map((mig) => (
-                            <tr key={mig.name} className="hover:bg-indigo-50/30 transition-colors">
+                            <tr
+                                key={mig.name}
+                                onClick={() => handleRowClick(mig)}
+                                className="hover:bg-indigo-50/30 transition-colors cursor-pointer"
+                            >
                                 <td className="py-4">
                                     <div className="font-bold text-gray-800">{mig.name}</div>
                                     <div className="text-[10px] text-gray-400 font-mono">Managed Instance Group</div>
@@ -125,46 +115,16 @@ const GcpAutoSpottingSection: React.FC<GcpAutoSpottingSectionProps> = ({ account
                                 </td>
                                 <td className="py-4 text-center">
                                     {mig.isEnabled ? (
-                                        <button
-                                            onClick={() => handleDisable(mig)}
-                                            disabled={actionLoading === mig.name}
-                                            className="px-4 py-1.5 bg-green-500 text-white rounded-lg text-xs font-black shadow-lg shadow-green-500/30 hover:bg-green-600 transition-all disabled:opacity-70 disabled:cursor-not-allowed flex items-center gap-2 mx-auto"
-                                        >
-                                            {actionLoading === mig.name ? (
-                                                <>
-                                                    <svg className="animate-spin h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                                    </svg>
-                                                    <span>DISABLING...</span>
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-                                                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                                    </svg>
-                                                    <span>ENABLED</span>
-                                                </>
-                                            )}
-                                        </button>
+                                        <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-green-100 text-green-700 rounded-lg text-xs font-black border border-green-200">
+                                            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+                                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                            </svg>
+                                            ENABLED
+                                        </span>
                                     ) : (
-                                        <button
-                                            onClick={() => handleEnable(mig)}
-                                            disabled={actionLoading === mig.name}
-                                            className="px-4 py-1.5 bg-gray-100 text-gray-500 rounded-lg text-xs font-black hover:bg-indigo-600 hover:text-white transition-all disabled:opacity-70 disabled:cursor-not-allowed flex items-center gap-2 mx-auto"
-                                        >
-                                            {actionLoading === mig.name ? (
-                                                <>
-                                                    <svg className="animate-spin h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                                    </svg>
-                                                    <span>ENABLING...</span>
-                                                </>
-                                            ) : (
-                                                <span>ENABLE</span>
-                                            )}
-                                        </button>
+                                        <span className="inline-flex items-center px-3 py-1 bg-gray-100 text-gray-500 rounded-lg text-xs font-black border border-gray-200">
+                                            DISABLED
+                                        </span>
                                     )}
                                 </td>
                             </tr>

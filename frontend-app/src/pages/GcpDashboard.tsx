@@ -162,21 +162,51 @@ const GcpDashboard: React.FC = () => {
             highConfidenceRecommendations: raw.rightsizingRecommendations?.length || 0,
           },
           anomalies: [],
-          gceRecommendations: (Array.isArray(raw.rightsizingRecommendations) ? raw.rightsizingRecommendations : []).map((rec: any) => ({
-            resourceId: rec.resourceId,
-            resourceName: rec.resourceId,
-            resourceType: rec.service || 'Compute Engine',
-            currentSize: rec.currentType,
-            recommendedSize: rec.recommendedType,
-            currentCost: rec.currentMonthlyCost,
-            potentialSavings: rec.estimatedMonthlySavings,
-            savingsPercentage: rec.currentMonthlyCost > 0 ? (rec.estimatedMonthlySavings / rec.currentMonthlyCost) * 100 : 0,
-            zone: 'global',
-            reason: rec.recommendationReason,
-            confidence: 'high',
-          })),
-          cloudSqlRecommendations: [],
-          gkeRecommendations: [],
+          gceRecommendations: (Array.isArray(raw.rightsizingRecommendations) ? raw.rightsizingRecommendations : [])
+            .filter((rec: any) => rec.service === 'Compute Engine' || !rec.service)
+            .map((rec: any) => ({
+              resourceId: rec.resourceId || rec.resourceName,
+              resourceName: rec.resourceName || rec.resourceId,
+              resourceType: rec.service || 'Compute Engine',
+              currentSize: rec.currentMachineType || rec.currentType,
+              recommendedSize: rec.recommendedMachineType || rec.recommendedType,
+              currentCost: rec.currentMonthlyCost,
+              potentialSavings: rec.monthlySavings || rec.estimatedMonthlySavings || 0,
+              savingsPercentage: rec.currentMonthlyCost > 0 ? ((rec.monthlySavings || rec.estimatedMonthlySavings || 0) / rec.currentMonthlyCost) * 100 : 0,
+              zone: rec.location || 'global',
+              reason: rec.reason || rec.recommendationReason,
+              confidence: 'high',
+            })),
+          cloudSqlRecommendations: (Array.isArray(raw.rightsizingRecommendations) ? raw.rightsizingRecommendations : [])
+            .filter((rec: any) => rec.service === 'Cloud SQL')
+            .map((rec: any) => ({
+              resourceId: rec.resourceId || rec.resourceName,
+              resourceName: rec.resourceName || rec.resourceId,
+              resourceType: rec.service || 'Cloud SQL',
+              currentSize: rec.currentMachineType || rec.currentType,
+              recommendedSize: rec.recommendedMachineType || rec.recommendedType,
+              currentCost: rec.currentMonthlyCost,
+              potentialSavings: rec.monthlySavings || rec.estimatedMonthlySavings || 0,
+              savingsPercentage: rec.currentMonthlyCost > 0 ? ((rec.monthlySavings || rec.estimatedMonthlySavings || 0) / rec.currentMonthlyCost) * 100 : 0,
+              zone: rec.location || 'global',
+              reason: rec.reason || rec.recommendationReason,
+              confidence: 'high',
+            })),
+          gkeRecommendations: (Array.isArray(raw.rightsizingRecommendations) ? raw.rightsizingRecommendations : [])
+            .filter((rec: any) => rec.service === 'GKE' || rec.service === 'Kubernetes Engine')
+            .map((rec: any) => ({
+              resourceId: rec.resourceId || rec.resourceName,
+              resourceName: rec.resourceName || rec.resourceId,
+              resourceType: rec.service || 'GKE',
+              currentSize: rec.currentMachineType || rec.currentType,
+              recommendedSize: rec.recommendedMachineType || rec.recommendedType,
+              currentCost: rec.currentMonthlyCost,
+              potentialSavings: rec.monthlySavings || rec.estimatedMonthlySavings || 0,
+              savingsPercentage: rec.currentMonthlyCost > 0 ? ((rec.monthlySavings || rec.estimatedMonthlySavings || 0) / rec.currentMonthlyCost) * 100 : 0,
+              zone: rec.location || 'global',
+              reason: rec.reason || rec.recommendationReason,
+              confidence: 'high',
+            })),
         },
         billingSummary: {
           topServices: (Array.isArray(raw.billingSummary) ? raw.billingSummary : []).map((item: any) => ({
