@@ -67,11 +67,16 @@ public class GcpAutoSpottingController {
     @GetMapping("/events/{accountId}")
     public ResponseEntity<?> getEvents(
             @PathVariable String accountId,
-            @RequestParam(defaultValue = "20") int limit) {
-        log.info("GcpAutoSpottingController.getEvents called with accountId={}, limit={}", accountId, limit);
+            @RequestParam(required = false) String start,
+            @RequestParam(required = false) String end,
+            @RequestParam(required = false) String eventType,
+            @RequestParam(required = false) String asgName) {
+        log.info("GcpAutoSpottingController.getEvents called with accountId={}, start={}, end={}, eventType={}, asgName={}",
+                accountId, start, end, eventType, asgName);
         try {
-            List<SpotOptimizationEvent> events = gcpAutoSpottingService.getEvents(accountId, limit);
-            return ResponseEntity.ok(Map.of("events", events));
+            com.xammer.cloud.dto.autospotting.EventsResponse events = 
+                gcpAutoSpottingService.getEvents(accountId, start, end, eventType, asgName);
+            return ResponseEntity.ok(events);
         } catch (Exception e) {
             log.error("Failed to get events: {}", e.getMessage(), e);
             return ResponseEntity.status(500).body(Map.of("error", e.getMessage()));

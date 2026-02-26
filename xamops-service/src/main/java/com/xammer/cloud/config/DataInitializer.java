@@ -14,6 +14,7 @@ import com.xammer.cloud.repository.DevOpsScriptRepository;
 import org.springframework.context.annotation.Bean;
 
 import java.util.Optional;
+import org.springframework.context.annotation.Lazy;
 
 @Component
 public class DataInitializer implements CommandLineRunner {
@@ -22,9 +23,9 @@ public class DataInitializer implements CommandLineRunner {
 
     private final ClientRepository clientRepository;
     private final UserRepository userRepository;
-    private final PasswordEncoder passwordEncoder;
+    private final @Lazy PasswordEncoder passwordEncoder;
 
-    public DataInitializer(ClientRepository clientRepository, UserRepository userRepository, PasswordEncoder passwordEncoder) {
+    public DataInitializer(ClientRepository clientRepository, UserRepository userRepository, @Lazy PasswordEncoder passwordEncoder) {
         this.clientRepository = clientRepository;
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;

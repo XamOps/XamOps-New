@@ -39,6 +39,23 @@ public class AutoSpottingSettings {
     @Column(name = "min_on_demand_number")
     private int minOnDemandNumber = 0;
 
+    /**
+     * NEW FEATURE: Respect RI/SP Commitments
+     * When enabled, AutoSpotting will check RI/SP utilization before converting to Spot.
+     * Only converts to Spot when RI utilization >= riSpUtilizationThreshold.
+     * Default: false (disabled - existing behavior unchanged)
+     */
+    @Column(name = "respect_ri_sp_commitments")
+    private boolean respectRiSpCommitments = false;
+
+    /**
+     * RI/SP utilization threshold percentage (0-100)
+     * Only convert to Spot when RI+SP utilization >= this threshold
+     * Default: 90%
+     */
+    @Column(name = "ri_sp_utilization_threshold")
+    private int riSpUtilizationThreshold = 90;
+
     public AutoSpottingSettings(CloudAccount account) {
         this.account = account;
         this.accountId = account.getId();

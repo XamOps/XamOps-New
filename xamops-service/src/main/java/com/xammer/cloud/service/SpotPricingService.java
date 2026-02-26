@@ -45,6 +45,7 @@ public class SpotPricingService {
      */
     @Cacheable(value = "hourlySpotPrice", key = "#instanceType + '-' + #region")
     public double getHourlySpotPrice(String instanceType, String region, CloudAccount account) {
+        logger.debug("Fetching Spot price for {} in {}", instanceType, region);
         try {
             Ec2Client ec2Client = awsClientProvider.getEc2Client(account, region);
 
@@ -59,8 +60,11 @@ public class SpotPricingService {
                     .max(Comparator.comparing(SpotPrice::timestamp));
 
             if (spotPrice.isPresent()) {
-                return Double.parseDouble(spotPrice.get().spotPrice());
+                double price = Double.parseDouble(spotPrice.get().spotPrice());
+                logger.debug("Found Spot price for {} in {}: ${}/hr", instanceType, region, price);
+                return price;
             }
+            logger.warn("No Spot price found for {} in {}", instanceType, region);
         } catch (Exception e) {
             logger.error("Failed to fetch hourly spot price for {} in {}: {}", instanceType, region, e.getMessage());
         }
@@ -72,7 +76,10 @@ public class SpotPricingService {
      */
     @Cacheable(value = "hourlyOnDemandPrice", key = "#instanceType + '-' + #region")
     public double getHourlyOnDemandPrice(String instanceType, String region) {
-        Filter regionFilter = Filter.builder().field("location").value(getRegionDescription(region)).type("TERM_MATCH")
+        String regionDescription = getRegionDescription(region);
+        logger.debug("Fetching On-Demand price for {} in {} ({})", instanceType, region, regionDescription);
+
+        Filter regionFilter = Filter.builder().field("location").value(regionDescription).type("TERM_MATCH")
                 .build();
         Filter instanceTypeFilter = Filter.builder().field("instanceType").value(instanceType).type("TERM_MATCH")
                 .build();
@@ -96,10 +103,13 @@ public class SpotPricingService {
                 if (!onDemandTerms.isMissingNode() && onDemandTerms.elements().hasNext()) {
                     JsonNode priceDimensions = onDemandTerms.elements().next().path("priceDimensions");
                     if (priceDimensions.elements().hasNext()) {
-                        return priceDimensions.elements().next().path("pricePerUnit").path("USD").asDouble(0.0);
+                        double price = priceDimensions.elements().next().path("pricePerUnit").path("USD").asDouble(0.0);
+                        logger.debug("Found On-Demand price for {} in {}: ${}/hr", instanceType, region, price);
+                        return price;
                     }
                 }
             }
+            logger.warn("No On-Demand price found for {} in {} ({})", instanceType, region, regionDescription);
         } catch (Exception e) {
             logger.error("Failed to fetch On-Demand price for {} in {}: {}", instanceType, region, e.getMessage());
         }
@@ -117,22 +127,39 @@ public class SpotPricingService {
 
     private String getRegionDescription(String regionCode) {
         Map<String, String> regionMap = Map.ofEntries(
+                // US Regions
                 Map.entry("us-east-1", "US East (N. Virginia)"),
                 Map.entry("us-east-2", "US East (Ohio)"),
                 Map.entry("us-west-1", "US West (N. California)"),
                 Map.entry("us-west-2", "US West (Oregon)"),
-                Map.entry("ap-south-1", "Asia Pacific (Mumbai)"),
-                Map.entry("ap-northeast-1", "Asia Pacific (Tokyo)"),
-                Map.entry("ap-northeast-2", "Asia Pacific (Seoul)"),
-                Map.entry("ap-southeast-1", "Asia Pacific (Singapore)"),
-                Map.entry("ap-southeast-2", "Asia Pacific (Sydney)"),
-                Map.entry("ca-central-1", "Canada (Central)"),
-                Map.entry("eu-central-1", "EU (Frankfurt)"),
+                // EU Regions
                 Map.entry("eu-west-1", "EU (Ireland)"),
                 Map.entry("eu-west-2", "EU (London)"),
                 Map.entry("eu-west-3", "EU (Paris)"),
+                Map.entry("eu-central-1", "EU (Frankfurt)"),
+                Map.entry("eu-central-2", "EU (Zurich)"),
                 Map.entry("eu-north-1", "EU (Stockholm)"),
-                Map.entry("sa-east-1", "South America (Sao Paulo)"));
+                Map.entry("eu-south-1", "EU (Milan)"),
+                Map.entry("eu-south-2", "EU (Spain)"),
+                // Asia Pacific Regions
+                Map.entry("ap-south-1", "Asia Pacific (Mumbai)"),
+                Map.entry("ap-south-2", "Asia Pacific (Hyderabad)"),
+                Map.entry("ap-southeast-1", "Asia Pacific (Singapore)"),
+                Map.entry("ap-southeast-2", "Asia Pacific (Sydney)"),
+                Map.entry("ap-southeast-3", "Asia Pacific (Jakarta)"),
+                Map.entry("ap-southeast-4", "Asia Pacific (Melbourne)"),
+                Map.entry("ap-northeast-1", "Asia Pacific (Tokyo)"),
+                Map.entry("ap-northeast-2", "Asia Pacific (Seoul)"),
+                Map.entry("ap-northeast-3", "Asia Pacific (Osaka)"),
+                Map.entry("ap-east-1", "Asia Pacific (Hong Kong)"),
+                // Other Regions
+                Map.entry("ca-central-1", "Canada (Central)"),
+                Map.entry("ca-west-1", "Canada (Calgary)"),
+                Map.entry("sa-east-1", "South America (São Paulo)"),
+                Map.entry("me-south-1", "Middle East (Bahrain)"),
+                Map.entry("me-central-1", "Middle East (UAE)"),
+                Map.entry("af-south-1", "Africa (Cape Town)"),
+                Map.entry("il-central-1", "Israel (Tel Aviv)"));
         return regionMap.getOrDefault(regionCode, regionCode);
     }
 }

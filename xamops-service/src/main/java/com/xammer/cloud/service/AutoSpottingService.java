@@ -918,6 +918,48 @@ public class AutoSpottingService {
     public void enableAutoSpotting(Long cloudAccountId, String region, String asgName) {
         logger.info("Enabling AutoSpotting: account={} region={} asg={}", cloudAccountId, region, asgName);
         CloudAccount account = getByAwsAccountId(cloudAccountId);
+        // NEW FEATURE: Check RI/SP commitment utilization if feature is enabled
+        AutoSpottingSettings settings = settingsRepository.findById(account.getId()).orElse(null);
+        if (settings != null && settings.isRespectRiSpCommitments()) {
+            logger.info("RI/SP Respect is ENABLED for account {} - checking utilization before enabling Spot", cloudAccountId);
+            
+            try {
+                RiSpCoverageResponse rispCoverage = getRiSpCoverage(cloudAccountId);
+                double riUtilization = rispCoverage.getTotalRiUtilizationPercent() != null 
+                    ? rispCoverage.getTotalRiUtilizationPercent() : 0.0;
+                double spUtilization = rispCoverage.getTotalSpUtilizationPercent() != null 
+                    ? rispCoverage.getTotalSpUtilizationPercent() : 0.0;
+                double avgUtilization = (riUtilization + spUtilization) / 2.0;
+                
+                int threshold = settings.getRiSpUtilizationThreshold();
+                
+                logger.info("RI/SP Utilization Check: RI={}%, SP={}%, Average={}%, Threshold={}%", 
+                    riUtilization, spUtilization, avgUtilization, threshold);
+                
+                if (avgUtilization < threshold) {
+                    String message = String.format(
+                        "Cannot enable Spot for ASG '%s': RI/SP commitments are underutilized (%.1f%% < %d%% threshold). " +
+                        "Using On-Demand to maximize commitment value. To override, disable 'Respect RI/SP Commitments' in settings.",
+                        asgName, avgUtilization, threshold
+                    );
+                    logger.warn(message);
+                    throw new RuntimeException(message);
+                }
+                
+                logger.info("✓ RI/SP utilization check passed ({}% >= {}%) - proceeding with Spot conversion", 
+                    avgUtilization, threshold);
+                    
+            } catch (Exception e) {
+                if (e.getMessage().contains("Cannot enable Spot")) {
+                    throw e; // Re-throw our own exception
+                }
+                logger.warn("Failed to check RI/SP coverage, proceeding anyway: {}", e.getMessage());
+            }
+        } else {
+            logger.info("RI/SP Respect is DISABLED for account {} - proceeding with Spot conversion without RI/SP check", 
+                cloudAccountId);
+        }
+
 
         try {
             AutoScalingClient asgClient = awsClientProvider.getAutoSpottingAsgClient(
@@ -2680,4 +2722,52 @@ public class AutoSpottingService {
             return m;
         }).collect(Collectors.toList());
     }
+    /**
+     * Get AutoSpotting settings for an account
+     */
+    public Map<String, Object> getSettings(Long cloudAccountId) {
+        CloudAccount account = getByAwsAccountId(cloudAccountId);
+        AutoSpottingSettings settings = settingsRepository.findById(account.getId())
+                .orElseGet(() -> {
+                    AutoSpottingSettings newSettings = new AutoSpottingSettings(account);
+                    return settingsRepository.save(newSettings);
+                });
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("enabled", settings.isEnabled());
+        result.put("tagFilters", settings.getTagFilters());
+        result.put("excludedInstances", settings.getExcludedInstances());
+        result.put("maxSpotPercentage", settings.getMaxSpotPercentage());
+        result.put("minOnDemandNumber", settings.getMinOnDemandNumber());
+        result.put("respectRiSpCommitments", settings.isRespectRiSpCommitments());
+        result.put("riSpUtilizationThreshold", settings.getRiSpUtilizationThreshold());
+
+        return result;
+    }
+
+    /**
+     * Update RI/SP respect settings for an account
+     */
+    public void updateRispRespectSettings(Long cloudAccountId, Boolean respectRiSp, Integer threshold) {
+        CloudAccount account = getByAwsAccountId(cloudAccountId);
+        AutoSpottingSettings settings = settingsRepository.findById(account.getId())
+                .orElseGet(() -> new AutoSpottingSettings(account));
+
+        if (respectRiSp != null) {
+            settings.setRespectRiSpCommitments(respectRiSp);
+            logger.info("Updated respectRiSpCommitments to {} for account {}", respectRiSp, cloudAccountId);
+        }
+
+        if (threshold != null) {
+            if (threshold < 0 || threshold > 100) {
+                throw new IllegalArgumentException("Threshold must be between 0 and 100");
+            }
+            settings.setRiSpUtilizationThreshold(threshold);
+            logger.info("Updated riSpUtilizationThreshold to {}% for account {}", threshold, cloudAccountId);
+        }
+
+        settingsRepository.save(settings);
+        logger.info("RI/SP respect settings saved successfully for account {}", cloudAccountId);
+    }
+
 }
