@@ -68,6 +68,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // Initialization guard to prevent double mounting in React Strict Mode
   const initializedRef = React.useRef(false);
 
+  // Redirect to login when a mid-session 401 is detected (session expired server-side)
+  useEffect(() => {
+    const handleSessionExpired = () => {
+      sessionStorage.clear();
+      globalThis.location.href = '/login';
+    };
+    window.addEventListener('session-expired', handleSessionExpired);
+    return () => window.removeEventListener('session-expired', handleSessionExpired);
+  }, []);
+
   /**
    * Fetch environment info (super admin only)
    */
@@ -161,17 +171,23 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           await fetchTenantAccounts(currentImpersonateUser, currentTenant);
         }
       } else {
-        // Proactively clear super admin context for regular users
-        // This handles cases where a super admin switched users without proper logout
-        sessionStorage.removeItem('selectedTenantId');
+        // For regular users: persist their own tenant ID so X-Tenant-ID header is always sent
+        // This prevents TenantFilter from falling back to a costly master DB lookup on every request
+        if (data.tenantId) {
+          sessionStorage.setItem('selectedTenantId', data.tenantId);
+          setSelectedTenant(data.tenantId);
+        } else {
+          sessionStorage.removeItem('selectedTenantId');
+          setSelectedTenant('');
+        }
+        // Clear super-admin-only context that doesn't apply to regular users
         sessionStorage.removeItem('impersonateUserId');
         sessionStorage.removeItem('superAdminSelectedAccountId');
-        setSelectedTenant('');
         setImpersonateUser('');
         setSelectedAccountId('');
       }
     } catch (err) {
-      console.warn(`⚠️ Could not fetch user profile from ${primaryEndpoint}, trying fallback:`, err);
+      console.log(`ℹ️ No profile at ${primaryEndpoint} (not authenticated or not a ${isBillopsPage ? 'billops' : 'xamops'} session), trying fallback...`);
 
       // Try fallback endpoint
       try {
@@ -197,16 +213,22 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             await fetchTenantAccounts(currentImpersonateUser, currentTenant);
           }
         } else {
-          // Proactively clear super admin context for regular users
-          sessionStorage.removeItem('selectedTenantId');
+          // For regular users: persist their own tenant ID so X-Tenant-ID header is always sent
+          if (data.tenantId) {
+            sessionStorage.setItem('selectedTenantId', data.tenantId);
+            setSelectedTenant(data.tenantId);
+          } else {
+            sessionStorage.removeItem('selectedTenantId');
+            setSelectedTenant('');
+          }
+          // Clear super-admin-only context that doesn't apply to regular users
           sessionStorage.removeItem('impersonateUserId');
           sessionStorage.removeItem('superAdminSelectedAccountId');
-          setSelectedTenant('');
           setImpersonateUser('');
           setSelectedAccountId('');
         }
       } catch (error_) {
-        console.error('❌ Could not fetch user profile from either endpoint:', error_);
+        console.log('ℹ️ User not authenticated — no active session found. Login required.');
       }
     } finally {
       setIsLoading(false);

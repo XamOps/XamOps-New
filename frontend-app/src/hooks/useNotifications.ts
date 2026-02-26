@@ -5,7 +5,7 @@
  * Aggregates CloudGuard alerts, Grafana alerts, and budget alerts from the last 7 days
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import type { NotificationItem, NotificationCounts } from '../types/notifications';
 import type { Alert, GrafanaAlert } from '../types/alerts';
 import type { Budget } from '../types/finops';
@@ -40,6 +40,7 @@ export const useNotifications = ({
 }: UseNotificationsOptions): UseNotificationsReturn => {
     const [notifications, setNotifications] = useState<NotificationItem[]>([]);
     const [isLoading, setIsLoading] = useState<boolean>(false);
+    const abortControllerRef = useRef<AbortController | null>(null);
 
     /**
      * Convert CloudGuard alert to NotificationItem
@@ -146,7 +147,7 @@ export const useNotifications = ({
     }, [getLastChatOpenTime]);
 
     /**
-     * Fetch all notifications
+     * Fetch all notifications — cloudguard/alerts, grafana-alerts, budgets in parallel.
      */
     const fetchNotifications = useCallback(async () => {
         if (!selectedAccountId) {
@@ -154,48 +155,51 @@ export const useNotifications = ({
             return;
         }
 
+        // Cancel previous in-flight fetch
+        abortControllerRef.current?.abort();
+        abortControllerRef.current = new AbortController();
+        const { signal } = abortControllerRef.current;
+
         setIsLoading(true);
         const allNotifications: NotificationItem[] = [];
 
         try {
-            // Fetch CloudGuard alerts
-            const cloudGuardResponse = await fetch(
-                `/api/xamops/cloudguard/alerts?accountId=${selectedAccountId}&forceRefresh=false`,
-                { credentials: 'include' }
-            );
+            // Fire all three network requests in parallel — previously sequential,
+            // which meant a slow cloudguard/alerts (55s timeout) blocked grafana + budgets.
+            const [cloudGuardResult, grafanaResult, budgetsResult] = await Promise.allSettled([
+                fetch(
+                    `/api/xamops/cloudguard/alerts?accountId=${selectedAccountId}&forceRefresh=false`,
+                    { credentials: 'include', signal }
+                ),
+                fetch('/api/xamops/cloudguard/grafana-alerts', { credentials: 'include', signal }),
+                fetch(
+                    `/api/xamops/finops/budgets?accountId=${selectedAccountId}`,
+                    { credentials: 'include', signal }
+                ),
+            ]);
 
-            if (cloudGuardResponse.ok) {
-                const cloudGuardData: Alert[] = await cloudGuardResponse.json();
-                const cloudGuardNotifications = cloudGuardData.map(convertCloudGuardAlert);
-                allNotifications.push(...cloudGuardNotifications);
+            if (cloudGuardResult.status === 'fulfilled' && cloudGuardResult.value.ok) {
+                const cloudGuardData: Alert[] = await cloudGuardResult.value.json();
+                allNotifications.push(...cloudGuardData.map(convertCloudGuardAlert));
             }
 
-            // Fetch Grafana alerts
-            const grafanaResponse = await fetch('/api/xamops/cloudguard/grafana-alerts', {
-                credentials: 'include',
-            });
-
-            if (grafanaResponse.ok) {
-                const grafanaData: GrafanaAlert[] = await grafanaResponse.json();
-                const grafanaNotifications = grafanaData
-                    .filter(alert => alert.status === 'firing') // Only show firing alerts
-                    .map(convertGrafanaAlert);
-                allNotifications.push(...grafanaNotifications);
+            if (grafanaResult.status === 'fulfilled' && grafanaResult.value.ok) {
+                const grafanaData: GrafanaAlert[] = await grafanaResult.value.json();
+                allNotifications.push(
+                    ...grafanaData
+                        .filter(alert => alert.status === 'firing')
+                        .map(convertGrafanaAlert)
+                );
             }
 
-            // Fetch Budget data from FinOps
-            const finopsResponse = await fetch(
-                `/api/xamops/finops/report?accountId=${selectedAccountId}`,
-                { credentials: 'include' }
-            );
-
-            if (finopsResponse.ok) {
-                const finopsData = await finopsResponse.json();
-                if (finopsData.budgets && Array.isArray(finopsData.budgets)) {
-                    const budgetNotifications = finopsData.budgets
-                        .map(convertBudgetAlert)
-                        .filter((n: NotificationItem | null): n is NotificationItem => n !== null);
-                    allNotifications.push(...budgetNotifications);
+            if (budgetsResult.status === 'fulfilled' && budgetsResult.value.ok) {
+                const budgets = await budgetsResult.value.json();
+                if (Array.isArray(budgets)) {
+                    allNotifications.push(
+                        ...budgets
+                            .map(convertBudgetAlert)
+                            .filter((n: NotificationItem | null): n is NotificationItem => n !== null)
+                    );
                 }
             }
 
@@ -223,6 +227,7 @@ export const useNotifications = ({
 
             setNotifications(recentNotifications);
         } catch (error) {
+            if (error instanceof DOMException && (error as DOMException).name === 'AbortError') return;
             console.error('[Notifications] Error fetching notifications:', error);
             setNotifications([]);
         } finally {
@@ -260,7 +265,10 @@ export const useNotifications = ({
         // Set up auto-refresh
         const intervalId = setInterval(fetchNotifications, autoRefreshInterval);
 
-        return () => clearInterval(intervalId);
+        return () => {
+            clearInterval(intervalId);
+            abortControllerRef.current?.abort();
+        };
     }, [selectedAccountId, autoRefreshInterval, fetchNotifications]);
 
     return {

@@ -313,18 +313,27 @@ public class CloudGuardService {
         long startTime = System.currentTimeMillis();
         logger.info("🔍 Fetching alerts for account: {}", accountId);
 
+        final String dbKey = "alerts-" + accountId;
+
         if (!forceRefresh) {
-            // 1. Check database cache first (persistent, survives restarts)
-            String dbKey = "alerts-" + accountId;
+            // 1. Redis first — fast, no DB connection consumed
+            Optional<AlertsResponseDto> redisResponse = redisCache.get(dbKey, AlertsResponseDto.class);
+            if (redisResponse.isPresent() && redisResponse.get().getAlerts() != null
+                    && !redisResponse.get().getAlerts().isEmpty()) {
+                logger.info("✅ Serving {} alerts from Redis cache for account {}",
+                        redisResponse.get().getAlerts().size(), accountId);
+                return CompletableFuture.completedFuture(redisResponse.get());
+            }
+
+            // 2. DB fallback — only when Redis is cold (after restart/deployment)
             AlertsResponseDto cachedResponse = (AlertsResponseDto) dashboardDataService.getAlertsSnapshot(
                     dbKey, new TypeReference<AlertsResponseDto>() {
                     });
 
             if (cachedResponse != null && cachedResponse.getAlerts() != null && !cachedResponse.getAlerts().isEmpty()) {
-                logger.info("✅ Serving {} alerts from database cache for account {}",
+                logger.info("✅ Serving {} alerts from DB — repopulating Redis for account {}",
                         cachedResponse.getAlerts().size(), accountId);
 
-                // Ensure metadata is present even if it was a legacy list-only cache
                 if (cachedResponse.getMetadata() == null) {
                     cachedResponse.setMetadata(AlertsMetadataDto.builder()
                             .totalAlerts(cachedResponse.getAlerts().size())
@@ -332,7 +341,7 @@ public class CloudGuardService {
                             .fromCache(true)
                             .build());
                 }
-
+                redisCache.put(dbKey, cachedResponse, 10); // re-warm Redis so next request skips DB
                 return CompletableFuture.completedFuture(cachedResponse);
             }
         }
@@ -499,11 +508,13 @@ public class CloudGuardService {
                             .build();
 
                     logger.info("Returning {} total alerts for account {} in {}ms", alerts.size(), accountId, duration);
-                    return AlertsResponseDto.builder()
+                    AlertsResponseDto response = AlertsResponseDto.builder()
                             .alerts(alerts)
                             .errors(errors)
                             .metadata(metadata)
                             .build();
+                    redisCache.put(dbKey, response, 10); // save to Redis after fresh AWS fetch
+                    return response;
                 }).exceptionally(ex -> {
                     logger.error("Fatal error fetching alerts for account {}: {}", accountId, ex.getMessage(), ex);
                     return AlertsResponseDto.builder()

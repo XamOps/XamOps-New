@@ -3,6 +3,7 @@ import type { AzureRightsizingRecommendation } from '../../types/azureRightsizin
 
 interface AzureRightsizingKPICardsProps {
   recommendations: AzureRightsizingRecommendation[];
+  isLoading?: boolean;
 }
 
 const formatINR = (value: number) =>

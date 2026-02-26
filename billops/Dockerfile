@@ -27,3 +27,5 @@ COPY --from=build /app/billops/target/*.jar app.jar
 
 # The command to run the application when the container starts
 ENTRYPOINT ["java", "-jar", "app.jar"]
+
+HEALTHCHECK --interval=30s --timeout=30s --start-period=120s --retries=3 CMD wget -q -O - http://localhost:8082/actuator/health | grep UP || exit 1

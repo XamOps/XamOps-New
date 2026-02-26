@@ -142,7 +142,7 @@ const AzureServiceTrendChart: React.FC<AzureServiceTrendChartProps> = ({
       )}
 
       {/* Chart */}
-      {!isLoading && data?.labels?.length > 0 && (
+      {!isLoading && (data?.labels?.length ?? 0) > 0 && (
         <div className="h-64 p-4 bg-white/40 backdrop-blur-sm rounded-2xl border border-white shadow-inner">
           <canvas ref={canvasRef}></canvas>
         </div>

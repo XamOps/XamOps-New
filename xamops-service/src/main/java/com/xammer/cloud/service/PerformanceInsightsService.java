@@ -47,6 +47,7 @@ public class PerformanceInsightsService {
     private final CloudListService cloudListService;
     private final EksService eksService;
     private final RedisCacheService redisCache;
+    private final DashboardDataService dashboardDataService;
     private final Map<String, PerformanceInsightDto> archivedInsights = new HashMap<>();
 
     @Autowired
@@ -55,13 +56,15 @@ public class PerformanceInsightsService {
                                       PricingService pricingService,
                                       @Lazy CloudListService cloudListService,
                                       @Lazy EksService eksService,
-                                      RedisCacheService redisCache) {
+                                      RedisCacheService redisCache,
+                                      @Lazy DashboardDataService dashboardDataService) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
         this.pricingService = pricingService;
         this.cloudListService = cloudListService;
         this.eksService = eksService;
         this.redisCache = redisCache;
+        this.dashboardDataService = dashboardDataService;
     }
 
         private CloudAccount getAccount(String accountId) {
@@ -77,11 +80,20 @@ public class PerformanceInsightsService {
         String cacheKey = "performanceInsights-" + accountId + "-ALL";
 
         if (!forceRefresh) {
+            // 1. Redis first — fast, no DB connection consumed
             Optional<List<PerformanceInsightDto>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {});
             if (cachedData.isPresent()) {
-                logger.info("Performance insights found in cache for account {}. Filtering by severity '{}'.", accountId, severity);
-                // If cache hits, filter the results and return immediately.
+                logger.info("✅ Redis cache hit for performance insights: {}", accountId);
                 return filterBySeverity(cachedData.get(), severity);
+            }
+            // 2. DB fallback — only when Redis is cold
+            @SuppressWarnings("unchecked")
+            List<PerformanceInsightDto> dbCached = (List<PerformanceInsightDto>) dashboardDataService
+                    .getAlertsSnapshot(cacheKey, new TypeReference<List<PerformanceInsightDto>>() {});
+            if (dbCached != null) {
+                logger.info("✅ DB hit for performance insights — repopulating Redis: {}", accountId);
+                redisCache.put(cacheKey, dbCached, 60); // re-warm Redis so next request skips DB
+                return filterBySeverity(dbCached, severity);
             }
         }
 
@@ -124,7 +136,8 @@ public class PerformanceInsightsService {
                     .collect(Collectors.toList());
             
             // Cache the complete, unfiltered dataset.
-            redisCache.put(cacheKey, allInsights, 10);
+            redisCache.put(cacheKey, allInsights, 60);
+            dashboardDataService.saveAlertsSnapshot(cacheKey, allInsights);
             logger.info("Total insights generated and cached across all regions: {}", allInsights.size());
 
             // Filter the newly fetched data before returning.

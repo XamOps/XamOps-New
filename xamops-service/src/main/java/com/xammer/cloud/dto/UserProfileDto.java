@@ -7,6 +7,7 @@ public class UserProfileDto {
     private String username;
     private List<String> roles;
     private boolean tourSeen;
+    private String tenantId;
 
     public UserProfileDto(String username, List<String> roles, boolean tourSeen) {
         this.username = username;
@@ -23,23 +24,26 @@ public class UserProfileDto {
         this.id = id;
     }
 
-    public String getUsername() { 
-        return username; 
+    public String getUsername() {
+        return username;
     }
-    
-    public void setUsername(String username) { 
-        this.username = username; 
+
+    public void setUsername(String username) {
+        this.username = username;
     }
-    
-    public List<String> getRoles() { 
-        return roles; 
+
+    public List<String> getRoles() {
+        return roles;
     }
-    
-    public void setRoles(List<String> roles) { 
-        this.roles = roles; 
+
+    public void setRoles(List<String> roles) {
+        this.roles = roles;
     }
 
     public boolean isTourSeen() { return tourSeen; }
     public void setTourSeen(boolean tourSeen) { this.tourSeen = tourSeen; }
+
+    public String getTenantId() { return tenantId; }
+    public void setTenantId(String tenantId) { this.tenantId = tenantId; }
 
 }

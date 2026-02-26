@@ -53,6 +53,8 @@ public class SecurityConfig {
                 .cors(withDefaults())
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests((requests) -> requests
+                        // Docker/K8s health checks — must be public so health probes don't 401
+                        .requestMatchers(new AntPathRequestMatcher("/actuator/health")).permitAll()
                         .requestMatchers(
                                 new AntPathRequestMatcher("/"),
                                 new AntPathRequestMatcher("/index.html"),
@@ -76,6 +78,10 @@ public class SecurityConfig {
                         .requestMatchers(new AntPathRequestMatcher("/billops/**"))
                         .hasAnyAuthority("ROLE_BILLOPS", "ROLE_BILLOPS_ADMIN")
                         .anyRequest().authenticated())
+                .exceptionHandling(ex -> ex
+                        .defaultAuthenticationEntryPointFor(
+                                new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),
+                                new AntPathRequestMatcher("/api/**")))
                 .formLogin((form) -> form
                         .loginPage("/login")
                         .successHandler(authenticationSuccessHandler)
@@ -87,7 +93,7 @@ public class SecurityConfig {
                         .permitAll())
                 .logout((logout) -> logout
                         .logoutUrl("/logout")
-                        .logoutSuccessUrl("/login?logout")
+                        .logoutSuccessUrl("/")
                         .invalidateHttpSession(true)
                         .deleteCookies("JSESSIONID")
                         .permitAll());

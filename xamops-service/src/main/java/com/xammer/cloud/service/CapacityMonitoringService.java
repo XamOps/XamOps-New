@@ -66,7 +66,6 @@ public class CapacityMonitoringService {
      * Runs every 15 minutes to check for threshold breaches.
      */
     @Scheduled(fixedDelay = 900000) // 15 minutes = 900,000 ms
-    @Transactional
     public void monitorCapacities() {
         if (!monitoringEnabled) {
             logger.debug("Capacity monitoring is disabled");
@@ -121,8 +120,8 @@ public class CapacityMonitoringService {
                 return;
             }
 
-            // Fetch all active capacities (status filters for active ones)
-            List<String> activeStatuses = Arrays.asList("ACTIVE", "RUNNING", "SCHEDULED", "COMPLETED");
+            // Fetch all active capacities — only valid CloudiDR statuses (RUNNING/SCHEDULED don't exist → 404)
+            List<String> activeStatuses = Arrays.asList("ACTIVE", "COMPLETED");
             CapacityListResponse capacityList = flexComputeService.describeCapacity(userId, 1, 100, "desc", activeStatuses);
 
             if (capacityList == null || capacityList.getValues() == null || capacityList.getValues().isEmpty()) {
@@ -155,8 +154,8 @@ public class CapacityMonitoringService {
         String status = capacity.getPolicyStatus();
         if (status == null) return;
 
-        // Only send deployment notification for ACTIVE or RUNNING capacities
-        if (!"ACTIVE".equalsIgnoreCase(status) && !"RUNNING".equalsIgnoreCase(status)) {
+        // Only send deployment notification for ACTIVE capacities (RUNNING is not a valid CloudiDR status)
+        if (!"ACTIVE".equalsIgnoreCase(status)) {
             return;
         }
 
@@ -187,7 +186,7 @@ public class CapacityMonitoringService {
                     capacity.getPolicyName(),
                     userEmail
             );
-            notificationHistoryRepository.save(history);
+            recordNotificationHistory(history);
 
             logger.info("Successfully sent deployment notification for capacity {} to {}", cidrId, userEmail);
 
@@ -281,7 +280,7 @@ public class CapacityMonitoringService {
                     capacity.getPolicyName(),
                     userEmail
             );
-            notificationHistoryRepository.save(history);
+            recordNotificationHistory(history);
 
             logger.info("Successfully sent {}% threshold notification for capacity {} to {}",
                     threshold, capacity.getCidrId(), userEmail);
@@ -290,6 +289,14 @@ public class CapacityMonitoringService {
             logger.error("Failed to send threshold notification for capacity {}: {}",
                     capacity.getCidrId(), e.getMessage(), e);
         }
+    }
+
+    /**
+     * Persist a notification history record.
+     * Spring Data JPA repository.save() provides its own transaction automatically.
+     */
+    protected void recordNotificationHistory(CapacityNotificationHistory history) {
+        notificationHistoryRepository.save(history);
     }
 
     /**

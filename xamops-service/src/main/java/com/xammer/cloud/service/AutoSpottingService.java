@@ -69,6 +69,13 @@ public class AutoSpottingService {
     private final DailySpotSavingsRepository savingsRepository;
     private final com.xammer.cloud.repository.AutoSpottingSettingsRepository settingsRepository;
     private final com.xammer.cloud.repository.AsgSpotConfigRepository asgSpotConfigRepository;
+    private final RedisCacheService redisCacheService;
+
+    // Redis cache key prefixes for SpotAutomation page data
+    private static final String CACHE_KEY_ASG_LIST   = "autospotting-asgs-";
+    private static final String CACHE_KEY_COST        = "autospotting-cost-";
+    private static final String CACHE_KEY_INSTANCES   = "autospotting-instances-";
+    private static final int    CACHE_TTL_MINUTES     = 240; // 4 hours
 
     // Cache for region discovery
     private final Map<String, CachedRegionInfo> regionCache = new ConcurrentHashMap<>();
@@ -94,7 +101,8 @@ public class AutoSpottingService {
             SpotOptimizationEventRepository eventRepository,
             DailySpotSavingsRepository savingsRepository,
             com.xammer.cloud.repository.AutoSpottingSettingsRepository settingsRepository,
-            com.xammer.cloud.repository.AsgSpotConfigRepository asgSpotConfigRepository) {
+            com.xammer.cloud.repository.AsgSpotConfigRepository asgSpotConfigRepository,
+            RedisCacheService redisCacheService) {
         this.awsClientProvider = awsClientProvider;
         this.cloudAccountRepository = cloudAccountRepository;
         this.spotPricingService = spotPricingService;
@@ -102,6 +110,7 @@ public class AutoSpottingService {
         this.savingsRepository = savingsRepository;
         this.settingsRepository = settingsRepository;
         this.asgSpotConfigRepository = asgSpotConfigRepository;
+        this.redisCacheService = redisCacheService;
         logger.info("AutoSpottingService initialized with table={} tagKey={} tagValue={} namespace={}",
                 tableName, tagKey, tagValue, metricNamespace);
     }
@@ -198,9 +207,28 @@ public class AutoSpottingService {
     // ================= COST & SAVINGS DATA (API-BASED, NO ATHENA)
     // =================
     /**
-     * Get current cost data using AWS SDK + SpotPricingService (in-house)
+     * Get current cost data using AWS SDK + SpotPricingService (in-house).
+     * Convenience overload — reads from Redis cache.
      */
     public CostResponse getCostData(Long cloudAccountId) {
+        return getCostData(cloudAccountId, false);
+    }
+
+    /**
+     * Get current cost data using AWS SDK + SpotPricingService (in-house).
+     * @param forceRefresh when true, bypasses Redis cache and fetches live from AWS.
+     */
+    public CostResponse getCostData(Long cloudAccountId, boolean forceRefresh) {
+        String cacheKey = CACHE_KEY_COST + cloudAccountId;
+
+        if (!forceRefresh) {
+            Optional<CostResponse> cached = redisCacheService.get(cacheKey, CostResponse.class);
+            if (cached.isPresent()) {
+                logger.info("--- AUTOSPOTTING COST: loaded from Redis for cloudAccountId={} ---", cloudAccountId);
+                return cached.get();
+            }
+        }
+
         logger.info("=== Fetching Cost Data (In-House SDK) ===");
         logger.info("CloudAccountId={}", cloudAccountId);
 
@@ -243,10 +271,15 @@ public class AutoSpottingService {
                     String.format("%.4f", totalCurrentHourlyCost),
                     String.format("%.4f", totalActualSavings));
 
+            redisCacheService.put(CACHE_KEY_COST + cloudAccountId, response, CACHE_TTL_MINUTES);
             return response;
         } catch (Exception e) {
             logger.error("Failed to build cost data from SDK: {}", e.getMessage(), e);
-            return buildCostResponseFromAwsSdk(account);
+            CostResponse fallback = buildCostResponseFromAwsSdk(account);
+            if (fallback != null) {
+                redisCacheService.put(CACHE_KEY_COST + cloudAccountId, fallback, CACHE_TTL_MINUTES);
+            }
+            return fallback;
         }
     }
 
@@ -512,10 +545,29 @@ public class AutoSpottingService {
     }
 
     /**
-     * Lists ASGs across regions where AutoSpotting member stack is deployed
-     * Fallback method when API is unavailable
+     * Lists ASGs across regions where AutoSpotting member stack is deployed.
+     * Convenience overload — reads from Redis cache.
      */
     public List<AutoSpottingGroupDto> listAsgsAllRegions(Long cloudAccountId) {
+        return listAsgsAllRegions(cloudAccountId, false);
+    }
+
+    /**
+     * Lists ASGs across regions where AutoSpotting member stack is deployed.
+     * @param forceRefresh when true, bypasses Redis cache and fetches live from AWS.
+     */
+    public List<AutoSpottingGroupDto> listAsgsAllRegions(Long cloudAccountId, boolean forceRefresh) {
+        String cacheKey = CACHE_KEY_ASG_LIST + cloudAccountId;
+
+        if (!forceRefresh) {
+            Optional<List<AutoSpottingGroupDto>> cached = redisCacheService.get(cacheKey,
+                    new com.fasterxml.jackson.core.type.TypeReference<List<AutoSpottingGroupDto>>() {});
+            if (cached.isPresent()) {
+                logger.info("--- AUTOSPOTTING ASGS: loaded from Redis for cloudAccountId={} ---", cloudAccountId);
+                return cached.get();
+            }
+        }
+
         logger.info("=== Listing ASGs via AWS SDK (Fallback) ===");
         logger.info("CloudAccountId={}", cloudAccountId);
 
@@ -550,6 +602,9 @@ public class AutoSpottingService {
             long enabledCount = allAsgs.stream().filter(a -> a.isEnabled).count();
             logger.info("=== Total: {} ASG(s) found, {} enabled ===", allAsgs.size(), enabledCount);
 
+            if (!allAsgs.isEmpty()) {
+                redisCacheService.put(CACHE_KEY_ASG_LIST + cloudAccountId, allAsgs, CACHE_TTL_MINUTES);
+            }
             return allAsgs;
         } catch (Exception e) {
             logger.error("Failed to list ASGs: {}", e.getMessage(), e);
@@ -618,7 +673,26 @@ public class AutoSpottingService {
      * performs DescribeInstances calls to get details like lifecycle
      * (Spot/On-Demand)
      */
+    /** Convenience overload — reads from Redis cache. */
     public List<SpotInstanceDto> getSpotInstances(Long cloudAccountId) {
+        return getSpotInstances(cloudAccountId, false);
+    }
+
+    /**
+     * @param forceRefresh when true, bypasses Redis cache and fetches live from AWS.
+     */
+    public List<SpotInstanceDto> getSpotInstances(Long cloudAccountId, boolean forceRefresh) {
+        String cacheKey = CACHE_KEY_INSTANCES + cloudAccountId;
+
+        if (!forceRefresh) {
+            Optional<List<SpotInstanceDto>> cached = redisCacheService.get(cacheKey,
+                    new com.fasterxml.jackson.core.type.TypeReference<List<SpotInstanceDto>>() {});
+            if (cached.isPresent()) {
+                logger.info("--- AUTOSPOTTING INSTANCES: loaded from Redis for cloudAccountId={} ---", cloudAccountId);
+                return cached.get();
+            }
+        }
+
         logger.info("=== Listing Spot Instances ===");
         logger.info("CloudAccountId={}", cloudAccountId);
 
@@ -734,6 +808,9 @@ public class AutoSpottingService {
                 }
             }
 
+            if (!allInstances.isEmpty()) {
+                redisCacheService.put(CACHE_KEY_INSTANCES + cloudAccountId, allInstances, CACHE_TTL_MINUTES);
+            }
             return allInstances;
 
         } catch (Exception e) {

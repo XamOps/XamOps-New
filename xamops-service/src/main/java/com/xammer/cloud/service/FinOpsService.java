@@ -9,7 +9,9 @@ import com.xammer.cloud.dto.ResourceDto;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import com.xammer.cloud.config.multitenancy.TenantContextUtil;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
@@ -37,6 +39,8 @@ import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 @Service
@@ -52,6 +56,11 @@ public class FinOpsService {
     private final RedisCacheService redisCache;
     private final UserRepository userRepository;
     private final CostMockService costMockService;
+    private final DashboardDataService dashboardDataService;
+
+    @Autowired
+    @Qualifier("awsTaskExecutor")
+    private Executor awsTaskExecutor;
 
     @Value("${aws.costexplorer.mock:false}")
     private boolean useMockData;
@@ -65,7 +74,8 @@ public class FinOpsService {
             @Value("${tagging.compliance.required-tags}") List<String> requiredTags,
             RedisCacheService redisCache,
             UserRepository userRepository,
-            CostMockService costMockService) {
+            CostMockService costMockService,
+            @Lazy DashboardDataService dashboardDataService) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
         this.cloudListService = cloudListService;
@@ -74,6 +84,7 @@ public class FinOpsService {
         this.redisCache = redisCache;
         this.userRepository = userRepository;
         this.costMockService = costMockService;
+        this.dashboardDataService = dashboardDataService;
 
         logger.info("FinOpsService initialized (Mock Mode: {})", useMockData);
     }
@@ -94,11 +105,23 @@ public class FinOpsService {
         final String cacheKey = (startDate != null && endDate != null)
                 ? "finopsReport-" + accountId + "-" + startDate + "-" + endDate
                 : "finopsReport-" + accountId;
+        final String dbKey = "finops-" + accountId; // stable key used by ProactiveCacheRefreshService
 
         if (!forceRefresh) {
+            // 1. Redis first — fast, no DB connection consumed
             Optional<FinOpsReportDto> cachedData = redisCache.get(cacheKey, FinOpsReportDto.class);
             if (cachedData.isPresent()) {
+                logger.info("✅ Redis hit for FinOps report: {}", accountId);
                 return CompletableFuture.completedFuture(cachedData.get());
+            }
+            // 2. DB fallback — only for default (no custom date range) requests
+            if (startDate == null && endDate == null) {
+                FinOpsReportDto dbData = dashboardDataService.getFinOpsSnapshot(dbKey);
+                if (dbData != null) {
+                    logger.info("✅ DB hit for FinOps report — repopulating Redis: {}", accountId);
+                    redisCache.put(cacheKey, dbData, 10);
+                    return CompletableFuture.completedFuture(dbData);
+                }
             }
         }
 
@@ -123,21 +146,66 @@ public class FinOpsService {
                         account.getAwsAccountId());
             }
 
+            // Per-future timeout: each sub-call gets max 30s.
+            // If one slow future (e.g. TaggingCompliance scanning 1000+ resources) misses its
+            // deadline it returns an empty/default value instead of blocking the entire allOf().
+            final int FUTURE_TIMEOUT_SECONDS = 30;
+
             CompletableFuture<List<DashboardData.BillingSummary>> billingSummaryFuture = getBillingSummary(account,
-                    forceRefresh, startDate, endDate);
+                    forceRefresh, startDate, endDate)
+                    .orTimeout(FUTURE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    .exceptionally(ex -> {
+                        logger.warn("[FinOps] ⚠️ BillingSummary timed out/failed for {}: {}", accountId, ex.getMessage());
+                        return Collections.emptyList();
+                    });
             CompletableFuture<List<DashboardData.WastedResource>> wastedResourcesFuture = optimizationService
-                    .getWastedResources(account, activeRegions, forceRefresh);
+                    .getWastedResources(account, activeRegions, forceRefresh)
+                    .orTimeout(FUTURE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    .exceptionally(ex -> {
+                        logger.warn("[FinOps] ⚠️ WastedResources timed out/failed for {}: {}", accountId, ex.getMessage());
+                        return Collections.emptyList();
+                    });
             CompletableFuture<List<DashboardData.OptimizationRecommendation>> rightsizingFuture = optimizationService
-                    .getAllOptimizationRecommendations(accountId, forceRefresh);
+                    .getAllOptimizationRecommendations(accountId, forceRefresh)
+                    .orTimeout(FUTURE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    .exceptionally(ex -> {
+                        logger.warn("[FinOps] ⚠️ Rightsizing timed out/failed for {}: {}", accountId, ex.getMessage());
+                        return Collections.emptyList();
+                    });
             CompletableFuture<List<DashboardData.CostAnomaly>> anomaliesFuture = getCostAnomalies(account,
-                    forceRefresh);
+                    forceRefresh)
+                    .orTimeout(FUTURE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    .exceptionally(ex -> {
+                        logger.warn("[FinOps] ⚠️ CostAnomalies timed out/failed for {}: {}", accountId, ex.getMessage());
+                        return Collections.emptyList();
+                    });
             CompletableFuture<DashboardData.CostHistory> costHistoryFuture = getCostHistory(account, forceRefresh,
-                    startDate, endDate);
+                    startDate, endDate)
+                    .orTimeout(FUTURE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    .exceptionally(ex -> {
+                        logger.warn("[FinOps] ⚠️ CostHistory timed out/failed for {}: {}", accountId, ex.getMessage());
+                        return new DashboardData.CostHistory(new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
+                    });
             CompletableFuture<DashboardData.TaggingCompliance> taggingComplianceFuture = getTaggingCompliance(account,
-                    forceRefresh);
-            CompletableFuture<List<BudgetDetails>> budgetsFuture = getAccountBudgets(account, forceRefresh);
+                    forceRefresh)
+                    .orTimeout(FUTURE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    .exceptionally(ex -> {
+                        logger.warn("[FinOps] ⚠️ TaggingCompliance timed out/failed for {}: {}", accountId, ex.getMessage());
+                        return new DashboardData.TaggingCompliance(0.0, 0, 0, Collections.emptyList());
+                    });
+            CompletableFuture<List<BudgetDetails>> budgetsFuture = getAccountBudgets(account, forceRefresh)
+                    .orTimeout(FUTURE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    .exceptionally(ex -> {
+                        logger.warn("[FinOps] ⚠️ Budgets timed out/failed for {}: {}", accountId, ex.getMessage());
+                        return Collections.emptyList();
+                    });
             CompletableFuture<List<Map<String, Object>>> costByRegionFuture = getCostByRegion(account, forceRefresh,
-                    startDate, endDate);
+                    startDate, endDate)
+                    .orTimeout(FUTURE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    .exceptionally(ex -> {
+                        logger.warn("[FinOps] ⚠️ CostByRegion timed out/failed for {}: {}", accountId, ex.getMessage());
+                        return Collections.emptyList();
+                    });
 
             return CompletableFuture
                     .allOf(billingSummaryFuture, wastedResourcesFuture, rightsizingFuture, anomaliesFuture,
@@ -193,6 +261,10 @@ public class FinOpsService {
                                 wastedResourcesFuture.join(), anomaliesFuture.join(), taggingComplianceFuture.join(),
                                 budgetsFuture.join());
                         redisCache.put(cacheKey, report, 10);
+                        // Save to DB for default (no custom date range) requests — warm for post-deploy cold starts
+                        if (startDate == null && endDate == null) {
+                            dashboardDataService.saveFinOpsSnapshot(dbKey, report);
+                        }
                         logger.info(
                                 "[FinOps] ✅ Report generated and cached successfully for account {} (Spend: ${}, Forecast: ${})",
                                 accountId, String.format("%.2f", mtdSpend), String.format("%.2f", forecastedSpend));
@@ -245,6 +317,78 @@ public class FinOpsService {
     }
 
     /**
+     * Lightweight budget lookup by accountId string — for notification endpoints.
+     * Handles account lookup internally and delegates to the cached getAccountBudgets().
+     * Much cheaper than the full FinOps report (1 AWS call vs 8 parallel calls).
+     */
+    @Async("awsTaskExecutor")
+    public CompletableFuture<List<DashboardData.BudgetDetails>> getBudgets(
+            String accountId, boolean forceRefresh) {
+        return getAccountBudgets(getAccount(accountId), forceRefresh);
+    }
+
+    // -------------------------------------------------------------------------
+    // Per-section public wrappers — take accountId string, used by individual
+    // controller endpoints so each FinOps page section can be fetched independently.
+    // -------------------------------------------------------------------------
+
+    @Async("awsTaskExecutor")
+    public CompletableFuture<List<DashboardData.BillingSummary>> getBillingSummaryById(
+            String accountId, boolean forceRefresh, String startDate, String endDate) {
+        return getBillingSummary(getAccount(accountId), forceRefresh, startDate, endDate);
+    }
+
+    @Async("awsTaskExecutor")
+    public CompletableFuture<DashboardData.CostHistory> getCostHistoryById(
+            String accountId, boolean forceRefresh, String startDate, String endDate) {
+        return getCostHistory(getAccount(accountId), forceRefresh, startDate, endDate);
+    }
+
+    @Async("awsTaskExecutor")
+    public CompletableFuture<List<Map<String, Object>>> getCostByRegionById(
+            String accountId, boolean forceRefresh, String startDate, String endDate) {
+        return getCostByRegion(getAccount(accountId), forceRefresh, startDate, endDate);
+    }
+
+    @Async("awsTaskExecutor")
+    public CompletableFuture<List<DashboardData.CostAnomaly>> getCostAnomaliesById(
+            String accountId, boolean forceRefresh) {
+        return getCostAnomalies(getAccount(accountId), forceRefresh);
+    }
+
+    @Async("awsTaskExecutor")
+    public CompletableFuture<DashboardData.TaggingCompliance> getTaggingComplianceById(
+            String accountId, boolean forceRefresh) {
+        return getTaggingCompliance(getAccount(accountId), forceRefresh);
+    }
+
+    /**
+     * Wasted resources wrapper — resolves active regions first, then scans.
+     * Both steps are already individually Redis-cached so warm calls are fast.
+     */
+    @Async("awsTaskExecutor")
+    public CompletableFuture<List<DashboardData.WastedResource>> getWastedResourcesById(
+            String accountId, boolean forceRefresh) {
+        CloudAccount account = getAccount(accountId);
+        return cloudListService.getRegionStatusForAccount(account, forceRefresh)
+                .thenComposeAsync(activeRegions -> {
+                    logger.debug("[FinOps] wasted-resources compose callback — account={} tenant={} thread={} regions={}",
+                            accountId,
+                            org.slf4j.MDC.get("tenant"),
+                            Thread.currentThread().getName(),
+                            activeRegions != null ? activeRegions.size() : 0);
+                    return optimizationService.getWastedResources(account, activeRegions, forceRefresh);
+                }, TenantContextUtil.tenantAware(awsTaskExecutor));
+    }
+
+    /** Rightsizing wrapper — delegates directly to the cached OptimizationService method. */
+    @Async("awsTaskExecutor")
+    public CompletableFuture<List<DashboardData.OptimizationRecommendation>> getRightsizingById(
+            String accountId, boolean forceRefresh) {
+        return optimizationService.getAllOptimizationRecommendations(accountId, forceRefresh);
+    }
+
+    /**
      * Creates a budget, optionally adding email notifications if the user has an
      * email configured.
      *
@@ -280,7 +424,7 @@ public class FinOpsService {
 
         try {
             Budget budget = Budget.builder()
-                    .budgetName(budgetDetails.getBudgetName()).budgetType(BudgetType.COST).timeUnit(TimeUnit.MONTHLY)
+                    .budgetName(budgetDetails.getBudgetName()).budgetType(BudgetType.COST).timeUnit(software.amazon.awssdk.services.budgets.model.TimeUnit.MONTHLY)
                     .timePeriod(TimePeriod.builder().start(Instant.now()).build())
                     .budgetLimit(Spend.builder().amount(budgetDetails.getBudgetLimit())
                             .unit(budgetDetails.getBudgetUnit()).build())
@@ -669,27 +813,31 @@ public class FinOpsService {
                     anomalies.add(false);
                 });
             } else {
-                logger.info("Fetching cost history for account {}...", account.getAwsAccountId());
+                logger.info("Fetching 6-month cost history for account {} (single batched call)...",
+                        account.getAwsAccountId());
+                LocalDate startRange = LocalDate.now().minusMonths(5).withDayOfMonth(1);
+                LocalDate endRange = LocalDate.now().plusDays(1);
+                GetCostAndUsageRequest req = GetCostAndUsageRequest.builder()
+                        .timePeriod(DateInterval.builder()
+                                .start(startRange.toString()).end(endRange.toString()).build())
+                        .granularity(Granularity.MONTHLY).metrics("UnblendedCost").build();
 
-                for (int i = 5; i >= 0; i--) {
-                    LocalDate month = LocalDate.now().minusMonths(i);
-                    labels.add(month.format(DateTimeFormatter.ofPattern("MMM uuuu")));
-                    GetCostAndUsageRequest req = GetCostAndUsageRequest.builder()
-                            .timePeriod(DateInterval.builder().start(month.withDayOfMonth(1).toString())
-                                    .end(month.plusMonths(1).withDayOfMonth(1).toString()).build())
-                            .granularity(Granularity.MONTHLY).metrics("UnblendedCost").build();
-                    double currentCost = Double.parseDouble(
-                            ce.getCostAndUsage(req).resultsByTime().get(0).total().get("UnblendedCost").amount());
+                List<Double> allCosts = new ArrayList<>();
+                ce.getCostAndUsage(req).resultsByTime().forEach(result -> {
+                    LocalDate monthStart = LocalDate.parse(result.timePeriod().start());
+                    labels.add(monthStart.format(DateTimeFormatter.ofPattern("MMM uuuu")));
+                    allCosts.add(Double.parseDouble(result.total().get("UnblendedCost").amount()));
+                });
+
+                for (int i = 0; i < allCosts.size(); i++) {
+                    double currentCost = allCosts.get(i);
                     costs.add(currentCost);
-
                     boolean isAnomaly = false;
-                    if (costs.size() > 1) {
-                        double previousCost = costs.get(costs.size() - 2);
+                    if (i > 0) {
+                        double previousCost = allCosts.get(i - 1);
                         if (previousCost > 100) {
                             double changePercent = ((currentCost - previousCost) / previousCost) * 100;
-                            if (changePercent > 20) {
-                                isAnomaly = true;
-                            }
+                            if (changePercent > 20) isAnomaly = true;
                         }
                     }
                     anomalies.add(isAnomaly);

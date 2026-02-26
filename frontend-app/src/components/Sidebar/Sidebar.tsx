@@ -213,9 +213,9 @@ const Sidebar: React.FC = () => {
                   <>
                     <NavItem href="/cloudsitter" icon="fas fa-clock" label="CloudSitter" isActive={isActive('/cloudsitter')} />
                     <NavItem href="/flex-compute" icon="fas fa-microchip" label="Flex Compute" isActive={isActive('/flex-compute')} />
+                    <NavItem href="/autospotting" icon="fas fa-magic" label="AutoSpotting" isActive={isActive('/autospotting')} />
                   </>
                 )}
-                <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-autospotting' : '/autospotting'} icon="fas fa-magic" label="AutoSpotting" isActive={isActive('/autospotting') || isActive('/gcp-autospotting')} />
               </NavSection>
 
               <NavSection

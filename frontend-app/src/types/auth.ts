@@ -13,6 +13,7 @@ export interface UserProfile {
   id?: number;
   username?: string;
   email?: string;
+  tenantId?: string;
   roles?: UserRole[];
   authorities?: UserRole[]; // Some endpoints return 'authorities' instead of 'roles'
 }
