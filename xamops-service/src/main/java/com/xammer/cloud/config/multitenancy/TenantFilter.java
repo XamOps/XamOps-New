@@ -1,12 +1,16 @@
 package com.xammer.cloud.config.multitenancy;
 
 import com.xammer.cloud.dto.GlobalUserDto;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.stereotype.Component;
+
+import org.slf4j.MDC;
 
 import javax.servlet.*;
 import javax.servlet.http.HttpServletRequest;
@@ -17,6 +21,8 @@ import java.util.Optional;
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE) // Ensure this runs before Spring Security
 public class TenantFilter implements Filter {
+
+    private static final Logger log = LoggerFactory.getLogger(TenantFilter.class);
 
     private static final String TENANT_HEADER = "X-Tenant-ID";
     private static final String TENANT_PARAM = "tenantId";
@@ -57,17 +63,26 @@ public class TenantFilter implements Filter {
             // 4. If found, set context
             if (tenantId != null && !tenantId.isEmpty()) {
                 TenantContext.setCurrentTenant(tenantId);
+                MDC.put("tenant", tenantId);
+            } else {
+                log.warn("TenantFilter: no tenant resolved for {} {} — DB will fall back to 'system'",
+                        req.getMethod(), req.getRequestURI());
             }
+
+            log.debug("→ {} {} tenant={}", req.getMethod(), req.getRequestURI(),
+                    TenantContext.getCurrentTenant() != null ? TenantContext.getCurrentTenant() : "<null/default>");
         } else {
             // Local/UAT: Default to 'default' tenant or null to ensure single-DB access
             // works
             TenantContext.setCurrentTenant("default");
+            MDC.put("tenant", "default");
         }
 
         try {
             chain.doFilter(request, response);
         } finally {
             TenantContext.clear();
+            MDC.remove("tenant");
         }
     }
 
@@ -92,18 +107,17 @@ public class TenantFilter implements Filter {
                         Optional<GlobalUserDto> userDto = masterDatabaseService.findGlobalUser(username);
                         if (userDto.isPresent()) {
                             String tenantId = userDto.get().getTenantId();
-                            System.out.println("TenantFilter: Resolved tenant " + tenantId + " for user " + username);
+                            log.debug("TenantFilter: Resolved tenant {} for user {}", tenantId, username);
                             return tenantId;
                         } else {
-                            System.out.println("TenantFilter: User " + username + " not found in global directory");
+                            log.debug("TenantFilter: User {} not found in global directory", username);
                         }
                     }
                 }
             }
         } catch (Exception e) {
             // Log silently to avoid flooding logs on unauthenticated requests
-            System.err.println("TenantFilter fallback failed: " + e.getMessage());
-            e.printStackTrace();
+            log.warn("TenantFilter fallback failed: {}", e.getMessage());
         }
         return null;
     }

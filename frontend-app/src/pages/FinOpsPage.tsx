@@ -64,6 +64,7 @@ export const FinOpsPage: React.FC = () => {
   // Get FinOps data
   const {
     reportData,
+    sectionLoading,
     reportSchedules,
     isLoading,
     isRefreshing,
@@ -286,61 +287,72 @@ export const FinOpsPage: React.FC = () => {
           </div>
         )}
 
-        {/* Loading State */}
-        {selectedAccountId && isLoading && (
-          <div className="space-y-8">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              {[...Array(4)].map((_, i) => (
-                <div key={i} className="animate-pulse bg-gray-200 h-32 w-full rounded-xl"></div>
-              ))}
-            </div>
-            <div className="animate-pulse bg-gray-200 h-64 w-full rounded-xl"></div>
-          </div>
-        )}
-
-        {/* Report Content */}
-        {selectedAccountId && !isLoading && reportData && (
+        {selectedAccountId && (
           <>
-            {/* KPI Grid */}
-            <FinOpsKPISection kpis={reportData.kpis} />
+            {/* KPI Grid — shows as soon as billing-summary resolves (~3-5s) */}
+            {sectionLoading.kpis ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                {[...Array(4)].map((_, i) => (
+                  <div key={i} className="animate-pulse bg-gray-200 h-32 w-full rounded-xl" />
+                ))}
+              </div>
+            ) : reportData && (
+              <FinOpsKPISection kpis={reportData.kpis} />
+            )}
 
             {/* Budgets Section */}
-            <FinOpsBudgets
-              budgets={reportData.budgets}
-              onCreateBudget={() => setIsBudgetModalOpen(true)}
-              onScheduleReport={() => setIsScheduleModalOpen(true)}
-              onDeleteBudget={handleDeleteBudget}
-            />
+            {sectionLoading.budgets ? (
+              <div className="animate-pulse bg-gray-200 h-40 w-full rounded-xl" />
+            ) : reportData && (
+              <FinOpsBudgets
+                budgets={reportData.budgets}
+                onCreateBudget={() => setIsBudgetModalOpen(true)}
+                onScheduleReport={() => setIsScheduleModalOpen(true)}
+                onDeleteBudget={handleDeleteBudget}
+              />
+            )}
 
             {/* Scheduled Reports */}
             {reportSchedules.length > 0 && (
               <FinOpsScheduledReports schedules={reportSchedules} onDeleteSchedule={handleDeleteSchedule} />
             )}
 
-            {/* Charts Grid */}
-            <FinOpsCharts costBreakdown={reportData.costBreakdown} />
+            {/* Charts Grid — shows when cost-history + cost-by-region resolve */}
+            {sectionLoading.charts ? (
+              <div className="animate-pulse bg-gray-200 h-64 w-full rounded-xl" />
+            ) : reportData && (
+              <FinOpsCharts costBreakdown={reportData.costBreakdown} />
+            )}
 
-            {/* Tagging Compliance Section */}
-            <FinOpsTaggingCompliance
-              taggingCompliance={reportData.taggingCompliance}
-              pagination={taggingPagination}
-              onPaginationChange={(updates) => updatePagination('tagging', updates)}
-            />
+            {/* Tagging Compliance — may be slow (full resource scan); shows its own skeleton */}
+            {sectionLoading.tagging ? (
+              <div className="animate-pulse bg-gray-200 h-48 w-full rounded-xl" />
+            ) : reportData && (
+              <FinOpsTaggingCompliance
+                taggingCompliance={reportData.taggingCompliance}
+                pagination={taggingPagination}
+                onPaginationChange={(updates) => updatePagination('tagging', updates)}
+              />
+            )}
 
-            {/* Insights & Opportunities */}
-            {(reportData.rightsizingRecommendations.length > 0 ||
+            {/* Insights — shows when rightsizing + wasted-resources + anomalies resolve */}
+            {sectionLoading.insights ? (
+              <div className="animate-pulse bg-gray-200 h-64 w-full rounded-xl" />
+            ) : reportData && (
+              reportData.rightsizingRecommendations.length > 0 ||
               reportData.wastedResources.length > 0 ||
-              reportData.costAnomalies.length > 0) && (
-                <FinOpsInsights
-                  costAnomalies={reportData.costAnomalies}
-                  rightsizingRecommendations={reportData.rightsizingRecommendations}
-                  wastedResources={reportData.wastedResources}
-                  rightsizingPagination={rightsizingPagination}
-                  wastedPagination={wastedPagination}
-                  onRightsizingPaginationChange={(updates) => updatePagination('rightsizing', updates)}
-                  onWastedPaginationChange={(updates) => updatePagination('wasted', updates)}
-                />
-              )}
+              reportData.costAnomalies.length > 0
+            ) && reportData && (
+              <FinOpsInsights
+                costAnomalies={reportData.costAnomalies}
+                rightsizingRecommendations={reportData.rightsizingRecommendations}
+                wastedResources={reportData.wastedResources}
+                rightsizingPagination={rightsizingPagination}
+                wastedPagination={wastedPagination}
+                onRightsizingPaginationChange={(updates) => updatePagination('rightsizing', updates)}
+                onWastedPaginationChange={(updates) => updatePagination('wasted', updates)}
+              />
+            )}
           </>
         )}
       </div>

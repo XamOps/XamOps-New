@@ -53,6 +53,9 @@ public class MultiTenantDataSourceConfig {
     @Value("${spring.datasource.hikari.maximum-pool-size:10}")
     private int maximumPoolSize;
 
+    @Value("${spring.datasource.hikari.master-maximum-pool-size:10}")
+    private int masterMaximumPoolSize;
+
     @Value("${spring.datasource.hikari.validation-timeout:3000}")
     private long validationTimeout;
 
@@ -79,8 +82,8 @@ public class MultiTenantDataSourceConfig {
      */
     private void applyMasterHikariSettings(HikariDataSource ds, String poolName) {
         ds.setPoolName(poolName);
-        ds.setMaximumPoolSize(5);
-        ds.setMinimumIdle(2);
+        ds.setMaximumPoolSize(masterMaximumPoolSize);
+        ds.setMinimumIdle(masterMaximumPoolSize / 2);
         ds.setConnectionTimeout(connectionTimeout);
         ds.setIdleTimeout(idleTimeout);
         ds.setMaxLifetime(maxLifetime);

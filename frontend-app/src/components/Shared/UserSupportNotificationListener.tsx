@@ -4,6 +4,7 @@ import apiClient from '../../utils/apiClient';
 import { notifyNewSupportReply, initNotificationService, playNotificationSound } from '../../utils/notificationService';
 
 const POLL_INTERVAL = 5000; // 5 seconds for background polling (same as chat widget)
+const MAX_CONSECUTIVE_ERRORS = 5; // Stop polling after this many consecutive failures
 
 interface ChatHistoryItem {
     content: string;
@@ -30,6 +31,7 @@ const UserSupportNotificationListener: React.FC = () => {
     const previousLastTimestampRef = useRef<string>('');
     const isInitializedRef = useRef(false);
     const isMountedRef = useRef(true);
+    const consecutiveErrorsRef = useRef<number>(0);
 
     /**
      * Get selected account ID from sessionStorage
@@ -100,8 +102,18 @@ const UserSupportNotificationListener: React.FC = () => {
                 previousLastTimestampRef.current = history[history.length - 1].timestamp;
             }
 
+            // Reset error counter on successful response
+            consecutiveErrorsRef.current = 0;
+
         } catch (error) {
+            consecutiveErrorsRef.current++;
             console.error('[UserNotification] Failed to poll chat history:', error);
+
+            // Stop polling after repeated consecutive failures to prevent log spam
+            if (consecutiveErrorsRef.current >= MAX_CONSECUTIVE_ERRORS) {
+                console.warn(`[UserNotification] Stopping poll after ${MAX_CONSECUTIVE_ERRORS} consecutive failures.`);
+                if (intervalRef.current) clearInterval(intervalRef.current);
+            }
         }
     }, [getSelectedAccountId]);
 

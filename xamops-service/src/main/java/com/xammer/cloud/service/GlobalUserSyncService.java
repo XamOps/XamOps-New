@@ -9,11 +9,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import javax.sql.DataSource;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 
@@ -33,15 +35,17 @@ public class GlobalUserSyncService {
     @Autowired
     private TenantService tenantService; // Service layer without security restrictions
 
+    @Autowired
+    private Environment environment;
+
     /**
-     * Runs automatically every 60 seconds to ensure Global Directory is up to date.
-     * ONLY runs in PROD profile (local/UAT use single DB, no tenant sync needed)
+     * Runs automatically every 5 minutes to ensure Global Directory is up to date.
+     * ONLY runs in PROD/PREPROD profile (local/UAT use single DB, no tenant sync needed)
      */
-    @Scheduled(fixedDelay = 60000) // Run every 1 minute
+    @Scheduled(fixedDelay = 86400000) // Run every 24 hours — user sync is low-urgency, daily is sufficient
     public void syncAllUsersToGlobalDirectory() {
-        // Skip in local/UAT - only run in prod
-        String[] activeProfiles = new org.springframework.core.env.StandardEnvironment().getActiveProfiles();
-        List<String> profilesList = java.util.Arrays.asList(activeProfiles);
+        // Skip in local/UAT - only run in prod/preprod
+        List<String> profilesList = Arrays.asList(environment.getActiveProfiles());
         boolean isSyncProfile = profilesList.contains("prod") || profilesList.contains("preprod");
         if (!isSyncProfile) {
             log.debug("Skipping Global User Sync - not in prod or preprod profile");
@@ -58,6 +62,7 @@ public class GlobalUserSyncService {
 
         for (TenantDto tenant : tenants) {
             syncTenantUsers(tenant.getTenantId());
+            try { Thread.sleep(500); } catch (InterruptedException ignored) {} // throttle between tenants
         }
 
         log.info("✓ Global User Synchronization Complete.");

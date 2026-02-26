@@ -1,12 +1,15 @@
 package com.xammer.cloud.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.xammer.cloud.domain.CachedData;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.CostDto;
 import com.xammer.cloud.dto.CostForecastDto;
 import com.xammer.cloud.dto.DetailedCostDto;
 import com.xammer.cloud.dto.ForecastDto;
 import com.xammer.cloud.dto.HistoricalCostDto;
+import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,6 +38,8 @@ public class CostService {
         private final RedisCacheService redisCache;
         private final ForecastingService forecastingService;
         private final CostMockService costMockService;
+        private final CachedDataRepository cachedDataRepository;
+        private final ObjectMapper objectMapper;
 
         @Value("${aws.costexplorer.mock:false}")
         private boolean useMockData;
@@ -44,12 +49,16 @@ public class CostService {
                         AwsClientProvider awsClientProvider,
                         RedisCacheService redisCache,
                         @Lazy ForecastingService forecastingService,
-                        CostMockService costMockService) {
+                        CostMockService costMockService,
+                        CachedDataRepository cachedDataRepository,
+                        ObjectMapper objectMapper) {
                 this.cloudAccountRepository = cloudAccountRepository;
                 this.awsClientProvider = awsClientProvider;
                 this.redisCache = redisCache;
                 this.forecastingService = forecastingService;
                 this.costMockService = costMockService;
+                this.cachedDataRepository = cachedDataRepository;
+                this.objectMapper = objectMapper;
 
                 logger.info("CostService initialized (Mock Mode: {})", useMockData);
         }
@@ -260,13 +269,29 @@ public class CostService {
 
                 String cacheKey = "costBreakdown-" + accountId + "-" + groupBy + "-" + (tag != null ? tag : "") + "-"
                                 + startDate + "-" + endDate;
+                String dbKey = "cost-" + accountId;
 
                 if (!forceRefresh) {
+                        // 1. Check Redis first (fast, no DB connection consumed)
                         Optional<List<CostDto>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {
                         });
                         if (cachedData.isPresent()) {
-                                logger.info("✅ Cache hit for cost breakdown: {}", cacheKey);
+                                logger.info("✅ Redis cache hit for cost breakdown: {}", cacheKey);
                                 return CompletableFuture.completedFuture(cachedData.get());
+                        }
+
+                        // 2. DB fallback — only used when Redis is cold (after restart/deployment)
+                        Optional<CachedData> dbCached = cachedDataRepository.findById(dbKey);
+                        if (dbCached.isPresent()) {
+                                try {
+                                        List<CostDto> dbData = objectMapper.readValue(dbCached.get().getJsonData(),
+                                                        new TypeReference<List<CostDto>>() {});
+                                        logger.info("✅ DB snapshot hit for cost breakdown — repopulating Redis: {}", dbKey);
+                                        redisCache.put(cacheKey, dbData, 60); // re-warm Redis so next request skips DB
+                                        return CompletableFuture.completedFuture(dbData);
+                                } catch (Exception e) {
+                                        logger.warn("Failed to deserialize cost DB snapshot {}: {}", dbKey, e.getMessage());
+                                }
                         }
                 }
 
@@ -318,7 +343,17 @@ public class CostService {
                                                 .sorted((a, b) -> Double.compare(b.getAmount(), a.getAmount()))
                                                 .collect(Collectors.toList());
 
-                                redisCache.put(cacheKey, costs, 10);
+                                redisCache.put(cacheKey, costs, 60);
+                                try {
+                                        CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+                                        snapshot.setCacheKey(dbKey);
+                                        snapshot.setJsonData(objectMapper.writeValueAsString(costs));
+                                        snapshot.setLastUpdated(java.time.LocalDateTime.now());
+                                        cachedDataRepository.save(snapshot);
+                                        logger.info("✅ Cost breakdown saved to DB snapshot: {}", dbKey);
+                                } catch (Exception e) {
+                                        logger.warn("Failed to save cost DB snapshot {}: {}", dbKey, e.getMessage());
+                                }
                                 logger.info("✅ Cost breakdown fetched: {} items for account {}", costs.size(),
                                                 accountId);
                                 return costs;

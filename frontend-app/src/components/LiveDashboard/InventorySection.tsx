@@ -62,6 +62,8 @@ const ResourceCard: React.FC<ResourceCardProps> = ({ name, count, icon, service,
 };
 
 const InventorySection: React.FC<InventorySectionProps> = ({ inventory, isLoading, getLink }) => {
+  if (!inventory) return null;
+
   const allResourceItems = [
     { name: 'EC2 Instances', count: inventory.ec2Count, icon: '/icons/ec2-instances.png', service: 'EC2', color: 'bg-orange-100' },
     { name: 'S3 Buckets', count: inventory.s3Count, icon: '/icons/s3-bucket.png', service: 'S3', color: 'bg-green-100' },

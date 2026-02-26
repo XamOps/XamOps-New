@@ -251,7 +251,7 @@ public class AgentIngestService {
      * Trigger dashboard sync after agent data is received.
      * Runs asynchronously to not block the agent response.
      */
-    @Async
+    @Async("awsTaskExecutor")
     public void triggerDashboardSync(KubernetesClusterConfig config) {
         logger.info("Triggering async dashboard sync for cluster: {}", config.getClusterName());
         // This will be called by EksDashboardSyncService to merge agent data into dashboard cache

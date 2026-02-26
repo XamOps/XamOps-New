@@ -1,29 +1,39 @@
 package com.xammer.cloud.controller;
 
+import com.xammer.cloud.config.multitenancy.TenantContext;
+import com.xammer.cloud.dto.GlobalUserDto;
 import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.domain.User;
 import com.xammer.cloud.dto.UserProfileDto;
-import com.xammer.cloud.repository.UserRepository; // --- ✅ IMPORTED ---
-import org.springframework.beans.factory.annotation.Autowired; // --- ✅ IMPORTED ---
+import com.xammer.cloud.repository.UserRepository;
+import com.xammer.cloud.service.MasterDatabaseService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PostMapping; // --- ✅ IMPORTED ---
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/xamops/user")
 public class UserProfileController {
 
-    // --- ✅ INJECT REPOSITORY ---
+    private static final Logger logger = LoggerFactory.getLogger(UserProfileController.class);
+
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private MasterDatabaseService masterDatabaseService;
 
     @GetMapping("/profile")
     public ResponseEntity<UserProfileDto> getUserProfile() {
@@ -38,32 +48,50 @@ public class UserProfileController {
                 .map(GrantedAuthority::getAuthority)
                 .collect(Collectors.toList());
 
-        // --- ✅ FETCH DB STATUS ---
-        boolean isTourSeen = true; // Default safe fallback
+        // Resolve tenant context if missing — same fallback as AccountManagerController
+        String currentTenant = TenantContext.getCurrentTenant();
+        if (currentTenant == null || "default".equals(currentTenant)) {
+            try {
+                logger.warn("Tenant context is '{}' for user '{}'. Attempting master DB resolution.", currentTenant, username);
+                Optional<GlobalUserDto> globalUser = masterDatabaseService.findGlobalUser(username);
+                if (globalUser.isPresent()) {
+                    TenantContext.setCurrentTenant(globalUser.get().getTenantId());
+                    logger.info("Resolved tenant '{}' for user '{}'.", globalUser.get().getTenantId(), username);
+                }
+            } catch (Exception e) {
+                logger.error("Tenant resolution failed for user '{}': {}", username, e.getMessage());
+            }
+        }
+
+        // Always include tenantId in response so the frontend can store it in sessionStorage
+        // and send X-Tenant-ID on all subsequent requests (multi-tenant header routing).
+        String tenantId = TenantContext.getCurrentTenant();
+
+        boolean isTourSeen = true; // Safe default if DB is unavailable
         Long userId = null;
 
         Object principal = authentication.getPrincipal();
         if (principal instanceof ClientUserDetails) {
             userId = ((ClientUserDetails) principal).getId();
-            
-            // Fetch real status from DB
-            User user = userRepository.findById(userId).orElse(null);
-            if (user != null) {
-                isTourSeen = user.isTourSeen();
+            try {
+                User user = userRepository.findById(userId).orElse(null);
+                if (user != null) {
+                    isTourSeen = user.isTourSeen();
+                }
+            } catch (Exception e) {
+                logger.warn("Could not fetch tourSeen status for user '{}' (userId={}): {}. Returning default.", username, userId, e.getMessage());
             }
         }
 
-        // --- ✅ PASS 3 ARGUMENTS TO CONSTRUCTOR ---
         UserProfileDto userProfile = new UserProfileDto(username, roles, isTourSeen);
-
         if (userId != null) {
             userProfile.setId(userId);
         }
-        
+        userProfile.setTenantId(tenantId);
+
         return ResponseEntity.ok(userProfile);
     }
 
-    // --- ✅ ADDED ENDPOINT TO UPDATE STATUS ---
     @PostMapping("/tour-seen")
     public ResponseEntity<Void> markTourAsSeen() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
@@ -71,12 +99,16 @@ public class UserProfileController {
 
         if (principal instanceof ClientUserDetails) {
             Long userId = ((ClientUserDetails) principal).getId();
-            User user = userRepository.findById(userId).orElse(null);
-            
-            if (user != null) {
-                user.setTourSeen(true); // Set to true
-                userRepository.save(user); // Save to DB
-                return ResponseEntity.ok().build();
+            try {
+                User user = userRepository.findById(userId).orElse(null);
+                if (user != null) {
+                    user.setTourSeen(true);
+                    userRepository.save(user);
+                    return ResponseEntity.ok().build();
+                }
+            } catch (Exception e) {
+                logger.error("Could not mark tour as seen for userId={}: {}", userId, e.getMessage());
+                return ResponseEntity.status(500).build();
             }
         }
         return ResponseEntity.notFound().build();

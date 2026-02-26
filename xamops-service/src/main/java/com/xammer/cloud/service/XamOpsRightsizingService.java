@@ -1,9 +1,12 @@
 package com.xammer.cloud.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.xammer.cloud.domain.CachedData;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.XamOpsRightsizingRecommendation;
 import com.xammer.cloud.dto.ResourceDto;
+import com.xammer.cloud.repository.CachedDataRepository;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVRecord;
@@ -18,6 +21,7 @@ import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
@@ -33,6 +37,8 @@ public class XamOpsRightsizingService {
     private final MetricsService metricsService;
     private final RedisCacheService redisCacheService;
     private final AwsClientProvider awsClientProvider; // Injected for AWS calls
+    private final CachedDataRepository cachedDataRepository;
+    private final ObjectMapper objectMapper;
     private final Map<String, List<XamOpsRightsizingRecommendation>> recommendationsMap;
 
     // Local cache to store available instance types per region to avoid repeated
@@ -43,11 +49,15 @@ public class XamOpsRightsizingService {
             CloudListService cloudListService,
             MetricsService metricsService,
             RedisCacheService redisCacheService,
-            AwsClientProvider awsClientProvider) {
+            AwsClientProvider awsClientProvider,
+            CachedDataRepository cachedDataRepository,
+            ObjectMapper objectMapper) {
         this.cloudListService = cloudListService;
         this.metricsService = metricsService;
         this.redisCacheService = redisCacheService;
         this.awsClientProvider = awsClientProvider;
+        this.cachedDataRepository = cachedDataRepository;
+        this.objectMapper = objectMapper;
         this.recommendationsMap = loadRecommendationsFromCsv();
     }
 
@@ -63,6 +73,24 @@ public class XamOpsRightsizingService {
                 logger.info("✅ Retrieved {} XamOps recommendations for account {} from Redis cache",
                         cachedData.get().size(), accountId);
                 return cachedData.get();
+            }
+
+            // 2. Check DB snapshot (survives Redis restarts)
+            try {
+                Optional<CachedData> dbSnapshot = cachedDataRepository.findById(cacheKey);
+                if (dbSnapshot.isPresent()) {
+                    List<XamOpsRightsizingRecommendation> dbData = objectMapper.readValue(
+                            dbSnapshot.get().getJsonData(),
+                            new TypeReference<List<XamOpsRightsizingRecommendation>>() {});
+                    if (dbData != null && !dbData.isEmpty()) {
+                        logger.info("✅ Retrieved {} XamOps recommendations from DB cache for account {}",
+                                dbData.size(), accountId);
+                        redisCacheService.put(cacheKey, dbData, 60);
+                        return dbData;
+                    }
+                }
+            } catch (Exception e) {
+                logger.warn("Failed to read XamOps rightsizing from DB cache: {}", e.getMessage());
             }
         }
 
@@ -145,6 +173,18 @@ public class XamOpsRightsizingService {
             redisCacheService.put(cacheKey, uniqueRecommendations, 60);
             logger.info("✅ Cached {} XamOps recommendations for account {}",
                     uniqueRecommendations.size(), accountId);
+        }
+
+        // Save to DB so subsequent requests survive Redis restarts
+        try {
+            CachedData snapshot = cachedDataRepository.findById(cacheKey).orElse(new CachedData());
+            snapshot.setCacheKey(cacheKey);
+            snapshot.setJsonData(objectMapper.writeValueAsString(uniqueRecommendations));
+            snapshot.setLastUpdated(LocalDateTime.now());
+            cachedDataRepository.save(snapshot);
+            logger.info("✅ Saved XamOps rightsizing snapshot to DB for account {}", accountId);
+        } catch (Exception e) {
+            logger.warn("Failed to save XamOps rightsizing to DB: {}", e.getMessage());
         }
 
         return uniqueRecommendations;

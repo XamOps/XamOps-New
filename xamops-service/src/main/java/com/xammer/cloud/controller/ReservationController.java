@@ -6,6 +6,7 @@ import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.dto.ReservationDto;
 import com.xammer.cloud.dto.ReservationModificationRequestDto;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.service.DashboardDataService;
 import com.xammer.cloud.service.ReservationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,21 +25,45 @@ public class ReservationController {
     private static final Logger logger = LoggerFactory.getLogger(ReservationController.class);
 
     private final ReservationService reservationService;
-    private final CloudAccountRepository cloudAccountRepository; // Added repository
+    private final CloudAccountRepository cloudAccountRepository;
+    private final DashboardDataService dashboardDataService;
 
-    public ReservationController(ReservationService reservationService, CloudAccountRepository cloudAccountRepository) { // Updated constructor
+    public ReservationController(ReservationService reservationService,
+            CloudAccountRepository cloudAccountRepository,
+            DashboardDataService dashboardDataService) {
         this.reservationService = reservationService;
-        this.cloudAccountRepository = cloudAccountRepository; // Updated constructor
+        this.cloudAccountRepository = cloudAccountRepository;
+        this.dashboardDataService = dashboardDataService;
     }
 
     @GetMapping
     public CompletableFuture<ResponseEntity<ReservationDto>> getReservationData(
             @RequestParam String accountId,
             @RequestParam(defaultValue = "false") boolean forceRefresh) {
+
+        String cacheKey = "RESERVATION::" + accountId;
+
+        if (!forceRefresh) {
+            // Check DB snapshot first (survives container restarts)
+            ReservationDto dbCached = dashboardDataService.getReservationSnapshot(cacheKey);
+            if (dbCached != null) {
+                logger.info("[Reservation] ✅ Serving from DB snapshot for account {}", accountId);
+                return CompletableFuture.completedFuture(ResponseEntity.ok(dbCached));
+            }
+        }
+
+        logger.info("[Reservation] Fetching live data for account {}", accountId);
+
         return reservationService.getReservationPageData(accountId, forceRefresh)
-                .thenApply(ResponseEntity::ok)
+                .thenApply(data -> {
+                    if (data != null) {
+                        dashboardDataService.saveReservationSnapshot(cacheKey, data);
+                        logger.info("[Reservation] ✅ Saved to DB snapshot for account {}", accountId);
+                    }
+                    return ResponseEntity.ok(data);
+                })
                 .exceptionally(ex -> {
-                    logger.error("Error fetching reservation data for account {}", accountId, ex);
+                    logger.error("[Reservation] Error fetching data for account {}", accountId, ex);
                     return ResponseEntity.status(500).body(null);
                 });
     }
@@ -51,13 +76,12 @@ public class ReservationController {
             @RequestParam(defaultValue = "THIRTY_DAYS") String lookback,
             @RequestParam(defaultValue = "STANDARD") String offeringClass,
             @RequestParam(defaultValue = "false") boolean forceRefresh) {
-        
-        // MODIFIED: Handle list of accounts to prevent crash
+
         List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
         if (accounts.isEmpty()) {
             throw new RuntimeException("Account not found: " + accountId);
         }
-        CloudAccount account = accounts.get(0); // Use the first account
+        CloudAccount account = accounts.get(0);
 
         return reservationService.getReservationPurchaseRecommendations(
                     account, term, paymentOption, lookback, offeringClass, forceRefresh

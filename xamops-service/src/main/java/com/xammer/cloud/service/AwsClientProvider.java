@@ -78,8 +78,12 @@ import software.amazon.awssdk.services.savingsplans.SavingsplansClient;
 public class AwsClientProvider {
 
     private static final Logger logger = LoggerFactory.getLogger(AwsClientProvider.class);
-    private static final Duration API_TIMEOUT = Duration.ofSeconds(30);
-    private static final Duration API_CALL_ATTEMPT_TIMEOUT = Duration.ofSeconds(15);
+    private static final Duration API_TIMEOUT = Duration.ofSeconds(120);
+    private static final Duration API_CALL_ATTEMPT_TIMEOUT = Duration.ofSeconds(60);
+    // Shorter timeouts for global FinOps APIs (Cost Explorer, Budgets) which require
+    // internet/NAT connectivity and should fail fast rather than block for 55+ seconds.
+    private static final Duration FINOPS_API_TIMEOUT = Duration.ofSeconds(20);
+    private static final Duration FINOPS_API_ATTEMPT_TIMEOUT = Duration.ofSeconds(12);
 
     private final StsClient stsClient;
     private final Map<String, Object> clientCache = new ConcurrentHashMap<>();
@@ -113,6 +117,19 @@ public class AwsClientProvider {
         return ClientOverrideConfiguration.builder()
                 .apiCallTimeout(API_TIMEOUT)
                 .apiCallAttemptTimeout(API_CALL_ATTEMPT_TIMEOUT)
+                .build();
+    }
+
+    /**
+     * Short-timeout override for Cost Explorer and Budgets clients.
+     * These are global services (us-east-1) that require internet/NAT connectivity
+     * from the EC2 host. If unreachable, calls should fail fast so the FinOps page
+     * returns empty data (HTTP 200) rather than hanging 55s and returning 503.
+     */
+    private ClientOverrideConfiguration getFinOpsClientOverrideConfig() {
+        return ClientOverrideConfiguration.builder()
+                .apiCallTimeout(FINOPS_API_TIMEOUT)
+                .apiCallAttemptTimeout(FINOPS_API_ATTEMPT_TIMEOUT)
                 .build();
     }
 
@@ -272,7 +289,16 @@ public class AwsClientProvider {
     }
 
     public CostExplorerClient getCostExplorerClient(CloudAccount account) {
-        return getClient(CostExplorerClient.class, CostExplorerClient.builder(), account, "us-east-1");
+        String cacheKey = account.getAwsAccountId() + ":CostExplorerClient:us-east-1";
+        return (CostExplorerClient) clientCache.computeIfAbsent(cacheKey, k -> {
+            logger.info("🚀 [AwsClientProvider] Creating NEW CostExplorerClient for account {} (short-timeout config)",
+                    account.getAwsAccountId());
+            return CostExplorerClient.builder()
+                    .credentialsProvider(getCredentialsProvider(account))
+                    .region(Region.of("us-east-1"))
+                    .overrideConfiguration(getFinOpsClientOverrideConfig())
+                    .build();
+        });
     }
 
     public ComputeOptimizerClient getComputeOptimizerClient(CloudAccount account, String region) {
@@ -288,7 +314,16 @@ public class AwsClientProvider {
     }
 
     public BudgetsClient getBudgetsClient(CloudAccount account) {
-        return getClient(BudgetsClient.class, BudgetsClient.builder(), account, "us-east-1");
+        String cacheKey = account.getAwsAccountId() + ":BudgetsClient:us-east-1";
+        return (BudgetsClient) clientCache.computeIfAbsent(cacheKey, k -> {
+            logger.info("🚀 [AwsClientProvider] Creating NEW BudgetsClient for account {} (short-timeout config)",
+                    account.getAwsAccountId());
+            return BudgetsClient.builder()
+                    .credentialsProvider(getCredentialsProvider(account))
+                    .region(Region.of("us-east-1"))
+                    .overrideConfiguration(getFinOpsClientOverrideConfig())
+                    .build();
+        });
     }
 
     public EcsClient getEcsClient(CloudAccount account, String region) {
