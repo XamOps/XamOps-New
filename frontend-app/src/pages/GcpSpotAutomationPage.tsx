@@ -219,7 +219,7 @@ const GcpSpotAutomationPage: React.FC = () => {
                                                     </td>
                                                     <td className="px-6 py-4 text-right">
                                                         <div className="text-sm font-bold text-emerald-600">
-                                                            +${mig.potentialSavings.toFixed(2)}
+                                                            +₹{mig.potentialSavings.toFixed(2)}
                                                             <span className="text-[10px] text-slate-400 ml-1 font-medium">/hr</span>
                                                         </div>
                                                     </td>

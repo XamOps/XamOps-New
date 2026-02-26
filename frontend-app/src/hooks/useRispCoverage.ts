@@ -43,7 +43,7 @@ export const useRispCoverage = (accountId: string | null) => {
 
     try {
       const response = await apiClient.get(
-        `/autospotting/analytics/risp-coverage/${accountId}`
+        `/api/autospotting/analytics/risp-coverage/${accountId}`
       );
 
       // Transform backend snake_case to camelCase

@@ -9,6 +9,7 @@ import {
   mapInventoryToResources,
 } from '../api/gcpDashboardApi';
 import { useTopbar } from '../contexts/TopbarContext';
+import { useAccounts } from '../contexts/AccountContext';
 import '../styles/gcpDashboard.css'; // Keeping for some specific styles if needed, but mostly relying on Tailwind now
 
 // Import new components
@@ -28,9 +29,33 @@ declare global {
 }
 
 const GcpDashboard: React.FC = () => {
-  // Get selected account IDs from session storage
-  const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
-  const [multiAccountMode, setMultiAccountMode] = useState(false);
+  // Get selected account IDs from session storage - initialized synchronously
+  const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>(() => {
+    const storedAccountIds = sessionStorage.getItem('selectedAccountIds');
+    if (storedAccountIds) {
+      try {
+        return JSON.parse(storedAccountIds);
+      } catch (err) {
+        console.error('❌ GCP Dashboard: Failed to parse selected account IDs:', err);
+        return [];
+      }
+    }
+    return [];
+  });
+
+  const [multiAccountMode, setMultiAccountMode] = useState(() => {
+    const storedAccountIds = sessionStorage.getItem('selectedAccountIds');
+    const storedMultiAccountMode = sessionStorage.getItem('multiAccountMode');
+    if (storedAccountIds) {
+      try {
+        const accountIds = JSON.parse(storedAccountIds);
+        return storedMultiAccountMode === 'true' && accountIds.length > 1;
+      } catch (err) {
+        return false;
+      }
+    }
+    return false;
+  });
 
   // Dashboard data hook
   const { data, loading, error, refresh, lastUpdated } =
@@ -42,6 +67,7 @@ const GcpDashboard: React.FC = () => {
     });
 
   const { setActions, clearActions } = useTopbar();
+  const { isLoading: accountsLoading } = useAccounts();
 
   // Widget visibility state
   const [widgetVisibility] = useState({
@@ -60,22 +86,6 @@ const GcpDashboard: React.FC = () => {
     setNotification({ message, type });
     setTimeout(() => setNotification(null), 4000);
   };
-
-  // Load selected accounts from session storage
-  useEffect(() => {
-    const storedAccountIds = sessionStorage.getItem('selectedAccountIds');
-    const storedMultiAccountMode = sessionStorage.getItem('multiAccountMode');
-
-    if (storedAccountIds) {
-      try {
-        const accountIds = JSON.parse(storedAccountIds);
-        setSelectedAccountIds(accountIds);
-        setMultiAccountMode(storedMultiAccountMode === 'true' && accountIds.length > 1);
-      } catch (err) {
-        console.error('❌ GCP Dashboard: Failed to parse selected account IDs:', err);
-      }
-    }
-  }, []);
 
   // Extract and transform dashboard data
   const dashboardData = useMemo(() => {
@@ -262,6 +272,21 @@ const GcpDashboard: React.FC = () => {
     );
     return () => clearActions();
   }, [setActions, clearActions, singleData, multiAccountMode, lastUpdated, refresh, loading.global]);
+
+  // Show loading while accounts are being fetched
+  if (accountsLoading && selectedAccountIds.length === 0) {
+    return (
+      <div className="flex-1 p-6 flex items-center justify-center min-h-[calc(100vh-80px)]">
+        <div className="text-center p-8 glass-card max-w-lg w-full">
+          <div className="w-20 h-20 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-6">
+            <i className="fas fa-spinner fa-spin text-3xl text-blue-600"></i>
+          </div>
+          <h2 className="text-2xl font-bold text-gray-800 mb-2">Loading Accounts...</h2>
+          <p className="text-gray-500 mb-8">Please wait while we fetch your GCP projects.</p>
+        </div>
+      </div>
+    );
+  }
 
   // Handle empty state
   if (selectedAccountIds.length === 0) {
