@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { GcpServiceGroup, GcpCloudListPageData } from '../types/gcpCloudList';
+import { useTopbar } from '../contexts/TopbarContext';
+import clsx from 'clsx';
 import '../styles/gcpCloudList.css';
 
 const GcpCloudListPage: React.FC = () => {
@@ -30,6 +32,9 @@ const GcpCloudListPage: React.FC = () => {
   const [updateStatus, setUpdateStatus] = useState('Ready');
 
   const servicesPerPage = 10;
+
+  // Topbar Integration
+  const { setActions, clearActions } = useTopbar();
 
   // Region display name mapping
   const getRegionDisplayName = (regionId: string): string => {
@@ -310,6 +315,34 @@ const GcpCloudListPage: React.FC = () => {
     document.body.removeChild(link);
   };
 
+  // Topbar actions setup
+  useEffect(() => {
+    setActions(
+      <div className="flex items-center gap-3">
+        <button
+          onClick={exportData}
+          className="flex items-center gap-2 px-4 py-2 bg-white text-emerald-600 text-xs font-bold rounded-xl border border-emerald-100 shadow-sm hover:shadow-md transition-all"
+        >
+          <i className="fas fa-file-excel"></i>
+          <span>Export Data</span>
+        </button>
+
+        <button
+          onClick={handleRefresh}
+          disabled={isRefreshing}
+          className={clsx(
+            'flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all disabled:opacity-50 active:scale-95',
+            isRefreshing && 'cursor-not-allowed'
+          )}
+        >
+          <i className={clsx('fas fa-sync-alt', isRefreshing && 'animate-spin')}></i>
+          <span>{isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
+        </button>
+      </div>
+    );
+    return () => clearActions();
+  }, [setActions, clearActions, isRefreshing]);
+
   // Empty state
   if (!selectedAccountId) {
     return (
@@ -327,33 +360,6 @@ const GcpCloudListPage: React.FC = () => {
 
   return (
     <div className="gcp-cloudlist-container">
-      {/* Header */}
-      <header className="gcp-cloudlist-header">
-        <div className="gcp-cloudlist-header-left">
-          <div className="gcp-cloudlist-header-icon">
-            <i className="fas fa-list"></i>
-          </div>
-          <div className="gcp-cloudlist-header-info">
-            <h1>GCP CloudList</h1>
-            <p>Manage your GCP resources</p>
-          </div>
-        </div>
-        <div className="gcp-cloudlist-header-right">
-          <div className="gcp-status-indicator">
-            <div className={`pulse-dot ${isRefreshing ? 'pulsing' : ''}`}></div>
-            <span>{updateStatus}</span>
-          </div>
-          <button
-            onClick={handleRefresh}
-            disabled={isRefreshing}
-            className={`gcp-refresh-btn ${isRefreshing ? 'refreshing' : ''}`}
-          >
-            <i className={`fas fa-sync-alt ${isRefreshing ? 'fa-spin' : ''}`}></i>
-            {isRefreshing ? 'Refreshing...' : 'Refresh'}
-          </button>
-        </div>
-      </header>
-
       {/* Filters Section */}
       <div className="gcp-cloudlist-filters">
         <div className="gcp-filter-controls">
@@ -394,10 +400,6 @@ const GcpCloudListPage: React.FC = () => {
           <p className="gcp-resource-count">
             Showing {displayedResourceCount} resources from {allGroups.length} services (Top {totalServices})
           </p>
-          <button onClick={exportData} className="gcp-export-btn">
-            <i className="fas fa-file-excel"></i>
-            Export Data
-          </button>
         </div>
       </div>
 
@@ -405,8 +407,20 @@ const GcpCloudListPage: React.FC = () => {
       <div className="gcp-cloudlist-content">
         {isRefreshing && allGroups.length === 0 ? (
           <div className="gcp-loading-skeleton">
-            {[1, 2, 3, 4].map(i => (
-              <div key={i} className="gcp-skeleton-card"></div>
+            {[1, 2, 3, 4, 5].map(i => (
+              <div key={i} className="gcp-service-group animate-pulse">
+                <div className="gcp-service-group-header bg-gray-100">
+                  <div className="gcp-service-group-header-left">
+                    <div className="w-4 h-4 bg-gray-300 rounded"></div>
+                    <div className="gcp-service-icon bg-gray-200 w-10 h-10 rounded-lg"></div>
+                    <div className="gcp-service-info">
+                      <div className="h-5 bg-gray-300 rounded w-32 mb-1"></div>
+                      <div className="h-3 bg-gray-200 rounded w-20"></div>
+                    </div>
+                  </div>
+                  <div className="gcp-resource-badge bg-gray-300 w-12 h-6 rounded-full"></div>
+                </div>
+              </div>
             ))}
           </div>
         ) : allGroups.length === 0 ? (
