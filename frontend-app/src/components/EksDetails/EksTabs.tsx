@@ -27,7 +27,8 @@ const tabs: TabConfig[] = [
   { id: 'pods', label: 'Pods', icon: 'fa-box' },
   { id: 'containers', label: 'Containers', icon: 'fa-layer-group' },
   { id: 'nodes', label: 'Nodes', icon: 'fa-server' },
-  { id: 'karpenter', label: 'Karpenter', icon: 'fa-rocket' }
+  { id: 'karpenter', label: 'Karpenter', icon: 'fa-rocket' },
+  { id: 'autoscaling', label: 'Autoscaling', icon: 'fa-expand-arrows-alt' }
 ];
 
 const EksTabs: React.FC<EksTabsProps> = ({ activeTab, onTabChange }) => {

@@ -100,6 +100,15 @@ public class CloudAccount {
     @Column(name = "last_sync")
     private Instant lastSync;
 
+    // Getter and setter for awsAccountId
+    public String getAwsAccountId() {
+        return awsAccountId;
+    }
+
+    public void setAwsAccountId(String awsAccountId) {
+        this.awsAccountId = awsAccountId;
+    }
+
     // Getter and setter for grafanaIp
     public String getGrafanaIp() {
         return grafanaIp;

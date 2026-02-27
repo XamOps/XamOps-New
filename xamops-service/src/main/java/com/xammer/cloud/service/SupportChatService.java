@@ -10,6 +10,7 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collections;
 import java.util.List;
 
 @Service
@@ -25,11 +26,15 @@ public class SupportChatService {
 
     /**
      * Get the account ID for the current user based on selected account or default.
+     * Returns null if the user record cannot be found in the current tenant DB
+     * (e.g. tenant context not yet resolved). Callers must null-check the return value.
      */
     private String getAccountIdForCurrentUser(String selectedAccountId) {
         String username = ((UserDetails) SecurityContextHolder.getContext().getAuthentication().getPrincipal()).getUsername();
-        User user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("User not found"));
+        User user = userRepository.findByUsername(username).orElse(null);
+        if (user == null) {
+            return null;
+        }
 
         String accountId = "N/A";
         if (user.getClient() != null && user.getClient().getCloudAccounts() != null && !user.getClient().getCloudAccounts().isEmpty()) {
@@ -85,6 +90,7 @@ public class SupportChatService {
 
     public List<SupportMessage> getMessagesForCurrentUser(String selectedAccountId) {
         String accountId = getAccountIdForCurrentUser(selectedAccountId);
+        if (accountId == null) return Collections.emptyList();
         return messageRepository.findByAccountIdOrderByTimestampAsc(accountId);
     }
 
@@ -94,6 +100,7 @@ public class SupportChatService {
      */
     public long getUnreadAdminMessageCount(String selectedAccountId) {
         String accountId = getAccountIdForCurrentUser(selectedAccountId);
+        if (accountId == null) return 0L;
         return messageRepository.countByAccountIdAndIsUserMessageFalseAndStatus(accountId, "DELIVERED");
     }
 
@@ -104,6 +111,7 @@ public class SupportChatService {
     @Transactional
     public void markAdminMessagesAsRead(String selectedAccountId) {
         String accountId = getAccountIdForCurrentUser(selectedAccountId);
+        if (accountId == null) return;
         List<SupportMessage> unreadMessages = messageRepository.findByAccountIdAndIsUserMessageFalseAndStatus(accountId, "DELIVERED");
         if (!unreadMessages.isEmpty()) {
             for (SupportMessage msg : unreadMessages) {

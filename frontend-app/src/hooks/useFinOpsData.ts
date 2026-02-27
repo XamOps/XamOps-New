@@ -1,17 +1,25 @@
 /**
  * useFinOpsData Hook
  *
- * Custom hook to fetch and manage FinOps report data
+ * Fetches each FinOps section independently in parallel.
+ * Fast sections (billing-summary, budgets) render in 1-5s.
+ * Slow sections (tagging-compliance, wasted-resources, rightsizing) populate
+ * progressively as they resolve — the page is never fully blank.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type {
   FinOpsReportData,
+  FinOpsKPIs,
   ReportSchedule,
   DateFilter,
   NewBudget,
   NewSchedule,
   Budget,
+  TaggingCompliance,
+  RightsizingRecommendation,
+  WastedResource,
+  CostAnomaly,
 } from '../types/finops';
 
 interface UseFinOpsDataOptions {
@@ -19,10 +27,19 @@ interface UseFinOpsDataOptions {
   dateFilter: DateFilter;
 }
 
+export interface SectionLoadingState {
+  kpis: boolean;
+  budgets: boolean;
+  charts: boolean;
+  tagging: boolean;
+  insights: boolean;
+}
+
 interface UseFinOpsDataReturn {
   reportData: FinOpsReportData | null;
+  sectionLoading: SectionLoadingState;
   reportSchedules: ReportSchedule[];
-  isLoading: boolean;
+  isLoading: boolean;      // true until billing-summary (critical path) resolves
   isRefreshing: boolean;
   error: Error | null;
   loadReport: (forceRefresh?: boolean) => Promise<void>;
@@ -31,6 +48,31 @@ interface UseFinOpsDataReturn {
   deleteBudget: (budgetName: string) => Promise<void>;
   createSchedule: (schedule: NewSchedule) => Promise<ReportSchedule>;
   deleteSchedule: (scheduleId: number) => Promise<void>;
+}
+
+/** Empty report skeleton — lets sections render as they fill in */
+const emptyReport = (): FinOpsReportData => ({
+  kpis: { monthToDateSpend: 0, forecastedSpend: 0, lastMonthSpend: 0, potentialSavings: 0 },
+  costBreakdown: { byService: [], byRegion: [] },
+  budgets: [],
+  rightsizingRecommendations: [],
+  wastedResources: [],
+  costAnomalies: [],
+  taggingCompliance: { compliancePercentage: 0, totalResourcesScanned: 0, untaggedResourcesCount: 0, untaggedResources: [] },
+});
+
+/** Compute KPI values from billing-summary array */
+function computeKpisFromBilling(
+  billing: Array<{ serviceName: string; monthToDateCost: number }>,
+  lastMonthSpend: number,
+  potentialSavings: number
+): FinOpsKPIs {
+  const mtd = billing.reduce((sum, s) => sum + (s.monthToDateCost ?? 0), 0);
+  const today = new Date();
+  const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+  const currentDay = today.getDate();
+  const forecasted = currentDay > 0 ? (mtd / currentDay) * daysInMonth : 0;
+  return { monthToDateSpend: mtd, forecastedSpend: forecasted, lastMonthSpend, potentialSavings };
 }
 
 export const useFinOpsData = ({
@@ -42,107 +84,207 @@ export const useFinOpsData = ({
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [error, setError] = useState<Error | null>(null);
+  const [sectionLoading, setSectionLoading] = useState<SectionLoadingState>({
+    kpis: false, budgets: false, charts: false, tagging: false, insights: false,
+  });
 
-  // Load report data
+  // Track in-flight request version so stale responses from old accounts are ignored
+  const requestVersion = useRef(0);
+  // AbortController to cancel in-flight fetch calls when account/date changes or unmount
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   const loadReport = useCallback(
     async (forceRefresh: boolean = false) => {
       if (!selectedAccountId) {
-        console.log('[FinOps] No account selected, skipping report load.');
         setIsLoading(false);
         return;
       }
+
+      const version = ++requestVersion.current;
+
+      // Cancel any in-flight requests from the previous load
+      abortControllerRef.current?.abort();
+      abortControllerRef.current = new AbortController();
+      const { signal } = abortControllerRef.current;
 
       if (forceRefresh) {
         setIsRefreshing(true);
       } else {
         setIsLoading(true);
       }
+      setError(null);
+
+      // Show empty skeleton immediately so page renders right away
+      setReportData(emptyReport());
+      setSectionLoading({ kpis: true, budgets: true, charts: true, tagging: true, insights: true });
+
+      const base = `accountId=${selectedAccountId}&forceRefresh=${forceRefresh}`;
+      const dateParams = dateFilter.startDate && dateFilter.endDate
+        ? `&startDate=${dateFilter.startDate}&endDate=${dateFilter.endDate}`
+        : '';
+
+      /** Fetch one section; on success, call `apply` to merge into report state */
+      const fetchSection = async <T>(
+        path: string,
+        apply: (data: T) => Partial<FinOpsReportData>
+      ): Promise<T | null> => {
+        try {
+          const res = await fetch(`/api/xamops/finops/${path}?${base}${dateParams}`, { credentials: 'include', signal });
+          if (!res.ok) {
+            console.warn(`[FinOps] ${path} returned ${res.status}`);
+            return null;
+          }
+          const data: T = await res.json();
+          if (version !== requestVersion.current) return null; // stale response — discard
+          setReportData(prev => prev ? { ...prev, ...apply(data) } : null);
+          return data;
+        } catch (err) {
+          if (err instanceof DOMException && err.name === 'AbortError') return null; // cancelled — not an error
+          console.warn(`[FinOps] ${path} failed:`, err);
+          return null;
+        }
+      };
+
+      // Track accumulated savings for KPI computation
+      let lastMonthSpend = 0;
+      let potentialSavings = 0;
+      let billingData: Array<{ serviceName: string; monthToDateCost: number }> = [];
 
       try {
-        let url = `/api/xamops/finops/report?accountId=${selectedAccountId}&forceRefresh=${forceRefresh}`;
+        // ── Fast parallel group 1: billing-summary + budgets ─────────────────
+        const [billing] = await Promise.all([
+          fetchSection<Array<{ serviceName: string; monthToDateCost: number }>>(
+            'billing-summary',
+            data => ({
+              kpis: computeKpisFromBilling(data, 0, 0),
+              costBreakdown: {
+                byService: data
+                  .sort((a, b) => b.monthToDateCost - a.monthToDateCost)
+                  .slice(0, 10)
+                  .map(s => ({ service: s.serviceName, cost: s.monthToDateCost })),
+                byRegion: [],
+              },
+            })
+          ),
+          fetchSection<Budget[]>('budgets', data => ({ budgets: data })),
+        ]);
 
-        // Add date range parameters if both dates are set
-        if (dateFilter.startDate && dateFilter.endDate) {
-          url += `&startDate=${dateFilter.startDate}&endDate=${dateFilter.endDate}`;
-          console.log(
-            '[FinOps] Fetching report with date range:',
-            dateFilter.startDate,
-            'to',
-            dateFilter.endDate
+        if (version !== requestVersion.current) return;
+        billingData = billing ?? [];
+        setSectionLoading(prev => ({ ...prev, kpis: false, budgets: false }));
+        setIsLoading(false);   // critical path done — page is now interactive
+        setIsRefreshing(false);
+
+        // ── Slower parallel group 2: cost-history + cost-by-region ───────────
+        const [costHistory, costByRegion] = await Promise.all([
+          fetchSection<{ labels: string[]; costs: number[]; anomalies: boolean[] }>(
+            'cost-history',
+            () => ({}) // applied separately below after we extract lastMonthSpend
+          ),
+          fetchSection<Array<{ region: string; cost: number }>>(
+            'cost-by-region',
+            data => ({
+              costBreakdown: {
+                byService: reportData?.costBreakdown?.byService ?? [],
+                byRegion: data.map(r => ({ region: r.region, cost: r.cost })),
+              },
+            })
+          ),
+        ]);
+
+        if (version !== requestVersion.current) return;
+
+        // Extract lastMonthSpend from cost-history and recompute KPIs
+        if (costHistory && costHistory.costs && costHistory.costs.length > 1) {
+          lastMonthSpend = costHistory.costs[costHistory.costs.length - 2] ?? 0;
+        }
+        setReportData(prev => prev
+          ? { ...prev, kpis: computeKpisFromBilling(billingData, lastMonthSpend, potentialSavings) }
+          : null
+        );
+        setSectionLoading(prev => ({ ...prev, charts: false }));
+
+        // Apply cost-by-region to breakdown now that we have byService already set
+        if (costByRegion) {
+          setReportData(prev => prev
+            ? {
+                ...prev,
+                costBreakdown: {
+                  byService: prev.costBreakdown?.byService ?? [],
+                  byRegion: (costByRegion as Array<{ region?: string; cost: number }>)
+                    .map(r => ({ region: r.region, cost: r.cost })),
+                },
+              }
+            : null
           );
         }
 
-        console.log(`[FinOps] 🚀 Fetching report for account ${selectedAccountId}...`, {
-          url,
-          forceRefresh,
-          startDate: dateFilter?.startDate,
-          endDate: dateFilter?.endDate
-        });
+        // ── Slowest parallel group 3: tagging + wasted + rightsizing ─────────
+        await Promise.all([
+          fetchSection<TaggingCompliance>(
+            'tagging-compliance',
+            data => ({ taggingCompliance: data })
+          ).then(() => {
+            if (version === requestVersion.current) {
+              setSectionLoading(prev => ({ ...prev, tagging: false }));
+            }
+          }),
 
-        const response = await fetch(url, {
-          credentials: 'include',
-        });
-        console.log(`[FinOps] 📥 Response received (Status: ${response.status} ${response.statusText})`);
+          fetchSection<RightsizingRecommendation[]>(
+            'rightsizing',
+            data => ({ rightsizingRecommendations: data })
+          ).then(data => {
+            if (version !== requestVersion.current) return;
+            const rightsizingSavings = (data ?? []).reduce((s, r) => s + (r.estimatedMonthlySavings ?? 0), 0);
+            potentialSavings += rightsizingSavings;
+            setReportData(prev => prev
+              ? { ...prev, kpis: computeKpisFromBilling(billingData, lastMonthSpend, potentialSavings) }
+              : null
+            );
+          }),
 
-        if (!response.ok) {
-          let errorMsg = `HTTP error! status: ${response.status}`;
-          let errorData = null;
-          try {
-            const text = await response.clone().text();
-            console.log(`[FinOps] 📄 Error response body:`, text);
-            errorData = JSON.parse(text);
-            errorMsg = errorData.error || errorData.message || errorMsg;
-          } catch (e) {
-            console.warn('[FinOps] ⚠️ Could not parse error response as JSON', e);
-          }
+          fetchSection<WastedResource[]>(
+            'wasted-resources',
+            data => ({ wastedResources: data })
+          ).then(data => {
+            if (version !== requestVersion.current) return;
+            const wasteSavings = (data ?? []).reduce((s, r) => s + (r.monthlySavings ?? 0), 0);
+            potentialSavings += wasteSavings;
+            setReportData(prev => prev
+              ? { ...prev, kpis: computeKpisFromBilling(billingData, lastMonthSpend, potentialSavings) }
+              : null
+            );
+          }),
 
-          const error = new Error(errorMsg);
-          console.error('[FinOps] ❌ Request failed:', {
-            status: response.status,
-            message: errorMsg,
-            data: errorData
-          });
-          throw error;
-        }
+          fetchSection<CostAnomaly[]>('cost-anomalies', data => ({ costAnomalies: data })),
+        ]);
 
-        // Check for 204 No Content which should be handled before .json()
-        if (response.status === 204) {
-          console.warn('[FinOps] ⚠️ Backend returned 204 No Content');
-          setReportData(null);
-          return;
-        }
+        if (version !== requestVersion.current) return;
+        setSectionLoading(prev => ({ ...prev, insights: false }));
 
-        try {
-          const data = await response.json();
-          console.log('[FinOps] ✅ Data parsed successfully:', data);
-          setReportData(data);
-        } catch (e) {
-          console.error('[FinOps] ❌ JSON Parsing Error:', e);
-          throw new Error('Failed to parse FinOps report data. Please check console for details.');
-        }
       } catch (err) {
-        console.error('[FinOps] Failed to load FinOps report:', err);
+        if (version !== requestVersion.current) return;
+        console.error('[FinOps] Failed to load report:', err);
         setError(err instanceof Error ? err : new Error('Failed to load report'));
       } finally {
-        setIsLoading(false);
-        setIsRefreshing(false);
+        if (version === requestVersion.current) {
+          setIsLoading(false);
+          setIsRefreshing(false);
+        }
       }
     },
-    [selectedAccountId, dateFilter]
+    [selectedAccountId, dateFilter] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   // Load schedules
   const loadSchedules = useCallback(async () => {
     if (!selectedAccountId) return;
-
     try {
       const response = await fetch(`/api/xamops/finops-schedules?accountId=${selectedAccountId}`, {
         credentials: 'include',
       });
-
       if (response.ok) {
-        const data = await response.json();
-        setReportSchedules(data);
+        setReportSchedules(await response.json());
       }
     } catch (err) {
       console.error('Failed to load schedules:', err);
@@ -152,35 +294,17 @@ export const useFinOpsData = ({
   // Create budget
   const createBudget = useCallback(
     async (budget: NewBudget): Promise<Budget> => {
-      if (!selectedAccountId) {
-        throw new Error('No account selected');
-      }
-
+      if (!selectedAccountId) throw new Error('No account selected');
       const response = await fetch(`/api/xamops/finops/budgets?accountId=${selectedAccountId}`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify(budget),
       });
-
-      if (!response.ok) {
-        throw new Error('Failed to create budget');
-      }
-
-      const createdBudget = await response.json();
-
-      // Update local state
-      setReportData((prev) => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          budgets: [...(prev.budgets || []), createdBudget],
-        };
-      });
-
-      return createdBudget;
+      if (!response.ok) throw new Error('Failed to create budget');
+      const created = await response.json();
+      setReportData(prev => prev ? { ...prev, budgets: [...(prev.budgets ?? []), created] } : prev);
+      return created;
     },
     [selectedAccountId]
   );
@@ -188,30 +312,15 @@ export const useFinOpsData = ({
   // Delete budget
   const deleteBudget = useCallback(
     async (budgetName: string): Promise<void> => {
-      if (!selectedAccountId) {
-        throw new Error('No account selected');
-      }
-
+      if (!selectedAccountId) throw new Error('No account selected');
       const response = await fetch(
         `/api/xamops/finops/budgets?accountId=${selectedAccountId}&budgetName=${encodeURIComponent(budgetName)}`,
-        {
-          method: 'DELETE',
-          credentials: 'include',
-        }
+        { method: 'DELETE', credentials: 'include' }
       );
-
-      if (!response.ok) {
-        throw new Error('Failed to delete budget');
-      }
-
-      // Update local state
-      setReportData((prev) => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          budgets: prev.budgets.filter((b) => b.budgetName !== budgetName),
-        };
-      });
+      if (!response.ok) throw new Error('Failed to delete budget');
+      setReportData(prev =>
+        prev ? { ...prev, budgets: prev.budgets.filter(b => b.budgetName !== budgetName) } : prev
+      );
     },
     [selectedAccountId]
   );
@@ -224,17 +333,10 @@ export const useFinOpsData = ({
       credentials: 'include',
       body: JSON.stringify(schedule),
     });
-
-    if (!response.ok) {
-      throw new Error('Failed to create schedule. Check console.');
-    }
-
-    const createdSchedule = await response.json();
-
-    // Update local state
-    setReportSchedules((prev) => [...prev, createdSchedule]);
-
-    return createdSchedule;
+    if (!response.ok) throw new Error('Failed to create schedule. Check console.');
+    const created = await response.json();
+    setReportSchedules(prev => [...prev, created]);
+    return created;
   }, []);
 
   // Delete schedule
@@ -243,13 +345,8 @@ export const useFinOpsData = ({
       method: 'DELETE',
       credentials: 'include',
     });
-
-    if (!response.ok) {
-      throw new Error('Failed to delete schedule');
-    }
-
-    // Update local state
-    setReportSchedules((prev) => prev.filter((s) => s.id !== scheduleId));
+    if (!response.ok) throw new Error('Failed to delete schedule');
+    setReportSchedules(prev => prev.filter(s => s.id !== scheduleId));
   }, []);
 
   // Initial load
@@ -260,8 +357,14 @@ export const useFinOpsData = ({
     }
   }, [selectedAccountId, loadReport, loadSchedules]);
 
+  // Cancel in-flight requests on unmount
+  useEffect(() => {
+    return () => { abortControllerRef.current?.abort(); };
+  }, []);
+
   return {
     reportData,
+    sectionLoading,
     reportSchedules,
     isLoading,
     isRefreshing,

@@ -63,7 +63,7 @@ public class EksService {
                 .orElseThrow(() -> new RuntimeException("Account not found in database: " + accountId));
     }
 
-    @Async
+    @Async("awsTaskExecutor")
     public CompletableFuture<List<K8sClusterInfo>> getEksClusterInfo(String accountId, boolean forceRefresh) {
         // --- DEBUG: Log method entry ---
         logger.info("DEBUG K8S: getEksClusterInfo called for accountId: {}, forceRefresh: {}", accountId, forceRefresh);
@@ -169,7 +169,7 @@ public class EksService {
         return new DefaultKubernetesClient(config);
     }
 
-    @Async
+    @Async("awsTaskExecutor")
     public CompletableFuture<List<K8sNodeInfo>> getK8sNodes(String accountId, String clusterName,
             boolean forceRefresh) {
         logger.info("Fetching nodes for cluster: {} in account: {}", clusterName, accountId);

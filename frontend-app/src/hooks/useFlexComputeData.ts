@@ -29,20 +29,7 @@ export const useFlexComputeData = () => {
   const [isLoading, setIsLoading] = useState(false);
 
   // Linked accounts from CloudiDR
-  const [linkedAccounts, setLinkedAccounts] = useState<Array<{
-    accountId: string;
-    accountName: string;
-    provider: string;
-    status: string;
-    accountRegions?: Array<{
-      id: number;
-      operatingCspRegionAz: {
-        regionCode: string;
-        regionType: string;
-        availabilityZoneId: string;
-      };
-    }>;
-  }>>([]);
+  const [linkedAccounts, setLinkedAccounts] = useState<any[]>([]);
   const [accountsLoading, setAccountsLoading] = useState(false);
 
   // Wizard data
@@ -58,7 +45,6 @@ export const useFlexComputeData = () => {
   const [pageSize, setPageSize] = useState(10);
   const [totalElements, setTotalElements] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
-  const [_statusFilter, setStatusFilter] = useState<string[]>([]);
 
   /**
    * Fetch KPIs by loading ALL ACTIVE/COMPLETED capacities (separate from paginated table data)
@@ -142,7 +128,6 @@ export const useFlexComputeData = () => {
         setCapacities(data);
         setCurrentPage(page);
         setPageSize(size);
-        setStatusFilter(statuses);
       }
     } catch (err) {
       console.error('[FlexCompute] Fetch capacities failed:', err);

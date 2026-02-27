@@ -140,10 +140,14 @@ export const apiFetch = async (url: string | URL, options: FetchOptions = {}): P
     });
 
     // Handle unauthorized responses
+    // Only treat 401 as session expiry if the user previously had an active session.
+    // Pre-login 401s (e.g. on mount) are expected and should not trigger a redirect.
     if (response.status === 401 && !urlStr.includes('/login')) {
-      console.warn('Global Interceptor: Session expired or unauthorized.');
-      // You can dispatch a global event here for handling auth redirects
-      window.dispatchEvent(new CustomEvent('session-expired'));
+      const hadSession = !!sessionStorage.getItem('cached_user_roles');
+      if (hadSession) {
+        console.warn('Global Interceptor: Session expired — user had an active session.');
+        window.dispatchEvent(new CustomEvent('session-expired'));
+      }
     }
 
     return response;

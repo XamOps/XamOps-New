@@ -423,14 +423,37 @@ public class CloudListService {
     @Async("awsTaskExecutor")
     public CompletableFuture<List<ResourceDto>> getAllResources(CloudAccount account, boolean forceRefresh) {
         String cacheKey = "cloudlistResources-" + account.getAwsAccountId();
+        String dbCacheKey = "CLOUD_LIST::" + account.getAwsAccountId();
+
         if (!forceRefresh) {
+            // 1. Redis — fastest path
             Optional<List<ResourceDto>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {
             });
             if (cachedData.isPresent()) {
                 return CompletableFuture.completedFuture(cachedData.get());
             }
+
+            // 2. DB snapshot — survives Redis restarts; prevents 503 on cold cache
+            try {
+                Optional<CachedData> dbCache = cachedDataRepository.findById(dbCacheKey);
+                if (dbCache.isPresent() && dbCache.get().getJsonData() != null
+                        && dbCache.get().getJsonData().length() > 10) {
+                    List<ResourceDto> dbData = objectMapper.readValue(
+                            dbCache.get().getJsonData(), new TypeReference<List<ResourceDto>>() {});
+                    if (dbData != null && !dbData.isEmpty()) {
+                        logger.info("✅ CloudList resources loaded from DB snapshot for account {} ({} resources)",
+                                account.getAwsAccountId(), dbData.size());
+                        redisCache.put(cacheKey, dbData, 240); // warm Redis from DB snapshot
+                        return CompletableFuture.completedFuture(dbData);
+                    }
+                }
+            } catch (Exception e) {
+                logger.warn("Failed to read CloudList DB snapshot for account {}: {}",
+                        account.getAwsAccountId(), e.getMessage());
+            }
         }
 
+        // 3. Live AWS scan — slow path, only when both caches are cold
         return getRegionStatusForAccount(account, forceRefresh).thenCompose(activeRegions -> {
             if (activeRegions == null || activeRegions.isEmpty()) {
                 logger.warn("No active regions found for account {}. Skipping resource fetching.",
@@ -523,7 +546,15 @@ public class CloudListService {
         String dbCacheKey = "REGION_STATUS::" + accountId;
 
         if (!forceRefresh) {
-            // 1. Check database cache first
+            // 1. Redis first — fast, no DB connection consumed
+            Optional<List<DashboardData.RegionStatus>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {
+            });
+            if (cachedData.isPresent()) {
+                logger.info("✅ Redis cache hit for region status: {}", accountId);
+                return CompletableFuture.completedFuture(cachedData.get());
+            }
+
+            // 2. DB fallback — only when Redis is cold (after restart/deployment)
             try {
                 Optional<CachedData> dbCache = cachedDataRepository.findById(dbCacheKey);
                 if (dbCache.isPresent() && dbCache.get().getJsonData() != null
@@ -533,21 +564,14 @@ public class CloudListService {
                             new TypeReference<List<DashboardData.RegionStatus>>() {
                             });
                     if (data != null && !data.isEmpty()) {
-                        logger.info("✅ Serving region status data from database cache for account {} ({} regions)",
+                        logger.info("✅ DB hit for region status — repopulating Redis for account {} ({} regions)",
                                 accountId, data.size());
+                        redisCache.put(cacheKey, data, 60); // re-warm Redis so next request skips DB
                         return CompletableFuture.completedFuture(data);
                     }
                 }
             } catch (Exception e) {
                 logger.warn("Failed to read region status from database cache: {}", e.getMessage());
-            }
-
-            // 2. Fallback to Redis cache
-            Optional<List<DashboardData.RegionStatus>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {
-            });
-            if (cachedData.isPresent()) {
-                logger.info("Serving cloud list region data from Redis cache for account {}", accountId);
-                return CompletableFuture.completedFuture(cachedData.get());
             }
         }
 

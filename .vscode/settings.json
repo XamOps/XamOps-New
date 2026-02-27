@@ -1,11 +1,18 @@
 {
-    "java.jdt.ls.vmargs": "-XX:+UseParallelGC -XX:GCTimeRatio=4 -XX:AdaptiveSizePolicyWeight=90 -Dsun.zip.disableMemoryMapping=true -Xmx8G -Xms100m -Xlog:disable",
+    "java.configuration.updateBuildConfiguration": "automatic",
+    "java.compile.nullAnalysis.mode": "automatic",
+    "java.jdt.ls.vmargs": "-XX:+UseParallelGC -XX:GCTimeRatio=4 -XX:AdaptiveSizePolicyWeight=90 -Dsun.zip.disableMemoryMapping=true -Xmx4G -Xms100m",
     "java.debug.settings.onBuildFailureProceed": true,
-    "java.jdt.ls.java.home": "/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home",
+    "java.jdt.ls.java.home": "/Users/apple/tools/jdk-17.0.18+8/Contents/Home",
+    "java.import.exclusions": [
+        "**/node_modules/**",
+        "**/.git/**",
+        "**/bin/**"
+    ],
     "java.configuration.runtimes": [
         {
             "name": "JavaSE-17",
-            "path": "/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home",
+            "path": "/Users/apple/tools/jdk-17.0.18+8/Contents/Home",
             "default": true
         }
     ],
