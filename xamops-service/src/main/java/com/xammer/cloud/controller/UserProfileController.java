@@ -41,11 +41,13 @@ public class UserProfileController {
         // --- ✅ FETCH DB STATUS ---
         boolean isTourSeen = true; // Default safe fallback
         Long userId = null;
+        String tenantId = null;
 
         Object principal = authentication.getPrincipal();
         if (principal instanceof ClientUserDetails) {
             userId = ((ClientUserDetails) principal).getId();
-            
+            tenantId = ((ClientUserDetails) principal).getTenantId();
+
             // Fetch real status from DB
             User user = userRepository.findById(userId).orElse(null);
             if (user != null) {
@@ -59,7 +61,10 @@ public class UserProfileController {
         if (userId != null) {
             userProfile.setId(userId);
         }
-        
+        if (tenantId != null) {
+            userProfile.setTenantId(tenantId);
+        }
+
         return ResponseEntity.ok(userProfile);
     }
 

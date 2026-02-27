@@ -15,6 +15,7 @@ export interface UserProfile {
   email?: string;
   roles?: UserRole[];
   authorities?: UserRole[]; // Some endpoints return 'authorities' instead of 'roles'
+  tenantId?: string;        // Backend may return tenant association for regular users
 }
 
 export interface Tenant {

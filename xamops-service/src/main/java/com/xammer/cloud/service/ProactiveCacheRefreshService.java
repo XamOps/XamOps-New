@@ -106,14 +106,14 @@ public class ProactiveCacheRefreshService {
 
             // In local/UAT, there's no tenant_config table - just return the configured
             // tenant
-            if ("local".equals(activeProfile) || "uat".equals(activeProfile)) {
+            if ("local".equals(activeProfile) || "uat".equals(activeProfile) || "preprod".equals(activeProfile) || "prod".equals(activeProfile)) {
                 String currentTenant = envConfig.getCurrentTenantId();
                 logger.info("✅ Using configured tenant '{}' for {} environment (no tenant_config query)",
                         currentTenant, activeProfile);
                 return Collections.singletonList(currentTenant);
             }
 
-            // In prod, query tenant_config from master DB - GET ALL ACTIVE TENANTS
+            // Fallback: query tenant_config from master DB - GET ALL ACTIVE TENANTS
             List<String> tenants = masterJdbcTemplate.queryForList(
                     "SELECT tenant_id FROM tenant_config WHERE active = true",
                     String.class);
@@ -300,6 +300,54 @@ public class ProactiveCacheRefreshService {
 
             } catch (Exception e) {
                 logger.error("❌ Failed cost refresh for tenant {}", tenantId, e);
+                if (jobHistory.getId() != null) {
+                    jobHistory.setStatus("FAILURE");
+                    jobHistory.setErrorMessage(e.getMessage());
+                    jobHistory.setEndTime(LocalDateTime.now());
+                    jobExecutionHistoryRepository.save(jobHistory);
+                }
+            } finally {
+                TenantContext.clear();
+            }
+        }
+    }
+
+    // ===================================================================================
+    // 3:30 AM -> AWS Dashboard Snapshot Refresh
+    // ===================================================================================
+    @Scheduled(cron = "0 30 3 * * ?")
+    public void refreshAwsDashboardData() {
+        logger.info("--- [3:30 AM] Starting AWS Dashboard Snapshot Refresh ---");
+        List<String> tenants = fetchActiveTenants();
+
+        for (String tenantId : tenants) {
+            JobExecutionHistory jobHistory = new JobExecutionHistory("REFRESH_AWS_DASHBOARD", tenantId,
+                    LocalDateTime.now(), "RUNNING");
+            try {
+                TenantContext.setCurrentTenant(tenantId);
+                jobHistory = jobExecutionHistoryRepository.save(jobHistory);
+
+                int count = 0;
+                for (CloudAccount account : getAllAccounts()) {
+                    String accountId = account.getAwsAccountId();
+                    if (accountId == null || "GCP".equals(account.getProvider()) || "Azure".equals(account.getProvider()))
+                        continue;
+                    try {
+                        dashboardDataService.getDashboardData(accountId, true, null);
+                        count++;
+                        logger.info("✅ Refreshed AWS Dashboard snapshot for account {}", accountId);
+                    } catch (Exception e) {
+                        logger.error("❌ Failed to refresh dashboard snapshot for account {}", accountId, e);
+                    }
+                }
+
+                jobHistory.setStatus("SUCCESS");
+                jobHistory.setItemsProcessed(count);
+                jobHistory.setEndTime(LocalDateTime.now());
+                jobExecutionHistoryRepository.save(jobHistory);
+
+            } catch (Exception e) {
+                logger.error("❌ Failed AWS dashboard refresh for tenant {}", tenantId, e);
                 if (jobHistory.getId() != null) {
                     jobHistory.setStatus("FAILURE");
                     jobHistory.setErrorMessage(e.getMessage());

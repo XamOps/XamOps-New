@@ -1,8 +1,8 @@
 import React from 'react';
-import type { AzureReservationMetrics } from '../../types/azureReservations';
+import type { AzureReservationMetrics as AzureReservationMetricsData } from '../../types/azureReservations';
 
 interface AzureReservationMetricsProps {
-  metrics: AzureReservationMetrics;
+  metrics: AzureReservationMetricsData;
 }
 
 const MetricCard: React.FC<{

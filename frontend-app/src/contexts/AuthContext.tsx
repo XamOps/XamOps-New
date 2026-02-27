@@ -161,12 +161,19 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           await fetchTenantAccounts(currentImpersonateUser, currentTenant);
         }
       } else {
-        // Proactively clear super admin context for regular users
-        // This handles cases where a super admin switched users without proper logout
-        sessionStorage.removeItem('selectedTenantId');
+        // For regular users: read their tenant from the profile response if available.
+        // The backend may return tenantId so the frontend can route requests correctly.
+        const tenantId = (data as any).tenantId || (data as any).tenant_id;
+        if (tenantId) {
+          sessionStorage.setItem('selectedTenantId', tenantId);
+          setSelectedTenant(tenantId);
+        } else if (!sessionStorage.getItem('selectedTenantId')) {
+          sessionStorage.removeItem('selectedTenantId');
+          setSelectedTenant('');
+        }
+        // Always clear super-admin-only keys for regular users
         sessionStorage.removeItem('impersonateUserId');
         sessionStorage.removeItem('superAdminSelectedAccountId');
-        setSelectedTenant('');
         setImpersonateUser('');
         setSelectedAccountId('');
       }
@@ -197,11 +204,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             await fetchTenantAccounts(currentImpersonateUser, currentTenant);
           }
         } else {
-          // Proactively clear super admin context for regular users
-          sessionStorage.removeItem('selectedTenantId');
+          // For regular users: read their tenant from the profile response if available.
+          const tenantId = (data as any).tenantId || (data as any).tenant_id;
+          if (tenantId) {
+            sessionStorage.setItem('selectedTenantId', tenantId);
+            setSelectedTenant(tenantId);
+          } else if (!sessionStorage.getItem('selectedTenantId')) {
+            sessionStorage.removeItem('selectedTenantId');
+            setSelectedTenant('');
+          }
+          // Always clear super-admin-only keys for regular users
           sessionStorage.removeItem('impersonateUserId');
           sessionStorage.removeItem('superAdminSelectedAccountId');
-          setSelectedTenant('');
           setImpersonateUser('');
           setSelectedAccountId('');
         }

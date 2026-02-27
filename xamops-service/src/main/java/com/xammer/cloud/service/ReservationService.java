@@ -7,6 +7,7 @@ import com.xammer.cloud.repository.CloudAccountRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
@@ -44,6 +45,7 @@ public class ReservationService {
     private final String configuredRegion;
     private final RedisCacheService redisCache;
     private final CostMockService costMockService;
+    private final java.util.concurrent.Executor awsTaskExecutor;
 
     @Value("${aws.costexplorer.mock:false}")
     private boolean useMockData;
@@ -55,13 +57,15 @@ public class ReservationService {
             @Lazy CloudListService cloudListService,
             @Value("${rightsizing.instance-size-order}") List<String> instanceSizeOrder,
             RedisCacheService redisCache,
-            CostMockService costMockService) {
+            CostMockService costMockService,
+            @Qualifier("awsTaskExecutor") java.util.concurrent.Executor awsTaskExecutor) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
         this.cloudListService = cloudListService;
         this.instanceSizeOrder = instanceSizeOrder;
         this.redisCache = redisCache;
         this.costMockService = costMockService;
+        this.awsTaskExecutor = awsTaskExecutor;
         this.configuredRegion = System.getenv().getOrDefault("AWS_REGION", "us-east-1");
     }
 
@@ -527,7 +531,7 @@ public class ReservationService {
                                 ri.getScope(), ri.getAvailabilityZone(), ri.getDuration(),
                                 ri.getStart(), ri.getEnd(), ri.getInstanceCount(), ri.getState(),
                                 utilization);
-                    }))
+                    }, awsTaskExecutor))
                     .collect(Collectors.toList());
 
             return CompletableFuture.allOf(utilizationFutures.toArray(new CompletableFuture[0]))
@@ -730,7 +734,7 @@ public class ReservationService {
                                 account.getAwsAccountId(), serviceName, regionStatus.getRegionId(), e);
                         return Collections.<T>emptyList();
                     }
-                }))
+                }, awsTaskExecutor))
                 .collect(Collectors.toList());
 
         return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))

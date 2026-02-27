@@ -8,12 +8,9 @@ import com.xammer.cloud.repository.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
-import javax.sql.DataSource;
 import java.util.List;
 import java.util.Optional;
 
@@ -39,28 +36,9 @@ public class GlobalUserSyncService {
      */
     @Scheduled(fixedDelay = 60000) // Run every 1 minute
     public void syncAllUsersToGlobalDirectory() {
-        // Skip in local/UAT - only run in prod
-        String[] activeProfiles = new org.springframework.core.env.StandardEnvironment().getActiveProfiles();
-        List<String> profilesList = java.util.Arrays.asList(activeProfiles);
-        boolean isSyncProfile = profilesList.contains("prod") || profilesList.contains("preprod");
-        if (!isSyncProfile) {
-            log.debug("Skipping Global User Sync - not in prod or preprod profile");
-            return;
-        }
-
-        log.info("↻ Starting Global User Synchronization...");
-
-        // 1. Get all Active Tenants + Default (Master)
-        List<TenantDto> tenants = new java.util.ArrayList<>(tenantService.getAllActiveTenants());
-
-        // Add "default" manually to sync SuperAdmins from Master DB
-        tenants.add(new TenantDto("default", "System Master"));
-
-        for (TenantDto tenant : tenants) {
-            syncTenantUsers(tenant.getTenantId());
-        }
-
-        log.info("✓ Global User Synchronization Complete.");
+        // Single-tenant mode: global user sync disabled
+        log.debug("Skipping Global User Sync - single-tenant mode");
+        return;
     }
 
     private void syncTenantUsers(String tenantId) {

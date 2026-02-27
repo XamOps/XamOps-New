@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   AzureDashboardData,
   AzureResourceType,
@@ -28,7 +28,7 @@ declare global {
 
 const AzureDashboard: React.FC = () => {
   // Get selected account IDs from session storage - initialized synchronously
-  const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>(() => {
+  const [selectedAccountIds] = useState<string[]>(() => {
     const storedAccountIds = sessionStorage.getItem('selectedAccountIds');
     if (storedAccountIds) {
       try {

@@ -10,6 +10,7 @@ import com.xammer.cloud.repository.CloudAccountRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
@@ -37,6 +38,7 @@ import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import java.util.stream.Collectors;
 
 @Service
@@ -52,6 +54,7 @@ public class FinOpsService {
     private final RedisCacheService redisCache;
     private final UserRepository userRepository;
     private final CostMockService costMockService;
+    private final Executor backgroundTaskExecutor;
 
     @Value("${aws.costexplorer.mock:false}")
     private boolean useMockData;
@@ -65,7 +68,8 @@ public class FinOpsService {
             @Value("${tagging.compliance.required-tags}") List<String> requiredTags,
             RedisCacheService redisCache,
             UserRepository userRepository,
-            CostMockService costMockService) {
+            CostMockService costMockService,
+            @Qualifier("backgroundTaskExecutor") Executor backgroundTaskExecutor) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
         this.cloudListService = cloudListService;
@@ -74,6 +78,7 @@ public class FinOpsService {
         this.redisCache = redisCache;
         this.userRepository = userRepository;
         this.costMockService = costMockService;
+        this.backgroundTaskExecutor = backgroundTaskExecutor;
 
         logger.info("FinOpsService initialized (Mock Mode: {})", useMockData);
     }
@@ -106,7 +111,7 @@ public class FinOpsService {
         logger.info("Starting FinOps report generation for account {} (dates: {} to {})", accountId, startDate,
                 endDate);
 
-        return cloudListService.getRegionStatusForAccount(account, forceRefresh).thenCompose(activeRegions -> {
+        return cloudListService.getRegionStatusForAccount(account, false).thenComposeAsync(activeRegions -> {
             if (activeRegions == null || activeRegions.isEmpty()) {
                 logger.warn("[FinOps] ⚠️ No active regions found for account {}. Report may be empty.", accountId);
                 return CompletableFuture.completedFuture(null);
@@ -198,7 +203,7 @@ public class FinOpsService {
                                 accountId, String.format("%.2f", mtdSpend), String.format("%.2f", forecastedSpend));
                         return report;
                     });
-        }).exceptionally(ex -> {
+        }, backgroundTaskExecutor).exceptionally(ex -> {
             logger.error("Failed to generate FinOps report for account {} (dates: {} to {}): {}",
                     accountId, startDate, endDate, ex.getMessage(), ex);
             return null;

@@ -12,7 +12,6 @@ import software.amazon.awssdk.awscore.client.builder.AwsClientBuilder;
 import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
 import software.amazon.awssdk.regions.Region;
 
-import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import software.amazon.awssdk.services.acm.AcmClient;
@@ -78,8 +77,6 @@ import software.amazon.awssdk.services.savingsplans.SavingsplansClient;
 public class AwsClientProvider {
 
     private static final Logger logger = LoggerFactory.getLogger(AwsClientProvider.class);
-    private static final Duration API_TIMEOUT = Duration.ofSeconds(30);
-    private static final Duration API_CALL_ATTEMPT_TIMEOUT = Duration.ofSeconds(15);
 
     private final StsClient stsClient;
     private final Map<String, Object> clientCache = new ConcurrentHashMap<>();
@@ -107,12 +104,14 @@ public class AwsClientProvider {
     }
 
     /**
-     * Get client override configuration with timeouts to prevent indefinite hangs.
+     * Get client override configuration.
+     * NOTE: apiCallTimeout removed — it causes the SDK to create a ScheduledExecutorService
+     * (1+ threads) per client AND per concurrent API call, exhausting OS thread limits at scale.
+     * Timeout enforcement is handled by orTimeout() guards in CloudListService and
+     * .get(90, SECONDS) in DashboardDataService.
      */
     private ClientOverrideConfiguration getClientOverrideConfig() {
         return ClientOverrideConfiguration.builder()
-                .apiCallTimeout(API_TIMEOUT)
-                .apiCallAttemptTimeout(API_CALL_ATTEMPT_TIMEOUT)
                 .build();
     }
 
