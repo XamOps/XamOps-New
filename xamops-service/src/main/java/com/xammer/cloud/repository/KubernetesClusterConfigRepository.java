@@ -25,6 +25,9 @@ public interface KubernetesClusterConfigRepository extends JpaRepository<Kuberne
     // Find clusters with Karpenter enabled
     List<KubernetesClusterConfig> findByKarpenterEnabledTrue();
 
+    // Find clusters with XamOps Autoscaling Agent enabled
+    List<KubernetesClusterConfig> findByAutoscalingEnabledTrue();
+
     // ===== Agent Support Methods =====
 
     /**
