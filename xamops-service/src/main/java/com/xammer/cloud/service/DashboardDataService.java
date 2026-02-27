@@ -26,6 +26,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.core.task.TaskExecutor;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -47,6 +48,7 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -92,6 +94,10 @@ public class DashboardDataService {
     // ADDED: Environment-aware configuration
     private final com.xammer.cloud.config.SchedulingEnvironmentConfig envConfig;
 
+    // Dedicated executor for background data-fetch lambdas (IAM, CloudWatch, etc.)
+    // Keeps AWS-Async-* threads free for HTTP-facing requests
+    private final TaskExecutor backgroundTaskExecutor;
+
     @Autowired
     public DashboardDataService(
             CloudAccountRepository cloudAccountRepository,
@@ -112,7 +118,8 @@ public class DashboardDataService {
             UserRepository userRepository,
             JobExecutionHistoryRepository jobExecutionHistoryRepository,
             @Qualifier("masterDataSource") DataSource masterDataSource,
-            com.xammer.cloud.config.SchedulingEnvironmentConfig envConfig) {
+            com.xammer.cloud.config.SchedulingEnvironmentConfig envConfig,
+            @Qualifier("backgroundTaskExecutor") TaskExecutor backgroundTaskExecutor) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
         this.gcpDataService = gcpDataService;
@@ -132,6 +139,7 @@ public class DashboardDataService {
         this.jobExecutionHistoryRepository = jobExecutionHistoryRepository;
         this.masterJdbcTemplate = new JdbcTemplate(masterDataSource);
         this.envConfig = envConfig;
+        this.backgroundTaskExecutor = backgroundTaskExecutor;
     }
 
     // ============================================================================================
@@ -233,14 +241,14 @@ public class DashboardDataService {
 
             // In local/UAT, there's no tenant_config table - just return the configured
             // tenant
-            if ("local".equals(activeProfile) || "uat".equals(activeProfile)) {
+            if ("local".equals(activeProfile) || "uat".equals(activeProfile) || "preprod".equals(activeProfile) || "prod".equals(activeProfile)) {
                 String currentTenant = envConfig.getCurrentTenantId();
                 logger.info("✅ Using configured tenant '{}' for {} environment (no tenant_config query)",
                         currentTenant, activeProfile);
                 return java.util.Arrays.asList(currentTenant);
             }
 
-            // In prod, query tenant_config from master DB - GET ALL ACTIVE TENANTS
+            // Fallback: query tenant_config from master DB - GET ALL ACTIVE TENANTS
             List<String> tenants = masterJdbcTemplate.queryForList(
                     "SELECT tenant_id FROM tenant_config WHERE active = true",
                     String.class);
@@ -1707,7 +1715,7 @@ public class DashboardDataService {
     }
 
     private DashboardData getAwsDashboardData(CloudAccount account, boolean forceRefresh, ClientUserDetails userDetails)
-            throws ExecutionException, InterruptedException {
+            throws ExecutionException, InterruptedException, TimeoutException {
         logger.info("--- LAUNCHING OPTIMIZED ASYNC DATA FETCH FROM AWS for account {} ---", account.getAwsAccountId());
 
         CompletableFuture<List<DashboardData.RegionStatus>> activeRegionsFuture = cloudListService
@@ -1717,7 +1725,7 @@ public class DashboardDataService {
                     return Collections.emptyList();
                 });
 
-        return activeRegionsFuture.thenCompose((List<DashboardData.RegionStatus> activeRegions) -> {
+        return activeRegionsFuture.thenComposeAsync((List<DashboardData.RegionStatus> activeRegions) -> {
             if (activeRegions == null || activeRegions.isEmpty()) {
                 logger.warn("No active regions found for account {}. Returning empty dashboard.",
                         account.getAwsAccountId());
@@ -1915,7 +1923,7 @@ public class DashboardDataService {
 
                         return data;
                     });
-        }).get();
+        }, backgroundTaskExecutor).get(90, TimeUnit.SECONDS);
     }
 
     private CompletableFuture<DashboardData.ResourceInventory> getResourceInventory(
@@ -1962,7 +1970,7 @@ public class DashboardDataService {
         });
     }
 
-    @Async("awsTaskExecutor")
+    @Async("backgroundTaskExecutor")
     public CompletableFuture<DashboardData.CloudWatchStatus> getCloudWatchStatus(CloudAccount account,
             List<DashboardData.RegionStatus> activeRegions, boolean forceRefresh) {
         String cacheKey = "cloudwatchStatus-" + account.getAwsAccountId();
@@ -1979,7 +1987,7 @@ public class DashboardDataService {
         return CompletableFuture.completedFuture(status);
     }
 
-    @Async("awsTaskExecutor")
+    @Async("backgroundTaskExecutor")
     public CompletableFuture<List<DashboardData.ServiceQuotaInfo>> getServiceQuotaInfo(CloudAccount account,
             List<DashboardData.RegionStatus> activeRegions,
             CompletableFuture<List<DashboardData.ServiceGroupDto>> groupedResourcesFuture, String serviceCode,
@@ -2030,7 +2038,7 @@ public class DashboardDataService {
         });
     }
 
-    @Async("awsTaskExecutor")
+    @Async("backgroundTaskExecutor")
     public CompletableFuture<DashboardData.IamResources> getIamResources(CloudAccount account, boolean forceRefresh) {
         String cacheKey = "iamResources-" + account.getAwsAccountId();
         if (!forceRefresh) {
@@ -2070,7 +2078,7 @@ public class DashboardDataService {
         return CompletableFuture.completedFuture(resources);
     }
 
-    @Async("awsTaskExecutor")
+    @Async("backgroundTaskExecutor")
     public CompletableFuture<DashboardData.IamDetail> getIamDetails(CloudAccount account, boolean forceRefresh) {
         String cacheKey = "iamDetails-" + account.getAwsAccountId();
         if (!forceRefresh) {
@@ -2137,7 +2145,7 @@ public class DashboardDataService {
         });
     }
 
-    @Async("awsTaskExecutor")
+    @Async("backgroundTaskExecutor")
     public CompletableFuture<DashboardData.SavingsSummary> getSavingsSummary(
             CompletableFuture<List<DashboardData.WastedResource>> wastedFuture,
             CompletableFuture<List<DashboardData.OptimizationRecommendation>> ec2RecsFuture,

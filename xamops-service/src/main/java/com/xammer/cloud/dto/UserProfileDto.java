@@ -7,6 +7,7 @@ public class UserProfileDto {
     private String username;
     private List<String> roles;
     private boolean tourSeen;
+    private String tenantId;
 
     public UserProfileDto(String username, List<String> roles, boolean tourSeen) {
         this.username = username;
@@ -41,5 +42,8 @@ public class UserProfileDto {
 
     public boolean isTourSeen() { return tourSeen; }
     public void setTourSeen(boolean tourSeen) { this.tourSeen = tourSeen; }
+
+    public String getTenantId() { return tenantId; }
+    public void setTenantId(String tenantId) { this.tenantId = tenantId; }
 
 }

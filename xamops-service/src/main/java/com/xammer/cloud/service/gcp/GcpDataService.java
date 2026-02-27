@@ -52,9 +52,10 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.Executor;
 import java.util.stream.Collectors;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
@@ -69,7 +70,9 @@ public class GcpDataService {
     private final com.xammer.cloud.repository.CloudAccountRepository cloudAccountRepository;
     private final CachedDataRepository cachedDataRepository;
     private final TransactionTemplate transactionTemplate;
-    private final ExecutorService executor = Executors.newCachedThreadPool();
+    @Autowired
+    @Qualifier("backgroundTaskExecutor")
+    private Executor backgroundTaskExecutor;
     private final Map<String, double[]> regionCoordinates = loadRegionCoordinates();
     private final ObjectMapper objectMapper;
     private final RedisCacheService redisCache;
@@ -241,14 +244,14 @@ public class GcpDataService {
                 });
 
         CompletableFuture<List<GcpWasteItem>> wasteReportFuture = CompletableFuture
-                .supplyAsync(() -> gcpOptimizationService.getWasteReport(gcpProjectId), executor)
+                .supplyAsync(() -> gcpOptimizationService.getWasteReport(gcpProjectId), backgroundTaskExecutor)
                 .exceptionally(ex -> {
                     log.error("Failed to get waste report for project {}: {}", gcpProjectId, ex.getMessage());
                     return Collections.emptyList();
                 });
 
         CompletableFuture<List<GcpOptimizationRecommendation>> rightsizingFuture = CompletableFuture
-                .supplyAsync(() -> gcpOptimizationService.getRightsizingRecommendations(gcpProjectId), executor)
+                .supplyAsync(() -> gcpOptimizationService.getRightsizingRecommendations(gcpProjectId), backgroundTaskExecutor)
                 .exceptionally(ex -> {
                     log.error("Failed to get rightsizing recommendations for project {}: {}", gcpProjectId,
                             ex.getMessage());
@@ -256,14 +259,14 @@ public class GcpDataService {
                 });
 
         CompletableFuture<DashboardData.SavingsSummary> savingsSummaryFuture = CompletableFuture
-                .supplyAsync(() -> gcpOptimizationService.getSavingsSummary(gcpProjectId), executor)
+                .supplyAsync(() -> gcpOptimizationService.getSavingsSummary(gcpProjectId), backgroundTaskExecutor)
                 .exceptionally(ex -> {
                     log.error("Failed to get savings summary for project {}: {}", gcpProjectId, ex.getMessage());
                     return new DashboardData.SavingsSummary(0.0, 0.0);
                 });
 
         CompletableFuture<DashboardData.OptimizationSummary> optimizationSummaryFuture = CompletableFuture
-                .supplyAsync(() -> gcpOptimizationService.getOptimizationSummary(gcpProjectId), executor)
+                .supplyAsync(() -> gcpOptimizationService.getOptimizationSummary(gcpProjectId), backgroundTaskExecutor)
                 .exceptionally(ex -> {
                     log.error("Failed to get optimization summary for project {}: {}", gcpProjectId, ex.getMessage());
                     return new DashboardData.OptimizationSummary(0.0, 0);
@@ -613,24 +616,24 @@ public class GcpDataService {
         log.info("🔍 Fetching all GCP resources for project: {}", gcpProjectId);
 
         List<CompletableFuture<List<GcpResourceDto>>> futures = List.of(
-                CompletableFuture.supplyAsync(() -> getComputeInstances(gcpProjectId, forceRefresh), executor),
-                CompletableFuture.supplyAsync(() -> getStorageBuckets(gcpProjectId, forceRefresh), executor),
-                CompletableFuture.supplyAsync(() -> getGkeClusters(gcpProjectId, forceRefresh), executor),
-                CompletableFuture.supplyAsync(() -> getCloudSqlInstances(gcpProjectId, forceRefresh), executor),
-                CompletableFuture.supplyAsync(() -> getVpcNetworks(gcpProjectId, forceRefresh), executor),
-                CompletableFuture.supplyAsync(() -> getDnsZones(gcpProjectId, forceRefresh), executor),
-                CompletableFuture.supplyAsync(() -> getLoadBalancers(gcpProjectId, forceRefresh), executor),
-                CompletableFuture.supplyAsync(() -> getFirewallRules(gcpProjectId, forceRefresh), executor),
-                CompletableFuture.supplyAsync(() -> getCloudNatRouters(gcpProjectId, forceRefresh), executor),
-                CompletableFuture.supplyAsync(() -> getKmsKeys(gcpProjectId, forceRefresh), executor),
-                CompletableFuture.supplyAsync(() -> getCloudFunctions(gcpProjectId, forceRefresh), executor),
-                CompletableFuture.supplyAsync(() -> getSecretManagerSecrets(gcpProjectId, forceRefresh), executor),
-                CompletableFuture.supplyAsync(() -> getCloudArmorPolicies(gcpProjectId), executor),
-                CompletableFuture.supplyAsync(() -> getApiGateways(gcpProjectId), executor),
+                CompletableFuture.supplyAsync(() -> getComputeInstances(gcpProjectId, forceRefresh), backgroundTaskExecutor),
+                CompletableFuture.supplyAsync(() -> getStorageBuckets(gcpProjectId, forceRefresh), backgroundTaskExecutor),
+                CompletableFuture.supplyAsync(() -> getGkeClusters(gcpProjectId, forceRefresh), backgroundTaskExecutor),
+                CompletableFuture.supplyAsync(() -> getCloudSqlInstances(gcpProjectId, forceRefresh), backgroundTaskExecutor),
+                CompletableFuture.supplyAsync(() -> getVpcNetworks(gcpProjectId, forceRefresh), backgroundTaskExecutor),
+                CompletableFuture.supplyAsync(() -> getDnsZones(gcpProjectId, forceRefresh), backgroundTaskExecutor),
+                CompletableFuture.supplyAsync(() -> getLoadBalancers(gcpProjectId, forceRefresh), backgroundTaskExecutor),
+                CompletableFuture.supplyAsync(() -> getFirewallRules(gcpProjectId, forceRefresh), backgroundTaskExecutor),
+                CompletableFuture.supplyAsync(() -> getCloudNatRouters(gcpProjectId, forceRefresh), backgroundTaskExecutor),
+                CompletableFuture.supplyAsync(() -> getKmsKeys(gcpProjectId, forceRefresh), backgroundTaskExecutor),
+                CompletableFuture.supplyAsync(() -> getCloudFunctions(gcpProjectId, forceRefresh), backgroundTaskExecutor),
+                CompletableFuture.supplyAsync(() -> getSecretManagerSecrets(gcpProjectId, forceRefresh), backgroundTaskExecutor),
+                CompletableFuture.supplyAsync(() -> getCloudArmorPolicies(gcpProjectId), backgroundTaskExecutor),
+                CompletableFuture.supplyAsync(() -> getApiGateways(gcpProjectId), backgroundTaskExecutor),
                 // CompletableFuture.supplyAsync(() -> getAppEngineApplications(gcpProjectId),
                 // executor),
-                CompletableFuture.supplyAsync(() -> getBigQueryDatasets(gcpProjectId), executor),
-                CompletableFuture.supplyAsync(() -> getLoggingBuckets(gcpProjectId), executor),
+                CompletableFuture.supplyAsync(() -> getBigQueryDatasets(gcpProjectId), backgroundTaskExecutor),
+                CompletableFuture.supplyAsync(() -> getLoggingBuckets(gcpProjectId), backgroundTaskExecutor),
                 // CompletableFuture.supplyAsync(() -> getArtifactRepositories(gcpProjectId),
                 // executor),
                 // CompletableFuture.supplyAsync(() -> getCloudBuildTriggers(gcpProjectId),
@@ -1350,7 +1353,7 @@ public class GcpDataService {
                 log.error("Failed to fetch Vertex AI models for project {}: {}", gcpProjectId, e.getMessage());
                 return List.of();
             }
-        }, executor);
+        }, backgroundTaskExecutor);
     }
 
     /**
@@ -1387,7 +1390,7 @@ public class GcpDataService {
                 log.error("Failed to fetch Vertex AI endpoints for project {}: {}", gcpProjectId, e.getMessage());
                 return List.of();
             }
-        }, executor);
+        }, backgroundTaskExecutor);
     }
 
     // ==================== CLOUD PUB/SUB SERVICES ====================
@@ -1425,7 +1428,7 @@ public class GcpDataService {
                 log.error("Failed to fetch Pub/Sub topics for project {}: {}", gcpProjectId, e.getMessage());
                 return List.of();
             }
-        }, executor);
+        }, backgroundTaskExecutor);
     }
 
     /**
@@ -1461,7 +1464,7 @@ public class GcpDataService {
                 log.error("Failed to fetch Pub/Sub subscriptions for project {}: {}", gcpProjectId, e.getMessage());
                 return List.of();
             }
-        }, executor);
+        }, backgroundTaskExecutor);
     }
 
     // ==================== CLOUD MONITORING SERVICES ====================
@@ -1499,7 +1502,7 @@ public class GcpDataService {
                 log.error("Failed to fetch monitoring alert policies for project {}: {}", gcpProjectId, e.getMessage());
                 return List.of();
             }
-        }, executor);
+        }, backgroundTaskExecutor);
     }
 
     /**
@@ -1535,7 +1538,7 @@ public class GcpDataService {
                 log.error("Failed to fetch monitoring uptime checks for project {}: {}", gcpProjectId, e.getMessage());
                 return List.of();
             }
-        }, executor);
+        }, backgroundTaskExecutor);
     }
 
     // ==================== DATAPLEX SERVICE ====================
@@ -1573,7 +1576,7 @@ public class GcpDataService {
                 log.error("Failed to fetch Dataplex lakes for project {}: {}", gcpProjectId, e.getMessage());
                 return List.of();
             }
-        }, executor);
+        }, backgroundTaskExecutor);
     }
 
     // ==================== CLOUD SCHEDULER SERVICE ====================
@@ -1611,7 +1614,7 @@ public class GcpDataService {
                 log.error("Failed to fetch Cloud Scheduler jobs for project {}: {}", gcpProjectId, e.getMessage());
                 return List.of();
             }
-        }, executor);
+        }, backgroundTaskExecutor);
     }
 
     // ==================== VM MANAGER (OS CONFIG) SERVICE ====================
@@ -1650,7 +1653,7 @@ public class GcpDataService {
                         e.getMessage());
                 return List.of();
             }
-        }, executor);
+        }, backgroundTaskExecutor);
     }
 
     // ==================== BIGQUERY RESERVATION SERVICE ====================
@@ -1688,7 +1691,7 @@ public class GcpDataService {
                 log.error("Failed to fetch BigQuery reservations for project {}: {}", gcpProjectId, e.getMessage());
                 return List.of();
             }
-        }, executor);
+        }, backgroundTaskExecutor);
     }
 
     /**

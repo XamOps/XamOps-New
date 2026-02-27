@@ -36,33 +36,8 @@ public class TenantFilter implements Filter {
         HttpServletRequest req = (HttpServletRequest) request;
         String env = environmentService.getCurrentEnvironment();
 
-        // ONLY apply tenant context from headers in PROD
-        // In Local/UAT, we use a single database and phantom tenants like
-        // 'local-xammer'
-        // can break JPA lookups if Hibernate is expecting a specific schema.
-        if ("prod".equals(env)) {
-            // 1. Try getting Tenant ID from Header
-            String tenantId = req.getHeader(TENANT_HEADER);
-
-            // 2. If Header is missing, try getting from Request Parameter
-            if (tenantId == null || tenantId.isEmpty()) {
-                tenantId = request.getParameter(TENANT_PARAM);
-            }
-
-            // 3. FALLBACK: resolver from session
-            if (tenantId == null || tenantId.isEmpty()) {
-                tenantId = resolveTenantFromSession(req);
-            }
-
-            // 4. If found, set context
-            if (tenantId != null && !tenantId.isEmpty()) {
-                TenantContext.setCurrentTenant(tenantId);
-            }
-        } else {
-            // Local/UAT: Default to 'default' tenant or null to ensure single-DB access
-            // works
-            TenantContext.setCurrentTenant("default");
-        }
+        // Single-tenant mode: always use "system" tenant for all environments
+        TenantContext.setCurrentTenant("system");
 
         try {
             chain.doFilter(request, response);

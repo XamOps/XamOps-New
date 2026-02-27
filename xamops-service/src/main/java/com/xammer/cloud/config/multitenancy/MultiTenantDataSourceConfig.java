@@ -211,16 +211,35 @@ public class MultiTenantDataSourceConfig {
     @Bean
     @Primary
     @ConditionalOnProperty(name = "spring.profiles.active", havingValue = "prod", matchIfMissing = false)
-    public DataSource prodRoutingDataSource() {
-        return createRoutingDataSource("PROD");
+    public DataSource prodDataSource() {
+        logger.info("========================================");
+        logger.info("PROFILE: PROD - Single-Tenant Mode (direct datasource)");
+        logger.info("DB URL: {}", dataSourceUrl);
+        logger.info("========================================");
+        HikariDataSource ds = new HikariDataSource();
+        ds.setJdbcUrl(dataSourceUrl);
+        ds.setUsername(dataSourceUsername);
+        ds.setPassword(dataSourcePassword);
+        ds.setDriverClassName(dataSourceDriver);
+        applyHikariSettings(ds, "ProdPool-main");
+        return ds;
     }
 
-    // Explicitly define for 'preprod' to ensure it also uses this logic
     @Bean
     @Primary
     @ConditionalOnProperty(name = "spring.profiles.active", havingValue = "preprod")
-    public DataSource preprodRoutingDataSource() {
-        return createRoutingDataSource("PREPROD");
+    public DataSource preprodDataSource() {
+        logger.info("========================================");
+        logger.info("PROFILE: PREPROD - Single-Tenant Mode (direct datasource)");
+        logger.info("DB URL: {}", dataSourceUrl);
+        logger.info("========================================");
+        HikariDataSource ds = new HikariDataSource();
+        ds.setJdbcUrl(dataSourceUrl);
+        ds.setUsername(dataSourceUsername);
+        ds.setPassword(dataSourcePassword);
+        ds.setDriverClassName(dataSourceDriver);
+        applyHikariSettings(ds, "PreprodPool-main");
+        return ds;
     }
 
     private DataSource createRoutingDataSource(String profileName) {

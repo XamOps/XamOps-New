@@ -14,7 +14,7 @@ const GcpAutoSpottingSection: React.FC<GcpAutoSpottingSectionProps> = ({ account
         try {
             setLoading(true);
             const data = await fetchGcpAutoSpottingMigs(accountId);
-            setMigs(data);
+            setMigs(Array.isArray(data) ? data : []);
         } catch (error) {
             console.error('Failed to load MIGs', error);
         } finally {
