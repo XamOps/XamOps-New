@@ -5,6 +5,10 @@ interface GcpKPIData {
     forecastedSpend: number;
     lastMonthSpend: number;
     potentialSavings: number;
+    potentialSavingsBreakdown?: {
+        optimization: number;
+        autoSpotting: number;
+    };
 }
 
 interface GcpKPISectionProps {
@@ -26,6 +30,7 @@ interface KPICardProps {
     trendData: number[];
     change: number;
     sparklineId: string;
+    subtitle?: string;
 }
 
 // Helper to convert hex to rgba
@@ -44,7 +49,8 @@ const KPICard: React.FC<KPICardProps> = ({
     chartColor,
     trendData,
     change,
-    sparklineId
+    sparklineId,
+    subtitle
 }) => {
     const chartInstanceRef = useRef<any>(null);
 
@@ -124,6 +130,9 @@ const KPICard: React.FC<KPICardProps> = ({
                     <div className="flex-1">
                         <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">{title}</h3>
                         <p className="text-3xl font-black text-gray-900 tracking-tight mb-2 metric-value">{value}</p>
+                        {subtitle && (
+                            <p className="text-[10px] text-gray-500 font-medium mb-2 leading-relaxed">{subtitle}</p>
+                        )}
                         <div className="flex items-center text-[11px] font-bold">
                             <span className={`flex items-center gap-1 ${change >= 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
                                 {change !== 0 && (
@@ -191,6 +200,20 @@ const GcpKPISection: React.FC<GcpKPISectionProps> = ({ kpiData, costHistory, isL
     // For last month change, we need previous data, assuming 0 if not available
     const lastMonthChange = 0;
 
+    // Build breakdown subtitle for Potential Savings
+    const buildSavingsSubtitle = () => {
+        const breakdown = kpiData.potentialSavingsBreakdown;
+        if (!breakdown) return undefined;
+
+        // Always show breakdown even if values are 0
+        const parts: string[] = [
+            `Optimization: ${formatCurrency(breakdown.optimization)}`,
+            `AutoSpotting: ${formatCurrency(breakdown.autoSpotting)}`
+        ];
+
+        return parts.join(' • ');
+    };
+
     const kpiCards: KPICardProps[] = [
         {
             title: 'Month-to-Date Spend',
@@ -231,6 +254,7 @@ const GcpKPISection: React.FC<GcpKPISectionProps> = ({ kpiData, costHistory, isL
             trendData: [0, kpiData.potentialSavings],
             change: 0,
             sparklineId: 'sparkline-potentialSavings',
+            subtitle: buildSavingsSubtitle(),
         },
     ];
 

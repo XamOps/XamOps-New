@@ -1,5 +1,6 @@
 package com.xammer.cloud.service.gcp;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.google.cloud.compute.v1.*;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.DailySpotSavings;
@@ -9,6 +10,7 @@ import com.xammer.cloud.dto.autospotting.SpotInstanceDto;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.DailySpotSavingsRepository;
 import com.xammer.cloud.repository.SpotOptimizationEventRepository;
+import com.xammer.cloud.service.RedisCacheService;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -32,22 +34,29 @@ public class GcpAutoSpottingService {
     private final DailySpotSavingsRepository savingsRepository;
     private final GcpPricingService pricingService;
     private final GcpRestTemplateService restTemplateService;
+    private final RedisCacheService redisCacheService;
+
+    private static final String CACHE_KEY_MIGS      = "gcp-autospotting-migs-";
+    private static final String CACHE_KEY_INSTANCES  = "gcp-autospotting-instances-";
+    private static final int    CACHE_TTL_MINUTES    = 240; // 4 hours
 
     public GcpAutoSpottingService(GcpClientProvider gcpClientProvider,
             CloudAccountRepository cloudAccountRepository,
             SpotOptimizationEventRepository eventRepository,
             DailySpotSavingsRepository savingsRepository,
             GcpPricingService pricingService,
-            GcpRestTemplateService restTemplateService) {
+            GcpRestTemplateService restTemplateService,
+            RedisCacheService redisCacheService) {
         this.gcpClientProvider = gcpClientProvider;
         this.cloudAccountRepository = cloudAccountRepository;
         this.eventRepository = eventRepository;
         this.savingsRepository = savingsRepository;
         this.pricingService = pricingService;
         this.restTemplateService = restTemplateService;
+        this.redisCacheService = redisCacheService;
     }
 
-    private CloudAccount resolveAccount(String accountId) {
+    public CloudAccount resolveAccount(String accountId) {
         log.debug("🔍 Resolving GCP account for identifier: {}", accountId);
         // Try looking up by provider account ID (Project ID) first
         return cloudAccountRepository.findByProviderAccountId(accountId)
@@ -87,6 +96,21 @@ public class GcpAutoSpottingService {
     }
 
     public List<GcpAutoSpottingGroupDto> listMigsAllRegionsWithCosts(String accountId) {
+        return listMigsAllRegionsWithCosts(accountId, false);
+    }
+
+    public List<GcpAutoSpottingGroupDto> listMigsAllRegionsWithCosts(String accountId, boolean forceRefresh) {
+        String cacheKey = CACHE_KEY_MIGS + accountId;
+
+        if (!forceRefresh) {
+            java.util.Optional<List<GcpAutoSpottingGroupDto>> cached = redisCacheService.get(
+                    cacheKey, new TypeReference<List<GcpAutoSpottingGroupDto>>() {});
+            if (cached.isPresent()) {
+                log.info("--- GCP AUTOSPOTTING MIGS: loaded from Redis for accountId={} ---", accountId);
+                return cached.get();
+            }
+        }
+
         CloudAccount account = resolveAccount(accountId);
         String gcpProjectId = account.getGcpProjectId();
 
@@ -94,11 +118,14 @@ public class GcpAutoSpottingService {
 
         for (GcpAutoSpottingGroupDto mig : migs) {
             try {
-                // Enrich with real cost data using GCP Pricing Service
                 enrichMigCostData(mig);
             } catch (Exception e) {
                 log.warn("Failed to enrich cost data for MIG {}: {}", mig.name, e.getMessage());
             }
+        }
+
+        if (!migs.isEmpty()) {
+            redisCacheService.put(cacheKey, migs, CACHE_TTL_MINUTES);
         }
 
         return migs;
@@ -293,9 +320,12 @@ public class GcpAutoSpottingService {
     }
 
     public HistoryResponse getHistoryData(String accountId, String range) {
+        log.info("📊 [GCP] Fetching history data for accountId={}, range={}", accountId, range);
         CloudAccount account = resolveAccount(accountId);
 
         LocalDate startDate;
+        LocalDate endDate = LocalDate.now();
+
         switch (range) {
             case "last24h":
                 startDate = LocalDate.now().minusDays(1);
@@ -309,8 +339,9 @@ public class GcpAutoSpottingService {
                 break;
         }
 
-        List<DailySpotSavings> findings = savingsRepository.findByAccountIdAndDateAfterOrderByDateAsc(account.getId(),
-                startDate);
+        // Step 1: Try to get aggregated daily savings
+        List<DailySpotSavings> findings = savingsRepository.findByAccountIdAndDateBetweenOrderByDateAsc(
+                account.getId(), startDate, endDate);
 
         HistoryResponse response = new HistoryResponse();
         List<HistoryResponse.DataPoint> dataPoints = new ArrayList<>();
@@ -320,20 +351,76 @@ public class GcpAutoSpottingService {
             HistoryResponse.DataPoint dp = new HistoryResponse.DataPoint();
             dp.setTimestamp(saving.getDate().toString());
             dp.setActualHourlySavings(saving.getAmountSaved());
-            // Mock potential as we don't store it daily for now, or use a multiplier
             dp.setPotentialHourlySavings(saving.getAmountSaved() * 0.2);
             dataPoints.add(dp);
             totalSaved += saving.getAmountSaved();
         }
 
-        // If no data, provide at least today's point (even if zero) to avoid empty
-        // graph issues
+        // Step 2: Fallback to SpotOptimizationEvent if daily savings are empty
+        // This allows the graph to show data from day one, even before daily aggregation runs
         if (dataPoints.isEmpty()) {
-            HistoryResponse.DataPoint today = new HistoryResponse.DataPoint();
-            today.setTimestamp(LocalDate.now().toString());
-            today.setActualHourlySavings(0.0);
-            today.setPotentialHourlySavings(0.0);
-            dataPoints.add(today);
+            try {
+                log.info("📊 [GCP] No daily savings found, falling back to SpotOptimizationEvent table");
+                java.time.Instant iStart = startDate.atStartOfDay(java.time.ZoneOffset.UTC).toInstant();
+                java.time.Instant iEnd = endDate.plusDays(1).atStartOfDay(java.time.ZoneOffset.UTC).toInstant();
+
+                // Get all events in the date range (ENABLED, SUCCESS, etc.) that have savings
+                List<SpotOptimizationEvent> spotEvents = eventRepository
+                        .findByAccountIdAndEventTimeBetweenOrderByEventTimeDesc(
+                                account.getId(), iStart, iEnd);
+
+                // Group events by date and sum hourly savings
+                java.util.Map<LocalDate, Double> savingsByDate = spotEvents.stream()
+                        .filter(e -> e.getHourlySavings() != null && e.getHourlySavings() > 0)
+                        .collect(java.util.stream.Collectors.groupingBy(
+                                e -> e.getEventTime().atZone(java.time.ZoneOffset.UTC).toLocalDate(),
+                                java.util.stream.Collectors.summingDouble(SpotOptimizationEvent::getHourlySavings)
+                        ));
+
+                // Convert to a sorted list to avoid mutating captured variables inside a lambda
+                java.util.List<java.util.Map.Entry<LocalDate, Double>> sortedEntries =
+                        new java.util.ArrayList<>(savingsByDate.entrySet());
+                sortedEntries.sort(java.util.Map.Entry.comparingByKey());
+
+                for (java.util.Map.Entry<LocalDate, Double> entry : sortedEntries) {
+                    HistoryResponse.DataPoint dp = new HistoryResponse.DataPoint();
+                    dp.setTimestamp(entry.getKey().toString());
+                    dp.setActualHourlySavings(entry.getValue());
+                    dp.setPotentialHourlySavings(entry.getValue() * 0.2);
+                    dataPoints.add(dp);
+                    totalSaved += entry.getValue();
+                }
+
+                if (!dataPoints.isEmpty()) {
+                    log.info("✅ [GCP] Built {} history data point(s) from SpotOptimizationEvent table", dataPoints.size());
+                }
+            } catch (Exception ex) {
+                log.warn("⚠️ [GCP] Could not build history from SpotOptimizationEvent: {}", ex.getMessage());
+            }
+        }
+
+        // Step 3: Gap-fill missing dates with $0 entries for proper timeline
+        long rangeDays = startDate.until(endDate, java.time.temporal.ChronoUnit.DAYS) + 1;
+        if (rangeDays <= 90) {
+            java.util.Set<LocalDate> covered = dataPoints.stream()
+                    .map(dp -> LocalDate.parse(dp.getTimestamp().substring(0, 10)))
+                    .collect(java.util.stream.Collectors.toCollection(java.util.HashSet::new));
+
+            LocalDate cur = startDate;
+            while (!cur.isAfter(endDate)) {
+                if (!covered.contains(cur)) {
+                    HistoryResponse.DataPoint dp = new HistoryResponse.DataPoint();
+                    dp.setTimestamp(cur.toString());
+                    dp.setActualHourlySavings(0.0);
+                    dp.setPotentialHourlySavings(0.0);
+                    dataPoints.add(dp);
+                }
+                cur = cur.plusDays(1);
+            }
+
+            // Sort by timestamp to ensure proper order
+            dataPoints.sort((a, b) -> a.getTimestamp().compareTo(b.getTimestamp()));
+            log.info("📊 [GCP] Gap-filled history data, total points: {}", dataPoints.size());
         }
 
         response.setDataPoints(dataPoints);
@@ -341,8 +428,17 @@ public class GcpAutoSpottingService {
         HistoryResponse.HistorySummary summary = new HistoryResponse.HistorySummary();
         summary.setTotalActualSavings(totalSaved);
         summary.setAverageHourlySavings(dataPoints.size() > 0 ? totalSaved / dataPoints.size() : 0);
+
+        // Calculate peak savings
+        double peakSavings = dataPoints.stream()
+                .mapToDouble(dp -> dp.getActualHourlySavings() != null ? dp.getActualHourlySavings() : 0.0)
+                .max()
+                .orElse(0.0);
+        summary.setPeakSavings(peakSavings);
+
         response.setSummary(summary);
 
+        log.info("✅ [GCP] Returning {} data points, total savings: ₹{}", dataPoints.size(), totalSaved);
         return response;
     }
 
@@ -526,8 +622,22 @@ public class GcpAutoSpottingService {
     }
 
     public List<SpotInstanceDto> getSpotInstances(String accountId) {
-        CloudAccount account = resolveAccount(accountId);
+        return getSpotInstances(accountId, false);
+    }
 
+    public List<SpotInstanceDto> getSpotInstances(String accountId, boolean forceRefresh) {
+        String cacheKey = CACHE_KEY_INSTANCES + accountId;
+
+        if (!forceRefresh) {
+            java.util.Optional<List<SpotInstanceDto>> cached = redisCacheService.get(
+                    cacheKey, new TypeReference<List<SpotInstanceDto>>() {});
+            if (cached.isPresent()) {
+                log.info("--- GCP AUTOSPOTTING INSTANCES: loaded from Redis for accountId={} ---", accountId);
+                return cached.get();
+            }
+        }
+
+        CloudAccount account = resolveAccount(accountId);
         String gcpProjectId = account.getGcpProjectId();
         List<SpotInstanceDto> instances = new ArrayList<>();
 
@@ -542,7 +652,6 @@ public class GcpAutoSpottingService {
                     for (com.google.cloud.compute.v1.Instance instance : entry.getValue().getInstancesList()) {
                         String lifecycle = "on-demand";
 
-                        // Check if it's preemptible or spot
                         if (instance.hasScheduling()) {
                             Scheduling scheduling = instance.getScheduling();
                             if ((scheduling.hasPreemptible() && scheduling.getPreemptible()) ||
@@ -571,6 +680,10 @@ public class GcpAutoSpottingService {
             }
         } catch (Exception e) {
             log.error("Failed to list spot instances for project {}: {}", gcpProjectId, e.getMessage(), e);
+        }
+
+        if (!instances.isEmpty()) {
+            redisCacheService.put(cacheKey, instances, CACHE_TTL_MINUTES);
         }
 
         return instances;
@@ -671,6 +784,10 @@ public class GcpAutoSpottingService {
                 }
 
                 log.info("✅ [GCP] Successfully enabled SPOT for MIG: {}", igmName);
+
+                // Evict cache so next fetch reflects the updated MIG state
+                redisCacheService.evict(CACHE_KEY_MIGS + accountId);
+                redisCacheService.evict(CACHE_KEY_INSTANCES + accountId);
 
                 // Record savings event
                 try {
@@ -792,6 +909,10 @@ public class GcpAutoSpottingService {
                 }
 
                 log.info("✅ [GCP] Successfully disabled SPOT for MIG: {}", igmName);
+
+                // Evict cache so next fetch reflects the updated MIG state
+                redisCacheService.evict(CACHE_KEY_MIGS + accountId);
+                redisCacheService.evict(CACHE_KEY_INSTANCES + accountId);
 
             } catch (Exception e) {
                 log.error("❌ [GCP] Failed to disable SPOT: {}", e.getMessage(), e);

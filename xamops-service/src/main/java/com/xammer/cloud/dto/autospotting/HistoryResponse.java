@@ -54,5 +54,8 @@ public class HistoryResponse {
 
         @JsonProperty("average_hourly_savings")
         private Double averageHourlySavings;
+
+        @JsonProperty("peak_savings")
+        private Double peakSavings;
     }
 }
