@@ -174,6 +174,7 @@ import './styles/azureDashboard.css';
 import './styles/azureCloudList.css';
 import './styles/azureFinops.css';
 import './styles/flexCompute.css';
+import './styles/autoscaling.css';
 
 // Helper function to check authentication
 // Note: Since cookies might be HttpOnly, we check by making an API call

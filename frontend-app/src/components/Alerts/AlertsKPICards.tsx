@@ -10,11 +10,13 @@ import type { AlertCounts } from '../../types/alerts';
 interface AlertsKPICardsProps {
   alertCounts: AlertCounts;
   isLoading: boolean;
+  metadata?: any;
 }
 
 const AlertsKPICards: React.FC<AlertsKPICardsProps> = ({
   alertCounts,
   isLoading,
+  metadata: _metadata,
 }) => {
   if (isLoading) {
     return (
