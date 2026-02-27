@@ -234,9 +234,20 @@ data:
   COLLECTOR_KARPENTER: "true"
   COLLECTOR_METRICS: "true"
 
+  # Autoscaling KPI observation (read-only Prometheus + k8s metrics).
+  # Pushes autoscaling-metrics and autoscaling-events to XamOps so the
+  # Autoscaling tab KPI cards are populated from real cluster data.
+  # Set to "true" once you enable autoscaling for any cluster in XamOps UI.
+  COLLECTOR_AUTOSCALING: "false"
+
   # OpenCost configuration (internal cluster service)
   OPENCOST_SERVICE_URL: "http://opencost.opencost.svc.cluster.local:9003"
   OPENCOST_ALLOCATION_WINDOW: "1d"
+
+  # Prometheus URL (used by COLLECTOR_AUTOSCALING for node CPU/memory utilization)
+  # Change this to match your Prometheus service location.
+  # Leave blank to fall back to metrics-server.
+  PROMETHEUS_URL: "http://prometheus-server.monitoring.svc.cluster.local:9090"
 
   # Batch settings (for large clusters)
   BATCH_SIZE: "100"              # Max items per batch
@@ -462,6 +473,12 @@ spec:
       ports:
         - protocol: TCP
           port: 9003
+    # Allow Prometheus (for autoscaling metrics collection)
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 9090
     # Allow HTTPS to XamOps server (external)
     - to:
         - ipBlock:

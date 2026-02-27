@@ -32,6 +32,7 @@ import EksPodsTab from '../components/EksDetails/tabs/EksPodsTab';
 import EksContainersTab from '../components/EksDetails/tabs/EksContainersTab';
 import EksNodesTab from '../components/EksDetails/tabs/EksNodesTab';
 import EksKarpenterTab from '../components/EksDetails/tabs/EksKarpenterTab';
+// import EksAutoscalingTab from '../components/EksDetails/tabs/EksAutoscalingTab'; // XAMOPS-AUTOSCALER: Hidden until ready
 import EksIntegrationModal from '../components/EksDetails/EksIntegrationModal';
 
 const EksDetailsPage: React.FC = () => {
@@ -91,6 +92,7 @@ const EksDetailsPage: React.FC = () => {
           </div>
         </div>
 
+        {/* Right-Sizing button hidden until ready
         <Link
           to={`/k8s-rightsizing?name=${clusterName}&accountId=${accountId}`}
           className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white text-xs font-bold rounded-xl shadow-lg shadow-green-200 transition-all active:scale-95"
@@ -98,6 +100,7 @@ const EksDetailsPage: React.FC = () => {
           <i className="fas fa-chart-line"></i>
           <span>Right-Sizing</span>
         </Link>
+        */}
 
         <button
           onClick={() => setShowIntegrationGuide(true)}
@@ -190,6 +193,8 @@ const EksDetailsPage: React.FC = () => {
               {activeTab === 'containers' && <EksContainersTab eksData={eksData} />}
               {activeTab === 'nodes' && <EksNodesTab eksData={eksData} />}
               {activeTab === 'karpenter' && <EksKarpenterTab eksData={eksData} />}
+              {/* XAMOPS-AUTOSCALER: Hidden until ready */}
+              {/* {activeTab === 'autoscaling' && <EksAutoscalingTab eksData={eksData} />} */}
             </div>
           </>
         )}

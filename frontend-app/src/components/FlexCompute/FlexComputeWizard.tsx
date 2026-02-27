@@ -62,7 +62,6 @@ const FlexComputeWizard: React.FC<FlexComputeWizardProps> = ({
   );
   const [pricing, setPricing] = useState<CapacityPricing | null>(initialPricing || null);
   const [searchStatus, setSearchStatus] = useState<string | undefined>(undefined);
-  const [_reservationData, setReservationData] = useState<any>(null); // Store the reserve response (cidrId, pricing, etc.)
   const [isReserving, setIsReserving] = useState(false);
   const [purchaseError, setPurchaseError] = useState<string | null>(null);
 
@@ -90,7 +89,6 @@ const FlexComputeWizard: React.FC<FlexComputeWizardProps> = ({
       if (reservation && reservation.myPolicy) {
         console.log('Reserve API response:', reservation);
 
-        setReservationData(reservation);
         setConfigureForm((prev) => ({ ...prev, capacityId: reservation.myPolicy.cidrId }));
 
         // Update pricing with data from Reserve API response
@@ -231,10 +229,10 @@ const FlexComputeWizard: React.FC<FlexComputeWizardProps> = ({
                 )}
                 <div className="flex items-center gap-2">
                   <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all ${isCompleted
-                      ? 'bg-blue-500 text-white'
-                      : isCurrent
-                        ? 'bg-blue-100 text-blue-700 ring-2 ring-blue-500'
-                        : 'bg-gray-100 text-gray-400'
+                    ? 'bg-blue-500 text-white'
+                    : isCurrent
+                      ? 'bg-blue-100 text-blue-700 ring-2 ring-blue-500'
+                      : 'bg-gray-100 text-gray-400'
                     }`}>
                     {isCompleted ? <i className="fas fa-check"></i> : index + 1}
                   </div>
