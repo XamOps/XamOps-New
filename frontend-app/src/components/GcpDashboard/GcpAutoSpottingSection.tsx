@@ -52,21 +52,33 @@ const GcpAutoSpottingSection: React.FC<GcpAutoSpottingSectionProps> = ({ account
     }
 
     return (
-        <div className="glass-card p-6 rounded-2xl border border-gray-200 shadow-xl relative overflow-hidden bg-white/50 backdrop-blur-md">
+        <div className="glass-card p-6 rounded-2xl border border-gray-200 shadow-xl relative overflow-hidden bg-white/50 backdrop-blur-md hover:shadow-2xl hover:border-indigo-300 transition-all cursor-pointer group">
             <div className="flex items-center justify-between mb-6">
-                <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center border border-indigo-100 shadow-sm">
+                <button
+                    className="flex items-center gap-3 flex-1 text-left"
+                    onClick={() => navigate('/gcp-autospotting')}
+                    aria-label="View full GCP AutoSpotting page"
+                >
+                    <div className="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center border border-indigo-100 shadow-sm group-hover:bg-indigo-100 transition-colors">
                         <svg className="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                         </svg>
                     </div>
-                    <div>
-                        <h3 className="text-xl font-black text-gray-900 tracking-tight uppercase">GCP AutoSpotting (MIGs)</h3>
+                    <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                            <h3 className="text-xl font-black text-gray-900 tracking-tight uppercase group-hover:text-indigo-600 transition-colors">GCP AutoSpotting (MIGs)</h3>
+                            <svg className="w-4 h-4 text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                            </svg>
+                        </div>
                         <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-0.5">Manage Spot Provisioning for Managed Instance Groups</p>
                     </div>
-                </div>
+                </button>
                 <button
-                    onClick={loadData}
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        loadData();
+                    }}
                     className="p-2 hover:bg-gray-100 rounded-full transition-colors"
                 >
                     <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -90,7 +102,10 @@ const GcpAutoSpottingSection: React.FC<GcpAutoSpottingSectionProps> = ({ account
                         {migs.map((mig) => (
                             <tr
                                 key={mig.name}
-                                onClick={() => handleRowClick(mig)}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleRowClick(mig);
+                                }}
                                 className="hover:bg-indigo-50/30 transition-colors cursor-pointer"
                             >
                                 <td className="py-4">

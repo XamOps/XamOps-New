@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import {
   GcpDashboardData,
@@ -10,6 +10,7 @@ import {
 } from '../api/gcpDashboardApi';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useAccounts } from '../contexts/AccountContext';
+import apiClient from '../utils/apiClient';
 import '../styles/gcpDashboard.css'; // Keeping for some specific styles if needed, but mostly relying on Tailwind now
 
 // Import new components
@@ -82,10 +83,45 @@ const GcpDashboard: React.FC = () => {
   // Notifications state
   const [notification, setNotification] = useState<{ message: string, type: 'info' | 'success' | 'warning' | 'error' } | null>(null);
 
+  // AutoSpotting savings state
+  const [autoSpottingSavings, setAutoSpottingSavings] = useState<number>(0);
+  const [isLoadingAutoSpotting, setIsLoadingAutoSpotting] = useState(false);
+
   const showNotification = (message: string, type: 'info' | 'success' | 'warning' | 'error' = 'info') => {
     setNotification({ message, type });
     setTimeout(() => setNotification(null), 4000);
   };
+
+  // Fetch AutoSpotting potential savings
+  const fetchAutoSpottingSavings = useCallback(async (accountId: string) => {
+    try {
+      setIsLoadingAutoSpotting(true);
+      const migsData = await apiClient.get(`/api/gcp/autospotting/migs/all-regions/${accountId}`);
+
+      // Calculate total potential monthly savings from all MIGs
+      const totalPotentialSavings = migsData.reduce((sum: number, mig: any) => {
+        const hourlySavings = mig.potentialHourlySavings || 0;
+        // Convert hourly to monthly (assuming 730 hours/month)
+        return sum + (hourlySavings * 730);
+      }, 0);
+
+      setAutoSpottingSavings(totalPotentialSavings);
+    } catch (err) {
+      console.error('Failed to fetch AutoSpotting savings:', err);
+      setAutoSpottingSavings(0);
+    } finally {
+      setIsLoadingAutoSpotting(false);
+    }
+  }, []);
+
+  // Fetch AutoSpotting savings when account changes
+  useEffect(() => {
+    if (selectedAccountIds.length === 1 && !multiAccountMode) {
+      fetchAutoSpottingSavings(selectedAccountIds[0]);
+    } else {
+      setAutoSpottingSavings(0);
+    }
+  }, [selectedAccountIds, multiAccountMode, fetchAutoSpottingSavings]);
 
   // Extract and transform dashboard data
   const dashboardData = useMemo(() => {
@@ -93,8 +129,24 @@ const GcpDashboard: React.FC = () => {
 
     // Helper to transform single account data from backend DTO to frontend interface
     const transformSingle = (raw: any): GcpDashboardData => {
-      // If already in correct frontend format, return as is (simple check)
-      if (raw.kpi && raw.optimization && raw.billingSummary) return raw;
+      // Calculate total potential savings including AutoSpotting
+      const optimizationSavings = raw.optimizationSummary?.totalPotentialSavings || 0;
+      const totalPotentialSavings = optimizationSavings + autoSpottingSavings;
+
+      // If already in correct frontend format, enhance it with autospotting breakdown
+      if (raw.kpi && raw.optimization && raw.billingSummary) {
+        return {
+          ...raw,
+          kpi: {
+            ...raw.kpi,
+            potentialSavings: totalPotentialSavings,
+            potentialSavingsBreakdown: {
+              optimization: optimizationSavings,
+              autoSpotting: autoSpottingSavings,
+            },
+          },
+        };
+      }
 
       return {
         accountId: raw.accountId || selectedAccountIds[0],
@@ -107,7 +159,12 @@ const GcpDashboard: React.FC = () => {
           mtdSpend: raw.monthToDateSpend || 0,
           forecastedSpend: raw.forecastedSpend || 0,
           lastMonthSpend: raw.lastMonthSpend || 0,
-          potentialSavings: raw.optimizationSummary?.totalPotentialSavings || 0,
+          potentialSavings: totalPotentialSavings,
+          // Add breakdown for tooltip/display
+          potentialSavingsBreakdown: {
+            optimization: optimizationSavings,
+            autoSpotting: autoSpottingSavings,
+          },
         },
         resourceInventory: {
           gceInstances: raw.resourceInventory?.ec2 || 0,

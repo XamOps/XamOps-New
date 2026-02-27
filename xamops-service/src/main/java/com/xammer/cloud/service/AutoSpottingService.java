@@ -2316,7 +2316,14 @@ public class AutoSpottingService {
 
                 // Map status → event_type, result label, instance fields, and reason
                 String evStatus = event.getStatus();
-                if ("SUCCESS".equals(evStatus)) {
+                String details = event.getDetails();
+
+                // Check for CONFIG_SAVE events first (they have status="SUCCESS" but details starts with "CONFIG_SAVE:")
+                if ("SUCCESS".equals(evStatus) && details != null && details.startsWith("CONFIG_SAVE:")) {
+                    record.setEventType("configuration_change");
+                    record.setResult("Saved");
+                    record.setReason(details.replace("CONFIG_SAVE:", "").trim());
+                } else if ("SUCCESS".equals(evStatus)) {
                     record.setEventType("instance_replacement");
                     record.setResult("Success");
                     record.setOldInstanceId(event.getOldInstanceId());
@@ -2376,6 +2383,15 @@ public class AutoSpottingService {
                 return record;
             }).collect(Collectors.toList());
 
+            // If filtering by eventType, ensure we only return matching event types
+            // (necessary because configuration_change and instance_replacement both map to SUCCESS status)
+            if (eventType != null && !eventType.isEmpty()) {
+                final String targetEventType = eventType.toLowerCase();
+                eventRecords = eventRecords.stream()
+                        .filter(rec -> targetEventType.equals(rec.getEventType()))
+                        .collect(Collectors.toList());
+            }
+
             long replacements = events.stream().filter(e -> "SUCCESS".equals(e.getStatus())).count();
             long interruptions = events.stream().filter(e -> "FAILED".equals(e.getStatus()) || "INTERRUPTED".equals(e.getStatus())).count();
             double totalSavings = events.stream()
@@ -2406,6 +2422,9 @@ public class AutoSpottingService {
 
     private String mapEventTypeToStatus(String eventType) {
         if ("instance_replacement".equalsIgnoreCase(eventType)) {
+            return "SUCCESS";
+        }
+        if ("configuration_change".equalsIgnoreCase(eventType)) {
             return "SUCCESS";
         }
         if ("spot_interruption".equalsIgnoreCase(eventType)) {

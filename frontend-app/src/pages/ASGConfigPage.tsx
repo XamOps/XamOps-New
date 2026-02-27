@@ -58,7 +58,7 @@ const ASGConfigPage: React.FC = () => {
         const types = await apiClient.get(
           `/api/autospotting/asgs/${accountId}/instance-types?region=${region}&asgName=${encodeURIComponent(asgName)}`
         );
-        setSelectedTypes(new Set(types.instanceTypes || []));
+        setSelectedTypes(new Set(types.allowedInstanceTypes || []));
 
         // Load spot configuration
         const spotConfig = await apiClient.get(
