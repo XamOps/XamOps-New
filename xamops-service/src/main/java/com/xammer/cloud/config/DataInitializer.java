@@ -63,13 +63,16 @@ public class DataInitializer implements CommandLineRunner {
         }
     }
 
+    @org.springframework.beans.factory.annotation.Value("${SUPERADMIN_PASSWORD:SuperAdmin@123}")
+    private String superAdminPassword;
+
     private void createSuperAdminIfMissing(Client client) {
         Optional<User> existingSuperAdmin = userRepository.findByUsername("superadmin");
         if (existingSuperAdmin.isEmpty()) {
             logger.info("Creating Default SuperAdmin User...");
             User superAdmin = new User();
             superAdmin.setUsername("superadmin");
-            superAdmin.setPassword(passwordEncoder.encode("SuperAdmin@123")); // Default Password
+            superAdmin.setPassword(passwordEncoder.encode(superAdminPassword)); // Use Env Var or Default
             superAdmin.setRole("ROLE_SUPER_ADMIN");
             superAdmin.setClient(client);
             superAdmin.setEmail("superadmin@xamops.com");
