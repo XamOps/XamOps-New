@@ -9,6 +9,7 @@ import com.xammer.cloud.repository.AgentDataCacheRepository;
 import com.xammer.cloud.repository.AgentEventRepository;
 import com.xammer.cloud.repository.KubernetesClusterConfigRepository;
 import com.xammer.cloud.service.AgentIngestService;
+import com.xammer.cloud.service.EksAutoscalingService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
@@ -296,5 +297,65 @@ public class AgentController {
                 clusterConfigId, PageRequest.of(0, limit)).getContent();
 
         return ResponseEntity.ok(events);
+    }
+
+    // =========================================================================
+    // AUTOSCALING CONTROLLER ENDPOINTS
+    // Used by xamops-autoscaler agent (authenticated with same global API key)
+    // =========================================================================
+
+    /**
+     * GET /api/v1/agent/autoscaling-policy?clusterName=xxx&cloudAccountId=xxx
+     *
+     * Called by xamops-autoscaler on every policy poll cycle.
+     * Returns the PolicyBundle JSON (from agent_data_cache dataType="autoscaling-policy")
+     * so the controller knows the current user-configured autoscaling settings.
+     *
+     * Returns 404 if autoscaling is not enabled for this cluster.
+     * Returns 200 with PolicyBundle JSON if enabled.
+     */
+    @GetMapping("/autoscaling-policy")
+    public ResponseEntity<?> getAutoscalingPolicy(
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @RequestParam String clusterName,
+            @RequestParam Long cloudAccountId) {
+
+        // Validate API key
+        String apiKey = extractApiKey(authHeader);
+        if (apiKey == null || !agentIngestService.validateApiKey(apiKey)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("error", "Invalid or missing API key"));
+        }
+
+        // Find cluster config
+        Optional<KubernetesClusterConfig> configOpt = clusterConfigRepository
+                .findByCloudAccountIdAndClusterName(cloudAccountId, clusterName);
+
+        if (configOpt.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("error", "Cluster not found or not configured"));
+        }
+
+        KubernetesClusterConfig config = configOpt.get();
+
+        // Guard: autoscaling must be enabled for this cluster
+        if (!Boolean.TRUE.equals(config.getAutoscalingEnabled())) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("error", "Autoscaling not enabled for this cluster"));
+        }
+
+        // Read policy bundle from agent_data_cache
+        Optional<AgentDataCache> policyCache = agentDataCacheRepository
+                .findByClusterConfigIdAndDataType(config.getId(), EksAutoscalingService.DT_POLICY);
+
+        if (policyCache.isEmpty()) {
+            // No policy saved yet — return empty 200 so autoscaler uses its own defaults
+            return ResponseEntity.ok(Map.of("autoscalerMode", "full"));
+        }
+
+        // Return raw JSON string (autoscaler parses it as PolicyBundle)
+        return ResponseEntity.ok()
+                .header("Content-Type", "application/json")
+                .body(policyCache.get().getDataJson());
     }
 }

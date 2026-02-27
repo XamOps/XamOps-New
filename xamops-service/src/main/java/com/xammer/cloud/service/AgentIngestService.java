@@ -22,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Service for processing data pushed by XamOps agents.
@@ -38,6 +39,21 @@ import java.util.Optional;
 public class AgentIngestService {
 
     private static final Logger logger = LoggerFactory.getLogger(AgentIngestService.class);
+
+    /**
+     * Collectors that push a single JSON object as their payload (not a list of items).
+     * For these, we store batch.getItems().get(0) as a raw object instead of the full list.
+     *
+     * "autoscaling-metrics"          → AutoscalingKpisDto (single KPIs object — xamops-agent)
+     * "autoscaling-rebalance-status" → RebalanceStatus (single status object — xamops-autoscaler)
+     *
+     * All other collectors (trivy, kubescape, autoscaling-events, autoscaling-rightsizing,
+     * autoscaling-evictor-candidates) push a list → stored as JSON array.
+     */
+    private static final Set<String> SINGLE_OBJECT_COLLECTORS = Set.of(
+            "autoscaling-metrics",
+            "autoscaling-rebalance-status"
+    );
 
     private final KubernetesClusterConfigRepository clusterConfigRepository;
     private final AgentDataCacheRepository agentDataCacheRepository;
@@ -179,22 +195,31 @@ public class AgentIngestService {
             return BatchResult.error("No items in batch");
         }
 
-        // Serialize items to JSON
-        String dataJson = objectMapper.writeValueAsString(batch.getItems());
+        // Serialize items to JSON.
+        // Single-object collectors (e.g. autoscaling-metrics) store the first item directly
+        // so the reading service can deserialize it as the DTO type without unwrapping a list.
+        // All other collectors store the full items array.
+        String dataJson;
+        if (SINGLE_OBJECT_COLLECTORS.contains(batch.getCollector())) {
+            dataJson = objectMapper.writeValueAsString(batch.getItems().get(0));
+        } else {
+            dataJson = objectMapper.writeValueAsString(batch.getItems());
+        }
 
         // Find existing cache or create new
         Optional<AgentDataCache> existingCache = agentDataCacheRepository
                 .findByClusterConfigIdAndDataType(clusterConfigId, batch.getCollector());
 
+        int itemCount = SINGLE_OBJECT_COLLECTORS.contains(batch.getCollector()) ? 1 : batch.getItems().size();
         AgentDataCache cache;
         if (existingCache.isPresent()) {
             cache = existingCache.get();
             cache.setDataJson(dataJson);
-            cache.setItemCount(batch.getItems().size());
+            cache.setItemCount(itemCount);
             cache.setAgentVersion(agentVersion);
             cache.setCollectedAt(batch.getCollectedAt() != null ? batch.getCollectedAt() : LocalDateTime.now());
         } else {
-            cache = new AgentDataCache(clusterConfigId, batch.getCollector(), dataJson, batch.getItems().size());
+            cache = new AgentDataCache(clusterConfigId, batch.getCollector(), dataJson, itemCount);
             cache.setAgentVersion(agentVersion);
             cache.setCollectedAt(batch.getCollectedAt() != null ? batch.getCollectedAt() : LocalDateTime.now());
         }
@@ -202,9 +227,9 @@ public class AgentIngestService {
         agentDataCacheRepository.save(cache);
 
         logger.debug("Saved {} items for collector {} (cluster ID: {})",
-                batch.getItems().size(), batch.getCollector(), clusterConfigId);
+                itemCount, batch.getCollector(), clusterConfigId);
 
-        return BatchResult.success(batch.getItems().size());
+        return BatchResult.success(itemCount);
     }
 
     /**

@@ -51,6 +51,9 @@ public class KubernetesClusterConfig {
     @Column(name = "opencost_enabled")
     private Boolean opencostEnabled = false;
 
+    @Column(name = "autoscaling_enabled")
+    private Boolean autoscalingEnabled = false;
+
     @Column(name = "is_private")
     private Boolean isPrivate;
 
@@ -202,6 +205,14 @@ public class KubernetesClusterConfig {
 
     public void setDataSourceMode(String dataSourceMode) {
         this.dataSourceMode = dataSourceMode;
+    }
+
+    public Boolean getAutoscalingEnabled() {
+        return autoscalingEnabled;
+    }
+
+    public void setAutoscalingEnabled(Boolean autoscalingEnabled) {
+        this.autoscalingEnabled = autoscalingEnabled;
     }
 
     public Boolean getIsPrivate() {
