@@ -324,7 +324,127 @@ export interface KarpenterStatus {
   color: string;
 }
 
-export type TabType = 'overview' | 'cost' | 'performance' | 'security' | 'workloads' | 'pods' | 'containers' | 'nodes' | 'karpenter';
+export type TabType = 'overview' | 'cost' | 'performance' | 'security' | 'workloads' | 'pods' | 'containers' | 'nodes' | 'karpenter' | 'autoscaling';
+
+// ─── XamOps Autoscaling Types (CAST.ai blueprint) ────────────────────────────
+
+export type AutoscalerMode = 'full' | 'scoped' | 'disabled';
+export type ApplyMode = 'immediate' | 'deferred';
+export type CapacityType = 'spot' | 'on-demand' | 'mixed';
+
+export interface AutoscalerAgentStatus {
+  agentHealthy: boolean;
+  clusterControllerHealthy: boolean;
+  evictorHealthy: boolean;
+  workloadAutoscalerHealthy: boolean;
+  mode: AutoscalerMode;
+  lastSyncAt: string;
+  agentVersion: string;
+}
+
+export interface ScaleOutPolicy {
+  enabled: boolean;
+  headroomCpuPercent: number;
+  headroomMemoryPercent: number;
+  minCpuCores: number;
+  maxCpuCores: number;
+  minRamMib: number;
+  maxRamMib: number;
+  nodeReadinessTimeoutMinutes: number;
+}
+
+export interface EvictorPolicy {
+  enabled: boolean;
+  aggressiveMode: boolean;
+  nodeCycleIntervalSeconds: number;
+  nodeGracePeriodMinutes: number;
+  targetUtilizationCpu: number;
+  targetUtilizationMemory: number;
+}
+
+export interface WorkloadRightsizerPolicy {
+  enabled: boolean;
+  cpuPercentile: number;
+  memoryPercentile: number;
+  cpuOverheadPercent: number;
+  memoryOverheadPercent: number;
+  applyThresholdPercent: number;
+  lookbackHours: number;
+  applyMode: ApplyMode;
+  surgeDetection: boolean;
+}
+
+export interface NodeTemplate {
+  id: string;
+  name: string;
+  isDefault: boolean;
+  capacityType: CapacityType;
+  useSpotFallback: boolean;
+  fallbackRestoreRateSeconds: number;
+  minCpuCores: number;
+  maxCpuCores: number;
+  minRamMib: number;
+  maxRamMib: number;
+  architectures: string[];
+  spotAutomationEnabled: boolean;
+  customLabels: Record<string, string>;
+  customTaints: Array<{ key: string; effect: string }>;
+}
+
+export interface RebalancerConfig {
+  enabled: boolean;
+  gracefulDraining: boolean;
+  drainTimeoutMinutes: number;
+  scheduleEnabled: boolean;
+  scheduleCron: string;
+  lastRebalanceAt: string | null;
+  lastRebalanceSavingsPercent: number;
+  lastRebalanceDuration: number;
+  status: 'idle' | 'running' | 'failed' | 'completed';
+}
+
+export interface SafetyGuards {
+  respectPodDisruptionBudgets: boolean;
+  protectSingleReplicas: boolean;
+  protectStatefulSets: boolean;
+  protectCriticalNamespaces: boolean;
+  criticalNamespaces: string[];
+}
+
+export interface AutoscalingEvent {
+  id: string;
+  timestamp: string;
+  type: 'scale-out' | 'scale-in' | 'rebalance' | 'workload-resize' | 'spot-fallback' | 'node-replace';
+  severity: 'info' | 'warning' | 'success';
+  message: string;
+  details?: string;
+  nodeCount?: number;
+  savingsDelta?: number;
+}
+
+export interface AutoscalingKpis {
+  nodesSavedToday: number;
+  costSavedThisWeek: number;
+  pendingPodsResolved: number;
+  activeRebalances: number;
+  spotRatio: number;
+  avgNodeUtilizationCpu: number;
+  avgNodeUtilizationMemory: number;
+  totalManagedNodes: number;
+}
+
+export interface AutoscalerDashboard {
+  autoscalingEnabled: boolean;
+  agentStatus: AutoscalerAgentStatus;
+  kpis: AutoscalingKpis;
+  scaleOutPolicy: ScaleOutPolicy;
+  evictorPolicy: EvictorPolicy;
+  workloadRightsizerPolicy: WorkloadRightsizerPolicy;
+  nodeTemplates: NodeTemplate[];
+  rebalancer: RebalancerConfig;
+  safetyGuards: SafetyGuards;
+  recentEvents: AutoscalingEvent[];
+}
 
 // NEW: Node Claim interface for Karpenter
 export interface NodeClaim {

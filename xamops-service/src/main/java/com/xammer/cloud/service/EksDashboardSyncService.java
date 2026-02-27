@@ -215,7 +215,7 @@ public class EksDashboardSyncService {
      * Called when user clicks "Sync Data" - runs in background while UI shows cached data.
      * Returns CompletableFuture that completes when sync is done.
      */
-    @Async
+    @Async("awsTaskExecutor")
     public CompletableFuture<EksCompleteDashboardDto> syncClusterDashboardAsync(CloudAccount account, String clusterName, String region) {
         logger.info("🔄 Starting background sync for cluster: {}", clusterName);
         try {

@@ -9,8 +9,8 @@ import (
 // Config holds all agent configuration
 type Config struct {
 	// Server connection
-	ServerURL  string
-	APIKey     string
+	ServerURL      string
+	APIKey         string
 	ClusterName    string
 	CloudAccountID string
 
@@ -23,15 +23,19 @@ type Config struct {
 	RetryDelay        int // seconds
 
 	// Collector toggles
-	CollectorTrivy     bool
-	CollectorKubescape bool
-	CollectorOpenCost  bool
-	CollectorKarpenter bool
-	CollectorMetrics   bool
+	CollectorTrivy        bool
+	CollectorKubescape    bool
+	CollectorOpenCost     bool
+	CollectorKarpenter    bool
+	CollectorMetrics      bool
+	CollectorAutoscaling  bool // NEW: push autoscaling-metrics + autoscaling-events
 
 	// OpenCost settings
 	OpenCostServiceURL string
 	OpenCostWindow     string
+
+	// Prometheus settings (for autoscaling metrics)
+	PrometheusURL string // e.g. http://prometheus-server.monitoring.svc.cluster.local:9090
 
 	// Logging
 	LogLevel string
@@ -55,15 +59,19 @@ func Load() (*Config, error) {
 		RetryDelay:        getEnvInt("RETRY_DELAY", 5),
 
 		// Collectors
-		CollectorTrivy:     getEnvBool("COLLECTOR_TRIVY", true),
-		CollectorKubescape: getEnvBool("COLLECTOR_KUBESCAPE", true),
-		CollectorOpenCost:  getEnvBool("COLLECTOR_OPENCOST", true),
-		CollectorKarpenter: getEnvBool("COLLECTOR_KARPENTER", true),
-		CollectorMetrics:   getEnvBool("COLLECTOR_METRICS", true),
+		CollectorTrivy:       getEnvBool("COLLECTOR_TRIVY", true),
+		CollectorKubescape:   getEnvBool("COLLECTOR_KUBESCAPE", true),
+		CollectorOpenCost:    getEnvBool("COLLECTOR_OPENCOST", true),
+		CollectorKarpenter:   getEnvBool("COLLECTOR_KARPENTER", true),
+		CollectorMetrics:     getEnvBool("COLLECTOR_METRICS", true),
+		CollectorAutoscaling: getEnvBool("COLLECTOR_AUTOSCALING", false), // opt-in
 
 		// OpenCost
 		OpenCostServiceURL: getEnv("OPENCOST_SERVICE_URL", "http://opencost.opencost.svc.cluster.local:9003"),
 		OpenCostWindow:     getEnv("OPENCOST_ALLOCATION_WINDOW", "1d"),
+
+		// Prometheus — optional; autoscaling collector uses it if set
+		PrometheusURL: getEnv("PROMETHEUS_URL", "http://prometheus-server.monitoring.svc.cluster.local:9090"),
 
 		// Logging
 		LogLevel: getEnv("LOG_LEVEL", "info"),

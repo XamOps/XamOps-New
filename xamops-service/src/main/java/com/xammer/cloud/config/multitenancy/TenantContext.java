@@ -1,9 +1,9 @@
 package com.xammer.cloud.config.multitenancy;
 
 public class TenantContext {
-    // CHANGE: Use InheritableThreadLocal instead of ThreadLocal
-    // This allows child threads (created by @Async) to inherit the Tenant ID
-    private static final ThreadLocal<String> CURRENT_TENANT = new InheritableThreadLocal<>();
+    // InheritableThreadLocal propagates context to child threads at thread-creation time.
+    // For thread pool reuse, a TaskDecorator is also required (see AsyncConfig.java).
+    private static final InheritableThreadLocal<String> CURRENT_TENANT = new InheritableThreadLocal<>();
 
     public static void setCurrentTenant(String tenantId) {
         CURRENT_TENANT.set(tenantId);

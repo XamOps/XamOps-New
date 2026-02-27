@@ -65,6 +65,9 @@ public class SecurityConfig {
                                                                 "/api/xamops/cloudguard/grafana-ingest", "POST"))
                                                 .permitAll()
 
+                                                // Docker/K8s health checks — must be public so health probes don't 401
+                                                .requestMatchers(new AntPathRequestMatcher("/actuator/health")).permitAll()
+
                                                 // Public Static Resources & Pages
                                                 .requestMatchers(
                                                                 new AntPathRequestMatcher("/"),

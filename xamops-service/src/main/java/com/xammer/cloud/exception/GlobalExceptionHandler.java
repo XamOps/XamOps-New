@@ -1,8 +1,12 @@
 package com.xammer.cloud.exception;
 
 import org.apache.catalina.connector.ClientAbortException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -16,6 +20,8 @@ import java.util.Map;
 
 @ControllerAdvice
 public class GlobalExceptionHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     /**
      * Handles ClientAbortException (broken pipe).
@@ -54,10 +60,27 @@ public class GlobalExceptionHandler {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
 
+        log.error("Unhandled exception — {} {} tenant={}: {}",
+                request.getMethod(), request.getRequestURI(), MDC.get("tenant"), ex.getMessage(), ex);
+
         Map<String, Object> body = new HashMap<>();
         body.put("timestamp", new Date());
         body.put("message", "An unexpected error occurred: " + ex.getMessage());
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                .body(body);
+    }
+
+    /**
+     * Handles authorization failures (insufficient permissions).
+     * Returns 403 Forbidden instead of letting it fall through to the generic 500 handler.
+     */
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<?> handleAccessDeniedException(AccessDeniedException ex, HttpServletRequest request) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("timestamp", new Date());
+        body.put("message", "Access is denied");
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
                 .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                 .body(body);
     }
@@ -78,7 +101,13 @@ public class GlobalExceptionHandler {
      * It returns a proper ResponseEntity, which prevents the ClassCastException.
      */
     @ExceptionHandler(AsyncRequestTimeoutException.class)
-    public ResponseEntity<Map<String, String>> handleAsyncRequestTimeoutException(AsyncRequestTimeoutException ex) {
+    public ResponseEntity<Map<String, String>> handleAsyncRequestTimeoutException(
+            AsyncRequestTimeoutException ex, HttpServletRequest request) {
+        log.warn("⏱ AsyncRequestTimeoutException — URI={} tenant={} thread={}",
+                request.getRequestURI(),
+                MDC.get("tenant"),
+                Thread.currentThread().getName());
+
         Map<String, String> response = new HashMap<>();
         response.put("error", "Request Timed Out");
         response.put("message", "The request took too long to process and was terminated.");

@@ -67,6 +67,12 @@ export const GcpRightsizingTable: React.FC<GcpRightsizingTableProps> = ({
     }).format(value);
   };
 
+  // Clean up values to handle "unknown" strings from backend
+  const cleanValue = (value: string | undefined | null, fallback: string = 'N/A'): string => {
+    if (!value || value.trim() === '' || value.toLowerCase() === 'unknown') return fallback;
+    return value;
+  };
+
   if (isLoading) {
     return <div className="gcp-rightsizing-skeleton-table"></div>;
   }
@@ -148,75 +154,84 @@ export const GcpRightsizingTable: React.FC<GcpRightsizingTableProps> = ({
               </tr>
             </thead>
             <tbody>
-              {filteredRecommendations.map((rec, index) => (
-                <tr key={rec.recommendationId || `${rec.resourceName}-${index}`}>
-                  {/* Resource Name */}
-                  <td className="gcp-rightsizing-cell-resource">
-                    <div className="gcp-rightsizing-resource-name">
-                      <div className="gcp-rightsizing-resource-icon">
-                        <i className={rec.service === 'Cloud SQL' ? 'fas fa-database' : 'fas fa-server'}></i>
+              {filteredRecommendations.map((rec, index) => {
+                // Clean up all values to handle "unknown" or empty strings
+                const resourceName = cleanValue(rec.resourceName);
+                const service = cleanValue(rec.service);
+                const location = cleanValue(rec.location, 'global');
+                const currentMachineType = cleanValue(rec.currentMachineType);
+                const recommendedMachineType = cleanValue(rec.recommendedMachineType);
+
+                return (
+                  <tr key={rec.recommendationId || `${rec.resourceName}-${index}`}>
+                    {/* Resource Name */}
+                    <td className="gcp-rightsizing-cell-resource">
+                      <div className="gcp-rightsizing-resource-name">
+                        <div className="gcp-rightsizing-resource-icon">
+                          <i className={rec.service === 'Cloud SQL' ? 'fas fa-database' : 'fas fa-server'}></i>
+                        </div>
+                        <span>{resourceName}</span>
                       </div>
-                      <span>{rec.resourceName}</span>
-                    </div>
-                  </td>
+                    </td>
 
-                  {/* Service */}
-                  <td>
-                    <div className="gcp-rightsizing-service">
-                      <span>{rec.service || 'N/A'}</span>
-                      {rec.recommendationType === 'PERFORMANCE_IMPROVEMENT' && (
-                        <span className="gcp-rightsizing-performance-badge">
-                          <i className="fas fa-bolt"></i>
-                          Performance
-                        </span>
-                      )}
-                    </div>
-                  </td>
-
-                  {/* Location */}
-                  <td>
-                    <span className="gcp-rightsizing-location">{rec.location || 'global'}</span>
-                  </td>
-
-                  {/* Machine Type Comparison */}
-                  <td>
-                    <div className="gcp-rightsizing-machine-comparison">
-                      <div className="gcp-rightsizing-machine-current">
-                        <p className="gcp-rightsizing-machine-type">{rec.currentMachineType || 'N/A'}</p>
-                        <p className="gcp-rightsizing-machine-label">Current</p>
+                    {/* Service */}
+                    <td>
+                      <div className="gcp-rightsizing-service">
+                        <span>{service}</span>
+                        {rec.recommendationType === 'PERFORMANCE_IMPROVEMENT' && (
+                          <span className="gcp-rightsizing-performance-badge">
+                            <i className="fas fa-bolt"></i>
+                            Performance
+                          </span>
+                        )}
                       </div>
-                      <div className="gcp-rightsizing-machine-arrow">
-                        <i className="fas fa-arrow-right"></i>
-                      </div>
-                      <div className="gcp-rightsizing-machine-recommended">
-                        <p className="gcp-rightsizing-machine-type">{rec.recommendedMachineType || 'N/A'}</p>
-                        <p className="gcp-rightsizing-machine-label">Recommended</p>
-                      </div>
-                    </div>
-                  </td>
+                    </td>
 
-                  {/* Recommendation */}
-                  <td>
-                    <div className="gcp-rightsizing-reason">
-                      <i className="fas fa-info-circle"></i>
-                      <span>{getReasonText(rec)}</span>
-                    </div>
-                  </td>
+                    {/* Location */}
+                    <td>
+                      <span className="gcp-rightsizing-location">{location}</span>
+                    </td>
 
-                  {/* Impact */}
-                  <td>
-                    <div className="gcp-rightsizing-impact">
-                      <span className={`gcp-rightsizing-impact-badge ${isUnderprovisioned(rec) ? 'warning' : 'savings'}`}>
-                        {formatImpact(rec)}
-                      </span>
-                      <span className={`gcp-rightsizing-impact-label ${isUnderprovisioned(rec) ? 'warning' : 'savings'}`}>
+                    {/* Machine Type Comparison */}
+                    <td>
+                      <div className="gcp-rightsizing-machine-comparison">
+                        <div className="gcp-rightsizing-machine-current">
+                          <p className="gcp-rightsizing-machine-type">{currentMachineType}</p>
+                          <p className="gcp-rightsizing-machine-label">Current</p>
+                        </div>
+                        <div className="gcp-rightsizing-machine-arrow">
+                          <i className="fas fa-arrow-right"></i>
+                        </div>
+                        <div className="gcp-rightsizing-machine-recommended">
+                          <p className="gcp-rightsizing-machine-type">{recommendedMachineType}</p>
+                          <p className="gcp-rightsizing-machine-label">Recommended</p>
+                        </div>
+                      </div>
+                    </td>
+
+                    {/* Recommendation */}
+                    <td>
+                      <div className="gcp-rightsizing-reason">
                         <i className="fas fa-info-circle"></i>
-                        {isUnderprovisioned(rec) ? '30-day cost' : 'Potential savings'}
-                      </span>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                        <span>{getReasonText(rec)}</span>
+                      </div>
+                    </td>
+
+                    {/* Impact */}
+                    <td>
+                      <div className="gcp-rightsizing-impact">
+                        <span className={`gcp-rightsizing-impact-badge ${isUnderprovisioned(rec) ? 'warning' : 'savings'}`}>
+                          {formatImpact(rec)}
+                        </span>
+                        <span className={`gcp-rightsizing-impact-label ${isUnderprovisioned(rec) ? 'warning' : 'savings'}`}>
+                          <i className="fas fa-info-circle"></i>
+                          {isUnderprovisioned(rec) ? '30-day cost' : 'Potential savings'}
+                        </span>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

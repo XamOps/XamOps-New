@@ -9,7 +9,9 @@ import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.SonarQubeProject;
 import com.xammer.cloud.domain.User;
 import com.xammer.cloud.dto.DashboardData;
+import com.xammer.cloud.dto.CostDto;
 import com.xammer.cloud.dto.FinOpsReportDto;
+import com.xammer.cloud.dto.ReservationDto;
 import com.xammer.cloud.dto.gcp.GcpCostDto;
 import com.xammer.cloud.dto.gcp.GcpDashboardData;
 import com.xammer.cloud.dto.gcp.GcpFinOpsReportDto;
@@ -191,7 +193,54 @@ public class DashboardDataService {
 
                 logger.info(">> Processing Tenant: {}", tenantId);
 
-                int processedCount = aggregateTenantData(tenantId);
+                final String tenantIdFinal = tenantId;
+                final com.xammer.cloud.domain.JobExecutionHistory jobHistoryFinal = jobHistory;
+                CompletableFuture<Integer> tenantFuture = CompletableFuture.supplyAsync(() -> {
+                    TenantContext.setCurrentTenant(tenantIdFinal);
+                    try {
+                        return aggregateTenantData(tenantIdFinal);
+                    } finally {
+                        TenantContext.clear();
+                    }
+                });
+
+                int processedCount;
+                try {
+                    processedCount = tenantFuture.get(15, TimeUnit.MINUTES);
+                } catch (TimeoutException te) {
+                    logger.error("❌ Tenant {} timed out after 15 min — skipping to next tenant", tenantId);
+                    tenantFuture.cancel(true);
+                    try {
+                        if (jobHistoryFinal.getId() != null) {
+                            jobHistoryFinal.setEndTime(LocalDateTime.now());
+                            jobHistoryFinal.setStatus("TIMEOUT");
+                            jobHistoryFinal.setErrorMessage("Processing timed out after 15 minutes");
+                            jobExecutionHistoryRepository.save(jobHistoryFinal);
+                        }
+                    } catch (Exception writeEx) {
+                        logger.error("Failed to write timeout log to DB", writeEx);
+                    }
+                    continue;
+                } catch (java.util.concurrent.ExecutionException ee) {
+                    logger.error("❌ Tenant {} threw an unhandled exception — skipping to next tenant. Cause: {}",
+                            tenantId, ee.getCause() != null ? ee.getCause().getMessage() : ee.getMessage(), ee);
+                    tenantFuture.cancel(true);
+                    try {
+                        if (jobHistoryFinal.getId() != null) {
+                            jobHistoryFinal.setEndTime(LocalDateTime.now());
+                            jobHistoryFinal.setStatus("FAILURE");
+                            jobHistoryFinal.setErrorMessage("Unhandled exception: " + ee.getMessage());
+                            jobExecutionHistoryRepository.save(jobHistoryFinal);
+                        }
+                    } catch (Exception writeEx) {
+                        logger.error("Failed to write failure log to DB", writeEx);
+                    }
+                    continue;
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    logger.error("❌ Thread interrupted while waiting for tenant {} — stopping aggregation", tenantId);
+                    break;
+                }
 
                 jobHistory.setEndTime(LocalDateTime.now());
                 jobHistory.setStatus("SUCCESS");
@@ -333,6 +382,12 @@ public class DashboardDataService {
         // individual accounts
         logger.info("Pre-caching dashboard data for {} accounts...", allAccounts.size());
         for (CloudAccount account : allAccounts) {
+            // If the per-tenant timeout fired (cancel(true) called), stop early
+            // so the main aggregation thread can move on to the next tenant.
+            if (Thread.currentThread().isInterrupted()) {
+                logger.warn("[Aggregator] Thread interrupted — stopping per-account loop early for tenant {}", tenantId);
+                break;
+            }
             if (!"CONNECTED".equalsIgnoreCase(account.getStatus())) {
                 continue; // Skip non-connected accounts
             }
@@ -416,7 +471,8 @@ public class DashboardDataService {
             cachedData.setJsonData(objectMapper.writeValueAsString(data));
             cachedData.setLastUpdated(LocalDateTime.now());
             cachedDataRepository.save(cachedData);
-            logger.info("Saved snapshot: {}", key);
+            redisCache.put(key, data, 60); // L1 cache — next request skips DB entirely
+            logger.info("Saved snapshot to DB + Redis: {}", key);
         } catch (JsonProcessingException e) {
             logger.error("Failed to serialize snapshot {}", key, e);
         }
@@ -430,6 +486,14 @@ public class DashboardDataService {
     }
 
     private DashboardData getSnapshot(String key) {
+        // 1. Redis first — fast, no DB connection consumed
+        Optional<DashboardData> redisData = redisCache.get(key, DashboardData.class);
+        if (redisData.isPresent()) {
+            logger.info("✅ Redis hit for dashboard snapshot: {}", key);
+            return redisData.get();
+        }
+
+        // 2. DB fallback — only used when Redis is cold (after restart/deployment)
         Optional<CachedData> cached = cachedDataRepository.findById(key);
         if (cached.isPresent()) {
             try {
@@ -438,6 +502,8 @@ public class DashboardDataService {
                     data.setLastUpdated(cached.get().getLastUpdated()
                             .format(java.time.format.DateTimeFormatter.ofPattern("MMM dd, HH:mm:ss")));
                 }
+                logger.info("✅ DB hit for dashboard snapshot — repopulating Redis: {}", key);
+                redisCache.put(key, data, 60); // re-warm Redis so next request skips DB
                 return data;
             } catch (JsonProcessingException e) {
                 logger.error("Failed to deserialize snapshot {}", key, e);
@@ -450,7 +516,7 @@ public class DashboardDataService {
     // FINOPS, WASTE & SECURITY SNAPSHOT HELPERS (for database caching)
     // ============================================================================================
 
-    private void saveFinOpsSnapshot(String key, FinOpsReportDto data) {
+    public void saveFinOpsSnapshot(String key, FinOpsReportDto data) {
         try {
             CachedData cachedData = cachedDataRepository.findById(key).orElse(new CachedData());
             cachedData.setCacheKey(key);
@@ -572,7 +638,58 @@ public class DashboardDataService {
             try {
                 return objectMapper.readValue(cached.get().getJsonData(), typeRef);
             } catch (JsonProcessingException e) {
-                logger.error("Failed to deserialize Alerts snapshot {}", key, e);
+                logger.warn("Stale/corrupted Alerts snapshot for key '{}' — deleting so warm-up can rebuild. Cause: {}", key, e.getMessage());
+                cachedDataRepository.deleteById(key);
+            }
+        }
+        return null;
+    }
+
+    public void saveReservationSnapshot(String key, ReservationDto data) {
+        try {
+            CachedData cachedData = cachedDataRepository.findById(key).orElse(new CachedData());
+            cachedData.setCacheKey(key);
+            cachedData.setJsonData(objectMapper.writeValueAsString(data));
+            cachedData.setLastUpdated(LocalDateTime.now());
+            cachedDataRepository.save(cachedData);
+            logger.info("Saved Reservation snapshot: {}", key);
+        } catch (JsonProcessingException e) {
+            logger.error("Failed to serialize Reservation snapshot {}", key, e);
+        }
+    }
+
+    public ReservationDto getReservationSnapshot(String key) {
+        Optional<CachedData> cached = cachedDataRepository.findById(key);
+        if (cached.isPresent()) {
+            try {
+                return objectMapper.readValue(cached.get().getJsonData(), ReservationDto.class);
+            } catch (JsonProcessingException e) {
+                logger.error("Failed to deserialize Reservation snapshot {}", key, e);
+            }
+        }
+        return null;
+    }
+
+    public void saveCostSnapshot(String key, List<CostDto> data) {
+        try {
+            CachedData cachedData = cachedDataRepository.findById(key).orElse(new CachedData());
+            cachedData.setCacheKey(key);
+            cachedData.setJsonData(objectMapper.writeValueAsString(data));
+            cachedData.setLastUpdated(LocalDateTime.now());
+            cachedDataRepository.save(cachedData);
+            logger.info("Saved Cost snapshot: {}", key);
+        } catch (JsonProcessingException e) {
+            logger.error("Failed to serialize Cost snapshot {}", key, e);
+        }
+    }
+
+    public List<CostDto> getCostSnapshot(String key) {
+        Optional<CachedData> cached = cachedDataRepository.findById(key);
+        if (cached.isPresent()) {
+            try {
+                return objectMapper.readValue(cached.get().getJsonData(), new TypeReference<List<CostDto>>() {});
+            } catch (JsonProcessingException e) {
+                logger.error("Failed to deserialize Cost snapshot {}", key, e);
             }
         }
         return null;
@@ -1304,10 +1421,18 @@ public class DashboardDataService {
                     }))
                     .collect(Collectors.toList());
 
-            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+            try {
+                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+                        .get(10, TimeUnit.MINUTES);
+            } catch (TimeoutException e) {
+                logger.warn("[MultiAccount] Timed out waiting for all accounts after 10 min — returning partial results");
+            }
 
             List<DashboardData> accountDataList = futures.stream()
-                    .map(CompletableFuture::join)
+                    .map(f -> {
+                        try { return f.getNow(null); }
+                        catch (Exception e) { return null; }
+                    })
                     .filter(Objects::nonNull)
                     .collect(Collectors.toList());
 
@@ -1599,7 +1724,7 @@ public class DashboardDataService {
                                     account.getGcpProjectId(), ex);
                             return new GcpDashboardData();
                         })
-                        .get();
+                        .get(5, TimeUnit.MINUTES);
                 freshData = mapGcpDataToDashboardData(gcpData, account);
             } else if ("Azure".equalsIgnoreCase(account.getProvider())) {
                 com.xammer.cloud.dto.azure.AzureDashboardData azureData = azureDashboardService
@@ -1624,6 +1749,27 @@ public class DashboardDataService {
                     accountId);
             return freshData;
 
+        } catch (InterruptedException ie) {
+            // Restore the interrupt flag so the per-account loop's isInterrupted() check fires
+            // and breaks out of the loop. Without this, swallowing InterruptedException clears
+            // the flag and the loop continues running even after tenantFuture.cancel(true).
+            Thread.currentThread().interrupt();
+            long duration = System.currentTimeMillis() - startTime;
+            logger.warn("❌ [Single-Account-Fetch] Interrupted | Tenant: {} | Account: {} | Time: {}ms — propagating interrupt",
+                    tenant, accountId, duration);
+            freshData = new DashboardData();
+            freshData.setError("Interrupted");
+            freshData.setSelectedProvider(account.getProvider());
+            freshData.setSelectedAccount(new DashboardData.Account(
+                    "AWS".equalsIgnoreCase(account.getProvider()) ? account.getAwsAccountId()
+                            : account.getGcpProjectId(),
+                    account.getAccountName(),
+                    Collections.emptyList(), new DashboardData.ResourceInventory(), null, Collections.emptyList(),
+                    null, Collections.emptyList(), null, null, null, Collections.emptyList(),
+                    Collections.emptyList(),
+                    Collections.emptyList(), Collections.emptyList(), null, Collections.emptyList(), null,
+                    Collections.emptyList(), Collections.emptyList(), 0, 0.0, 0.0, 0.0));
+            return freshData;
         } catch (Exception e) {
             long duration = System.currentTimeMillis() - startTime;
             logger.error("❌ [Single-Account-Fetch] Failed | Tenant: {} | Time: {}ms | Account: {} | Error: {}", tenant,

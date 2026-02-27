@@ -1,12 +1,17 @@
 package com.xammer.cloud.config;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.task.TaskDecorator;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
+import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
 import software.amazon.awssdk.regions.Region;
+
+import java.time.Duration;
 import software.amazon.awssdk.services.cloudformation.CloudFormationClient;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.ec2.Ec2Client;
@@ -26,6 +31,9 @@ public class AwsConfig {
 
     @Value("${cloud.aws.region.static:ap-south-1}")
     private String awsRegion;
+
+    @Autowired
+    private TaskDecorator tenantTaskDecorator;
 
     @Bean
     public SqsClient sqsClient() {
@@ -49,6 +57,10 @@ public class AwsConfig {
         return StsClient.builder()
                 .region(Region.of(awsRegion))
                 .credentialsProvider(DefaultCredentialsProvider.create())
+                .overrideConfiguration(ClientOverrideConfiguration.builder()
+                        .apiCallTimeout(Duration.ofSeconds(15))
+                        .apiCallAttemptTimeout(Duration.ofSeconds(10))
+                        .build())
                 .build();
     }
 
@@ -89,6 +101,7 @@ public class AwsConfig {
         executor.setRejectedExecutionHandler(new java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy());
         executor.setAwaitTerminationSeconds(60);
         executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setTaskDecorator(tenantTaskDecorator);
         executor.initialize();
         return executor;
     }

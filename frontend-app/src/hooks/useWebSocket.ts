@@ -32,6 +32,7 @@ export const useWebSocket = ({
   const stompClientRef = useRef<any>(null);
   const subscriptionRef = useRef<any>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isMountedRef = useRef(true);
 
   /**
    * Connect to WebSocket and subscribe to inventory updates
@@ -47,8 +48,6 @@ export const useWebSocket = ({
       console.warn('⚠️ SockJS or STOMP not loaded from CDN');
       return;
     }
-
-    const isMounted = { current: true };
 
     try {
       console.log('🔌 Connecting to WebSocket for account:', accountId);
@@ -66,7 +65,7 @@ export const useWebSocket = ({
       client.connect(
         {},
         () => {
-          if (!isMounted.current) {
+          if (!isMountedRef.current) {
             client.disconnect(() => { });
             return;
           }
@@ -94,14 +93,14 @@ export const useWebSocket = ({
           subscriptionRef.current = subscription;
         },
         (error: any) => {
-          if (!isMounted.current) return;
+          if (!isMountedRef.current) return;
 
           console.error('❌ WebSocket connection error:', error);
           stompClientRef.current = null;
 
           // Attempt reconnection after 5 seconds
           reconnectTimeoutRef.current = setTimeout(() => {
-            if (isMounted.current) {
+            if (isMountedRef.current) {
               console.log('🔄 Attempting to reconnect WebSocket...');
               connect();
             }
@@ -111,10 +110,6 @@ export const useWebSocket = ({
     } catch (err) {
       console.error('❌ Failed to initialize WebSocket:', err);
     }
-
-    return () => {
-      isMounted.current = false;
-    };
   }, [accountId, enabled, onInventoryUpdate]);
 
   /**
@@ -154,6 +149,7 @@ export const useWebSocket = ({
    * Connect/disconnect based on accountId and enabled state
    */
   useEffect(() => {
+    isMountedRef.current = true;
     if (accountId && enabled) {
       connect();
     } else {
@@ -161,6 +157,7 @@ export const useWebSocket = ({
     }
 
     return () => {
+      isMountedRef.current = false;
       disconnect();
     };
   }, [accountId, enabled, connect, disconnect]);

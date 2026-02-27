@@ -4,6 +4,8 @@ import com.xammer.cloud.config.multitenancy.TenantContext;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.JobExecutionHistory;
 import com.xammer.cloud.dto.DashboardData;
+import com.xammer.cloud.dto.FinOpsReportDto;
+import com.xammer.cloud.dto.ReservationDto;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.JobExecutionHistoryRepository;
 import com.xammer.cloud.service.azure.AzureDashboardService;
@@ -12,7 +14,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.cache.CacheManager;
+import org.springframework.context.event.EventListener;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -22,6 +26,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 @Service
 public class ProactiveCacheRefreshService {
@@ -50,6 +55,10 @@ public class ProactiveCacheRefreshService {
     // ADDED: Environment-aware configuration
     private final com.xammer.cloud.config.SchedulingEnvironmentConfig envConfig;
 
+    // ADDED: SpotAutomation and XamOpsRightsizing caching
+    private final AutoSpottingService autoSpottingService;
+    private final XamOpsRightsizingService xamOpsRightsizingService;
+
     @Autowired
     public ProactiveCacheRefreshService(
             CloudAccountRepository cloudAccountRepository,
@@ -67,7 +76,9 @@ public class ProactiveCacheRefreshService {
             AzureDashboardService azureDashboardService,
             JobExecutionHistoryRepository jobExecutionHistoryRepository,
             @Qualifier("masterDataSource") DataSource masterDataSource,
-            com.xammer.cloud.config.SchedulingEnvironmentConfig envConfig) {
+            com.xammer.cloud.config.SchedulingEnvironmentConfig envConfig,
+            AutoSpottingService autoSpottingService,
+            XamOpsRightsizingService xamOpsRightsizingService) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.cacheManager = cacheManager;
         this.cloudListService = cloudListService;
@@ -84,9 +95,82 @@ public class ProactiveCacheRefreshService {
         this.jobExecutionHistoryRepository = jobExecutionHistoryRepository;
         this.masterJdbcTemplate = new JdbcTemplate(masterDataSource);
         this.envConfig = envConfig;
+        this.autoSpottingService = autoSpottingService;
+        this.xamOpsRightsizingService = xamOpsRightsizingService;
 
         // Log configuration on startup
         envConfig.logConfiguration();
+    }
+
+    /**
+     * On startup, seeds Redis from existing DB snapshots (forceRefresh=false).
+     * This avoids hitting AWS APIs at startup — each service reads DB → warms Redis → returns fast.
+     * The nightly @Scheduled refresh*() methods do the actual AWS refresh with forceRefresh=true.
+     *
+     * Previous approach called refresh*() with forceRefresh=true at startup, which bypassed all caches
+     * and hit AWS APIs for every tenant × account simultaneously, causing 503/504 in production under load.
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void warmUpCacheOnStartup() {
+        logger.info("[CacheWarmUp] Application ready — seeding Redis from DB snapshots (no AWS calls at startup)...");
+        // AWS pages: read from DB snapshot → warm Redis. No live AWS calls.
+        CompletableFuture.runAsync(() -> {
+            try { seedRedisFromDb(); } catch (Exception e) { logger.warn("[CacheWarmUp] DB seed failed: {}", e.getMessage()); }
+        });
+        // Azure and GCP: their refresh methods write to DB first, then serve from DB — keep as-is
+        CompletableFuture.runAsync(() -> {
+            try { refreshAzureDashboardData(); } catch (Exception e) { logger.warn("[CacheWarmUp] Azure failed: {}", e.getMessage()); }
+        });
+        CompletableFuture.runAsync(() -> {
+            try { refreshGcpDashboardData(); } catch (Exception e) { logger.warn("[CacheWarmUp] GCP failed: {}", e.getMessage()); }
+        });
+        logger.info("[CacheWarmUp] Startup warm-up tasks submitted.");
+    }
+
+    /**
+     * Seeds Redis from existing DB snapshots for all AWS accounts.
+     * Uses forceRefresh=false: Redis miss → DB hit → warm Redis → return fast.
+     * No AWS API calls are made unless both Redis and DB are cold (first-ever deployment).
+     */
+    private void seedRedisFromDb() {
+        logger.info("[CacheWarmUp] Starting DB → Redis seed pass for all AWS accounts...");
+        for (String tenantId : fetchActiveTenants()) {
+            TenantContext.setCurrentTenant(tenantId);
+            try {
+                List<CloudAccount> accounts = getAllAccounts();
+                for (CloudAccount account : accounts) {
+                    if (!"AWS".equals(account.getProvider()) || account.getAwsAccountId() == null) continue;
+                    String accountId = account.getAwsAccountId();
+                    Long id = account.getId();
+                    String startDate = LocalDate.now().withDayOfMonth(1).toString();
+                    String endDate = LocalDate.now().toString();
+
+                    try { finOpsService.getFinOpsReport(accountId, false, startDate, endDate).join(); }
+                    catch (Exception e) { logger.debug("[Seed] FinOps skipped for {}: {}", accountId, e.getMessage()); }
+
+                    try { costService.getCostBreakdown(accountId, "SERVICE", null, false, startDate, endDate).join(); }
+                    catch (Exception e) { logger.debug("[Seed] Cost skipped for {}: {}", accountId, e.getMessage()); }
+
+                    try { reservationService.getReservationPageData(accountId, false).join(); }
+                    catch (Exception e) { logger.debug("[Seed] Reservations skipped for {}: {}", accountId, e.getMessage()); }
+
+                    try { cloudGuardService.getAlerts(accountId, false).join(); }
+                    catch (Exception e) { logger.debug("[Seed] Alerts skipped for {}: {}", accountId, e.getMessage()); }
+
+                    try { optimizationService.getAllOptimizationRecommendations(accountId, false).join(); }
+                    catch (Exception e) { logger.debug("[Seed] Optimization skipped for {}: {}", accountId, e.getMessage()); }
+
+                    try { autoSpottingService.listAsgsAllRegions(id, false); }
+                    catch (Exception e) { logger.debug("[Seed] SpotAuto skipped for {}: {}", accountId, e.getMessage()); }
+
+                    try { xamOpsRightsizingService.getLiveRecommendations(accountId, false); }
+                    catch (Exception e) { logger.debug("[Seed] Rightsizing skipped for {}: {}", accountId, e.getMessage()); }
+                }
+            } finally {
+                TenantContext.clear();
+            }
+        }
+        logger.info("[CacheWarmUp] DB → Redis seed complete. All AWS pages will serve cached data.");
     }
 
     /**
@@ -207,13 +291,15 @@ public class ProactiveCacheRefreshService {
     // }
     // }
 
-    // @Scheduled(cron = "0 0 2 * * ?")
-    public void refreshDashboardAndFinOps_DISABLED() {
-        logger.info("--- [2:00 AM] Starting Dashboard & FinOps Refresh ---");
+    @Scheduled(cron = "0 0 2 * * ?")
+    public void refreshFinOps() {
+        logger.info("--- [2:00 AM] Starting FinOps Refresh ---");
+        String startDate = LocalDate.now().withDayOfMonth(1).toString();
+        String endDate = LocalDate.now().toString();
         List<String> tenants = fetchActiveTenants();
 
         for (String tenantId : tenants) {
-            JobExecutionHistory jobHistory = new JobExecutionHistory("REFRESH_DASHBOARD_FINOPS", tenantId,
+            JobExecutionHistory jobHistory = new JobExecutionHistory("REFRESH_FINOPS", tenantId,
                     LocalDateTime.now(), "RUNNING");
 
             try {
@@ -224,22 +310,20 @@ public class ProactiveCacheRefreshService {
                 int count = 0;
                 for (CloudAccount account : getAllAccounts()) {
                     String accountId = getAccountId(account);
-                    if (accountId == null)
+                    if (accountId == null || !"AWS".equals(account.getProvider()))
                         continue;
 
                     try {
-                        // 1. Dashboard (Now uses DB cache - forceRefresh=true will update DB
-                        // automatically)
-                        dashboardDataService.getDashboardData(accountId, true, null);
-
-                        // 2. FinOps Report
-                        if (cacheManager.getCache("finOpsReport") != null) {
-                            cacheManager.getCache("finOpsReport").evict(accountId);
+                        FinOpsReportDto report = finOpsService
+                                .getFinOpsReport(accountId, true, startDate, endDate).join();
+                        if (report != null) {
+                            String key = "finops-" + accountId;
+                            dashboardDataService.saveFinOpsSnapshot(key, report);
+                            logger.info("✓ FinOps cached for {} (DB snapshot)", accountId);
                         }
-                        finOpsService.getFinOpsReport(accountId, true, null, null).join();
                         count++;
                     } catch (Exception e) {
-                        logger.error("Failed Dashboard/FinOps refresh for {}", accountId, e);
+                        logger.error("Failed FinOps refresh for {}", accountId, e);
                     }
                 }
 
@@ -249,7 +333,7 @@ public class ProactiveCacheRefreshService {
                 jobExecutionHistoryRepository.save(jobHistory);
 
             } catch (Exception e) {
-                logger.error("❌ Failed refresh for tenant {}", tenantId, e);
+                logger.error("❌ Failed FinOps refresh for tenant {}", tenantId, e);
                 if (jobHistory.getId() != null) {
                     jobHistory.setStatus("FAILURE");
                     jobHistory.setErrorMessage(e.getMessage());
@@ -492,7 +576,7 @@ public class ProactiveCacheRefreshService {
     // 4:00 AM -> Reservations (Can be slow)
     // OPTIMIZED: Changed from daily to weekly (Sundays) to reduce costs
     // ===================================================================================
-    @Scheduled(cron = "0 0 4 * * SUN")
+    @Scheduled(cron = "0 0 4 * * ?")
     public void refreshReservations() {
         logger.info("--- [4:00 AM] Starting Reservation Refresh ---");
         List<String> tenants = fetchActiveTenants();
@@ -513,10 +597,15 @@ public class ProactiveCacheRefreshService {
                     try {
                         List<DashboardData.RegionStatus> regions = getActiveRegions(account);
 
-                        // 1. Reservation Inventory
-                        reservationService.getReservationInventory(account, regions, true).join();
+                        // 1. Reservation page data — fetch and save to DB snapshot
+                        ReservationDto reservationData = reservationService
+                                .getReservationPageData(accountId, true).join();
+                        if (reservationData != null) {
+                            dashboardDataService.saveReservationSnapshot("RESERVATION::" + accountId, reservationData);
+                            logger.info("✓ Reservation cached for {} (DB snapshot)", accountId);
+                        }
 
-                        // 2. Reservation Recommendations
+                        // 2. Reservation Recommendations (Redis only — data changes infrequently)
                         reservationService.getReservationPurchaseRecommendations(
                                 account,
                                 "ONE_YEAR",
@@ -717,6 +806,77 @@ public class ProactiveCacheRefreshService {
                     jobHistory.setEndTime(LocalDateTime.now());
                     jobExecutionHistoryRepository.save(jobHistory);
                 }
+            } finally {
+                TenantContext.clear();
+            }
+        }
+    }
+
+    // ===================================================================================
+    // SpotAutomation Cache Refresh (Daily + Startup warmup)
+    // Caches ASG list, cost data, and spot instances for the SpotAutomation page
+    // ===================================================================================
+    @Scheduled(cron = "0 0 2 * * ?")
+    public void refreshSpotAutomation() {
+        logger.info("--- [SpotAutomation] Starting SpotAutomation Cache Refresh ---");
+        List<String> tenants = fetchActiveTenants();
+
+        for (String tenantId : tenants) {
+            TenantContext.setCurrentTenant(tenantId);
+            try {
+                int count = 0;
+                for (CloudAccount account : getAllAccounts()) {
+                    if (!"AWS".equals(account.getProvider()) || account.getAwsAccountId() == null) continue;
+                    try {
+                        // Force-refresh ASG list and cost data via the new overloads
+                        autoSpottingService.listAsgsAllRegions(account.getId(), true);
+                        autoSpottingService.getCostData(account.getId(), true);
+                        autoSpottingService.getSpotInstances(account.getId(), true);
+                        logger.info("✓ SpotAutomation cached for account {} (cloudAccountId={})",
+                                account.getAwsAccountId(), account.getId());
+                        count++;
+                    } catch (Exception e) {
+                        logger.error("Failed SpotAutomation refresh for account {}: {}",
+                                account.getAwsAccountId(), e.getMessage());
+                    }
+                }
+                logger.info("✅ SpotAutomation refresh complete for tenant {} - {} accounts cached", tenantId, count);
+            } catch (Exception e) {
+                logger.error("❌ Failed SpotAutomation refresh for tenant {}", tenantId, e);
+            } finally {
+                TenantContext.clear();
+            }
+        }
+    }
+
+    // ===================================================================================
+    // XamOpsRightsizing Cache Refresh (Daily + Startup warmup)
+    // Caches XamOps-proprietary rightsizing recommendations for each AWS account
+    // ===================================================================================
+    @Scheduled(cron = "0 30 3 * * MON,WED,FRI")
+    public void refreshXamOpsRightsizing() {
+        logger.info("--- [XamOpsRightsizing] Starting XamOpsRightsizing Cache Refresh ---");
+        List<String> tenants = fetchActiveTenants();
+
+        for (String tenantId : tenants) {
+            TenantContext.setCurrentTenant(tenantId);
+            try {
+                int count = 0;
+                for (CloudAccount account : getAllAccounts()) {
+                    String accountId = account.getAwsAccountId();
+                    if (!"AWS".equals(account.getProvider()) || accountId == null) continue;
+                    try {
+                        xamOpsRightsizingService.getLiveRecommendations(accountId, true);
+                        logger.info("✓ XamOpsRightsizing cached for account {}", accountId);
+                        count++;
+                    } catch (Exception e) {
+                        logger.error("Failed XamOpsRightsizing refresh for account {}: {}",
+                                accountId, e.getMessage());
+                    }
+                }
+                logger.info("✅ XamOpsRightsizing refresh complete for tenant {} - {} accounts cached", tenantId, count);
+            } catch (Exception e) {
+                logger.error("❌ Failed XamOpsRightsizing refresh for tenant {}", tenantId, e);
             } finally {
                 TenantContext.clear();
             }

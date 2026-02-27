@@ -30,11 +30,14 @@ public class GlobalUserSyncService {
     @Autowired
     private TenantService tenantService; // Service layer without security restrictions
 
+    @Autowired
+    private Environment environment;
+
     /**
-     * Runs automatically every 60 seconds to ensure Global Directory is up to date.
-     * ONLY runs in PROD profile (local/UAT use single DB, no tenant sync needed)
+     * Runs automatically every 5 minutes to ensure Global Directory is up to date.
+     * ONLY runs in PROD/PREPROD profile (local/UAT use single DB, no tenant sync needed)
      */
-    @Scheduled(fixedDelay = 60000) // Run every 1 minute
+    @Scheduled(fixedDelay = 86400000) // Run every 24 hours — user sync is low-urgency, daily is sufficient
     public void syncAllUsersToGlobalDirectory() {
         // Single-tenant mode: global user sync disabled
         log.debug("Skipping Global User Sync - single-tenant mode");

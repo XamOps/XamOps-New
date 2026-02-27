@@ -97,28 +97,39 @@ const GcpOptimizationSection: React.FC<GcpOptimizationSectionProps> = ({ optimiz
                     </span>
                 </div>
                 <div className="overflow-x-auto">
-                    <table className="w-full text-xs">
+                    <table className="w-full text-xs table-fixed">
                         <thead className="bg-gray-50">
                             <tr>
-                                <th className="px-2 py-1 text-left font-medium text-gray-700 text-xs">Resource</th>
-                                <th className="px-2 py-1 text-left font-medium text-gray-700 text-xs">Change</th>
-                                <th className="px-2 py-1 text-right font-medium text-gray-700 text-xs">Savings</th>
+                                <th className="px-2 py-1.5 text-left font-bold text-gray-700 text-[10px] uppercase tracking-wider w-[140px]">Resource</th>
+                                <th className="px-2 py-1.5 text-left font-bold text-gray-700 text-[10px] uppercase tracking-wider w-[100px]">Change</th>
+                                <th className="px-2 py-1.5 text-right font-bold text-gray-700 text-[10px] uppercase tracking-wider">Savings</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
                             {recs.slice(0, 2).map((rec, idx) => {
-                                const name = rec.resourceName || rec.resourceId || 'Unknown';
-                                const change = `${rec.currentSize || '?'} → ${rec.recommendedSize || '?'}`;
+                                // Clean up resource name
+                                let name = rec.resourceName || rec.resourceId || 'N/A';
+                                if (name.toLowerCase() === 'unknown') name = 'N/A';
+
+                                // Clean up sizes
+                                let currentSize = rec.currentSize || '';
+                                let recommendedSize = rec.recommendedSize || '';
+                                if (currentSize.toLowerCase() === 'unknown') currentSize = '';
+                                if (recommendedSize.toLowerCase() === 'unknown') recommendedSize = '';
+
+                                const change = currentSize && recommendedSize
+                                    ? `${currentSize} → ${recommendedSize}`
+                                    : 'See details';
 
                                 return (
                                     <tr key={idx} className="hover:bg-gray-50 transition-colors">
-                                        <td className="px-2 py-1.5 font-mono text-xs text-gray-600 max-w-[120px] truncate" title={name}>
-                                            {name}
+                                        <td className="px-2 py-1.5 font-mono text-[10px] text-gray-600 max-w-[140px]" title={name}>
+                                            <div className="truncate">{name}</div>
                                         </td>
                                         <td className="px-2 py-1.5" title={change}>
-                                            <span className="text-gray-600 text-xs truncate max-w-[80px] block">{change}</span>
+                                            <div className="text-gray-600 text-[10px] max-w-[100px] truncate">{change}</div>
                                         </td>
-                                        <td className={`px-2 py-1.5 text-right font-semibold ${textColor} text-xs whitespace-nowrap`}>
+                                        <td className={`px-2 py-1.5 text-right font-semibold ${textColor} text-[10px] whitespace-nowrap`}>
                                             {formatCurrency(rec.potentialSavings)}
                                         </td>
                                     </tr>
