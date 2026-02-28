@@ -3,6 +3,7 @@ package com.xammer.cloud.controller;
 import com.xammer.cloud.dto.TicketDto;
 import com.xammer.cloud.dto.TicketReplyDto;
 import com.xammer.cloud.service.TicketService;
+import com.xammer.cloud.util.SecurityUtils;
 
 import java.util.List;
 
@@ -25,6 +26,8 @@ public class TicketController {
 
     @PostMapping("/tickets")
     public ResponseEntity<TicketDto> createTicket(@RequestBody TicketDto ticketDto) {
+        // Enforce the current authenticated user as the creator to prevent IDOR
+        ticketDto.setCreatorId(SecurityUtils.getCurrentUserId());
         return ResponseEntity.ok(ticketService.createTicket(ticketDto));
     }
 
@@ -44,9 +47,7 @@ public class TicketController {
             @PathVariable Long id,
             // FIX: Make message optional so file-only replies work
             @RequestPart(value = "message", required = false) String message,
-            @RequestPart(value = "file", required = false) MultipartFile file,
-            @RequestPart(value = "authorId", required = false) String authorIdStr,
-            Authentication authentication) {
+            @RequestPart(value = "file", required = false) MultipartFile file) {
 
         // Validate that we have at least something to post
         boolean hasMessage = message != null && !message.isBlank();
@@ -59,20 +60,8 @@ public class TicketController {
         TicketReplyDto replyDto = new TicketReplyDto();
         replyDto.setMessage(hasMessage ? message : "");
 
-        // Prefer Authentication object for security
-        if (authentication != null) {
-            replyDto.setAuthorUsername(authentication.getName());
-        }
-
-        // Fallback to authorId if passed manually (e.g., admin actions if needed,
-        // though Auth is preferred)
-        if (authorIdStr != null && !authorIdStr.isBlank()) {
-            try {
-                replyDto.setAuthorId(Long.parseLong(authorIdStr));
-            } catch (NumberFormatException e) {
-                // Ignore invalid ID format
-            }
-        }
+        // Enforce the current authenticated user as the author to prevent IDOR
+        replyDto.setAuthorId(SecurityUtils.getCurrentUserId());
 
         return ResponseEntity.ok(ticketService.addReplyToTicket(id, replyDto, file));
     }
