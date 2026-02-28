@@ -1,3 +1,7 @@
 ## 2025-05-14 - Accessible Interactive Components Pattern
 **Learning:** Many interactive components in this application (like the account selector and toggles) were implemented using `div` elements with click handlers. This breaks keyboard accessibility and screen reader support. Using semantic `button` elements and appropriate ARIA roles (like `role="switch"` or `aria-haspopup`) is essential for accessibility. Additionally, the `vite-plugin-html-include` pattern means that improvements to shared fragments like `_sidebar.html` have an outsized positive impact on the overall application's UX.
 **Action:** Always check if a clickable `div` can be replaced with a `button` and ensure shared fragments are prioritized for accessibility improvements.
+
+## 2025-05-15 - ARIA Hierarchy and Form Semantics in Alpine.js Components
+**Learning:** When building complex list structures with Alpine.js, it's not enough to just add `role="option"`. A complete ARIA hierarchy (e.g., `role="listbox"` -> `role="group"` -> `role="option"`) provides much better context for screen reader users. Additionally, any interactive icons or buttons within a form-like structure (even if not in an actual `<form>`) should explicitly use `type="button"` to avoid potential side effects and ensure consistent behavior across browsers.
+**Action:** Always wrap `role="option"` elements in a `role="listbox"` and use `role="group"` for categorized lists. Ensure all interactive triggers have explicit button types.
