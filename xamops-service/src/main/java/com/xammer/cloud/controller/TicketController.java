@@ -3,6 +3,7 @@ package com.xammer.cloud.controller;
 import com.xammer.cloud.dto.TicketDto;
 import com.xammer.cloud.dto.TicketReplyDto;
 import com.xammer.cloud.service.TicketService;
+import com.xammer.cloud.util.SecurityUtils;
 
 import java.util.List;
 
@@ -25,6 +26,7 @@ public class TicketController {
 
     @PostMapping("/tickets")
     public ResponseEntity<TicketDto> createTicket(@RequestBody TicketDto ticketDto) {
+        ticketDto.setCreatorId(SecurityUtils.getCurrentUserId());
         return ResponseEntity.ok(ticketService.createTicket(ticketDto));
     }
 
@@ -45,7 +47,6 @@ public class TicketController {
             // FIX: Make message optional so file-only replies work
             @RequestPart(value = "message", required = false) String message,
             @RequestPart(value = "file", required = false) MultipartFile file,
-            @RequestPart(value = "authorId", required = false) String authorIdStr,
             Authentication authentication) {
 
         // Validate that we have at least something to post
@@ -58,20 +59,11 @@ public class TicketController {
 
         TicketReplyDto replyDto = new TicketReplyDto();
         replyDto.setMessage(hasMessage ? message : "");
+        replyDto.setAuthorId(SecurityUtils.getCurrentUserId());
 
         // Prefer Authentication object for security
         if (authentication != null) {
             replyDto.setAuthorUsername(authentication.getName());
-        }
-
-        // Fallback to authorId if passed manually (e.g., admin actions if needed,
-        // though Auth is preferred)
-        if (authorIdStr != null && !authorIdStr.isBlank()) {
-            try {
-                replyDto.setAuthorId(Long.parseLong(authorIdStr));
-            } catch (NumberFormatException e) {
-                // Ignore invalid ID format
-            }
         }
 
         return ResponseEntity.ok(ticketService.addReplyToTicket(id, replyDto, file));
