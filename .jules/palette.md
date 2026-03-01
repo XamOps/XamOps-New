@@ -1,3 +1,7 @@
 ## 2025-05-14 - Accessible Interactive Components Pattern
 **Learning:** Many interactive components in this application (like the account selector and toggles) were implemented using `div` elements with click handlers. This breaks keyboard accessibility and screen reader support. Using semantic `button` elements and appropriate ARIA roles (like `role="switch"` or `aria-haspopup`) is essential for accessibility. Additionally, the `vite-plugin-html-include` pattern means that improvements to shared fragments like `_sidebar.html` have an outsized positive impact on the overall application's UX.
 **Action:** Always check if a clickable `div` can be replaced with a `button` and ensure shared fragments are prioritized for accessibility improvements.
+
+## 2025-05-14 - Search Empty State and Interaction Patterns
+**Learning:** For dropdown search components (like the sidebar account selector), a missing empty state or a lack of clear-search functionality can lead to user confusion or accidental "dead ends" in the UI. Providing an explicit "No accounts found" message with an 'aria-live="polite"' attribute and a clear "Clear search" call-to-action makes the interface more resilient and helpful. Additionally, the account selector items now follow a consistent provider selection pattern (AWS, GCP, Azure) for selection and disabled states.
+**Action:** Always include an accessible empty state and a search reset mechanism (like a 'Clear' button) in filtering interfaces to improve usability.
