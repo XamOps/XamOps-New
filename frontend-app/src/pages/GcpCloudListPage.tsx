@@ -29,7 +29,7 @@ const GcpCloudListPage: React.FC = () => {
 
   // UI states
   const [, setLastUpdated] = useState<string>('');
-  const [updateStatus, setUpdateStatus] = useState('Ready');
+  const [, setUpdateStatus] = useState('Ready');
 
   const servicesPerPage = 10;
 

@@ -40,6 +40,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 @Service
@@ -56,6 +57,7 @@ public class FinOpsService {
     private final UserRepository userRepository;
     private final CostMockService costMockService;
     private final Executor backgroundTaskExecutor;
+    private final DashboardDataService dashboardDataService;
 
     @Value("${aws.costexplorer.mock:false}")
     private boolean useMockData;
@@ -70,7 +72,8 @@ public class FinOpsService {
             RedisCacheService redisCache,
             UserRepository userRepository,
             CostMockService costMockService,
-            @Qualifier("backgroundTaskExecutor") Executor backgroundTaskExecutor) {
+            @Qualifier("backgroundTaskExecutor") Executor backgroundTaskExecutor,
+            @Lazy DashboardDataService dashboardDataService) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
         this.cloudListService = cloudListService;
@@ -80,6 +83,7 @@ public class FinOpsService {
         this.userRepository = userRepository;
         this.costMockService = costMockService;
         this.backgroundTaskExecutor = backgroundTaskExecutor;
+        this.dashboardDataService = dashboardDataService;
 
         logger.info("FinOpsService initialized (Mock Mode: {})", useMockData);
     }
@@ -373,7 +377,7 @@ public class FinOpsService {
                             Thread.currentThread().getName(),
                             activeRegions != null ? activeRegions.size() : 0);
                     return optimizationService.getWastedResources(account, activeRegions, forceRefresh);
-                }, TenantContextUtil.tenantAware(awsTaskExecutor));
+                }, TenantContextUtil.tenantAware(backgroundTaskExecutor));
     }
 
     /** Rightsizing wrapper — delegates directly to the cached OptimizationService method. */

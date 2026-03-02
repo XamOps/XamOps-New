@@ -30,9 +30,6 @@ public class GlobalUserSyncService {
     @Autowired
     private TenantService tenantService; // Service layer without security restrictions
 
-    @Autowired
-    private Environment environment;
-
     /**
      * Runs automatically every 5 minutes to ensure Global Directory is up to date.
      * ONLY runs in PROD/PREPROD profile (local/UAT use single DB, no tenant sync needed)
