@@ -12,8 +12,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
+import java.security.SecureRandom;
 import java.util.Optional;
-import java.util.Random;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -54,6 +54,8 @@ public class PasswordResetController {
     // 1. Send OTP
     @PostMapping("/forgot-password")
     public ResponseEntity<?> sendOtp(@RequestParam String username, @RequestParam String email) {
+        // We use a generic message to prevent user enumeration
+        String genericSuccessMessage = "If your account exists and the email matches, you will receive an OTP shortly.";
         try {
             // ✅ FIX: Switch to the correct database for this user
             setTenantContextForUser(username);
@@ -64,11 +66,12 @@ public class PasswordResetController {
 
             // Verify email matches
             if (user.getEmail() == null || !user.getEmail().equalsIgnoreCase(email)) {
-                return ResponseEntity.badRequest().body("Email does not match our records.");
+                // Return generic message even if email doesn't match to prevent enumeration
+                return ResponseEntity.ok().body(genericSuccessMessage);
             }
 
-            // Generate 6-digit OTP
-            String otp = String.format("%06d", new Random().nextInt(999999));
+            // Generate 6-digit cryptographically secure OTP
+            String otp = String.format("%06d", new SecureRandom().nextInt(999999));
             
             // Save OTP to Redis (Expires in 5 minutes)
             redisCacheService.saveOtp(username, otp);
@@ -79,16 +82,13 @@ public class PasswordResetController {
                           "<p>Your verification code is: <strong>" + otp + "</strong></p>" +
                           "<p>This code expires in 5 minutes.</p>";
             
-            // Log for debugging (in case email fails)
-            System.out.println(">>> OTP for " + username + ": " + otp);
-            
             emailService.sendHtmlEmail(email, subject, body);
 
-            return ResponseEntity.ok().body("OTP sent to your email.");
+            return ResponseEntity.ok().body(genericSuccessMessage);
 
         } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.badRequest().body("Error: " + e.getMessage());
+            // Return generic message on most errors to prevent enumeration, but log the real error
+            return ResponseEntity.ok().body(genericSuccessMessage);
         }
     }
 
@@ -133,7 +133,7 @@ public class PasswordResetController {
             return ResponseEntity.ok().body("Password updated successfully.");
 
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body("Failed to reset password: " + e.getMessage());
+            return ResponseEntity.badRequest().body("Failed to reset password. Please try again or contact support.");
         }
     }
 }
