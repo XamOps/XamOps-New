@@ -91,6 +91,7 @@ public class DashboardDataService {
     private final com.xammer.cloud.service.gcp.GcpFinOpsReportService gcpFinOpsReportService;
     private final SonarQubeService sonarQubeService;
     private final UserRepository userRepository;
+    private final AutoSpottingService autoSpottingService;
 
     // Phase 2: Master Data Access for Tenant Iteration
     private final JdbcTemplate masterJdbcTemplate;
@@ -125,6 +126,7 @@ public class DashboardDataService {
             JobExecutionHistoryRepository jobExecutionHistoryRepository,
             @Qualifier("masterDataSource") DataSource masterDataSource,
             com.xammer.cloud.config.SchedulingEnvironmentConfig envConfig,
+            @Lazy AutoSpottingService autoSpottingService,
             @Qualifier("backgroundTaskExecutor") TaskExecutor backgroundTaskExecutor) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
@@ -145,6 +147,7 @@ public class DashboardDataService {
         this.jobExecutionHistoryRepository = jobExecutionHistoryRepository;
         this.masterJdbcTemplate = new JdbcTemplate(masterDataSource);
         this.envConfig = envConfig;
+        this.autoSpottingService = autoSpottingService;
         this.backgroundTaskExecutor = backgroundTaskExecutor;
     }
 
@@ -2022,7 +2025,8 @@ public class DashboardDataService {
                     });
 
             CompletableFuture<DashboardData.SavingsSummary> savingsFuture = getSavingsSummary(
-                    wastedResourcesFuture, ec2RecsFuture, ebsRecsFuture, lambdaRecsFuture)
+                    wastedResourcesFuture, ec2RecsFuture, ebsRecsFuture, lambdaRecsFuture,
+                    account.getAwsAccountId() != null ? Long.parseLong(account.getAwsAccountId()) : null)
                     .exceptionally(ex -> {
                         logger.error("Savings summary calculation failed", ex);
                         return new DashboardData.SavingsSummary(0.0, 0.0);
@@ -2314,7 +2318,8 @@ public class DashboardDataService {
             CompletableFuture<List<DashboardData.WastedResource>> wastedFuture,
             CompletableFuture<List<DashboardData.OptimizationRecommendation>> ec2RecsFuture,
             CompletableFuture<List<DashboardData.OptimizationRecommendation>> ebsRecsFuture,
-            CompletableFuture<List<DashboardData.OptimizationRecommendation>> lambdaRecsFuture) {
+            CompletableFuture<List<DashboardData.OptimizationRecommendation>> lambdaRecsFuture,
+            Long cloudAccountId) {
 
         return CompletableFuture.allOf(wastedFuture, ec2RecsFuture, ebsRecsFuture, lambdaRecsFuture)
                 .thenApply(v -> {
@@ -2328,6 +2333,21 @@ public class DashboardDataService {
                             .mapToDouble(DashboardData.OptimizationRecommendation::getEstimatedMonthlySavings)
                             .sum();
 
+                    // AutoSpotting potential savings — served from Redis cache (fast)
+                    double spotPotentialSavings = 0.0;
+                    if (cloudAccountId != null) {
+                        try {
+                            com.xammer.cloud.dto.autospotting.CostResponse spotCost =
+                                    autoSpottingService.getCostData(cloudAccountId);
+                            if (spotCost != null && spotCost.getSummary() != null) {
+                                double hourly = spotCost.getSummary().getTotalPotentialSavings();
+                                spotPotentialSavings = hourly * 24 * 30; // convert hourly → monthly
+                            }
+                        } catch (Exception e) {
+                            logger.warn("Could not fetch AutoSpotting potential savings for dashboard: {}", e.getMessage());
+                        }
+                    }
+
                     List<DashboardData.SavingsSuggestion> suggestions = new ArrayList<>();
                     if (rightsizingSavings > 0) {
                         suggestions.add(new DashboardData.SavingsSuggestion("Rightsizing", rightsizingSavings));
@@ -2335,8 +2355,11 @@ public class DashboardDataService {
                     if (wasteSavings > 0) {
                         suggestions.add(new DashboardData.SavingsSuggestion("Waste Elimination", wasteSavings));
                     }
+                    if (spotPotentialSavings > 0) {
+                        suggestions.add(new DashboardData.SavingsSuggestion("Spot Automation", spotPotentialSavings));
+                    }
 
-                    double totalPotential = wasteSavings + rightsizingSavings;
+                    double totalPotential = wasteSavings + rightsizingSavings + spotPotentialSavings;
 
                     return new DashboardData.SavingsSummary(totalPotential, suggestions);
                 });
@@ -2721,7 +2744,8 @@ public class DashboardDataService {
                 mainAccount.setOptimizationSummary(optSum);
 
                 // Savings Summary
-                DashboardData.SavingsSummary savings = getSavingsSummary(waste, ec2, ebs, lambda).join();
+                DashboardData.SavingsSummary savings = getSavingsSummary(waste, ec2, ebs, lambda,
+                        account.getAwsAccountId() != null ? Long.parseLong(account.getAwsAccountId()) : null).join();
                 mainAccount.setSavingsSummary(savings);
 
                 data.setSelectedAccount(mainAccount);

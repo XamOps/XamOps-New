@@ -95,6 +95,7 @@ import GcpAlertsPage from './pages/GcpAlertsPage';
 import AzureAlertsPage from './pages/AzureAlertsPage';
 import GcpBillingPage from './pages/GcpBillingPage';
 import GcpSpotAutomationPage from './pages/GcpSpotAutomationPage';
+import AzureSpotAutomationPage from './pages/AzureSpotAutomationPage';
 import CalculatorPage from './pages/CalculatorPage';
 import GcpCloudListPage from './pages/GcpCloudListPage';
 import CloudMapPage from './pages/CloudMapPage';
@@ -418,6 +419,7 @@ const AppContent: React.FC = () => {
               <Route path="/complianceops" element={<ComplianceOpsPage />} />
               <Route path="/billops-admin-user-manager" element={<BillOpsAdminUserManagerPage />} />
               <Route path="/gcp-autospotting" element={<GcpSpotAutomationPage />} />
+              <Route path="/azure-autospotting" element={<AzureSpotAutomationPage />} />
               <Route path="/calculator" element={<CalculatorPage />} />
               <Route path="/gcp-cloudlist" element={<GcpCloudListPage />} />
               <Route path="/azure-cloudlist" element={<AzureCloudList />} />

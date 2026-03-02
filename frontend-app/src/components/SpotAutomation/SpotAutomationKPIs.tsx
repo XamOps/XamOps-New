@@ -17,18 +17,18 @@ const SpotAutomationKPIs: React.FC<SpotAutomationKPIsProps> = ({
   enabledRegionsCount,
 }) => {
   const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('en-IN', {
+    return new Intl.NumberFormat('en-US', {
       style: 'currency',
-      currency: 'INR',
+      currency: 'USD',
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(value);
   };
 
   const formatHourlyCost = (value: number) => {
-    return new Intl.NumberFormat('en-IN', {
+    return new Intl.NumberFormat('en-US', {
       style: 'currency',
-      currency: 'INR',
+      currency: 'USD',
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(value);
@@ -48,7 +48,7 @@ const SpotAutomationKPIs: React.FC<SpotAutomationKPIsProps> = ({
             </h3>
           </div>
           <div className="p-3 bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg">
-            <i className="fas fa-rupee-sign text-purple-600 text-2xl"></i>
+            <i className="fas fa-dollar-sign text-purple-600 text-2xl"></i>
           </div>
         </div>
         <div className="mt-4 text-sm text-gray-600">
