@@ -7,3 +7,8 @@
 **Vulnerability:** The `createTicket` and `addTicketReply` endpoints in `xamops-service` accepted `creatorId` and `authorId` from the client request, allowing users to impersonate others by providing a different user's ID.
 **Learning:** Trusting user-supplied IDs for identity without verifying them against the authenticated session is a classic IDOR vulnerability.
 **Prevention:** Always use the authenticated session (e.g., `SecurityUtils.getCurrentUserId()`) to determine the identity of the user performing an action. Never allow clients to override their own identity via request parameters.
+
+## 2026-03-02 - [HIGH] Weak Password Reset Implementation
+**Vulnerability:** The `PasswordResetController` used `java.util.Random` for OTP generation, logged OTPs to `System.out`, and leaked internal state (user existence, email matches, and exception details) in API responses.
+**Learning:** Password reset flows are high-value targets for user enumeration and account takeover. Even small leaks (like "User not found") can be used to harvest valid usernames.
+**Prevention:** Use `SecureRandom` for tokens/OTPs. Never log sensitive credentials. Always return generic "If account exists..." messages for sensitive flows to prevent enumeration. Sanitize all error responses.
