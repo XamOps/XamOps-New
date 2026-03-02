@@ -69,12 +69,12 @@ public class CloudGuardService {
     }
 
     private CloudAccount getAccount(String accountId) {
-        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
-        if (accounts.isEmpty()) {
+        Optional<CloudAccount> accountOpt = cloudAccountRepository.findByProviderAccountId(accountId);
+        if (accountOpt.isEmpty()) {
             throw new RuntimeException("Account not found in database: " + accountId);
         }
 
-        CloudAccount account = accounts.get(0);
+        CloudAccount account = accountOpt.get();
 
         // Force initialization of the Client proxy
         if (account.getClient() != null) {
@@ -349,6 +349,20 @@ public class CloudGuardService {
         // 2. Fetch fresh data from AWS API
         logger.info("Fetching fresh alerts from AWS API for account {}", accountId);
         CloudAccount account = getAccount(accountId);
+
+        // CloudGuard is AWS-only — return empty response for GCP/Azure accounts
+        if (account.getAwsAccountId() == null || account.getAwsAccountId().isEmpty()) {
+            logger.info("CloudGuard: Skipping alerts for non-AWS account {}", accountId);
+            return CompletableFuture.completedFuture(AlertsResponseDto.builder()
+                    .alerts(Collections.emptyList())
+                    .errors(Collections.emptyList())
+                    .metadata(AlertsMetadataDto.builder()
+                            .totalAlerts(0)
+                            .timestamp(Instant.now().toString())
+                            .fromCache(false)
+                            .build())
+                    .build());
+        }
 
         // Eagerly fetch email before async
         String clientEmail = null;

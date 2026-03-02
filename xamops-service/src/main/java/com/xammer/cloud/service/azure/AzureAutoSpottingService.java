@@ -181,7 +181,10 @@ public class AzureAutoSpottingService {
     private List<AzureAutoSpottingGroupDto> fetchVmssFromAzure(String subscriptionId) {
         List<AzureAutoSpottingGroupDto> allVmss = new ArrayList<>();
         try {
-            AzureResourceManager azure = azureClientProvider.getAzureClient(subscriptionId);
+            // Resolve account first — subscriptionId may be a numeric DB id or the Azure UUID
+            CloudAccount account = resolveAccount(subscriptionId);
+            String actualSubscriptionId = account.getAzureSubscriptionId();
+            AzureResourceManager azure = azureClientProvider.getAzureClient(actualSubscriptionId);
 
             for (VirtualMachineScaleSet vmss : azure.virtualMachineScaleSets().list()) {
                 try {

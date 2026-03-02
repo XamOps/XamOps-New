@@ -58,8 +58,9 @@ public class GcpAutoSpottingService {
 
     public CloudAccount resolveAccount(String accountId) {
         log.debug("🔍 Resolving GCP account for identifier: {}", accountId);
-        // Try looking up by provider account ID (Project ID) first
+        // findByProviderAccountId returns List to tolerate multi-tenant duplicates; take first match
         return cloudAccountRepository.findByProviderAccountId(accountId)
+                .stream().findFirst()
                 .or(() -> {
                     try {
                         // Fallback to DB ID if numeric

@@ -171,7 +171,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           await fetchTenantAccounts(currentImpersonateUser, currentTenant);
         }
       } else {
-<<<<<<< HEAD
         // For regular users: read their tenant from the profile response if available.
         // The backend may return tenantId so the frontend can route requests correctly.
         const tenantId = (data as any).tenantId || (data as any).tenant_id;
@@ -183,18 +182,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           setSelectedTenant('');
         }
         // Always clear super-admin-only keys for regular users
-=======
-        // For regular users: persist their own tenant ID so X-Tenant-ID header is always sent
-        // This prevents TenantFilter from falling back to a costly master DB lookup on every request
-        if (data.tenantId) {
-          sessionStorage.setItem('selectedTenantId', data.tenantId);
-          setSelectedTenant(data.tenantId);
-        } else {
-          sessionStorage.removeItem('selectedTenantId');
-          setSelectedTenant('');
-        }
-        // Clear super-admin-only context that doesn't apply to regular users
->>>>>>> 73ba735d9b7e069841bd6497c41b74deb8b776ae
         sessionStorage.removeItem('impersonateUserId');
         sessionStorage.removeItem('superAdminSelectedAccountId');
         setImpersonateUser('');
@@ -227,7 +214,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             await fetchTenantAccounts(currentImpersonateUser, currentTenant);
           }
         } else {
-<<<<<<< HEAD
           // For regular users: read their tenant from the profile response if available.
           const tenantId = (data as any).tenantId || (data as any).tenant_id;
           if (tenantId) {
@@ -238,17 +224,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             setSelectedTenant('');
           }
           // Always clear super-admin-only keys for regular users
-=======
-          // For regular users: persist their own tenant ID so X-Tenant-ID header is always sent
-          if (data.tenantId) {
-            sessionStorage.setItem('selectedTenantId', data.tenantId);
-            setSelectedTenant(data.tenantId);
-          } else {
-            sessionStorage.removeItem('selectedTenantId');
-            setSelectedTenant('');
-          }
-          // Clear super-admin-only context that doesn't apply to regular users
->>>>>>> 73ba735d9b7e069841bd6497c41b74deb8b776ae
           sessionStorage.removeItem('impersonateUserId');
           sessionStorage.removeItem('superAdminSelectedAccountId');
           setImpersonateUser('');
