@@ -124,10 +124,10 @@ public class AwsConfig {
     public TaskExecutor regionalCheckExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         // Dedicated pool for expensive regional activity checks
-        // Increased for massive parallelism across regions and services
+        // Queue sized for Semaphore(8): max 8 accounts × 15 regions = 120 concurrent tasks
         executor.setCorePoolSize(20);
         executor.setMaxPoolSize(50);
-        executor.setQueueCapacity(500);
+        executor.setQueueCapacity(1000);
         executor.setThreadNamePrefix("AWS-RegCheck-");
         executor.setRejectedExecutionHandler(new java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy());
         executor.initialize();

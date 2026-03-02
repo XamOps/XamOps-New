@@ -12,6 +12,7 @@ import software.amazon.awssdk.awscore.client.builder.AwsClientBuilder;
 import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
 import software.amazon.awssdk.regions.Region;
 
+import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import software.amazon.awssdk.services.acm.AcmClient;
@@ -77,6 +78,10 @@ import software.amazon.awssdk.services.savingsplans.SavingsplansClient;
 public class AwsClientProvider {
 
     private static final Logger logger = LoggerFactory.getLogger(AwsClientProvider.class);
+
+    /** Short timeout for FinOps clients (Cost Explorer, Budgets) — global services requiring NAT. */
+    private static final Duration FINOPS_API_TIMEOUT = Duration.ofSeconds(15);
+    private static final Duration FINOPS_API_ATTEMPT_TIMEOUT = Duration.ofSeconds(10);
 
     private final StsClient stsClient;
     private final Map<String, Object> clientCache = new ConcurrentHashMap<>();

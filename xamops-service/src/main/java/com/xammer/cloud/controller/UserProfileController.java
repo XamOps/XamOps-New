@@ -69,7 +69,7 @@ public class UserProfileController {
 
         boolean isTourSeen = true; // Safe default if DB is unavailable
         Long userId = null;
-        String tenantId = null;
+        tenantId = null;
 
         Object principal = authentication.getPrincipal();
         if (principal instanceof ClientUserDetails) {

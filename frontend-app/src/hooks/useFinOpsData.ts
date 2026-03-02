@@ -183,12 +183,7 @@ export const useFinOpsData = ({
           ),
           fetchSection<Array<{ region: string; cost: number }>>(
             'cost-by-region',
-            data => ({
-              costBreakdown: {
-                byService: reportData?.costBreakdown?.byService ?? [],
-                byRegion: data.map(r => ({ region: r.region, cost: r.cost })),
-              },
-            })
+            () => ({})  // region data applied below using prev-state pattern to avoid clobbering byService
           ),
         ]);
 
