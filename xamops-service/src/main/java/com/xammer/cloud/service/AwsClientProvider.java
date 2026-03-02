@@ -79,8 +79,9 @@ public class AwsClientProvider {
 
     private static final Logger logger = LoggerFactory.getLogger(AwsClientProvider.class);
 
-    private static final Duration FINOPS_API_TIMEOUT = Duration.ofSeconds(10);
-    private static final Duration FINOPS_API_ATTEMPT_TIMEOUT = Duration.ofSeconds(8);
+    /** Short timeout for FinOps clients (Cost Explorer, Budgets) — global services requiring NAT. */
+    private static final Duration FINOPS_API_TIMEOUT = Duration.ofSeconds(15);
+    private static final Duration FINOPS_API_ATTEMPT_TIMEOUT = Duration.ofSeconds(10);
 
     private final StsClient stsClient;
     private final Map<String, Object> clientCache = new ConcurrentHashMap<>();
