@@ -50,6 +50,8 @@ public class SecurityConfig {
         public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
                 http
 
+                                .headers(headers -> headers
+                                                .frameOptions(frameOptions -> frameOptions.disable()))
                                 .cors(withDefaults())
                                 .csrf(csrf -> csrf.disable())
                                 .exceptionHandling(exceptions -> exceptions
