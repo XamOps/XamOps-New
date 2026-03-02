@@ -50,7 +50,7 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -70,6 +70,10 @@ public class DashboardDataService {
     // Currency Conversion Rate: INR to USD
     // GCP billing in India is in INR, we convert to USD for unified display
     private static final double INR_TO_USD_RATE = 0.012; // Approximately 1 INR = 0.012 USD (83 INR = 1 USD)
+
+    // Limit concurrent account processing to prevent multiplicative thread explosion.
+    // 8 accounts × 15 regions × 10 services = 1,200 awsTaskExecutor tasks max (fits in queue=2000)
+    private static final Semaphore ACCOUNT_SEMAPHORE = new Semaphore(8);
 
     private final CloudAccountRepository cloudAccountRepository;
     private final AwsClientProvider awsClientProvider;
@@ -1412,24 +1416,38 @@ public class DashboardDataService {
         }
 
         try {
+            // Thread-safe queue for failures from concurrent futures
+            java.util.Queue<String> failedAccountsConcurrent = new java.util.concurrent.ConcurrentLinkedQueue<>();
+
             List<CompletableFuture<DashboardData>> futures = validAccounts.stream()
-                    .map(account -> CompletableFuture.supplyAsync(() -> {
-                        try {
-                            return getDashboardData(account.getAwsAccountId(), forceRefresh, userDetails);
-                        } catch (Exception e) {
-                            logger.error("Failed to fetch data for account {}", account.getAwsAccountId(), e);
-                            failedAccounts.add(account.getAwsAccountId());
-                            return null;
-                        }
-                    }))
+                    .map(account -> {
+                        // Acquire OUTSIDE supplyAsync: blocks here until a slot is free.
+                        // This prevents executor thread starvation — threads only run when a permit is secured.
+                        ACCOUNT_SEMAPHORE.acquireUninterruptibly();
+                        return CompletableFuture.supplyAsync(() -> {
+                            try {
+                                return getDashboardData(account.getAwsAccountId(), forceRefresh, userDetails);
+                            } catch (Exception e) {
+                                logger.error("Failed to fetch data for account {} — isolated, continuing",
+                                        account.getAwsAccountId(), e);
+                                failedAccountsConcurrent.add(account.getAwsAccountId());
+                                return null;
+                            } finally {
+                                ACCOUNT_SEMAPHORE.release();
+                            }
+                        }, backgroundTaskExecutor);
+                    })
                     .collect(Collectors.toList());
 
-            try {
-                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-                        .get(10, TimeUnit.MINUTES);
-            } catch (TimeoutException e) {
-                logger.warn("[MultiAccount] Timed out waiting for all accounts after 10 min — returning partial results");
-            }
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+                    .orTimeout(5, TimeUnit.MINUTES)
+                    .exceptionally(ex -> {
+                        logger.warn("[MultiAccount] Timed out waiting for all accounts after 5 min — returning partial results: {}", ex.getMessage());
+                        return null;
+                    })
+                    .join();
+
+            failedAccounts.addAll(failedAccountsConcurrent);
 
             List<DashboardData> accountDataList = futures.stream()
                     .map(f -> {

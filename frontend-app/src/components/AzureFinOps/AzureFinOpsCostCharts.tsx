@@ -26,8 +26,10 @@ const AzureFinOpsCostCharts: React.FC<AzureFinOpsCostChartsProps> = ({ reportDat
   const { theme } = useTheme();
   const serviceChartRef = useRef<HTMLCanvasElement>(null);
   const regionChartRef = useRef<HTMLCanvasElement>(null);
-  const serviceChartInstance = useRef<Chart<any, any, any> | null>(null);
-  const regionChartInstance = useRef<Chart<any, any, any> | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const serviceChartInstance = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const regionChartInstance = useRef<any>(null);
 
   const tickColor = theme === 'dark' ? '#94a3b8' : '#6b7280';
   const gridColor = theme === 'dark' ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';

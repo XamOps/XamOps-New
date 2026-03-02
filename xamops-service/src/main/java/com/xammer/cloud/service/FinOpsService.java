@@ -57,7 +57,6 @@ public class FinOpsService {
     private final UserRepository userRepository;
     private final CostMockService costMockService;
     private final Executor backgroundTaskExecutor;
-    private final Executor awsTaskExecutor;
     private final DashboardDataService dashboardDataService;
 
     @Value("${aws.costexplorer.mock:false}")
@@ -74,7 +73,6 @@ public class FinOpsService {
             UserRepository userRepository,
             CostMockService costMockService,
             @Qualifier("backgroundTaskExecutor") Executor backgroundTaskExecutor,
-            @Qualifier("awsTaskExecutor") Executor awsTaskExecutor,
             @Lazy DashboardDataService dashboardDataService) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
@@ -85,7 +83,6 @@ public class FinOpsService {
         this.userRepository = userRepository;
         this.costMockService = costMockService;
         this.backgroundTaskExecutor = backgroundTaskExecutor;
-        this.awsTaskExecutor = awsTaskExecutor;
         this.dashboardDataService = dashboardDataService;
 
         logger.info("FinOpsService initialized (Mock Mode: {})", useMockData);
@@ -380,7 +377,7 @@ public class FinOpsService {
                             Thread.currentThread().getName(),
                             activeRegions != null ? activeRegions.size() : 0);
                     return optimizationService.getWastedResources(account, activeRegions, forceRefresh);
-                }, TenantContextUtil.tenantAware(awsTaskExecutor));
+                }, TenantContextUtil.tenantAware(backgroundTaskExecutor));
     }
 
     /** Rightsizing wrapper — delegates directly to the cached OptimizationService method. */
