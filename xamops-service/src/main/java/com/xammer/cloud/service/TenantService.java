@@ -33,22 +33,7 @@ public class TenantService {
      * @return List of active tenants
      */
     public List<TenantDto> getAllActiveTenants() {
-        // Check if we're in prod or preprod profile
-        String[] activeProfiles = environment.getActiveProfiles();
-        List<String> profilesList = java.util.Arrays.asList(activeProfiles);
-        boolean isSyncProfile = profilesList.contains("prod") || profilesList.contains("preprod");
-
-        if (!isSyncProfile) {
-            // In local/UAT, there's no tenant_config table - return empty list
-            return java.util.Collections.emptyList();
-        }
-
-        // In prod, query tenant_config from master DB using masterDataSource
-        JdbcTemplate jdbcTemplate = new JdbcTemplate(masterDataSource);
-        return jdbcTemplate.query(
-                "SELECT tenant_id, company_name FROM tenant_config WHERE active = true",
-                (rs, rowNum) -> new TenantDto(
-                        rs.getString("tenant_id"),
-                        rs.getString("company_name")));
+        // Single-tenant mode: always return empty list — no tenant iteration
+        return java.util.Collections.emptyList();
     }
 }

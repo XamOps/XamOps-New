@@ -38,7 +38,7 @@ const AzureRightsizingPage: React.FC = () => {
 
       {selectedAccountId && (
         <>
-          <AzureRightsizingKPICards recommendations={recommendations} isLoading={isLoading} />
+          <AzureRightsizingKPICards recommendations={recommendations} />
           <AzureRightsizingTable recommendations={recommendations} status={status} isLoading={isLoading} />
         </>
       )}
