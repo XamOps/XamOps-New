@@ -148,6 +148,8 @@ export const useActionsHistory = ({
 
         const apiEndpoint = provider === 'GCP'
           ? `/api/gcp/autospotting/events/${accountId}`
+          : provider === 'AZURE'
+          ? `/api/azure/autospotting/events/${accountId}`
           : `/api/autospotting/events/${accountId}`;
 
         const response = await fetch(

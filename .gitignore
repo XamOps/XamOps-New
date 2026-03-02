@@ -35,6 +35,7 @@ logs/
 # AI/Session files
 .claude/
 [A-Z_]*.md
+!CONTRIBUTING.md
 
 # Backups and temporary files
 *.html.bak
@@ -44,6 +45,10 @@ logs/
 # macOS
 .DS_Store
 **/.DS_Store
+
+# VS Code personal (machine-local) settings
+.vscode/settings.local.json
+.vscode/*.local.json
 
 # Test scripts and guides
 test-prometheus-metrics.sh

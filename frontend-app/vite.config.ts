@@ -1,10 +1,13 @@
-import { defineConfig } from 'vite';
+import { defineConfig, createLogger } from 'vite';
 import react from '@vitejs/plugin-react';
-import { resolve, dirname } from 'path';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+// Suppress noisy "Failed to load source map" warnings from third-party packages
+// that reference .map files they don't actually ship (e.g. react-quill-new).
+const logger = createLogger();
+const originalWarn = logger.warn.bind(logger);
+logger.warn = (msg, options) => {
+  if (msg.includes('Failed to load source map')) return;
+  originalWarn(msg, options);
+};
 
 // --- CONFIGURATION ---
 // Define the default auth port and target
@@ -34,6 +37,8 @@ const cookieRewrite = (proxyRes: any, _req: any) => {
 };
 
 export default defineConfig({
+  customLogger: logger,
+
   plugins: [
     react(),
   ],
