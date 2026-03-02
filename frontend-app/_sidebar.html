@@ -124,7 +124,10 @@
     }
 </style>
 
-<div class="w-64 fixed top-0 left-0 h-screen flex flex-col bg-white shadow-xl z-30" x-data="{
+<script>
+(function() {
+    const defineSidebar = () => {
+        Alpine.data('sidebarData', () => ({
     open: false,
     // 1. OPTIMIZATION: Load from cache immediately to prevent flicker
     accounts: JSON.parse(sessionStorage.getItem('cached_accounts') || '[]'),
@@ -554,6 +557,36 @@
     get gcpAccounts() { return this.filteredAccounts.filter(acc => acc.provider === 'GCP'); },
     get azureAccounts() { return this.filteredAccounts.filter(acc => acc.provider === 'Azure'); },
 
+    focusedId: null,
+
+    navigateList(e) {
+        const accounts = this.filteredAccounts;
+        if (accounts.length === 0) return;
+
+        let currentIndex = accounts.findIndex(a => a.id === this.focusedId);
+
+        if (e.key === 'ArrowDown') {
+            currentIndex = (currentIndex + 1) % accounts.length;
+        } else if (e.key === 'ArrowUp') {
+            currentIndex = (currentIndex - 1 + accounts.length) % accounts.length;
+        } else if (e.key === 'Home') {
+            currentIndex = 0;
+        } else if (e.key === 'End') {
+            currentIndex = accounts.length - 1;
+        } else {
+            return;
+        }
+
+        this.focusedId = accounts[currentIndex].id;
+        e.preventDefault();
+
+        this.$nextTick(() => {
+            const selector = '[data-account-id="' + this.focusedId + '"]';
+            const el = this.$el.querySelector(selector);
+            if (el) el.scrollIntoView({ block: 'nearest' });
+        });
+    },
+
     getProviderIcon(provider) {
         switch(provider) {
             case 'GCP': return '/icons/gcp-icon.png';
@@ -715,7 +748,14 @@
         }
         return url.toString();
     }
-}">
+        }));
+    };
+    if (window.Alpine) defineSidebar();
+    else document.addEventListener('alpine:init', defineSidebar);
+})();
+</script>
+
+<div class="w-64 fixed top-0 left-0 h-screen flex flex-col bg-white shadow-xl z-30" x-data="sidebarData()">
 
     <div class="flex-shrink-0 flex items-center justify-center h-16 border-b bg-white">
         <a href="/unified-dashboard.html"><img src="/icons/xlogo.png" alt="XamOps Logo" class="h-40 w-100"></a>
@@ -777,9 +817,16 @@
                 </div>
 
                 <div class="p-3 border-b bg-gray-50">
-                    <input type="text" x-model="searchTerm" placeholder="Search accounts..."
-                        aria-label="Search accounts"
-                        class="w-full px-3 py-2 text-sm rounded-lg focus:outline-none border focus:ring-2 focus:ring-indigo-500">
+                    <div class="relative">
+                        <input type="text" x-model="searchTerm" placeholder="Search accounts..."
+                            aria-label="Search accounts"
+                            class="w-full px-3 py-2 pr-8 text-sm rounded-lg focus:outline-none border focus:ring-2 focus:ring-indigo-500">
+                        <button x-show="searchTerm !== ''" @click="searchTerm = ''"
+                            class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
+                            aria-label="Clear search">
+                            <i class="fas fa-times-circle"></i>
+                        </button>
+                    </div>
                 </div>
 
                 <div x-show="multiAccountMode && isDashboardPage" class="p-2 border-b bg-gray-50 flex flex-col gap-2">
@@ -799,18 +846,25 @@
                     </button>
                 </div>
 
-                <div class="py-1 max-h-60 overflow-y-auto sidebar-scroll">
+                <div class="py-1 max-h-60 overflow-y-auto sidebar-scroll focus:outline-none"
+                    role="listbox" aria-label="Account list"
+                    tabindex="0"
+                    @keydown="navigateList($event)"
+                    @keydown.enter.prevent="focusedId && toggleAccount(focusedId)"
+                    @keydown.space.prevent="focusedId && toggleAccount(focusedId)">
                     <template x-if="awsAccounts.length > 0">
                         <div>
                             <div class="px-3 py-2 text-xs font-semibold text-gray-400 uppercase bg-gray-50">
                                 AWS Accounts (<span x-text="awsAccounts.length"></span>)
                             </div>
                             <template x-for="account in awsAccounts" :key="account.id">
-                                <div @click="toggleAccount(account.id)"
-                                    :title="isAccountDisabled(account.id) ? 'Only accounts from the same provider can be selected in multi-account mode' : ''"
-                                    class="flex items-center px-4 py-3 text-sm transition-colors" :class="{
-                                        'bg-indigo-50': isAccountSelected(account.id),
-                                        'hover:bg-indigo-50 cursor-pointer': !isAccountDisabled(account.id),
+                                <div @click="toggleAccount(account.id); focusedId = account.id"
+                                    role="option"
+                                    :data-account-id="account.id"
+                                    :aria-selected="isAccountSelected(account.id)"
+                                    class="flex items-center px-4 py-3 text-sm transition-colors cursor-pointer" :class="{
+                                        'bg-indigo-50': isAccountSelected(account.id) || focusedId === account.id,
+                                        'ring-2 ring-inset ring-indigo-500': focusedId === account.id,
                                         'opacity-40 cursor-not-allowed': isAccountDisabled(account.id)
                                     }">
                                     <input type="checkbox" :checked="isAccountSelected(account.id)"
@@ -825,7 +879,7 @@
                                     <i class="fas fa-lock text-gray-400 text-xs"
                                         x-show="isAccountDisabled(account.id)"></i>
                                     <i class="fas fa-check text-indigo-600"
-                                        x-show="!multiAccountMode && isAccountSelected(account.id)"></i>
+                                        x-show="isAccountSelected(account.id)"></i>
                                 </div>
                             </template>
                         </div>
@@ -837,11 +891,13 @@
                                 GCP Projects (<span x-text="gcpAccounts.length"></span>)
                             </div>
                             <template x-for="account in gcpAccounts" :key="account.id">
-                                <div @click="toggleAccount(account.id)"
-                                    :title="isAccountDisabled(account.id) ? 'Only accounts from the same provider can be selected in multi-account mode' : ''"
-                                    class="flex items-center px-4 py-3 text-sm transition-colors" :class="{
-                                        'bg-blue-50': isAccountSelected(account.id),
-                                        'hover:bg-blue-50 cursor-pointer': !isAccountDisabled(account.id),
+                                <div @click="toggleAccount(account.id); focusedId = account.id"
+                                    role="option"
+                                    :data-account-id="account.id"
+                                    :aria-selected="isAccountSelected(account.id)"
+                                    class="flex items-center px-4 py-3 text-sm transition-colors cursor-pointer" :class="{
+                                        'bg-blue-50': isAccountSelected(account.id) || focusedId === account.id,
+                                        'ring-2 ring-inset ring-indigo-500': focusedId === account.id,
                                         'opacity-40 cursor-not-allowed': isAccountDisabled(account.id)
                                     }">
                                     <input type="checkbox" :checked="isAccountSelected(account.id)"
@@ -856,7 +912,7 @@
                                     <i class="fas fa-lock text-gray-400 text-xs"
                                         x-show="isAccountDisabled(account.id)"></i>
                                     <i class="fas fa-check text-blue-600"
-                                        x-show="!multiAccountMode && isAccountSelected(account.id)"></i>
+                                        x-show="isAccountSelected(account.id)"></i>
                                 </div>
                             </template>
                         </div>
@@ -868,10 +924,19 @@
                                 Azure Subscriptions (<span x-text="azureAccounts.length"></span>)
                             </div>
                             <template x-for="account in azureAccounts" :key="account.id">
-                                <div @click="toggleAccount(account.id)"
-                                    :title="isAccountDisabled(account.id) ? 'Only accounts from the same provider can be selected in multi-account mode' : ''"
-                                    class="flex items-center px-4 py-3 text-sm hover:bg-blue-50 cursor-pointer transition-colors"
-                                    :class="{ 'bg-blue-50': isAccountSelected(account.id) }">
+                                <div @click="toggleAccount(account.id); focusedId = account.id"
+                                    role="option"
+                                    :data-account-id="account.id"
+                                    :aria-selected="isAccountSelected(account.id)"
+                                    class="flex items-center px-4 py-3 text-sm transition-colors cursor-pointer"
+                                    :class="{
+                                        'bg-blue-50': isAccountSelected(account.id) || focusedId === account.id,
+                                        'ring-2 ring-inset ring-indigo-500': focusedId === account.id,
+                                        'opacity-40 cursor-not-allowed': isAccountDisabled(account.id)
+                                    }">
+                                    <input type="checkbox" :checked="isAccountSelected(account.id)"
+                                        :disabled="isAccountDisabled(account.id)" class="mr-3 rounded text-blue-600"
+                                        x-show="multiAccountMode && isDashboardPage">
                                     <img :src="getProviderIcon(account.provider)"
                                         class="w-8 h-8 rounded-full mr-3 flex-shrink-0 object-cover">
                                     <div class="flex-1 min-w-0">
@@ -879,9 +944,22 @@
                                         <div class="text-xs text-gray-500 truncate"
                                             x-text="account.azureSubscriptionId || account.id"></div>
                                     </div>
+                                    <i class="fas fa-lock text-gray-400 text-xs"
+                                        x-show="isAccountDisabled(account.id)"></i>
                                     <i class="fas fa-check text-blue-600" x-show="isAccountSelected(account.id)"></i>
                                 </div>
                             </template>
+                        </div>
+                    </template>
+
+                    <template x-if="filteredAccounts.length === 0 && searchTerm !== ''">
+                        <div class="px-4 py-8 text-center" aria-live="polite">
+                            <i class="fas fa-search text-gray-300 text-3xl mb-3 block"></i>
+                            <p class="text-sm text-gray-500 mb-4">No accounts found matching "<span x-text="searchTerm" class="font-medium text-gray-700"></span>"</p>
+                            <button @click="searchTerm = ''"
+                                class="text-sm font-semibold text-indigo-600 hover:text-indigo-800 focus:outline-none focus:underline">
+                                Clear search
+                            </button>
                         </div>
                     </template>
                 </div>
