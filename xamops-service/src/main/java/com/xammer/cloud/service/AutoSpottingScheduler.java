@@ -2,98 +2,169 @@ package com.xammer.cloud.service;
 
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.DailySpotSavings;
-import com.xammer.cloud.domain.SpotOptimizationEvent;
+import com.xammer.cloud.dto.autospotting.CostResponse;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.DailySpotSavingsRepository;
-import com.xammer.cloud.repository.SpotOptimizationEventRepository;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.util.List;
 
 /**
- * Daily scheduler that aggregates Spot savings from SpotOptimizationEvent into
- * DailySpotSavings so the "Savings Over Time" chart accumulates real history.
+ * Daily scheduler that calculates and records ongoing savings for AWS ASGs with AutoSpotting enabled.
  *
- * Runs at midnight — queries the DB only, makes zero AWS API calls.
- * This is safe and cheap compared to calling getCostData() (which can fall
- * back to Cost Explorer when the primary SDK path fails).
+ * Updated to actively calculate daily savings for all ASGs that have AutoSpotting enabled,
+ * ensuring continuous data in the graph (not just event-based snapshots).
+ *
+ * Runs at 11:59 PM daily to record the day's savings.
  */
 @Component
+@Slf4j
+@RequiredArgsConstructor
 public class AutoSpottingScheduler {
-
-    private static final Logger logger = LoggerFactory.getLogger(AutoSpottingScheduler.class);
 
     private final CloudAccountRepository cloudAccountRepository;
     private final DailySpotSavingsRepository savingsRepository;
-    private final SpotOptimizationEventRepository eventRepository;
-
-    @Autowired
-    public AutoSpottingScheduler(CloudAccountRepository cloudAccountRepository,
-                                 DailySpotSavingsRepository savingsRepository,
-                                 SpotOptimizationEventRepository eventRepository) {
-        this.cloudAccountRepository = cloudAccountRepository;
-        this.savingsRepository = savingsRepository;
-        this.eventRepository = eventRepository;
-    }
+    private final AutoSpottingService autoSpottingService;
 
     /**
-     * Runs every midnight.  Aggregates SUCCESS events from the previous day
-     * and upserts a DailySpotSavings row — purely from the local DB, no AWS calls.
+     * Runs every day at 11:59 PM to record daily savings for all AWS accounts with AutoSpotting enabled.
+     * This ensures the graph shows continuous data for as long as AutoSpotting remains enabled.
      */
-    @Scheduled(cron = "0 0 0 * * *")
-    public void snapshotDailySavings() {
-        LocalDate yesterday = LocalDate.now().minusDays(1);
-        Instant dayStart = yesterday.atStartOfDay(ZoneOffset.UTC).toInstant();
-        Instant dayEnd   = yesterday.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant();
+    @Scheduled(cron = "0 59 23 * * *")
+    public void recordDailySavings() {
+        LocalDate today = LocalDate.now();
+        log.info("🕐 [AWS AutoSpotting Scheduler] Starting daily savings calculation for {}", today);
 
-        logger.info("=== AutoSpotting savings snapshot for {} ===", yesterday);
+        List<CloudAccount> awsAccounts = cloudAccountRepository.findAll().stream()
+                .filter(account -> "AWS".equalsIgnoreCase(account.getProvider()))
+                .filter(account -> account.getAwsAccountId() != null && !account.getAwsAccountId().isBlank())
+                .toList();
 
-        List<CloudAccount> accounts = cloudAccountRepository.findAll();
-        int updated = 0;
+        log.info("📊 [AWS AutoSpotting Scheduler] Found {} AWS accounts to process", awsAccounts.size());
 
-        for (CloudAccount account : accounts) {
-            if (account.getAwsAccountId() == null || account.getAwsAccountId().isBlank()) {
-                continue;
-            }
+        int accountsProcessed = 0;
+        int asgsProcessed = 0;
+        double totalSavings = 0.0;
 
+        for (CloudAccount account : awsAccounts) {
             try {
-                List<SpotOptimizationEvent> events =
-                        eventRepository.findByAccountIdAndEventTimeBetweenAndStatusOrderByEventTimeDesc(
-                                account.getId(), dayStart, dayEnd, "SUCCESS");
+                log.info("🔍 [AWS Scheduler] Processing account: {} ({})",
+                    account.getAccountName(), account.getAwsAccountId());
 
-                double hourlySavings = events.stream()
-                        .mapToDouble(e -> e.getHourlySavings() != null ? e.getHourlySavings() : 0.0)
-                        .sum();
+                // Get cost data which includes all ASGs with their current savings
+                CostResponse costData = autoSpottingService.getCostData(account.getId());
 
-                if (hourlySavings <= 0.0) {
-                    continue; // nothing to record — skip so chart stays clean
+                if (costData == null || costData.getSummary() == null) {
+                    log.debug("⏭️  [AWS Scheduler] No cost data for account {}, skipping", account.getAwsAccountId());
+                    continue;
                 }
 
-                DailySpotSavings row = savingsRepository
-                        .findByAccountIdAndDate(account.getId(), yesterday)
-                        .orElseGet(() -> new DailySpotSavings(account, yesterday));
+                // Get actual hourly savings from currently enabled ASGs
+                double hourlyActualSavings = costData.getSummary().getTotalActualSavings();
 
-                row.setAmountSaved(hourlySavings);
-                row.setSwapCount(events.size());
-                savingsRepository.save(row);
-                updated++;
+                if (hourlyActualSavings <= 0.0) {
+                    log.debug("💰 [AWS Scheduler] No savings for account {}, skipping", account.getAwsAccountId());
+                    continue;
+                }
 
-                logger.info("Snapshot saved account={} date={} hourlySavings={} swapCount={}",
-                        account.getAwsAccountId(), yesterday, hourlySavings, events.size());
+                // Convert hourly to daily savings (24 hours)
+                double dailySavings = hourlyActualSavings * 24;
+
+                // Count enabled ASGs
+                int enabledASGs = (int) costData.getAsgs().stream()
+                        .filter(asg -> asg.getAutospottingEnabled() != null && asg.getAutospottingEnabled())
+                        .count();
+
+                // Find or create daily savings record
+                DailySpotSavings dailySavingsRecord = savingsRepository
+                        .findByAccountIdAndDate(account.getId(), today)
+                        .orElseGet(() -> new DailySpotSavings(account, today));
+
+                // Update with calculated savings
+                dailySavingsRecord.setAmountSaved(dailySavings);
+                dailySavingsRecord.setSwapCount(enabledASGs);
+                savingsRepository.save(dailySavingsRecord);
+
+                accountsProcessed++;
+                asgsProcessed += enabledASGs;
+                totalSavings += dailySavings;
+
+                log.info("✅ [AWS Scheduler] Saved ${} for account {} ({} enabled ASGs)",
+                        String.format("%.2f", dailySavings),
+                        account.getAccountName(),
+                        enabledASGs);
 
             } catch (Exception e) {
-                logger.warn("Failed to snapshot savings for account {}: {}",
-                        account.getAwsAccountId(), e.getMessage());
+                log.error("❌ [AWS Scheduler] Failed to process account {}: {}",
+                        account.getAwsAccountId(), e.getMessage(), e);
             }
         }
 
-        logger.info("=== Snapshot complete — {} account(s) updated ===", updated);
+        log.info("✅ [AWS AutoSpotting Scheduler] Daily savings calculation complete!");
+        log.info("📊 Summary: {} accounts, {} ASGs, total savings: ${}",
+                accountsProcessed, asgsProcessed, String.format("%.2f", totalSavings));
+    }
+
+    /**
+     * Backfill historical savings for a specific account.
+     * Useful for accounts that were enabled before the scheduler was updated.
+     *
+     * @param accountId The AWS account ID (internal database ID)
+     * @param startDate Start date for backfill
+     * @param endDate End date for backfill
+     */
+    public void backfillHistoricalSavings(Long accountId, LocalDate startDate, LocalDate endDate) {
+        log.info("🔄 [AWS Scheduler] Starting backfill for account {} from {} to {}",
+                accountId, startDate, endDate);
+
+        CloudAccount account = cloudAccountRepository.findById(accountId)
+                .orElseThrow(() -> new RuntimeException("Account not found: " + accountId));
+
+        LocalDate currentDate = startDate;
+        int daysProcessed = 0;
+        double totalBackfilled = 0.0;
+
+        while (!currentDate.isAfter(endDate)) {
+            final LocalDate processingDate = currentDate;
+            try {
+                // Get cost data
+                CostResponse costData = autoSpottingService.getCostData(account.getId());
+
+                if (costData != null && costData.getSummary() != null) {
+                    double hourlyActualSavings = costData.getSummary().getTotalActualSavings();
+                    double dailySavings = hourlyActualSavings * 24;
+
+                    if (dailySavings > 0.0) {
+                        DailySpotSavings record = savingsRepository
+                                .findByAccountIdAndDate(account.getId(), processingDate)
+                                .orElseGet(() -> new DailySpotSavings(account, processingDate));
+
+                        record.setAmountSaved(dailySavings);
+                        int enabledASGs = (int) costData.getAsgs().stream()
+                                .filter(asg -> asg.getAutospottingEnabled() != null && asg.getAutospottingEnabled())
+                                .count();
+                        record.setSwapCount(enabledASGs);
+                        savingsRepository.save(record);
+
+                        daysProcessed++;
+                        totalBackfilled += dailySavings;
+
+                        log.debug("✅ Backfilled {} with ${}", processingDate, String.format("%.2f", dailySavings));
+                    }
+                }
+
+            } catch (Exception e) {
+                log.warn("⚠️  Failed to backfill {}: {}", processingDate, e.getMessage());
+            }
+
+            currentDate = currentDate.plusDays(1);
+        }
+
+        log.info("✅ [AWS Scheduler] Backfill complete! Processed {} days, total: ${}",
+                daysProcessed, String.format("%.2f", totalBackfilled));
     }
 }

@@ -5,6 +5,10 @@ export interface GcpKPIData {
   forecastedSpend: number;
   lastMonthSpend: number;
   potentialSavings: number;
+  potentialSavingsBreakdown?: {
+    optimization: number;
+    autoSpotting: number;
+  };
 }
 
 export interface GcpResourceInventory {

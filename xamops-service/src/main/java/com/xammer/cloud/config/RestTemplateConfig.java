@@ -7,6 +7,7 @@ import org.apache.http.impl.client.BasicCookieStore;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
 import org.apache.http.ssl.SSLContextBuilder;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
@@ -93,5 +94,20 @@ public class RestTemplateConfig {
         });
 
         return restTemplate;
+    }
+
+    /**
+     * Short-timeout RestTemplate for Prometheus queries.
+     * Prometheus should respond in milliseconds; 8 s is generous.
+     * Keeping the timeout small prevents a single unreachable Prometheus endpoint
+     * from blocking the entire dashboard aggregation job for minutes.
+     */
+    @Bean
+    @Qualifier("prometheusRestTemplate")
+    public RestTemplate prometheusRestTemplate() {
+        HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory();
+        factory.setConnectTimeout(8000);  // 8 seconds
+        factory.setReadTimeout(8000);     // 8 seconds
+        return new RestTemplate(factory);
     }
 }

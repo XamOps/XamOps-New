@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -19,7 +20,7 @@ public class PrometheusService {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
 
-    public PrometheusService(RestTemplate restTemplate) {
+    public PrometheusService(@Qualifier("prometheusRestTemplate") RestTemplate restTemplate) {
         this.restTemplate = restTemplate;
         this.objectMapper = new ObjectMapper();
     }

@@ -17,6 +17,7 @@ import AzureMapSection from '../components/AzureDashboard/AzureMapSection';
 import AzureInventorySection from '../components/AzureDashboard/AzureInventorySection';
 import AzureCostSection from '../components/AzureDashboard/AzureCostSection';
 import AzureOptimizationSection from '../components/AzureDashboard/AzureOptimizationSection';
+import AzureAutoSpottingSection from '../components/AzureDashboard/AzureAutoSpottingSection';
 import DashboardHeader from '../components/LiveDashboard/DashboardHeader';
 
 // Highcharts loaded from CDN
@@ -231,6 +232,13 @@ const AzureDashboard: React.FC = () => {
               selectedAccountIds={selectedAccountIds}
               isLoading={loading.optimization}
             />
+          </div>
+        )}
+
+        {/* AutoSpotting Section */}
+        {selectedAccountIds.length > 0 && (
+          <div className="fade-in">
+            <AzureAutoSpottingSection accountId={selectedAccountIds[0]} />
           </div>
         )}
       </main>

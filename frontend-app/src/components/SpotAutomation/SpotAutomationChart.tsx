@@ -25,18 +25,18 @@ const SpotAutomationChart: React.FC<SpotAutomationChartProps> = ({
   const chartInstanceRef = useRef<Chart | null>(null);
 
   const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('en-IN', {
+    return new Intl.NumberFormat('en-US', {
       style: 'currency',
-      currency: 'INR',
+      currency: 'USD',
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(value);
   };
 
   const formatHourlyCost = (value: number) => {
-    return new Intl.NumberFormat('en-IN', {
+    return new Intl.NumberFormat('en-US', {
       style: 'currency',
-      currency: 'INR',
+      currency: 'USD',
       minimumFractionDigits: 4,
       maximumFractionDigits: 4,
     }).format(value);
@@ -144,9 +144,9 @@ const SpotAutomationChart: React.FC<SpotAutomationChartProps> = ({
                   label += ': ';
                 }
                 if (context.parsed.y !== null) {
-                  label += new Intl.NumberFormat('en-IN', {
+                  label += new Intl.NumberFormat('en-US', {
                     style: 'currency',
-                    currency: 'INR',
+                    currency: 'USD',
                   }).format(context.parsed.y);
                 }
                 return label;
@@ -163,7 +163,7 @@ const SpotAutomationChart: React.FC<SpotAutomationChartProps> = ({
             },
             ticks: {
               callback: function (value) {
-                return '₹' + value;
+                return '$' + value;
               },
               font: {
                 size: 11,
