@@ -78,12 +78,9 @@ import software.amazon.awssdk.services.savingsplans.SavingsplansClient;
 public class AwsClientProvider {
 
     private static final Logger logger = LoggerFactory.getLogger(AwsClientProvider.class);
-    private static final Duration API_TIMEOUT = Duration.ofSeconds(120);
-    private static final Duration API_CALL_ATTEMPT_TIMEOUT = Duration.ofSeconds(60);
-    // Shorter timeouts for global FinOps APIs (Cost Explorer, Budgets) which require
-    // internet/NAT connectivity and should fail fast rather than block for 55+ seconds.
-    private static final Duration FINOPS_API_TIMEOUT = Duration.ofSeconds(20);
-    private static final Duration FINOPS_API_ATTEMPT_TIMEOUT = Duration.ofSeconds(12);
+
+    private static final Duration FINOPS_API_TIMEOUT = Duration.ofSeconds(10);
+    private static final Duration FINOPS_API_ATTEMPT_TIMEOUT = Duration.ofSeconds(8);
 
     private final StsClient stsClient;
     private final Map<String, Object> clientCache = new ConcurrentHashMap<>();
@@ -111,12 +108,14 @@ public class AwsClientProvider {
     }
 
     /**
-     * Get client override configuration with timeouts to prevent indefinite hangs.
+     * Get client override configuration.
+     * NOTE: apiCallTimeout removed — it causes the SDK to create a ScheduledExecutorService
+     * (1+ threads) per client AND per concurrent API call, exhausting OS thread limits at scale.
+     * Timeout enforcement is handled by orTimeout() guards in CloudListService and
+     * .get(90, SECONDS) in DashboardDataService.
      */
     private ClientOverrideConfiguration getClientOverrideConfig() {
         return ClientOverrideConfiguration.builder()
-                .apiCallTimeout(API_TIMEOUT)
-                .apiCallAttemptTimeout(API_CALL_ATTEMPT_TIMEOUT)
                 .build();
     }
 

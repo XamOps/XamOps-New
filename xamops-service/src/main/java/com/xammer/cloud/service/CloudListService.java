@@ -102,6 +102,7 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -147,6 +148,10 @@ public class CloudListService {
     @Autowired
     @Qualifier("awsTaskExecutor")
     private Executor awsTaskExecutor;
+
+    @Autowired
+    @Qualifier("backgroundTaskExecutor")
+    private Executor backgroundTaskExecutor;
 
     // Cache to collapse multiple concurrent requests for the same account's
     // regional status
@@ -598,7 +603,7 @@ public class CloudListService {
                             } catch (Exception e) {
                                 return "us-east-1";
                             }
-                        }, awsTaskExecutor))
+                        }, backgroundTaskExecutor))
                         .collect(Collectors.toList());
 
                 return CompletableFuture.allOf(bucketFutures.toArray(new CompletableFuture[0]))
@@ -649,7 +654,8 @@ public class CloudListService {
                             .completedFuture(new ArrayList<>());
                     return errorFuture;
                 }
-            }).whenComplete((res, ex) -> regionStatusRequests.remove(accountId));
+            }).orTimeout(120, TimeUnit.SECONDS)
+          .whenComplete((res, ex) -> regionStatusRequests.remove(accountId));
         });
     }
 

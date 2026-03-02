@@ -106,6 +106,20 @@ public class AwsConfig {
         return executor;
     }
 
+    @Bean("backgroundTaskExecutor")
+    public TaskExecutor backgroundTaskExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(20);
+        executor.setMaxPoolSize(30);
+        executor.setQueueCapacity(50000);
+        executor.setThreadNamePrefix("BG-Async-");
+        executor.setRejectedExecutionHandler(new java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy());
+        executor.setAwaitTerminationSeconds(300);
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.initialize();
+        return executor;
+    }
+
     @Bean("awsRegionalCheckExecutor")
     public TaskExecutor regionalCheckExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();

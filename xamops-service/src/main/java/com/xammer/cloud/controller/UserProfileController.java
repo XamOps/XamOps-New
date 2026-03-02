@@ -73,13 +73,12 @@ public class UserProfileController {
         Object principal = authentication.getPrincipal();
         if (principal instanceof ClientUserDetails) {
             userId = ((ClientUserDetails) principal).getId();
-            try {
-                User user = userRepository.findById(userId).orElse(null);
-                if (user != null) {
-                    isTourSeen = user.isTourSeen();
-                }
-            } catch (Exception e) {
-                logger.warn("Could not fetch tourSeen status for user '{}' (userId={}): {}. Returning default.", username, userId, e.getMessage());
+            tenantId = ((ClientUserDetails) principal).getTenantId();
+
+            // Fetch real status from DB
+            User user = userRepository.findById(userId).orElse(null);
+            if (user != null) {
+                isTourSeen = user.isTourSeen();
             }
         }
 
@@ -87,7 +86,9 @@ public class UserProfileController {
         if (userId != null) {
             userProfile.setId(userId);
         }
-        userProfile.setTenantId(tenantId);
+        if (tenantId != null) {
+            userProfile.setTenantId(tenantId);
+        }
 
         return ResponseEntity.ok(userProfile);
     }

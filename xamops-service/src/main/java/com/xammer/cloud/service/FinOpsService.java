@@ -56,11 +56,9 @@ public class FinOpsService {
     private final RedisCacheService redisCache;
     private final UserRepository userRepository;
     private final CostMockService costMockService;
+    private final Executor backgroundTaskExecutor;
+    private final Executor awsTaskExecutor;
     private final DashboardDataService dashboardDataService;
-
-    @Autowired
-    @Qualifier("awsTaskExecutor")
-    private Executor awsTaskExecutor;
 
     @Value("${aws.costexplorer.mock:false}")
     private boolean useMockData;
@@ -75,6 +73,8 @@ public class FinOpsService {
             RedisCacheService redisCache,
             UserRepository userRepository,
             CostMockService costMockService,
+            @Qualifier("backgroundTaskExecutor") Executor backgroundTaskExecutor,
+            @Qualifier("awsTaskExecutor") Executor awsTaskExecutor,
             @Lazy DashboardDataService dashboardDataService) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
@@ -84,6 +84,8 @@ public class FinOpsService {
         this.redisCache = redisCache;
         this.userRepository = userRepository;
         this.costMockService = costMockService;
+        this.backgroundTaskExecutor = backgroundTaskExecutor;
+        this.awsTaskExecutor = awsTaskExecutor;
         this.dashboardDataService = dashboardDataService;
 
         logger.info("FinOpsService initialized (Mock Mode: {})", useMockData);
@@ -129,7 +131,7 @@ public class FinOpsService {
         logger.info("Starting FinOps report generation for account {} (dates: {} to {})", accountId, startDate,
                 endDate);
 
-        return cloudListService.getRegionStatusForAccount(account, forceRefresh).thenCompose(activeRegions -> {
+        return cloudListService.getRegionStatusForAccount(account, false).thenComposeAsync(activeRegions -> {
             if (activeRegions == null || activeRegions.isEmpty()) {
                 logger.warn("[FinOps] ⚠️ No active regions found for account {}. Report may be empty.", accountId);
                 return CompletableFuture.completedFuture(null);
@@ -270,7 +272,7 @@ public class FinOpsService {
                                 accountId, String.format("%.2f", mtdSpend), String.format("%.2f", forecastedSpend));
                         return report;
                     });
-        }).exceptionally(ex -> {
+        }, backgroundTaskExecutor).exceptionally(ex -> {
             logger.error("Failed to generate FinOps report for account {} (dates: {} to {}): {}",
                     accountId, startDate, endDate, ex.getMessage(), ex);
             return null;
