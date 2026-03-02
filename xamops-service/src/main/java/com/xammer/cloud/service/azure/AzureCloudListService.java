@@ -1,10 +1,12 @@
 package com.xammer.cloud.service.azure;
 
 import com.azure.resourcemanager.AzureResourceManager;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.dto.ResourceDto;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.service.RedisCacheService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -25,16 +27,36 @@ import java.util.stream.Collectors;
 public class AzureCloudListService {
 
     private static final Logger log = LoggerFactory.getLogger(AzureCloudListService.class);
+    private static final int CACHE_TTL_MINUTES = 60;
+    private static final String CACHE_KEY_PREFIX = "azure-cloudlist-";
+
     private final AzureClientProvider clientProvider;
     private final CloudAccountRepository cloudAccountRepository;
+    private final RedisCacheService redisCache;
 
-    public AzureCloudListService(AzureClientProvider clientProvider, CloudAccountRepository cloudAccountRepository) {
+    public AzureCloudListService(AzureClientProvider clientProvider,
+                                  CloudAccountRepository cloudAccountRepository,
+                                  RedisCacheService redisCache) {
         this.clientProvider = clientProvider;
         this.cloudAccountRepository = cloudAccountRepository;
+        this.redisCache = redisCache;
     }
 
-    public List<DashboardData.ServiceGroupDto> getAzureResources(String accountId) {
-        log.info("Fetching cloudlist data for Azure account ID: {}", accountId);
+    public List<DashboardData.ServiceGroupDto> getAzureResources(String accountId, boolean forceRefresh) {
+        log.info("Fetching cloudlist data for Azure account ID: {}, forceRefresh: {}", accountId, forceRefresh);
+
+        String cacheKey = CACHE_KEY_PREFIX + accountId;
+        if (!forceRefresh) {
+            Optional<List<DashboardData.ServiceGroupDto>> cached = redisCache.get(cacheKey, new TypeReference<>() {});
+            if (cached.isPresent()) {
+                log.info("Returning cached Azure cloudlist for account {} ({} service groups)", accountId, cached.get().size());
+                return cached.get();
+            }
+        } else {
+            redisCache.evict(cacheKey);
+            log.info("Force refresh: evicted Redis cache for account {}", accountId);
+        }
+
         ExecutorService executor = Executors.newFixedThreadPool(15);
         try {
             // accountId may be a numeric DB id or the Azure subscription UUID
@@ -104,7 +126,7 @@ public class AzureCloudListService {
                     .collect(Collectors.groupingBy(ResourceDto::getType));
 
             // Convert to ServiceGroupDto and sort by resource count
-            return groupedResources.entrySet().stream()
+            List<DashboardData.ServiceGroupDto> result = groupedResources.entrySet().stream()
                     .map(entry -> {
                         DashboardData.ServiceGroupDto groupDto = new DashboardData.ServiceGroupDto();
                         groupDto.setServiceType(entry.getKey());
@@ -113,6 +135,10 @@ public class AzureCloudListService {
                     })
                     .sorted((a, b) -> Integer.compare(b.getResources().size(), a.getResources().size()))
                     .collect(Collectors.toList());
+
+            redisCache.put(cacheKey, result, CACHE_TTL_MINUTES);
+            log.info("Cached Azure cloudlist for account {} ({} service groups, TTL {}min)", accountId, result.size(), CACHE_TTL_MINUTES);
+            return result;
 
         } catch (Exception e) {
             log.error("Failed to get cloudlist data for account {}", accountId, e);

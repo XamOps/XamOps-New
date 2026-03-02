@@ -24,21 +24,22 @@ public class AzureCloudListController {
     }
 
     @GetMapping("/resources")
-    public ResponseEntity<?> getResources(@RequestParam String accountIds) {
+    public ResponseEntity<?> getResources(@RequestParam String accountIds,
+                                          @RequestParam(defaultValue = "false") boolean forceRefresh) {
         try {
-            log.info("Received cloudlist request for accountIds: {}", accountIds);
-            
+            log.info("Received cloudlist request for accountIds: {}, forceRefresh: {}", accountIds, forceRefresh);
+
             // Validate accountIds parameter
             if (accountIds == null || accountIds.trim().isEmpty()) {
                 log.warn("Empty or null accountIds parameter received");
                 return ResponseEntity.badRequest().body("accountIds parameter is required");
             }
-            
+
             // This handles only the first account ID for Azure's single-selection model
             String accountId = accountIds.split(",")[0].trim();
             log.info("Processing cloudlist for Azure account ID: {}", accountId);
-            
-            List<DashboardData.ServiceGroupDto> resources = azureCloudListService.getAzureResources(accountId);
+
+            List<DashboardData.ServiceGroupDto> resources = azureCloudListService.getAzureResources(accountId, forceRefresh);
             
             log.info("Successfully fetched {} resource groups for account {}", 
                      resources != null ? resources.size() : 0, accountId);
