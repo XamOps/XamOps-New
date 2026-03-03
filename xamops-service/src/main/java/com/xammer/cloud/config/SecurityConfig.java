@@ -94,7 +94,6 @@ public class SecurityConfig {
                                 new AntPathRequestMatcher("/api/karpenter/**"),
 
                                 new AntPathRequestMatcher("/api/autospotting/**"),
-                                new AntPathRequestMatcher("/api/devops-scripts/**"),
                                 // ✅ TEAM CODE: Preserved AWS Calculator API
                                 new AntPathRequestMatcher("/api/aws/**")
                         )
