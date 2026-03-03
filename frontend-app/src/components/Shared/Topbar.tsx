@@ -16,7 +16,7 @@ const Topbar: React.FC = () => {
     const location = useLocation();
     const { title: contextTitle, actions, onHelpClick } = useTopbar();
     const { userProfile, logout, hasAnyRole } = useAuth();
-    const { selectedAccountIds } = useAccounts();
+    const { selectedAccountIds, selectedAccountDisplay } = useAccounts();
     const { theme, toggleTheme } = useTheme();
     const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
 
@@ -34,6 +34,7 @@ const Topbar: React.FC = () => {
     // Fetch XamOps notifications (only for XamOps users, not BillOps users)
     const { notifications: xamOpsNotifications, counts: xamOpsCounts, isLoading: xamOpsLoading } = useNotifications({
         selectedAccountId: (isBillOpsAdmin || isBillOpsUser) ? null : selectedAccountId,
+        provider: selectedAccountDisplay?.provider,
     });
 
     // Fetch BillOps User notifications (only for BillOps users)

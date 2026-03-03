@@ -139,6 +139,12 @@ export const useGcpSpotAutomationData = ({ selectedAccountId }: UseGcpSpotAutoma
         if (!selectedAccountId || selectedAccountId === 'No account selected') return;
         const newState = !mig.isEnabled;
         const endpoint = newState ? 'enable' : 'disable';
+
+        // Mark this MIG as updating (shows spinner, disables toggle)
+        setMigs(prev => prev.map(m =>
+            m.name === mig.name && m.region === mig.region ? { ...m, updating: true } : m
+        ));
+
         try {
             const params = new URLSearchParams({
                 accountId: selectedAccountId,
@@ -148,12 +154,16 @@ export const useGcpSpotAutomationData = ({ selectedAccountId }: UseGcpSpotAutoma
             await apiClient.post(`/api/gcp/autospotting/${endpoint}?${params.toString()}`, null);
 
             setMigs(prev => prev.map(m =>
-                m.name === mig.name && m.region === mig.region ? { ...m, isEnabled: newState } : m
+                m.name === mig.name && m.region === mig.region ? { ...m, isEnabled: newState, updating: false } : m
             ));
 
             return true;
         } catch (err) {
             console.error('[GcpSpotAutomation] Toggle error:', err);
+            // Clear updating state on error so the toggle is re-enabled
+            setMigs(prev => prev.map(m =>
+                m.name === mig.name && m.region === mig.region ? { ...m, updating: false } : m
+            ));
             throw err;
         }
     }, [selectedAccountId]);

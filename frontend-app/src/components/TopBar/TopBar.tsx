@@ -13,7 +13,7 @@ import NotificationDropdown from '../Shared/NotificationDropdown';
 
 const TopBar: React.FC = () => {
     const { hasAnyRole, userProfile, logout } = useAuth();
-    const { selectedAccountIds } = useAccounts();
+    const { selectedAccountIds, selectedAccountDisplay } = useAccounts();
     const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
 
     const [isNotificationOpen, setIsNotificationOpen] = useState(false);
@@ -22,6 +22,7 @@ const TopBar: React.FC = () => {
     // Fetch notifications
     const { notifications, counts, isLoading: notificationsLoading } = useNotifications({
         selectedAccountId,
+        provider: selectedAccountDisplay?.provider,
     });
 
     // Close dropdown when clicking outside
