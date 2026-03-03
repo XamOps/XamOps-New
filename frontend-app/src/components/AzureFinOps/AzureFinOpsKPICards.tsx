@@ -9,7 +9,7 @@ interface AzureFinOpsKPICardsProps {
 }
 
 const formatCurrency = (value: number): string =>
-  value.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+  '₹' + value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const AzureFinOpsKPICards: React.FC<AzureFinOpsKPICardsProps> = ({ reportData, isLoading }) => {
   const { theme } = useTheme();

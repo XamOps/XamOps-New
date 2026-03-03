@@ -85,7 +85,7 @@ const GcpDashboard: React.FC = () => {
 
   // AutoSpotting savings state
   const [autoSpottingSavings, setAutoSpottingSavings] = useState<number>(0);
-  const [isLoadingAutoSpotting, setIsLoadingAutoSpotting] = useState(false);
+  const [, setIsLoadingAutoSpotting] = useState(false);
 
   const showNotification = (message: string, type: 'info' | 'success' | 'warning' | 'error' = 'info') => {
     setNotification({ message, type });

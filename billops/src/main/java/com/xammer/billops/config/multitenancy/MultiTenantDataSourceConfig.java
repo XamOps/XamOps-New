@@ -10,13 +10,9 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 import org.springframework.core.env.Environment;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 import javax.sql.DataSource;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 
 @Configuration
 public class MultiTenantDataSourceConfig {
@@ -59,19 +55,6 @@ public class MultiTenantDataSourceConfig {
 
     @Value("${spring.datasource.hikari.connection-test-query:SELECT 1}")
     private String connectionTestQuery;
-
-    /**
-     * Helper method to create a DriverManagerDataSource for master DB access
-     * Used ONLY in PROD for querying tenant_config table
-     */
-    private DataSource createMasterDataSourceForLookup() {
-        DriverManagerDataSource dataSource = new DriverManagerDataSource();
-        dataSource.setUrl("jdbc:postgresql://3.110.102.128:5432/production_db");
-        dataSource.setUsername("app_user");
-        dataSource.setPassword("AppPassword123");
-        dataSource.setDriverClassName("org.postgresql.Driver");
-        return dataSource;
-    }
 
     /**
      * Helper method to apply Hikari settings to a datasource
@@ -179,114 +162,85 @@ public class MultiTenantDataSourceConfig {
 
     /**
      * ========================================================================
-     * PRODUCTION PROFILE: Multi-Tenant Routing DataSource
+     * PRODUCTION PROFILE: Single-Database DataSource
      * ========================================================================
      * Used in production environment.
-     * Reads tenant_config from master DB (production_db) and creates:
-     * - Connection pool for System DB (tenant_id = "system" or "default")
-     * - Connection pools for Customer DBs (SISL, etc.)
-     * 
-     * Uses TenantRoutingDataSource to dynamically switch between tenants
-     * based on TenantContext.
+     * Connects directly to the single production DB — no multi-tenant routing.
      */
     @Bean
     @Primary
     @ConditionalOnProperty(name = "spring.profiles.active", havingValue = "prod", matchIfMissing = false)
-    public DataSource prodRoutingDataSource() {
-        return createRoutingDataSource("PROD");
-    }
-
-    @Bean
-    @Primary
-    @ConditionalOnProperty(name = "spring.profiles.active", havingValue = "preprod")
-    public DataSource preprodRoutingDataSource() {
-        return createRoutingDataSource("PREPROD");
-    }
-
-    private DataSource createRoutingDataSource(String profileName) {
+    public DataSource prodDataSource() {
         logger.info("========================================");
-        logger.info("BILLOPS - PROFILE: {} - Multi-Tenant Routing Mode", profileName);
+        logger.info("BILLOPS - PROFILE: PROD - Single Database Mode");
         logger.info("========================================");
-        logger.info("Master DB URL: {}", dataSourceUrl);
+        logger.info("Database URL: {}", dataSourceUrl);
 
-        // Create a datasource to query tenant_config table
-        DataSource masterDs = createMasterDataSourceForLookup();
-        JdbcTemplate jdbcTemplate = new JdbcTemplate(masterDs);
+        HikariDataSource ds = new HikariDataSource();
+        ds.setJdbcUrl(dataSourceUrl);
+        ds.setUsername(dataSourceUsername);
+        ds.setPassword(dataSourcePassword);
+        ds.setDriverClassName(dataSourceDriver);
 
-        // Load ALL active tenants (no filtering - master DB is clean now)
-        logger.info("Loading tenant configurations from master DB...");
-        List<Map<String, Object>> tenantRows = jdbcTemplate
-                .queryForList("SELECT * FROM tenant_config WHERE active = true");
+        applyHikariSettings(ds, "BillOps-ProdPool");
 
-        if (tenantRows.isEmpty()) {
-            logger.warn("WARNING: No active tenants found in tenant_config table!");
-            logger.warn("Please ensure master DB has entries for system and customer tenants");
-        }
-
-        Map<Object, Object> targetDataSources = new HashMap<>();
-        String defaultTenantId = null;
-
-        for (Map<String, Object> row : tenantRows) {
-            String tenantId = (String) row.get("tenant_id");
-            String url = (String) row.get("db_url");
-            String username = (String) row.get("db_username");
-            String password = (String) row.get("db_password");
-            String driver = (String) row.get("driver_class_name");
-
-            logger.info("Initializing datasource for tenant: {} ({})", tenantId, url);
-
-            HikariDataSource tenantDs = new HikariDataSource();
-            tenantDs.setJdbcUrl(url);
-            tenantDs.setUsername(username);
-            tenantDs.setPassword(password);
-            tenantDs.setDriverClassName(driver);
-
-            applyHikariSettings(tenantDs, "BillOps-TenantPool-" + tenantId);
-
-            targetDataSources.put(tenantId, tenantDs);
-
-            // Set default tenant (prefer "system", fallback to "default", or first entry)
-            if (defaultTenantId == null || "system".equalsIgnoreCase(tenantId) ||
-                    "default".equalsIgnoreCase(tenantId)) {
-                defaultTenantId = tenantId;
-            }
-        }
-
-        logger.info("Initialized {} tenant datasources", targetDataSources.size());
-        logger.info("Tenant IDs: {}", targetDataSources.keySet());
-        logger.info("Default tenant: {}", defaultTenantId);
-
-        TenantRoutingDataSource routingDataSource = new TenantRoutingDataSource();
-        routingDataSource.setTargetDataSources(targetDataSources);
-
-        if (defaultTenantId != null && targetDataSources.containsKey(defaultTenantId)) {
-            routingDataSource.setDefaultTargetDataSource(targetDataSources.get(defaultTenantId));
-            logger.info("Default datasource set to tenant: {}", defaultTenantId);
-        } else {
-            logger.error("ERROR: Could not set default datasource - no tenants found!");
-        }
-
-        routingDataSource.afterPropertiesSet();
-        logger.info("BillOps multi-tenant routing datasource initialized successfully");
-        logger.info("========================================");
-
-        return routingDataSource;
+        logger.info("BillOps PROD datasource initialized successfully (No Multi-Tenancy)");
+        return ds;
     }
 
     /**
-     * Master DataSource Bean (exposed for services that need to query master DB
-     * directly)
-     * Only used in PROD profile
+     * ========================================================================
+     * PREPROD PROFILE: Single-Database DataSource
+     * ========================================================================
+     * Used in pre-production environment.
+     * Connects directly to the single preprod DB — no multi-tenant routing.
+     */
+    @Bean
+    @Primary
+    @ConditionalOnProperty(name = "spring.profiles.active", havingValue = "preprod")
+    public DataSource preprodDataSource() {
+        logger.info("========================================");
+        logger.info("BILLOPS - PROFILE: PREPROD - Single Database Mode");
+        logger.info("========================================");
+        logger.info("Database URL: {}", dataSourceUrl);
+
+        HikariDataSource ds = new HikariDataSource();
+        ds.setJdbcUrl(dataSourceUrl);
+        ds.setUsername(dataSourceUsername);
+        ds.setPassword(dataSourcePassword);
+        ds.setDriverClassName(dataSourceDriver);
+
+        applyHikariSettings(ds, "BillOps-PreprodPool");
+
+        logger.info("BillOps PREPROD datasource initialized successfully (No Multi-Tenancy)");
+        return ds;
+    }
+
+    /**
+     * Master DataSource Bean for PROD — points to same single DB as primary.
      */
     @Bean(name = "masterDataSource")
     @ConditionalOnProperty(name = "spring.profiles.active", havingValue = "prod")
     public DataSource masterDataSource() {
-        return createMasterDataSourceForLookup();
+        DriverManagerDataSource ds = new DriverManagerDataSource();
+        ds.setUrl(dataSourceUrl);
+        ds.setUsername(dataSourceUsername);
+        ds.setPassword(dataSourcePassword);
+        ds.setDriverClassName(dataSourceDriver);
+        return ds;
     }
 
+    /**
+     * Master DataSource Bean for PREPROD — points to same single DB as primary.
+     */
     @Bean(name = "masterDataSource")
     @ConditionalOnProperty(name = "spring.profiles.active", havingValue = "preprod")
     public DataSource preprodMasterDataSource() {
-        return createMasterDataSourceForLookup();
+        DriverManagerDataSource ds = new DriverManagerDataSource();
+        ds.setUrl(dataSourceUrl);
+        ds.setUsername(dataSourceUsername);
+        ds.setPassword(dataSourcePassword);
+        ds.setDriverClassName(dataSourceDriver);
+        return ds;
     }
 }
