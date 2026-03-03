@@ -501,8 +501,12 @@ public class GcpCostService {
             if (accountOpt.isPresent()) {
                 String storedTable = accountOpt.get().getBillingExportTable();
                 if (storedTable != null && !storedTable.isBlank()) {
-                    log.info("Using billing table from CloudAccount for project {}: {}", gcpProjectId, storedTable);
-                    return Optional.of(storedTable);
+                    if (storedTable.chars().filter(c -> c == '.').count() == 2) {
+                        log.info("Using billing table from CloudAccount for project {}: {}", gcpProjectId, storedTable);
+                        return Optional.of(storedTable);
+                    } else {
+                        log.warn("Stored billing table '{}' for project {} is not fully qualified (expected project.dataset.table). Falling back to discovery.", storedTable, gcpProjectId);
+                    }
                 }
             }
         } catch (Exception e) {

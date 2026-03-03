@@ -72,14 +72,10 @@ const AzureCloudList: React.FC = () => {
       setSelectedAccountIds(accountIds);
     }
 
-    // Set service filter from URL
-    if (urlService || urlFilter) {
-      const filterValue = urlService || urlFilter || '';
-      setServiceFilter(filterValue);
-      // Auto-expand the filtered service
-      if (filterValue) {
-        setExpandedGroups(new Set([filterValue]));
-      }
+    // Auto-expand the service clicked from dashboard (but show all resources, no filter)
+    const expandValue = urlService || urlFilter || '';
+    if (expandValue) {
+      setExpandedGroups(new Set([expandValue]));
     }
   }, [searchParams]);
 
@@ -264,7 +260,7 @@ const AzureCloudList: React.FC = () => {
   }
 
   // Handle error state
-  if (error && !data) {
+  if (error && data.length === 0) {
     return (
       <main className="flex-1 flex items-center justify-center p-8 bg-white/95">
         <div className="text-center py-20">

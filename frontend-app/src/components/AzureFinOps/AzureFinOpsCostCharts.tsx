@@ -71,7 +71,7 @@ const AzureFinOpsCostCharts: React.FC<AzureFinOpsCostChartsProps> = ({ reportDat
             callbacks: {
               label: (ctx) => {
                 const val = ctx.raw as number;
-                return ` $${val.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+                return ` ₹${val.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
               },
             },
           },
@@ -97,7 +97,7 @@ const AzureFinOpsCostCharts: React.FC<AzureFinOpsCostChartsProps> = ({ reportDat
       data: {
         labels: data.map(d => d.region),
         datasets: [{
-          label: 'Cost (USD)',
+          label: 'Cost (₹)',
           data: data.map(d => d.cost),
           backgroundColor: REGION_COLORS,
           borderRadius: 6,
@@ -112,7 +112,7 @@ const AzureFinOpsCostCharts: React.FC<AzureFinOpsCostChartsProps> = ({ reportDat
           legend: { display: false },
           tooltip: {
             callbacks: {
-              label: (ctx) => ` $${(ctx.raw as number).toLocaleString('en-US', { maximumFractionDigits: 0 })}`,
+              label: (ctx) => ` ₹${(ctx.raw as number).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`,
             },
           },
         },
@@ -121,7 +121,7 @@ const AzureFinOpsCostCharts: React.FC<AzureFinOpsCostChartsProps> = ({ reportDat
             grid: { color: gridColor },
             ticks: {
               color: tickColor,
-              callback: (v) => `$${(v as number).toLocaleString('en-US', { maximumFractionDigits: 0 })}`,
+              callback: (v) => `₹${(v as number).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`,
             },
           },
           y: {

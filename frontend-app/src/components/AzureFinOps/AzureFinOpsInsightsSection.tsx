@@ -20,7 +20,7 @@ const impactBadge = (impact: string) => {
 };
 
 const formatCurrency = (v: number) =>
-  v.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+  '₹' + v.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const AzureFinOpsInsightsSection: React.FC<AzureFinOpsInsightsSectionProps> = ({ reportData, isLoading }) => {
   const { theme } = useTheme();

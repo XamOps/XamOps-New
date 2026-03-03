@@ -94,18 +94,18 @@ export const fetchAzureDashboardData = async (
  */
 export const mapInventoryToResources = (inventory: AzureResourceInventory): AzureResourceType[] => {
   return [
-    { name: 'Virtual Machines', type: 'Virtual Machine', icon: AZURE_RESOURCE_ICONS['Virtual Machines'], count: inventory.virtualMachines },
-    { name: 'Storage Accounts', type: 'Storage Account', icon: AZURE_RESOURCE_ICONS['Storage Accounts'], count: inventory.storageAccounts },
-    { name: 'SQL Databases', type: 'SQL Database', icon: AZURE_RESOURCE_ICONS['SQL Databases'], count: inventory.sqlDatabases },
-    { name: 'Virtual Networks', type: 'Virtual Network', icon: AZURE_RESOURCE_ICONS['Virtual Networks'], count: inventory.virtualNetworks },
-    { name: 'Function Apps', type: 'Function App', icon: AZURE_RESOURCE_ICONS['Function Apps'], count: inventory.functions },
-    { name: 'Disk Storage', type: 'Disk', icon: AZURE_RESOURCE_ICONS['Disk Storage'], count: inventory.disks },
-    { name: 'DNS Zones', type: 'DNS Zone', icon: AZURE_RESOURCE_ICONS['DNS Zones'], count: inventory.dnsZones },
-    { name: 'Load Balancers', type: 'Load Balancer', icon: AZURE_RESOURCE_ICONS['Load Balancers'], count: inventory.loadBalancers },
-    { name: 'Container Instances', type: 'Container Instance', icon: AZURE_RESOURCE_ICONS['Container Instances'], count: inventory.containerInstances },
-    { name: 'Kubernetes Services', type: 'AKS', icon: AZURE_RESOURCE_ICONS['Kubernetes Services'], count: inventory.kubernetesServices },
-    { name: 'App Services', type: 'App Service', icon: AZURE_RESOURCE_ICONS['App Services'], count: inventory.appServices },
-    { name: 'Static Web Apps', type: 'Static Web App', icon: AZURE_RESOURCE_ICONS['Static Web Apps'], count: inventory.staticWebApps },
+    { name: 'Virtual Machines', type: 'Virtual Machines', icon: AZURE_RESOURCE_ICONS['Virtual Machines'], count: inventory.virtualMachines },
+    { name: 'Storage Accounts', type: 'Storage Accounts', icon: AZURE_RESOURCE_ICONS['Storage Accounts'], count: inventory.storageAccounts },
+    { name: 'SQL Databases', type: 'SQL Databases', icon: AZURE_RESOURCE_ICONS['SQL Databases'], count: inventory.sqlDatabases },
+    { name: 'Virtual Networks', type: 'Virtual Networks', icon: AZURE_RESOURCE_ICONS['Virtual Networks'], count: inventory.virtualNetworks },
+    { name: 'Function Apps', type: 'Function Apps', icon: AZURE_RESOURCE_ICONS['Function Apps'], count: inventory.functions },
+    { name: 'Disk Storage', type: 'Disks', icon: AZURE_RESOURCE_ICONS['Disk Storage'], count: inventory.disks },
+    { name: 'DNS Zones', type: 'DNS Zones', icon: AZURE_RESOURCE_ICONS['DNS Zones'], count: inventory.dnsZones },
+    { name: 'Load Balancers', type: 'Load Balancers', icon: AZURE_RESOURCE_ICONS['Load Balancers'], count: inventory.loadBalancers },
+    { name: 'Container Instances', type: 'Container Instances', icon: AZURE_RESOURCE_ICONS['Container Instances'], count: inventory.containerInstances },
+    { name: 'Kubernetes Services', type: 'Kubernetes Services', icon: AZURE_RESOURCE_ICONS['Kubernetes Services'], count: inventory.kubernetesServices },
+    { name: 'App Services', type: 'App Services', icon: AZURE_RESOURCE_ICONS['App Services'], count: inventory.appServices },
+    { name: 'Static Web Apps', type: 'Static Web Apps', icon: AZURE_RESOURCE_ICONS['Static Web Apps'], count: inventory.staticWebApps },
   ];
 };
 

@@ -49,19 +49,18 @@ public class UserRegistrationService {
         newUser.setEmail(email);
         newUser.setRole(role);
         newUser.setClient(client);
-        newUser.setEnabled(true);
-        
+        // newUser.setEnabled(true);
+
         User savedUser = userRepository.save(newUser);
 
         // 3. Create in Master DB (Global Directory)
         try {
             masterDatabaseService.registerGlobalUser(
-                username, 
-                encodedPassword, 
-                email, 
-                role, 
-                currentTenant
-            );
+                    username,
+                    encodedPassword,
+                    email,
+                    role,
+                    currentTenant);
         } catch (Exception e) {
             // Rollback if master write fails to keep data in sync
             throw new RuntimeException("Failed to register user in Global Directory: " + e.getMessage());

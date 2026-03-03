@@ -5,11 +5,9 @@ import com.xammer.billops.domain.Client;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import javax.persistence.*;
-import java.util.Collection;
-import java.util.Collections;
 
 @Entity
-@Table(name = "users")
+@Table(name = "app_user")
 @Data
 @NoArgsConstructor
 public class User {
@@ -28,8 +26,6 @@ public class User {
 
     @Column(nullable = false)
     private String role;
-
-    private boolean enabled = true;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "client_id", nullable = false)
@@ -84,14 +80,6 @@ public class User {
 
     public void setRole(String role) {
         this.role = role;
-    }
-
-    public boolean isEnabled() {
-        return enabled;
-    }
-
-    public void setEnabled(boolean enabled) {
-        this.enabled = enabled;
     }
 
     public Client getClient() {

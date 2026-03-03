@@ -132,7 +132,7 @@ export const useUnifiedDashboard = () => {
       if (data.error) throw new Error(data.error);
 
       let processedData = data;
-      if (provider === 'gcp') {
+      if (provider === 'gcp' || provider === 'azure') {
         processedData = convertGcpDataToUSD(data);
       }
 
