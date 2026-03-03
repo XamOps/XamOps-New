@@ -13,6 +13,7 @@ import apiClient from '../utils/apiClient';
 
 interface UseNotificationsOptions {
     selectedAccountId: string | null;
+    provider?: string; // e.g. 'AWS', 'GCP', 'Azure' — CloudGuard alerts are AWS-only
     autoRefreshInterval?: number; // in milliseconds, default 5 minutes
 }
 
@@ -36,6 +37,7 @@ const CHAT_NOTIFICATION_WINDOW = 24 * 60 * 60 * 1000; // Show chat notifications
 
 export const useNotifications = ({
     selectedAccountId,
+    provider,
     autoRefreshInterval = DEFAULT_REFRESH_INTERVAL,
 }: UseNotificationsOptions): UseNotificationsReturn => {
     const [notifications, setNotifications] = useState<NotificationItem[]>([]);
@@ -163,14 +165,19 @@ export const useNotifications = ({
         setIsLoading(true);
         const allNotifications: NotificationItem[] = [];
 
+        // CloudGuard alerts are AWS-only — skip for GCP/Azure accounts
+        const isAwsAccount = !provider || provider === 'AWS';
+
         try {
             // Fire all three network requests in parallel — previously sequential,
             // which meant a slow cloudguard/alerts (55s timeout) blocked grafana + budgets.
             const [cloudGuardResult, grafanaResult, budgetsResult] = await Promise.allSettled([
-                fetch(
-                    `/api/xamops/cloudguard/alerts?accountId=${selectedAccountId}&forceRefresh=false`,
-                    { credentials: 'include', signal }
-                ),
+                isAwsAccount
+                    ? fetch(
+                        `/api/xamops/cloudguard/alerts?accountId=${selectedAccountId}&forceRefresh=false`,
+                        { credentials: 'include', signal }
+                    )
+                    : Promise.resolve(new Response('[]', { status: 200 })),
                 fetch('/api/xamops/cloudguard/grafana-alerts', { credentials: 'include', signal }),
                 fetch(
                     `/api/xamops/finops/budgets?accountId=${selectedAccountId}`,
@@ -179,8 +186,10 @@ export const useNotifications = ({
             ]);
 
             if (cloudGuardResult.status === 'fulfilled' && cloudGuardResult.value.ok) {
-                const cloudGuardData: Alert[] = await cloudGuardResult.value.json();
-                allNotifications.push(...cloudGuardData.map(convertCloudGuardAlert));
+                const cloudGuardData = await cloudGuardResult.value.json();
+                if (Array.isArray(cloudGuardData)) {
+                    allNotifications.push(...cloudGuardData.map(convertCloudGuardAlert));
+                }
             }
 
             if (grafanaResult.status === 'fulfilled' && grafanaResult.value.ok) {
@@ -233,7 +242,7 @@ export const useNotifications = ({
         } finally {
             setIsLoading(false);
         }
-    }, [selectedAccountId, convertCloudGuardAlert, convertGrafanaAlert, convertBudgetAlert, convertChatMessage]);
+    }, [selectedAccountId, provider, convertCloudGuardAlert, convertGrafanaAlert, convertBudgetAlert, convertChatMessage]);
 
     /**
      * Calculate notification counts

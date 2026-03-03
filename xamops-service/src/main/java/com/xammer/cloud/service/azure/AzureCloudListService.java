@@ -1,68 +1,123 @@
 package com.xammer.cloud.service.azure;
 
 import com.azure.resourcemanager.AzureResourceManager;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.dto.ResourceDto;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.service.RedisCacheService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 
 @Service
 public class AzureCloudListService {
 
     private static final Logger log = LoggerFactory.getLogger(AzureCloudListService.class);
+    private static final int CACHE_TTL_MINUTES = 60;
+    private static final String CACHE_KEY_PREFIX = "azure-cloudlist-";
+
     private final AzureClientProvider clientProvider;
     private final CloudAccountRepository cloudAccountRepository;
+    private final RedisCacheService redisCache;
 
-    public AzureCloudListService(AzureClientProvider clientProvider, CloudAccountRepository cloudAccountRepository) {
+    public AzureCloudListService(AzureClientProvider clientProvider,
+                                  CloudAccountRepository cloudAccountRepository,
+                                  RedisCacheService redisCache) {
         this.clientProvider = clientProvider;
         this.cloudAccountRepository = cloudAccountRepository;
+        this.redisCache = redisCache;
     }
 
-    public List<DashboardData.ServiceGroupDto> getAzureResources(String accountId) {
-        log.info("Fetching cloudlist data for Azure account ID: {}", accountId);
+    public List<DashboardData.ServiceGroupDto> getAzureResources(String accountId, boolean forceRefresh) {
+        log.info("Fetching cloudlist data for Azure account ID: {}, forceRefresh: {}", accountId, forceRefresh);
+
+        String cacheKey = CACHE_KEY_PREFIX + accountId;
+        if (!forceRefresh) {
+            Optional<List<DashboardData.ServiceGroupDto>> cached = redisCache.get(cacheKey, new TypeReference<>() {});
+            if (cached.isPresent()) {
+                log.info("Returning cached Azure cloudlist for account {} ({} service groups)", accountId, cached.get().size());
+                return cached.get();
+            }
+        } else {
+            redisCache.evict(cacheKey);
+            log.info("Force refresh: evicted Redis cache for account {}", accountId);
+        }
+
+        ExecutorService executor = Executors.newFixedThreadPool(15);
         try {
+            // accountId may be a numeric DB id or the Azure subscription UUID
             CloudAccount account = cloudAccountRepository.findByAzureSubscriptionId(accountId)
-                    .orElseThrow(() -> new IllegalArgumentException("Azure account not found for Subscription ID: " + accountId));
-            AzureResourceManager azure = clientProvider.getAzureClient(accountId);
+                    .or(() -> {
+                        try {
+                            return cloudAccountRepository.findById(Long.parseLong(accountId));
+                        } catch (NumberFormatException e) {
+                            return Optional.empty();
+                        }
+                    })
+                    .orElseThrow(() -> new IllegalArgumentException("Azure account not found for ID: " + accountId));
+            String actualSubscriptionId = account.getAzureSubscriptionId();
+            AzureResourceManager azure = clientProvider.getAzureClient(actualSubscriptionId);
 
-            List<ResourceDto> allResources = new ArrayList<>();
+            // Thread-safe list — all fetch tasks write to this concurrently
+            List<ResourceDto> allResources = Collections.synchronizedList(new ArrayList<>());
 
-            // Fetch all Azure resources
-            fetchVirtualMachines(azure, accountId, allResources);
-            fetchStorageAccounts(azure, accountId, allResources);
-            fetchAppServices(azure, accountId, allResources);
-            fetchKubernetesServices(azure, accountId, allResources);
-            fetchSqlDatabases(azure, accountId, allResources);
-            fetchVirtualNetworks(azure, accountId, allResources);
-            fetchLoadBalancers(azure, accountId, allResources);
-            fetchPublicIpAddresses(azure, accountId, allResources);
-            fetchNetworkSecurityGroups(azure, accountId, allResources);
-            fetchDisks(azure, accountId, allResources);
-            fetchSnapshots(azure, accountId, allResources);
-            fetchContainerRegistries(azure, accountId, allResources);
-            fetchKeyVaults(azure, accountId, allResources);
-            fetchRedisCaches(azure, accountId, allResources);
-            fetchCosmosDbAccounts(azure, accountId, allResources);
-            fetchDnsZones(azure, accountId, allResources);
-            fetchApplicationGateways(azure, accountId, allResources);
-            fetchVpnGateways(azure, accountId, allResources);
-            fetchExpressRouteCircuits(azure, accountId, allResources);
-            fetchNetworkInterfaces(azure, accountId, allResources);
-            fetchVirtualMachineScaleSets(azure, accountId, allResources);
-            fetchServiceBusNamespaces(azure, accountId, allResources);
-            fetchEventHubs(azure, accountId, allResources);
-            fetchContainerGroups(azure, accountId, allResources);
-            fetchAvailabilitySets(azure, accountId, allResources);
-            fetchSearchServices(azure, accountId, allResources);
-            fetchTrafficManagerProfiles(azure, accountId, allResources);
+            // Run all 32 fetch operations in parallel to avoid sequential blocking
+            CompletableFuture<?>[] tasks = {
+                CompletableFuture.runAsync(() -> fetchVirtualMachines(azure, accountId, allResources), executor),
+                CompletableFuture.runAsync(() -> fetchStorageAccounts(azure, accountId, allResources), executor),
+                CompletableFuture.runAsync(() -> fetchAppServices(azure, accountId, allResources), executor),
+                CompletableFuture.runAsync(() -> fetchKubernetesServices(azure, accountId, allResources), executor),
+                CompletableFuture.runAsync(() -> fetchSqlDatabases(azure, accountId, allResources), executor),
+                CompletableFuture.runAsync(() -> fetchVirtualNetworks(azure, accountId, allResources), executor),
+                CompletableFuture.runAsync(() -> fetchLoadBalancers(azure, accountId, allResources), executor),
+                CompletableFuture.runAsync(() -> fetchPublicIpAddresses(azure, accountId, allResources), executor),
+                CompletableFuture.runAsync(() -> fetchNetworkSecurityGroups(azure, accountId, allResources), executor),
+                CompletableFuture.runAsync(() -> fetchDisks(azure, accountId, allResources), executor),
+                CompletableFuture.runAsync(() -> fetchSnapshots(azure, accountId, allResources), executor),
+                CompletableFuture.runAsync(() -> fetchContainerRegistries(azure, accountId, allResources), executor),
+                CompletableFuture.runAsync(() -> fetchKeyVaults(azure, accountId, allResources), executor),
+                CompletableFuture.runAsync(() -> fetchRedisCaches(azure, accountId, allResources), executor),
+                CompletableFuture.runAsync(() -> fetchCosmosDbAccounts(azure, accountId, allResources), executor),
+                CompletableFuture.runAsync(() -> fetchDnsZones(azure, accountId, allResources), executor),
+                CompletableFuture.runAsync(() -> fetchApplicationGateways(azure, accountId, allResources), executor),
+                CompletableFuture.runAsync(() -> fetchVpnGateways(azure, accountId, allResources), executor),
+                CompletableFuture.runAsync(() -> fetchExpressRouteCircuits(azure, accountId, allResources), executor),
+                CompletableFuture.runAsync(() -> fetchNetworkInterfaces(azure, accountId, allResources), executor),
+                CompletableFuture.runAsync(() -> fetchVirtualMachineScaleSets(azure, accountId, allResources), executor),
+                CompletableFuture.runAsync(() -> fetchServiceBusNamespaces(azure, accountId, allResources), executor),
+                CompletableFuture.runAsync(() -> fetchEventHubs(azure, accountId, allResources), executor),
+                CompletableFuture.runAsync(() -> fetchContainerGroups(azure, accountId, allResources), executor),
+                CompletableFuture.runAsync(() -> fetchAvailabilitySets(azure, accountId, allResources), executor),
+                CompletableFuture.runAsync(() -> fetchSearchServices(azure, accountId, allResources), executor),
+                CompletableFuture.runAsync(() -> fetchTrafficManagerProfiles(azure, accountId, allResources), executor),
+                CompletableFuture.runAsync(() -> fetchFunctionApps(azure, accountId, allResources), executor),
+                CompletableFuture.runAsync(() -> fetchCdnProfiles(azure, accountId, allResources), executor),
+                // MySQL, PostgreSQL, Batch share one generic-resources scan to avoid 3 full subscription sweeps
+                CompletableFuture.runAsync(() -> fetchGenericResources(azure, accountId, allResources), executor),
+            };
+
+            try {
+                CompletableFuture.allOf(tasks).get(90, TimeUnit.SECONDS);
+            } catch (TimeoutException e) {
+                log.warn("Azure cloudlist timed out after 90s for account {}, returning {} partial results", accountId, allResources.size());
+                for (CompletableFuture<?> task : tasks) task.cancel(true);
+            } catch (Exception e) {
+                log.warn("Azure cloudlist fetch interrupted for account {}: {}", accountId, e.getMessage());
+            }
 
             log.info("Total resources fetched for Azure account {}: {}", accountId, allResources.size());
 
@@ -71,7 +126,7 @@ public class AzureCloudListService {
                     .collect(Collectors.groupingBy(ResourceDto::getType));
 
             // Convert to ServiceGroupDto and sort by resource count
-            return groupedResources.entrySet().stream()
+            List<DashboardData.ServiceGroupDto> result = groupedResources.entrySet().stream()
                     .map(entry -> {
                         DashboardData.ServiceGroupDto groupDto = new DashboardData.ServiceGroupDto();
                         groupDto.setServiceType(entry.getKey());
@@ -81,9 +136,15 @@ public class AzureCloudListService {
                     .sorted((a, b) -> Integer.compare(b.getResources().size(), a.getResources().size()))
                     .collect(Collectors.toList());
 
+            redisCache.put(cacheKey, result, CACHE_TTL_MINUTES);
+            log.info("Cached Azure cloudlist for account {} ({} service groups, TTL {}min)", accountId, result.size(), CACHE_TTL_MINUTES);
+            return result;
+
         } catch (Exception e) {
             log.error("Failed to get cloudlist data for account {}", accountId, e);
             throw new RuntimeException("Failed to get cloudlist data", e);
+        } finally {
+            executor.shutdown();
         }
     }
 
@@ -102,6 +163,12 @@ public class AzureCloudListService {
                     dto.setType("Virtual Machines");
                     dto.setRegion(vm.regionName());
                     dto.setState(vm.powerState() != null ? vm.powerState().toString() : "Unknown");
+                    try {
+                        dto.setDetails(Map.of(
+                            "size", vm.size() != null ? vm.size().toString() : "Unknown",
+                            "osType", vm.osType() != null ? vm.osType().toString() : "Unknown"
+                        ));
+                    } catch (Exception ignored) {}
                     allResources.add(dto);
                 } catch (Exception e) {
                     log.warn("Failed to fetch VM {}: {}", vm.name(), e.getMessage());
@@ -123,8 +190,14 @@ public class AzureCloudListService {
                     dto.setName(sa.name());
                     dto.setType("Storage Accounts");
                     dto.setRegion(sa.regionName());
-                    dto.setState(sa.innerModel().provisioningState() != null ? 
+                    dto.setState(sa.innerModel().provisioningState() != null ?
                                 sa.innerModel().provisioningState().toString() : "Unknown");
+                    try {
+                        dto.setDetails(Map.of(
+                            "kind", sa.kind() != null ? sa.kind().toString() : "Unknown",
+                            "skuTier", sa.innerModel().sku() != null ? sa.innerModel().sku().name().toString() : "Unknown"
+                        ));
+                    } catch (Exception ignored) {}
                     allResources.add(dto);
                 } catch (Exception e) {
                     log.warn("Failed to fetch Storage Account {}: {}", sa.name(), e.getMessage());
@@ -141,12 +214,33 @@ public class AzureCloudListService {
             log.debug("Fetching App Services for account {}", accountId);
             azure.webApps().list().forEach(app -> {
                 try {
+                    // Skip function apps — they are handled by fetchFunctionApps
+                    // kind() is not on WebAppBasic; use innerModel().kind() via SiteInner
+                    String appKind = null;
+                    try { appKind = app.innerModel().kind(); } catch (Exception ignored) {}
+                    if (appKind != null && appKind.toLowerCase().contains("functionapp")) {
+                        return;
+                    }
                     ResourceDto dto = new ResourceDto();
                     dto.setId(app.id());
                     dto.setName(app.name());
                     dto.setType("App Services");
                     dto.setRegion(app.regionName());
                     dto.setState(app.state() != null ? app.state() : "Unknown");
+                    try {
+                        String appServicePlan = "Unknown";
+                        if (app.appServicePlanId() != null) {
+                            String planId = app.appServicePlanId();
+                            int lastSlash = planId.lastIndexOf('/');
+                            appServicePlan = lastSlash >= 0 && lastSlash < planId.length() - 1
+                                    ? planId.substring(lastSlash + 1)
+                                    : planId;
+                        }
+                        dto.setDetails(Map.of(
+                            "kind", appKind != null ? appKind : "Unknown",
+                            "appServicePlan", appServicePlan
+                        ));
+                    } catch (Exception ignored) {}
                     allResources.add(dto);
                 } catch (Exception e) {
                     log.warn("Failed to fetch App Service {}: {}", app.name(), e.getMessage());
@@ -168,8 +262,24 @@ public class AzureCloudListService {
                     dto.setName(aks.name());
                     dto.setType("Kubernetes Services");
                     dto.setRegion(aks.regionName());
-                    dto.setState(aks.innerModel().provisioningState() != null ? 
+                    dto.setState(aks.innerModel().provisioningState() != null ?
                                 aks.innerModel().provisioningState().toString() : "Unknown");
+                    try {
+                        String k8sVersion = aks.innerModel().currentKubernetesVersion() != null
+                                ? aks.innerModel().currentKubernetesVersion()
+                                : aks.innerModel().kubernetesVersion() != null
+                                        ? aks.innerModel().kubernetesVersion()
+                                        : "Unknown";
+                        String nodeCount = aks.innerModel().agentPoolProfiles() != null
+                                ? String.valueOf(aks.innerModel().agentPoolProfiles().stream()
+                                        .mapToInt(p -> p.count() != null ? p.count() : 0)
+                                        .sum())
+                                : "0";
+                        dto.setDetails(Map.of(
+                            "k8sVersion", k8sVersion,
+                            "nodeCount", nodeCount
+                        ));
+                    } catch (Exception ignored) {}
                     allResources.add(dto);
                 } catch (Exception e) {
                     log.warn("Failed to fetch AKS cluster {}: {}", aks.name(), e.getMessage());
@@ -195,8 +305,16 @@ public class AzureCloudListService {
                                 dto.setName(server.name() + "/" + db.name());
                                 dto.setType("SQL Databases");
                                 dto.setRegion(server.regionName());
-                                dto.setState(db.innerModel().status() != null ? 
+                                dto.setState(db.innerModel().status() != null ?
                                             db.innerModel().status().toString() : "Unknown");
+                                try {
+                                    dto.setDetails(Map.of(
+                                        "edition", db.innerModel().sku() != null && db.innerModel().sku().tier() != null
+                                                ? db.innerModel().sku().tier()
+                                                : "Unknown",
+                                        "serverName", server.name()
+                                    ));
+                                } catch (Exception ignored) {}
                                 allResources.add(dto);
                             // }
                         } catch (Exception e) {
@@ -223,8 +341,18 @@ public class AzureCloudListService {
                     dto.setName(vnet.name());
                     dto.setType("Virtual Networks");
                     dto.setRegion(vnet.regionName());
-                    dto.setState(vnet.innerModel().provisioningState() != null ? 
+                    dto.setState(vnet.innerModel().provisioningState() != null ?
                                 vnet.innerModel().provisioningState().toString() : "Unknown");
+                    try {
+                        String addressSpace = "Unknown";
+                        if (vnet.addressSpaces() != null && !vnet.addressSpaces().isEmpty()) {
+                            addressSpace = vnet.addressSpaces().get(0);
+                        }
+                        dto.setDetails(Map.of(
+                            "addressSpace", addressSpace,
+                            "subnetCount", String.valueOf(vnet.subnets().size())
+                        ));
+                    } catch (Exception ignored) {}
                     allResources.add(dto);
                 } catch (Exception e) {
                     log.warn("Failed to fetch Virtual Network {}: {}", vnet.name(), e.getMessage());
@@ -246,8 +374,15 @@ public class AzureCloudListService {
                     dto.setName(lb.name());
                     dto.setType("Load Balancers");
                     dto.setRegion(lb.regionName());
-                    dto.setState(lb.innerModel().provisioningState() != null ? 
+                    dto.setState(lb.innerModel().provisioningState() != null ?
                                 lb.innerModel().provisioningState().toString() : "Unknown");
+                    try {
+                        dto.setDetails(Map.of(
+                            "sku", lb.innerModel().sku() != null ? lb.innerModel().sku().name().toString() : "Basic",
+                            "frontendCount", String.valueOf(lb.innerModel().frontendIpConfigurations() != null
+                                    ? lb.innerModel().frontendIpConfigurations().size() : 0)
+                        ));
+                    } catch (Exception ignored) {}
                     allResources.add(dto);
                 } catch (Exception e) {
                     log.warn("Failed to fetch Load Balancer {}: {}", lb.name(), e.getMessage());
@@ -269,8 +404,15 @@ public class AzureCloudListService {
                     dto.setName(ip.name());
                     dto.setType("Public IP Addresses");
                     dto.setRegion(ip.regionName());
-                    dto.setState(ip.innerModel().provisioningState() != null ? 
+                    dto.setState(ip.innerModel().provisioningState() != null ?
                                 ip.innerModel().provisioningState().toString() : "Unknown");
+                    try {
+                        dto.setDetails(Map.of(
+                            "ipAddress", ip.ipAddress() != null ? ip.ipAddress() : "Not assigned",
+                            "allocationMethod", ip.innerModel().publicIpAllocationMethod() != null
+                                    ? ip.innerModel().publicIpAllocationMethod().toString() : "Unknown"
+                        ));
+                    } catch (Exception ignored) {}
                     allResources.add(dto);
                 } catch (Exception e) {
                     log.warn("Failed to fetch Public IP {}: {}", ip.name(), e.getMessage());
@@ -292,8 +434,14 @@ public class AzureCloudListService {
                     dto.setName(nsg.name());
                     dto.setType("Network Security Groups");
                     dto.setRegion(nsg.regionName());
-                    dto.setState(nsg.innerModel().provisioningState() != null ? 
+                    dto.setState(nsg.innerModel().provisioningState() != null ?
                                 nsg.innerModel().provisioningState().toString() : "Unknown");
+                    try {
+                        dto.setDetails(Map.of(
+                            "ruleCount", String.valueOf(nsg.innerModel().securityRules() != null
+                                    ? nsg.innerModel().securityRules().size() : 0)
+                        ));
+                    } catch (Exception ignored) {}
                     allResources.add(dto);
                 } catch (Exception e) {
                     log.warn("Failed to fetch NSG {}: {}", nsg.name(), e.getMessage());
@@ -315,8 +463,15 @@ public class AzureCloudListService {
                     dto.setName(disk.name());
                     dto.setType("Disks");
                     dto.setRegion(disk.regionName());
-                    dto.setState(disk.innerModel().provisioningState() != null ? 
+                    dto.setState(disk.innerModel().provisioningState() != null ?
                                 disk.innerModel().provisioningState() : "Unknown");
+                    try {
+                        dto.setDetails(Map.of(
+                            "sizeGb", String.valueOf(disk.sizeInGB()),
+                            "diskType", disk.innerModel().sku() != null
+                                    ? disk.innerModel().sku().name().toString() : "Unknown"
+                        ));
+                    } catch (Exception ignored) {}
                     allResources.add(dto);
                 } catch (Exception e) {
                     log.warn("Failed to fetch Disk {}: {}", disk.name(), e.getMessage());
@@ -338,8 +493,15 @@ public class AzureCloudListService {
                     dto.setName(snapshot.name());
                     dto.setType("Snapshots");
                     dto.setRegion(snapshot.regionName());
-                    dto.setState(snapshot.innerModel().provisioningState() != null ? 
+                    dto.setState(snapshot.innerModel().provisioningState() != null ?
                                 snapshot.innerModel().provisioningState() : "Unknown");
+                    try {
+                        dto.setDetails(Map.of(
+                            "sizeGb", String.valueOf(snapshot.sizeInGB()),
+                            "snapshotType", snapshot.innerModel().sku() != null
+                                    ? snapshot.innerModel().sku().name().toString() : "Standard"
+                        ));
+                    } catch (Exception ignored) {}
                     allResources.add(dto);
                 } catch (Exception e) {
                     log.warn("Failed to fetch Snapshot {}: {}", snapshot.name(), e.getMessage());
@@ -361,8 +523,15 @@ public class AzureCloudListService {
                     dto.setName(acr.name());
                     dto.setType("Container Registries");
                     dto.setRegion(acr.regionName());
-                    dto.setState(acr.innerModel().provisioningState() != null ? 
+                    dto.setState(acr.innerModel().provisioningState() != null ?
                                 acr.innerModel().provisioningState().toString() : "Unknown");
+                    try {
+                        dto.setDetails(Map.of(
+                            "skuTier", acr.innerModel().sku() != null
+                                    ? acr.innerModel().sku().name().toString() : "Unknown",
+                            "loginServer", acr.loginServerUrl() != null ? acr.loginServerUrl() : "Unknown"
+                        ));
+                    } catch (Exception ignored) {}
                     allResources.add(dto);
                 } catch (Exception e) {
                     log.warn("Failed to fetch ACR {}: {}", acr.name(), e.getMessage());
@@ -404,8 +573,7 @@ public class AzureCloudListService {
             log.error("Failed to list Key Vaults: {}", e.getMessage());
         }
     }
-    
-    
+
 
     private void fetchRedisCaches(AzureResourceManager azure, String accountId, List<ResourceDto> allResources) {
         try {
@@ -417,8 +585,17 @@ public class AzureCloudListService {
                     dto.setName(redis.name());
                     dto.setType("Redis Cache");
                     dto.setRegion(redis.regionName());
-                    dto.setState(redis.innerModel().provisioningState() != null ? 
+                    dto.setState(redis.innerModel().provisioningState() != null ?
                                 redis.innerModel().provisioningState().toString() : "Unknown");
+                    try {
+                        // RedisCache exposes sku() and hostname() directly on the fluent interface
+                        dto.setDetails(Map.of(
+                            "skuName", redis.sku() != null
+                                    ? redis.sku().family().toString() + redis.sku().capacity()
+                                    : "Unknown",
+                            "hostName", redis.hostname() != null ? redis.hostname() : "Unknown"
+                        ));
+                    } catch (Exception ignored) {}
                     allResources.add(dto);
                 } catch (Exception e) {
                     log.warn("Failed to fetch Redis Cache {}: {}", redis.name(), e.getMessage());
@@ -441,6 +618,16 @@ public class AzureCloudListService {
                     dto.setType("CosmosDB");
                     dto.setRegion(cosmos.regionName());
                     dto.setState("Active");
+                    try {
+                        dto.setDetails(Map.of(
+                            "apiType", cosmos.innerModel().databaseAccountOfferType() != null
+                                    ? cosmos.innerModel().databaseAccountOfferType().toString() : "Unknown",
+                            "consistency", cosmos.innerModel().consistencyPolicy() != null
+                                    && cosmos.innerModel().consistencyPolicy().defaultConsistencyLevel() != null
+                                    ? cosmos.innerModel().consistencyPolicy().defaultConsistencyLevel().toString()
+                                    : "Unknown"
+                        ));
+                    } catch (Exception ignored) {}
                     allResources.add(dto);
                 } catch (Exception e) {
                     log.warn("Failed to fetch CosmosDB {}: {}", cosmos.name(), e.getMessage());
@@ -484,8 +671,16 @@ public class AzureCloudListService {
                     dto.setName(appGw.name());
                     dto.setType("Application Gateways");
                     dto.setRegion(appGw.regionName());
-                    dto.setState(appGw.innerModel().provisioningState() != null ? 
+                    dto.setState(appGw.innerModel().provisioningState() != null ?
                                 appGw.innerModel().provisioningState().toString() : "Unknown");
+                    try {
+                        dto.setDetails(Map.of(
+                            "sku", appGw.innerModel().sku() != null
+                                    ? appGw.innerModel().sku().name().toString() : "Unknown",
+                            "capacity", appGw.innerModel().sku() != null && appGw.innerModel().sku().capacity() != null
+                                    ? appGw.innerModel().sku().capacity().toString() : "0"
+                        ));
+                    } catch (Exception ignored) {}
                     allResources.add(dto);
                 } catch (Exception e) {
                     log.warn("Failed to fetch Application Gateway {}: {}", appGw.name(), e.getMessage());
@@ -507,8 +702,16 @@ public class AzureCloudListService {
                     dto.setName(vpn.name());
                     dto.setType("VPN Gateways");
                     dto.setRegion(vpn.regionName());
-                    dto.setState(vpn.innerModel().provisioningState() != null ? 
+                    dto.setState(vpn.innerModel().provisioningState() != null ?
                                 vpn.innerModel().provisioningState().toString() : "Unknown");
+                    try {
+                        dto.setDetails(Map.of(
+                            "sku", vpn.innerModel().sku() != null
+                                    ? vpn.innerModel().sku().name().toString() : "Unknown",
+                            "gatewayType", vpn.innerModel().gatewayType() != null
+                                    ? vpn.innerModel().gatewayType().toString() : "Unknown"
+                        ));
+                    } catch (Exception ignored) {}
                     allResources.add(dto);
                 } catch (Exception e) {
                     log.warn("Failed to fetch VPN Gateway {}: {}", vpn.name(), e.getMessage());
@@ -530,8 +733,20 @@ public class AzureCloudListService {
                     dto.setName(circuit.name());
                     dto.setType("ExpressRoute Circuits");
                     dto.setRegion(circuit.regionName());
-                    dto.setState(circuit.innerModel().provisioningState() != null ? 
+                    dto.setState(circuit.innerModel().provisioningState() != null ?
                                 circuit.innerModel().provisioningState().toString() : "Unknown");
+                    try {
+                        dto.setDetails(Map.of(
+                            "provider", circuit.innerModel().serviceProviderProperties() != null
+                                    && circuit.innerModel().serviceProviderProperties().serviceProviderName() != null
+                                    ? circuit.innerModel().serviceProviderProperties().serviceProviderName()
+                                    : "Unknown",
+                            "bandwidthMbps", circuit.innerModel().serviceProviderProperties() != null
+                                    && circuit.innerModel().serviceProviderProperties().bandwidthInMbps() != null
+                                    ? circuit.innerModel().serviceProviderProperties().bandwidthInMbps().toString()
+                                    : "Unknown"
+                        ));
+                    } catch (Exception ignored) {}
                     allResources.add(dto);
                 } catch (Exception e) {
                     log.warn("Failed to fetch ExpressRoute Circuit {}: {}", circuit.name(), e.getMessage());
@@ -553,8 +768,16 @@ public class AzureCloudListService {
                     dto.setName(nic.name());
                     dto.setType("Network Interfaces");
                     dto.setRegion(nic.regionName());
-                    dto.setState(nic.innerModel().provisioningState() != null ? 
+                    dto.setState(nic.innerModel().provisioningState() != null ?
                                 nic.innerModel().provisioningState().toString() : "Unknown");
+                    try {
+                        dto.setDetails(Map.of(
+                            "privateIp", nic.primaryIPConfiguration() != null
+                                    && nic.primaryIPConfiguration().privateIpAddress() != null
+                                    ? nic.primaryIPConfiguration().privateIpAddress()
+                                    : "Unknown"
+                        ));
+                    } catch (Exception ignored) {}
                     allResources.add(dto);
                 } catch (Exception e) {
                     log.warn("Failed to fetch Network Interface {}: {}", nic.name(), e.getMessage());
@@ -576,8 +799,31 @@ public class AzureCloudListService {
                     dto.setName(vmss.name());
                     dto.setType("Virtual Machine Scale Sets");
                     dto.setRegion(vmss.regionName());
-                    dto.setState(vmss.innerModel().provisioningState() != null ? 
+                    dto.setState(vmss.innerModel().provisioningState() != null ?
                                 vmss.innerModel().provisioningState() : "Unknown");
+
+                    // Enrich with VMSS-specific details via innerModel()
+                    String sku = "Unknown";
+                    String instanceCount = "0";
+                    String priority = "Regular";
+                    String resourceGroup = vmss.resourceGroupName() != null ? vmss.resourceGroupName() : "Unknown";
+                    try {
+                        var inner = vmss.innerModel();
+                        if (inner.sku() != null) {
+                            if (inner.sku().name() != null) sku = inner.sku().name();
+                            if (inner.sku().capacity() != null) instanceCount = inner.sku().capacity().toString();
+                        }
+                        if (inner.virtualMachineProfile() != null && inner.virtualMachineProfile().priority() != null) {
+                            priority = inner.virtualMachineProfile().priority().toString();
+                        }
+                    } catch (Exception ignored) {}
+                    dto.setDetails(Map.of(
+                        "sku", sku,
+                        "instanceCount", instanceCount,
+                        "priority", priority,
+                        "resourceGroup", resourceGroup
+                    ));
+
                     allResources.add(dto);
                 } catch (Exception e) {
                     log.warn("Failed to fetch VMSS {}: {}", vmss.name(), e.getMessage());
@@ -599,8 +845,14 @@ public class AzureCloudListService {
                     dto.setName(sb.name());
                     dto.setType("Service Bus");
                     dto.setRegion(sb.regionName());
-                    dto.setState(sb.innerModel().provisioningState() != null ? 
+                    dto.setState(sb.innerModel().provisioningState() != null ?
                                 sb.innerModel().provisioningState() : "Unknown");
+                    try {
+                        dto.setDetails(Map.of(
+                            "sku", sb.innerModel().sku() != null
+                                    ? sb.innerModel().sku().name().toString() : "Unknown"
+                        ));
+                    } catch (Exception ignored) {}
                     allResources.add(dto);
                 } catch (Exception e) {
                     log.warn("Failed to fetch Service Bus {}: {}", sb.name(), e.getMessage());
@@ -622,8 +874,16 @@ public class AzureCloudListService {
                     dto.setName(eh.name());
                     dto.setType("Event Hubs");
                     dto.setRegion(eh.regionName());
-                    dto.setState(eh.innerModel().provisioningState() != null ? 
+                    dto.setState(eh.innerModel().provisioningState() != null ?
                                 eh.innerModel().provisioningState() : "Unknown");
+                    try {
+                        dto.setDetails(Map.of(
+                            "sku", eh.innerModel().sku() != null
+                                    ? eh.innerModel().sku().name().toString() : "Unknown",
+                            "throughputUnits", eh.innerModel().sku() != null && eh.innerModel().sku().capacity() != null
+                                    ? eh.innerModel().sku().capacity().toString() : "0"
+                        ));
+                    } catch (Exception ignored) {}
                     allResources.add(dto);
                 } catch (Exception e) {
                     log.warn("Failed to fetch Event Hub {}: {}", eh.name(), e.getMessage());
@@ -645,8 +905,16 @@ public class AzureCloudListService {
                     dto.setName(group.name());
                     dto.setType("Container Instances");
                     dto.setRegion(group.regionName());
-                    dto.setState(group.innerModel().provisioningState() != null ? 
+                    dto.setState(group.innerModel().provisioningState() != null ?
                                 group.innerModel().provisioningState() : "Unknown");
+                    try {
+                        dto.setDetails(Map.of(
+                            "osType", group.innerModel().osType() != null
+                                    ? group.innerModel().osType().toString() : "Unknown",
+                            "containerCount", group.innerModel().containers() != null
+                                    ? String.valueOf(group.innerModel().containers().size()) : "0"
+                        ));
+                    } catch (Exception ignored) {}
                     allResources.add(dto);
                 } catch (Exception e) {
                     log.warn("Failed to fetch Container Group {}: {}", group.name(), e.getMessage());
@@ -669,6 +937,14 @@ public class AzureCloudListService {
                     dto.setType("Availability Sets");
                     dto.setRegion(avset.regionName());
                     dto.setState("Active");
+                    try {
+                        dto.setDetails(Map.of(
+                            "faultDomains", String.valueOf(avset.innerModel().platformFaultDomainCount() != null
+                                    ? avset.innerModel().platformFaultDomainCount() : 0),
+                            "updateDomains", String.valueOf(avset.innerModel().platformUpdateDomainCount() != null
+                                    ? avset.innerModel().platformUpdateDomainCount() : 0)
+                        ));
+                    } catch (Exception ignored) {}
                     allResources.add(dto);
                 } catch (Exception e) {
                     log.warn("Failed to fetch Availability Set {}: {}", avset.name(), e.getMessage());
@@ -690,8 +966,18 @@ public class AzureCloudListService {
                     dto.setName(search.name());
                     dto.setType("Search Services");
                     dto.setRegion(search.regionName());
-                    dto.setState(search.innerModel().provisioningState() != null ? 
+                    dto.setState(search.innerModel().provisioningState() != null ?
                                 search.innerModel().provisioningState().toString() : "Unknown");
+                    try {
+                        dto.setDetails(Map.of(
+                            "sku", search.innerModel().sku() != null
+                                    ? search.innerModel().sku().name().toString() : "Unknown",
+                            "replicaCount", String.valueOf(search.innerModel().replicaCount() != null
+                                    ? search.innerModel().replicaCount() : 1),
+                            "partitionCount", String.valueOf(search.innerModel().partitionCount() != null
+                                    ? search.innerModel().partitionCount() : 1)
+                        ));
+                    } catch (Exception ignored) {}
                     allResources.add(dto);
                 } catch (Exception e) {
                     log.warn("Failed to fetch Search Service {}: {}", search.name(), e.getMessage());
@@ -714,6 +1000,12 @@ public class AzureCloudListService {
                     dto.setType("Traffic Manager");
                     dto.setRegion("Global");
                     dto.setState(tm.isEnabled() ? "Enabled" : "Disabled");
+                    try {
+                        dto.setDetails(Map.of(
+                            "routingMethod", tm.innerModel().trafficRoutingMethod() != null
+                                    ? tm.innerModel().trafficRoutingMethod().toString() : "Unknown"
+                        ));
+                    } catch (Exception ignored) {}
                     allResources.add(dto);
                 } catch (Exception e) {
                     log.warn("Failed to fetch Traffic Manager {}: {}", tm.name(), e.getMessage());
@@ -724,4 +1016,112 @@ public class AzureCloudListService {
             log.error("Failed to list Traffic Manager Profiles: {}", e.getMessage());
         }
     }
+
+    private void fetchFunctionApps(AzureResourceManager azure, String accountId, List<ResourceDto> allResources) {
+        try {
+            log.debug("Fetching Function Apps for account {}", accountId);
+            // azure.functionApps().list() returns FunctionAppBasic which extends WebSiteBase
+            // kind() is not on the fluent interface; read it from innerModel() (SiteInner)
+            azure.functionApps().list().forEach(app -> {
+                try {
+                    ResourceDto dto = new ResourceDto();
+                    dto.setId(app.id());
+                    dto.setName(app.name());
+                    dto.setType("Function Apps");
+                    dto.setRegion(app.regionName());
+                    dto.setState(app.state() != null ? app.state() : "Unknown");
+                    try {
+                        String appKind = app.innerModel().kind() != null ? app.innerModel().kind() : "Unknown";
+                        String appServicePlan = "Unknown";
+                        if (app.appServicePlanId() != null) {
+                            String planId = app.appServicePlanId();
+                            int lastSlash = planId.lastIndexOf('/');
+                            appServicePlan = lastSlash >= 0 && lastSlash < planId.length() - 1
+                                    ? planId.substring(lastSlash + 1)
+                                    : planId;
+                        }
+                        dto.setDetails(Map.of(
+                            "kind", appKind,
+                            "appServicePlan", appServicePlan
+                        ));
+                    } catch (Exception ignored) {}
+                    allResources.add(dto);
+                } catch (Exception e) {
+                    log.warn("Failed to fetch Function App {}: {}", app.name(), e.getMessage());
+                }
+            });
+            log.debug("Found {} Function Apps", allResources.stream().filter(r -> "Function Apps".equals(r.getType())).count());
+        } catch (Exception e) {
+            log.error("Failed to list Function Apps: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Single generic-resources scan that picks up MySQL, PostgreSQL, and Batch in one pass.
+     * Avoids 3 separate full-subscription sweeps.
+     */
+    private void fetchGenericResources(AzureResourceManager azure, String accountId, List<ResourceDto> allResources) {
+        try {
+            log.debug("Fetching generic resources (MySQL/PostgreSQL/Batch) for account {}", accountId);
+            azure.genericResources().list().forEach(res -> {
+                try {
+                    if (res.type() == null) return;
+                    String type = res.type().toLowerCase();
+                    if (type.equals("microsoft.dbformysql/servers")) {
+                        ResourceDto dto = new ResourceDto();
+                        dto.setId(res.id()); dto.setName(res.name());
+                        dto.setType("MySQL Servers"); dto.setRegion(res.regionName()); dto.setState("Active");
+                        allResources.add(dto);
+                    } else if (type.equals("microsoft.dbforpostgresql/servers")) {
+                        ResourceDto dto = new ResourceDto();
+                        dto.setId(res.id()); dto.setName(res.name());
+                        dto.setType("PostgreSQL Servers"); dto.setRegion(res.regionName()); dto.setState("Active");
+                        allResources.add(dto);
+                    } else if (type.equals("microsoft.batch/batchaccounts")) {
+                        ResourceDto dto = new ResourceDto();
+                        dto.setId(res.id()); dto.setName(res.name());
+                        dto.setType("Batch Accounts"); dto.setRegion(res.regionName()); dto.setState("Active");
+                        allResources.add(dto);
+                    }
+                } catch (Exception e) {
+                    log.warn("Failed to process generic resource {}: {}", res.name(), e.getMessage());
+                }
+            });
+            log.debug("Generic resources scan complete for account {}", accountId);
+        } catch (Exception e) {
+            log.error("Failed to scan generic resources: {}", e.getMessage());
+        }
+    }
+
+    private void fetchCdnProfiles(AzureResourceManager azure, String accountId, List<ResourceDto> allResources) {
+        try {
+            log.debug("Fetching CDN Profiles for account {}", accountId);
+            azure.cdnProfiles().list().forEach(profile -> {
+                try {
+                    ResourceDto dto = new ResourceDto();
+                    dto.setId(profile.id());
+                    dto.setName(profile.name());
+                    dto.setType("CDN Profiles");
+                    dto.setRegion(profile.regionName());
+                    // provisioningState() on ProfileInner returns ProfileProvisioningState (ExpandableStringEnum)
+                    dto.setState(profile.innerModel().provisioningState() != null ?
+                                profile.innerModel().provisioningState().toString() : "Unknown");
+                    try {
+                        // sku() is exposed directly on the CdnProfile fluent interface
+                        dto.setDetails(Map.of(
+                            "sku", profile.sku() != null && profile.sku().name() != null
+                                    ? profile.sku().name().toString() : "Unknown"
+                        ));
+                    } catch (Exception ignored) {}
+                    allResources.add(dto);
+                } catch (Exception e) {
+                    log.warn("Failed to fetch CDN Profile {}: {}", profile.name(), e.getMessage());
+                }
+            });
+            log.debug("Found {} CDN Profiles", allResources.stream().filter(r -> "CDN Profiles".equals(r.getType())).count());
+        } catch (Exception e) {
+            log.error("Failed to list CDN Profiles: {}", e.getMessage());
+        }
+    }
+
 }

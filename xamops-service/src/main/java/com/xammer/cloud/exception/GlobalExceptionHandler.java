@@ -46,17 +46,23 @@ public class GlobalExceptionHandler {
             return null;
         }
 
-        // ✅ FIX: Prevent HttpMessageNotWritableException for static resources
-        // If the request expects JS/CSS/Images, do NOT try to return a JSON body (Map),
-        // as Spring cannot convert Map -> application/javascript.
+        // FIX: Skip non-JSON endpoints — static resources and WebSocket/SockJS transports.
+        // SockJS paths already have Content-Type set to application/javascript, so writing
+        // a JSON body causes HttpMessageNotWritableException → Broken pipe cascade.
         String path = request.getRequestURI().toLowerCase();
         String acceptHeader = request.getHeader("Accept");
 
-        if (path.endsWith(".js") || path.endsWith(".css") || path.endsWith(".map") ||
+        boolean isStaticResource = path.endsWith(".js") || path.endsWith(".css") || path.endsWith(".map") ||
                 path.endsWith(".ico") || path.endsWith(".png") || path.endsWith(".jpg") ||
-                path.endsWith(".woff") || path.endsWith(".woff2") ||
-                (acceptHeader != null && acceptHeader.contains("javascript"))) { // ✅ Added Accept Header Check
-            // Return status only, no JSON body
+                path.endsWith(".woff") || path.endsWith(".woff2");
+        boolean isWebSocket = path.contains("/xamops-ws/") || path.contains("/ws/") ||
+                path.contains("xhr_streaming") || path.contains("/xhr") ||
+                path.contains("eventsource") || path.contains("htmlfile") ||
+                path.contains("jsonp") || path.contains("websocket");
+        boolean isJavascriptAccept = acceptHeader != null && acceptHeader.contains("javascript");
+
+        if (isStaticResource || isWebSocket || isJavascriptAccept) {
+            // Return status only — do not write a body over an incompatible Content-Type
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
 

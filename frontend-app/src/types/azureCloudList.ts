@@ -10,6 +10,7 @@ export interface AzureResource {
   region: string;
   state: string;
   type?: string;
+  details?: Record<string, string>;
 }
 
 export interface AzureServiceGroup {

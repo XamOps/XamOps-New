@@ -6,6 +6,7 @@
  */
 
 import { AzureServiceGroup } from '../types/azureCloudList';
+import { apiFetch } from '../utils/apiClient';
 
 /**
  * Fetch Azure CloudList resources
@@ -27,12 +28,7 @@ export const fetchAzureCloudListResources = async (
 
     console.log('🔵 Azure CloudList: Fetching resources from:', apiUrl);
 
-    const response = await fetch(apiUrl, {
-      credentials: 'include',
-      headers: {
-        'Accept': 'application/json',
-      },
-    });
+    const response = await apiFetch(apiUrl);
 
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
@@ -55,12 +51,13 @@ export const fetchAzureCloudListResources = async (
  */
 export const getAzureServiceIcon = (serviceType: string): string => {
   const iconMap: Record<string, string> = {
-    'Virtual Machines': 'azure-vm.png',
+    'Virtual Machines': 'virtual-machine.png',
     'Virtual Machine Scale Sets': 'azure-vmss.png',
     'Availability Sets': 'azure-availability-sets.png',
     'Container Instances': 'azure-container-instances.png',
     'Kubernetes Services': 'azure-aks.png',
     'App Services': 'app-service.png',
+    'Function Apps': 'function-app.png',
     'Storage Accounts': 'azure-storage-account.png',
     'Disks': 'disk-storage.png',
     'Snapshots': 'azure-snapshot.png',
@@ -75,12 +72,16 @@ export const getAzureServiceIcon = (serviceType: string): string => {
     'DNS Zones': 'dns.png',
     'Traffic Manager': 'azure-traffic-manager.png',
     'SQL Databases': 'sql-database.png',
+    'MySQL Servers': 'sql-database.png',
+    'PostgreSQL Servers': 'sql-database.png',
     'CosmosDB': 'azure-cosmos-db.png',
     'Redis Cache': 'azure-redis.png',
     'Service Bus': 'azure-service-bus.png',
     'Event Hubs': 'azure-event-hubs.png',
     'Container Registries': 'azure-container-registry.png',
     'Search Services': 'azure-search.png',
+    'CDN Profiles': 'cloudfront.png',
+    'Batch Accounts': 'azure-icon.png',
   };
 
   return iconMap[serviceType] || 'azure-icon.png';

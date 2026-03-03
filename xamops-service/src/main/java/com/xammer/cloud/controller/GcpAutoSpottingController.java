@@ -59,8 +59,9 @@ public class GcpAutoSpottingController {
             HistoryResponse history = gcpAutoSpottingService.getHistoryData(accountId, range);
             return ResponseEntity.ok(history);
         } catch (Exception e) {
-            log.error("Failed to get history: {}", e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("error", e.getMessage()));
+            String histErr = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            log.error("Failed to get history: {}", histErr, e);
+            return ResponseEntity.status(500).body(Map.of("error", histErr));
         }
     }
 
@@ -78,8 +79,9 @@ public class GcpAutoSpottingController {
                 gcpAutoSpottingService.getEvents(accountId, start, end, eventType, asgName);
             return ResponseEntity.ok(events);
         } catch (Exception e) {
-            log.error("Failed to get events: {}", e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("error", e.getMessage()));
+            String evtErr = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            log.error("Failed to get events: {}", evtErr, e);
+            return ResponseEntity.status(500).body(Map.of("error", evtErr));
         }
     }
 
@@ -97,10 +99,11 @@ public class GcpAutoSpottingController {
                     "success", true,
                     "message", "AutoSpotting enabled for MIG " + migName));
         } catch (Exception e) {
-            log.error("❌ [GCP DEBUG] Failed to enable AutoSpotting for {}: {}", migName, e.getMessage(), e);
+            String enableErr = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName() + " (no message)";
+            log.error("❌ [GCP DEBUG] Failed to enable AutoSpotting for {}: {}", migName, enableErr, e);
             return ResponseEntity.status(500).body(Map.of(
                     "success", false,
-                    "error", e.getMessage()));
+                    "error", enableErr));
         }
     }
 
@@ -118,10 +121,11 @@ public class GcpAutoSpottingController {
                     "success", true,
                     "message", "AutoSpotting disabled for MIG " + migName));
         } catch (Exception e) {
-            log.error("❌ [GCP DEBUG] Failed to disable AutoSpotting for {}: {}", migName, e.getMessage(), e);
+            String disableErr = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName() + " (no message)";
+            log.error("❌ [GCP DEBUG] Failed to disable AutoSpotting for {}: {}", migName, disableErr, e);
             return ResponseEntity.status(500).body(Map.of(
                     "success", false,
-                    "error", e.getMessage()));
+                    "error", disableErr));
         }
     }
 }
