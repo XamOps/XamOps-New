@@ -3,6 +3,7 @@ package com.xammer.billops.controller;
 import com.xammer.billops.dto.TicketDto;
 import com.xammer.billops.dto.TicketReplyDto;
 import com.xammer.billops.service.TicketService;
+import com.xammer.billops.util.SecurityUtils;
 import com.xammer.cloud.security.ClientUserDetails;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,15 +29,17 @@ public class TicketController {
     }
 
     @PostMapping("/tickets")
-    public ResponseEntity<TicketDto> createTicket(@RequestBody TicketDto ticketDto, Authentication authentication) {
+    public ResponseEntity<TicketDto> createTicket(@RequestBody TicketDto ticketDto) {
         try {
-            if (authentication != null && authentication.getPrincipal() instanceof ClientUserDetails) {
-                ClientUserDetails userDetails = (ClientUserDetails) authentication.getPrincipal();
-                ticketDto.setCreatorId(userDetails.getId());
-                
-                if (ticketDto.getClientId() == null) {
-                    ticketDto.setClientId(userDetails.getClientId());
-                }
+            ClientUserDetails userDetails = SecurityUtils.getPrincipal();
+            ticketDto.setCreatorId(userDetails.getId());
+
+            // SECURITY: Prevent IDOR by enforcing the authenticated user's clientId
+            // Only SuperAdmins are allowed to specify a different clientId
+            if (!SecurityUtils.isSuperAdmin()) {
+                ticketDto.setClientId(userDetails.getClientId());
+            } else if (ticketDto.getClientId() == null) {
+                ticketDto.setClientId(userDetails.getClientId());
             }
 
             return ResponseEntity.ok(ticketService.createTicket(ticketDto));
