@@ -15,8 +15,13 @@ public class TicketReplyDto {
     private LocalDateTime createdAt;
     private boolean admin;
 
+    private boolean isInternal;
+
     // --- NEW FIELDS ---
     private String attachmentUrl;  // The secure, temporary link
     private String attachmentName;
     private String attachmentType;
+
+    public boolean isInternal() { return isInternal; }
+    public void setInternal(boolean isInternal) { this.isInternal = isInternal; }
 }

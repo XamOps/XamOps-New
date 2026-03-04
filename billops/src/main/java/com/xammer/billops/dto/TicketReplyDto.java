@@ -15,6 +15,7 @@ public class TicketReplyDto {
     private String attachmentUrl;  // The secure, temporary link
     private String attachmentName;
     private String attachmentType;
+    private boolean isInternal; // Admin-only internal note
 
     public TicketReplyDto() {
     }
@@ -110,5 +111,13 @@ public class TicketReplyDto {
 
     public void setAttachmentType(String attachmentType) {
         this.attachmentType = attachmentType;
+    }
+
+    public boolean isInternal() {
+        return isInternal;
+    }
+
+    public void setInternal(boolean isInternal) {
+        this.isInternal = isInternal;
     }
 }

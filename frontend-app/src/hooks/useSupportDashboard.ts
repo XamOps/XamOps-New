@@ -1,30 +1,13 @@
 /**
  * Support Dashboard Hook
- *
- * Custom hook for managing the BillOps Admin Support Console state and API calls.
- * Provides real-time updates for inbox and chat messages.
- *
- * Converted from: billops/support-dashboard.html
- *
- * What changed:
- * - Migrated from Alpine.js to React with TypeScript
- * - Added proper type safety
- * - Improved error handling
- * - Added auto-refresh with configurable intervals
- *
- * What stayed the same:
- * - All API endpoints remain identical:
- *   - GET /api/billops/support/inbox
- *   - GET /api/billops/support/chat/{accountId}
- *   - POST /api/billops/support/reply
- * - Same refresh intervals (10s inbox, 3s chat)
- * - Same filtering logic
  */
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import apiClient from '../utils/apiClient';
 import {
   SupportConversation,
+  SupportAccount,
+  AttachmentInfo,
   ChatMessage,
   CloudProvider,
   ReplyPayload,
@@ -37,11 +20,13 @@ interface UseSupportDashboardReturn {
   filteredConversations: SupportConversation[];
   messages: ChatMessage[];
   activeAccount: SupportConversation | null;
+  accounts: SupportAccount[];
 
   // State
   loading: boolean;
   chatLoading: boolean;
   sending: boolean;
+  loadingAccounts: boolean;
   error: string | null;
 
   // Filters
@@ -52,27 +37,30 @@ interface UseSupportDashboardReturn {
   setSearchQuery: (query: string) => void;
   setProviderFilter: (provider: CloudProvider | '') => void;
   selectConversation: (account: SupportConversation) => Promise<void>;
-  sendReply: (message: string) => Promise<boolean>;
+  sendReply: (message: string, attachment?: AttachmentInfo) => Promise<boolean>;
+  startConversation: (account: SupportAccount, message: string) => Promise<boolean>;
+  uploadAttachment: (file: File) => Promise<AttachmentInfo | null>;
   refreshInbox: () => Promise<void>;
   refreshChat: () => Promise<void>;
+  fetchAccounts: () => Promise<void>;
 }
 
-const INBOX_REFRESH_INTERVAL = 10000; // 10 seconds
-const CHAT_REFRESH_INTERVAL = 3000; // 3 seconds
+const INBOX_REFRESH_INTERVAL = 10000;
+const CHAT_REFRESH_INTERVAL = 3000;
 
 export const useSupportDashboard = (): UseSupportDashboardReturn => {
-  // State
   const [conversations, setConversations] = useState<SupportConversation[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [activeAccount, setActiveAccount] = useState<SupportConversation | null>(null);
+  const [accounts, setAccounts] = useState<SupportAccount[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [providerFilter, setProviderFilter] = useState<CloudProvider | ''>('');
   const [loading, setLoading] = useState(false);
   const [chatLoading, setChatLoading] = useState(false);
   const [sending, setSending] = useState(false);
+  const [loadingAccounts, setLoadingAccounts] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Refs for intervals
   const inboxIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const chatIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const activeAccountRef = useRef<SupportConversation | null>(null);
@@ -81,77 +69,58 @@ export const useSupportDashboard = (): UseSupportDashboardReturn => {
   const notificationInitializedRef = useRef(false);
   const isMountedRef = useRef(true);
 
-  // Keep ref in sync with state
   useEffect(() => {
     activeAccountRef.current = activeAccount;
   }, [activeAccount]);
 
-  // Cleanup on unmount
   useEffect(() => {
     isMountedRef.current = true;
-    return () => {
-      isMountedRef.current = false;
-    };
+    return () => { isMountedRef.current = false; };
   }, []);
 
-  /**
-   * Fetch inbox (list of conversations)
-   * Note: Notifications are handled by the global AdminSupportNotificationListener
-   * to avoid duplicate sounds. This function only updates UI state.
-   */
   const fetchInbox = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     setError(null);
-
     try {
       const data = await apiClient.get<SupportConversation[]>('/api/billops/support/inbox');
-
       if (!isMountedRef.current) return;
-
       const inboxData = data || [];
-
-      // Update previous inbox state
       const newInboxMap = new Map<string, number>();
       for (const conv of inboxData) {
         newInboxMap.set(conv.accountId, conv.unreadCount || 0);
       }
       previousInboxRef.current = newInboxMap;
-
       setConversations(inboxData);
     } catch (err) {
       console.error('Inbox Error:', err);
-      if (isMountedRef.current && !silent) {
-        setError('Failed to load inbox. Please try again.');
-      }
+      if (isMountedRef.current && !silent) setError('Failed to load inbox. Please try again.');
     } finally {
       if (isMountedRef.current && !silent) setLoading(false);
     }
   }, []);
 
-  /**
-   * Fetch chat messages for active account
-   * Note: Notifications are handled by the global AdminSupportNotificationListener
-   * to avoid duplicate sounds. This function only updates UI state.
-   */
+  const fetchAccounts = useCallback(async () => {
+    setLoadingAccounts(true);
+    try {
+      const data = await apiClient.get<SupportAccount[]>('/api/billops/support/accounts');
+      if (isMountedRef.current) setAccounts(data || []);
+    } catch (err) {
+      console.error('Accounts Error:', err);
+    } finally {
+      if (isMountedRef.current) setLoadingAccounts(false);
+    }
+  }, []);
+
   const fetchChat = useCallback(async () => {
     const account = activeAccountRef.current;
     if (!account) return;
-
     try {
-      const data = await apiClient.get<ChatMessage[]>(
-        `/api/billops/support/chat/${account.accountId}`
-      );
-
+      const data = await apiClient.get<ChatMessage[]>(`/api/billops/support/chat/${account.accountId}`);
       if (!isMountedRef.current) return;
-
       const chatData = data || [];
       previousMessageCountRef.current = chatData.length;
-
-      // Only update if we have new messages
       setMessages(prevMessages => {
-        if (chatData.length > prevMessages.length || chatData.length !== prevMessages.length) {
-          return chatData;
-        }
+        if (chatData.length !== prevMessages.length) return chatData;
         return prevMessages;
       });
     } catch (err) {
@@ -159,78 +128,113 @@ export const useSupportDashboard = (): UseSupportDashboardReturn => {
     }
   }, []);
 
-  /**
-   * Select a conversation and load its messages
-   */
   const selectConversation = useCallback(async (account: SupportConversation) => {
     setActiveAccount(account);
     setMessages([]);
     setChatLoading(true);
-    previousMessageCountRef.current = 0; // Reset message count for new conversation
-
-    // Locally clear unread count for immediate UI feedback
+    previousMessageCountRef.current = 0;
     setConversations(prev => prev.map(c =>
       c.accountId === account.accountId ? { ...c, unreadCount: 0 } : c
     ));
-
     try {
-      const data = await apiClient.get<ChatMessage[]>(
-        `/api/billops/support/chat/${account.accountId}`
-      );
+      const data = await apiClient.get<ChatMessage[]>(`/api/billops/support/chat/${account.accountId}`);
       if (isMountedRef.current) {
         const chatData = data || [];
         setMessages(chatData);
-        previousMessageCountRef.current = chatData.length; // Set initial message count
+        previousMessageCountRef.current = chatData.length;
       }
     } catch (err) {
       console.error('Chat Error:', err);
-      if (isMountedRef.current) {
-        setError('Failed to load chat messages.');
-      }
+      if (isMountedRef.current) setError('Failed to load chat messages.');
     } finally {
-      if (isMountedRef.current) {
-        setChatLoading(false);
-      }
+      if (isMountedRef.current) setChatLoading(false);
     }
   }, []);
 
   /**
-   * Send a reply message
+   * Upload a file attachment and return the server-side info
    */
-  const sendReply = useCallback(async (message: string): Promise<boolean> => {
-    if (!activeAccount || !message.trim()) return false;
+  const uploadAttachment = useCallback(async (file: File): Promise<AttachmentInfo | null> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+      // Use apiClient.post which handles FormData correctly (no JSON.stringify)
+      const result = await apiClient.post<AttachmentInfo>('/api/billops/support/upload', formData);
+      return result;
+    } catch (err) {
+      console.error('Upload Error:', err);
+      return null;
+    }
+  }, []);
 
+  /**
+   * Send a reply with optional attachment
+   */
+  const sendReply = useCallback(async (message: string, attachment?: AttachmentInfo): Promise<boolean> => {
+    if (!activeAccount || (!message.trim() && !attachment)) return false;
     setSending(true);
-
     try {
       const payload: ReplyPayload = {
         accountId: activeAccount.accountId,
         message: message.trim(),
+        ...(attachment && {
+          attachmentUrl: attachment.url,
+          attachmentName: attachment.name,
+          attachmentType: attachment.type,
+          attachmentSize: String(attachment.size),
+        }),
       };
-
       await apiClient.post('/api/billops/support/reply', payload);
-
       if (!isMountedRef.current) return true;
-
-      // Refresh chat after sending
       await fetchChat();
       return true;
     } catch (err) {
       console.error('Send Reply Error:', err);
-      if (isMountedRef.current) {
-        setError('Failed to send message. Please try again.');
-      }
+      if (isMountedRef.current) setError('Failed to send message. Please try again.');
       return false;
     } finally {
-      if (isMountedRef.current) {
-        setSending(false);
-      }
+      if (isMountedRef.current) setSending(false);
     }
   }, [activeAccount, fetchChat]);
 
   /**
-   * Filter conversations by search query and provider
+   * Admin starts a brand-new conversation with a cloud account
    */
+  const startConversation = useCallback(async (account: SupportAccount, message: string): Promise<boolean> => {
+    if (!message.trim()) return false;
+    setSending(true);
+    try {
+      const payload: ReplyPayload = {
+        accountId: account.accountId,
+        message: message.trim(),
+        accountName: account.accountName,
+        cloudProvider: account.provider,
+      };
+      await apiClient.post('/api/billops/support/reply', payload);
+      if (!isMountedRef.current) return true;
+
+      // Refresh inbox so the new conversation appears
+      await fetchInbox(true);
+
+      // Auto-select the new conversation
+      const newConv: SupportConversation = {
+        accountId: account.accountId,
+        accountName: account.accountName,
+        provider: account.provider,
+        senderUsername: '',
+        unreadCount: 0,
+      };
+      await selectConversation(newConv);
+      return true;
+    } catch (err: any) {
+      console.error('Start Conversation Error:', err);
+      if (isMountedRef.current) setError(err?.message || 'Failed to start conversation.');
+      return false;
+    } finally {
+      if (isMountedRef.current) setSending(false);
+    }
+  }, [fetchInbox, selectConversation]);
+
   const filteredConversations = useMemo(() => {
     return conversations.filter(conv => {
       const term = searchQuery.toLowerCase();
@@ -243,100 +247,41 @@ export const useSupportDashboard = (): UseSupportDashboardReturn => {
     });
   }, [conversations, searchQuery, providerFilter]);
 
-  /**
-   * Initialize: fetch inbox and set up auto-refresh
-   */
   useEffect(() => {
-    // Initialize notification service (requests permission)
     if (!notificationInitializedRef.current) {
       notificationInitializedRef.current = true;
       initNotificationService();
     }
-
-    // Initial fetch
     fetchInbox();
-
-    // Set up inbox auto-refresh
-    inboxIntervalRef.current = setInterval(() => {
-      fetchInbox(true); // Silent refresh
-    }, INBOX_REFRESH_INTERVAL);
-
-    return () => {
-      if (inboxIntervalRef.current) {
-        clearInterval(inboxIntervalRef.current);
-      }
-    };
+    inboxIntervalRef.current = setInterval(() => fetchInbox(true), INBOX_REFRESH_INTERVAL);
+    return () => { if (inboxIntervalRef.current) clearInterval(inboxIntervalRef.current); };
   }, [fetchInbox]);
 
-  /**
-   * Set up chat auto-refresh when active account changes
-   */
   useEffect(() => {
-    // Clear existing interval
-    if (chatIntervalRef.current) {
-      clearInterval(chatIntervalRef.current);
-      chatIntervalRef.current = null;
-    }
-
-    // Set up new interval if there's an active account
+    if (chatIntervalRef.current) { clearInterval(chatIntervalRef.current); chatIntervalRef.current = null; }
     if (activeAccount) {
-      chatIntervalRef.current = setInterval(() => {
-        fetchChat();
-      }, CHAT_REFRESH_INTERVAL);
+      chatIntervalRef.current = setInterval(() => fetchChat(), CHAT_REFRESH_INTERVAL);
     }
-
-    return () => {
-      if (chatIntervalRef.current) {
-        clearInterval(chatIntervalRef.current);
-      }
-    };
+    return () => { if (chatIntervalRef.current) clearInterval(chatIntervalRef.current); };
   }, [activeAccount, fetchChat]);
 
-  /**
-   * Listen for new customer message events from the global AdminSupportNotificationListener
-   */
   useEffect(() => {
     const handleNewCustomerMessage = (event: CustomEvent) => {
-      // Refresh inbox to update unread counts
       fetchInbox(true);
-
-      // If we have an active conversation with this customer, refresh chat
       const { accountId } = event.detail;
-      if (activeAccountRef.current?.accountId === accountId) {
-        fetchChat();
-      }
+      if (activeAccountRef.current?.accountId === accountId) fetchChat();
     };
-
     window.addEventListener('newCustomerMessage', handleNewCustomerMessage as EventListener);
-    return () => {
-      window.removeEventListener('newCustomerMessage', handleNewCustomerMessage as EventListener);
-    };
+    return () => window.removeEventListener('newCustomerMessage', handleNewCustomerMessage as EventListener);
   }, [fetchInbox, fetchChat]);
 
   return {
-    // Data
-    conversations,
-    filteredConversations,
-    messages,
-    activeAccount,
-
-    // State
-    loading,
-    chatLoading,
-    sending,
-    error,
-
-    // Filters
-    searchQuery,
-    providerFilter,
-
-    // Actions
-    setSearchQuery,
-    setProviderFilter,
-    selectConversation,
-    sendReply,
-    refreshInbox: fetchInbox,
-    refreshChat: fetchChat,
+    conversations, filteredConversations, messages, activeAccount, accounts,
+    loading, chatLoading, sending, loadingAccounts, error,
+    searchQuery, providerFilter,
+    setSearchQuery, setProviderFilter, selectConversation,
+    sendReply, startConversation, uploadAttachment,
+    refreshInbox: fetchInbox, refreshChat: fetchChat, fetchAccounts,
   };
 };
 

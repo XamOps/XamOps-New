@@ -20,6 +20,11 @@ export interface BillOpsTicket {
   accountId?: string;
   createdAt: string;
   updatedAt?: string;
+  closedAt?: string;
+  chatStartedAt?: string;
+  assignedToId?: number;
+  assignedToUsername?: string;
+  creatorUsername?: string;
 }
 
 export interface CreateTicketFormData {
@@ -67,6 +72,12 @@ export interface TicketReply {
   attachmentUrl?: string;
   attachmentName?: string;
   attachmentType?: string;
+  isInternal?: boolean;
+}
+
+export interface AdminUser {
+  id: number;
+  username: string;
 }
 
 /**

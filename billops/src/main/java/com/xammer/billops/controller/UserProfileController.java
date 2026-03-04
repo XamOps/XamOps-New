@@ -1,8 +1,11 @@
 package com.xammer.billops.controller;
 
-// ✅ CHANGE THIS IMPORT
-import com.xammer.cloud.security.ClientUserDetails; 
+import com.xammer.billops.repository.AppUserRepository;
+import com.xammer.billops.repository.UserTabAccessRepository;
+import com.xammer.cloud.domain.AppUser;
+import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.billops.dto.UserProfileDto;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
@@ -18,6 +21,12 @@ import java.util.stream.Collectors;
 @RequestMapping("/api/billops")
 public class UserProfileController {
 
+    @Autowired
+    private AppUserRepository appUserRepository;
+
+    @Autowired
+    private UserTabAccessRepository userTabAccessRepository;
+
     @GetMapping("/profile")
     public ResponseEntity<UserProfileDto> getUserProfile() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
@@ -32,15 +41,24 @@ public class UserProfileController {
                 .collect(Collectors.toList());
 
         UserProfileDto userProfile = new UserProfileDto(username, roles);
-        
-        // --- START: DYNAMIC ID FIX ---
-        // ✅ CHANGE THE CHECK TO ClientUserDetails
+
         Object principal = authentication.getPrincipal();
         if (principal instanceof ClientUserDetails) {
-            userProfile.setId(((ClientUserDetails) principal).getId());
-        } 
-        // --- END: DYNAMIC ID FIX ---
-        
+            Long userId = ((ClientUserDetails) principal).getId();
+            userProfile.setId(userId);
+
+            appUserRepository.findById(userId).ifPresent(user -> {
+                boolean isPrimary = user.getCreatedBy() == null;
+                userProfile.setPrimaryUser(isPrimary);
+
+                // For ROLE_BILLOPS_ADMIN sub-users, return their allowed tabs
+                if (!isPrimary && roles.contains("ROLE_BILLOPS_ADMIN")) {
+                    List<String> tabs = userTabAccessRepository.findTabNamesByUserId(userId);
+                    userProfile.setAllowedTabs(tabs);
+                }
+            });
+        }
+
         return ResponseEntity.ok(userProfile);
     }
 }

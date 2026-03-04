@@ -1,5 +1,7 @@
 package com.xammer.billops.controller;
 
+import com.xammer.billops.dto.AdminUserDto;
+import com.xammer.billops.dto.AssignTicketRequest;
 import com.xammer.billops.dto.RcaRequestDto;
 import com.xammer.billops.dto.TicketDto;
 import com.xammer.billops.dto.TicketReplyDto;
@@ -17,6 +19,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/billops")
@@ -68,13 +71,37 @@ public class TicketController {
     }
 
     @GetMapping("/tickets/{id}")
-    public ResponseEntity<TicketDto> getTicketById(@PathVariable Long id) {
+    public ResponseEntity<TicketDto> getTicketById(@PathVariable Long id, Authentication authentication) {
         try {
-            return ResponseEntity.ok(ticketService.getTicketById(id));
+            boolean isAdmin = authentication != null &&
+                    authentication.getAuthorities().stream()
+                            .anyMatch(a -> a.getAuthority().equals("ROLE_BILLOPS_ADMIN"));
+            return ResponseEntity.ok(ticketService.getTicketById(id, isAdmin));
         } catch (RuntimeException e) {
             logger.warn("Ticket not found for ID: {}", id);
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         }
+    }
+
+    @PostMapping("/tickets/{id}/assign")
+    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
+    public ResponseEntity<Void> assignTicket(@PathVariable Long id, @RequestBody AssignTicketRequest req) {
+        try {
+            ticketService.assignTicket(id, req.getAssignedToId(), req.getAssignedToUsername());
+            return ResponseEntity.ok().build();
+        } catch (RuntimeException e) {
+            logger.error("Error assigning ticket {}: {}", id, e.getMessage());
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        }
+    }
+
+    @GetMapping("/admins")
+    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
+    public ResponseEntity<List<AdminUserDto>> getAdmins() {
+        List<AdminUserDto> admins = ticketService.getAdminUsers().stream()
+                .map(u -> new AdminUserDto(u.getId(), u.getUsername()))
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(admins);
     }
 
     // --- NEW ENDPOINT: GENERATE AND SUBMIT RCA ---
@@ -110,6 +137,7 @@ public class TicketController {
             @PathVariable Long id,
             @RequestParam(value = "message", required = false) String message,
             @RequestParam(value = "file", required = false) MultipartFile file,
+            @RequestParam(value = "isInternal", required = false, defaultValue = "false") boolean isInternal,
             Authentication authentication) {
         try {
             if (authentication == null || !authentication.isAuthenticated()
@@ -117,14 +145,18 @@ public class TicketController {
                 return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
             }
 
+            // Only admins can post internal notes
+            boolean isAdmin = authentication.getAuthorities().stream()
+                    .anyMatch(a -> a.getAuthority().equals("ROLE_BILLOPS_ADMIN"));
+
             String username = authentication.getName();
 
             TicketReplyDto replyDto = new TicketReplyDto();
             replyDto.setAuthorUsername(username);
 
-            // CHANGE 2: Handle null message gracefully
             String safeMessage = (message != null) ? message : "";
             replyDto.setMessage(safeMessage);
+            replyDto.setInternal(isInternal && isAdmin);
 
             if (authentication.getPrincipal() instanceof ClientUserDetails) {
                 replyDto.setAuthorId(((ClientUserDetails) authentication.getPrincipal()).getId());

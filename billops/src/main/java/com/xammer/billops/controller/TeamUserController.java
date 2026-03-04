@@ -36,7 +36,7 @@ public class TeamUserController {
     }
 
     @GetMapping("/users")
-    @PreAuthorize("hasAuthority('ROLE_BILLOPS')")
+    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS', 'ROLE_BILLOPS_ADMIN')")
     public ResponseEntity<List<TeamUserDTO>> getMyTeamUsers() {
         try {
             List<TeamUserDTO> users = teamUserService.getMyTeamUsers();
@@ -47,7 +47,7 @@ public class TeamUserController {
     }
 
     @PostMapping("/users")
-    @PreAuthorize("hasAuthority('ROLE_BILLOPS')")
+    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS', 'ROLE_BILLOPS_ADMIN')")
     public ResponseEntity<?> createTeamUser(@RequestBody TeamUserDTO dto) {
         try {
             TeamUserDTO created = teamUserService.createTeamUser(dto);
@@ -58,7 +58,7 @@ public class TeamUserController {
     }
 
     @PutMapping("/users/{id}")
-    @PreAuthorize("hasAuthority('ROLE_BILLOPS')")
+    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS', 'ROLE_BILLOPS_ADMIN')")
     public ResponseEntity<?> updateTeamUser(@PathVariable Long id, @RequestBody TeamUserDTO dto) {
         try {
             TeamUserDTO updated = teamUserService.updateTeamUser(id, dto);
@@ -69,7 +69,7 @@ public class TeamUserController {
     }
 
     @DeleteMapping("/users/{id}")
-    @PreAuthorize("hasAuthority('ROLE_BILLOPS')")
+    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS', 'ROLE_BILLOPS_ADMIN')")
     public ResponseEntity<?> deleteTeamUser(@PathVariable Long id) {
         try {
             teamUserService.deleteTeamUser(id);

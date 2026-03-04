@@ -2,11 +2,13 @@ package com.xammer.billops.service;
 
 import com.xammer.billops.domain.CloudAccount;
 import com.xammer.billops.domain.UserCloudAccountAccess;
+import com.xammer.billops.domain.UserTabAccess;
 import com.xammer.billops.dto.ProfileDTO;
 import com.xammer.billops.dto.TeamUserDTO;
 import com.xammer.billops.repository.AppUserRepository;
 import com.xammer.billops.repository.CloudAccountRepository;
 import com.xammer.billops.repository.UserCloudAccountAccessRepository;
+import com.xammer.billops.repository.UserTabAccessRepository;
 import com.xammer.billops.util.SecurityUtils;
 import com.xammer.cloud.domain.AppUser;
 import com.xammer.billops.config.multitenancy.TenantContext;
@@ -37,6 +39,9 @@ public class TeamUserService {
 
     @Autowired
     private UserCloudAccountAccessRepository userCloudAccountAccessRepository;
+
+    @Autowired
+    private UserTabAccessRepository userTabAccessRepository;
 
     @Autowired
     private BCryptPasswordEncoder passwordEncoder;
@@ -101,6 +106,12 @@ public class TeamUserService {
             log.info("Returning {} cloud accounts in profile", accountInfos.size());
         }
 
+        // For ROLE_BILLOPS_ADMIN sub-users, include allowed tabs
+        if (currentUser.getCreatedBy() != null && "ROLE_BILLOPS_ADMIN".equals(currentUser.getRole())) {
+            List<String> tabs = userTabAccessRepository.findTabNamesByUserId(currentUserId);
+            profile.setAllowedTabs(tabs);
+        }
+
         return profile;
     }
 
@@ -135,6 +146,12 @@ public class TeamUserService {
                                         acc.getProvider()))
                                 .collect(Collectors.toList());
                         dto.setCloudAccounts(accountInfos);
+                    }
+
+                    // Get allowed tabs for ROLE_BILLOPS_ADMIN sub-users
+                    if ("ROLE_BILLOPS_ADMIN".equals(user.getRole())) {
+                        List<String> tabs = userTabAccessRepository.findTabNamesByUserId(user.getId());
+                        dto.setAllowedTabs(tabs);
                     }
 
                     return dto;
@@ -190,6 +207,13 @@ public class TeamUserService {
             }
         }
 
+        // Assign tab access for ROLE_BILLOPS_ADMIN sub-users
+        if ("ROLE_BILLOPS_ADMIN".equals(saved.getRole()) && dto.getAllowedTabs() != null && !dto.getAllowedTabs().isEmpty()) {
+            for (String tabName : dto.getAllowedTabs()) {
+                userTabAccessRepository.save(new UserTabAccess(saved, tabName));
+            }
+        }
+
         // Send welcome email with credentials
         try {
             sendWelcomeEmail(saved.getEmail(), dto.getUsername(), dto.getPassword(), currentUser.getUsername());
@@ -205,6 +229,7 @@ public class TeamUserService {
         result.setEmail(saved.getEmail());
         result.setRole(saved.getRole());
         result.setAccountIds(dto.getAccountIds());
+        result.setAllowedTabs(dto.getAllowedTabs());
         return result;
     }
 
@@ -262,12 +287,24 @@ public class TeamUserService {
             }
         }
 
+        // Update tab access for ROLE_BILLOPS_ADMIN sub-users
+        if ("ROLE_BILLOPS_ADMIN".equals(saved.getRole())) {
+            userTabAccessRepository.deleteByUserId(userId);
+            entityManager.flush();
+            if (dto.getAllowedTabs() != null && !dto.getAllowedTabs().isEmpty()) {
+                for (String tabName : dto.getAllowedTabs()) {
+                    userTabAccessRepository.save(new UserTabAccess(saved, tabName));
+                }
+            }
+        }
+
         TeamUserDTO result = new TeamUserDTO();
         result.setId(saved.getId());
         result.setUsername(saved.getUsername());
         result.setEmail(saved.getEmail());
         result.setRole(saved.getRole());
         result.setAccountIds(dto.getAccountIds());
+        result.setAllowedTabs(dto.getAllowedTabs());
         return result;
     }
 
@@ -292,6 +329,9 @@ public class TeamUserService {
 
         // Delete account access first
         userCloudAccountAccessRepository.deleteByUserId(userId);
+
+        // Delete tab access
+        userTabAccessRepository.deleteByUserId(userId);
 
         // Then delete the user
         appUserRepository.delete(userToDelete);

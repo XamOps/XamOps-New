@@ -112,7 +112,7 @@ public class TicketService {
         // 5. Evict Cache (Includes the specific category)
         evictTicketCaches(savedTicket.getCategory());
 
-        return convertToDto(savedTicket);
+        return convertToDto(savedTicket, true);
     }
 
     /**
@@ -144,9 +144,10 @@ public class TicketService {
 
         logger.debug("Fetching FRESH all tickets and updating cache for tenant: {}", cacheKey);
         long now = System.currentTimeMillis();
-        List<TicketDto> freshData = ticketRepository.findAllWithRepliesAndAuthors().stream()
+        // Use lightweight query — no reply joins needed for the admin list view
+        List<TicketDto> freshData = ticketRepository.findAllForAdminList().stream()
                 .map(t -> {
-                    TicketDto dto = this.convertToDto(t);
+                    TicketDto dto = this.convertToListDto(t);
                     dto.setLastUpdated(now);
                     return dto;
                 })
@@ -157,12 +158,12 @@ public class TicketService {
     }
 
     @Transactional(readOnly = true)
-    public TicketDto getTicketById(Long ticketId) {
+    public TicketDto getTicketById(Long ticketId, boolean isAdmin) {
         Ticket ticket = ticketRepository.findByIdWithRepliesAndAuthors(ticketId);
         if (ticket == null) {
             throw new RuntimeException("Ticket not found");
         }
-        return convertToDto(ticket);
+        return convertToDto(ticket, isAdmin);
     }
 
     /**
@@ -185,7 +186,7 @@ public class TicketService {
         long now = System.currentTimeMillis();
         List<TicketDto> freshData = ticketRepository.findAllByCategoryWithRepliesAndAuthors(category).stream()
                 .map(t -> {
-                    TicketDto dto = this.convertToDto(t);
+                    TicketDto dto = this.convertToDto(t, false);
                     dto.setLastUpdated(now);
                     return dto;
                 })
@@ -236,47 +237,58 @@ public class TicketService {
             }
         }
 
+        reply.setInternal(replyDto.isInternal());
+
         ticket.getReplies().add(reply);
+
+        // Track when the first reply (chat start) is made
+        if (ticket.getChatStartedAt() == null) {
+            ticket.setChatStartedAt(java.time.LocalDateTime.now());
+        }
+
         ticket.setStatus("IN_PROGRESS");
 
         Ticket updatedTicket = ticketRepository.save(ticket);
 
-        try {
-            User ticketCreator = ticket.getCreator();
-            String subject = String.format("New Reply on Ticket [ID: %d]: %s", ticket.getId(), ticket.getSubject());
+        // Skip email notifications for internal admin notes
+        if (!replyDto.isInternal()) {
+            try {
+                User ticketCreator = ticket.getCreator();
+                String subject = String.format("New Reply on Ticket [ID: %d]: %s", ticket.getId(), ticket.getSubject());
 
-            String displayMessage = (reply.getMessage() == null || reply.getMessage().isBlank())
-                    ? "(Attachment only)"
-                    : reply.getMessage();
+                String displayMessage = (reply.getMessage() == null || reply.getMessage().isBlank())
+                        ? "(Attachment only)"
+                        : reply.getMessage();
 
-            String text = String.format(
-                    "%s has replied to ticket %d:\n\n---\n%s\n---",
-                    author.getUsername(),
-                    ticket.getId(),
-                    displayMessage);
+                String text = String.format(
+                        "%s has replied to ticket %d:\n\n---\n%s\n---",
+                        author.getUsername(),
+                        ticket.getId(),
+                        displayMessage);
 
-            if (reply.getAttachmentName() != null) {
-                text += "\n\n[Attachment: " + reply.getAttachmentName() + "]";
-            }
-
-            boolean isAdminReply = author.getRole() != null && (author.getRole().contains("ADMIN"));
-            if (isAdminReply) {
-                if (ticketCreator != null && ticketCreator.getEmail() != null) {
-                    emailService.sendSimpleMessage(ticketCreator.getEmail(), subject, text);
+                if (reply.getAttachmentName() != null) {
+                    text += "\n\n[Attachment: " + reply.getAttachmentName() + "]";
                 }
-            } else {
-                String adminEmail = "Account and Billing".equalsIgnoreCase(ticket.getCategory()) ? ADMIN_BILLING_EMAIL
-                        : ADMIN_TECHNICAL_EMAIL;
-                emailService.sendSimpleMessage(adminEmail, subject, text);
+
+                boolean isAdminReply = author.getRole() != null && (author.getRole().contains("ADMIN"));
+                if (isAdminReply) {
+                    if (ticketCreator != null && ticketCreator.getEmail() != null) {
+                        emailService.sendSimpleMessage(ticketCreator.getEmail(), subject, text);
+                    }
+                } else {
+                    String adminEmail = "Account and Billing".equalsIgnoreCase(ticket.getCategory()) ? ADMIN_BILLING_EMAIL
+                            : ADMIN_TECHNICAL_EMAIL;
+                    emailService.sendSimpleMessage(adminEmail, subject, text);
+                }
+            } catch (Exception e) {
+                logger.error("Failed to send reply notification email for ticket {}", ticket.getId(), e);
             }
-        } catch (Exception e) {
-            logger.error("Failed to send reply notification email for ticket {}", ticket.getId(), e);
         }
 
         // Evict Cache for this specific category + Admin list
         evictTicketCaches(updatedTicket.getCategory());
 
-        return convertToDto(updatedTicket);
+        return convertToDto(updatedTicket, true);
     }
 
     @Transactional
@@ -285,12 +297,31 @@ public class TicketService {
                 .orElseThrow(() -> new RuntimeException("Ticket not found"));
 
         ticket.setStatus("CLOSED");
+        ticket.setClosedAt(java.time.LocalDateTime.now());
         Ticket updatedTicket = ticketRepository.save(ticket);
 
         // Evict Cache for this specific category + Admin list
         evictTicketCaches(updatedTicket.getCategory());
 
-        return convertToDto(updatedTicket);
+        return convertToDto(updatedTicket, true);
+    }
+
+    @Transactional
+    public void assignTicket(Long ticketId, Long adminId, String adminUsername) {
+        Ticket ticket = ticketRepository.findById(ticketId)
+                .orElseThrow(() -> new RuntimeException("Ticket not found"));
+
+        ticket.setAssignedToId(adminId);
+        ticket.setAssignedToUsername(adminUsername);
+        ticketRepository.save(ticket);
+
+        evictTicketCaches(ticket.getCategory());
+    }
+
+    public List<User> getAdminUsers() {
+        return userRepository.findAll().stream()
+                .filter(u -> u.getRole() != null && u.getRole().contains("ROLE_BILLOPS_ADMIN"))
+                .collect(Collectors.toList());
     }
 
     /**
@@ -494,7 +525,8 @@ public class TicketService {
                 .replace("'", "&#39;");
     }
 
-    private TicketDto convertToDto(Ticket ticket) {
+    /** Lightweight conversion for list views — does NOT access replies (avoids N+1) */
+    private TicketDto convertToListDto(Ticket ticket) {
         TicketDto dto = new TicketDto();
         dto.setId(ticket.getId());
         dto.setSubject(ticket.getSubject());
@@ -506,16 +538,49 @@ public class TicketService {
         dto.setSeverity(ticket.getSeverity());
         dto.setAccountId(ticket.getAccountId());
         dto.setRegion(ticket.getRegion());
+        dto.setClosedAt(ticket.getClosedAt());
+        dto.setChatStartedAt(ticket.getChatStartedAt());
+        dto.setAssignedToId(ticket.getAssignedToId());
+        dto.setAssignedToUsername(ticket.getAssignedToUsername());
+        if (ticket.getClient() != null) {
+            dto.setClientId(ticket.getClient().getId());
+        }
+        if (ticket.getCreator() != null) {
+            dto.setCreatorId(ticket.getCreator().getId());
+            dto.setCreatorUsername(ticket.getCreator().getUsername());
+        }
+        // Replies intentionally omitted for list view performance
+        return dto;
+    }
+
+    private TicketDto convertToDto(Ticket ticket, boolean isAdmin) {
+        TicketDto dto = new TicketDto();
+        dto.setId(ticket.getId());
+        dto.setSubject(ticket.getSubject());
+        dto.setDescription(ticket.getDescription());
+        dto.setStatus(ticket.getStatus());
+        dto.setCreatedAt(ticket.getCreatedAt());
+        dto.setCategory(ticket.getCategory());
+        dto.setService(ticket.getService());
+        dto.setSeverity(ticket.getSeverity());
+        dto.setAccountId(ticket.getAccountId());
+        dto.setRegion(ticket.getRegion());
+        dto.setClosedAt(ticket.getClosedAt());
+        dto.setChatStartedAt(ticket.getChatStartedAt());
+        dto.setAssignedToId(ticket.getAssignedToId());
+        dto.setAssignedToUsername(ticket.getAssignedToUsername());
 
         if (ticket.getClient() != null) {
             dto.setClientId(ticket.getClient().getId());
         }
         if (ticket.getCreator() != null) {
             dto.setCreatorId(ticket.getCreator().getId());
+            dto.setCreatorUsername(ticket.getCreator().getUsername());
         }
 
         if (ticket.getReplies() != null) {
             dto.setReplies(ticket.getReplies().stream()
+                    .filter(reply -> isAdmin || !reply.isInternal()) // Non-admins never see internal notes
                     .map(this::convertReplyToDto)
                     .sorted(Comparator.comparing(TicketReplyDto::getCreatedAt))
                     .collect(Collectors.toList()));
@@ -530,6 +595,7 @@ public class TicketService {
         dto.setTicketId(reply.getTicket().getId());
         dto.setMessage(reply.getMessage());
         dto.setCreatedAt(reply.getCreatedAt());
+        dto.setInternal(reply.isInternal());
         if (reply.getAuthor() != null) {
             dto.setAuthorId(reply.getAuthor().getId());
             dto.setAuthorUsername(reply.getAuthor().getUsername());

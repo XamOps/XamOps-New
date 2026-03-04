@@ -24,6 +24,12 @@ public class TicketDto {
     private List<TicketReplyDto> replies;
 
     private Long creatorId;
+    private String creatorUsername;
+
+    private LocalDateTime closedAt;
+    private LocalDateTime chatStartedAt;
+    private Long assignedToId;
+    private String assignedToUsername;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -53,4 +59,14 @@ public class TicketDto {
     public void setReplies(List<TicketReplyDto> replies) { this.replies = replies; }
     public Long getCreatorId() { return creatorId; }
     public void setCreatorId(Long creatorId) { this.creatorId = creatorId; }
+    public String getCreatorUsername() { return creatorUsername; }
+    public void setCreatorUsername(String creatorUsername) { this.creatorUsername = creatorUsername; }
+    public LocalDateTime getClosedAt() { return closedAt; }
+    public void setClosedAt(LocalDateTime closedAt) { this.closedAt = closedAt; }
+    public LocalDateTime getChatStartedAt() { return chatStartedAt; }
+    public void setChatStartedAt(LocalDateTime chatStartedAt) { this.chatStartedAt = chatStartedAt; }
+    public Long getAssignedToId() { return assignedToId; }
+    public void setAssignedToId(Long assignedToId) { this.assignedToId = assignedToId; }
+    public String getAssignedToUsername() { return assignedToUsername; }
+    public void setAssignedToUsername(String assignedToUsername) { this.assignedToUsername = assignedToUsername; }
 }
