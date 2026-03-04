@@ -5,25 +5,11 @@
  * Enhanced for a professional, modern UI
  */
 
-/* CSS Variables - Light Theme (Default) */
-:root {
-  --admin-invoices-page-bg: #f9fafb;
-  --admin-invoices-header-bg: rgba(255, 255, 255, 0.95);
-  --admin-invoices-text-primary: #111827;
-}
-
-/* CSS Variables - Dark Theme */
-html.dark {
-  --admin-invoices-page-bg: #1a1d2e;
-  --admin-invoices-header-bg: rgba(26, 29, 46, 0.95);
-  --admin-invoices-text-primary: #f1f5f9;
-}
-
 /* Page Container */
 .admin-invoices-page {
   min-height: 100vh;
-  background: var(--admin-invoices-page-bg);
-  color: var(--admin-invoices-text-primary);
+  background: transparent;
+  color: #1e293b;
 }
 
 /* Header */
@@ -53,10 +39,10 @@ html.dark {
   }
 }
 
-/* Skeleton Loading - Dark Theme */
+/* Skeleton Loading */
 .invoice-skeleton-pulse {
   animation: invoicePulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-  background-color: rgba(99, 102, 241, 0.1);
+  background-color: #e2e8f0;
   border-radius: 4px;
 }
 
@@ -165,27 +151,27 @@ html.dark {
   cursor: not-allowed;
 }
 
-/* Glass Card - Dark Theme */
+/* Glass Card */
 .invoice-glass-card {
-  background: rgba(26, 29, 46, 0.8);
+  background: rgba(255, 255, 255, 0.8);
   backdrop-filter: blur(10px);
-  border: 1px solid rgba(99, 102, 241, 0.1);
-  box-shadow: 0 8px 32px rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(226, 232, 240, 0.6);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.04);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   border-radius: 12px;
 }
 
 .invoice-glass-card:hover {
-  box-shadow: 0 20px 25px -5px rgba(99, 102, 241, 0.25);
-  border-color: rgba(99, 102, 241, 0.2);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+  border-color: rgba(203, 213, 225, 0.8);
 }
 
-/* Generate Form Card - Dark Theme */
+/* Generate Form Card */
 .invoice-generate-card {
-  background: rgba(26, 29, 46, 0.6);
-  border: 1px solid rgba(99, 102, 241, 0.15);
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(226, 232, 240, 0.6);
   border-radius: 12px;
-  box-shadow: 0 4px 6px -1px rgba(99, 102, 241, 0.2);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
 .invoice-generate-card .card-title {
@@ -194,22 +180,22 @@ html.dark {
   gap: 8px;
   font-size: 1.125rem;
   font-weight: 600;
-  color: #f1f5f9;
+  color: #1e293b;
   padding-bottom: 12px;
-  border-bottom: 1px solid rgba(99, 102, 241, 0.15);
+  border-bottom: 1px solid #e2e8f0;
   margin-bottom: 16px;
 }
 
 .invoice-generate-card .card-title i {
-  color: #818cf8;
+  color: #6366f1;
 }
 
-/* Form Inputs - Dark Theme */
+/* Form Inputs */
 .invoice-form-label {
   display: block;
   font-size: 0.75rem;
   font-weight: 700;
-  color: #94a3b8;
+  color: #64748b;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   margin-bottom: 4px;
@@ -219,31 +205,31 @@ html.dark {
   display: block;
   width: 100%;
   padding: 10px 12px;
-  border: 1px solid rgba(99, 102, 241, 0.2);
+  border: 1px solid #e2e8f0;
   border-radius: 8px;
   font-size: 0.875rem;
-  background: rgba(99, 102, 241, 0.05);
-  color: #e2e8f0;
+  background: #ffffff;
+  color: #1e293b;
   transition: all 0.2s ease;
 }
 
 .invoice-form-input:focus {
   outline: none;
-  border-color: #818cf8;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
-  background: rgba(99, 102, 241, 0.08);
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+  background: #ffffff;
 }
 
 .invoice-form-input:disabled {
-  background: rgba(99, 102, 241, 0.05);
-  color: #64748b;
+  background: #f8fafc;
+  color: #94a3b8;
   cursor: not-allowed;
 }
 
 .invoice-readonly-input {
-  background: rgba(99, 102, 241, 0.05);
-  color: #64748b;
-  border: 1px solid rgba(99, 102, 241, 0.15);
+  background: #f8fafc;
+  color: #94a3b8;
+  border: 1px solid #e2e8f0;
 }
 
 /* Generate Button */
@@ -389,12 +375,12 @@ html.dark {
   cursor: not-allowed;
 }
 
-/* Table Styles - Dark Theme */
+/* Table Styles */
 .invoice-table-container {
   overflow: hidden;
   border-radius: 12px;
-  border: 1px solid rgba(99, 102, 241, 0.15);
-  background: rgba(26, 29, 46, 0.6);
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
 }
 
 .invoice-table {
@@ -403,7 +389,7 @@ html.dark {
 }
 
 .invoice-table thead {
-  background: rgba(99, 102, 241, 0.08);
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
 }
 
 .invoice-table th {
@@ -411,10 +397,10 @@ html.dark {
   text-align: left;
   font-size: 0.75rem;
   font-weight: 600;
-  color: #94a3b8;
+  color: #64748b;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  border-bottom: 2px solid rgba(99, 102, 241, 0.2);
+  border-bottom: 2px solid #e2e8f0;
 }
 
 .invoice-table th:first-child {
@@ -428,7 +414,7 @@ html.dark {
 
 .invoice-table tbody tr {
   transition: all 0.2s ease;
-  border-bottom: 1px solid rgba(99, 102, 241, 0.1);
+  border-bottom: 1px solid #f1f5f9;
 }
 
 .invoice-table tbody tr:last-child {
@@ -436,17 +422,17 @@ html.dark {
 }
 
 .invoice-table tbody tr:hover {
-  background: rgba(99, 102, 241, 0.08);
+  background: rgba(99, 102, 241, 0.03);
 }
 
 .invoice-table tbody tr.selected {
-  background: rgba(99, 102, 241, 0.15);
+  background: rgba(99, 102, 241, 0.06);
 }
 
 .invoice-table td {
   padding: 16px 20px;
   font-size: 0.875rem;
-  color: #cbd5e1;
+  color: #374151;
   vertical-align: middle;
 }
 
@@ -458,54 +444,54 @@ html.dark {
   text-align: right;
 }
 
-/* Invoice Number Link - Dark Theme */
+/* Invoice Number Link */
 .invoice-number-link {
-  color: #818cf8;
+  color: #6366f1;
   font-weight: 600;
   text-decoration: none;
   transition: all 0.2s ease;
 }
 
 .invoice-number-link:hover {
-  color: #a78bfa;
+  color: #4f46e5;
   text-decoration: underline;
 }
 
-/* Account Cell - Dark Theme */
+/* Account Cell */
 .invoice-account-name {
   font-weight: 500;
-  color: #f1f5f9;
+  color: #1e293b;
 }
 
 .invoice-account-id {
   font-size: 0.75rem;
-  color: #64748b;
+  color: #94a3b8;
   margin-top: 2px;
 }
 
-/* Period Badge - Dark Theme */
+/* Period Badge */
 .invoice-period-badge {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   padding: 6px 12px;
-  background: rgba(99, 102, 241, 0.1);
-  border: 1px solid rgba(99, 102, 241, 0.2);
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
   border-radius: 6px;
   font-size: 0.875rem;
-  color: #cbd5e1;
+  color: #475569;
 }
 
 .invoice-period-badge i {
-  color: #64748b;
+  color: #94a3b8;
 }
 
-/* Amount - Dark Theme */
+/* Amount */
 .invoice-amount {
   font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Mono', 'Droid Sans Mono', monospace;
   font-weight: 700;
   font-size: 0.9375rem;
-  color: #f1f5f9;
+  color: #1e293b;
 }
 
 /* Actions */
@@ -642,23 +628,23 @@ html.dark {
   }
 }
 
-/* Scrollbar - Dark Theme */
+/* Scrollbar */
 .admin-invoices-scrollbar::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
 .admin-invoices-scrollbar::-webkit-scrollbar-track {
-  background: rgba(99, 102, 241, 0.05);
+  background: #f1f5f9;
 }
 
 .admin-invoices-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(99, 102, 241, 0.2);
+  background: #cbd5e1;
   border-radius: 3px;
 }
 
 .admin-invoices-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(99, 102, 241, 0.4);
+  background: #94a3b8;
 }
 
 /* Fade In Animation */

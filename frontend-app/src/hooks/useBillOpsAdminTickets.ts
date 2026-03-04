@@ -7,7 +7,7 @@
  * Converted from: billops/admin_tickets.html
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   AdminTicket,
   AdminTicketCacheData,
@@ -15,6 +15,22 @@ import {
 } from '../types/billopsAdminTickets';
 
 const CACHE_KEY = 'xamops_admin_tickets_v1';
+
+export interface TicketFilters {
+  statuses: string[];       // [] = all, or ['OPEN', 'IN_PROGRESS', 'CLOSED']
+  severities: string[];     // [] = all, or ['Critical', 'High', ...]
+  dateFrom: string;         // '' or ISO date string
+  dateTo: string;           // '' or ISO date string
+  assignee: string;         // '' = all, or specific username
+}
+
+const DEFAULT_FILTERS: TicketFilters = {
+  statuses: [],
+  severities: [],
+  dateFrom: '',
+  dateTo: '',
+  assignee: ''
+};
 
 interface UseBillOpsAdminTicketsReturn {
   tickets: AdminTicket[];
@@ -27,8 +43,12 @@ interface UseBillOpsAdminTicketsReturn {
   hasData: boolean;
   activeTab: AdminTicketTab;
   search: string;
+  filters: TicketFilters;
+  activeFilterCount: number;
   setActiveTab: (tab: AdminTicketTab) => void;
   setSearch: (search: string) => void;
+  setFilters: (filters: TicketFilters) => void;
+  clearFilters: () => void;
   fetchTickets: (forceRefresh?: boolean) => Promise<void>;
   getCategoryCount: (category: AdminTicketTab) => number;
 }
@@ -41,8 +61,24 @@ export const useBillOpsAdminTickets = (): UseBillOpsAdminTicketsReturn => {
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<AdminTicketTab>('Account and Billing');
   const [search, setSearch] = useState('');
+  const [filters, setFilters] = useState<TicketFilters>(DEFAULT_FILTERS);
 
   const hasData = tickets.length > 0;
+
+  // Ref to always read the latest hasData inside callbacks without stale closures
+  const hasDataRef = useRef(hasData);
+  hasDataRef.current = hasData;
+
+  const clearFilters = useCallback(() => setFilters(DEFAULT_FILTERS), []);
+
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (filters.statuses.length > 0) count++;
+    if (filters.severities.length > 0) count++;
+    if (filters.dateFrom || filters.dateTo) count++;
+    if (filters.assignee) count++;
+    return count;
+  }, [filters]);
 
   /**
    * Format last updated timestamp for display
@@ -59,7 +95,7 @@ export const useBillOpsAdminTickets = (): UseBillOpsAdminTicketsReturn => {
   }, [lastUpdated]);
 
   /**
-   * Filter tickets based on active tab and search query
+   * Filter tickets based on active tab, search query, and advanced filters
    */
   const filteredTickets = useMemo(() => {
     let result = tickets;
@@ -75,14 +111,41 @@ export const useBillOpsAdminTickets = (): UseBillOpsAdminTicketsReturn => {
       result = result.filter(t =>
         (t.subject && t.subject.toLowerCase().includes(q)) ||
         (t.id && t.id.toString().includes(q)) ||
-        (t.accountId && t.accountId.toString().includes(q)) ||
+        (t.accountId && t.accountId.toString().toLowerCase().includes(q)) ||
         (t.creatorId && t.creatorId.toString().includes(q)) ||
-        (t.status && t.status.toLowerCase().includes(q))
+        (t.creatorUsername && t.creatorUsername.toLowerCase().includes(q)) ||
+        (t.status && t.status.toLowerCase().includes(q)) ||
+        (t.assignedToUsername && t.assignedToUsername.toLowerCase().includes(q))
       );
     }
 
+    // Filter by status
+    if (filters.statuses.length > 0) {
+      result = result.filter(t => filters.statuses.includes(t.status));
+    }
+
+    // Filter by severity
+    if (filters.severities.length > 0) {
+      result = result.filter(t => filters.severities.includes(t.severity));
+    }
+
+    // Filter by date range (createdAt)
+    if (filters.dateFrom) {
+      const from = new Date(filters.dateFrom).getTime();
+      result = result.filter(t => new Date(t.createdAt).getTime() >= from);
+    }
+    if (filters.dateTo) {
+      const to = new Date(filters.dateTo).getTime() + 86400000; // include end of day
+      result = result.filter(t => new Date(t.createdAt).getTime() <= to);
+    }
+
+    // Filter by assignee
+    if (filters.assignee) {
+      result = result.filter(t => t.assignedToUsername === filters.assignee);
+    }
+
     return result;
-  }, [tickets, activeTab, search]);
+  }, [tickets, activeTab, search, filters]);
 
   /**
    * Get count of tickets for a specific category
@@ -133,22 +196,20 @@ export const useBillOpsAdminTickets = (): UseBillOpsAdminTicketsReturn => {
   }, []);
 
   /**
-   * Fetch fresh tickets from API
+   * Fetch fresh tickets from API.
+   * Uses hasDataRef so this callback is stable (empty deps) and never stale.
    */
   const fetchTickets = useCallback(async (forceRefresh = false) => {
     if (forceRefresh) {
       console.log('🖱️ Manual refresh triggered');
+      // Clear local cache so force refresh starts truly fresh
+      localStorage.removeItem(CACHE_KEY);
     }
 
-    // Show loading spinner appropriately
-    if (forceRefresh || !hasData) {
-      setIsUpdating(true);
-      if (!hasData) setLoading(true);
-    } else {
-      // Subtle background refresh
-      setIsUpdating(true);
-    }
+    const currentHasData = hasDataRef.current;
 
+    setIsUpdating(true);
+    if (!currentHasData) setLoading(true);
     setError(null);
 
     try {
@@ -187,14 +248,15 @@ export const useBillOpsAdminTickets = (): UseBillOpsAdminTicketsReturn => {
 
     } catch (err) {
       console.error('Fetch error:', err);
-      if (!hasData) {
+      // Always show error on force refresh; only show when no data otherwise
+      if (forceRefresh || !hasDataRef.current) {
         setError('Could not load tickets. Please try again.');
       }
     } finally {
       setLoading(false);
       setIsUpdating(false);
     }
-  }, [hasData]);
+  }, []); // stable — reads latest state via hasDataRef
 
   /**
    * Initialize - Load from cache then fetch fresh data
@@ -223,6 +285,31 @@ export const useBillOpsAdminTickets = (): UseBillOpsAdminTicketsReturn => {
     };
   }, [fetchTickets]);
 
+  /**
+   * Listen for ticket mutations from detail pages (close, reply, assign)
+   * and immediately refresh to reflect changes
+   */
+  useEffect(() => {
+    const handleTicketUpdated = () => {
+      console.log('[Admin Tickets] ticket:updated event — refreshing list');
+      fetchTickets(true);
+    };
+    window.addEventListener('ticket:updated', handleTicketUpdated);
+    return () => window.removeEventListener('ticket:updated', handleTicketUpdated);
+  }, [fetchTickets]);
+
+  /**
+   * Auto-poll every 30 seconds so newly created tickets (by users) appear
+   * without requiring a manual refresh
+   */
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      if (document.hidden) return; // skip when tab is not visible
+      fetchTickets(false);
+    }, 30000);
+    return () => clearInterval(intervalId);
+  }, [fetchTickets]);
+
   return {
     tickets,
     filteredTickets,
@@ -234,8 +321,12 @@ export const useBillOpsAdminTickets = (): UseBillOpsAdminTicketsReturn => {
     hasData,
     activeTab,
     search,
+    filters,
+    activeFilterCount,
     setActiveTab,
     setSearch,
+    setFilters,
+    clearFilters,
     fetchTickets,
     getCategoryCount
   };

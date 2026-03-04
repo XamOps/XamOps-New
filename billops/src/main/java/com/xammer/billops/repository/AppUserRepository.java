@@ -17,6 +17,8 @@ public interface AppUserRepository extends JpaRepository<AppUser, Long> {
 
     Optional<AppUser> findByUsername(String username);
 
+    Optional<AppUser> findByEmail(String email);
+
     /**
      * Finds all users created by a specific user.
      * @param createdBy The ID of the user who created them.

@@ -16,6 +16,7 @@ export interface UserProfile {
   clientName: string;
   isPrimaryUser: boolean;
   cloudAccounts: CloudAccount[];
+  allowedTabs?: string[];
 }
 
 export interface TeamUser {
@@ -25,6 +26,7 @@ export interface TeamUser {
   role: string;
   cloudAccounts: CloudAccount[];
   accountIds?: number[];
+  allowedTabs?: string[];
 }
 
 export interface TeamUserForm {
@@ -33,6 +35,7 @@ export interface TeamUserForm {
   email: string;
   password: string;
   accountIds: number[];
+  allowedTabs: string[];
 }
 
 export interface PasswordChangeForm {

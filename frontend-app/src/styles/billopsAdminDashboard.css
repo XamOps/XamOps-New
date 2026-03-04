@@ -70,10 +70,11 @@ html.dark {
 
 .admin-metric-value {
   font-weight: 800;
-  background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: #111827;
+}
+
+html.dark .admin-metric-value {
+  color: #f1f5f9;
 }
 
 /* Border Colors */

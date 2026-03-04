@@ -8,6 +8,10 @@ import java.util.List; // <-- IMPORT
 
 public interface TicketRepository extends JpaRepository<Ticket, Long> {
 
+    // Lightweight list query — no replies join, just metadata + creator + client
+    @Query("SELECT DISTINCT t FROM Ticket t LEFT JOIN FETCH t.creator LEFT JOIN FETCH t.client")
+    List<Ticket> findAllForAdminList();
+
     // --- ADD THIS (Fixes Lazy Loading for getAllTickets) ---
     @Query("SELECT DISTINCT t FROM Ticket t LEFT JOIN FETCH t.replies r LEFT JOIN FETCH r.author")
     List<Ticket> findAllWithRepliesAndAuthors();

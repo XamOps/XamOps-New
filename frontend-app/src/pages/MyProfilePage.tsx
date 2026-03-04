@@ -84,8 +84,20 @@ const MyProfilePage: React.FC = () => {
     updateSelectedUser,
     updatePasswordForm,
     toggleAccountId,
+    toggleTab,
     setShowPasswordModal
   } = useMyProfile();
+
+  const BILLOPS_ADMIN_TABS = [
+    { key: 'admin-dashboard', label: 'Admin Dashboard', icon: 'fas fa-chart-bar' },
+    { key: 'support-inbox', label: 'Support Inbox', icon: 'fas fa-headset' },
+    { key: 'all-tickets', label: 'All Tickets', icon: 'fas fa-ticket-alt' },
+    { key: 'all-invoices', label: 'All Invoices', icon: 'fas fa-file-invoice' },
+    { key: 'credit-requests', label: 'Credit Requests', icon: 'fas fa-coins' },
+    { key: 'agreement-admin', label: 'Agreement Admin', icon: 'fas fa-file-signature' },
+    { key: 'client-details', label: 'Client Details', icon: 'fas fa-users-cog' },
+    { key: 'autospotting-admin', label: 'AutoSpotting Admin', icon: 'fas fa-magic' },
+  ];
 
   if (error) {
     return (
@@ -213,7 +225,7 @@ const MyProfilePage: React.FC = () => {
           </div>
 
           {/* Team Users Section (Only for Primary Users) */}
-          {profile.isPrimaryUser && profile.role !== 'ROLE_BILLOPS_ADMIN' && (
+          {profile.isPrimaryUser && (
             <div className="team-members-section">
               <div className="flex justify-between items-end mb-10">
                 <div>
@@ -348,6 +360,40 @@ const MyProfilePage: React.FC = () => {
                       </div>
                     )}
 
+                    {/* Tab Access Selection — only for ROLE_BILLOPS_ADMIN */}
+                    {profile.role === 'ROLE_BILLOPS_ADMIN' && (
+                      <div className="mt-6">
+                        <label className="form-label mb-3 block">
+                          <i className="fas fa-th-large mr-2"></i>
+                          Tab Access
+                        </label>
+                        <p className="text-sm text-gray-500 mb-3">
+                          Select which admin tabs this team member can access
+                        </p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          {BILLOPS_ADMIN_TABS.map(tab => (
+                            <label
+                              key={tab.key}
+                              className="cloud-account-checkbox"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={selectedUser.allowedTabs.includes(tab.key)}
+                                onChange={() => toggleTab(tab.key)}
+                                className="checkbox-input"
+                              />
+                              <div className="ml-3 flex items-center">
+                                <i className={`${tab.icon} mr-2 text-indigo-500`}></i>
+                                <span className="text-sm font-medium text-gray-700">
+                                  {tab.label}
+                                </span>
+                              </div>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     <div className="mt-8 flex justify-end space-x-4">
                       <button
                         type="button"
@@ -388,6 +434,12 @@ const MyProfilePage: React.FC = () => {
                           <i className="fas fa-key mr-2 text-indigo-500"></i>
                           Environments
                         </th>
+                        {profile.role === 'ROLE_BILLOPS_ADMIN' && (
+                          <th>
+                            <i className="fas fa-th-large mr-2 text-indigo-500"></i>
+                            Tab Access
+                          </th>
+                        )}
                         <th>
                           <i className="fas fa-sliders mr-2 text-indigo-500"></i>
                           Actions
@@ -435,6 +487,25 @@ const MyProfilePage: React.FC = () => {
                                 <span className="text-xs text-gray-400 italic">No access</span>
                               )}
                             </td>
+                            {profile.role === 'ROLE_BILLOPS_ADMIN' && (
+                              <td>
+                                {user.allowedTabs && user.allowedTabs.length > 0 ? (
+                                  <div className="flex flex-wrap gap-1">
+                                    {user.allowedTabs.map(tabKey => {
+                                      const tab = BILLOPS_ADMIN_TABS.find(t => t.key === tabKey);
+                                      return tab ? (
+                                        <span key={tabKey} className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">
+                                          <i className={`${tab.icon} mr-1`}></i>
+                                          {tab.label}
+                                        </span>
+                                      ) : null;
+                                    })}
+                                  </div>
+                                ) : (
+                                  <span className="text-xs text-gray-400 italic">No tab access</span>
+                                )}
+                              </td>
+                            )}
                             <td>
                               <div className="flex space-x-3">
                                 <button
@@ -457,7 +528,7 @@ const MyProfilePage: React.FC = () => {
                         ))
                       ) : (
                         <tr>
-                          <td colSpan={5} className="text-center py-12">
+                          <td colSpan={profile.role === 'ROLE_BILLOPS_ADMIN' ? 6 : 5} className="text-center py-12">
                             <i className="fas fa-users text-5xl text-gray-300 mb-3 block"></i>
                             <p className="text-gray-500 text-lg">
                               No team members yet. Add one to get started!

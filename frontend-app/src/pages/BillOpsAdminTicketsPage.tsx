@@ -1,26 +1,25 @@
 /**
  * BillOps Admin Tickets Page Component
  *
- * Displays and manages ALL support tickets for ROLE_BILLOPS_ADMIN users
- * Features: Tabbed view (Account & Billing, Technical, All), search, real-time updates
- *
- * Converted from: billops/admin_tickets.html
- *
- * What changed:
- * - Migrated from Alpine.js to React with TypeScript
- * - Topbar integration for search, actions and status
- * - Soft Glass Minimal design system
- * - Premium animations and transitions
- *
- * What stayed the same:
- * - All API endpoints remain identical (/api/billops/tickets)
- * - Same caching strategy (stale-while-revalidate)
- * - Same tab filtering logic
- * - Same navigation logic to ticket details
- * - All business logic preserved exactly
+ * Advanced support ticket management for ROLE_BILLOPS_ADMIN users.
+ * Features:
+ * - Stats summary cards (Total, Open, In Progress, SLA Breached)
+ * - Tabbed view (Account & Billing, Technical, All)
+ * - IST time display on all timestamps
+ * - Chat Start and Chat End (Closed At) columns
+ * - Assigned To column
+ * - SLA status indicators per ticket
+ * - Advanced filter panel (status, severity, date range, assignee)
+ * - Quick-filter chips (SLA Breached, Unassigned)
+ * - Column sorting (ID, Status, Severity, SLA, Created)
+ * - Relative ticket age display
+ * - Export to CSV
+ * - Row visual tinting for priority/SLA
+ * - Pagination with per-page selector
+ * - Search across all ticket fields
  */
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useBillOpsAdminTickets } from '../hooks/useBillOpsAdminTickets';
 import { useTopbarActions } from '../contexts/TopbarContext';
@@ -28,10 +27,19 @@ import {
   AdminTicket,
   ADMIN_TICKET_TABS
 } from '../types/billopsAdminTickets';
+import { formatIST, getSlaStatus } from '../utils/timeUtils';
+
+const ALL_STATUSES = ['OPEN', 'IN_PROGRESS', 'CLOSED'];
+const ALL_SEVERITIES = ['Critical', 'Urgent', 'High', 'Normal', 'Medium', 'Low', 'Info'];
+const SEVERITY_ORDER = ['Critical', 'Urgent', 'High', 'Normal', 'Medium', 'Low', 'Info'];
+
+type SortField = 'id' | 'status' | 'severity' | 'sla' | 'createdAt' | '';
+type QuickFilter = 'none' | 'breached' | 'unassigned';
 
 const BillOpsAdminTicketsPage: React.FC = () => {
   const navigate = useNavigate();
   const {
+    tickets,
     filteredTickets,
     loading,
     isUpdating,
@@ -40,63 +48,169 @@ const BillOpsAdminTicketsPage: React.FC = () => {
     hasData,
     activeTab,
     search,
+    filters,
+    activeFilterCount,
     setActiveTab,
     setSearch,
+    setFilters,
+    clearFilters,
     fetchTickets,
     getCategoryCount
   } = useBillOpsAdminTickets();
 
   const { setActions, clearActions } = useTopbarActions();
+  const [showFilters, setShowFilters] = useState(false);
+  const [sortField, setSortField] = useState<SortField>('');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [quickFilter, setQuickFilter] = useState<QuickFilter>('none');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+
+  // Collect unique assignees for the filter dropdown
+  const uniqueAssignees = useMemo(() => {
+    const assignees = tickets
+      .map(t => t.assignedToUsername)
+      .filter((u): u is string => Boolean(u));
+    return Array.from(new Set(assignees)).sort();
+  }, [tickets]);
+
+  // Stats computed from ALL tickets (not filtered)
+  const stats = useMemo(() => {
+    const open = tickets.filter(t => t.status === 'OPEN').length;
+    const inProgress = tickets.filter(t => t.status === 'IN_PROGRESS').length;
+    const breached = tickets.filter(t => {
+      if (!t.createdAt) return false;
+      return getSlaStatus(t.createdAt, t.severity, t.status === 'CLOSED', t.closedAt).status === 'breached';
+    }).length;
+    return { total: tickets.length, open, inProgress, breached };
+  }, [tickets]);
+
+  // Apply quick filter + sort on top of hook-filtered tickets
+  const displayTickets = useMemo(() => {
+    let result = filteredTickets;
+
+    // Quick filters
+    if (quickFilter === 'breached') {
+      result = result.filter(t => {
+        if (!t.createdAt) return false;
+        return getSlaStatus(t.createdAt, t.severity, t.status === 'CLOSED', t.closedAt).status === 'breached';
+      });
+    } else if (quickFilter === 'unassigned') {
+      result = result.filter(t => !t.assignedToUsername);
+    }
+
+    // Sorting
+    if (sortField) {
+      result = [...result].sort((a, b) => {
+        let aVal: number | string = 0;
+        let bVal: number | string = 0;
+
+        if (sortField === 'id') {
+          aVal = a.id; bVal = b.id;
+        } else if (sortField === 'status') {
+          aVal = a.status || ''; bVal = b.status || '';
+        } else if (sortField === 'severity') {
+          aVal = SEVERITY_ORDER.indexOf(a.severity);
+          bVal = SEVERITY_ORDER.indexOf(b.severity);
+          if (aVal === -1) aVal = 99;
+          if (bVal === -1) bVal = 99;
+        } else if (sortField === 'sla') {
+          const order: Record<string, number> = { breached: 0, warning: 1, ok: 2 };
+          const aSla = a.createdAt ? getSlaStatus(a.createdAt, a.severity, a.status === 'CLOSED', a.closedAt).status : 'ok';
+          const bSla = b.createdAt ? getSlaStatus(b.createdAt, b.severity, b.status === 'CLOSED', b.closedAt).status : 'ok';
+          aVal = order[aSla] ?? 2; bVal = order[bSla] ?? 2;
+        } else if (sortField === 'createdAt') {
+          aVal = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          bVal = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        }
+
+        if (aVal < bVal) return sortDir === 'asc' ? -1 : 1;
+        if (aVal > bVal) return sortDir === 'asc' ? 1 : -1;
+        return 0;
+      });
+    }
+
+    return result;
+  }, [filteredTickets, quickFilter, sortField, sortDir]);
+
+  const totalPages = Math.ceil(displayTickets.length / pageSize);
+
+  const paginatedTickets = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return displayTickets.slice(start, start + pageSize);
+  }, [displayTickets, page, pageSize]);
+
+  // Reset to page 1 whenever the filtered result set changes
+  useEffect(() => { setPage(1); }, [filteredTickets, quickFilter, pageSize]);
 
   const getStatusBadgeClasses = (status: string) => {
-    if (status === 'OPEN') {
-      return 'bg-emerald-500 text-white shadow-emerald-200 ring-4 ring-emerald-500/10';
-    }
-    if (status === 'IN_PROGRESS') {
-      return 'bg-amber-500 text-white shadow-amber-200 ring-4 ring-amber-500/10';
-    }
-    return 'bg-slate-400 text-white shadow-slate-200 ring-4 ring-slate-400/10';
+    if (status === 'OPEN') return 'bg-emerald-500 text-white ring-4 ring-emerald-500/10';
+    if (status === 'IN_PROGRESS') return 'bg-amber-500 text-white ring-4 ring-amber-500/10';
+    return 'bg-slate-400 text-white ring-4 ring-slate-400/10';
   };
 
-  const getSeverityColor = (severity: string): string => {
-    if (['High', 'Critical', 'Urgent'].includes(severity)) {
-      return '#ef4444';
-    } else if (['Normal', 'Medium'].includes(severity)) {
-      return '#f59e0b';
-    }
-    return '#3b82f6';
-  };
-
-  /**
-   * Format date for ticket display
-   */
-  const formatDate = (dateString: string): string => {
-    if (!dateString) return '';
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
-  };
-
-
-  /**
-   * Get severity indicator classes
-   */
   const getSeverityDotClasses = (severity: string): string => {
-    if (['High', 'Critical', 'Urgent'].includes(severity)) {
-      return 'bg-red-500';
-    } else if (['Normal', 'Medium'].includes(severity)) {
-      return 'bg-yellow-500';
-    } else if (['Low', 'Info'].includes(severity)) {
-      return 'bg-blue-500';
-    }
+    if (['High', 'Critical', 'Urgent'].includes(severity)) return 'bg-red-500';
+    if (['Normal', 'Medium'].includes(severity)) return 'bg-yellow-500';
+    if (['Low', 'Info'].includes(severity)) return 'bg-blue-500';
     return 'bg-gray-500';
   };
 
-  /**
-   * Navigate to ticket detail based on category
-   */
+  const getSlaBadge = (ticket: AdminTicket) => {
+    if (!ticket.createdAt) return null;
+    const isClosed = ticket.status === 'CLOSED';
+    const sla = getSlaStatus(ticket.createdAt, ticket.severity, isClosed, ticket.closedAt);
+    const colorMap = {
+      ok: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+      warning: 'bg-amber-100 text-amber-700 border-amber-200',
+      breached: 'bg-red-100 text-red-700 border-red-200'
+    };
+    const dotMap = {
+      ok: 'bg-emerald-500',
+      warning: 'bg-amber-500 animate-pulse',
+      breached: 'bg-red-500 animate-pulse'
+    };
+    return (
+      <span
+        className={`inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-black rounded-full border uppercase tracking-widest ${colorMap[sla.status]}`}
+        title={sla.label}
+      >
+        <span className={`w-1.5 h-1.5 rounded-full ${dotMap[sla.status]}`}></span>
+        {sla.status === 'breached' ? 'Breached' : sla.status === 'warning' ? 'Warning' : 'On Track'}
+      </span>
+    );
+  };
+
+  /** Row left-border tinting based on SLA and severity */
+  const getRowClasses = (ticket: AdminTicket): string => {
+    if (!ticket.createdAt) return '';
+    const sla = getSlaStatus(ticket.createdAt, ticket.severity, ticket.status === 'CLOSED', ticket.closedAt);
+    if (sla.status === 'breached') return 'border-l-[3px] border-l-red-400 bg-red-50/20';
+    if (['Critical', 'Urgent'].includes(ticket.severity) && ticket.status !== 'CLOSED') {
+      return 'border-l-[3px] border-l-orange-400 bg-orange-50/10';
+    }
+    return '';
+  };
+
+  /** Compact age string: "3d", "5h", "12m", or "now" */
+  const formatTicketAge = (isoString: string): string => {
+    if (!isoString) return '—';
+    const ms = Date.now() - new Date(isoString).getTime();
+    const mins = Math.floor(ms / 60000);
+    const hours = Math.floor(ms / 3600000);
+    const days = Math.floor(ms / 86400000);
+    if (days > 0) return `${days}d`;
+    if (hours > 0) return `${hours}h`;
+    if (mins > 0) return `${mins}m`;
+    return 'now';
+  };
+
+  /** Sort icon for a given column */
+  const renderSortIcon = (field: Exclude<SortField, ''>) => {
+    if (sortField !== field) return <i className="fas fa-sort ml-1 opacity-20 text-[8px]"></i>;
+    return <i className={`fas fa-chevron-${sortDir === 'asc' ? 'up' : 'down'} ml-1 text-indigo-500 text-[8px]`}></i>;
+  };
+
   const viewTicket = (id: number, category: string) => {
     if (category === 'Technical') {
       navigate(`/ticket-detail?id=${id}`);
@@ -105,13 +219,73 @@ const BillOpsAdminTicketsPage: React.FC = () => {
     }
   };
 
-  /**
-   * Set Topbar Actions
-   */
+  const toggleStatusFilter = useCallback((status: string) => {
+    setFilters({
+      ...filters,
+      statuses: filters.statuses.includes(status)
+        ? filters.statuses.filter(s => s !== status)
+        : [...filters.statuses, status]
+    });
+  }, [filters, setFilters]);
+
+  const toggleSeverityFilter = useCallback((severity: string) => {
+    setFilters({
+      ...filters,
+      severities: filters.severities.includes(severity)
+        ? filters.severities.filter(s => s !== severity)
+        : [...filters.severities, severity]
+    });
+  }, [filters, setFilters]);
+
+  const handleSort = useCallback((field: Exclude<SortField, ''>) => {
+    if (sortField === field) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDir('desc');
+    }
+  }, [sortField]);
+
+  const exportCSV = useCallback(() => {
+    const headers = [
+      'ID', 'Account ID', 'Subject', 'Service', 'Status', 'Severity', 'SLA',
+      'Created (IST)', 'Chat Started (IST)', 'Closed At (IST)',
+      'Assigned To', 'Category', 'Creator'
+    ];
+    const rows = displayTickets.map(t => {
+      const sla = t.createdAt
+        ? getSlaStatus(t.createdAt, t.severity, t.status === 'CLOSED', t.closedAt).status
+        : '';
+      return [
+        t.id,
+        t.accountId || '',
+        `"${(t.subject || '').replace(/"/g, '""')}"`,
+        t.service || '',
+        t.status,
+        t.severity,
+        sla,
+        t.createdAt ? formatIST(t.createdAt) : '',
+        t.chatStartedAt ? formatIST(t.chatStartedAt) : '',
+        t.closedAt ? formatIST(t.closedAt) : '',
+        t.assignedToUsername || '',
+        t.category || '',
+        t.creatorUsername || ''
+      ].join(',');
+    });
+    const csv = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `tickets_${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [displayTickets]);
+
   useEffect(() => {
     setActions(
       <div className="flex items-center gap-6">
-        {/* Page Title & Icon */}
+        {/* Page Title */}
         <div className="hidden lg:flex items-center gap-3 pr-6 border-r border-slate-200/50">
           <div className="w-9 h-9 flex items-center justify-center rounded-xl bg-orange-50 text-orange-600 shadow-sm border border-orange-100/50">
             <i className="fas fa-user-shield"></i>
@@ -122,7 +296,7 @@ const BillOpsAdminTicketsPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Global Search Interface */}
+        {/* Search */}
         <div className="relative group hidden md:block">
           <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
             <i className="fas fa-search text-slate-400 group-focus-within:text-indigo-500 transition-colors text-[10px]"></i>
@@ -136,7 +310,7 @@ const BillOpsAdminTicketsPage: React.FC = () => {
           />
         </div>
 
-        {/* Action Group */}
+        {/* Actions */}
         <div className="flex items-center gap-3">
           {lastUpdatedDisplay && (
             <div className="hidden xl:flex items-center gap-2 px-3 py-1.5 bg-slate-50 rounded-lg border border-slate-100/50 text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none">
@@ -144,7 +318,6 @@ const BillOpsAdminTicketsPage: React.FC = () => {
               Synced {lastUpdatedDisplay}
             </div>
           )}
-
           <button
             onClick={() => fetchTickets(true)}
             disabled={loading || isUpdating}
@@ -159,39 +332,25 @@ const BillOpsAdminTicketsPage: React.FC = () => {
     return () => clearActions();
   }, [setActions, clearActions, search, setSearch, lastUpdatedDisplay, loading, isUpdating, fetchTickets]);
 
-  /**
-   * Render loading skeleton
-   */
   const renderLoadingSkeleton = () => (
     <div className="bg-white/70 backdrop-blur-xl rounded-[2rem] shadow-xl shadow-slate-200/50 border border-white overflow-hidden">
       <div className="overflow-x-auto">
         <table className="min-w-full divide-y divide-slate-100">
           <thead className="bg-slate-50/50">
             <tr>
-              {['ID', 'Account ID', 'Subject', 'Service', 'Status', 'Severity', 'Created', 'Action'].map((header) => (
-                <th
-                  key={header}
-                  className="px-6 py-4 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]"
-                >
-                  {header}
-                </th>
+              {['ID', 'Account', 'Subject', 'Status', 'Severity', 'SLA', 'Created', 'Chat Start', 'Closed At', 'Assigned To', 'Action'].map((h) => (
+                <th key={h} className="px-5 py-4 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody className="bg-white/30 divide-y divide-slate-50">
-            {[1, 2, 3, 4, 5, 6].map(i => (
+            {[1, 2, 3, 4, 5].map(i => (
               <tr key={i}>
-                <td className="px-6 py-5"><div className="h-4 bg-slate-100 rounded-full w-12 animate-pulse"></div></td>
-                <td className="px-6 py-5"><div className="h-4 bg-slate-100 rounded-full w-20 animate-pulse"></div></td>
-                <td className="px-6 py-5">
-                  <div className="h-4 bg-slate-100 rounded-full w-40 mb-2 animate-pulse"></div>
-                  <div className="h-3 bg-slate-50 rounded-full w-24 animate-pulse"></div>
-                </td>
-                <td className="px-6 py-5"><div className="h-5 bg-slate-100 rounded-lg w-20 animate-pulse"></div></td>
-                <td className="px-6 py-5"><div className="h-6 bg-slate-100 rounded-full w-16 animate-pulse"></div></td>
-                <td className="px-6 py-5"><div className="h-4 bg-slate-100 rounded-full w-16 animate-pulse"></div></td>
-                <td className="px-6 py-5"><div className="h-4 bg-slate-100 rounded-full w-20 animate-pulse"></div></td>
-                <td className="px-6 py-5"><div className="h-8 w-8 bg-slate-50 rounded-xl animate-pulse"></div></td>
+                {Array.from({ length: 11 }).map((_, j) => (
+                  <td key={j} className="px-5 py-4">
+                    <div className="h-4 bg-slate-100 rounded-full animate-pulse" style={{ width: `${40 + (j * 13) % 60}px` }}></div>
+                  </td>
+                ))}
               </tr>
             ))}
           </tbody>
@@ -200,96 +359,127 @@ const BillOpsAdminTicketsPage: React.FC = () => {
     </div>
   );
 
-  /**
-   * Render empty state
-   */
   const renderEmptyState = () => (
     <tr>
-      <td colSpan={8} className="px-6 py-12 text-center text-gray-500 bg-gray-50">
+      <td colSpan={11} className="px-6 py-12 text-center text-gray-500 bg-gray-50">
         <div className="flex flex-col items-center">
           <i className="fas fa-inbox text-4xl mb-3 text-gray-300"></i>
           <p className="text-base font-medium">No tickets found</p>
-          <p className="text-sm mt-1">
-            There are no tickets in this category matching your search.
-          </p>
+          <p className="text-sm mt-1">No tickets match your current filters or search.</p>
+          {(activeFilterCount > 0 || quickFilter !== 'none') && (
+            <button
+              onClick={() => { clearFilters(); setQuickFilter('none'); }}
+              className="mt-3 text-sm font-bold text-indigo-600 hover:text-indigo-800 underline"
+            >
+              Clear Filters
+            </button>
+          )}
         </div>
       </td>
     </tr>
   );
 
-  /**
-   * Render ticket row
-   */
   const renderTicketRow = (ticket: AdminTicket) => (
     <tr
       key={ticket.id}
-      className="hover:bg-indigo-50/30 transition-all cursor-pointer group border-b border-transparent hover:border-indigo-100"
+      className={`hover:bg-indigo-50/30 transition-all cursor-pointer group border-b border-transparent hover:border-indigo-100 ${getRowClasses(ticket)}`}
       onClick={() => viewTicket(ticket.id, ticket.category)}
     >
       {/* ID */}
-      <td className="px-6 py-5 whitespace-nowrap">
+      <td className="px-5 py-4 whitespace-nowrap">
         <span className="text-xs font-bold text-slate-400 font-mono tracking-tighter opacity-60">#{ticket.id}</span>
       </td>
 
       {/* Account ID */}
-      <td className="px-6 py-5 whitespace-nowrap">
+      <td className="px-5 py-4 whitespace-nowrap">
         <span className="px-2 py-1 bg-slate-100 text-slate-600 rounded-lg text-[10px] font-bold font-mono tracking-tight border border-slate-200/50">
           {ticket.accountId || 'GLOBAL'}
         </span>
       </td>
 
-      {/* Subject & Description */}
-      <td className="px-6 py-5">
-        <div className="text-sm font-bold text-slate-800 group-hover:text-indigo-600 transition-colors leading-tight mb-1">
+      {/* Subject + Service */}
+      <td className="px-5 py-4">
+        <div className="text-sm font-bold text-slate-800 group-hover:text-indigo-600 transition-colors leading-tight mb-1 max-w-[200px] truncate">
           {ticket.subject}
         </div>
-        <div className="text-[10px] text-slate-400 font-medium truncate max-w-xs opacity-80">
-          {ticket.description}
-        </div>
-      </td>
-
-      {/* Service */}
-      <td className="px-6 py-5 whitespace-nowrap">
-        <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-700 text-[10px] font-black border border-indigo-100/50 tracking-tight">
+        <div className="text-[10px] text-slate-400 font-medium truncate max-w-[200px] opacity-80">
           {ticket.service}
-        </span>
+        </div>
       </td>
 
       {/* Status */}
-      <td className="px-6 py-5 whitespace-nowrap">
-        <span
-          className={`flex items-center gap-2 px-3 py-1 text-[10px] font-black rounded-full shadow-sm ring-1 ring-inset ${getStatusBadgeClasses(ticket.status)}`}
-        >
+      <td className="px-5 py-4 whitespace-nowrap">
+        <span className={`flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-black rounded-full shadow-sm ring-1 ring-inset w-fit ${getStatusBadgeClasses(ticket.status)}`}>
           <span className={`w-1.5 h-1.5 rounded-full bg-white shadow-[0_0_8px_white] ${ticket.status === 'OPEN' ? 'animate-pulse' : ''}`}></span>
-          {ticket.status}
+          {ticket.status === 'IN_PROGRESS' ? 'IN PROG' : ticket.status}
         </span>
       </td>
 
       {/* Severity */}
-      <td className="px-6 py-5 whitespace-nowrap">
+      <td className="px-5 py-4 whitespace-nowrap">
         <div className="flex items-center gap-2">
-          <span
-            className={`w-2 h-2 rounded-full ${getSeverityDotClasses(ticket.severity)} shadow-[0_0_8px_currentcolor]`}
-            style={{ color: getSeverityColor(ticket.severity) }}
-          ></span>
+          <span className={`w-2 h-2 rounded-full ${getSeverityDotClasses(ticket.severity)} flex-shrink-0`}></span>
           <span className="text-[10px] font-bold text-slate-600 uppercase tracking-widest">{ticket.severity}</span>
         </div>
       </td>
 
-      {/* Created Date */}
-      <td className="px-6 py-5 whitespace-nowrap">
-        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">
-          {formatDate(ticket.createdAt)}
-        </span>
+      {/* SLA */}
+      <td className="px-5 py-4 whitespace-nowrap">
+        {getSlaBadge(ticket)}
+      </td>
+
+      {/* Created (IST) + Relative Age */}
+      <td className="px-5 py-4 whitespace-nowrap">
+        <div className="text-[10px] font-bold text-slate-500 leading-tight">
+          {ticket.createdAt ? formatIST(ticket.createdAt) : '—'}
+        </div>
+        {ticket.createdAt && ticket.status !== 'CLOSED' && (
+          <div className="text-[9px] font-bold text-slate-400 mt-0.5 opacity-60">
+            {formatTicketAge(ticket.createdAt)} old
+          </div>
+        )}
+      </td>
+
+      {/* Chat Started */}
+      <td className="px-5 py-4 whitespace-nowrap">
+        {ticket.chatStartedAt ? (
+          <div className="text-[10px] font-bold text-indigo-600 leading-tight">
+            {formatIST(ticket.chatStartedAt)}
+          </div>
+        ) : (
+          <span className="text-[10px] text-slate-300 font-bold">—</span>
+        )}
+      </td>
+
+      {/* Closed At */}
+      <td className="px-5 py-4 whitespace-nowrap">
+        {ticket.closedAt ? (
+          <div className="text-[10px] font-bold text-slate-500 leading-tight">
+            {formatIST(ticket.closedAt)}
+          </div>
+        ) : (
+          <span className="text-[10px] text-slate-300 font-bold">—</span>
+        )}
+      </td>
+
+      {/* Assigned To */}
+      <td className="px-5 py-4 whitespace-nowrap">
+        {ticket.assignedToUsername ? (
+          <div className="flex items-center gap-1.5">
+            <div className="w-5 h-5 rounded-full bg-indigo-600 flex items-center justify-center text-white text-[8px] font-black flex-shrink-0">
+              {ticket.assignedToUsername.charAt(0).toUpperCase()}
+            </div>
+            <span className="text-[10px] font-bold text-slate-700 truncate max-w-[80px]">{ticket.assignedToUsername}</span>
+          </div>
+        ) : (
+          <span className="text-[10px] text-slate-300 font-bold italic">Unassigned</span>
+        )}
       </td>
 
       {/* Action */}
-      <td className="px-6 py-5 whitespace-nowrap text-sm font-medium">
+      <td className="px-5 py-4 whitespace-nowrap text-sm font-medium">
         <button
-          onClick={(e) => {
-            e.stopPropagation();
-            viewTicket(ticket.id, ticket.category);
-          }}
+          onClick={(e) => { e.stopPropagation(); viewTicket(ticket.id, ticket.category); }}
           className="text-slate-400 hover:text-indigo-600 bg-slate-100 hover:bg-indigo-100 transition-all w-9 h-9 flex items-center justify-center rounded-xl border border-transparent hover:border-indigo-200 shadow-sm group-hover:scale-110 active:scale-95"
         >
           <i className="fas fa-chevron-right text-xs"></i>
@@ -300,37 +490,94 @@ const BillOpsAdminTicketsPage: React.FC = () => {
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-transparent">
-      {/* Category Summary Header (Mobile Only) */}
-      <div className="px-6 py-3 flex gap-3 bg-white/70 backdrop-blur-xl border-b border-slate-200/50 xl:hidden">
-        {ADMIN_TICKET_TABS.map(tab => (
-          <div key={tab.id} className="flex-1 p-2 bg-slate-50 rounded-xl border border-slate-100">
-            <div className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">{tab.label}</div>
-            <div className="text-xs font-black text-slate-700">{getCategoryCount(tab.id)}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* Main Content Area */}
       <div className="flex-1 overflow-x-hidden overflow-y-auto custom-scrollbar p-6 lg:p-8">
-        <div className="max-w-7xl mx-auto space-y-8">
-          {/* Tabs Navigation */}
-          <div className="flex items-center justify-between border-b border-slate-200/50 pb-2">
-            <nav className="flex space-x-2" aria-label="Tabs">
+        <div className="max-w-full mx-auto space-y-6">
+
+          {/* Stats Summary Cards */}
+          {!loading && hasData && (
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* Total */}
+              <div className="bg-white/70 backdrop-blur-xl rounded-2xl border border-white shadow-[0_4px_20px_rgba(0,0,0,0.03)] p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="w-9 h-9 rounded-xl bg-indigo-50 flex items-center justify-center">
+                    <i className="fas fa-ticket-alt text-indigo-500 text-sm"></i>
+                  </div>
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total</span>
+                </div>
+                <p className="text-3xl font-black text-slate-800 leading-none">{stats.total}</p>
+                <p className="text-[10px] font-bold text-slate-400 mt-1 uppercase tracking-widest">All Tickets</p>
+              </div>
+
+              {/* Open */}
+              <div className="bg-white/70 backdrop-blur-xl rounded-2xl border border-white shadow-[0_4px_20px_rgba(0,0,0,0.03)] p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="w-9 h-9 rounded-xl bg-emerald-50 flex items-center justify-center">
+                    <i className="fas fa-circle text-emerald-500 text-sm animate-pulse"></i>
+                  </div>
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Open</span>
+                </div>
+                <p className="text-3xl font-black text-emerald-600 leading-none">{stats.open}</p>
+                <p className="text-[10px] font-bold text-slate-400 mt-1 uppercase tracking-widest">Awaiting Response</p>
+              </div>
+
+              {/* In Progress */}
+              <div className="bg-white/70 backdrop-blur-xl rounded-2xl border border-white shadow-[0_4px_20px_rgba(0,0,0,0.03)] p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="w-9 h-9 rounded-xl bg-amber-50 flex items-center justify-center">
+                    <i className="fas fa-spinner text-amber-500 text-sm"></i>
+                  </div>
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">In Prog</span>
+                </div>
+                <p className="text-3xl font-black text-amber-600 leading-none">{stats.inProgress}</p>
+                <p className="text-[10px] font-bold text-slate-400 mt-1 uppercase tracking-widest">Being Handled</p>
+              </div>
+
+              {/* SLA Breached — clickable shortcut to quick filter */}
+              <div
+                className={`backdrop-blur-xl rounded-2xl border shadow-[0_4px_20px_rgba(0,0,0,0.03)] p-5 cursor-pointer transition-all ${
+                  stats.breached > 0
+                    ? quickFilter === 'breached'
+                      ? 'border-red-400 bg-red-50/60 shadow-red-100'
+                      : 'border-red-200/70 bg-red-50/30 hover:bg-red-50/50'
+                    : 'border-white bg-white/70 hover:bg-slate-50/50'
+                }`}
+                onClick={() => setQuickFilter(q => q === 'breached' ? 'none' : 'breached')}
+                title="Click to filter by SLA Breached"
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${stats.breached > 0 ? 'bg-red-100' : 'bg-slate-100'}`}>
+                    <i className={`fas fa-exclamation-triangle text-sm ${stats.breached > 0 ? 'text-red-500' : 'text-slate-400'}`}></i>
+                  </div>
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">SLA</span>
+                </div>
+                <p className={`text-3xl font-black leading-none ${stats.breached > 0 ? 'text-red-600' : 'text-slate-400'}`}>
+                  {stats.breached}
+                </p>
+                <p className={`text-[10px] font-bold mt-1 uppercase tracking-widest ${stats.breached > 0 ? 'text-red-400' : 'text-slate-400'}`}>
+                  {quickFilter === 'breached' ? 'Filtered ✓' : 'Breached'}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Tabs + Filter Toggle Row */}
+          <div className="flex items-center justify-between border-b border-slate-200/50 pb-2 gap-4 flex-wrap">
+            <nav className="flex space-x-2 flex-wrap gap-y-2" aria-label="Tabs">
               {ADMIN_TICKET_TABS.map((tab) => (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`relative py-3 px-6 rounded-2xl text-[11px] font-black uppercase tracking-widest flex items-center gap-2.5 transition-all ${activeTab === tab.id
-                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20'
-                    : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
-                    }`}
+                  className={`relative py-3 px-5 rounded-2xl text-[11px] font-black uppercase tracking-widest flex items-center gap-2 transition-all ${
+                    activeTab === tab.id
+                      ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20'
+                      : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
+                  }`}
                 >
                   <i className={`${tab.icon} ${activeTab === tab.id ? 'opacity-100' : 'opacity-40'}`}></i>
                   {tab.label}
-                  <span className={`flex items-center justify-center px-2 py-0.5 rounded-full text-[9px] min-w-[20px] shadow-sm ${activeTab === tab.id
-                    ? 'bg-white/20 text-white'
-                    : 'bg-slate-200 text-slate-600'
-                    }`}>
+                  <span className={`flex items-center justify-center px-2 py-0.5 rounded-full text-[9px] min-w-[20px] shadow-sm ${
+                    activeTab === tab.id ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-600'
+                  }`}>
                     {getCategoryCount(tab.id)}
                   </span>
                   {activeTab === tab.id && (
@@ -339,25 +586,182 @@ const BillOpsAdminTicketsPage: React.FC = () => {
                 </button>
               ))}
             </nav>
+
+            {/* Filter Toggle Button */}
+            <button
+              onClick={() => setShowFilters(v => !v)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border ${
+                showFilters || activeFilterCount > 0
+                  ? 'bg-indigo-600 text-white border-indigo-600 shadow-lg shadow-indigo-500/20'
+                  : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300 hover:text-indigo-600'
+              }`}
+            >
+              <i className="fas fa-filter"></i>
+              Filters
+              {activeFilterCount > 0 && (
+                <span className="flex items-center justify-center w-4 h-4 rounded-full text-[9px] font-black bg-white text-indigo-600">
+                  {activeFilterCount}
+                </span>
+              )}
+            </button>
           </div>
 
-          {/* Loading State */}
-          {loading && renderLoadingSkeleton()}
+          {/* Quick Filter Chips */}
+          <div className="flex items-center gap-2 flex-wrap -mt-2">
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Quick:</span>
+            <button
+              onClick={() => setQuickFilter(q => q === 'breached' ? 'none' : 'breached')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all ${
+                quickFilter === 'breached'
+                  ? 'bg-red-500 text-white border-red-500 shadow-md shadow-red-500/20'
+                  : 'bg-white text-slate-600 border-slate-200 hover:border-red-300 hover:text-red-600'
+              }`}
+            >
+              <i className="fas fa-exclamation-triangle text-[9px]"></i>
+              SLA Breached
+              {stats.breached > 0 && (
+                <span className={`flex items-center justify-center w-4 h-4 rounded-full text-[9px] font-black ${
+                  quickFilter === 'breached' ? 'bg-white/20 text-white' : 'bg-red-100 text-red-600'
+                }`}>
+                  {stats.breached}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => setQuickFilter(q => q === 'unassigned' ? 'none' : 'unassigned')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all ${
+                quickFilter === 'unassigned'
+                  ? 'bg-amber-500 text-white border-amber-500 shadow-md shadow-amber-500/20'
+                  : 'bg-white text-slate-600 border-slate-200 hover:border-amber-300 hover:text-amber-600'
+              }`}
+            >
+              <i className="fas fa-user-slash text-[9px]"></i>
+              Unassigned
+            </button>
+            {quickFilter !== 'none' && (
+              <button
+                onClick={() => setQuickFilter('none')}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border border-slate-200 text-slate-400 hover:text-slate-600 transition-all"
+              >
+                <i className="fas fa-times text-[9px]"></i>
+                Clear
+              </button>
+            )}
+          </div>
 
-          {/* Error State */}
-          {error && !hasData && (
-            <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-6 rounded shadow-sm">
-              <div className="flex items-center">
-                <div className="flex-shrink-0">
-                  <i className="fas fa-exclamation-circle text-red-500"></i>
+          {/* Advanced Filter Panel */}
+          {showFilters && (
+            <div className="bg-white/80 backdrop-blur-xl rounded-[1.5rem] border border-slate-200/50 shadow-[0_8px_30px_rgba(0,0,0,0.04)] p-6 space-y-5">
+              <div className="flex items-center justify-between mb-1">
+                <h3 className="text-xs font-black text-slate-700 uppercase tracking-widest">Advanced Filters</h3>
+                {activeFilterCount > 0 && (
+                  <button onClick={clearFilters} className="text-[10px] font-black text-rose-500 hover:text-rose-700 uppercase tracking-widest flex items-center gap-1">
+                    <i className="fas fa-times"></i> Clear All
+                  </button>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                {/* Status Filter */}
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Status</label>
+                  <div className="flex flex-wrap gap-2">
+                    {ALL_STATUSES.map(status => (
+                      <button
+                        key={status}
+                        onClick={() => toggleStatusFilter(status)}
+                        className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${
+                          filters.statuses.includes(status)
+                            ? status === 'OPEN'
+                              ? 'bg-emerald-500 text-white border-emerald-500'
+                              : status === 'IN_PROGRESS'
+                                ? 'bg-amber-500 text-white border-amber-500'
+                                : 'bg-slate-500 text-white border-slate-500'
+                            : 'bg-slate-50 text-slate-500 border-slate-200 hover:border-slate-400'
+                        }`}
+                      >
+                        {status}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <div className="ml-3">
+
+                {/* Severity Filter */}
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Severity</label>
+                  <div className="flex flex-wrap gap-2">
+                    {ALL_SEVERITIES.map(severity => (
+                      <button
+                        key={severity}
+                        onClick={() => toggleSeverityFilter(severity)}
+                        className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${
+                          filters.severities.includes(severity)
+                            ? ['Critical', 'Urgent', 'High'].includes(severity)
+                              ? 'bg-red-500 text-white border-red-500'
+                              : ['Normal', 'Medium'].includes(severity)
+                                ? 'bg-amber-500 text-white border-amber-500'
+                                : 'bg-blue-500 text-white border-blue-500'
+                            : 'bg-slate-50 text-slate-500 border-slate-200 hover:border-slate-400'
+                        }`}
+                      >
+                        {severity}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Date Range */}
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Created Date Range</label>
+                  <div className="space-y-2">
+                    <div>
+                      <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">From</span>
+                      <input
+                        type="date"
+                        value={filters.dateFrom}
+                        onChange={e => setFilters({ ...filters, dateFrom: e.target.value })}
+                        className="block w-full mt-1 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[11px] font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">To</span>
+                      <input
+                        type="date"
+                        value={filters.dateTo}
+                        onChange={e => setFilters({ ...filters, dateTo: e.target.value })}
+                        className="block w-full mt-1 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[11px] font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 outline-none"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Assignee Filter */}
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Assigned To</label>
+                  <select
+                    value={filters.assignee}
+                    onChange={e => setFilters({ ...filters, assignee: e.target.value })}
+                    className="block w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[11px] font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 outline-none"
+                  >
+                    <option value="">All Assignees</option>
+                    {uniqueAssignees.map(a => (
+                      <option key={a} value={a}>{a}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Error */}
+          {error && !hasData && (
+            <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded shadow-sm">
+              <div className="flex items-center">
+                <i className="fas fa-exclamation-circle text-red-500 mr-3"></i>
+                <div>
                   <p className="text-sm text-red-700 font-medium">Error loading data</p>
                   <p className="text-sm text-red-600">{error}</p>
-                  <button
-                    onClick={() => fetchTickets(true)}
-                    className="mt-2 text-sm font-medium text-red-700 underline hover:text-red-600"
-                  >
+                  <button onClick={() => fetchTickets(true)} className="mt-2 text-sm font-medium text-red-700 underline hover:text-red-600">
                     Try Again
                   </button>
                 </div>
@@ -365,29 +769,165 @@ const BillOpsAdminTicketsPage: React.FC = () => {
             </div>
           )}
 
-          {/* Table Content */}
+          {/* Loading Skeleton */}
+          {loading && renderLoadingSkeleton()}
+
+          {/* Table */}
           {!loading && (
             <div className="bg-white/70 backdrop-blur-xl rounded-[2.5rem] shadow-[0_8px_40px_rgba(0,0,0,0.03)] border border-white overflow-hidden">
               <div className="overflow-x-auto custom-scrollbar">
                 <table className="min-w-full divide-y divide-slate-100/50">
                   <thead className="bg-slate-50/50">
                     <tr>
-                      <th className="px-6 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap">ID</th>
-                      <th className="px-6 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap">Account ID</th>
-                      <th className="px-6 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap">Subject</th>
-                      <th className="px-6 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap">Service</th>
-                      <th className="px-6 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap">Status</th>
-                      <th className="px-6 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap">Severity</th>
-                      <th className="px-6 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap">Created</th>
-                      <th className="px-6 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap">Action</th>
+                      <th
+                        onClick={() => handleSort('id')}
+                        className="px-5 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap cursor-pointer hover:text-indigo-600 select-none"
+                      >
+                        ID {renderSortIcon('id')}
+                      </th>
+                      <th className="px-5 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap">Account</th>
+                      <th className="px-5 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap">Subject / Service</th>
+                      <th
+                        onClick={() => handleSort('status')}
+                        className="px-5 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap cursor-pointer hover:text-indigo-600 select-none"
+                      >
+                        Status {renderSortIcon('status')}
+                      </th>
+                      <th
+                        onClick={() => handleSort('severity')}
+                        className="px-5 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap cursor-pointer hover:text-indigo-600 select-none"
+                      >
+                        Severity {renderSortIcon('severity')}
+                      </th>
+                      <th
+                        onClick={() => handleSort('sla')}
+                        className="px-5 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap cursor-pointer hover:text-indigo-600 select-none"
+                      >
+                        SLA {renderSortIcon('sla')}
+                      </th>
+                      <th
+                        onClick={() => handleSort('createdAt')}
+                        className="px-5 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap cursor-pointer hover:text-indigo-600 select-none"
+                      >
+                        Created (IST) {renderSortIcon('createdAt')}
+                      </th>
+                      <th className="px-5 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap">Chat Started</th>
+                      <th className="px-5 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap">Closed At</th>
+                      <th className="px-5 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap">Assigned To</th>
+                      <th className="px-5 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap">Action</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white/20 divide-y divide-slate-50">
-                    {filteredTickets.length > 0
-                      ? filteredTickets.map((ticket) => renderTicketRow(ticket))
+                    {paginatedTickets.length > 0
+                      ? paginatedTickets.map((ticket) => renderTicketRow(ticket))
                       : renderEmptyState()}
                   </tbody>
                 </table>
+              </div>
+
+              {/* Table Footer — Count + Pagination + Export */}
+              <div className="px-6 py-3 border-t border-slate-100/50 bg-slate-50/30 flex items-center justify-between flex-wrap gap-3">
+
+                {/* Left: count + rows-per-page */}
+                <div className="flex items-center gap-4">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                    {displayTickets.length === 0
+                      ? 'No tickets'
+                      : `${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, displayTickets.length)} of ${displayTickets.length}`}
+                    {tickets.length !== displayTickets.length && ` (${tickets.length} total)`}
+                  </span>
+                  <select
+                    value={pageSize}
+                    onChange={e => setPageSize(Number(e.target.value))}
+                    className="px-2 py-1 bg-white border border-slate-200 rounded-lg text-[10px] font-bold text-slate-600 outline-none"
+                  >
+                    <option value={25}>25 / page</option>
+                    <option value={50}>50 / page</option>
+                    <option value={100}>100 / page</option>
+                  </select>
+                </div>
+
+                {/* Center: page navigation */}
+                {totalPages > 1 && (
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setPage(1)}
+                      disabled={page === 1}
+                      className="w-7 h-7 flex items-center justify-center rounded-lg text-[10px] font-black text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                    >
+                      <i className="fas fa-angle-double-left"></i>
+                    </button>
+                    <button
+                      onClick={() => setPage(p => Math.max(1, p - 1))}
+                      disabled={page === 1}
+                      className="w-7 h-7 flex items-center justify-center rounded-lg text-[10px] font-black text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                    >
+                      <i className="fas fa-angle-left"></i>
+                    </button>
+
+                    {/* Page number pills (sliding window of 5) */}
+                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                      let p: number;
+                      if (totalPages <= 5) {
+                        p = i + 1;
+                      } else if (page <= 3) {
+                        p = i + 1;
+                      } else if (page >= totalPages - 2) {
+                        p = totalPages - 4 + i;
+                      } else {
+                        p = page - 2 + i;
+                      }
+                      return (
+                        <button
+                          key={p}
+                          onClick={() => setPage(p)}
+                          className={`w-7 h-7 flex items-center justify-center rounded-lg text-[10px] font-black transition-all ${
+                            page === p
+                              ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20'
+                              : 'text-slate-500 hover:text-indigo-600 hover:bg-indigo-50'
+                          }`}
+                        >
+                          {p}
+                        </button>
+                      );
+                    })}
+
+                    <button
+                      onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                      disabled={page === totalPages}
+                      className="w-7 h-7 flex items-center justify-center rounded-lg text-[10px] font-black text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                    >
+                      <i className="fas fa-angle-right"></i>
+                    </button>
+                    <button
+                      onClick={() => setPage(totalPages)}
+                      disabled={page === totalPages}
+                      className="w-7 h-7 flex items-center justify-center rounded-lg text-[10px] font-black text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                    >
+                      <i className="fas fa-angle-double-right"></i>
+                    </button>
+                  </div>
+                )}
+
+                {/* Right: Clear Filters + Export CSV */}
+                <div className="flex items-center gap-3">
+                  {(activeFilterCount > 0 || quickFilter !== 'none') && (
+                    <button
+                      onClick={() => { clearFilters(); setQuickFilter('none'); }}
+                      className="text-[10px] font-black text-rose-500 hover:text-rose-700 uppercase tracking-widest flex items-center gap-1"
+                    >
+                      <i className="fas fa-times"></i> Clear Filters
+                    </button>
+                  )}
+                  <button
+                    onClick={exportCSV}
+                    disabled={displayTickets.length === 0}
+                    className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-xl text-[10px] font-black uppercase tracking-widest border border-emerald-200/50 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <i className="fas fa-download text-[9px]"></i>
+                    Export CSV
+                  </button>
+                </div>
               </div>
             </div>
           )}

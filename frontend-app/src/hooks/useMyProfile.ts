@@ -52,7 +52,8 @@ export const useMyProfile = () => {
     username: '',
     email: '',
     password: '',
-    accountIds: []
+    accountIds: [],
+    allowedTabs: []
   });
 
   const [isEditing, setIsEditing] = useState(false);
@@ -137,7 +138,8 @@ export const useMyProfile = () => {
       username: '',
       email: '',
       password: '',
-      accountIds: []
+      accountIds: [],
+      allowedTabs: []
     });
     setIsEditing(true);
   }, []);
@@ -151,7 +153,8 @@ export const useMyProfile = () => {
       username: user.username,
       email: user.email,
       password: '',
-      accountIds: user.accountIds || []
+      accountIds: user.accountIds || [],
+      allowedTabs: user.allowedTabs || []
     });
     setIsEditing(true);
   }, []);
@@ -166,7 +169,8 @@ export const useMyProfile = () => {
       username: '',
       email: '',
       password: '',
-      accountIds: []
+      accountIds: [],
+      allowedTabs: []
     });
   }, []);
 
@@ -325,6 +329,24 @@ export const useMyProfile = () => {
     });
   }, []);
 
+  /**
+   * Toggle tab key in selected user's allowedTabs
+   */
+  const toggleTab = useCallback((tabKey: string) => {
+    setSelectedUser(prev => {
+      const allowedTabs = [...prev.allowedTabs];
+      const index = allowedTabs.indexOf(tabKey);
+
+      if (index === -1) {
+        allowedTabs.push(tabKey);
+      } else {
+        allowedTabs.splice(index, 1);
+      }
+
+      return { ...prev, allowedTabs };
+    });
+  }, []);
+
   return {
     // State
     profile,
@@ -348,6 +370,7 @@ export const useMyProfile = () => {
     updateSelectedUser,
     updatePasswordForm,
     toggleAccountId,
+    toggleTab,
     setShowPasswordModal
   };
 };

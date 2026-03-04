@@ -54,6 +54,14 @@ public class Ticket {
     private String accountId;
     private String region;
 
+    private LocalDateTime closedAt;
+
+    private LocalDateTime chatStartedAt;
+
+    private Long assignedToId;
+
+    private String assignedToUsername;
+
     @OneToMany(mappedBy = "ticket", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
     private List<TicketReply> replies = new ArrayList<>();
 
@@ -163,5 +171,37 @@ public class Ticket {
 
     public void setReplies(List<TicketReply> replies) {
         this.replies = replies;
+    }
+
+    public LocalDateTime getClosedAt() {
+        return closedAt;
+    }
+
+    public void setClosedAt(LocalDateTime closedAt) {
+        this.closedAt = closedAt;
+    }
+
+    public LocalDateTime getChatStartedAt() {
+        return chatStartedAt;
+    }
+
+    public void setChatStartedAt(LocalDateTime chatStartedAt) {
+        this.chatStartedAt = chatStartedAt;
+    }
+
+    public Long getAssignedToId() {
+        return assignedToId;
+    }
+
+    public void setAssignedToId(Long assignedToId) {
+        this.assignedToId = assignedToId;
+    }
+
+    public String getAssignedToUsername() {
+        return assignedToUsername;
+    }
+
+    public void setAssignedToUsername(String assignedToUsername) {
+        this.assignedToUsername = assignedToUsername;
     }
 }

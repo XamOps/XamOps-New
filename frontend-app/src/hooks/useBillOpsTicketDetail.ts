@@ -4,9 +4,10 @@
  * Handles:
  * - Fetching ticket details with replies
  * - Current user profile
- * - Submitting replies with attachments
+ * - Submitting replies with attachments (including internal admin notes)
  * - Closing tickets
  * - Generating RCA reports
+ * - Ticket assignment to admins
  *
  * Converted from: billops/ticket_detail.html
  */
@@ -15,7 +16,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   BillOpsTicketDetail,
   BillOpsUserProfile,
-  RCAFormData
+  RCAFormData,
+  AdminUser
 } from '../types/billopsTickets';
 import {
   initNotificationService,
@@ -30,10 +32,12 @@ interface UseBillOpsTicketDetailReturn {
   isSubmitting: boolean;
   error: string | null;
   isAdmin: boolean;
+  adminUsers: AdminUser[];
   fetchTicketDetails: () => Promise<void>;
-  submitReply: (message: string, file: File | null) => Promise<void>;
+  submitReply: (message: string, file: File | null, isInternal?: boolean) => Promise<void>;
   closeTicket: () => Promise<void>;
   submitRCA: (rcaData: RCAFormData) => Promise<void>;
+  assignTicket: (adminId: number, adminUsername: string) => Promise<void>;
 }
 
 export const useBillOpsTicketDetail = (
@@ -44,6 +48,7 @@ export const useBillOpsTicketDetail = (
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
 
   // Refs for polling and notification tracking
   const previousReplyCountRef = useRef<number>(0);
@@ -74,6 +79,23 @@ export const useBillOpsTicketDetail = (
       }
     } catch (e) {
       console.error('User profile error', e);
+    }
+  }, []);
+
+  /**
+   * Fetch admin users for assignment dropdown (admin only)
+   */
+  const fetchAdminUsers = useCallback(async () => {
+    try {
+      const response = await fetch('/api/billops/admins', {
+        credentials: 'include'
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setAdminUsers(data);
+      }
+    } catch (e) {
+      console.error('Admin users fetch error', e);
     }
   }, []);
 
@@ -111,10 +133,10 @@ export const useBillOpsTicketDetail = (
   }, [ticketId]);
 
   /**
-   * Submit a reply to the ticket
+   * Submit a reply to the ticket (optionally as an internal admin note)
    */
   const submitReply = useCallback(
-    async (message: string, file: File | null) => {
+    async (message: string, file: File | null, isInternal = false) => {
       if (!ticketId || !currentUser) return;
 
       setIsSubmitting(true);
@@ -124,6 +146,7 @@ export const useBillOpsTicketDetail = (
         formData.append('message', message);
         formData.append('ticketId', ticketId);
         formData.append('authorId', currentUser.id.toString());
+        formData.append('isInternal', isInternal.toString());
 
         if (file) {
           formData.append('file', file);
@@ -144,6 +167,7 @@ export const useBillOpsTicketDetail = (
 
         const updatedTicket = await response.json();
         setTicket(updatedTicket);
+        window.dispatchEvent(new CustomEvent('ticket:updated'));
       } catch (err) {
         console.error('Error submitting reply:', err);
         throw err;
@@ -172,6 +196,7 @@ export const useBillOpsTicketDetail = (
 
       const updatedTicket = await response.json();
       setTicket(updatedTicket);
+      window.dispatchEvent(new CustomEvent('ticket:updated'));
     } catch (err) {
       console.error('Error closing ticket:', err);
       throw err;
@@ -197,7 +222,7 @@ export const useBillOpsTicketDetail = (
 
         if (!response.ok) {
           const err = await response.json().catch(() => ({}));
-          throw new Error(err.message || 'Failed to submit RCA');
+          throw new Error((err as any).message || 'Failed to submit RCA');
         }
 
         // Refresh ticket details to show the new system message
@@ -211,6 +236,40 @@ export const useBillOpsTicketDetail = (
   );
 
   /**
+   * Assign ticket to a specific admin
+   */
+  const assignTicket = useCallback(
+    async (adminId: number, adminUsername: string) => {
+      if (!ticketId) return;
+
+      try {
+        const response = await fetch(`/api/billops/tickets/${ticketId}/assign`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ assignedToId: adminId, assignedToUsername: adminUsername })
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to assign ticket');
+        }
+
+        // Update local ticket state optimistically
+        setTicket(prev => prev ? {
+          ...prev,
+          assignedToId: adminId,
+          assignedToUsername: adminUsername
+        } : prev);
+        window.dispatchEvent(new CustomEvent('ticket:updated'));
+      } catch (err) {
+        console.error('Error assigning ticket:', err);
+        throw err;
+      }
+    },
+    [ticketId]
+  );
+
+  /**
    * Initialize: Fetch user and ticket on mount
    */
   useEffect(() => {
@@ -220,6 +279,15 @@ export const useBillOpsTicketDetail = (
       });
     }
   }, [ticketId, fetchCurrentUser, fetchTicketDetails]);
+
+  /**
+   * Fetch admin users once we know the current user is an admin
+   */
+  useEffect(() => {
+    if (isAdmin) {
+      fetchAdminUsers();
+    }
+  }, [isAdmin, fetchAdminUsers]);
 
   /**
    * Listen for browser back/forward navigation
@@ -327,9 +395,11 @@ export const useBillOpsTicketDetail = (
     isSubmitting,
     error,
     isAdmin,
+    adminUsers,
     fetchTicketDetails,
     submitReply,
     closeTicket,
-    submitRCA
+    submitRCA,
+    assignTicket
   };
 };

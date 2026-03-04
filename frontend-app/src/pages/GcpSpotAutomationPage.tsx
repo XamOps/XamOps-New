@@ -81,6 +81,19 @@ const GcpSpotAutomationPage: React.FC = () => {
 
     return (
         <div className="flex-1 flex flex-col min-h-screen bg-slate-50 relative">
+            {/* Coming Soon Overlay */}
+            <div className="absolute inset-0 bg-white/80 backdrop-blur-sm z-40 flex items-center justify-center">
+                <div className="text-center">
+                    <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-indigo-100 mb-6">
+                        <i className="fas fa-rocket text-4xl text-indigo-500"></i>
+                    </div>
+                    <h2 className="text-3xl font-bold text-gray-800 mb-3">Coming Soon</h2>
+                    <p className="text-gray-500 text-lg max-w-md mx-auto">
+                        GCP AutoSpotting is currently being updated. We'll be back with enhanced features and real-time data shortly.
+                    </p>
+                </div>
+            </div>
+
             {/* Tab Navigation */}
             <div className="bg-white/80 border-b border-slate-200 px-8 backdrop-blur-md sticky top-0 z-40">
                 <nav className="flex space-x-8" aria-label="Tabs">

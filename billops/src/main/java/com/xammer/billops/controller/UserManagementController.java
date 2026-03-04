@@ -33,6 +33,8 @@ public class UserManagementController {
             result.setRole(created.getRole());
             result.setClientId(created.getClient() != null ? created.getClient().getId() : null);
             result.setClientName(created.getClient() != null ? created.getClient().getName() : "Unknown");
+            result.setContact(created.getContact());
+            result.setDesignation(created.getDesignation());
 
             return ResponseEntity.ok(result);
         } catch (Exception e) {
@@ -53,6 +55,8 @@ public class UserManagementController {
             result.setRole(updated.getRole());
             result.setClientId(updated.getClient() != null ? updated.getClient().getId() : null);
             result.setClientName(updated.getClient() != null ? updated.getClient().getName() : "Unknown");
+            result.setContact(updated.getContact());
+            result.setDesignation(updated.getDesignation());
 
             return ResponseEntity.ok(result);
         } catch (Exception e) {
