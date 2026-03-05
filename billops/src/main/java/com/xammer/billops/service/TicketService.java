@@ -112,7 +112,7 @@ public class TicketService {
         }
         
         // 5. Evict Cache (Includes the specific category)
-        evictTicketCaches(savedTicket.getCategory());
+        evictTicketCaches(savedTicket.getCategory(), client.getId());
 
         return convertToDto(savedTicket);
     }
@@ -121,27 +121,36 @@ public class TicketService {
      * Unified method to get all tickets.
      */
     @Transactional(readOnly = true)
-    public List<TicketDto> getAllTickets(boolean forceRefresh) {
+    public List<TicketDto> getAllTickets(boolean forceRefresh, Long clientId, boolean isSuperAdmin) {
+        String cacheKey = isSuperAdmin ? TICKETS_ALL_CACHE_KEY : "tickets:client:" + clientId + ":all";
+
         if (!forceRefresh) {
-            Optional<List<TicketDto>> cached = redisCache.get(TICKETS_ALL_CACHE_KEY, new TypeReference<List<TicketDto>>() {});
+            Optional<List<TicketDto>> cached = redisCache.get(cacheKey, new TypeReference<List<TicketDto>>() {});
             if (cached.isPresent()) {
-                logger.debug("Returning CACHED all tickets");
+                logger.debug("Returning CACHED all tickets for cacheKey: {}", cacheKey);
                 return cached.get();
             }
         }
 
-        logger.debug("Fetching FRESH all tickets and updating cache");
-        List<TicketDto> freshData = ticketRepository.findAllWithRepliesAndAuthors().stream()
+        logger.debug("Fetching FRESH all tickets for cacheKey: {}", cacheKey);
+        List<Ticket> tickets = isSuperAdmin ?
+                ticketRepository.findAllWithRepliesAndAuthors() :
+                ticketRepository.findAllByClientIdWithRepliesAndAuthors(clientId);
+
+        List<TicketDto> freshData = tickets.stream()
                 .map(this::convertToDto)
                 .collect(Collectors.toList());
 
-        redisCache.put(TICKETS_ALL_CACHE_KEY, freshData, CACHE_TTL_MINUTES);
+        redisCache.put(cacheKey, freshData, CACHE_TTL_MINUTES);
         return freshData;
     }
 
     @Transactional(readOnly = true)
-    public TicketDto getTicketById(Long ticketId) {
-        Ticket ticket = ticketRepository.findByIdWithRepliesAndAuthors(ticketId);
+    public TicketDto getTicketById(Long ticketId, Long clientId, boolean isSuperAdmin) {
+        Ticket ticket = isSuperAdmin ?
+                ticketRepository.findByIdWithRepliesAndAuthors(ticketId) :
+                ticketRepository.findByIdAndClientIdWithRepliesAndAuthors(ticketId, clientId);
+
         if (ticket == null) {
             throw new RuntimeException("Ticket not found");
         }
@@ -152,19 +161,24 @@ public class TicketService {
      * Unified method to get tickets by category.
      */
     @Transactional(readOnly = true)
-    public List<TicketDto> getTicketsByCategory(String category, boolean forceRefresh) {
-        String cacheKey = TICKETS_CATEGORY_PREFIX + category;
+    public List<TicketDto> getTicketsByCategory(String category, boolean forceRefresh, Long clientId, boolean isSuperAdmin) {
+        String cacheKey = isSuperAdmin ? TICKETS_CATEGORY_PREFIX + category :
+                "tickets:client:" + clientId + ":category:" + category;
         
         if (!forceRefresh) {
             Optional<List<TicketDto>> cached = redisCache.get(cacheKey, new TypeReference<List<TicketDto>>() {});
             if (cached.isPresent()) {
-                logger.debug("Returning CACHED tickets for category: {}", category);
+                logger.debug("Returning CACHED tickets for category: {} and cacheKey: {}", category, cacheKey);
                 return cached.get();
             }
         }
 
-        logger.debug("Fetching FRESH tickets for category: {} and updating cache", category);
-        List<TicketDto> freshData = ticketRepository.findAllByCategoryWithRepliesAndAuthors(category).stream()
+        logger.debug("Fetching FRESH tickets for category: {} and cacheKey: {}", category, cacheKey);
+        List<Ticket> tickets = isSuperAdmin ?
+                ticketRepository.findAllByCategoryWithRepliesAndAuthors(category) :
+                ticketRepository.findAllByCategoryAndClientIdWithRepliesAndAuthors(category, clientId);
+
+        List<TicketDto> freshData = tickets.stream()
                 .map(this::convertToDto)
                 .collect(Collectors.toList());
 
@@ -173,9 +187,11 @@ public class TicketService {
     }
 
     @Transactional
-    public TicketDto addReplyToTicket(Long ticketId, TicketReplyDto replyDto, MultipartFile file) {
-        Ticket ticket = ticketRepository.findById(ticketId)
-                .orElseThrow(() -> new RuntimeException("Ticket not found"));
+    public TicketDto addReplyToTicket(Long ticketId, TicketReplyDto replyDto, MultipartFile file, Long clientId, boolean isSuperAdmin) {
+        Ticket ticket = isSuperAdmin ?
+                ticketRepository.findById(ticketId).orElseThrow(() -> new RuntimeException("Ticket not found")) :
+                Optional.ofNullable(ticketRepository.findByIdAndClientIdWithRepliesAndAuthors(ticketId, clientId))
+                        .orElseThrow(() -> new RuntimeException("Ticket not found or access denied"));
 
         if ("CLOSED".equalsIgnoreCase(ticket.getStatus())) {
             throw new IllegalStateException("Cannot add a reply to a closed ticket.");
@@ -254,7 +270,7 @@ public class TicketService {
         }
         
         // Evict Cache for this specific category + Admin list
-        evictTicketCaches(updatedTicket.getCategory());
+        evictTicketCaches(updatedTicket.getCategory(), updatedTicket.getClient() != null ? updatedTicket.getClient().getId() : null);
         
         return convertToDto(updatedTicket);
     }
@@ -268,7 +284,7 @@ public class TicketService {
         Ticket updatedTicket = ticketRepository.save(ticket);
         
         // Evict Cache for this specific category + Admin list
-        evictTicketCaches(updatedTicket.getCategory());
+        evictTicketCaches(updatedTicket.getCategory(), updatedTicket.getClient() != null ? updatedTicket.getClient().getId() : null);
         
         return convertToDto(updatedTicket);
     }
@@ -278,21 +294,23 @@ public class TicketService {
     /**
      * Evicts the global "All Tickets" list (for Admins) AND the specific category cache (for Users).
      * @param category The category of the ticket that was modified. Can be null if unknown.
+     * @param clientId The client ID whose cache should be evicted.
      */
-    public void evictTicketCaches(String category) {
+    public void evictTicketCaches(String category, Long clientId) {
         // 1. Evict Admin List (Always)
         redisCache.evict(TICKETS_ALL_CACHE_KEY);
-        
-        // 2. Evict Specific Category Cache (If known)
         if (category != null && !category.isEmpty()) {
-            // RedisCacheService typically expects exact keys unless pattern deletion is implemented.
-            // Assuming we match the key format used in getTicketsByCategory:
-            String categoryKey = TICKETS_CATEGORY_PREFIX + category;
-            redisCache.evict(categoryKey);
-            logger.info("Evicted ticket caches: {} AND {}", TICKETS_ALL_CACHE_KEY, categoryKey);
-        } else {
-            logger.info("Evicted ticket cache: {}", TICKETS_ALL_CACHE_KEY);
+            redisCache.evict(TICKETS_CATEGORY_PREFIX + category);
         }
+
+        // 2. Evict Client Specific Caches
+        if (clientId != null) {
+            redisCache.evict("tickets:client:" + clientId + ":all");
+            if (category != null && !category.isEmpty()) {
+                redisCache.evict("tickets:client:" + clientId + ":category:" + category);
+            }
+        }
+        logger.info("Evicted ticket caches for category: {} and clientId: {}", category, clientId);
     }
 
     private TicketDto convertToDto(Ticket ticket) {
