@@ -25,7 +25,7 @@
  * - Uses React sidebar component
  */
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useBillOpsUserManager } from '../hooks/useBillOpsUserManager';
 import type { BillOpsUser, BillOpsRole } from '../types/billopsUserManager';
@@ -50,6 +50,9 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
         clearNotification,
     } = useBillOpsUserManager();
 
+    const [searchQuery, setSearchQuery] = useState('');
+    const [filterRole, setFilterRole] = useState<BillOpsRole | ''>('');
+
     /**
      * Get initials for avatar
      */
@@ -61,15 +64,45 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
      * Format role for display
      */
     const formatRole = (role: BillOpsRole): string => {
-        return role.replace('ROLE_', '').replace('_', ' ');
+        return role.replace('ROLE_', '').replace(/_/g, ' ');
     };
 
     /**
-     * Check if role is admin
+     * Get role badge class
      */
-    const isAdminRole = (role: BillOpsRole): boolean => {
-        return role === 'ROLE_BILLOPS_ADMIN';
+    const getRoleBadgeClass = (role: BillOpsRole): string => {
+        if (role === 'ROLE_BILLOPS_ADMIN') return 'admin';
+        if (role === 'ROLE_XAMOPS') return 'xamops';
+        return 'user';
     };
+
+    /**
+     * Client-side filtered + searched users
+     */
+    const filteredUsers = useMemo(() => {
+        const q = searchQuery.toLowerCase().trim();
+        return users.filter((user) => {
+            const matchesRole = filterRole === '' || user.role === filterRole;
+            if (!matchesRole) return false;
+            if (!q) return true;
+            return (
+                user.clientName?.toLowerCase().includes(q) ||
+                user.username?.toLowerCase().includes(q) ||
+                user.email?.toLowerCase().includes(q) ||
+                user.designation?.toLowerCase().includes(q)
+            );
+        });
+    }, [users, searchQuery, filterRole]);
+
+    /**
+     * Stats counts
+     */
+    const stats = useMemo(() => ({
+        total: users.length,
+        admin: users.filter(u => u.role === 'ROLE_BILLOPS_ADMIN').length,
+        billops: users.filter(u => u.role === 'ROLE_BILLOPS').length,
+        xamops: users.filter(u => u.role === 'ROLE_XAMOPS').length,
+    }), [users]);
 
     const { setActions, clearActions } = useTopbar();
 
@@ -164,6 +197,28 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
                                 </select>
                             </div>
 
+                            <div className="user-manager-form-group">
+                                <label className="user-manager-form-label">Contact Number</label>
+                                <input
+                                    type="tel"
+                                    value={selectedUser.contact}
+                                    className="user-manager-form-input"
+                                    placeholder="Enter contact number"
+                                    onChange={(e) => updateSelectedUser('contact', e.target.value)}
+                                />
+                            </div>
+
+                            <div className="user-manager-form-group">
+                                <label className="user-manager-form-label">Designation</label>
+                                <input
+                                    type="text"
+                                    value={selectedUser.designation}
+                                    className="user-manager-form-input"
+                                    placeholder="e.g. Cloud Engineer"
+                                    onChange={(e) => updateSelectedUser('designation', e.target.value)}
+                                />
+                            </div>
+
                             <div className="user-manager-form-group full-width">
                                 <label className="user-manager-form-label">Password</label>
                                 <input
@@ -196,6 +251,40 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
                 </div>
             )}
 
+            {/* Stats Summary */}
+            {!loading && users.length > 0 && (
+                <div className="user-manager-stats">
+                    <div className="user-manager-stat-card total">
+                        <i className="fas fa-users"></i>
+                        <div>
+                            <span className="user-manager-stat-value">{stats.total}</span>
+                            <span className="user-manager-stat-label">Total Users</span>
+                        </div>
+                    </div>
+                    <div className="user-manager-stat-card admin">
+                        <i className="fas fa-crown"></i>
+                        <div>
+                            <span className="user-manager-stat-value">{stats.admin}</span>
+                            <span className="user-manager-stat-label">Admins</span>
+                        </div>
+                    </div>
+                    <div className="user-manager-stat-card billops">
+                        <i className="fas fa-user"></i>
+                        <div>
+                            <span className="user-manager-stat-value">{stats.billops}</span>
+                            <span className="user-manager-stat-label">BillOps</span>
+                        </div>
+                    </div>
+                    <div className="user-manager-stat-card xamops">
+                        <i className="fas fa-cloud"></i>
+                        <div>
+                            <span className="user-manager-stat-value">{stats.xamops}</span>
+                            <span className="user-manager-stat-label">XamOps</span>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Users Table */}
             <div className="user-manager-table-card">
                 {loading ? (
@@ -212,64 +301,131 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
                         <p>Create your first user to get started.</p>
                     </div>
                 ) : (
-                    <div className="user-manager-table-container">
-                        <table className="user-manager-table">
-                            <thead>
-                                <tr>
-                                    <th>User</th>
-                                    <th>Email</th>
-                                    <th>Role</th>
-                                    <th>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {users.map((user: BillOpsUser) => (
-                                    <tr key={user.id}>
-                                        <td>
-                                            <div className="user-manager-user-info">
-                                                <div className="user-manager-avatar">
-                                                    {getInitials(user.clientName || user.username)}
-                                                </div>
-                                                <div className="user-manager-user-details">
-                                                    <span className="user-manager-client-name">
-                                                        {user.clientName}
-                                                    </span>
-                                                    <span className="user-manager-username">
-                                                        @{user.username}
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        </td>
-                                        <td>{user.email}</td>
-                                        <td>
-                                            <span className={`user-manager-role-badge ${isAdminRole(user.role) ? 'admin' : 'user'}`}>
-                                                <i className={`fas ${isAdminRole(user.role) ? 'fa-crown' : 'fa-user'}`}></i>
-                                                {formatRole(user.role)}
-                                            </span>
-                                        </td>
-                                        <td>
-                                            <div className="user-manager-actions">
-                                                <button
-                                                    onClick={() => editUser(user)}
-                                                    className="user-manager-action-btn edit"
-                                                    title="Edit User"
-                                                >
-                                                    <i className="fas fa-edit"></i>
-                                                </button>
-                                                <button
-                                                    onClick={() => deleteUser(user.id)}
-                                                    className="user-manager-action-btn delete"
-                                                    title="Delete User"
-                                                >
-                                                    <i className="fas fa-trash"></i>
-                                                </button>
-                                            </div>
-                                        </td>
-                                    </tr>
+                    <>
+                        {/* Search & Filter Toolbar */}
+                        <div className="user-manager-toolbar">
+                            <div className="user-manager-search-wrapper">
+                                <i className="fas fa-search user-manager-search-icon"></i>
+                                <input
+                                    type="text"
+                                    className="user-manager-search-input"
+                                    placeholder="Search by name, username, email or designation..."
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                />
+                                {searchQuery && (
+                                    <button
+                                        className="user-manager-search-clear"
+                                        onClick={() => setSearchQuery('')}
+                                        title="Clear search"
+                                    >
+                                        <i className="fas fa-times"></i>
+                                    </button>
+                                )}
+                            </div>
+                            <select
+                                className="user-manager-filter-select"
+                                value={filterRole}
+                                onChange={(e) => setFilterRole(e.target.value as BillOpsRole | '')}
+                            >
+                                <option value="">All Roles</option>
+                                {roles.map((role) => (
+                                    <option key={role} value={role}>{formatRole(role)}</option>
                                 ))}
-                            </tbody>
-                        </table>
-                    </div>
+                            </select>
+                            {(searchQuery || filterRole) && (
+                                <button
+                                    className="user-manager-clear-filters"
+                                    onClick={() => { setSearchQuery(''); setFilterRole(''); }}
+                                >
+                                    <i className="fas fa-filter-circle-xmark"></i>
+                                    Clear Filters
+                                </button>
+                            )}
+                            <span className="user-manager-results-count">
+                                {filteredUsers.length === users.length
+                                    ? `${users.length} user${users.length !== 1 ? 's' : ''}`
+                                    : `${filteredUsers.length} of ${users.length} users`}
+                            </span>
+                        </div>
+
+                        {filteredUsers.length === 0 ? (
+                            <div className="user-manager-empty">
+                                <div className="user-manager-empty-icon">
+                                    <i className="fas fa-search"></i>
+                                </div>
+                                <h3>No Results Found</h3>
+                                <p>Try adjusting your search or filter criteria.</p>
+                            </div>
+                        ) : (
+                            <div className="user-manager-table-container">
+                                <table className="user-manager-table">
+                                    <thead>
+                                        <tr>
+                                            <th>User</th>
+                                            <th>Email</th>
+                                            <th>Contact</th>
+                                            <th>Designation</th>
+                                            <th>Role</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {filteredUsers.map((user: BillOpsUser) => (
+                                            <tr key={user.id}>
+                                                <td>
+                                                    <div className="user-manager-user-info">
+                                                        <div className="user-manager-avatar">
+                                                            {getInitials(user.clientName || user.username)}
+                                                        </div>
+                                                        <div className="user-manager-user-details">
+                                                            <span className="user-manager-client-name">
+                                                                {user.clientName}
+                                                            </span>
+                                                            <span className="user-manager-username">
+                                                                @{user.username}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td>{user.email}</td>
+                                                <td className="text-sm text-gray-600">
+                                                    {user.contact || <span className="text-gray-400">—</span>}
+                                                </td>
+                                                <td className="text-sm text-gray-600">
+                                                    {user.designation || <span className="text-gray-400">—</span>}
+                                                </td>
+                                                <td>
+                                                    <span className={`user-manager-role-badge ${getRoleBadgeClass(user.role)}`}>
+                                                        <i className={`fas ${user.role === 'ROLE_BILLOPS_ADMIN' ? 'fa-crown' : user.role === 'ROLE_XAMOPS' ? 'fa-cloud' : 'fa-user'}`}></i>
+                                                        {formatRole(user.role)}
+                                                    </span>
+                                                </td>
+                                                <td>
+                                                    <div className="user-manager-actions">
+                                                        <button
+                                                            onClick={() => editUser(user)}
+                                                            className="user-manager-action-btn edit"
+                                                            title="Edit User"
+                                                        >
+                                                            <i className="fas fa-edit"></i>
+                                                        </button>
+                                                        <button
+                                                            onClick={() => deleteUser(user.id)}
+                                                            className="user-manager-action-btn delete"
+                                                            title="Delete User"
+                                                        >
+                                                            <i className="fas fa-trash"></i>
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+                    </>
                 )}
             </div>
 

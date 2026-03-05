@@ -21,6 +21,8 @@ public class ProfileDTO {
 
     private List<CloudAccountInfo> cloudAccounts;
 
+    private List<String> allowedTabs;
+
     public Long getId() {
         return id;
     }
@@ -75,6 +77,14 @@ public class ProfileDTO {
 
     public void setCloudAccounts(List<CloudAccountInfo> cloudAccounts) {
         this.cloudAccounts = cloudAccounts;
+    }
+
+    public List<String> getAllowedTabs() {
+        return allowedTabs;
+    }
+
+    public void setAllowedTabs(List<String> allowedTabs) {
+        this.allowedTabs = allowedTabs;
     }
 
     @Data

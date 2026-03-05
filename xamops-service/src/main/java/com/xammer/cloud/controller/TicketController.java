@@ -46,6 +46,7 @@ public class TicketController {
             @RequestPart(value = "message", required = false) String message,
             @RequestPart(value = "file", required = false) MultipartFile file,
             @RequestPart(value = "authorId", required = false) String authorIdStr,
+            @RequestPart(value = "isInternal", required = false) String isInternalStr,
             Authentication authentication) {
 
         // Validate that we have at least something to post
@@ -72,6 +73,10 @@ public class TicketController {
             } catch (NumberFormatException e) {
                 // Ignore invalid ID format
             }
+        }
+
+        if ("true".equalsIgnoreCase(isInternalStr)) {
+            replyDto.setInternal(true);
         }
 
         return ResponseEntity.ok(ticketService.addReplyToTicket(id, replyDto, file));

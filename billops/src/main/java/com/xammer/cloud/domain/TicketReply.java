@@ -35,6 +35,9 @@ public class TicketReply {
     private String attachmentType; // MIME type
     // ----------------------------------
 
+    @Column(name = "is_internal", nullable = false)
+    private boolean isInternal = false; // Admin-only internal note, not visible to customers
+
     // Getters and Setters
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -60,4 +63,7 @@ public class TicketReply {
 
     public String getAttachmentType() { return attachmentType; }
     public void setAttachmentType(String attachmentType) { this.attachmentType = attachmentType; }
+
+    public boolean isInternal() { return isInternal; }
+    public void setInternal(boolean isInternal) { this.isInternal = isInternal; }
 }

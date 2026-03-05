@@ -21,8 +21,13 @@ export interface AdminTicket {
   region?: string;
   accountId?: string;
   creatorId?: number;
+  creatorUsername?: string;
   createdAt: string;
   updatedAt?: string;
+  closedAt?: string;
+  chatStartedAt?: string;
+  assignedToId?: number;
+  assignedToUsername?: string;
 }
 
 export interface AdminTicketCacheData {

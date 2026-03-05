@@ -18,8 +18,10 @@ export interface BillOpsUser {
     clientName: string;
     username: string;
     email: string;
-    password?: string; // Only used for create/update, not returned from API
+    password?: string;
     role: BillOpsRole;
+    contact?: string;
+    designation?: string;
 }
 
 /**
@@ -32,6 +34,8 @@ export interface BillOpsUserFormData {
     email: string;
     password: string;
     role: BillOpsRole | '';
+    contact: string;
+    designation: string;
 }
 
 /**

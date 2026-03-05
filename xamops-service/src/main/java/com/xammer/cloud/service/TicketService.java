@@ -157,6 +157,12 @@ public class TicketService {
         reply.setMessage(messageContent);
 
         reply.setCreatedAt(java.time.LocalDateTime.now());
+        reply.setInternal(replyDto.isInternal());
+
+        // Track when chat first started
+        if (ticket.getChatStartedAt() == null) {
+            ticket.setChatStartedAt(java.time.LocalDateTime.now());
+        }
 
         if (file != null && !file.isEmpty()) {
             try {
@@ -222,6 +228,7 @@ public class TicketService {
                 .orElseThrow(() -> new RuntimeException("Ticket not found"));
 
         ticket.setStatus("CLOSED");
+        ticket.setClosedAt(java.time.LocalDateTime.now());
         Ticket updatedTicket = ticketRepository.save(ticket);
         return convertToDto(updatedTicket);
     }
@@ -247,12 +254,18 @@ public class TicketService {
         dto.setAccountId(ticket.getAccountId());
         dto.setRegion(ticket.getRegion());
 
+        dto.setClosedAt(ticket.getClosedAt());
+        dto.setChatStartedAt(ticket.getChatStartedAt());
+        dto.setAssignedToId(ticket.getAssignedToId());
+        dto.setAssignedToUsername(ticket.getAssignedToUsername());
+
         if (ticket.getClient() != null) {
             dto.setClientId(ticket.getClient().getId());
         }
 
         if (ticket.getCreator() != null) {
             dto.setCreatorId(ticket.getCreator().getId());
+            dto.setCreatorUsername(ticket.getCreator().getUsername());
         }
 
         if (ticket.getReplies() != null) {
@@ -272,9 +285,12 @@ public class TicketService {
         dto.setTicketId(reply.getTicket().getId());
         dto.setMessage(reply.getMessage());
         dto.setCreatedAt(reply.getCreatedAt());
+        dto.setInternal(reply.isInternal());
         if (reply.getAuthor() != null) {
             dto.setAuthorId(reply.getAuthor().getId());
             dto.setAuthorUsername(reply.getAuthor().getUsername());
+            boolean isAdmin = reply.getAuthor().getRole() != null && reply.getAuthor().getRole().contains("ADMIN");
+            dto.setAdmin(isAdmin);
         }
 
         if (reply.getAttachmentKey() != null) {

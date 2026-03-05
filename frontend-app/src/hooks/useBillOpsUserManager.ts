@@ -33,7 +33,9 @@ const EMPTY_FORM: BillOpsUserFormData = {
     username: '',
     email: '',
     password: '',
-    role: ''
+    role: '',
+    contact: '',
+    designation: '',
 };
 
 const AVAILABLE_ROLES: BillOpsRole[] = ['ROLE_BILLOPS', 'ROLE_BILLOPS_ADMIN', 'ROLE_XAMOPS'];
@@ -122,8 +124,10 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
             clientName: user.clientName,
             username: user.username,
             email: user.email,
-            password: '', // Don't populate password for security
-            role: user.role
+            password: '',
+            role: user.role,
+            contact: user.contact || '',
+            designation: user.designation || '',
         });
         setIsEditing(true);
     }, []);

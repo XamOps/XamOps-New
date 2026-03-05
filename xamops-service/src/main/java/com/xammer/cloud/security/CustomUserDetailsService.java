@@ -2,12 +2,9 @@ package com.xammer.cloud.security;
 
 import com.xammer.cloud.config.multitenancy.TenantContext;
 import com.xammer.cloud.domain.User;
-import com.xammer.cloud.dto.GlobalUserDto;
 import com.xammer.cloud.repository.UserRepository;
-import com.xammer.cloud.service.MasterDatabaseService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.core.env.Environment;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -20,11 +17,8 @@ import java.util.Collections;
 import java.util.Optional;
 
 /**
- * Profile-Aware User Authentication Service
- * 
- * LOCAL/UAT MODE: Authenticates directly against users table in single database
- * PRODUCTION MODE: Uses global_users for tenant routing, then loads from
- * tenant's users table
+ * Single-database authentication for all environments (local, UAT, prod, preprod).
+ * Each environment connects to its own DB via application-{profile}.properties.
  */
 @Service
 @Slf4j
@@ -33,104 +27,28 @@ public class CustomUserDetailsService implements UserDetailsService {
     @Autowired
     private UserRepository userRepository;
 
-    @Autowired
-    private MasterDatabaseService masterDatabaseService;
-
-    @Autowired
-    private Environment environment;
-
     @Override
-    public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
-        log.info("========== CENTRALIZED LOGIN ATTEMPT ==========");
-        log.info("User: {}", username);
+    public UserDetails loadUserByUsername(String usernameOrEmail) throws UsernameNotFoundException {
+        log.info("========== LOGIN ATTEMPT ==========");
+        log.info("Input: {}", usernameOrEmail);
 
-        // Check active profile
-        String[] activeProfiles = environment.getActiveProfiles();
-        boolean isProduction = java.util.Arrays.asList(activeProfiles).contains("prod")
-                || java.util.Arrays.asList(activeProfiles).contains("preprod");
-
-        if (isProduction) {
-            // PRODUCTION MODE: Use global_users table for multi-tenant routing
-            return loadUserInProductionMode(username);
-        } else {
-            // LOCAL/UAT MODE: Direct authentication from users table (single DB)
-            return loadUserInSingleDatabaseMode(username);
-        }
-    }
-
-    /**
-     * PRODUCTION MODE: Multi-tenant authentication
-     * 1. Query global_users to find tenant
-     * 2. Switch to tenant database
-     * 3. Load full user profile from tenant's users table
-     */
-    private UserDetails loadUserInProductionMode(String username) {
-        log.info("🔒 PRODUCTION MODE: Multi-tenant authentication");
-
-        // 1. GLOBAL LOOKUP: Check Master DB for this user
-        Optional<GlobalUserDto> globalUserOpt = masterDatabaseService.findGlobalUser(username);
-
-        if (globalUserOpt.isEmpty()) {
-            log.error("✗ User not found in Global Directory: {}", username);
-            throw new UsernameNotFoundException("User not found in Global Directory");
-        }
-
-        GlobalUserDto globalUser = globalUserOpt.get();
-        String tenantId = globalUser.getTenantId();
-        if (!globalUser.isEnabled()) {
-            log.error("✗ User account is DISABLED in Global Directory: {}", username);
-            throw new UsernameNotFoundException("Account is disabled");
-        }
-
-        // 2. CONTEXT SWITCH: Force the application to talk to the correct Tenant DB
-        TenantContext.setCurrentTenant(tenantId);
-        log.info("↔ Context Switched to Tenant: {}", tenantId);
-
-        // 3. TENANT LOOKUP: Now fetch the full user details from their specific
-        // database
-        User user = userRepository.findByUsername(username)
-                .orElseThrow(() -> {
-                    log.error("✗ Integrity Error: User in Global DB but missing in Tenant DB ({})", tenantId);
-                    return new UsernameNotFoundException("User data missing in Tenant Database");
-                });
-
-        log.info("✓ User profile loaded from Tenant DB ({})", tenantId);
-        log.info("Profile Details - Role: {}, Password Format: {}", user.getRole(),
-                (user.getPassword() != null && user.getPassword().startsWith("$2a$")) ? "BCrypt" : "Unknown/Plain");
-
-        if (user.getPassword() == null || user.getPassword().isEmpty()) {
-            log.error("✗ Password is NULL or EMPTY in Tenant DB for user: {}", username);
-        }
-
-        return buildUserDetails(user, tenantId);
-    }
-
-    /**
-     * LOCAL/UAT MODE: Single database authentication
-     * Directly query users table in the single database (no tenant switching)
-     */
-    private UserDetails loadUserInSingleDatabaseMode(String username) {
-        log.info("🔓 LOCAL/UAT MODE: Single database authentication");
-
-        // Clear any existing tenant context (shouldn't be set, but just in case)
+        // Clear any existing tenant context
         TenantContext.clear();
 
-        // Directly query the users table in the current database
-        User user = userRepository.findByUsername(username)
-                .orElseThrow(() -> {
-                    log.error("✗ User not found: {}", username);
-                    return new UsernameNotFoundException("User not found: " + username);
-                });
+        // Try username first, then fall back to email
+        Optional<User> userOpt = userRepository.findByUsername(usernameOrEmail);
+        if (userOpt.isEmpty()) {
+            log.info("Username not found, trying email lookup...");
+            userOpt = userRepository.findByEmail(usernameOrEmail);
+        }
 
-        log.info("✓ User profile loaded: {} (role: {})", username, user.getRole());
+        User user = userOpt.orElseThrow(() -> {
+            log.error("✗ User not found by username or email: {}", usernameOrEmail);
+            return new UsernameNotFoundException("User not found: " + usernameOrEmail);
+        });
 
-        return buildUserDetails(user, "default");
-    }
+        log.info("✓ User loaded: {} (role: {})", user.getUsername(), user.getRole());
 
-    /**
-     * Common method to build UserDetails from User entity
-     */
-    private UserDetails buildUserDetails(User user, String tenantId) {
         Long clientId = user.getClient() != null ? user.getClient().getId() : null;
         Collection<GrantedAuthority> authorities = Collections.singletonList(
                 new SimpleGrantedAuthority(user.getRole()));
@@ -141,6 +59,6 @@ public class CustomUserDetailsService implements UserDetailsService {
                 authorities,
                 clientId,
                 user.getId(),
-                tenantId);
+                "default");
     }
 }

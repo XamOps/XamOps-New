@@ -42,6 +42,18 @@ public class SupportMessage {
     @Column(name = "sender_username")
     private String senderUsername;
 
+    @Column(name = "attachment_url", length = 500)
+    private String attachmentUrl;
+
+    @Column(name = "attachment_name")
+    private String attachmentName;
+
+    @Column(name = "attachment_type", length = 100)
+    private String attachmentType;
+
+    @Column(name = "attachment_size")
+    private Long attachmentSize;
+
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
     public String getContent() { return content; }
@@ -62,4 +74,12 @@ public class SupportMessage {
     public void setCloudProvider(String cloudProvider) { this.cloudProvider = cloudProvider; }
     public String getSenderUsername() { return senderUsername; }
     public void setSenderUsername(String senderUsername) { this.senderUsername = senderUsername; }
+    public String getAttachmentUrl() { return attachmentUrl; }
+    public void setAttachmentUrl(String attachmentUrl) { this.attachmentUrl = attachmentUrl; }
+    public String getAttachmentName() { return attachmentName; }
+    public void setAttachmentName(String attachmentName) { this.attachmentName = attachmentName; }
+    public String getAttachmentType() { return attachmentType; }
+    public void setAttachmentType(String attachmentType) { this.attachmentType = attachmentType; }
+    public Long getAttachmentSize() { return attachmentSize; }
+    public void setAttachmentSize(Long attachmentSize) { this.attachmentSize = attachmentSize; }
 }

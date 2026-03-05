@@ -8,18 +8,27 @@ import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.UserCloudAccountAccessRepository;
 import com.xammer.cloud.repository.UserRepository;
 import com.xammer.cloud.service.CostService;
+import com.xammer.cloud.service.RedisCacheService;
 import com.xammer.cloud.service.gcp.GcpCostService;
 import com.xammer.cloud.service.azure.AzureCostService;
+import com.fasterxml.jackson.core.type.TypeReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
 
 // --- CONSOLIDATED DTOS TO RESOLVE COMPILATION ISSUES ---
 
@@ -176,6 +185,11 @@ class BillOpsClientDetailsDto {
 public class BillOpsAdminController {
 
     private static final Logger log = LoggerFactory.getLogger(BillOpsAdminController.class);
+    private static final String CLIENTS_CACHE_KEY = "billops:admin:clients";
+    private static final int CLIENTS_CACHE_TTL_MINUTES = 5;
+
+    @Autowired
+    private RedisCacheService redisCacheService;
 
     @Autowired
     private ClientRepository clientRepository;
@@ -198,20 +212,97 @@ public class BillOpsAdminController {
     @Autowired
     private AzureCostService azureCostService;
 
+    /** Evict the clients cache (call this after creating a client or user) */
+    @DeleteMapping("/clients/cache")
+    public ResponseEntity<String> evictClientsCache() {
+        redisCacheService.evict(CLIENTS_CACHE_KEY);
+        return ResponseEntity.ok("Cache evicted");
+    }
+
     @GetMapping("/clients")
     public List<BillOpsClientDetailsDto> getClients() {
-        log.info("Fetching client details for BillOps Admin (Consolidated)");
-        List<Client> clients = clientRepository.findAll();
-        List<BillOpsClientDetailsDto> result = new ArrayList<>();
+        log.info("Fetching client details for BillOps Admin (Optimised)");
 
+        // 0. Return cached response if available
+        Optional<List<BillOpsClientDetailsDto>> cached = redisCacheService.get(
+                CLIENTS_CACHE_KEY, new TypeReference<List<BillOpsClientDetailsDto>>() {});
+        if (cached.isPresent()) {
+            log.info("Returning client details from Redis cache");
+            return cached.get();
+        }
+
+        // 1. Fetch all clients in ONE query
+        List<Client> clients = clientRepository.findAll();
+        if (clients.isEmpty()) return new ArrayList<>();
+
+        List<Long> clientIds = clients.stream().map(Client::getId).collect(Collectors.toList());
+
+        // 2. Fetch ALL accounts for ALL clients in ONE query (no N+1)
+        List<CloudAccount> allAccounts = cloudAccountRepository.findByClientIdIn(clientIds);
+        Map<Long, List<CloudAccount>> accountsByClientId = allAccounts.stream()
+                .collect(Collectors.groupingBy(a -> a.getClient().getId()));
+
+        // 3. Fetch ALL users for ALL clients in ONE query (no N+1)
+        List<User> allUsers = userRepository.findByClientIdIn(clientIds);
+        Map<Long, List<User>> usersByClientId = allUsers.stream()
+                .collect(Collectors.groupingBy(u -> u.getClient().getId()));
+
+        // 4. Fetch ALL user-account-access records in ONE query (no N*M+1)
+        List<Long> allUserIds = allUsers.stream().map(User::getId).collect(Collectors.toList());
+        Map<Long, List<Long>> accountAccessByUserId = new HashMap<>();
+        if (!allUserIds.isEmpty()) {
+            List<Object[]> accessRows = userCloudAccountAccessRepository
+                    .findUserIdAndAccountIdsByUserIdIn(allUserIds);
+            for (Object[] row : accessRows) {
+                Long userId = ((Number) row[0]).longValue();
+                Long accountId = ((Number) row[1]).longValue();
+                accountAccessByUserId.computeIfAbsent(userId, k -> new ArrayList<>()).add(accountId);
+            }
+        }
+
+        // 5. Kick off ALL cloud cost API calls in PARALLEL (not sequential)
+        List<CompletableFuture<Double>> costFutures = allAccounts.stream().map(account -> {
+            String providerAccId = account.getProviderAccountId();
+            String provider = account.getProvider();
+            if (providerAccId == null || providerAccId.isEmpty()) {
+                return CompletableFuture.completedFuture(0.0);
+            }
+            try {
+                if ("AWS".equalsIgnoreCase(provider)) {
+                    return costService.getTotalMonthToDateCost(providerAccId, false)
+                            .exceptionally(e -> { log.error("AWS cost error for {}: {}", account.getId(), e.getMessage()); return 0.0; });
+                } else if ("GCP".equalsIgnoreCase(provider)) {
+                    return gcpCostService.getUnfilteredMonthToDateSpend(providerAccId)
+                            .exceptionally(e -> { log.error("GCP cost error for {}: {}", account.getId(), e.getMessage()); return 0.0; });
+                } else if ("Azure".equalsIgnoreCase(provider)) {
+                    return azureCostService.getTotalMonthToDateCost(providerAccId)
+                            .exceptionally(e -> { log.error("Azure cost error for {}: {}", account.getId(), e.getMessage()); return 0.0; });
+                }
+            } catch (Exception e) {
+                log.error("Error starting cost fetch for account {}: {}", account.getId(), e.getMessage());
+            }
+            return CompletableFuture.completedFuture(0.0);
+        }).collect(Collectors.toList());
+
+        // Wait for ALL cloud calls to finish at once (parallel, not sequential)
+        CompletableFuture.allOf(costFutures.toArray(new CompletableFuture[0])).join();
+
+        // Build cost map: accountId → consumption
+        Map<Long, Double> costByAccountId = new HashMap<>();
+        for (int i = 0; i < allAccounts.size(); i++) {
+            Double cost = costFutures.get(i).join();
+            costByAccountId.put(allAccounts.get(i).getId(), cost != null ? cost : 0.0);
+        }
+
+        // 6. Assemble response
+        List<BillOpsClientDetailsDto> result = new ArrayList<>();
         for (Client client : clients) {
             BillOpsClientDetailsDto clientDto = new BillOpsClientDetailsDto();
             clientDto.setId(client.getId());
             clientDto.setName(client.getName());
             clientDto.setEmail(client.getEmail());
 
-            // Fetch accounts for this client
-            List<CloudAccount> accounts = cloudAccountRepository.findByClientId(client.getId());
+            List<CloudAccount> accounts = accountsByClientId.getOrDefault(client.getId(), new ArrayList<>());
             List<BillOpsAccountDto> accountDtos = new ArrayList<>();
             double totalConsumption = 0;
 
@@ -221,59 +312,30 @@ public class BillOpsAdminController {
                 accDto.setName(account.getAccountName());
                 accDto.setProvider(account.getProvider());
                 accDto.setProviderAccountId(account.getProviderAccountId());
-
-                try {
-                    String providerAccId = account.getProviderAccountId();
-                    String provider = account.getProvider();
-
-                    if (providerAccId != null && !providerAccId.isEmpty()) {
-                        Double consumption = 0.0;
-
-                        if ("AWS".equalsIgnoreCase(provider)) {
-                            consumption = costService.getTotalMonthToDateCost(providerAccId, false).join();
-                        } else if ("GCP".equalsIgnoreCase(provider)) {
-                            consumption = gcpCostService.getUnfilteredMonthToDateSpend(providerAccId).join();
-                        } else if ("Azure".equalsIgnoreCase(provider)) {
-                            consumption = azureCostService.getTotalMonthToDateCost(providerAccId).join();
-                        }
-
-                        accDto.setConsumption(consumption != null ? consumption : 0.0);
-                        totalConsumption += accDto.getConsumption();
-                    } else {
-                        accDto.setConsumption(0.0);
-                    }
-                } catch (Exception e) {
-                    log.error("Error fetching consumption for account {}: {}", account.getId(), e.getMessage());
-                    accDto.setConsumption(0.0);
-                }
-
+                double consumption = costByAccountId.getOrDefault(account.getId(), 0.0);
+                accDto.setConsumption(consumption);
+                totalConsumption += consumption;
                 accountDtos.add(accDto);
             }
             clientDto.setAccounts(accountDtos);
             clientDto.setTotalConsumption(totalConsumption);
 
-            // Fetch users for this client
-            List<User> users = userRepository.findByClientId(client.getId());
+            List<User> users = usersByClientId.getOrDefault(client.getId(), new ArrayList<>());
             List<BillOpsUserDto> userDtos = new ArrayList<>();
-
             for (User user : users) {
                 BillOpsUserDto userDto = new BillOpsUserDto();
                 userDto.setId(user.getId());
                 userDto.setUsername(user.getUsername());
                 userDto.setEmail(user.getEmail());
-
-                // Get account access for this user
-                List<Long> accessibleAccountIds = userCloudAccountAccessRepository
-                        .findCloudAccountIdsByUserId(user.getId());
-                userDto.setAccountAccessIds(accessibleAccountIds != null ? accessibleAccountIds : new ArrayList<>());
-
+                userDto.setAccountAccessIds(accountAccessByUserId.getOrDefault(user.getId(), new ArrayList<>()));
                 userDtos.add(userDto);
             }
-
             clientDto.setUsers(userDtos);
             result.add(clientDto);
         }
 
+        // Cache for next requests
+        redisCacheService.put(CLIENTS_CACHE_KEY, result, CLIENTS_CACHE_TTL_MINUTES);
         return result;
     }
 }

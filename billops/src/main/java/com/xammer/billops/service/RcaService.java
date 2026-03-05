@@ -60,6 +60,7 @@ public class RcaService {
 
         // 5. Close Ticket
         ticket.setStatus("CLOSED");
+        ticket.setClosedAt(LocalDateTime.now());
         ticketRepository.save(ticket);
 
         // 6. Add System Message to Chat

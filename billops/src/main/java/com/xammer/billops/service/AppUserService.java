@@ -57,6 +57,8 @@ public class AppUserService {
         // Create user
         AppUser user = new AppUser(dto.getUsername(), passwordEncoder.encode(dto.getPassword()), dto.getEmail(),
                 dto.getRole(), client);
+        user.setContact(dto.getContact());
+        user.setDesignation(dto.getDesignation());
         AppUser savedUser = appUserRepository.save(user);
 
         // Send welcome email with credentials
@@ -81,6 +83,8 @@ public class AppUserService {
             dto.setRole(user.getRole());
             dto.setClientId(user.getClient() != null ? user.getClient().getId() : null);
             dto.setClientName(user.getClient() != null ? user.getClient().getName() : "Unknown");
+            dto.setContact(user.getContact());
+            dto.setDesignation(user.getDesignation());
             return dto;
         }).collect(Collectors.toList());
     }
@@ -108,6 +112,9 @@ public class AppUserService {
             // Update client name if client already exists
             client.setName(dto.getClientName());
         }
+
+        user.setContact(dto.getContact());
+        user.setDesignation(dto.getDesignation());
 
         // Only update password if not empty
         if (dto.getPassword() != null && !dto.getPassword().trim().isEmpty()) {
