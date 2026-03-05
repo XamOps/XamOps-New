@@ -3,6 +3,7 @@ package com.xammer.billops.controller;
 import com.xammer.billops.dto.TicketDto;
 import com.xammer.billops.dto.TicketReplyDto;
 import com.xammer.billops.service.TicketService;
+import com.xammer.billops.util.SecurityUtils;
 import com.xammer.cloud.security.ClientUserDetails;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,7 +35,10 @@ public class TicketController {
                 ClientUserDetails userDetails = (ClientUserDetails) authentication.getPrincipal();
                 ticketDto.setCreatorId(userDetails.getId());
                 
-                if (ticketDto.getClientId() == null) {
+                // ALWAYS override clientId with the one from the authenticated session for non-Super Admins
+                if (!SecurityUtils.isSuperAdmin()) {
+                    ticketDto.setClientId(userDetails.getClientId());
+                } else if (ticketDto.getClientId() == null) {
                     ticketDto.setClientId(userDetails.getClientId());
                 }
             }
@@ -55,7 +59,8 @@ public class TicketController {
     public ResponseEntity<List<TicketDto>> getAllTickets(@RequestParam(defaultValue = "false") boolean forceRefresh) {
         logger.debug("GET /tickets called. ForceRefresh: {}", forceRefresh);
         try {
-            return ResponseEntity.ok(ticketService.getAllTickets(forceRefresh));
+            ClientUserDetails user = SecurityUtils.getPrincipal();
+            return ResponseEntity.ok(ticketService.getAllTickets(forceRefresh, user.getClientId(), SecurityUtils.isSuperAdmin()));
         } catch (Exception e) {
             logger.error("Error fetching tickets: {}", e.getMessage(), e);
             return ResponseEntity.internalServerError().build();
@@ -65,7 +70,8 @@ public class TicketController {
     @GetMapping("/tickets/{id}")
     public ResponseEntity<TicketDto> getTicketById(@PathVariable Long id) {
         try {
-            return ResponseEntity.ok(ticketService.getTicketById(id));
+            ClientUserDetails user = SecurityUtils.getPrincipal();
+            return ResponseEntity.ok(ticketService.getTicketById(id, user.getClientId(), SecurityUtils.isSuperAdmin()));
         } catch (RuntimeException e) {
             logger.warn("Ticket not found for ID: {}", id);
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
@@ -94,8 +100,11 @@ public class TicketController {
             String safeMessage = (message != null) ? message : "";
             replyDto.setMessage(safeMessage);
             
+            Long clientId = null;
             if (authentication.getPrincipal() instanceof ClientUserDetails) {
-                replyDto.setAuthorId(((ClientUserDetails) authentication.getPrincipal()).getId());
+                ClientUserDetails user = (ClientUserDetails) authentication.getPrincipal();
+                replyDto.setAuthorId(user.getId());
+                clientId = user.getClientId();
             }
 
             // CHANGE 3: Allow if EITHER message has text OR file is attached
@@ -106,7 +115,7 @@ public class TicketController {
                 return ResponseEntity.badRequest().build();
             }
 
-            return ResponseEntity.ok(ticketService.addReplyToTicket(id, replyDto, file));
+            return ResponseEntity.ok(ticketService.addReplyToTicket(id, replyDto, file, clientId, SecurityUtils.isSuperAdmin()));
         } catch (IllegalStateException e) {
             logger.error("Error adding reply to ticket {}: {}", id, e.getMessage());
             return ResponseEntity.status(HttpStatus.CONFLICT).build();
@@ -142,7 +151,9 @@ public class TicketController {
         try {
             String decodedCategory = java.net.URLDecoder.decode(category, java.nio.charset.StandardCharsets.UTF_8);
             logger.debug("GET /tickets/category/{} called. ForceRefresh: {}", decodedCategory, forceRefresh);
-            return ResponseEntity.ok(ticketService.getTicketsByCategory(decodedCategory, forceRefresh));
+
+            ClientUserDetails user = SecurityUtils.getPrincipal();
+            return ResponseEntity.ok(ticketService.getTicketsByCategory(decodedCategory, forceRefresh, user.getClientId(), SecurityUtils.isSuperAdmin()));
         } catch (Exception e) {
             logger.error("Error fetching tickets by category {}: {}", category, e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
