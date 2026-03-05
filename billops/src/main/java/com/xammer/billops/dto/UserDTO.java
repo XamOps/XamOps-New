@@ -11,6 +11,8 @@ public class UserDTO {
     private String role;
     private Long clientId;
     private String clientName;
+    private String contact;
+    private String designation;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -26,4 +28,8 @@ public class UserDTO {
     public void setClientId(Long clientId) { this.clientId = clientId; }
     public String getClientName() { return clientName; }
     public void setClientName(String clientName) { this.clientName = clientName; }
+    public String getContact() { return contact; }
+    public void setContact(String contact) { this.contact = contact; }
+    public String getDesignation() { return designation; }
+    public void setDesignation(String designation) { this.designation = designation; }
 }

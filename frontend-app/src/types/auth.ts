@@ -16,6 +16,8 @@ export interface UserProfile {
   tenantId?: string;
   roles?: UserRole[];
   authorities?: UserRole[]; // Some endpoints return 'authorities' instead of 'roles'
+  allowedTabs?: string[];
+  isPrimaryUser?: boolean;
 }
 
 export interface Tenant {

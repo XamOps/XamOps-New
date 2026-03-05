@@ -16,6 +16,9 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Query("SELECT u FROM User u JOIN FETCH u.client WHERE u.username = :username")
     Optional<User> findByUsername(@Param("username") String username);
 
+    @Query("SELECT u FROM User u JOIN FETCH u.client WHERE u.email = :email")
+    Optional<User> findByEmail(@Param("email") String email);
+
     /**
      * Finds all users created by a specific user.
      * 
@@ -25,4 +28,6 @@ public interface UserRepository extends JpaRepository<User, Long> {
     List<User> findByCreatedBy(Long createdBy);
 
     List<User> findByClientId(Long clientId);
+
+    List<User> findByClientIdIn(List<Long> clientIds);
 }

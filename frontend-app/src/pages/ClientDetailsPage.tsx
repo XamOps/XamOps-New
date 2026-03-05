@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import apiClient from '../utils/apiClient';
 import ClientDetailsSkeleton from '../components/Shared/ClientDetailsSkeleton';
 import '../styles/billopsAdminDashboard.css';
@@ -28,30 +28,85 @@ interface ClientDetails {
     totalConsumption: number;
 }
 
+const CACHE_KEY = 'billops_clients_cache';
+const CACHE_TTL_MS = 60_000; // 1 minute
+
+function readCache(): ClientDetails[] | null {
+    try {
+        const raw = sessionStorage.getItem(CACHE_KEY);
+        if (!raw) return null;
+        const { data, ts } = JSON.parse(raw);
+        if (Date.now() - ts > CACHE_TTL_MS) return null;
+        return data as ClientDetails[];
+    } catch {
+        return null;
+    }
+}
+
+function writeCache(data: ClientDetails[]) {
+    try {
+        sessionStorage.setItem(CACHE_KEY, JSON.stringify({ data, ts: Date.now() }));
+    } catch {}
+}
+
 const ClientDetailsPage: React.FC = () => {
     const [clients, setClients] = useState<ClientDetails[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [isRefreshing, setIsRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [expandedClient, setExpandedClient] = useState<number | null>(null);
     const [expandedSection, setExpandedSection] = useState<'accounts' | 'users' | null>(null);
+    const [search, setSearch] = useState('');
+    const [filterProvider, setFilterProvider] = useState('');
+    const [sortBy, setSortBy] = useState('');
 
-    useEffect(() => {
-        fetchClients();
+    const evictServerCache = useCallback(async () => {
+        try {
+            await apiClient.delete('/api/xamops/billops-admin/clients/cache');
+        } catch {
+            // non-critical
+        }
     }, []);
 
-    const fetchClients = async () => {
-        setIsLoading(true);
+    const fetchClients = useCallback(async (silent = false) => {
+        if (!silent) setIsLoading(true);
+        else setIsRefreshing(true);
         setError(null);
         try {
             const data = await apiClient.get<ClientDetails[]>('/api/xamops/billops-admin/clients');
             setClients(data);
+            writeCache(data);
         } catch (err: any) {
             console.error('Failed to fetch clients:', err);
-            setError(err.message || 'Failed to load client details');
+            if (!silent) setError(err.message || 'Failed to load client details');
         } finally {
             setIsLoading(false);
+            setIsRefreshing(false);
         }
-    };
+    }, []);
+
+    useEffect(() => {
+        const cached = readCache();
+        if (cached) {
+            // Show cached data immediately, then silently refresh in background
+            setClients(cached);
+            setIsLoading(false);
+            fetchClients(true);
+        } else {
+            fetchClients(false);
+        }
+    }, [fetchClients]);
+
+    // Listen for new client/user creation events so the list updates instantly
+    useEffect(() => {
+        const handler = async () => {
+            sessionStorage.removeItem(CACHE_KEY);
+            await evictServerCache();
+            fetchClients(true);
+        };
+        window.addEventListener('billops:client-updated', handler);
+        return () => window.removeEventListener('billops:client-updated', handler);
+    }, [fetchClients, evictServerCache]);
 
     const toggleClient = (clientId: number) => {
         if (expandedClient === clientId) {
@@ -59,25 +114,60 @@ const ClientDetailsPage: React.FC = () => {
             setExpandedSection(null);
         } else {
             setExpandedClient(clientId);
-            setExpandedSection('accounts'); // Default to accounts view when expanded
+            setExpandedSection('accounts');
         }
     };
 
     const handleLoginAs = (userId: number, tenantId: string) => {
         const url = `${window.location.origin}/unified-dashboard?impersonateUserId=${userId}&tenantId=${tenantId}`;
-
-        // Open in a new window with specific dimensions for a "popup" feel
         const width = 1200;
         const height = 800;
         const left = (window.screen.width / 2) - (width / 2);
         const top = (window.screen.height / 2) - (height / 2);
-
         window.open(
             url,
             `LoginAs_${userId}`,
             `width=${width},height=${height},top=${top},left=${left},scrollbars=yes,resizable=yes,menubar=no,toolbar=no`
         );
     };
+
+    const stats = useMemo(() => ({
+        clients: clients.length,
+        accounts: clients.reduce((sum, c) => sum + c.accounts.length, 0),
+        users: clients.reduce((sum, c) => sum + c.users.length, 0),
+        spend: clients.reduce((sum, c) => sum + (c.totalConsumption || 0), 0),
+    }), [clients]);
+
+    const availableProviders = useMemo(() => {
+        const providers = new Set<string>();
+        clients.forEach(c => c.accounts.forEach(a => providers.add(a.provider)));
+        return [...providers].sort();
+    }, [clients]);
+
+    const filteredClients = useMemo(() => {
+        let result = clients;
+
+        if (search.trim()) {
+            const term = search.toLowerCase();
+            result = result.filter(c =>
+                c.name.toLowerCase().includes(term) ||
+                c.email.toLowerCase().includes(term) ||
+                c.accounts.some(a => a.name.toLowerCase().includes(term) || a.providerAccountId.toLowerCase().includes(term)) ||
+                c.users.some(u => u.username.toLowerCase().includes(term) || u.email.toLowerCase().includes(term))
+            );
+        }
+
+        if (filterProvider) {
+            result = result.filter(c => c.accounts.some(a => a.provider === filterProvider));
+        }
+
+        if (sortBy === 'name-asc') result = [...result].sort((a, b) => a.name.localeCompare(b.name));
+        else if (sortBy === 'name-desc') result = [...result].sort((a, b) => b.name.localeCompare(a.name));
+        else if (sortBy === 'spend-desc') result = [...result].sort((a, b) => (b.totalConsumption || 0) - (a.totalConsumption || 0));
+        else if (sortBy === 'spend-asc') result = [...result].sort((a, b) => (a.totalConsumption || 0) - (b.totalConsumption || 0));
+
+        return result;
+    }, [clients, search, filterProvider, sortBy]);
 
     if (isLoading) {
         return (
@@ -112,17 +202,131 @@ const ClientDetailsPage: React.FC = () => {
                     </div>
                     <p className="text-slate-500 font-medium text-sm ml-11">Manage enterprise clients, cloud accounts, and identity impersonation</p>
                 </div>
-                <button
-                    onClick={fetchClients}
-                    className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg shadow-sm hover:shadow-md hover:bg-slate-50 transition-all font-bold text-slate-700 premium-button-secondary text-sm"
-                >
-                    <i className="fas fa-sync-alt text-slate-400"></i>
-                    Refresh Overview
-                </button>
+                <div className="flex items-center gap-3">
+                    {isRefreshing && (
+                        <span className="text-xs text-slate-400 flex items-center gap-1">
+                            <i className="fas fa-circle-notch fa-spin text-indigo-400"></i>
+                            Refreshing...
+                        </span>
+                    )}
+                    <button
+                        onClick={async () => { sessionStorage.removeItem(CACHE_KEY); await evictServerCache(); fetchClients(false); }}
+                        disabled={isLoading || isRefreshing}
+                        className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg shadow-sm hover:shadow-md hover:bg-slate-50 transition-all font-bold text-slate-700 premium-button-secondary text-sm disabled:opacity-50"
+                    >
+                        <i className={`fas fa-sync-alt text-slate-400 ${isRefreshing ? 'animate-spin' : ''}`}></i>
+                        Refresh
+                    </button>
+                </div>
             </header>
 
+            {/* Stats Summary */}
+            {!isLoading && clients.length > 0 && (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 animate-premium-fade-in">
+                    <div className="bg-white rounded-xl border border-slate-200 p-4 flex items-center gap-4 shadow-sm">
+                        <div className="w-10 h-10 rounded-lg bg-indigo-50 flex items-center justify-center flex-shrink-0">
+                            <i className="fas fa-building text-indigo-600 text-sm"></i>
+                        </div>
+                        <div>
+                            <p className="text-2xl font-black text-slate-900">{stats.clients}</p>
+                            <p className="text-xs font-semibold text-slate-500">Clients</p>
+                        </div>
+                    </div>
+                    <div className="bg-white rounded-xl border border-slate-200 p-4 flex items-center gap-4 shadow-sm">
+                        <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
+                            <i className="fas fa-cloud text-blue-600 text-sm"></i>
+                        </div>
+                        <div>
+                            <p className="text-2xl font-black text-slate-900">{stats.accounts}</p>
+                            <p className="text-xs font-semibold text-slate-500">Cloud Accounts</p>
+                        </div>
+                    </div>
+                    <div className="bg-white rounded-xl border border-slate-200 p-4 flex items-center gap-4 shadow-sm">
+                        <div className="w-10 h-10 rounded-lg bg-purple-50 flex items-center justify-center flex-shrink-0">
+                            <i className="fas fa-users text-purple-600 text-sm"></i>
+                        </div>
+                        <div>
+                            <p className="text-2xl font-black text-slate-900">{stats.users}</p>
+                            <p className="text-xs font-semibold text-slate-500">Total Users</p>
+                        </div>
+                    </div>
+                    <div className="bg-white rounded-xl border border-slate-200 p-4 flex items-center gap-4 shadow-sm">
+                        <div className="w-10 h-10 rounded-lg bg-emerald-50 flex items-center justify-center flex-shrink-0">
+                            <i className="fas fa-dollar-sign text-emerald-600 text-sm"></i>
+                        </div>
+                        <div>
+                            <p className="text-xl font-black text-slate-900">${stats.spend.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
+                            <p className="text-xs font-semibold text-slate-500">Total Spend</p>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Search & Filters Toolbar */}
+            <div className="flex flex-col md:flex-row gap-3 animate-premium-fade-in">
+                <div className="relative flex-1">
+                    <i className="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
+                    <input
+                        type="text"
+                        placeholder={`Search ${clients.length} clients by name, email, account or user...`}
+                        value={search}
+                        onChange={e => setSearch(e.target.value)}
+                        className="w-full pl-10 pr-10 py-3 bg-white border border-slate-200 rounded-xl shadow-sm text-sm font-medium text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all"
+                    />
+                    {search && (
+                        <button
+                            onClick={() => setSearch('')}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                        >
+                            <i className="fas fa-times text-xs"></i>
+                        </button>
+                    )}
+                </div>
+                {availableProviders.length > 0 && (
+                    <select
+                        value={filterProvider}
+                        onChange={e => setFilterProvider(e.target.value)}
+                        className="px-3 py-3 bg-white border border-slate-200 rounded-xl shadow-sm text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all min-w-[150px] cursor-pointer"
+                    >
+                        <option value="">All Providers</option>
+                        {availableProviders.map(p => (
+                            <option key={p} value={p}>{p}</option>
+                        ))}
+                    </select>
+                )}
+                <select
+                    value={sortBy}
+                    onChange={e => setSortBy(e.target.value)}
+                    className="px-3 py-3 bg-white border border-slate-200 rounded-xl shadow-sm text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all min-w-[170px] cursor-pointer"
+                >
+                    <option value="">Sort: Default</option>
+                    <option value="name-asc">Name A → Z</option>
+                    <option value="name-desc">Name Z → A</option>
+                    <option value="spend-desc">Spend: High → Low</option>
+                    <option value="spend-asc">Spend: Low → High</option>
+                </select>
+            </div>
+
+            {/* Results count + clear all */}
+            <div className="flex items-center justify-between -mt-2">
+                <p className="text-xs text-slate-500 font-medium">
+                    {filteredClients.length === clients.length
+                        ? `${clients.length} client${clients.length !== 1 ? 's' : ''}`
+                        : `${filteredClients.length} of ${clients.length} clients`}
+                </p>
+                {(search || filterProvider || sortBy) && (
+                    <button
+                        onClick={() => { setSearch(''); setFilterProvider(''); setSortBy(''); }}
+                        className="text-xs text-red-500 font-semibold hover:text-red-700 flex items-center gap-1 transition-colors"
+                    >
+                        <i className="fas fa-times-circle"></i>
+                        Clear All Filters
+                    </button>
+                )}
+            </div>
+
             <div className="grid gap-4">
-                {clients.map((client, index) => (
+                {filteredClients.map((client, index) => (
                     <div
                         key={client.id}
                         className={`premium-glass rounded-2xl premium-card-shadow premium-card-hover border transition-all duration-500 overflow-hidden animate-premium-fade-in stagger-${(index % 5) + 1} ${expandedClient === client.id ? 'border-indigo-500 ring-4 ring-indigo-500/5' : 'border-white/40'
@@ -294,10 +498,12 @@ const ClientDetailsPage: React.FC = () => {
                     </div>
                 ))}
 
-                {clients.length === 0 && !isLoading && (
+                {filteredClients.length === 0 && !isLoading && (
                     <div className="text-center py-12 bg-white rounded-xl border border-dashed border-gray-300">
                         <i className="fas fa-user-friends text-4xl text-gray-300 mb-3"></i>
-                        <p className="text-gray-500">No clients found matching your administrative scope.</p>
+                        <p className="text-gray-500">
+                            {search ? `No clients match "${search}"` : 'No clients found matching your administrative scope.'}
+                        </p>
                     </div>
                 )}
             </div>

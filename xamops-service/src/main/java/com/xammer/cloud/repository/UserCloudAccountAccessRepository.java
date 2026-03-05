@@ -21,4 +21,7 @@ public interface UserCloudAccountAccessRepository extends JpaRepository<UserClou
 
     @Query("SELECT uca.cloudAccount.id FROM UserCloudAccountAccess uca WHERE uca.user.id = :userId")
     List<Long> findCloudAccountIdsByUserId(@Param("userId") Long userId);
+
+    @Query("SELECT uca.user.id, uca.cloudAccount.id FROM UserCloudAccountAccess uca WHERE uca.user.id IN :userIds")
+    List<Object[]> findUserIdAndAccountIdsByUserIdIn(@Param("userIds") List<Long> userIds);
 }

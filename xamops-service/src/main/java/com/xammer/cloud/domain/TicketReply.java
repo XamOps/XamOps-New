@@ -24,6 +24,9 @@ public class TicketReply {
 
     private LocalDateTime createdAt = LocalDateTime.now();
 
+    @Column(name = "is_internal", nullable = false)
+    private boolean isInternal = false;
+
     // --- NEW FIELDS FOR ATTACHMENTS ---
     @Column(name = "attachment_key")
     private String attachmentKey; // S3 Path
@@ -50,6 +53,9 @@ public class TicketReply {
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
+
+    public boolean isInternal() { return isInternal; }
+    public void setInternal(boolean isInternal) { this.isInternal = isInternal; }
 
     // --- NEW GETTERS/SETTERS ---
     public String getAttachmentKey() { return attachmentKey; }

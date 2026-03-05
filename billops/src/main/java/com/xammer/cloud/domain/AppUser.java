@@ -46,6 +46,12 @@ public class AppUser {
     @Column(name = "created_by")
     private Long createdBy;
 
+    @Column(length = 20)
+    private String contact;
+
+    @Column(length = 100)
+    private String designation;
+
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
     public String getUsername() { return username; }
@@ -60,6 +66,10 @@ public class AppUser {
     public void setClient(Client client) { this.client = client; }
     public Long getCreatedBy() { return createdBy; }
     public void setCreatedBy(Long createdBy) { this.createdBy = createdBy; }
+    public String getContact() { return contact; }
+    public void setContact(String contact) { this.contact = contact; }
+    public String getDesignation() { return designation; }
+    public void setDesignation(String designation) { this.designation = designation; }
 
     // Constructors
     public AppUser(String username, String password, String email, String role, Client client) {

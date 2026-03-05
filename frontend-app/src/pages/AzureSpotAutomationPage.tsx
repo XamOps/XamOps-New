@@ -385,6 +385,19 @@ const AzureSpotAutomationPage: React.FC = () => {
 
     return (
         <div className="flex-1 flex flex-col min-h-screen bg-slate-50 relative">
+            {/* Coming Soon Overlay */}
+            <div className="absolute inset-0 bg-white/80 backdrop-blur-sm z-40 flex items-center justify-center">
+                <div className="text-center">
+                    <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-blue-100 mb-6">
+                        <i className="fas fa-rocket text-4xl text-blue-500"></i>
+                    </div>
+                    <h2 className="text-3xl font-bold text-gray-800 mb-3">Coming Soon</h2>
+                    <p className="text-gray-500 text-lg max-w-md mx-auto">
+                        Azure AutoSpotting is currently being updated. We'll be back with enhanced features and real-time data shortly.
+                    </p>
+                </div>
+            </div>
+
             {/* Config Modal */}
             {configVmss && selectedAccountId && (
                 <VmssConfigModal

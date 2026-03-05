@@ -60,19 +60,30 @@ public class CustomUserDetailsService implements UserDetailsService {
     }
 
     /**
+     * Resolve a User by username OR email (email login support).
+     */
+    private Optional<User> findByUsernameOrEmail(String input) {
+        Optional<User> found = userRepository.findByUsername(input);
+        if (found.isEmpty()) {
+            found = userRepository.findByEmail(input);
+        }
+        return found;
+    }
+
+    /**
      * PRODUCTION MODE: Multi-tenant authentication
-     * 1. Query global_users to find tenant
+     * 1. Query global_users to find tenant (by username or email)
      * 2. Switch to tenant database
      * 3. Load full user profile from tenant's users table
      */
-    private UserDetails loadUserInProductionMode(String username) {
+    private UserDetails loadUserInProductionMode(String usernameOrEmail) {
         log.info("🔒 PRODUCTION MODE: Multi-tenant authentication");
 
-        // 1. GLOBAL LOOKUP: Check Master DB for this user
-        Optional<GlobalUserDto> globalUserOpt = masterDatabaseService.findGlobalUser(username);
+        // 1. GLOBAL LOOKUP: Check Master DB for this user (try username, then email)
+        Optional<GlobalUserDto> globalUserOpt = masterDatabaseService.findGlobalUser(usernameOrEmail);
 
         if (globalUserOpt.isEmpty()) {
-            log.error("✗ User not found in Global Directory: {}", username);
+            log.error("✗ User not found in Global Directory: {}", usernameOrEmail);
             throw new UsernameNotFoundException("User not found in Global Directory");
         }
 
@@ -83,9 +94,8 @@ public class CustomUserDetailsService implements UserDetailsService {
         // 2. CONTEXT SWITCH: Force the application to talk to the correct Tenant DB
         TenantContext.setCurrentTenant(tenantId);
 
-        // 3. TENANT LOOKUP: Now fetch the full user details from their specific
-        // database
-        User user = userRepository.findByUsername(username)
+        // 3. TENANT LOOKUP: fetch user by username or email from their tenant DB
+        User user = findByUsernameOrEmail(usernameOrEmail)
                 .orElseThrow(() -> {
                     log.error("✗ Integrity Error: User in Global DB but missing in Tenant DB ({})", tenantId);
                     return new UsernameNotFoundException("User data missing in Tenant Database");
@@ -97,23 +107,22 @@ public class CustomUserDetailsService implements UserDetailsService {
     }
 
     /**
-     * LOCAL/UAT MODE: Single database authentication
-     * Directly query users table in the single database (no tenant switching)
+     * LOCAL/UAT MODE: Single database authentication (username OR email)
      */
-    private UserDetails loadUserInSingleDatabaseMode(String username) {
+    private UserDetails loadUserInSingleDatabaseMode(String usernameOrEmail) {
         log.info("🔓 LOCAL/UAT MODE: Single database authentication");
 
-        // Clear any existing tenant context (shouldn't be set, but just in case)
+        // Clear any existing tenant context
         TenantContext.clear();
 
-        // Directly query the users table in the current database
-        User user = userRepository.findByUsername(username)
+        // Try username first, fall back to email
+        User user = findByUsernameOrEmail(usernameOrEmail)
                 .orElseThrow(() -> {
-                    log.error("✗ User not found: {}", username);
-                    return new UsernameNotFoundException("User not found: " + username);
+                    log.error("✗ User not found: {}", usernameOrEmail);
+                    return new UsernameNotFoundException("User not found: " + usernameOrEmail);
                 });
 
-        log.info("✓ User profile loaded: {} (role: {})", username, user.getRole());
+        log.info("✓ User profile loaded: {} (role: {})", user.getUsername(), user.getRole());
 
         return buildUserDetails(user);
     }
