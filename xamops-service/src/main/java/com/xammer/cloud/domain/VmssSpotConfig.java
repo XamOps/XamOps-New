@@ -68,4 +68,12 @@ public class VmssSpotConfig {
      */
     @Column(name = "on_demand_count")
     private Integer onDemandCount;
+
+    /**
+     * Whether AutoSpotting is enabled for this VMSS by the user.
+     * This is the source of truth for enabled state — persists across reloads
+     * independent of Azure VMSS priority (which cannot always be changed in-place).
+     */
+    @Column(nullable = false, columnDefinition = "boolean default false")
+    private boolean enabled = false;
 }

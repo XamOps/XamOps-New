@@ -8,6 +8,40 @@ import ActionsHistory from '../components/ActionsHistory/ActionsHistory';
 
 type Tab = 'dashboard' | 'history' | 'analytics' | 'settings';
 
+// ─── Instance Family Definitions ────────────────────────────────────────────────
+
+const INSTANCE_FAMILIES: { label: string; key: string; skus: string[] }[] = [
+    { label: 'D v5',  key: 'Dv5',  skus: ['Standard_D2s_v5', 'Standard_D4s_v5', 'Standard_D8s_v5'] },
+    { label: 'D v3',  key: 'Dv3',  skus: ['Standard_D2s_v3', 'Standard_D4s_v3', 'Standard_D8s_v3'] },
+    { label: 'E v5',  key: 'Ev5',  skus: ['Standard_E2s_v5', 'Standard_E4s_v5', 'Standard_E8s_v5'] },
+    { label: 'E v3',  key: 'Ev3',  skus: ['Standard_E2s_v3', 'Standard_E4s_v3', 'Standard_E8s_v3'] },
+    { label: 'F v2',  key: 'Fv2',  skus: ['Standard_F2s_v2', 'Standard_F4s_v2', 'Standard_F8s_v2'] },
+    { label: 'B',     key: 'B',    skus: ['Standard_B1s', 'Standard_B2s', 'Standard_B4ms'] },
+    { label: 'NC',    key: 'NC',   skus: ['Standard_NC6', 'Standard_NC12', 'Standard_NC24'] },
+];
+
+/** Given a comma-separated SKU string, return which family keys are fully or partially represented */
+function skusToFamilyKeys(skuStr: string): Set<string> {
+    const skus = skuStr.split(',').map(s => s.trim()).filter(Boolean);
+    const active = new Set<string>();
+    for (const fam of INSTANCE_FAMILIES) {
+        if (fam.skus.some(s => skus.includes(s))) active.add(fam.key);
+    }
+    return active;
+}
+
+/** Toggle a family in/out of the SKU string */
+function toggleFamily(skuStr: string, family: typeof INSTANCE_FAMILIES[number], add: boolean): string {
+    const current = skuStr.split(',').map(s => s.trim()).filter(Boolean);
+    if (add) {
+        const merged = [...new Set([...current, ...family.skus])];
+        return merged.join(',');
+    } else {
+        const filtered = current.filter(s => !family.skus.includes(s));
+        return filtered.join(',');
+    }
+}
+
 // ─── VMSS Config Modal ──────────────────────────────────────────────────────────
 
 interface VmssConfigModalProps {
@@ -121,20 +155,44 @@ const VmssConfigModal: React.FC<VmssConfigModalProps> = ({
                         <h4 className="text-xs font-black uppercase tracking-widest text-slate-500 mb-3">
                             VM SKU Diversification
                         </h4>
-                        <div>
-                            <label className="text-xs text-slate-600 font-semibold mb-1 block">
-                                Allowed VM SKUs (comma-separated)
+
+                        {/* Instance Family Picker */}
+                        <div className="mb-3">
+                            <label className="text-xs text-slate-600 font-semibold mb-2 block">
+                                Instance Family
+                                <span className="ml-1.5 text-[10px] font-normal text-slate-400">
+                                    — select fallback families when primary SKU has no Spot capacity
+                                </span>
                             </label>
-                            <input
-                                type="text"
-                                value={allowedSkus}
-                                onChange={e => setAllowedSkus(e.target.value)}
-                                placeholder="Standard_D2s_v5,Standard_D4s_v5,Standard_E2s_v5"
-                                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            />
-                            <p className="text-[10px] text-slate-400 mt-1">Fallback SKUs when primary has no Spot capacity</p>
+                            <div className="flex flex-wrap gap-2">
+                                {INSTANCE_FAMILIES.map(fam => {
+                                    const active = skusToFamilyKeys(allowedSkus).has(fam.key);
+                                    return (
+                                        <button
+                                            key={fam.key}
+                                            type="button"
+                                            onClick={() => setAllowedSkus(toggleFamily(allowedSkus, fam, !active))}
+                                            className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
+                                                active
+                                                    ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                                                    : 'bg-white text-slate-600 border-slate-300 hover:border-blue-400 hover:text-blue-600'
+                                            }`}
+                                        >
+                                            {active && <i className="fas fa-check mr-1 text-[10px]"></i>}
+                                            {fam.label}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                            {allowedSkus && (
+                                <p className="text-[10px] text-blue-600 mt-1.5 font-mono truncate">
+                                    {allowedSkus}
+                                </p>
+                            )}
                         </div>
-                        <div className="mt-3">
+
+                        {/* Allocation Strategy */}
+                        <div>
                             <label className="text-xs text-slate-600 font-semibold mb-1 block">
                                 Allocation Strategy
                             </label>
