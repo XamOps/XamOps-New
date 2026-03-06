@@ -48,6 +48,16 @@ public class SupportMessage {
     @Column(name = "sender_username")
     private String senderUsername;
 
+    // Edit / delete (WhatsApp-style)
+    @Column(name = "is_edited", nullable = false)
+    private boolean isEdited = false;
+
+    @Column(name = "edited_at")
+    private LocalDateTime editedAt;
+
+    @Column(name = "is_deleted", nullable = false)
+    private boolean isDeleted = false;
+
     public SupportMessage(User sender, String content, boolean isUserMessage) {
         this.sender = sender;
         this.content = content;

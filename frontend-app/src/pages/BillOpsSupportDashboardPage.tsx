@@ -7,7 +7,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useSupportDashboard } from '../hooks/useSupportDashboard';
 import { useTopbarActions } from '../contexts/TopbarContext';
-import { SupportConversation, SupportAccount, AttachmentInfo, ChatMessage, CloudProvider } from '../types/supportDashboard';
+import { SupportConversation, SupportClient, SupportProfile, AttachmentInfo, ChatMessage, CloudProvider } from '../types/supportDashboard';
 
 /* ─── pending attachment (before send) ─── */
 interface PendingAttachment extends AttachmentInfo {
@@ -40,33 +40,16 @@ const getProviderClasses = (provider: CloudProvider | string): string => {
   }
 };
 
-const getProviderIcon = (provider: string): string => {
-  switch (provider?.toUpperCase()) {
-    case 'AWS': return 'fab fa-aws';
-    case 'GCP': return 'fab fa-google';
-    case 'AZURE': return 'fab fa-microsoft';
-    default: return 'fas fa-cloud';
-  }
-};
-
 const formatTime = (isoString: string): string => {
   if (!isoString) return '';
   const d = new Date(isoString);
-  return `${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (${d.toLocaleDateString()})`;
+  const day = d.getDate().toString().padStart(2, '0');
+  const month = d.toLocaleString('default', { month: 'short' });
+  const year = d.getFullYear();
+  const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return `${day} ${month} ${year}, ${time}`;
 };
 
-const formatRelativeTime = (isoString: string): string => {
-  if (!isoString) return '';
-  const diff = Date.now() - new Date(isoString).getTime();
-  const minutes = Math.floor(diff / 60000);
-  const hours = Math.floor(minutes / 60);
-  const days = Math.floor(hours / 24);
-  if (minutes < 1) return 'just now';
-  if (minutes < 60) return `${minutes}m ago`;
-  if (hours < 24) return `${hours}h ago`;
-  if (days < 7) return `${days}d ago`;
-  return new Date(isoString).toLocaleDateString();
-};
 
 const QUICK_REPLIES = [
   "We'll look into this shortly and get back to you.",
@@ -85,11 +68,13 @@ const BillOpsSupportDashboardPage: React.FC = () => {
     filteredConversations,
     messages,
     activeAccount,
-    accounts,
+    clients,
+    clientProfiles,
     loading,
     chatLoading,
     sending,
-    loadingAccounts,
+    loadingClients,
+    loadingProfiles,
     searchQuery,
     providerFilter,
     setSearchQuery,
@@ -98,9 +83,13 @@ const BillOpsSupportDashboardPage: React.FC = () => {
     sendReply,
     startConversation,
     uploadAttachment,
+    editAdminMessage,
+    deleteAdminMessage,
+    sendTicketEmail,
     refreshInbox,
     refreshChat,
-    fetchAccounts,
+    fetchClients,
+    fetchClientProfiles,
   } = useSupportDashboard();
 
   const { setActions, clearActions } = useTopbarActions();
@@ -128,21 +117,43 @@ const BillOpsSupportDashboardPage: React.FC = () => {
 
   /* ── new chat modal ── */
   const [showNewChatModal, setShowNewChatModal] = useState(false);
-  const [newChatAccountSearch, setNewChatAccountSearch] = useState('');
-  const [selectedNewAccount, setSelectedNewAccount] = useState<SupportAccount | null>(null);
-  const [newChatMessage, setNewChatMessage] = useState('');
   const [modalError, setModalError] = useState<string | null>(null);
+  // Step 1 – Client
+  const [clientSearch, setClientSearch] = useState('');
+  const [selectedClient, setSelectedClient] = useState<SupportClient | null>(null);
+  // Step 2 – Profile / User
+  const [profileSearch, setProfileSearch] = useState('');
+  const [selectedProfile, setSelectedProfile] = useState<SupportProfile | null>(null);
+  // Message (Step 3)
+  const [newChatMessage, setNewChatMessage] = useState('');
+  // Auto-ping
+  const [autoPingEnabled, setAutoPingEnabled] = useState(false);
+  const [pingWhatsApp, setPingWhatsApp] = useState(false);
+  const [pingSms, setPingSms] = useState(false);
+  const [pingEmail, setPingEmail] = useState(true);
 
   /* ── scroll-to-bottom ── */
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   /* ── copy message ── */
   const [copiedMessageId, setCopiedMessageId] = useState<number | null>(null);
+  /* ── edit message (admin) ── */
+  const [editingMessageId, setEditingMessageId] = useState<number | null>(null);
+  const [editContent, setEditContent] = useState('');
   /* ── quick reply templates ── */
   const [showTemplates, setShowTemplates] = useState(false);
   /* ── inbox sort ── */
   const [inboxSort, setInboxSort] = useState<'default' | 'unread' | 'name'>('default');
   /* ── textarea ref ── */
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  /* ── email modal ── */
+  const [showEmailModal, setShowEmailModal] = useState(false);
+  const [emailRecipients, setEmailRecipients] = useState<string[]>([]);
+  const [emailInput, setEmailInput] = useState('');
+  const [emailSubject, setEmailSubject] = useState('');
+  const [emailSendMode, setEmailSendMode] = useState<'separate' | 'combined'>('separate');
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const [emailResult, setEmailResult] = useState<{ success: boolean; error?: string } | null>(null);
 
   /* ────────────────────────────────────── effects ── */
 
@@ -251,30 +262,48 @@ const BillOpsSupportDashboardPage: React.FC = () => {
   const openNewChatModal = useCallback(() => {
     setShowNewChatModal(true);
     setModalError(null);
-    setNewChatAccountSearch('');
-    setSelectedNewAccount(null);
+    setClientSearch('');
+    setSelectedClient(null);
+    setProfileSearch('');
+    setSelectedProfile(null);
     setNewChatMessage('');
-    fetchAccounts();
-  }, [fetchAccounts]);
+    setAutoPingEnabled(false);
+    setPingWhatsApp(false);
+    setPingSms(false);
+    setPingEmail(true);
+    fetchClients();
+  }, [fetchClients]);
 
   const closeNewChatModal = useCallback(() => {
     setShowNewChatModal(false);
     setModalError(null);
-    setSelectedNewAccount(null);
+    setClientSearch('');
+    setSelectedClient(null);
+    setProfileSearch('');
+    setSelectedProfile(null);
     setNewChatMessage('');
-    setNewChatAccountSearch('');
+    setAutoPingEnabled(false);
   }, []);
 
   const handleStartConversation = useCallback(async () => {
-    if (!selectedNewAccount || !newChatMessage.trim() || sending) return;
+    if (!selectedProfile || !newChatMessage.trim() || sending) return;
     setModalError(null);
-    const success = await startConversation(selectedNewAccount, newChatMessage);
+    const autoPingChannels: string[] = [];
+    if (pingWhatsApp) autoPingChannels.push('WHATSAPP');
+    if (pingSms) autoPingChannels.push('SMS');
+    if (pingEmail) autoPingChannels.push('EMAIL');
+    const success = await startConversation(
+      selectedProfile,
+      newChatMessage,
+      autoPingEnabled ? { enabled: true, channels: autoPingChannels } : undefined,
+    );
     if (success) {
       closeNewChatModal();
     } else {
-      setModalError('Failed to start conversation. Please check the account and try again.');
+      setModalError('Failed to start conversation. Please try again.');
     }
-  }, [selectedNewAccount, newChatMessage, sending, startConversation, closeNewChatModal]);
+  }, [selectedProfile, newChatMessage, sending, autoPingEnabled,
+      pingWhatsApp, pingSms, pingEmail, startConversation, closeNewChatModal]);
 
   const handleNewChatKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
@@ -283,6 +312,65 @@ const BillOpsSupportDashboardPage: React.FC = () => {
     }
   }, [handleStartConversation]);
 
+  /* ─── email modal ─── */
+  const openEmailModal = useCallback(() => {
+    setEmailRecipients([]);
+    setEmailInput('');
+    setEmailSubject(activeAccount ? `Support Chat Thread – ${activeAccount.username}` : '');
+    setEmailSendMode('separate');
+    setEmailResult(null);
+    setShowEmailModal(true);
+  }, [activeAccount]);
+
+  const closeEmailModal = useCallback(() => {
+    setShowEmailModal(false);
+    setEmailRecipients([]);
+    setEmailInput('');
+    setEmailSendMode('separate');
+    setEmailResult(null);
+  }, []);
+
+  const addEmailRecipient = useCallback((email: string) => {
+    const trimmed = email.trim().toLowerCase();
+    if (trimmed && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed) && !emailRecipients.includes(trimmed)) {
+      setEmailRecipients(prev => [...prev, trimmed]);
+    }
+    setEmailInput('');
+  }, [emailRecipients]);
+
+  const removeEmailRecipient = useCallback((email: string) => {
+    setEmailRecipients(prev => prev.filter(e => e !== email));
+  }, []);
+
+  const handleEmailInputKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault();
+      addEmailRecipient(emailInput);
+    } else if (e.key === 'Backspace' && !emailInput && emailRecipients.length > 0) {
+      setEmailRecipients(prev => prev.slice(0, -1));
+    }
+  }, [emailInput, emailRecipients, addEmailRecipient]);
+
+  const handleSendEmail = useCallback(async () => {
+    if (!activeAccount?.userId) return;
+    const allRecipients = emailInput.trim()
+      ? [...emailRecipients, emailInput.trim()]
+      : emailRecipients;
+    setSendingEmail(true);
+    setEmailResult(null);
+    const result = await sendTicketEmail(
+      activeAccount.userId,
+      allRecipients,
+      emailSendMode,
+      emailSubject.trim() || undefined
+    );
+    setSendingEmail(false);
+    setEmailResult(result);
+    if (result.success) {
+      setTimeout(() => closeEmailModal(), 2000);
+    }
+  }, [activeAccount, emailRecipients, emailInput, emailSendMode, emailSubject, sendTicketEmail, closeEmailModal]);
+
   /* ─── total unread count ─── */
   const totalUnread = conversations.reduce((sum, c) => sum + (c.unreadCount || 0), 0);
 
@@ -290,7 +378,7 @@ const BillOpsSupportDashboardPage: React.FC = () => {
   const sortedConversations = useMemo(() => {
     const list = [...filteredConversations];
     if (inboxSort === 'unread') return list.sort((a, b) => (b.unreadCount || 0) - (a.unreadCount || 0));
-    if (inboxSort === 'name') return list.sort((a, b) => (a.accountName || '').localeCompare(b.accountName || ''));
+    if (inboxSort === 'name') return list.sort((a, b) => (a.username || '').localeCompare(b.username || ''));
     return list;
   }, [filteredConversations, inboxSort]);
 
@@ -321,13 +409,28 @@ const BillOpsSupportDashboardPage: React.FC = () => {
     }).catch(() => {});
   }, []);
 
-  /* ─── filtered accounts for modal ─── */
-  const filteredNewChatAccounts = accounts.filter(a => {
-    const t = newChatAccountSearch.toLowerCase();
-    return a.accountName.toLowerCase().includes(t) ||
-      a.accountId.toLowerCase().includes(t) ||
-      a.provider.toLowerCase().includes(t);
+  /* ─── modal: filtered lists ─── */
+  const filteredClients = clients.filter(c =>
+    c.name.toLowerCase().includes(clientSearch.toLowerCase())
+  );
+
+  const filteredProfiles = clientProfiles.filter(p => {
+    const t = profileSearch.toLowerCase();
+    return p.username.toLowerCase().includes(t) || (p.email || '').toLowerCase().includes(t);
   });
+
+  /* ─── modal: select client → fetch profiles ─── */
+  const handleSelectClient = useCallback((client: SupportClient) => {
+    setSelectedClient(client);
+    setSelectedProfile(null);
+    setProfileSearch('');
+    fetchClientProfiles(client.id);
+  }, [fetchClientProfiles]);
+
+  /* ─── modal: select profile ─── */
+  const handleSelectProfile = useCallback((profile: SupportProfile) => {
+    setSelectedProfile(profile);
+  }, []);
 
   /* ─── topbar actions ─── */
   useEffect(() => {
@@ -358,43 +461,55 @@ const BillOpsSupportDashboardPage: React.FC = () => {
 
   /* ════════════════════════════ render helpers ══════════════════ */
 
-  const renderConversationItem = (conv: SupportConversation) => (
-    <div
-      key={conv.accountId}
-      onClick={() => selectConversation(conv)}
-      className={`p-4 border-b border-gray-50 cursor-pointer transition-all hover:bg-white hover:shadow-sm group relative ${activeAccount?.accountId === conv.accountId
-        ? 'bg-indigo-50/80 border-l-4 border-l-indigo-600'
-        : 'border-l-4 border-l-transparent'}`}
-    >
-      <div className="flex justify-between items-start mb-1">
-        <h3 className="font-bold text-gray-800 text-sm truncate pr-2 group-hover:text-indigo-700 transition-colors">
-          {conv.accountName || conv.senderUsername || conv.accountId}
-        </h3>
-        <div className="flex items-center gap-2">
-          {!!conv.unreadCount && conv.unreadCount > 0 && (
-            <span className="flex items-center justify-center bg-rose-500 text-white text-[10px] font-bold h-5 min-w-[20px] px-1.5 rounded-full shadow-sm animate-pulse ring-2 ring-white">
-              {conv.unreadCount}
-            </span>
-          )}
-          <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider text-white shadow-sm ${getProviderClasses(conv.provider)}`}>
-            {conv.provider}
+  const renderConversationItem = (conv: SupportConversation) => {
+    const isActive = activeAccount?.userId === conv.userId;
+    return (
+      <div
+        key={`user-${conv.userId ?? 'null'}`}
+        onClick={() => selectConversation(conv)}
+        className={`p-4 border-b border-gray-50 cursor-pointer transition-all hover:bg-white hover:shadow-sm group relative ${isActive
+          ? 'bg-indigo-50/80 border-l-4 border-l-indigo-600'
+          : 'border-l-4 border-l-transparent'}`}
+      >
+        <div className="flex justify-between items-start mb-1">
+          {/* Username is now the primary conversation identifier */}
+          <h3 className="font-bold text-gray-800 text-sm truncate pr-2 group-hover:text-indigo-700 transition-colors flex items-center gap-1.5">
+            <i className="fas fa-user-circle text-indigo-400 text-xs"></i>
+            {conv.username || conv.senderUsername || 'Unknown User'}
+          </h3>
+          <div className="flex items-center gap-2">
+            {!!conv.unreadCount && conv.unreadCount > 0 && (
+              <span className="flex items-center justify-center bg-rose-500 text-white text-[10px] font-bold h-5 min-w-[20px] px-1.5 rounded-full shadow-sm animate-pulse ring-2 ring-white">
+                {conv.unreadCount}
+              </span>
+            )}
+          </div>
+        </div>
+        <p className="text-xs text-gray-500 font-medium truncate mb-0.5">{conv.lastMessage || 'No messages yet'}</p>
+        <div className="flex items-center justify-between mt-1 gap-2">
+          <span className="text-[10px] text-gray-400 truncate flex-1">
+            {conv.lastMessageTime ? formatTime(conv.lastMessageTime) : ''}
           </span>
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            {(conv.unreadCount ?? 0) > 0 ? (
+              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wide bg-amber-100 text-amber-700">
+                Unread
+              </span>
+            ) : (
+              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wide bg-green-100 text-green-700">
+                Read
+              </span>
+            )}
+            {conv.assignedAdminUsername && (
+              <span className="text-[9px] text-purple-500 font-semibold truncate max-w-[60px]" title={`Assigned: ${conv.assignedAdminUsername}`}>
+                <i className="fas fa-user-shield text-[8px] mr-0.5"></i>{conv.assignedAdminUsername}
+              </span>
+            )}
+          </div>
         </div>
       </div>
-      {conv.senderUsername && (
-        <p className="text-[11px] text-gray-500 mb-0.5 flex items-center gap-1">
-          <i className="fas fa-user text-[9px]"></i> {conv.senderUsername}
-        </p>
-      )}
-      <p className="text-xs text-indigo-600 font-medium truncate mb-0.5">{conv.lastMessage || conv.accountId}</p>
-      <div className="flex items-center justify-between mt-1">
-        <span className="text-[10px] text-gray-400 font-mono">{conv.lastMessage ? conv.accountId : ''}</span>
-        <span className="text-[10px] text-indigo-500 font-semibold opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
-          Open <i className="fas fa-chevron-right"></i>
-        </span>
-      </div>
-    </div>
-  );
+    );
+  };
 
   const renderAttachment = (msg: ChatMessage) => {
     if (!msg.attachmentUrl) return null;
@@ -445,34 +560,117 @@ const BillOpsSupportDashboardPage: React.FC = () => {
     );
   };
 
+  const canEditMsg = (msg: ChatMessage) =>
+    !msg.userMessage && !msg.isDeleted &&
+    (Date.now() - new Date(msg.timestamp).getTime()) < 15 * 60 * 1000;
+
+  const canDeleteMsg = (msg: ChatMessage) =>
+    !msg.userMessage && !msg.isDeleted &&
+    (Date.now() - new Date(msg.timestamp).getTime()) < 60 * 60 * 1000;
+
+  const handleEditSave = async (msg: ChatMessage) => {
+    if (!editContent.trim()) return;
+    await editAdminMessage(msg.id, editContent);
+    setEditingMessageId(null);
+  };
+
+  const handleDeleteMsg = async (msg: ChatMessage) => {
+    await deleteAdminMessage(msg.id);
+  };
+
   const renderMessage = (msg: ChatMessage) => (
     <div key={msg.id} className={`flex flex-col ${msg.userMessage ? 'items-start' : 'items-end'}`}>
+      {/* Sender label — admin sees real usernames; user-facing widget always shows "Support Team" */}
+      {!msg.isDeleted && (
+        <span className={`text-[10px] font-semibold mb-1 px-1 flex items-center gap-1 ${msg.userMessage ? 'text-gray-400' : 'text-purple-500'}`}>
+          {msg.userMessage
+            ? <><i className="fas fa-user text-[8px]"></i>{activeAccount?.username || 'User'}</>
+            : <><i className="fas fa-user-shield text-[8px]"></i>{msg.senderUsername || 'Support Team'}</>
+          }
+        </span>
+      )}
       <div className={`max-w-[75%] rounded-2xl px-5 py-3 shadow-sm text-sm relative group ${msg.userMessage
         ? 'bg-white text-gray-800 rounded-tl-none border border-gray-200'
-        : 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white rounded-tr-none shadow-indigo-200'}`}
+        : msg.isDeleted
+          ? 'bg-gray-100 text-gray-400 rounded-tr-none border border-gray-200'
+          : 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white rounded-tr-none shadow-indigo-200'}`}
       >
-        {/* Copy button — appears on hover */}
-        {msg.content && (
-          <button
-            onClick={() => copyMessage(msg.content, msg.id)}
-            className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded"
-            title={copiedMessageId === msg.id ? 'Copied!' : 'Copy message'}
-          >
-            <i className={`fas ${copiedMessageId === msg.id ? 'fa-check' : 'fa-copy'} text-[10px] ${
-              msg.userMessage
-                ? (copiedMessageId === msg.id ? 'text-green-500' : 'text-gray-300')
-                : (copiedMessageId === msg.id ? 'text-green-300' : 'text-white/40')
-            }`}></i>
-          </button>
+        {/* Deleted message */}
+        {msg.isDeleted ? (
+          <p className="leading-relaxed italic text-sm flex items-center gap-1.5">
+            <i className="fas fa-ban text-[11px]"></i> This message was deleted
+          </p>
+        ) : editingMessageId === msg.id ? (
+          /* Inline edit mode */
+          <div className="flex flex-col gap-2 min-w-[200px]">
+            <textarea
+              value={editContent}
+              onChange={e => setEditContent(e.target.value)}
+              className="w-full rounded-lg border border-indigo-300 p-2 text-sm text-gray-800 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-400"
+              rows={3}
+              autoFocus
+            />
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setEditingMessageId(null)}
+                className="text-xs px-3 py-1 rounded-lg bg-white/20 hover:bg-white/30 text-white border border-white/30"
+              >Cancel</button>
+              <button
+                onClick={() => handleEditSave(msg)}
+                className="text-xs px-3 py-1 rounded-lg bg-white text-indigo-700 font-semibold hover:bg-indigo-50"
+              >Save</button>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* Copy + Edit + Delete buttons on hover (admin messages only) */}
+            <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+              {msg.content && (
+                <button
+                  onClick={() => copyMessage(msg.content, msg.id)}
+                  className="p-1 rounded"
+                  title={copiedMessageId === msg.id ? 'Copied!' : 'Copy'}
+                >
+                  <i className={`fas ${copiedMessageId === msg.id ? 'fa-check' : 'fa-copy'} text-[10px] ${
+                    msg.userMessage
+                      ? (copiedMessageId === msg.id ? 'text-green-500' : 'text-gray-300')
+                      : (copiedMessageId === msg.id ? 'text-green-300' : 'text-white/50')
+                  }`}></i>
+                </button>
+              )}
+              {canEditMsg(msg) && (
+                <button
+                  onClick={() => { setEditingMessageId(msg.id); setEditContent(msg.content); }}
+                  className="p-1 rounded"
+                  title="Edit (within 15 min)"
+                >
+                  <i className="fas fa-pencil-alt text-[10px] text-white/50 hover:text-white"></i>
+                </button>
+              )}
+              {canDeleteMsg(msg) && (
+                <button
+                  onClick={() => handleDeleteMsg(msg)}
+                  className="p-1 rounded"
+                  title="Delete (within 60 min)"
+                >
+                  <i className="fas fa-trash text-[10px] text-white/50 hover:text-red-300"></i>
+                </button>
+              )}
+            </div>
+            {msg.content && <p className="leading-relaxed whitespace-pre-wrap pr-16">{msg.content}</p>}
+            {renderAttachment(msg)}
+          </>
         )}
-        {msg.content && <p className="leading-relaxed whitespace-pre-wrap pr-5">{msg.content}</p>}
-        {renderAttachment(msg)}
-        <span
-          className={`text-[10px] mt-1.5 block opacity-70 font-medium ${msg.userMessage ? 'text-gray-400' : 'text-indigo-100 text-right'}`}
-          title={formatTime(msg.timestamp)}
-        >
-          {formatRelativeTime(msg.timestamp)}
-        </span>
+        {/* Timestamp + edited label */}
+        {!msg.isDeleted && editingMessageId !== msg.id && (
+          <span
+            className={`text-[10px] mt-1.5 block opacity-70 font-medium ${msg.userMessage ? 'text-gray-400' : 'text-indigo-100 text-right'}`}
+            title={formatTime(msg.timestamp)}
+          >
+            {formatTime(msg.timestamp)}
+            {msg.isEdited && <span className="ml-1 italic opacity-80">· Edited</span>}
+          </span>
+        )}
       </div>
     </div>
   );
@@ -593,24 +791,45 @@ const BillOpsSupportDashboardPage: React.FC = () => {
 
           {/* Chat Header */}
           {activeAccount && (
-            <div className="h-16 bg-white/80 border-b border-gray-100 px-6 flex items-center justify-between flex-shrink-0 backdrop-blur-sm">
-              <div className="flex items-center gap-3">
-                <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-white text-sm shadow-sm ${getProviderClasses(activeAccount.provider)}`}>
-                  <i className={getProviderIcon(activeAccount.provider)}></i>
+            <div className="bg-white/80 border-b border-gray-100 px-5 py-2.5 flex items-center justify-between flex-shrink-0 backdrop-blur-sm gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-indigo-100 text-indigo-600 text-sm shadow-sm flex-shrink-0">
+                  <i className="fas fa-user-circle"></i>
                 </div>
-                <div>
-                  <h2 className="font-bold text-gray-800 text-base leading-tight">{activeAccount.accountName || activeAccount.senderUsername}</h2>
-                  <p className="text-[10px] text-gray-400 font-mono leading-tight">
-                    {activeAccount.accountId}
+                <div className="min-w-0">
+                  <h2 className="font-bold text-gray-800 text-sm leading-tight truncate">
+                    {activeAccount.username || activeAccount.senderUsername || 'Unknown User'}
+                  </h2>
+                  <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                     {messages.length > 0 && (
-                      <span className="ml-2 text-indigo-400 not-italic font-semibold">· {messages.length} messages</span>
+                      <span className="text-[10px] text-indigo-400 font-semibold">{messages.length} messages</span>
                     )}
-                  </p>
+                    {activeAccount.assignedAdminUsername && (
+                      <span className="text-[10px] text-purple-500 font-semibold flex items-center gap-1">
+                        <i className="fas fa-user-shield text-[9px]"></i>
+                        {activeAccount.assignedAdminUsername}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
-              <button onClick={() => refreshChat()} className="text-gray-400 hover:text-indigo-600 transition p-2 rounded-full hover:bg-gray-100" title="Refresh">
-                <i className="fas fa-sync-alt text-sm"></i>
-              </button>
+
+              {/* Right side: email + refresh */}
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {/* Send Email button */}
+                <button
+                  onClick={openEmailModal}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 bg-purple-50 border border-purple-200 text-purple-700 hover:bg-purple-100 rounded-lg text-[11px] font-bold transition-all"
+                  title="Send chat thread as email"
+                >
+                  <i className="fas fa-envelope text-[10px]"></i>
+                  Email Thread
+                </button>
+
+                <button onClick={() => refreshChat()} className="text-gray-400 hover:text-indigo-600 transition p-2 rounded-full hover:bg-gray-100" title="Refresh">
+                  <i className="fas fa-sync-alt text-sm"></i>
+                </button>
+              </div>
             </div>
           )}
 
@@ -782,120 +1001,243 @@ const BillOpsSupportDashboardPage: React.FC = () => {
       {/* ─── New Chat Modal ─── */}
       {showNewChatModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden flex flex-col max-h-[90vh]">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl mx-4 overflow-hidden flex flex-col max-h-[92vh]">
 
             {/* Modal Header */}
-            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gradient-to-r from-indigo-600 to-purple-600">
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gradient-to-r from-indigo-600 to-purple-600 flex-shrink-0">
               <div>
                 <h3 className="text-base font-bold text-white flex items-center gap-2">
-                  <i className="fas fa-plus-circle"></i> Start New Conversation
+                  <i className="fas fa-comment-dots"></i> Start New Conversation
                 </h3>
-                <p className="text-xs text-indigo-200 mt-0.5">Select a client account and send your first message</p>
+                <p className="text-xs text-indigo-200 mt-0.5">Select client → profile → send your message</p>
               </div>
               <button onClick={closeNewChatModal} className="text-white/70 hover:text-white transition p-1.5 rounded-full hover:bg-white/10">
                 <i className="fas fa-times text-sm"></i>
               </button>
             </div>
 
-            <div className="flex flex-col flex-1 overflow-hidden p-6 gap-5">
+            {/* Step breadcrumb */}
+            <div className="flex items-center gap-0 px-6 py-3 bg-indigo-50 border-b border-indigo-100 flex-shrink-0">
+              {[
+                { label: 'Client', icon: 'fa-building', done: !!selectedClient },
+                { label: 'Profile', icon: 'fa-user', done: !!selectedProfile },
+                { label: 'Message', icon: 'fa-paper-plane', done: !!newChatMessage.trim() },
+              ].map((step, i) => (
+                <React.Fragment key={step.label}>
+                  <div className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-semibold transition-colors
+                    ${step.done ? 'text-indigo-700 bg-indigo-100' : 'text-gray-400'}`}>
+                    <i className={`fas ${step.icon} text-[10px]`}></i>
+                    <span>{step.label}</span>
+                    {step.done && <i className="fas fa-check text-[9px] text-indigo-500"></i>}
+                  </div>
+                  {i < 2 && <i className="fas fa-chevron-right text-[9px] text-gray-300 mx-1"></i>}
+                </React.Fragment>
+              ))}
+            </div>
+
+            <div className="flex flex-col flex-1 overflow-y-auto p-5 gap-4 custom-scrollbar">
 
               {/* Error banner */}
               {modalError && (
-                <div className="flex items-start gap-2 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+                <div className="flex items-start gap-2 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700 flex-shrink-0">
                   <i className="fas fa-exclamation-circle mt-0.5 flex-shrink-0"></i>
                   <span>{modalError}</span>
                 </div>
               )}
 
-              {/* Account Selector */}
-              <div>
-                <label className="block text-xs font-bold text-gray-600 uppercase tracking-wide mb-2">
-                  Select Account
-                </label>
-
-                {/* Search */}
-                <div className="relative mb-2">
-                  <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i>
-                  <input
-                    type="text" value={newChatAccountSearch} onChange={e => setNewChatAccountSearch(e.target.value)}
-                    placeholder="Search accounts..." autoFocus
-                    className="w-full pl-8 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500"
-                  />
-                </div>
-
-                {/* Selected account chip */}
-                {selectedNewAccount && (
-                  <div className="flex items-center gap-2 px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-lg mb-2">
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold uppercase text-white ${getProviderClasses(selectedNewAccount.provider)}`}>
-                      {selectedNewAccount.provider}
+              {/* ── Step 1: Select Client ── */}
+              <div className="border border-gray-200 rounded-xl overflow-hidden">
+                <div className={`flex items-center gap-2 px-4 py-2.5 border-b border-gray-100 ${selectedClient ? 'bg-indigo-50' : 'bg-gray-50'}`}>
+                  <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0 ${selectedClient ? 'bg-indigo-600' : 'bg-gray-300'}`}>1</span>
+                  <span className="text-xs font-bold text-gray-700 uppercase tracking-wide">Select Client</span>
+                  {selectedClient && (
+                    <span className="ml-auto flex items-center gap-1.5 text-xs font-semibold text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded-full">
+                      <i className="fas fa-building text-[9px]"></i>{selectedClient.name}
+                      <button onClick={() => { setSelectedClient(null); setSelectedProfile(null); }}
+                        className="text-indigo-400 hover:text-indigo-700 ml-0.5">
+                        <i className="fas fa-times text-[9px]"></i>
+                      </button>
                     </span>
-                    <span className="text-sm font-semibold text-indigo-800 flex-1 truncate">{selectedNewAccount.accountName}</span>
-                    <span className="text-[10px] text-indigo-500 font-mono">{selectedNewAccount.accountId}</span>
-                    <button onClick={() => setSelectedNewAccount(null)} className="text-indigo-400 hover:text-indigo-600 ml-1">
-                      <i className="fas fa-times-circle text-xs"></i>
-                    </button>
+                  )}
+                </div>
+                {!selectedClient && (
+                  <div className="p-3">
+                    <div className="relative mb-2">
+                      <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i>
+                      <input type="text" value={clientSearch} onChange={e => setClientSearch(e.target.value)}
+                        placeholder="Search clients..." autoFocus
+                        className="w-full pl-8 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500"/>
+                    </div>
+                    <div className="max-h-36 overflow-y-auto custom-scrollbar">
+                      {loadingClients ? (
+                        <div className="flex items-center justify-center py-4 text-gray-400 text-xs">
+                          <i className="fas fa-circle-notch fa-spin mr-2"></i>Loading clients...
+                        </div>
+                      ) : filteredClients.length === 0 ? (
+                        <div className="flex items-center justify-center py-4 text-gray-400 text-xs">
+                          <i className="fas fa-building mr-1.5"></i>
+                          {clients.length === 0 ? 'No clients available' : 'No clients match your search'}
+                        </div>
+                      ) : filteredClients.map(client => (
+                        <button key={client.id} onClick={() => handleSelectClient(client)}
+                          className="w-full text-left px-3 py-2.5 flex items-center gap-3 hover:bg-indigo-50 transition-colors rounded-lg mb-0.5">
+                          <span className="w-7 h-7 rounded-lg bg-indigo-100 flex items-center justify-center text-indigo-600 text-xs flex-shrink-0">
+                            <i className="fas fa-building"></i>
+                          </span>
+                          <span className="text-sm font-semibold text-gray-800 truncate">{client.name}</span>
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 )}
+              </div>
 
-                {/* Account list */}
-                <div className="border border-gray-200 rounded-xl overflow-hidden max-h-44 overflow-y-auto custom-scrollbar">
-                  {loadingAccounts ? (
-                    <div className="flex items-center justify-center py-6 text-gray-400">
-                      <i className="fas fa-circle-notch fa-spin mr-2"></i>
-                      <span className="text-xs">Loading accounts...</span>
-                    </div>
-                  ) : filteredNewChatAccounts.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-6 text-gray-400">
-                      <i className="fas fa-search mb-1.5 text-sm"></i>
-                      <span className="text-xs">{accounts.length === 0 ? 'No accounts available' : 'No accounts match your search'}</span>
-                    </div>
-                  ) : filteredNewChatAccounts.map(account => (
-                    <button
-                      key={account.id}
-                      onClick={() => setSelectedNewAccount(account)}
-                      className={`w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-indigo-50 transition-colors border-b border-gray-50 last:border-0 ${selectedNewAccount?.id === account.id ? 'bg-indigo-50' : ''}`}
-                    >
-                      <span className={`w-8 h-8 rounded-lg flex items-center justify-center text-white text-xs flex-shrink-0 ${getProviderClasses(account.provider)}`}>
-                        <i className={getProviderIcon(account.provider)}></i>
+              {/* ── Step 2: Select Profile ── */}
+              {selectedClient && (
+                <div className="border border-gray-200 rounded-xl overflow-hidden">
+                  <div className={`flex items-center gap-2 px-4 py-2.5 border-b border-gray-100 ${selectedProfile ? 'bg-indigo-50' : 'bg-gray-50'}`}>
+                    <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0 ${selectedProfile ? 'bg-indigo-600' : 'bg-gray-300'}`}>2</span>
+                    <span className="text-xs font-bold text-gray-700 uppercase tracking-wide">Select Profile</span>
+                    {selectedProfile && (
+                      <span className="ml-auto flex items-center gap-1.5 text-xs font-semibold text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded-full">
+                        <i className="fas fa-user text-[9px]"></i>{selectedProfile.username}
+                        <button onClick={() => setSelectedProfile(null)}
+                          className="text-indigo-400 hover:text-indigo-700 ml-0.5">
+                          <i className="fas fa-times text-[9px]"></i>
+                        </button>
                       </span>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-gray-800 truncate">{account.accountName}</p>
-                        <p className="text-[10px] text-gray-400 font-mono truncate">{account.accountId}</p>
+                    )}
+                  </div>
+                  {!selectedProfile && (
+                    <div className="p-3">
+                      <div className="relative mb-2">
+                        <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i>
+                        <input type="text" value={profileSearch} onChange={e => setProfileSearch(e.target.value)}
+                          placeholder="Search profiles..."
+                          className="w-full pl-8 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500"/>
                       </div>
-                      {selectedNewAccount?.id === account.id && (
-                        <i className="fas fa-check-circle text-indigo-600 text-sm flex-shrink-0"></i>
-                      )}
-                    </button>
-                  ))}
+                      <div className="max-h-36 overflow-y-auto custom-scrollbar">
+                        {loadingProfiles ? (
+                          <div className="flex items-center justify-center py-4 text-gray-400 text-xs">
+                            <i className="fas fa-circle-notch fa-spin mr-2"></i>Loading profiles...
+                          </div>
+                        ) : filteredProfiles.length === 0 ? (
+                          <div className="flex items-center justify-center py-4 text-gray-400 text-xs">
+                            <i className="fas fa-user mr-1.5"></i>
+                            {clientProfiles.length === 0 ? 'No profiles found for this client' : 'No profiles match your search'}
+                          </div>
+                        ) : filteredProfiles.map(profile => (
+                          <button key={profile.id} onClick={() => handleSelectProfile(profile)}
+                            className="w-full text-left px-3 py-2.5 flex items-center gap-3 hover:bg-indigo-50 transition-colors rounded-lg mb-0.5">
+                            <span className="w-7 h-7 rounded-lg bg-purple-100 flex items-center justify-center text-purple-600 text-xs flex-shrink-0">
+                              <i className="fas fa-user"></i>
+                            </span>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-semibold text-gray-800 truncate">{profile.username}</p>
+                              {profile.email && <p className="text-[10px] text-gray-400 truncate">{profile.email}</p>}
+                            </div>
+                            <span className="text-[10px] text-gray-400 flex-shrink-0">
+                              {profile.accounts.length} account{profile.accounts.length !== 1 ? 's' : ''}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </div>
+              )}
 
-              {/* Message */}
-              <div>
-                <label className="block text-xs font-bold text-gray-600 uppercase tracking-wide mb-2">
-                  Initial Message
-                </label>
-                <textarea
-                  value={newChatMessage}
-                  onChange={e => setNewChatMessage(e.target.value)}
-                  onKeyDown={handleNewChatKeyDown}
-                  placeholder="Type your message... (Ctrl+Enter to send)"
-                  rows={4}
-                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-gray-50 focus:bg-white transition-all resize-none"
-                  disabled={sending}
-                />
-                <p className="text-[10px] text-gray-400 mt-1">Ctrl+Enter to send</p>
-              </div>
+              {/* ── Account badges (info only — shown once profile is selected) ── */}
+              {selectedProfile && selectedProfile.accounts.length > 0 && (
+                <div className="px-1">
+                  <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5 flex items-center gap-1">
+                    <i className="fas fa-cloud text-gray-400"></i> Accounts accessible by {selectedProfile.username}
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {selectedProfile.accounts.map(a => (
+                      <span key={a.accountId} className="inline-flex items-center gap-1 text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-mono border border-gray-200">
+                        <span className={`w-2 h-2 rounded-full inline-block ${getProviderClasses(a.provider)}`}></span>
+                        {a.accountName}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* ── Step 3: Message ── */}
+              {selectedProfile && (
+                <div>
+                  <label className="block text-xs font-bold text-gray-600 uppercase tracking-wide mb-2">
+                    Initial Message
+                  </label>
+                  <textarea
+                    value={newChatMessage}
+                    onChange={e => setNewChatMessage(e.target.value)}
+                    onKeyDown={handleNewChatKeyDown}
+                    placeholder="Type your message... (Ctrl+Enter to send)"
+                    rows={3}
+                    className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-gray-50 focus:bg-white transition-all resize-none"
+                    disabled={sending}
+                    autoFocus
+                  />
+                  <p className="text-[10px] text-gray-400 mt-1">Ctrl+Enter to send</p>
+                </div>
+              )}
+
+              {/* ── Auto-ping settings ── */}
+              {selectedProfile && (
+                <div className={`border rounded-xl p-4 transition-colors ${autoPingEnabled ? 'border-amber-200 bg-amber-50' : 'border-gray-200 bg-gray-50'}`}>
+                  <label className="flex items-center gap-3 cursor-pointer select-none">
+                    <div
+                      onClick={() => setAutoPingEnabled(v => !v)}
+                      className={`relative w-10 h-5 rounded-full transition-colors flex-shrink-0 ${autoPingEnabled ? 'bg-amber-500' : 'bg-gray-300'}`}
+                    >
+                      <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${autoPingEnabled ? 'translate-x-5' : ''}`}></span>
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-gray-800">Auto-ping if no response in 1 working hour</p>
+                      <p className="text-[10px] text-gray-500 mt-0.5">Sends a reminder to the client via selected channels</p>
+                    </div>
+                  </label>
+                  {autoPingEnabled && (
+                    <div className="mt-3 pt-3 border-t border-amber-200 flex items-center gap-4">
+                      <span className="text-xs font-semibold text-gray-600 mr-1">Notify via:</span>
+                      {/* WhatsApp — coming soon */}
+                      <label className="flex items-center gap-1.5 select-none opacity-40 cursor-not-allowed" title="Coming soon">
+                        <input type="checkbox" disabled className="w-3.5 h-3.5"/>
+                        <i className="fab fa-whatsapp text-green-600 text-sm"></i>
+                        <span className="text-xs font-medium text-gray-500">WhatsApp</span>
+                        <span className="text-[9px] text-gray-400 italic">soon</span>
+                      </label>
+                      {/* SMS — coming soon */}
+                      <label className="flex items-center gap-1.5 select-none opacity-40 cursor-not-allowed" title="Coming soon">
+                        <input type="checkbox" disabled className="w-3.5 h-3.5"/>
+                        <i className="fas fa-sms text-blue-600 text-sm"></i>
+                        <span className="text-xs font-medium text-gray-500">SMS</span>
+                        <span className="text-[9px] text-gray-400 italic">soon</span>
+                      </label>
+                      {/* Email — active */}
+                      <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                        <input type="checkbox" checked={pingEmail} onChange={e => setPingEmail(e.target.checked)}
+                          className="w-3.5 h-3.5 accent-indigo-600"/>
+                        <i className="fas fa-envelope text-purple-600 text-sm"></i>
+                        <span className="text-xs font-medium text-gray-700">Email</span>
+                      </label>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Modal Footer */}
-            <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-end gap-3 bg-gray-50/50">
-              <button onClick={closeNewChatModal} className="px-4 py-2 text-sm font-semibold text-gray-600 hover:text-gray-800 border border-gray-200 rounded-xl hover:bg-gray-100 transition-all">
+            <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-end gap-3 bg-gray-50/50 flex-shrink-0">
+              <button onClick={closeNewChatModal}
+                className="px-4 py-2 text-sm font-semibold text-gray-600 hover:text-gray-800 border border-gray-200 rounded-xl hover:bg-gray-100 transition-all">
                 Cancel
               </button>
               <button
                 onClick={handleStartConversation}
-                disabled={!selectedNewAccount || !newChatMessage.trim() || sending}
+                disabled={!selectedProfile || !newChatMessage.trim() || sending}
                 className="flex items-center gap-2 px-5 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white text-sm font-bold rounded-xl shadow-md transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100"
               >
                 {sending ? (
@@ -904,6 +1246,198 @@ const BillOpsSupportDashboardPage: React.FC = () => {
                   <><i className="fas fa-paper-plane text-xs"></i><span>Start Conversation</span></>
                 )}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Email Thread Modal ─── */}
+      {showEmailModal && activeAccount && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
+
+            {/* Header */}
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gradient-to-r from-purple-600 to-indigo-600 flex-shrink-0">
+              <div>
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <i className="fas fa-envelope"></i> Send Chat Thread via Email
+                </h3>
+                <p className="text-xs text-purple-200 mt-0.5">Send the full conversation to any email address</p>
+              </div>
+              <button onClick={closeEmailModal} className="text-white/70 hover:text-white transition p-1.5 rounded-full hover:bg-white/10">
+                <i className="fas fa-times text-sm"></i>
+              </button>
+            </div>
+
+            <div className="p-6 flex flex-col gap-4 flex-1 overflow-y-auto custom-scrollbar">
+              {/* Result banner */}
+              {emailResult && (
+                <div className={`flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold ${emailResult.success ? 'bg-green-50 border border-green-200 text-green-700' : 'bg-red-50 border border-red-200 text-red-700'}`}>
+                  <i className={`fas ${emailResult.success ? 'fa-check-circle' : 'fa-exclamation-circle'}`}></i>
+                  {emailResult.success ? 'Email sent successfully!' : emailResult.error}
+                </div>
+              )}
+
+              {/* Chip-based recipients input */}
+              <div>
+                <label className="block text-[10px] font-black text-gray-500 mb-1.5 uppercase tracking-widest">
+                  Recipients <span className="text-purple-500 font-medium normal-case tracking-normal">(blank → customer's registered email)</span>
+                </label>
+                <div className="min-h-[52px] border border-gray-200 rounded-xl px-3 py-2 flex flex-wrap gap-1.5 items-center focus-within:ring-2 focus-within:ring-purple-400 focus-within:border-purple-400 transition-all bg-white cursor-text">
+                  {emailRecipients.map(email => (
+                    <span key={email} className="flex items-center gap-1 pl-2.5 pr-1 py-0.5 bg-purple-100 text-purple-800 rounded-full text-[11px] font-bold border border-purple-200 flex-shrink-0">
+                      {email}
+                      <button type="button" onClick={() => removeEmailRecipient(email)} className="w-4 h-4 flex items-center justify-center rounded-full hover:bg-purple-200 transition-colors ml-0.5 text-purple-500">
+                        <i className="fas fa-times text-[7px]"></i>
+                      </button>
+                    </span>
+                  ))}
+                  <input
+                    type="text"
+                    value={emailInput}
+                    onChange={e => setEmailInput(e.target.value)}
+                    onKeyDown={handleEmailInputKeyDown}
+                    onBlur={() => emailInput.trim() && addEmailRecipient(emailInput)}
+                    placeholder={emailRecipients.length === 0 ? "Type email and press Enter, or leave blank..." : "Add more..."}
+                    className="flex-1 min-w-[180px] outline-none text-sm text-gray-700 placeholder-gray-300 bg-transparent py-0.5"
+                  />
+                </div>
+                <p className="mt-1 text-[10px] text-gray-400">Press Enter or comma to add · Backspace to remove last</p>
+              </div>
+
+              {/* Quick Add — conversation user */}
+              {activeAccount?.email && (
+                <div>
+                  <label className="block text-[10px] font-black text-gray-500 mb-1.5 uppercase tracking-widest">Quick Add</label>
+                  <div className="border border-gray-100 rounded-xl overflow-hidden">
+                    <div className="flex items-center justify-between px-3.5 py-3 bg-white hover:bg-gray-50 transition-colors">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-7 h-7 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-[10px] font-black flex-shrink-0">
+                          {(activeAccount.username || 'U').charAt(0).toUpperCase()}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <p className="text-[11px] font-bold text-gray-700 leading-none">{activeAccount.username}</p>
+                            <span className="px-1.5 py-0.5 text-[8px] font-black bg-indigo-100 text-indigo-700 rounded-full uppercase tracking-widest border border-indigo-200">Customer</span>
+                          </div>
+                          <p className="text-[10px] text-gray-400 mt-0.5 truncate">{activeAccount.email}</p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => addEmailRecipient(activeAccount.email!)}
+                        disabled={emailRecipients.includes(activeAccount.email!.toLowerCase())}
+                        className="flex items-center gap-1 px-3 py-1.5 text-[10px] font-black rounded-lg border transition-all disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0 ml-3 bg-white text-purple-600 border-purple-200 hover:bg-purple-50 active:scale-95"
+                      >
+                        {emailRecipients.includes(activeAccount.email.toLowerCase())
+                          ? <><i className="fas fa-check text-emerald-500"></i> Added</>
+                          : <><i className="fas fa-plus"></i> Add</>
+                        }
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Subject */}
+              <div>
+                <label className="block text-[10px] font-black text-gray-500 mb-1.5 uppercase tracking-widest">Subject</label>
+                <input
+                  type="text"
+                  value={emailSubject}
+                  onChange={e => setEmailSubject(e.target.value)}
+                  className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 bg-gray-50 focus:bg-white transition-all"
+                />
+              </div>
+
+              {/* Send mode toggle */}
+              <div>
+                <label className="block text-[10px] font-black text-gray-500 mb-1.5 uppercase tracking-widest">Send Mode</label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEmailSendMode('separate')}
+                    className={`flex-1 flex items-center gap-2.5 px-4 py-3 rounded-xl border text-left transition-all ${
+                      emailSendMode === 'separate'
+                        ? 'bg-purple-50 border-purple-400 text-purple-800 shadow-sm'
+                        : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'
+                    }`}
+                  >
+                    <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${emailSendMode === 'separate' ? 'border-purple-500' : 'border-gray-300'}`}>
+                      {emailSendMode === 'separate' && <div className="w-2 h-2 rounded-full bg-purple-500"></div>}
+                    </div>
+                    <div>
+                      <div className="text-[11px] font-black uppercase tracking-widest leading-none">Separate</div>
+                      <div className="text-[9px] font-medium text-gray-400 mt-0.5">One email per recipient</div>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEmailSendMode('combined')}
+                    className={`flex-1 flex items-center gap-2.5 px-4 py-3 rounded-xl border text-left transition-all ${
+                      emailSendMode === 'combined'
+                        ? 'bg-purple-50 border-purple-400 text-purple-800 shadow-sm'
+                        : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'
+                    }`}
+                  >
+                    <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${emailSendMode === 'combined' ? 'border-purple-500' : 'border-gray-300'}`}>
+                      {emailSendMode === 'combined' && <div className="w-2 h-2 rounded-full bg-purple-500"></div>}
+                    </div>
+                    <div>
+                      <div className="text-[11px] font-black uppercase tracking-widest leading-none">Combined</div>
+                      <div className="text-[9px] font-medium text-gray-400 mt-0.5">All in one email (CC visible)</div>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              {/* Thread preview */}
+              <div>
+                <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">Thread Preview</p>
+                <div className="border border-gray-200 rounded-xl overflow-hidden max-h-40 overflow-y-auto custom-scrollbar bg-gray-50 p-3 space-y-2">
+                  {messages.filter(m => !m.isDeleted).map(m => (
+                    <div key={m.id} className={`flex ${m.userMessage ? 'justify-start' : 'justify-end'}`}>
+                      <div className={`max-w-[80%] rounded-xl px-3 py-2 text-xs ${m.userMessage ? 'bg-white border border-gray-200 text-gray-700' : 'bg-indigo-100 text-indigo-800'}`}>
+                        <p className={`text-[9px] font-bold mb-0.5 ${m.userMessage ? 'text-gray-400' : 'text-indigo-500'}`}>
+                          {m.userMessage ? (activeAccount.username || 'User') : (m.senderUsername || 'Support Team')}
+                        </p>
+                        <p className="leading-snug">{m.content}</p>
+                      </div>
+                    </div>
+                  ))}
+                  {messages.filter(m => !m.isDeleted).length === 0 && (
+                    <p className="text-center text-xs text-gray-400 py-4">No messages to preview</p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between bg-gray-50/50 flex-shrink-0">
+              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                {emailRecipients.length + (emailInput.trim() ? 1 : 0) > 0
+                  ? `${emailRecipients.length + (emailInput.trim() ? 1 : 0)} recipient${(emailRecipients.length + (emailInput.trim() ? 1 : 0)) !== 1 ? 's' : ''}`
+                  : "Customer's email (fallback)"
+                }
+              </span>
+              <div className="flex gap-3">
+                <button onClick={closeEmailModal} className="px-4 py-2 text-sm font-semibold text-gray-600 hover:text-gray-800 border border-gray-200 rounded-xl hover:bg-gray-100 transition-all">
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSendEmail}
+                  disabled={sendingEmail || !!emailResult?.success}
+                  className="flex items-center gap-2 px-5 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white text-sm font-bold rounded-xl shadow-md transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {sendingEmail ? (
+                    <><i className="fas fa-circle-notch fa-spin text-xs"></i><span>Sending...</span></>
+                  ) : emailResult?.success ? (
+                    <><i className="fas fa-check text-xs"></i><span>Sent!</span></>
+                  ) : (
+                    <><i className="fas fa-paper-plane text-xs"></i><span>Send Email</span></>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>

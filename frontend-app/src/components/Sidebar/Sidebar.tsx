@@ -23,27 +23,31 @@ const Sidebar: React.FC = () => {
   const location = useLocation();
 
   // Fetch billops team profile to get isPrimaryUser + allowedTabs for ROLE_BILLOPS_ADMIN
-  const [billopsProfile, setBillopsProfile] = useState<{ isPrimaryUser: boolean; allowedTabs: string[] } | null>(null);
+  // undefined = still loading, null = loaded (primary user / no restrictions), object = loaded sub-user
+  const [billopsProfile, setBillopsProfile] = useState<{ isPrimaryUser: boolean; allowedTabs: string[] } | null | undefined>(
+    hasAnyRole('ROLE_BILLOPS_ADMIN') ? undefined : null
+  );
 
   useEffect(() => {
     if (hasAnyRole('ROLE_BILLOPS_ADMIN')) {
       fetch('/api/billops/team/profile', { credentials: 'include' })
         .then(r => r.ok ? r.json() : null)
         .then(data => {
-          if (data) {
-            setBillopsProfile({
-              isPrimaryUser: !!data.isPrimaryUser,
-              allowedTabs: data.allowedTabs || []
-            });
-          }
+          setBillopsProfile(data ? {
+            isPrimaryUser: !!data.isPrimaryUser,
+            allowedTabs: data.allowedTabs || []
+          } : null);
         })
-        .catch(() => {});
+        .catch(() => setBillopsProfile(null));
     }
   }, []);
 
+  // undefined = profile still loading; hide all admin tabs until resolved
+  const billopsProfileLoading = billopsProfile === undefined;
   // Only restrict tabs for confirmed BILLOPS_ADMIN sub-users (isPrimaryUser explicitly false)
-  const isAdminSubUser = hasAnyRole('ROLE_BILLOPS_ADMIN') && billopsProfile !== null && !billopsProfile.isPrimaryUser;
+  const isAdminSubUser = hasAnyRole('ROLE_BILLOPS_ADMIN') && billopsProfile !== null && billopsProfile !== undefined && !billopsProfile.isPrimaryUser;
   const isTabAllowed = (tabKey: string): boolean => {
+    if (billopsProfileLoading) return false; // hide everything until we know access
     if (!isAdminSubUser) return true;
     return billopsProfile!.allowedTabs.includes(tabKey);
   };
@@ -201,14 +205,23 @@ const Sidebar: React.FC = () => {
           {/* ROLE_BILLOPS_ADMIN Specific Items */}
           {hasAnyRole('ROLE_BILLOPS_ADMIN') && (
             <>
-              {isTabAllowed('admin-dashboard') && <NavItem href="/billops-admin-dashboard" icon="fas fa-chart-bar" label="Admin Dashboard" isActive={isActive('/billops-admin-dashboard')} />}
-              {isTabAllowed('support-inbox') && <NavItem href="/billops-support-dashboard" icon="fas fa-headset" label="Support Inbox" isActive={isActive('/billops-support-dashboard')} />}
-              {isTabAllowed('all-tickets') && <NavItem href="/billops-admin-tickets" icon="fas fa-ticket-alt" label="All Tickets" isActive={isActive('/billops-admin-tickets')} />}
-              {isTabAllowed('all-invoices') && <NavItem href="/billops-admin-invoices" icon="fas fa-file-invoice" label="All Invoices" isActive={isActive('/billops-admin-invoices')} />}
-              {isTabAllowed('credit-requests') && <NavItem href="/billops-admin-credits" icon="fas fa-coins" label="Credit Requests" isActive={isActive('/billops-admin-credits')} />}
-              {isTabAllowed('agreement-admin') && <NavItem href="/billops-admin-agreements" icon="fas fa-file-signature" label="Agreement Admin" isActive={isActive('/billops-admin-agreements')} />}
-              {isTabAllowed('client-details') && <NavItem href="/billops-client-details" icon="fas fa-users-cog" label="Client Details" isActive={isActive('/billops-client-details')} />}
-              {isTabAllowed('autospotting-admin') && <NavItem href="/autospotting-admin" icon="fas fa-magic" label="AutoSpotting Admin" isActive={isActive('/autospotting-admin')} />}
+              {billopsProfileLoading ? (
+                /* Skeleton nav items while profile loads — prevents flash of all-then-filtered tabs */
+                [1, 2, 3].map(i => (
+                  <div key={i} className="mx-3 my-1 h-9 rounded-xl bg-white/10 animate-pulse" />
+                ))
+              ) : (
+                <>
+                  {isTabAllowed('admin-dashboard') && <NavItem href="/billops-admin-dashboard" icon="fas fa-chart-bar" label="Admin Dashboard" isActive={isActive('/billops-admin-dashboard')} />}
+                  {isTabAllowed('support-inbox') && <NavItem href="/billops-support-dashboard" icon="fas fa-headset" label="Support Inbox" isActive={isActive('/billops-support-dashboard')} />}
+                  {isTabAllowed('all-tickets') && <NavItem href="/billops-admin-tickets" icon="fas fa-ticket-alt" label="All Tickets" isActive={isActive('/billops-admin-tickets')} />}
+                  {isTabAllowed('all-invoices') && <NavItem href="/billops-admin-invoices" icon="fas fa-file-invoice" label="All Invoices" isActive={isActive('/billops-admin-invoices')} />}
+                  {isTabAllowed('credit-requests') && <NavItem href="/billops-admin-credits" icon="fas fa-coins" label="Credit Requests" isActive={isActive('/billops-admin-credits')} />}
+                  {isTabAllowed('agreement-admin') && <NavItem href="/billops-admin-agreements" icon="fas fa-file-signature" label="Agreement Admin" isActive={isActive('/billops-admin-agreements')} />}
+                  {isTabAllowed('client-details') && <NavItem href="/billops-client-details" icon="fas fa-users-cog" label="Client Details" isActive={isActive('/billops-client-details')} />}
+                  {isTabAllowed('autospotting-admin') && <NavItem href="/autospotting-admin" icon="fas fa-magic" label="AutoSpotting Admin" isActive={isActive('/autospotting-admin')} />}
+                </>
+              )}
             </>
           )}
 

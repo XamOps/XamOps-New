@@ -33,7 +33,7 @@ const AdminSupportNotificationListener: React.FC = () => {
             // On first load, just store the counts without notifying
             if (!isInitializedRef.current) {
                 const newMap = new Map<string, number>();
-                data.forEach(c => newMap.set(c.accountId, c.unreadCount || 0));
+                data.forEach(c => newMap.set(c.accountId || c.username, c.unreadCount || 0));
                 previousUnreadMap.current = newMap;
                 isInitializedRef.current = true;
                 console.log('[AdminNotification] Initialized with', data.length, 'conversations');
@@ -41,7 +41,7 @@ const AdminSupportNotificationListener: React.FC = () => {
             }
 
             for (const conv of data) {
-                const prevCount = previousUnreadMap.current.get(conv.accountId) || 0;
+                const prevCount = previousUnreadMap.current.get(conv.accountId || conv.username) || 0;
                 const currentCount = conv.unreadCount || 0;
 
                 // If unread count increased, notify
@@ -55,7 +55,7 @@ const AdminSupportNotificationListener: React.FC = () => {
                     // ALWAYS show browser notification for new messages
                     // This ensures admin gets notified even when on a different page
                     notifyNewCustomerMessage(
-                        conv.accountName || conv.senderUsername || conv.accountId,
+                        conv.accountName || conv.senderUsername || conv.accountId || conv.username,
                         conv.lastMessage || 'Sent a new message',
                         { playSound: false } // Sound already played above
                     );
@@ -73,7 +73,7 @@ const AdminSupportNotificationListener: React.FC = () => {
 
             // Update map for next check
             const newMap = new Map<string, number>();
-            data.forEach(c => newMap.set(c.accountId, c.unreadCount || 0));
+            data.forEach(c => newMap.set(c.accountId || c.username, c.unreadCount || 0));
             previousUnreadMap.current = newMap;
 
         } catch (error) {

@@ -262,11 +262,12 @@ export const useBillOpsAdminTickets = (): UseBillOpsAdminTicketsReturn => {
    * Initialize - Load from cache then fetch fresh data
    */
   useEffect(() => {
-    // Attempt instant load from cache
+    // Show stale data instantly from localStorage while fresh data loads
     loadFromCache();
 
-    // Trigger background sync (stale-while-revalidate)
-    fetchTickets(false);
+    // Always force-refresh on mount to bypass Redis cache and reflect
+    // changes (assign, close, reply) made from the ticket detail page
+    fetchTickets(true);
   }, []);
 
   /**

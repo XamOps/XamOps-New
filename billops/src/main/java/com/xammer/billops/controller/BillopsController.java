@@ -46,6 +46,7 @@ public class BillopsController {
     private final DashboardService dashboardService;
     private final GcpCostService gcpCostService;
     private final AzureCostService azureCostService; // Injected
+    private final AccountAccessHelper accountAccessHelper;
 
     public BillopsController(BillingService billingService,
             CostService costService,
@@ -56,7 +57,8 @@ public class BillopsController {
             CreditRequestService creditRequestService,
             DashboardService dashboardService,
             GcpCostService gcpCostService,
-            AzureCostService azureCostService) { // Injected in constructor
+            AzureCostService azureCostService,
+            AccountAccessHelper accountAccessHelper) {
         this.billingService = billingService;
         this.costService = costService;
         this.resourceService = resourceService;
@@ -67,6 +69,7 @@ public class BillopsController {
         this.dashboardService = dashboardService;
         this.gcpCostService = gcpCostService;
         this.azureCostService = azureCostService;
+        this.accountAccessHelper = accountAccessHelper;
     }
 
     /**
@@ -408,7 +411,7 @@ public class BillopsController {
     public ResponseEntity<List<CreditRequestDto>> getCachedAllCreditRequests() {
         logger.debug("GET /credits/admin/all/cached called");
         return creditRequestService.getCachedAllCreditRequests()
-                .map(ResponseEntity::ok)
+                .map(list -> ResponseEntity.ok(creditRequestService.applyAccountFilter(list)))
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
@@ -416,7 +419,8 @@ public class BillopsController {
     @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
     public ResponseEntity<List<CreditRequestDto>> getFreshAllCreditRequests() {
         logger.debug("GET /credits/admin/all (fresh) called");
-        return ResponseEntity.ok(creditRequestService.getAllCreditRequestsAndCache());
+        List<CreditRequestDto> all = creditRequestService.getAllCreditRequestsAndCache();
+        return ResponseEntity.ok(creditRequestService.applyAccountFilter(all));
     }
 
     @GetMapping("/credits/user/{userId}/cached")

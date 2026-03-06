@@ -55,6 +55,7 @@ interface Ticket {
   chatStartedAt?: string;
   assignedToId?: number;
   assignedToUsername?: string;
+  creatorUsername?: string;
   replies: TicketReply[];
 }
 
@@ -81,6 +82,11 @@ const TicketDetailPage: React.FC = () => {
   const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
   const [showAssignDropdown, setShowAssignDropdown] = useState(false);
   const [isAssigning, setIsAssigning] = useState(false);
+
+  // Email thread state
+  const [showEmailModal, setShowEmailModal] = useState(false);
+  const [emailRecipient, setEmailRecipient] = useState('');
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
 
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -191,6 +197,28 @@ const TicketDetailPage: React.FC = () => {
       globalThis.alert('Error closing ticket.');
     }
   }, [ticketId]);
+
+  const handleSendEmail = async () => {
+    if (!ticketId || !emailRecipient.trim()) return;
+    setIsSendingEmail(true);
+    try {
+      const response = await fetch(`/api/xamops/tickets/${ticketId}/email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ recipientEmail: emailRecipient.trim() })
+      });
+      if (!response.ok) throw new Error('Failed to send email');
+      setShowEmailModal(false);
+      setEmailRecipient('');
+      globalThis.alert('Email thread sent successfully.');
+    } catch (err) {
+      console.error('Error sending email thread:', err);
+      globalThis.alert('Failed to send email thread.');
+    } finally {
+      setIsSendingEmail(false);
+    }
+  };
 
   const handleSubmitReply = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -364,6 +392,17 @@ const TicketDetailPage: React.FC = () => {
             </div>
           )}
 
+          {/* Email Thread (admin only, ticket has replies) */}
+          {isAdmin && (ticket.replies?.length ?? 0) > 0 && (
+            <button
+              onClick={() => setShowEmailModal(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-sky-50 text-sky-600 rounded-xl text-xs font-bold border border-sky-100 hover:bg-sky-100 transition-all active:scale-95"
+            >
+              <i className="fas fa-envelope text-xs"></i>
+              <span>Email Thread</span>
+            </button>
+          )}
+
           {/* Close ticket */}
           {ticket.status !== 'CLOSED' && (
             <button
@@ -380,12 +419,18 @@ const TicketDetailPage: React.FC = () => {
 
     return () => clearActions();
   }, [setActions, clearActions, ticket, closeTicket, goBackToTickets, isAdmin, adminUsers,
-      showAssignDropdown, isAssigning, handleAssign]);
+      showAssignDropdown, isAssigning, handleAssign, showEmailModal]);
 
   /**
    * Helpers
    */
-  const isMe = (reply: TicketReply) => reply.admin || String(reply.authorId) === String(userProfile?.id);
+  // Position logic (mirrors support dashboard):
+  // - Admin viewer: admin replies → RIGHT (with real username), customer replies → LEFT
+  // - Customer viewer: own replies → RIGHT ("You"), admin replies → LEFT ("Support Team")
+  const isMe = (reply: TicketReply) => {
+    if (isAdmin) return reply.admin === true;
+    return !reply.admin && String(reply.authorId) === String(userProfile?.id);
+  };
   const getInitials = (name: string) => name ? name.charAt(0).toUpperCase() : 'U';
   const getSeverityClass = (sev: string) => {
     if (['High', 'Critical', 'Urgent'].includes(sev)) return 'text-rose-600';
@@ -429,6 +474,15 @@ const TicketDetailPage: React.FC = () => {
                 <div className="flex flex-wrap gap-4 pt-4 border-t border-slate-100 text-[10px] font-bold uppercase tracking-widest">
                   <div>Region: <span className="text-slate-600 font-black">{ticket.region || 'Global'}</span></div>
                   <div>Severity: <span className={`font-black ${getSeverityClass(ticket.severity)}`}>{ticket.severity}</span></div>
+                  {ticket.accountId && (
+                    <div>Account / Project: <span className="text-indigo-600 font-black font-mono">{ticket.accountId}</span></div>
+                  )}
+                  {ticket.creatorUsername && (
+                    <div>Raised By: <span className="text-slate-600 font-black">{ticket.creatorUsername}</span></div>
+                  )}
+                  {isAdmin && ticket.assignedToUsername && (
+                    <div>Assigned: <span className="text-indigo-600 font-black">{ticket.assignedToUsername}</span></div>
+                  )}
                   {ticket.chatStartedAt && (
                     <div>Chat Started: <span className="text-indigo-600 font-black">{formatIST(ticket.chatStartedAt)}</span></div>
                   )}
@@ -480,7 +534,7 @@ const TicketDetailPage: React.FC = () => {
                       <div className="space-y-2 text-right">
                         <div className="flex items-center justify-end gap-2 px-1">
                           <span className="px-2 py-0.5 text-[8px] font-black bg-amber-100 text-amber-600 border border-amber-200 rounded-full uppercase tracking-widest">Internal Note</span>
-                          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">{formatIST(reply.createdAt, { short: true })}</span>
+                          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">{formatIST(reply.createdAt)}</span>
                         </div>
                         <div className="p-4 rounded-[1.5rem] rounded-tr-none shadow-sm text-sm font-medium leading-relaxed bg-amber-50 text-amber-900 border border-amber-200">
                           <div dangerouslySetInnerHTML={{ __html: reply.message }} className="prose-chat" />
@@ -501,9 +555,17 @@ const TicketDetailPage: React.FC = () => {
                     </div>
                     <div className={`space-y-2 ${isMe(reply) ? 'text-right' : 'text-left'}`}>
                       <div className="flex items-center gap-2 px-1 text-[9px] font-bold text-slate-400 uppercase tracking-tighter">
-                        {!isMe(reply) && <span className="text-[10px] font-black text-slate-800 uppercase tracking-widest">{reply.authorUsername}</span>}
-                        <span>{formatIST(reply.createdAt, { short: true })}</span>
-                        {isMe(reply) && <span className="text-[10px] font-black text-slate-800 uppercase tracking-widest">You</span>}
+                        {!isMe(reply) && (
+                          <span className="text-[10px] font-black text-slate-800 uppercase tracking-widest">
+                            {reply.admin && !isAdmin ? 'Support Team' : reply.authorUsername}
+                          </span>
+                        )}
+                        <span>{formatIST(reply.createdAt)}</span>
+                        {isMe(reply) && (
+                          <span className="text-[10px] font-black text-slate-800 uppercase tracking-widest">
+                            {isAdmin ? reply.authorUsername : 'You'}
+                          </span>
+                        )}
                       </div>
                       <div className={`p-4 rounded-[1.5rem] shadow-sm text-sm font-medium leading-relaxed ${isMe(reply) ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white text-slate-700 border border-slate-100 rounded-tl-none'}`}>
                         <div dangerouslySetInnerHTML={{ __html: reply.message }} className="prose-chat" />
@@ -539,6 +601,59 @@ const TicketDetailPage: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* Email Thread Modal */}
+      {showEmailModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-[2rem] shadow-2xl border border-slate-100 w-full max-w-md mx-4 overflow-hidden">
+            <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-black text-slate-800 leading-none">Send Email Thread</h3>
+                <p className="text-[10px] text-slate-400 font-medium mt-1">Send the full conversation to any email address</p>
+              </div>
+              <button
+                onClick={() => { setShowEmailModal(false); setEmailRecipient(''); }}
+                className="w-8 h-8 flex items-center justify-center rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all"
+              >
+                <i className="fas fa-times text-xs"></i>
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="flex items-start gap-3 p-3 bg-sky-50 rounded-xl border border-sky-100 text-[11px] text-sky-700 font-medium">
+                <i className="fas fa-info-circle text-sky-500 mt-0.5 flex-shrink-0"></i>
+                <span>Admin usernames will appear as <strong>Support Team</strong> in the email for confidentiality.</span>
+              </div>
+              <div>
+                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">Recipient Email</label>
+                <input
+                  type="email"
+                  value={emailRecipient}
+                  onChange={e => setEmailRecipient(e.target.value)}
+                  placeholder="recipient@example.com"
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:ring-4 focus:ring-sky-500/10 focus:border-sky-400 outline-none transition-all"
+                  autoFocus
+                />
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-3">
+              <button
+                onClick={() => { setShowEmailModal(false); setEmailRecipient(''); }}
+                className="px-4 py-2 text-slate-500 font-bold text-xs rounded-xl hover:bg-slate-100 transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSendEmail}
+                disabled={isSendingEmail || !emailRecipient.trim()}
+                className="flex items-center gap-2 px-5 py-2 bg-sky-600 text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-sky-500/20 hover:bg-sky-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed active:scale-95"
+              >
+                <i className={`fas ${isSendingEmail ? 'fa-circle-notch fa-spin' : 'fa-paper-plane'} text-xs`}></i>
+                {isSendingEmail ? 'Sending...' : 'Send Email'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Reply form */}
       {ticket.status !== 'CLOSED' && (

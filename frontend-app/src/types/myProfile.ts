@@ -4,7 +4,7 @@
 
 export interface CloudAccount {
   id: number;
-  name: string;
+  accountName: string;
   provider: 'AWS' | 'GCP' | 'Azure';
 }
 
