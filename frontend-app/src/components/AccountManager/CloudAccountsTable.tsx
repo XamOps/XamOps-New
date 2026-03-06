@@ -6,6 +6,7 @@
 
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { gooeyToast } from 'goey-toast';
 import type { CloudAccount } from '../../types/accountManager';
 
 interface CloudAccountsTableProps {
@@ -60,13 +61,13 @@ const CloudAccountsTable: React.FC<CloudAccountsTableProps> = ({
 
     const trimmed = billingTableInput.trim();
     if (!trimmed) {
-      alert('Please enter the BigQuery billing export table name.');
+      gooeyToast.warning('Please enter the BigQuery billing export table name.');
       return;
     }
 
     const parts = trimmed.split('.');
     if (parts.length !== 3 || parts.some(p => !p.trim())) {
-      alert('Invalid format. Expected: project.dataset.table\n\nExample: my-project.billing_export.gcp_billing_export_v1_XXXXXX_XXXXXX_XXXXXX');
+      gooeyToast.error('Invalid format', { description: 'Expected: project.dataset.table' });
       return;
     }
 
@@ -75,10 +76,10 @@ const CloudAccountsTable: React.FC<CloudAccountsTableProps> = ({
     setBillingModalLoading(false);
 
     if (result.success) {
-      alert('Billing export table updated successfully!');
+      gooeyToast.success('Billing export table updated successfully!');
       closeBillingModal();
     } else {
-      alert(`Failed to update: ${result.error}`);
+      gooeyToast.error('Failed to update billing table', { description: result.error });
     }
   };
 

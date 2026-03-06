@@ -6,6 +6,7 @@
  */
 
 import React, { useState } from 'react';
+import { gooeyToast } from 'goey-toast';
 import type {
   SearchCapacityForm,
   ConfigureCapacityForm,
@@ -119,13 +120,11 @@ const FlexComputeWizard: React.FC<FlexComputeWizardProps> = ({
 
         setStep('configure');
       } else {
-        // Handle reservation failure
-        alert('Failed to reserve capacity. Please try again.');
+        gooeyToast.error('Failed to reserve capacity', { description: 'Please try again.' });
         setStep('search');
       }
     } catch (error) {
-      console.error('Reserve failed:', error);
-      alert('Failed to reserve capacity. Please try again.');
+      gooeyToast.error('Failed to reserve capacity', { description: 'Please try again.' });
       setStep('search');
     } finally {
       setIsReserving(false);

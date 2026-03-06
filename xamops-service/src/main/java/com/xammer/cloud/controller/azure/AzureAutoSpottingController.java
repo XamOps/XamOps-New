@@ -476,4 +476,41 @@ public class AzureAutoSpottingController {
                 "service", "Azure AutoSpotting Integration",
                 "timestamp", System.currentTimeMillis()));
     }
+
+    /**
+     * Test Azure credential validity for a given subscription ID.
+     * Attempts to obtain an Azure AD token and returns success/failure with error details.
+     * Useful for diagnosing auth issues without waiting 60s for VMSS list to timeout.
+     */
+    @GetMapping("/test-auth/{subscriptionId}")
+    public ResponseEntity<Map<String, Object>> testAuth(@PathVariable String subscriptionId) {
+        log.info("Azure auth test requested for subscriptionId={}", subscriptionId);
+        try {
+            com.azure.core.credential.TokenCredential credential =
+                    azureAutoSpottingService.getCredentialForSubscription(subscriptionId);
+
+            com.azure.core.credential.TokenRequestContext ctx =
+                    new com.azure.core.credential.TokenRequestContext()
+                            .addScopes("https://management.azure.com/.default");
+
+            com.azure.core.credential.AccessToken token = credential.getToken(ctx).block(
+                    java.time.Duration.ofSeconds(15));
+
+            if (token == null) {
+                return ResponseEntity.status(500).body(Map.of(
+                        "status", "FAIL",
+                        "error", "getToken() returned null — credentials likely invalid"));
+            }
+            return ResponseEntity.ok(Map.of(
+                    "status", "OK",
+                    "message", "Azure AD token obtained successfully",
+                    "expiresAt", token.getExpiresAt().toString()));
+        } catch (Exception e) {
+            log.error("Azure auth test failed for subscriptionId={}: {}", subscriptionId, e.getMessage(), e);
+            return ResponseEntity.status(500).body(Map.of(
+                    "status", "FAIL",
+                    "error", e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName(),
+                    "cause", e.getCause() != null ? e.getCause().getMessage() : "none"));
+        }
+    }
 }

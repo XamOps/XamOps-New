@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { gooeyToast } from 'goey-toast';
 import type { ASG, SpotCosts } from '../../hooks/useSpotAutomationData';
 
 interface SpotAutomationASGTableProps {
@@ -25,7 +26,6 @@ const SpotAutomationASGTable: React.FC<SpotAutomationASGTableProps> = ({
 }) => {
   const [togglingASGs, setTogglingASGs] = useState<Set<string>>(new Set());
   const [syncingASGs, setSyncingASGs] = useState<Set<string>>(new Set());
-  const [syncToast, setSyncToast] = useState<{ asgKey: string; message: string } | null>(null);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -67,11 +67,9 @@ const SpotAutomationASGTable: React.FC<SpotAutomationASGTableProps> = ({
     setSyncingASGs((prev) => new Set(prev).add(asgKey));
     try {
       const result = await onSyncASG(asg);
-      setSyncToast({ asgKey, message: result.message });
-      setTimeout(() => setSyncToast(null), 4000);
+      gooeyToast.success(`Sync complete for ${asg.name}`, { description: result.message });
     } catch (err) {
-      setSyncToast({ asgKey, message: 'Sync failed. Check backend logs.' });
-      setTimeout(() => setSyncToast(null), 4000);
+      gooeyToast.error(`Sync failed for ${asg.name}`, { description: 'Check backend logs.' });
     } finally {
       setSyncingASGs((prev) => {
         const next = new Set(prev);
@@ -269,22 +267,15 @@ const SpotAutomationASGTable: React.FC<SpotAutomationASGTableProps> = ({
                       </div>
                       {asg.isEnabled && (
                         <div className="flex items-center space-x-2 mt-2">
-                          <div className="relative">
-                            <button
-                              onClick={() => handleSync(asg)}
-                              disabled={syncingASGs.has(asgKey)}
-                              title="Sync Spot events to Actions History"
-                              className="text-xs text-indigo-500 hover:text-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 px-2 py-1 rounded hover:bg-indigo-50 transition-colors"
-                            >
-                              <i className={`fas ${syncingASGs.has(asgKey) ? 'fa-spinner fa-spin' : 'fa-sync-alt'}`}></i>
-                              <span>{syncingASGs.has(asgKey) ? 'Syncing...' : 'Sync'}</span>
-                            </button>
-                            {syncToast?.asgKey === asgKey && (
-                              <div className="absolute right-0 top-8 z-30 bg-gray-800 text-white text-xs rounded-lg px-3 py-2 shadow-lg whitespace-nowrap">
-                                {syncToast.message}
-                              </div>
-                            )}
-                          </div>
+                          <button
+                            onClick={() => handleSync(asg)}
+                            disabled={syncingASGs.has(asgKey)}
+                            title="Sync Spot events to Actions History"
+                            className="text-xs text-indigo-500 hover:text-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 px-2 py-1 rounded hover:bg-indigo-50 transition-colors"
+                          >
+                            <i className={`fas ${syncingASGs.has(asgKey) ? 'fa-spinner fa-spin' : 'fa-sync-alt'}`}></i>
+                            <span>{syncingASGs.has(asgKey) ? 'Syncing...' : 'Sync'}</span>
+                          </button>
                           <Link
                             to={`/asg-config?asgName=${encodeURIComponent(asg.name)}&region=${asg.region}&accountIds=${selectedAccountId}`}
                             title="Configure instance types and Spot settings"

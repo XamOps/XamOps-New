@@ -39,6 +39,8 @@
     "cytoscape": "^3.28.1",
     "cytoscape-dagre": "^2.5.0",
     "cytoscape-edgehandles": "^4.0.1",
+    "framer-motion": "^12.35.0",
+    "goey-toast": "^0.3.0",
     "highcharts": "^12.5.0",
     "highcharts-react-official": "^3.2.3",
     "marked": "^17.0.1",

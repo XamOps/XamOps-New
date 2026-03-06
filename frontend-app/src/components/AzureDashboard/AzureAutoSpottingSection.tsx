@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { gooeyToast } from 'goey-toast';
 import { fetchAzureVmssAllRegions, AzureVmssDto } from '../../api/azureDashboardApi';
 
 interface AzureAutoSpottingSectionProps {
@@ -17,7 +18,7 @@ const AzureAutoSpottingSection: React.FC<AzureAutoSpottingSectionProps> = ({ acc
             const data = await fetchAzureVmssAllRegions(accountId);
             setVmssList(data);
         } catch (error) {
-            console.error('Failed to load Azure VMSS', error);
+            gooeyToast.error('Failed to load Azure VMSS data');
         } finally {
             setLoading(false);
         }

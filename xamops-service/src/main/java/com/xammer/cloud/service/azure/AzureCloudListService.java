@@ -136,8 +136,12 @@ public class AzureCloudListService {
                     .sorted((a, b) -> Integer.compare(b.getResources().size(), a.getResources().size()))
                     .collect(Collectors.toList());
 
-            redisCache.put(cacheKey, result, CACHE_TTL_MINUTES);
-            log.info("Cached Azure cloudlist for account {} ({} service groups, TTL {}min)", accountId, result.size(), CACHE_TTL_MINUTES);
+            if (!result.isEmpty()) {
+                redisCache.put(cacheKey, result, CACHE_TTL_MINUTES);
+                log.info("Cached Azure cloudlist for account {} ({} service groups, TTL {}min)", accountId, result.size(), CACHE_TTL_MINUTES);
+            } else {
+                log.warn("Azure cloudlist returned 0 results for account {} — skipping cache to allow retry on next request", accountId);
+            }
             return result;
 
         } catch (Exception e) {

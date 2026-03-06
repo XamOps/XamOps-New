@@ -23,6 +23,7 @@
  */
 
 import React, { useState } from 'react';
+import { gooeyToast } from 'goey-toast';
 import { useAccounts } from '../contexts/AccountContext';
 import { useSpotAutomationData } from '../hooks/useSpotAutomationData';
 import SpotAutomationHeader from '../components/SpotAutomation/SpotAutomationHeader';
@@ -60,30 +61,14 @@ const SpotAutomationPage: React.FC = () => {
   // Tab state
   const [activeTab, setActiveTab] = useState<'dashboard' | 'analytics' | 'history' | 'risp-coverage'>('dashboard');
 
-  // Toast notification state
-  const [toast, setToast] = useState<{ show: boolean; message: string; type: 'success' | 'error' }>({
-    show: false,
-    message: '',
-    type: 'success',
-  });
-
-  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
-    setToast({ show: true, message, type });
-    setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 4000);
-  };
-
   const handleToggleASG = async (asg: any) => {
     try {
       await toggleASG(asg);
-      showToast(
-        `AutoSpotting ${!asg.isEnabled ? 'enabled' : 'disabled'} for ${asg.name}`,
-        'success'
-      );
+      gooeyToast.success(`AutoSpotting ${!asg.isEnabled ? 'enabled' : 'disabled'} for ${asg.name}`);
     } catch (err) {
-      showToast(
-        `Failed to toggle ${asg.name}: ${err instanceof Error ? err.message : 'Unknown error'}`,
-        'error'
-      );
+      gooeyToast.error(`Failed to toggle ${asg.name}`, {
+        description: err instanceof Error ? err.message : 'Unknown error',
+      });
     }
   };
 
@@ -96,19 +81,6 @@ const SpotAutomationPage: React.FC = () => {
 
   return (
     <div className="flex-1 flex flex-col min-h-screen bg-gray-50 relative">
-      {/* Coming Soon Overlay */}
-      <div className="absolute inset-0 bg-white/80 backdrop-blur-sm z-40 flex items-center justify-center">
-        <div className="text-center">
-          <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-blue-100 mb-6">
-            <i className="fas fa-rocket text-4xl text-blue-500"></i>
-          </div>
-          <h2 className="text-3xl font-bold text-gray-800 mb-3">Coming Soon</h2>
-          <p className="text-gray-500 text-lg max-w-md mx-auto">
-            AWS AutoSpotting is currently being updated. We'll be back with enhanced features and real-time data shortly.
-          </p>
-        </div>
-      </div>
-
       {/* Header */}
       <SpotAutomationHeader />
 
@@ -213,15 +185,6 @@ const SpotAutomationPage: React.FC = () => {
 
       </div>
 
-      {/* Toast Notification */}
-      {toast.show && (
-        <div className="fixed bottom-8 right-8 px-6 py-4 rounded-xl shadow-2xl text-white text-sm font-semibold z-50 flex items-center max-w-md animate-slide-up"
-          style={{ backgroundColor: toast.type === 'success' ? '#10b981' : '#ef4444' }}
-        >
-          <i className={`fas ${toast.type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle'} mr-3 text-xl`}></i>
-          <span>{toast.message}</span>
-        </div>
-      )}
     </div>
   );
 };

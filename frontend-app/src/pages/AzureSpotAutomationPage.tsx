@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { gooeyToast } from 'goey-toast';
 import { useAccounts } from '../contexts/AccountContext';
 import { useAzureSpotAutomationData, AzureVMSS } from '../hooks/useAzureSpotAutomationData';
 import { DashboardSkeleton } from '../components/Shared/Skeleton';
@@ -7,6 +8,40 @@ import SpotAutomationChart from '../components/SpotAutomation/SpotAutomationChar
 import ActionsHistory from '../components/ActionsHistory/ActionsHistory';
 
 type Tab = 'dashboard' | 'history' | 'analytics' | 'settings';
+
+// ─── Instance Family Definitions ────────────────────────────────────────────────
+
+const INSTANCE_FAMILIES: { label: string; key: string; skus: string[] }[] = [
+    { label: 'D v5',  key: 'Dv5',  skus: ['Standard_D2s_v5', 'Standard_D4s_v5', 'Standard_D8s_v5'] },
+    { label: 'D v3',  key: 'Dv3',  skus: ['Standard_D2s_v3', 'Standard_D4s_v3', 'Standard_D8s_v3'] },
+    { label: 'E v5',  key: 'Ev5',  skus: ['Standard_E2s_v5', 'Standard_E4s_v5', 'Standard_E8s_v5'] },
+    { label: 'E v3',  key: 'Ev3',  skus: ['Standard_E2s_v3', 'Standard_E4s_v3', 'Standard_E8s_v3'] },
+    { label: 'F v2',  key: 'Fv2',  skus: ['Standard_F2s_v2', 'Standard_F4s_v2', 'Standard_F8s_v2'] },
+    { label: 'B',     key: 'B',    skus: ['Standard_B1s', 'Standard_B2s', 'Standard_B4ms'] },
+    { label: 'NC',    key: 'NC',   skus: ['Standard_NC6', 'Standard_NC12', 'Standard_NC24'] },
+];
+
+/** Given a comma-separated SKU string, return which family keys are fully or partially represented */
+function skusToFamilyKeys(skuStr: string): Set<string> {
+    const skus = skuStr.split(',').map(s => s.trim()).filter(Boolean);
+    const active = new Set<string>();
+    for (const fam of INSTANCE_FAMILIES) {
+        if (fam.skus.some(s => skus.includes(s))) active.add(fam.key);
+    }
+    return active;
+}
+
+/** Toggle a family in/out of the SKU string */
+function toggleFamily(skuStr: string, family: typeof INSTANCE_FAMILIES[number], add: boolean): string {
+    const current = skuStr.split(',').map(s => s.trim()).filter(Boolean);
+    if (add) {
+        const merged = [...new Set([...current, ...family.skus])];
+        return merged.join(',');
+    } else {
+        const filtered = current.filter(s => !family.skus.includes(s));
+        return filtered.join(',');
+    }
+}
 
 // ─── VMSS Config Modal ──────────────────────────────────────────────────────────
 
@@ -59,9 +94,12 @@ const VmssConfigModal: React.FC<VmssConfigModalProps> = ({
                 saveVmssSkuConfig(vmss.resourceGroup, vmss.name, allowedSkus, strategy),
             ]);
             setSaved(true);
+            gooeyToast.success(`VMSS config saved for ${vmss.name}`);
             setTimeout(() => { setSaved(false); onClose(); }, 900);
         } catch (err) {
-            console.error('Failed to save VMSS config:', err);
+            gooeyToast.error('Failed to save VMSS config', {
+                description: err instanceof Error ? err.message : 'Unknown error',
+            });
         } finally {
             setSaving(false);
         }
@@ -121,20 +159,44 @@ const VmssConfigModal: React.FC<VmssConfigModalProps> = ({
                         <h4 className="text-xs font-black uppercase tracking-widest text-slate-500 mb-3">
                             VM SKU Diversification
                         </h4>
-                        <div>
-                            <label className="text-xs text-slate-600 font-semibold mb-1 block">
-                                Allowed VM SKUs (comma-separated)
+
+                        {/* Instance Family Picker */}
+                        <div className="mb-3">
+                            <label className="text-xs text-slate-600 font-semibold mb-2 block">
+                                Instance Family
+                                <span className="ml-1.5 text-[10px] font-normal text-slate-400">
+                                    — select fallback families when primary SKU has no Spot capacity
+                                </span>
                             </label>
-                            <input
-                                type="text"
-                                value={allowedSkus}
-                                onChange={e => setAllowedSkus(e.target.value)}
-                                placeholder="Standard_D2s_v5,Standard_D4s_v5,Standard_E2s_v5"
-                                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            />
-                            <p className="text-[10px] text-slate-400 mt-1">Fallback SKUs when primary has no Spot capacity</p>
+                            <div className="flex flex-wrap gap-2">
+                                {INSTANCE_FAMILIES.map(fam => {
+                                    const active = skusToFamilyKeys(allowedSkus).has(fam.key);
+                                    return (
+                                        <button
+                                            key={fam.key}
+                                            type="button"
+                                            onClick={() => setAllowedSkus(toggleFamily(allowedSkus, fam, !active))}
+                                            className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
+                                                active
+                                                    ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                                                    : 'bg-white text-slate-600 border-slate-300 hover:border-blue-400 hover:text-blue-600'
+                                            }`}
+                                        >
+                                            {active && <i className="fas fa-check mr-1 text-[10px]"></i>}
+                                            {fam.label}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                            {allowedSkus && (
+                                <p className="text-[10px] text-blue-600 mt-1.5 font-mono truncate">
+                                    {allowedSkus}
+                                </p>
+                            )}
                         </div>
-                        <div className="mt-3">
+
+                        {/* Allocation Strategy */}
+                        <div>
                             <label className="text-xs text-slate-600 font-semibold mb-1 block">
                                 Allocation Strategy
                             </label>
@@ -281,8 +343,11 @@ const AzureSpotAutomationPage: React.FC = () => {
     const handleToggle = async (vmss: AzureVMSS) => {
         try {
             await toggleVMSS(vmss);
+            gooeyToast.success(`AutoSpotting ${!vmss.isEnabled ? 'enabled' : 'disabled'} for ${vmss.name}`);
         } catch (err) {
-            console.error('Failed to toggle VMSS:', err);
+            gooeyToast.error(`Failed to toggle ${vmss.name}`, {
+                description: err instanceof Error ? err.message : 'Unknown error',
+            });
         }
     };
 
@@ -296,8 +361,11 @@ const AzureSpotAutomationPage: React.FC = () => {
             await saveRispSettings(rispEnabled, rispThreshold);
             setSettingsSaved(true);
             setTimeout(() => setSettingsSaved(false), 2000);
+            gooeyToast.success('Settings saved successfully');
         } catch (err) {
-            console.error('Failed to save settings:', err);
+            gooeyToast.error('Failed to save settings', {
+                description: err instanceof Error ? err.message : 'Unknown error',
+            });
         } finally {
             setSavingSettings(false);
         }
@@ -308,9 +376,12 @@ const AzureSpotAutomationPage: React.FC = () => {
         setSyncResult(null);
         try {
             const result = await syncEvents();
-            setSyncResult(`Sync complete. ${result?.backfilled_count ?? 0} records backfilled across ${result?.total_vmss_scanned ?? 0} VMSS.`);
+            const msg = `Sync complete. ${result?.backfilled_count ?? 0} records backfilled across ${result?.total_vmss_scanned ?? 0} VMSS.`;
+            setSyncResult(msg);
+            gooeyToast.success('Sync complete', { description: msg });
         } catch (err) {
             setSyncResult('Sync failed. Please try again.');
+            gooeyToast.error('Sync failed', { description: 'Please try again.' });
         } finally {
             setSyncing(false);
         }
@@ -327,19 +398,6 @@ const AzureSpotAutomationPage: React.FC = () => {
 
     return (
         <div className="flex-1 flex flex-col min-h-screen bg-slate-50 relative">
-            {/* Coming Soon Overlay */}
-            <div className="absolute inset-0 bg-white/80 backdrop-blur-sm z-40 flex items-center justify-center">
-                <div className="text-center">
-                    <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-blue-100 mb-6">
-                        <i className="fas fa-rocket text-4xl text-blue-500"></i>
-                    </div>
-                    <h2 className="text-3xl font-bold text-gray-800 mb-3">Coming Soon</h2>
-                    <p className="text-gray-500 text-lg max-w-md mx-auto">
-                        Azure AutoSpotting is currently being updated. We'll be back with enhanced features and real-time data shortly.
-                    </p>
-                </div>
-            </div>
-
             {/* Config Modal */}
             {configVmss && selectedAccountId && (
                 <VmssConfigModal
@@ -386,6 +444,7 @@ const AzureSpotAutomationPage: React.FC = () => {
                             enabledASGsCount={enabledVmssCount}
                             totalASGsCount={vmssList.length}
                             enabledRegionsCount={enabledRegionsCount}
+                            currency="INR"
                         />
 
                         {/* Summary Info */}
@@ -408,6 +467,7 @@ const AzureSpotAutomationPage: React.FC = () => {
                             isLoading={isLoadingHistory}
                             onTimeRangeChange={handleTimeRangeChange}
                             onRefresh={() => fetchHistoryData()}
+                            currency="INR"
                         />
 
                         {/* VMSS Table */}
@@ -514,7 +574,7 @@ const AzureSpotAutomationPage: React.FC = () => {
                                                     </td>
                                                     <td className="px-6 py-4 text-right">
                                                         <div className="text-sm font-bold text-emerald-600">
-                                                            +${vmss.potentialSavings.toFixed(2)}
+                                                            +₹{vmss.potentialSavings.toFixed(2)}
                                                             <span className="text-[10px] text-slate-400 ml-1 font-medium">
                                                                 /hr
                                                             </span>
