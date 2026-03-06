@@ -11,6 +11,7 @@ interface SpotAutomationChartProps {
   isLoading: boolean;
   onTimeRangeChange: (range: 'last24h' | 'last7d' | 'last30d') => void;
   onRefresh: () => void;
+  currency?: string;
 }
 
 const SpotAutomationChart: React.FC<SpotAutomationChartProps> = ({
@@ -20,14 +21,17 @@ const SpotAutomationChart: React.FC<SpotAutomationChartProps> = ({
   isLoading,
   onTimeRangeChange,
   onRefresh,
+  currency = 'USD',
 }) => {
   const chartRef = useRef<HTMLCanvasElement>(null);
   const chartInstanceRef = useRef<Chart | null>(null);
 
+  const currencySymbol = currency === 'INR' ? '₹' : '$';
+
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
-      currency: 'USD',
+      currency,
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(value);
@@ -36,9 +40,9 @@ const SpotAutomationChart: React.FC<SpotAutomationChartProps> = ({
   const formatHourlyCost = (value: number) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 4,
-      maximumFractionDigits: 4,
+      currency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
     }).format(value);
   };
 
@@ -146,7 +150,9 @@ const SpotAutomationChart: React.FC<SpotAutomationChartProps> = ({
                 if (context.parsed.y !== null) {
                   label += new Intl.NumberFormat('en-US', {
                     style: 'currency',
-                    currency: 'USD',
+                    currency,
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
                   }).format(context.parsed.y);
                 }
                 return label;
@@ -163,7 +169,7 @@ const SpotAutomationChart: React.FC<SpotAutomationChartProps> = ({
             },
             ticks: {
               callback: function (value) {
-                return '$' + value;
+                return currencySymbol + Number(value).toFixed(2);
               },
               font: {
                 size: 11,
@@ -192,7 +198,7 @@ const SpotAutomationChart: React.FC<SpotAutomationChartProps> = ({
         chartInstanceRef.current.destroy();
       }
     };
-  }, [historyData, timeRange]);
+  }, [historyData, timeRange, currency]);
 
   return (
     <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-100 mb-6">
