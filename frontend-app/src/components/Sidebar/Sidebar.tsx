@@ -255,6 +255,12 @@ const Sidebar: React.FC = () => {
                     <NavItem href="/autospotting" icon="fas fa-magic" label="AutoSpotting" isActive={isActive('/autospotting')} />
                   </>
                 )}
+                {selectedAccountDisplay.provider === 'GCP' && (
+                  <NavItem href="/gcp-autospotting" icon="fas fa-magic" label="AutoSpotting" isActive={isActive('/gcp-autospotting')} />
+                )}
+                {selectedAccountDisplay.provider === 'Azure' && (
+                  <NavItem href="/azure-autospotting" icon="fas fa-magic" label="AutoSpotting" isActive={isActive('/azure-autospotting')} />
+                )}
               </NavSection>
 
               <NavSection
