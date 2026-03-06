@@ -615,3 +615,44 @@
   }
   */
 }
+
+/* =====================================================
+   Edit / Delete actions on user messages
+   ===================================================== */
+.support-chat-bubble-group {
+  position: relative;
+}
+
+.support-chat-msg-actions {
+  display: none;
+  position: absolute;
+  top: -22px;
+  right: 0;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+  padding: 2px 4px;
+  gap: 2px;
+  flex-direction: row;
+  z-index: 10;
+}
+
+.support-chat-bubble-group:hover .support-chat-msg-actions {
+  display: flex;
+}
+
+.support-chat-msg-action-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px 5px;
+  font-size: 13px;
+  border-radius: 4px;
+  line-height: 1;
+  transition: background 0.15s;
+}
+
+.support-chat-msg-action-btn:hover {
+  background: #f3f4f6;
+}

@@ -62,6 +62,10 @@ public class Ticket {
 
     private String assignedToUsername;
 
+    /** True when the latest non-internal reply is from a user (not admin) — drives READ/UNREAD indicator */
+    @Column(name = "has_new_user_reply", nullable = false)
+    private boolean hasNewUserReply = false;
+
     @OneToMany(mappedBy = "ticket", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
     private List<TicketReply> replies = new ArrayList<>();
 
@@ -204,4 +208,7 @@ public class Ticket {
     public void setAssignedToUsername(String assignedToUsername) {
         this.assignedToUsername = assignedToUsername;
     }
+
+    public boolean isHasNewUserReply() { return hasNewUserReply; }
+    public void setHasNewUserReply(boolean hasNewUserReply) { this.hasNewUserReply = hasNewUserReply; }
 }

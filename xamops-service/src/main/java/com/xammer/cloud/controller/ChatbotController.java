@@ -8,6 +8,7 @@ import com.xammer.cloud.service.SupportChatService;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.springframework.http.ResponseEntity;
 
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -63,5 +64,25 @@ public class ChatbotController {
         Map<String, Object> response = new HashMap<>();
         response.put("success", true);
         return response;
+    }
+
+    /** Edit own message within 15-minute window */
+    @PatchMapping("/chat/messages/{id}")
+    @PreAuthorize("hasAuthority('ROLE_XAMOPS')")
+    public ResponseEntity<SupportMessage> editMessage(
+            @PathVariable Long id,
+            @RequestBody Map<String, String> payload) {
+        return supportChatService.editMessage(id, payload.getOrDefault("content", ""))
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.status(403).build());
+    }
+
+    /** Soft-delete own message within 60-minute window */
+    @DeleteMapping("/chat/messages/{id}")
+    @PreAuthorize("hasAuthority('ROLE_XAMOPS')")
+    public ResponseEntity<SupportMessage> deleteMessage(@PathVariable Long id) {
+        return supportChatService.deleteMessage(id)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.status(403).build());
     }
 }

@@ -7,12 +7,20 @@ import apiClient from '../utils/apiClient';
 import {
   SupportConversation,
   SupportAccount,
+  SupportClient,
+  SupportProfile,
   AttachmentInfo,
   ChatMessage,
   CloudProvider,
   ReplyPayload,
+  TicketStatus,
 } from '../types/supportDashboard';
 import { initNotificationService } from '../utils/notificationService';
+
+interface AutoPingOptions {
+  enabled: boolean;
+  channels: string[]; // e.g. ['WHATSAPP', 'SMS', 'EMAIL']
+}
 
 interface UseSupportDashboardReturn {
   // Data
@@ -21,12 +29,16 @@ interface UseSupportDashboardReturn {
   messages: ChatMessage[];
   activeAccount: SupportConversation | null;
   accounts: SupportAccount[];
+  clients: SupportClient[];
+  clientProfiles: SupportProfile[];
 
   // State
   loading: boolean;
   chatLoading: boolean;
   sending: boolean;
   loadingAccounts: boolean;
+  loadingClients: boolean;
+  loadingProfiles: boolean;
   error: string | null;
 
   // Filters
@@ -38,11 +50,21 @@ interface UseSupportDashboardReturn {
   setProviderFilter: (provider: CloudProvider | '') => void;
   selectConversation: (account: SupportConversation) => Promise<void>;
   sendReply: (message: string, attachment?: AttachmentInfo) => Promise<boolean>;
-  startConversation: (account: SupportAccount, message: string) => Promise<boolean>;
+  startConversation: (
+    profile: SupportProfile,
+    message: string,
+    autoPing?: AutoPingOptions
+  ) => Promise<boolean>;
   uploadAttachment: (file: File) => Promise<AttachmentInfo | null>;
+  editAdminMessage: (id: number, content: string) => Promise<void>;
+  deleteAdminMessage: (id: number) => Promise<void>;
+  updateTicketStatus: (userId: number, status: TicketStatus) => Promise<boolean>;
+  sendTicketEmail: (userId: number, recipientEmails: string[], sendMode: 'separate' | 'combined', subject?: string) => Promise<{ success: boolean; error?: string }>;
   refreshInbox: () => Promise<void>;
   refreshChat: () => Promise<void>;
   fetchAccounts: () => Promise<void>;
+  fetchClients: () => Promise<void>;
+  fetchClientProfiles: (clientId: number) => Promise<void>;
 }
 
 const INBOX_REFRESH_INTERVAL = 10000;
@@ -53,12 +75,16 @@ export const useSupportDashboard = (): UseSupportDashboardReturn => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [activeAccount, setActiveAccount] = useState<SupportConversation | null>(null);
   const [accounts, setAccounts] = useState<SupportAccount[]>([]);
+  const [clients, setClients] = useState<SupportClient[]>([]);
+  const [clientProfiles, setClientProfiles] = useState<SupportProfile[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [providerFilter, setProviderFilter] = useState<CloudProvider | ''>('');
   const [loading, setLoading] = useState(false);
   const [chatLoading, setChatLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [loadingAccounts, setLoadingAccounts] = useState(false);
+  const [loadingClients, setLoadingClients] = useState(false);
+  const [loadingProfiles, setLoadingProfiles] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const inboxIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -87,7 +113,7 @@ export const useSupportDashboard = (): UseSupportDashboardReturn => {
       const inboxData = data || [];
       const newInboxMap = new Map<string, number>();
       for (const conv of inboxData) {
-        newInboxMap.set(conv.accountId, conv.unreadCount || 0);
+        if (conv.accountId) newInboxMap.set(conv.accountId, conv.unreadCount || 0);
       }
       previousInboxRef.current = newInboxMap;
       setConversations(inboxData);
@@ -111,18 +137,40 @@ export const useSupportDashboard = (): UseSupportDashboardReturn => {
     }
   }, []);
 
+  const fetchClients = useCallback(async () => {
+    setLoadingClients(true);
+    try {
+      const data = await apiClient.get<SupportClient[]>('/api/billops/support/clients');
+      if (isMountedRef.current) setClients(data || []);
+    } catch (err) {
+      console.error('Clients Error:', err);
+    } finally {
+      if (isMountedRef.current) setLoadingClients(false);
+    }
+  }, []);
+
+  const fetchClientProfiles = useCallback(async (clientId: number) => {
+    setLoadingProfiles(true);
+    setClientProfiles([]);
+    try {
+      const data = await apiClient.get<SupportProfile[]>(`/api/billops/support/clients/${clientId}/profiles`);
+      if (isMountedRef.current) setClientProfiles(data || []);
+    } catch (err) {
+      console.error('Profiles Error:', err);
+    } finally {
+      if (isMountedRef.current) setLoadingProfiles(false);
+    }
+  }, []);
+
   const fetchChat = useCallback(async () => {
     const account = activeAccountRef.current;
-    if (!account) return;
+    if (!account?.userId) return;
     try {
-      const data = await apiClient.get<ChatMessage[]>(`/api/billops/support/chat/${account.accountId}`);
+      const data = await apiClient.get<ChatMessage[]>(`/api/billops/support/chat/user/${account.userId}`);
       if (!isMountedRef.current) return;
       const chatData = data || [];
       previousMessageCountRef.current = chatData.length;
-      setMessages(prevMessages => {
-        if (chatData.length !== prevMessages.length) return chatData;
-        return prevMessages;
-      });
+      setMessages(chatData);
     } catch (err) {
       console.error('Chat Error:', err);
     }
@@ -134,10 +182,10 @@ export const useSupportDashboard = (): UseSupportDashboardReturn => {
     setChatLoading(true);
     previousMessageCountRef.current = 0;
     setConversations(prev => prev.map(c =>
-      c.accountId === account.accountId ? { ...c, unreadCount: 0 } : c
+      c.userId === account.userId ? { ...c, unreadCount: 0 } : c
     ));
     try {
-      const data = await apiClient.get<ChatMessage[]>(`/api/billops/support/chat/${account.accountId}`);
+      const data = await apiClient.get<ChatMessage[]>(`/api/billops/support/chat/user/${account.userId}`);
       if (isMountedRef.current) {
         const chatData = data || [];
         setMessages(chatData);
@@ -151,14 +199,10 @@ export const useSupportDashboard = (): UseSupportDashboardReturn => {
     }
   }, []);
 
-  /**
-   * Upload a file attachment and return the server-side info
-   */
   const uploadAttachment = useCallback(async (file: File): Promise<AttachmentInfo | null> => {
     const formData = new FormData();
     formData.append('file', file);
     try {
-      // Use apiClient.post which handles FormData correctly (no JSON.stringify)
       const result = await apiClient.post<AttachmentInfo>('/api/billops/support/upload', formData);
       return result;
     } catch (err) {
@@ -167,15 +211,13 @@ export const useSupportDashboard = (): UseSupportDashboardReturn => {
     }
   }, []);
 
-  /**
-   * Send a reply with optional attachment
-   */
   const sendReply = useCallback(async (message: string, attachment?: AttachmentInfo): Promise<boolean> => {
     if (!activeAccount || (!message.trim() && !attachment)) return false;
     setSending(true);
     try {
       const payload: ReplyPayload = {
-        accountId: activeAccount.accountId,
+        userId: activeAccount.userId != null ? String(activeAccount.userId) : undefined,
+        accountId: activeAccount.accountId ?? undefined,
         message: message.trim(),
         ...(attachment && {
           attachmentUrl: attachment.url,
@@ -187,6 +229,8 @@ export const useSupportDashboard = (): UseSupportDashboardReturn => {
       await apiClient.post('/api/billops/support/reply', payload);
       if (!isMountedRef.current) return true;
       await fetchChat();
+      // Refresh inbox to update assignedAdminUsername and ticketStatus
+      await fetchInbox(true);
       return true;
     } catch (err) {
       console.error('Send Reply Error:', err);
@@ -195,33 +239,96 @@ export const useSupportDashboard = (): UseSupportDashboardReturn => {
     } finally {
       if (isMountedRef.current) setSending(false);
     }
-  }, [activeAccount, fetchChat]);
+  }, [activeAccount, fetchChat, fetchInbox]);
 
-  /**
-   * Admin starts a brand-new conversation with a cloud account
-   */
-  const startConversation = useCallback(async (account: SupportAccount, message: string): Promise<boolean> => {
+  const editAdminMessage = useCallback(async (id: number, content: string) => {
+    try {
+      await apiClient.fetch(`/api/billops/support/messages/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ content }),
+      });
+      await fetchChat();
+    } catch (err) {
+      console.error('Edit message error:', err);
+    }
+  }, [fetchChat]);
+
+  const deleteAdminMessage = useCallback(async (id: number) => {
+    try {
+      await apiClient.fetch(`/api/billops/support/messages/${id}`, { method: 'DELETE' });
+      await fetchChat();
+    } catch (err) {
+      console.error('Delete message error:', err);
+    }
+  }, [fetchChat]);
+
+  /** Update ticket status (OPEN / IN_PROGRESS / CLOSED) */
+  const updateTicketStatus = useCallback(async (userId: number, status: TicketStatus): Promise<boolean> => {
+    try {
+      await apiClient.fetch(`/api/billops/support/ticket/${userId}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status }),
+      });
+      // Update local state immediately
+      setConversations(prev => prev.map(c =>
+        c.userId === userId ? { ...c, ticketStatus: status } : c
+      ));
+      setActiveAccount(prev =>
+        prev?.userId === userId ? { ...prev, ticketStatus: status } : prev
+      );
+      return true;
+    } catch (err) {
+      console.error('Update ticket status error:', err);
+      return false;
+    }
+  }, []);
+
+  /** Send chat thread as email — multi-recipient with separate or combined send mode */
+  const sendTicketEmail = useCallback(async (
+    userId: number,
+    recipientEmails: string[],
+    sendMode: 'separate' | 'combined',
+    subject?: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const body: Record<string, unknown> = { recipientEmails, sendMode };
+      if (subject) body.subject = subject;
+      const result = await apiClient.post<{ success: boolean; sentTo?: string; error?: string }>(
+        `/api/billops/support/ticket/${userId}/email`,
+        body
+      );
+      if (result?.success) return { success: true };
+      return { success: false, error: result?.error || 'Failed to send email.' };
+    } catch (err: any) {
+      console.error('Send ticket email error:', err);
+      return { success: false, error: err?.message || 'Failed to send email.' };
+    }
+  }, []);
+
+  const startConversation = useCallback(async (
+    profile: SupportProfile,
+    message: string,
+    autoPing?: AutoPingOptions,
+  ): Promise<boolean> => {
     if (!message.trim()) return false;
     setSending(true);
     try {
       const payload: ReplyPayload = {
-        accountId: account.accountId,
+        userId: String(profile.id),
         message: message.trim(),
-        accountName: account.accountName,
-        cloudProvider: account.provider,
+        ...(autoPing?.enabled && {
+          autoPingEnabled: 'true',
+          autoPingChannels: autoPing.channels.join(','),
+        }),
       };
       await apiClient.post('/api/billops/support/reply', payload);
       if (!isMountedRef.current) return true;
 
-      // Refresh inbox so the new conversation appears
       await fetchInbox(true);
 
-      // Auto-select the new conversation
       const newConv: SupportConversation = {
-        accountId: account.accountId,
-        accountName: account.accountName,
-        provider: account.provider,
-        senderUsername: '',
+        userId: profile.id,
+        username: profile.username,
         unreadCount: 0,
       };
       await selectConversation(newConv);
@@ -239,13 +346,12 @@ export const useSupportDashboard = (): UseSupportDashboardReturn => {
     return conversations.filter(conv => {
       const term = searchQuery.toLowerCase();
       const matchesSearch =
+        (conv.username && conv.username.toLowerCase().includes(term)) ||
         (conv.accountName && conv.accountName.toLowerCase().includes(term)) ||
-        (conv.accountId && conv.accountId.toLowerCase().includes(term)) ||
-        (conv.senderUsername && conv.senderUsername.toLowerCase().includes(term));
-      const matchesProvider = providerFilter === '' || conv.provider === providerFilter;
-      return matchesSearch && matchesProvider;
+        (conv.accountId && conv.accountId.toLowerCase().includes(term));
+      return matchesSearch;
     });
-  }, [conversations, searchQuery, providerFilter]);
+  }, [conversations, searchQuery]);
 
   useEffect(() => {
     if (!notificationInitializedRef.current) {
@@ -268,8 +374,9 @@ export const useSupportDashboard = (): UseSupportDashboardReturn => {
   useEffect(() => {
     const handleNewCustomerMessage = (event: CustomEvent) => {
       fetchInbox(true);
-      const { accountId } = event.detail;
-      if (activeAccountRef.current?.accountId === accountId) fetchChat();
+      const { userId } = event.detail;
+      if (activeAccountRef.current?.userId != null &&
+          activeAccountRef.current.userId === userId) fetchChat();
     };
     window.addEventListener('newCustomerMessage', handleNewCustomerMessage as EventListener);
     return () => window.removeEventListener('newCustomerMessage', handleNewCustomerMessage as EventListener);
@@ -277,11 +384,15 @@ export const useSupportDashboard = (): UseSupportDashboardReturn => {
 
   return {
     conversations, filteredConversations, messages, activeAccount, accounts,
-    loading, chatLoading, sending, loadingAccounts, error,
+    clients, clientProfiles,
+    loading, chatLoading, sending, loadingAccounts, loadingClients, loadingProfiles, error,
     searchQuery, providerFilter,
     setSearchQuery, setProviderFilter, selectConversation,
     sendReply, startConversation, uploadAttachment,
-    refreshInbox: fetchInbox, refreshChat: fetchChat, fetchAccounts,
+    editAdminMessage, deleteAdminMessage,
+    updateTicketStatus, sendTicketEmail,
+    refreshInbox: fetchInbox, refreshChat: fetchChat,
+    fetchAccounts, fetchClients, fetchClientProfiles,
   };
 };
 

@@ -24,16 +24,21 @@ import apiClient from '../utils/apiClient';
 import { initNotificationService } from '../utils/notificationService';
 
 export interface ChatMessage {
-  id?: string;
+  id?: number;      // Real database ID (needed for edit/delete)
   text: string;
   isUser: boolean;
   timestamp?: string;
+  isEdited?: boolean;
+  isDeleted?: boolean;
 }
 
 interface ChatHistoryItem {
+  id: number;
   content: string;
   userMessage: boolean;
   timestamp: string;
+  isEdited?: boolean;
+  isDeleted?: boolean;
 }
 
 interface UseSupportChatReturn {
@@ -46,6 +51,8 @@ interface UseSupportChatReturn {
   isXamopsUser: boolean;
   sendMessage: () => Promise<void>;
   fetchHistory: () => Promise<void>;
+  editMessage: (id: number, content: string) => Promise<void>;
+  deleteMessage: (id: number) => Promise<void>;
   messagesEndRef: React.RefObject<HTMLDivElement | null>;
 }
 
@@ -103,19 +110,19 @@ export const useSupportChat = (): UseSupportChatReturn => {
     if (!isXamopsUser) return;
 
     try {
-      const accountId = getSelectedAccountId();
-      const url = accountId
-        ? `/api/ai/chat/history?accountId=${encodeURIComponent(accountId)}`
-        : '/api/ai/chat/history';
+      // Return all messages for the current user — user-based conversations, no accountId filter
+      const url = '/api/ai/chat/history';
 
       const history = await apiClient.get<ChatHistoryItem[]>(url);
 
       if (Array.isArray(history)) {
-        const mappedMessages = history.map((msg, index) => ({
-          id: `msg-${index}-${msg.timestamp}`,
+        const mappedMessages = history.map((msg) => ({
+          id: msg.id,
           text: msg.content,
           isUser: msg.userMessage,
-          timestamp: msg.timestamp
+          timestamp: msg.timestamp,
+          isEdited: msg.isEdited,
+          isDeleted: msg.isDeleted,
         }));
 
         previousMessageCountRef.current = mappedMessages.length;
@@ -138,9 +145,8 @@ export const useSupportChat = (): UseSupportChatReturn => {
   const sendMessage = useCallback(async () => {
     if (newMessage.trim() === '' || isLoading) return;
 
-    // Add user message immediately for better UX
+    // Add user message immediately for better UX (no id — will be replaced by fetchHistory)
     const userMsg: ChatMessage = {
-      id: `user-${Date.now()}`,
       text: newMessage,
       isUser: true,
       timestamp: new Date().toISOString()
@@ -163,7 +169,6 @@ export const useSupportChat = (): UseSupportChatReturn => {
 
       if (response.status === 401 || response.status === 403) {
         setMessages(prev => [...prev, {
-          id: `error-${Date.now()}`,
           text: 'Session expired. Please refresh the page to log in again.',
           isUser: false
         }]);
@@ -182,7 +187,6 @@ export const useSupportChat = (): UseSupportChatReturn => {
     } catch (error) {
       console.error('Chat Error:', error);
       setMessages(prev => [...prev, {
-        id: `error-${Date.now()}`,
         text: 'Connection failed. Please try again later.',
         isUser: false
       }]);
@@ -191,6 +195,29 @@ export const useSupportChat = (): UseSupportChatReturn => {
       scrollToBottom();
     }
   }, [newMessage, isLoading, fetchHistory, scrollToBottom]);
+
+  /** Edit own message within 15-minute window */
+  const editMessage = useCallback(async (id: number, content: string) => {
+    try {
+      await apiClient.fetch(`/api/ai/chat/messages/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ content }),
+      });
+      await fetchHistory();
+    } catch (error) {
+      console.error('Edit message failed:', error);
+    }
+  }, [fetchHistory]);
+
+  /** Soft-delete own message within 60-minute window */
+  const deleteMessage = useCallback(async (id: number) => {
+    try {
+      await apiClient.fetch(`/api/ai/chat/messages/${id}`, { method: 'DELETE' });
+      await fetchHistory();
+    } catch (error) {
+      console.error('Delete message failed:', error);
+    }
+  }, [fetchHistory]);
 
   // Initialize chat and set up polling
   useEffect(() => {
@@ -240,12 +267,8 @@ export const useSupportChat = (): UseSupportChatReturn => {
       fetchHistory();
       scrollToBottom();
 
-      // Mark admin messages as read when chat is opened
-      const accountId = getSelectedAccountId();
-      const url = accountId
-        ? `/api/ai/chat/mark-read?accountId=${encodeURIComponent(accountId)}`
-        : '/api/ai/chat/mark-read';
-      apiClient.post(url, {}).catch(err => {
+      // Mark admin messages as read when chat is opened (user-based — no accountId needed)
+      apiClient.post('/api/ai/chat/mark-read', {}).catch(err => {
         console.warn('Failed to mark messages as read:', err);
       });
     }
@@ -261,6 +284,8 @@ export const useSupportChat = (): UseSupportChatReturn => {
     isXamopsUser,
     sendMessage,
     fetchHistory,
+    editMessage,
+    deleteMessage,
     messagesEndRef
   };
 };

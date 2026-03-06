@@ -127,6 +127,17 @@ public class TicketService {
         return convertToDto(ticket);
     }
 
+    /**
+     * Viewer-aware ticket detail fetch — masks admin usernames as "Support Team"
+     * for non-admin viewers. Not cached (viewer-dependent output).
+     */
+    @Transactional(readOnly = true)
+    public TicketDto getTicketByIdForViewer(Long id, boolean viewerIsAdmin) {
+        Ticket ticket = ticketRepository.findByIdWithRepliesAndAuthors(id)
+                .orElseThrow(() -> new RuntimeException("Ticket not found"));
+        return convertToDto(ticket, viewerIsAdmin);
+    }
+
     @Transactional
     @CacheEvict(value = "tickets", allEntries = true)
     public TicketDto addReplyToTicket(Long ticketId, TicketReplyDto replyDto, MultipartFile file) {
@@ -179,6 +190,13 @@ public class TicketService {
         ticket.getReplies().add(reply);
         ticket.setStatus("IN_PROGRESS");
 
+        // Auto-assign ticket to the first admin who replies
+        boolean isAdminReply = author.getRole() != null && author.getRole().contains("ADMIN");
+        if (isAdminReply && (ticket.getAssignedToId() == null || ticket.getAssignedToId() == 0)) {
+            ticket.setAssignedToId(author.getId());
+            ticket.setAssignedToUsername(author.getUsername());
+        }
+
         Ticket updatedTicket = ticketRepository.save(ticket);
 
         try {
@@ -201,7 +219,6 @@ public class TicketService {
                 text += "\n\n[Attachment: " + reply.getAttachmentName() + "]";
             }
 
-            boolean isAdminReply = author.getRole() != null && (author.getRole().contains("ADMIN"));
             if (isAdminReply) {
                 if (ticketCreator != null && ticketCreator.getEmail() != null) {
                     emailService.sendHtmlEmail(ticketCreator.getEmail(), subject, text);
@@ -301,5 +318,98 @@ public class TicketService {
         }
 
         return dto;
+    }
+
+    /** Viewer-aware reply conversion — masks admin usernames for non-admin viewers */
+    private TicketReplyDto convertReplyToDto(TicketReply reply, boolean viewerIsAdmin) {
+        TicketReplyDto dto = convertReplyToDto(reply);
+        if (!viewerIsAdmin && dto.isAdmin()) {
+            dto.setAuthorUsername("Support Team");
+        }
+        return dto;
+    }
+
+    /** Viewer-aware ticket DTO conversion */
+    private TicketDto convertToDto(Ticket ticket, boolean viewerIsAdmin) {
+        TicketDto dto = new TicketDto();
+        dto.setId(ticket.getId());
+        dto.setSubject(ticket.getSubject());
+        dto.setDescription(ticket.getDescription());
+        dto.setStatus(ticket.getStatus());
+        dto.setCreatedAt(ticket.getCreatedAt());
+        dto.setCategory(ticket.getCategory());
+        dto.setService(ticket.getService());
+        dto.setSeverity(ticket.getSeverity());
+        dto.setAccountId(ticket.getAccountId());
+        dto.setRegion(ticket.getRegion());
+        dto.setClosedAt(ticket.getClosedAt());
+        dto.setChatStartedAt(ticket.getChatStartedAt());
+        dto.setAssignedToId(ticket.getAssignedToId());
+        dto.setAssignedToUsername(ticket.getAssignedToUsername());
+
+        if (ticket.getClient() != null) {
+            dto.setClientId(ticket.getClient().getId());
+        }
+        if (ticket.getCreator() != null) {
+            dto.setCreatorId(ticket.getCreator().getId());
+            dto.setCreatorUsername(ticket.getCreator().getUsername());
+        }
+        if (ticket.getReplies() != null) {
+            dto.setReplies(ticket.getReplies().stream()
+                    .map(r -> convertReplyToDto(r, viewerIsAdmin))
+                    .sorted(Comparator.comparing(TicketReplyDto::getCreatedAt,
+                            Comparator.nullsLast(Comparator.naturalOrder())))
+                    .collect(Collectors.toList()));
+        }
+        return dto;
+    }
+
+    /** Send the full ticket conversation thread as a formatted HTML email */
+    @Transactional(readOnly = true)
+    public void sendTicketThreadEmail(Long ticketId, String recipientEmail) {
+        Ticket ticket = ticketRepository.findByIdWithRepliesAndAuthors(ticketId)
+                .orElseThrow(() -> new RuntimeException("Ticket not found"));
+        String subject = String.format("[Ticket #%d] %s — Thread Summary", ticket.getId(), ticket.getSubject());
+        String htmlBody = buildTicketThreadEmailTemplate(ticket);
+        emailService.sendHtmlEmail(recipientEmail, subject, htmlBody);
+    }
+
+    private String buildTicketThreadEmailTemplate(Ticket ticket) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("<!DOCTYPE html><html><body style='font-family:sans-serif;color:#1e293b;max-width:680px;margin:0 auto;padding:24px'>");
+        sb.append("<div style='background:#f8fafc;border:1px solid #e2e8f0;border-radius:16px;padding:24px;margin-bottom:24px'>");
+        sb.append("<h2 style='margin:0 0 8px'>Ticket #").append(ticket.getId()).append(": ").append(ticket.getSubject()).append("</h2>");
+        sb.append("<p style='margin:0;font-size:12px;color:#64748b'>Category: ").append(ticket.getCategory())
+          .append(" &nbsp;|&nbsp; Severity: ").append(ticket.getSeverity())
+          .append(" &nbsp;|&nbsp; Status: ").append(ticket.getStatus()).append("</p>");
+        if (ticket.getCreator() != null) {
+            sb.append("<p style='margin:4px 0 0;font-size:12px;color:#64748b'>Raised by: ").append(ticket.getCreator().getUsername()).append("</p>");
+        }
+        sb.append("</div>");
+        sb.append("<h3 style='font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:0.1em'>Conversation Thread</h3>");
+
+        if (ticket.getReplies() != null) {
+            ticket.getReplies().stream()
+                .filter(r -> !r.isInternal())
+                .sorted(Comparator.comparing(TicketReply::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder())))
+                .forEach(reply -> {
+                    boolean isAdminAuthor = reply.getAuthor() != null && reply.getAuthor().getRole() != null
+                            && reply.getAuthor().getRole().contains("ADMIN");
+                    String displayName = isAdminAuthor ? "Support Team" : (reply.getAuthor() != null ? reply.getAuthor().getUsername() : "Unknown");
+                    String bgColor = isAdminAuthor ? "#eef2ff" : "#f8fafc";
+                    String borderColor = isAdminAuthor ? "#818cf8" : "#e2e8f0";
+                    sb.append("<div style='border:1px solid ").append(borderColor)
+                      .append(";border-radius:12px;padding:16px;margin-bottom:16px;background:").append(bgColor).append("'>");
+                    sb.append("<p style='margin:0 0 8px;font-size:11px;color:#64748b;font-weight:bold;text-transform:uppercase'>")
+                      .append(displayName).append(" &nbsp;·&nbsp; ").append(reply.getCreatedAt() != null ? reply.getCreatedAt().toString() : "").append("</p>");
+                    sb.append("<div style='font-size:14px'>").append(reply.getMessage()).append("</div>");
+                    if (reply.getAttachmentName() != null) {
+                        sb.append("<p style='margin:8px 0 0;font-size:11px;color:#6366f1'>[Attachment: ").append(reply.getAttachmentName()).append("]</p>");
+                    }
+                    sb.append("</div>");
+                });
+        }
+        sb.append("</body></html>");
+        return sb.toString();
     }
 }

@@ -14,9 +14,11 @@ import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 import java.util.Optional; // ADDED
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -33,6 +35,9 @@ public class CreditRequestService {
 
     @Autowired
     private EmailService emailService;
+
+    @Autowired
+    private AccountAccessHelper accountAccessHelper;
 
     @Transactional
     @CacheEvict(value = "creditRequests", allEntries = true)
@@ -100,6 +105,20 @@ public class CreditRequestService {
         creditRequest.setStatus(status);
         CreditRequest updatedRequest = creditRequestRepository.save(creditRequest);
         return convertToDto(updatedRequest);
+    }
+
+    /**
+     * Filters credit requests to only those belonging to the current sub-user's allowed accounts.
+     * Primary admins see all requests unfiltered (returns null → no restriction).
+     * The awsAccountId field stores the provider-specific account identifier regardless of cloud.
+     */
+    public List<CreditRequestDto> applyAccountFilter(List<CreditRequestDto> requests) {
+        Set<String> allowedProviderIds = accountAccessHelper.getAllowedProviderAccountIds();
+        if (allowedProviderIds == null) return requests; // Primary admin
+        if (allowedProviderIds.isEmpty()) return Collections.emptyList();
+        return requests.stream()
+                .filter(dto -> dto.getAwsAccountId() != null && allowedProviderIds.contains(dto.getAwsAccountId()))
+                .collect(Collectors.toList());
     }
 
     private CreditRequestDto convertToDto(CreditRequest creditRequest) {

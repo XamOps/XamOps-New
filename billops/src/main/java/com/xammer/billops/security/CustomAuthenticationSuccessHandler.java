@@ -1,9 +1,6 @@
 package com.xammer.billops.security;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.xammer.billops.dto.GlobalUserDto;
-import com.xammer.billops.service.MasterDatabaseService;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
@@ -17,15 +14,11 @@ import java.io.IOException;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Optional;
 
 @Component
 public class CustomAuthenticationSuccessHandler implements AuthenticationSuccessHandler {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
-
-    @Autowired
-    private MasterDatabaseService masterDatabaseService;
 
     @Override
     public void onAuthenticationSuccess(HttpServletRequest request, HttpServletResponse response,
@@ -50,19 +43,9 @@ public class CustomAuthenticationSuccessHandler implements AuthenticationSuccess
             }
         }
 
-        // 2. CRITICAL FIX: Fetch Tenant ID to send back to Frontend
+        // Single DB mode — tenantId is always "default"
         String username = authentication.getName();
-        String tenantId = "default"; // Default fallback
-
-        try {
-            Optional<GlobalUserDto> globalUser = masterDatabaseService.findGlobalUser(username);
-            if (globalUser.isPresent()) {
-                tenantId = globalUser.get().getTenantId();
-            }
-        } catch (Exception e) {
-            // Log error but continue login
-            System.err.println("Error fetching tenant for user " + username + ": " + e.getMessage());
-        }
+        String tenantId = "default";
 
         // 3. Build Response
         Map<String, String> data = new HashMap<>();

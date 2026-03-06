@@ -88,6 +88,21 @@ public class CloudAccount {
     @Column(name = "grafana_ip")
     private String grafanaIp;
 
+    /**
+     * ISO-4217 billing currency code for this account (e.g. "INR", "USD").
+     * Null / absent means USD (no conversion needed).
+     */
+    @Column(name = "billing_currency")
+    private String billingCurrency;
+
+    /**
+     * How many units of billingCurrency equal 1 USD.
+     * e.g. 84.0 when billingCurrency = "INR" (₹84 = $1).
+     * Null / 0 / 1.0 is treated as no conversion needed.
+     */
+    @Column(name = "usd_exchange_rate")
+    private Double usdExchangeRate;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "client_id", nullable = false)
     @JsonIgnore
@@ -320,5 +335,21 @@ public class CloudAccount {
 
     public void setInvoices(List<Invoice> invoices) {
         this.invoices = invoices;
+    }
+
+    public String getBillingCurrency() {
+        return billingCurrency;
+    }
+
+    public void setBillingCurrency(String billingCurrency) {
+        this.billingCurrency = billingCurrency;
+    }
+
+    public Double getUsdExchangeRate() {
+        return usdExchangeRate;
+    }
+
+    public void setUsdExchangeRate(Double usdExchangeRate) {
+        this.usdExchangeRate = usdExchangeRate;
     }
 }

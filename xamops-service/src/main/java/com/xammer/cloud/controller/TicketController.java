@@ -5,6 +5,7 @@ import com.xammer.cloud.dto.TicketReplyDto;
 import com.xammer.cloud.service.TicketService;
 
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -34,8 +35,18 @@ public class TicketController {
     }
 
     @GetMapping("/tickets/{id}")
-    public ResponseEntity<TicketDto> getTicketById(@PathVariable Long id) {
-        return ResponseEntity.ok(ticketService.getTicketById(id));
+    public ResponseEntity<TicketDto> getTicketById(@PathVariable Long id, Authentication authentication) {
+        boolean isAdmin = authentication != null && authentication.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_BILLOPS_ADMIN"));
+        return ResponseEntity.ok(ticketService.getTicketByIdForViewer(id, isAdmin));
+    }
+
+    @PostMapping("/tickets/{id}/email")
+    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
+    public ResponseEntity<Void> sendTicketEmail(@PathVariable Long id, @RequestBody Map<String, String> body) {
+        String recipientEmail = body.get("recipientEmail");
+        ticketService.sendTicketThreadEmail(id, recipientEmail);
+        return ResponseEntity.ok().build();
     }
 
     // --- UPDATED ENDPOINT TO SUPPORT MULTIPART FILE UPLOAD ---

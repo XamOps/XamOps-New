@@ -54,6 +54,27 @@ public class SupportMessage {
     @Column(name = "attachment_size")
     private Long attachmentSize;
 
+    // Edit / delete (WhatsApp-style)
+    @Column(name = "is_edited", nullable = false)
+    private boolean isEdited = false;
+
+    @Column(name = "edited_at")
+    private LocalDateTime editedAt;
+
+    @Column(name = "is_deleted", nullable = false)
+    private boolean isDeleted = false;
+
+    // Auto-ping settings (set by admin when initiating a conversation)
+    @Column(name = "auto_ping_enabled", nullable = false)
+    private boolean autoPingEnabled = false;
+
+    // Comma-separated channel list: "WHATSAPP,SMS,EMAIL"
+    @Column(name = "auto_ping_channels", length = 100)
+    private String autoPingChannels;
+
+    @Column(name = "auto_ping_sent", nullable = false)
+    private boolean autoPingSent = false;
+
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
     public String getContent() { return content; }
@@ -82,4 +103,16 @@ public class SupportMessage {
     public void setAttachmentType(String attachmentType) { this.attachmentType = attachmentType; }
     public Long getAttachmentSize() { return attachmentSize; }
     public void setAttachmentSize(Long attachmentSize) { this.attachmentSize = attachmentSize; }
+    public boolean isAutoPingEnabled() { return autoPingEnabled; }
+    public void setAutoPingEnabled(boolean autoPingEnabled) { this.autoPingEnabled = autoPingEnabled; }
+    public String getAutoPingChannels() { return autoPingChannels; }
+    public void setAutoPingChannels(String autoPingChannels) { this.autoPingChannels = autoPingChannels; }
+    public boolean isAutoPingSent() { return autoPingSent; }
+    public void setAutoPingSent(boolean autoPingSent) { this.autoPingSent = autoPingSent; }
+    public boolean isEdited() { return isEdited; }
+    public void setEdited(boolean edited) { isEdited = edited; }
+    public LocalDateTime getEditedAt() { return editedAt; }
+    public void setEditedAt(LocalDateTime editedAt) { this.editedAt = editedAt; }
+    public boolean isDeleted() { return isDeleted; }
+    public void setDeleted(boolean deleted) { isDeleted = deleted; }
 }
