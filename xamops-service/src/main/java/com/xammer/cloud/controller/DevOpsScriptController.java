@@ -12,7 +12,6 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/devops-scripts")
-@CrossOrigin(origins = "*")
 public class DevOpsScriptController {
 
     @Autowired

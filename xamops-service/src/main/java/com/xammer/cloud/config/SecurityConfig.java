@@ -73,7 +73,6 @@ public class SecurityConfig {
                                 new AntPathRequestMatcher("/cloudk8s.html"),
                                 new AntPathRequestMatcher("/eks-details.html"),
                                 new AntPathRequestMatcher("/sonarqube.html"),
-                                new AntPathRequestMatcher("/user-manager.html"),
                                 new AntPathRequestMatcher("/spot-automation.html"),
                                 new AntPathRequestMatcher("actions-history.html"),
                                 // ✅ YOUR CODE: Preserved missing pages
