@@ -7,6 +7,7 @@ interface SpotAutomationKPIsProps {
   enabledASGsCount: number;
   totalASGsCount: number;
   enabledRegionsCount: number;
+  currency?: string;
 }
 
 const SpotAutomationKPIs: React.FC<SpotAutomationKPIsProps> = ({
@@ -15,11 +16,12 @@ const SpotAutomationKPIs: React.FC<SpotAutomationKPIsProps> = ({
   enabledASGsCount,
   totalASGsCount,
   enabledRegionsCount,
+  currency = 'USD',
 }) => {
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
-      currency: 'USD',
+      currency,
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(value);
@@ -28,7 +30,7 @@ const SpotAutomationKPIs: React.FC<SpotAutomationKPIsProps> = ({
   const formatHourlyCost = (value: number) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
-      currency: 'USD',
+      currency,
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(value);

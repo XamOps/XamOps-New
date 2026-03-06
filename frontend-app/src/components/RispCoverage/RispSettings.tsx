@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { gooeyToast } from 'goey-toast';
 import apiClient from '../../utils/apiClient';
 
 interface RispSettingsProps {
@@ -17,7 +18,6 @@ const RispSettings: React.FC<RispSettingsProps> = ({ accountId }) => {
   });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   // Fetch current settings
   useEffect(() => {
@@ -46,24 +46,16 @@ const RispSettings: React.FC<RispSettingsProps> = ({ accountId }) => {
     if (!accountId) return;
 
     setSaving(true);
-    setMessage(null);
 
     try {
       await apiClient.put(`/api/autospotting/settings/${accountId}/risp-respect`, {
         respectRiSpCommitments: settings.respectRiSpCommitments,
         riSpUtilizationThreshold: settings.riSpUtilizationThreshold,
       });
-
-      setMessage({
-        text: 'Settings saved successfully!',
-        type: 'success',
-      });
-
-      setTimeout(() => setMessage(null), 3000);
+      gooeyToast.success('Settings saved successfully!');
     } catch (error: any) {
-      setMessage({
-        text: error.response?.data?.error || 'Failed to save settings',
-        type: 'error',
+      gooeyToast.error('Failed to save settings', {
+        description: error.response?.data?.error || 'Unknown error',
       });
     } finally {
       setSaving(false);
@@ -190,19 +182,6 @@ const RispSettings: React.FC<RispSettingsProps> = ({ accountId }) => {
             </button>
           </div>
 
-          {/* Success/Error Message */}
-          {message && (
-            <div
-              className={`p-4 rounded-lg border ${
-                message.type === 'success'
-                  ? 'bg-green-50 border-green-200 text-green-800'
-                  : 'bg-red-50 border-red-200 text-red-800'
-              }`}
-            >
-              <i className={`fas ${message.type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle'} mr-2`}></i>
-              {message.text}
-            </div>
-          )}
         </div>
       )}
     </div>

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { gooeyToast } from 'goey-toast';
 import { useAccounts } from '../contexts/AccountContext';
 import { useAzureSpotAutomationData, AzureVMSS } from '../hooks/useAzureSpotAutomationData';
 import { DashboardSkeleton } from '../components/Shared/Skeleton';
@@ -93,9 +94,12 @@ const VmssConfigModal: React.FC<VmssConfigModalProps> = ({
                 saveVmssSkuConfig(vmss.resourceGroup, vmss.name, allowedSkus, strategy),
             ]);
             setSaved(true);
+            gooeyToast.success(`VMSS config saved for ${vmss.name}`);
             setTimeout(() => { setSaved(false); onClose(); }, 900);
         } catch (err) {
-            console.error('Failed to save VMSS config:', err);
+            gooeyToast.error('Failed to save VMSS config', {
+                description: err instanceof Error ? err.message : 'Unknown error',
+            });
         } finally {
             setSaving(false);
         }
@@ -339,8 +343,11 @@ const AzureSpotAutomationPage: React.FC = () => {
     const handleToggle = async (vmss: AzureVMSS) => {
         try {
             await toggleVMSS(vmss);
+            gooeyToast.success(`AutoSpotting ${!vmss.isEnabled ? 'enabled' : 'disabled'} for ${vmss.name}`);
         } catch (err) {
-            console.error('Failed to toggle VMSS:', err);
+            gooeyToast.error(`Failed to toggle ${vmss.name}`, {
+                description: err instanceof Error ? err.message : 'Unknown error',
+            });
         }
     };
 
@@ -354,8 +361,11 @@ const AzureSpotAutomationPage: React.FC = () => {
             await saveRispSettings(rispEnabled, rispThreshold);
             setSettingsSaved(true);
             setTimeout(() => setSettingsSaved(false), 2000);
+            gooeyToast.success('Settings saved successfully');
         } catch (err) {
-            console.error('Failed to save settings:', err);
+            gooeyToast.error('Failed to save settings', {
+                description: err instanceof Error ? err.message : 'Unknown error',
+            });
         } finally {
             setSavingSettings(false);
         }
@@ -366,9 +376,12 @@ const AzureSpotAutomationPage: React.FC = () => {
         setSyncResult(null);
         try {
             const result = await syncEvents();
-            setSyncResult(`Sync complete. ${result?.backfilled_count ?? 0} records backfilled across ${result?.total_vmss_scanned ?? 0} VMSS.`);
+            const msg = `Sync complete. ${result?.backfilled_count ?? 0} records backfilled across ${result?.total_vmss_scanned ?? 0} VMSS.`;
+            setSyncResult(msg);
+            gooeyToast.success('Sync complete', { description: msg });
         } catch (err) {
             setSyncResult('Sync failed. Please try again.');
+            gooeyToast.error('Sync failed', { description: 'Please try again.' });
         } finally {
             setSyncing(false);
         }
@@ -385,19 +398,6 @@ const AzureSpotAutomationPage: React.FC = () => {
 
     return (
         <div className="flex-1 flex flex-col min-h-screen bg-slate-50 relative">
-            {/* Coming Soon Overlay */}
-            <div className="absolute inset-0 bg-white/80 backdrop-blur-sm z-40 flex items-center justify-center">
-                <div className="text-center">
-                    <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-blue-100 mb-6">
-                        <i className="fas fa-rocket text-4xl text-blue-500"></i>
-                    </div>
-                    <h2 className="text-3xl font-bold text-gray-800 mb-3">Coming Soon</h2>
-                    <p className="text-gray-500 text-lg max-w-md mx-auto">
-                        Azure AutoSpotting is currently being updated. We'll be back with enhanced features and real-time data shortly.
-                    </p>
-                </div>
-            </div>
-
             {/* Config Modal */}
             {configVmss && selectedAccountId && (
                 <VmssConfigModal
@@ -444,6 +444,7 @@ const AzureSpotAutomationPage: React.FC = () => {
                             enabledASGsCount={enabledVmssCount}
                             totalASGsCount={vmssList.length}
                             enabledRegionsCount={enabledRegionsCount}
+                            currency="INR"
                         />
 
                         {/* Summary Info */}
@@ -466,6 +467,7 @@ const AzureSpotAutomationPage: React.FC = () => {
                             isLoading={isLoadingHistory}
                             onTimeRangeChange={handleTimeRangeChange}
                             onRefresh={() => fetchHistoryData()}
+                            currency="INR"
                         />
 
                         {/* VMSS Table */}
@@ -572,7 +574,7 @@ const AzureSpotAutomationPage: React.FC = () => {
                                                     </td>
                                                     <td className="px-6 py-4 text-right">
                                                         <div className="text-sm font-bold text-emerald-600">
-                                                            +${vmss.potentialSavings.toFixed(2)}
+                                                            +₹{vmss.potentialSavings.toFixed(2)}
                                                             <span className="text-[10px] text-slate-400 ml-1 font-medium">
                                                                 /hr
                                                             </span>

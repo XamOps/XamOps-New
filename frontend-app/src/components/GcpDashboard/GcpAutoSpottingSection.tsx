@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { gooeyToast } from 'goey-toast';
 import { fetchGcpAutoSpottingMigs } from '../../api/gcpDashboardApi';
 
 interface GcpAutoSpottingSectionProps {
@@ -17,7 +18,7 @@ const GcpAutoSpottingSection: React.FC<GcpAutoSpottingSectionProps> = ({ account
             const data = await fetchGcpAutoSpottingMigs(accountId);
             setMigs(Array.isArray(data) ? data : []);
         } catch (error) {
-            console.error('Failed to load MIGs', error);
+            gooeyToast.error('Failed to load GCP MIG data');
         } finally {
             setLoading(false);
         }

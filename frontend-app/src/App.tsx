@@ -111,6 +111,8 @@ import AdminSupportNotificationListener from './components/Shared/AdminSupportNo
 import UserSupportNotificationListener from './components/Shared/UserSupportNotificationListener';
 import ErrorBoundary from './components/Shared/ErrorBoundary';
 import RouteChangeHandler from './components/Shared/RouteChangeHandler';
+import { GooeyToaster } from 'goey-toast';
+import 'goey-toast/styles.css';
 
 
 // Import styles
@@ -311,6 +313,7 @@ const AuthenticatedLayout: React.FC = () => {
         {/* User Support Notifications - Background listener for ROLE_XAMOPS users */}
         <UserSupportNotificationListener />
       </div>
+      <GooeyToaster position="bottom-right" />
     </ErrorBoundary>
   );
 };
