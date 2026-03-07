@@ -6,14 +6,12 @@ import com.xammer.billops.domain.Client;
 import com.xammer.billops.domain.CloudAccount;
 import com.xammer.cloud.domain.AppUser;
 import com.xammer.billops.dto.*;
-import com.xammer.billops.dto.GlobalUserDto; // ✅ Added
 import com.xammer.billops.repository.AppUserRepository;
 import com.xammer.billops.repository.ClientRepository;
 import com.xammer.billops.repository.CloudAccountRepository;
 import com.xammer.billops.repository.UserCloudAccountAccessRepository;
 import com.xammer.billops.service.AwsAccountService;
 import com.xammer.billops.service.GcpDataService;
-import com.xammer.billops.service.MasterDatabaseService; // ✅ Added
 import com.xammer.billops.service.azure.AzureCostManagementService;
 import com.xammer.cloud.security.ClientUserDetails;
 
@@ -60,8 +58,6 @@ public class AccountManagerController {
     @Autowired
     private AzureCostManagementService azureCostService;
 
-    @Autowired
-    private MasterDatabaseService masterDatabaseService; // ✅ Injected for Tenant Fallback
 
     @PostMapping("/generate-stack-url")
     public ResponseEntity<Map<String, String>> generateStackUrl(@RequestBody AccountCreationRequestDto request,
@@ -108,23 +104,6 @@ public class AccountManagerController {
 
         logger.info("✓ Authentication present. Username: {}", userDetails.getUsername());
 
-        // 2. Tenant Context Fallback (If Filter missed it)
-        String currentTenant = TenantContext.getCurrentTenant();
-        if (currentTenant == null || "default".equals(currentTenant)) {
-            try {
-                String username = userDetails.getUsername();
-                Optional<GlobalUserDto> globalUser = masterDatabaseService.findGlobalUser(username);
-                if (globalUser.isPresent()) {
-                    String resolvedTenantId = globalUser.get().getTenantId();
-                    if (!resolvedTenantId.equals(currentTenant)) {
-                        logger.info("⚠ Forcing Tenant Context Switch: {} -> {}", currentTenant, resolvedTenantId);
-                        TenantContext.setCurrentTenant(resolvedTenantId);
-                    }
-                }
-            } catch (Exception e) {
-                logger.error("✗ Error during Tenant fallback resolution: {}", e.getMessage());
-            }
-        }
 
         // 3. Handle Impersonation Logic
         Long targetClientId = userDetails.getClientId();

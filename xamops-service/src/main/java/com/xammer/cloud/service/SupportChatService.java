@@ -10,8 +10,11 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 
 @Service
 public class SupportChatService {
@@ -88,20 +91,71 @@ public class SupportChatService {
         return messageRepository.save(supportMessage);
     }
 
+    private User getCurrentUser() {
+        String username = ((UserDetails) SecurityContextHolder.getContext().getAuthentication().getPrincipal()).getUsername();
+        return userRepository.findByUsername(username).orElse(null);
+    }
+
     public List<SupportMessage> getMessagesForCurrentUser(String selectedAccountId) {
-        String accountId = getAccountIdForCurrentUser(selectedAccountId);
-        if (accountId == null) return Collections.emptyList();
-        return messageRepository.findByAccountIdOrderByTimestampAsc(accountId);
+        User user = getCurrentUser();
+        if (user == null) return Collections.emptyList();
+        // Return ALL messages for this user regardless of account (user-based conversations)
+        return messageRepository.findBySenderOrderByTimestampAsc(user);
     }
 
     /**
-     * Get count of unread admin messages (messages from admin to user that are not yet read)
-     * Admin messages have isUserMessage = false and status = "DELIVERED"
+     * Get count of unread admin messages (messages from admin to user that are not yet read).
+     * Admin messages have isUserMessage = false and status = "DELIVERED".
+     * Scoped by sender (user) only — covers all accounts.
      */
     public long getUnreadAdminMessageCount(String selectedAccountId) {
-        String accountId = getAccountIdForCurrentUser(selectedAccountId);
-        if (accountId == null) return 0L;
-        return messageRepository.countByAccountIdAndIsUserMessageFalseAndStatus(accountId, "DELIVERED");
+        User user = getCurrentUser();
+        if (user == null) return 0L;
+        return messageRepository.countBySenderAndIsUserMessageFalseAndStatus(user, "DELIVERED");
+    }
+
+    /**
+     * Edit a user's own message within 15 minutes of sending.
+     */
+    @Transactional
+    public Optional<SupportMessage> editMessage(Long id, String newContent) {
+        Optional<SupportMessage> opt = messageRepository.findById(id);
+        if (opt.isEmpty()) return Optional.empty();
+
+        SupportMessage msg = opt.get();
+        User user = getCurrentUser();
+        if (user == null || msg.getSender() == null || !user.getId().equals(msg.getSender().getId()))
+            return Optional.empty();
+        if (!msg.isUserMessage()) return Optional.empty();
+
+        LocalDateTime cutoff = LocalDateTime.now(ZoneId.of("Asia/Kolkata")).minusMinutes(15);
+        if (msg.getTimestamp().isBefore(cutoff)) return Optional.empty();
+
+        msg.setContent(newContent);
+        msg.setEdited(true);
+        msg.setEditedAt(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
+        return Optional.of(messageRepository.save(msg));
+    }
+
+    /**
+     * Soft-delete a user's own message within 60 minutes of sending.
+     */
+    @Transactional
+    public Optional<SupportMessage> deleteMessage(Long id) {
+        Optional<SupportMessage> opt = messageRepository.findById(id);
+        if (opt.isEmpty()) return Optional.empty();
+
+        SupportMessage msg = opt.get();
+        User user = getCurrentUser();
+        if (user == null || msg.getSender() == null || !user.getId().equals(msg.getSender().getId()))
+            return Optional.empty();
+        if (!msg.isUserMessage()) return Optional.empty();
+
+        LocalDateTime cutoff = LocalDateTime.now(ZoneId.of("Asia/Kolkata")).minusMinutes(60);
+        if (msg.getTimestamp().isBefore(cutoff)) return Optional.empty();
+
+        msg.setDeleted(true);
+        return Optional.of(messageRepository.save(msg));
     }
 
     /**
@@ -110,9 +164,10 @@ public class SupportChatService {
      */
     @Transactional
     public void markAdminMessagesAsRead(String selectedAccountId) {
-        String accountId = getAccountIdForCurrentUser(selectedAccountId);
-        if (accountId == null) return;
-        List<SupportMessage> unreadMessages = messageRepository.findByAccountIdAndIsUserMessageFalseAndStatus(accountId, "DELIVERED");
+        User user = getCurrentUser();
+        if (user == null) return;
+        // Mark all admin messages as read for this user (all accounts)
+        List<SupportMessage> unreadMessages = messageRepository.findBySenderAndIsUserMessageFalseAndStatus(user, "DELIVERED");
         if (!unreadMessages.isEmpty()) {
             for (SupportMessage msg : unreadMessages) {
                 msg.setStatus("READ");

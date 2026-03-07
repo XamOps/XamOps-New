@@ -36,4 +36,18 @@ public class EmailService {
             throw new RuntimeException("Failed to send HTML email", e);
         }
     }
+
+    public void sendHtmlEmailToMultiple(String[] toAddresses, String subject, String htmlBody) {
+        try {
+            MimeMessage message = emailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+            helper.setFrom("noreply@xammer.in");
+            helper.setTo(toAddresses);
+            helper.setSubject(subject);
+            helper.setText(htmlBody, true);
+            emailSender.send(message);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to send HTML email to multiple recipients", e);
+        }
+    }
 }

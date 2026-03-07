@@ -25,6 +25,7 @@ import { useBillOpsAdminTickets } from '../hooks/useBillOpsAdminTickets';
 import { useTopbarActions } from '../contexts/TopbarContext';
 import {
   AdminTicket,
+  AdminTicketTab,
   ADMIN_TICKET_TABS
 } from '../types/billopsAdminTickets';
 import { formatIST, getSlaStatus } from '../utils/timeUtils';
@@ -60,6 +61,43 @@ const BillOpsAdminTicketsPage: React.FC = () => {
 
   const { setActions, clearActions } = useTopbarActions();
   const [showFilters, setShowFilters] = useState(false);
+
+  // Ticket category access control for sub-users
+  // undefined = still loading (hide tabs until resolved to avoid flash)
+  // null      = no restrictions (primary admin or tickets-all)
+  // array     = specific tabs allowed
+  const [allowedTicketTabs, setAllowedTicketTabs] = useState<AdminTicketTab[] | null | undefined>(undefined);
+
+  useEffect(() => {
+    fetch('/api/billops/team/profile', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!data || data.isPrimaryUser) {
+          setAllowedTicketTabs(null);
+          return;
+        }
+        const tabs: string[] = data.allowedTabs || [];
+        if (tabs.includes('tickets-all')) {
+          setAllowedTicketTabs(null);
+        } else {
+          const allowed: AdminTicketTab[] = [];
+          if (tabs.includes('tickets-account-billing')) allowed.push('Account and Billing');
+          if (tabs.includes('tickets-technical')) allowed.push('Technical');
+          if (allowed.length === 2) allowed.push('All');
+          // Set active tab immediately before render to avoid flash
+          if (allowed.length > 0) setActiveTab(allowed[0]);
+          setAllowedTicketTabs(allowed.length > 0 ? allowed : null);
+        }
+      })
+      .catch(() => setAllowedTicketTabs(null));
+  }, []);
+
+  // Tabs visible to this user (filtered by category access)
+  const visibleTabs = useMemo(() => {
+    if (allowedTicketTabs === undefined) return []; // still loading — render nothing
+    if (!allowedTicketTabs) return ADMIN_TICKET_TABS;
+    return ADMIN_TICKET_TABS.filter(t => allowedTicketTabs.includes(t.id));
+  }, [allowedTicketTabs]);
   const [sortField, setSortField] = useState<SortField>('');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('none');
@@ -211,12 +249,10 @@ const BillOpsAdminTicketsPage: React.FC = () => {
     return <i className={`fas fa-chevron-${sortDir === 'asc' ? 'up' : 'down'} ml-1 text-indigo-500 text-[8px]`}></i>;
   };
 
-  const viewTicket = (id: number, category: string) => {
-    if (category === 'Technical') {
-      navigate(`/ticket-detail?id=${id}`);
-    } else {
-      navigate(`/billops-ticket-detail?id=${id}`);
-    }
+  const viewTicket = (id: number) => {
+    // Always use billops-ticket-detail — admins are authenticated through billops
+    // and /ticket-detail calls /api/xamops/ which returns 401 for billops sessions
+    navigate(`/billops-ticket-detail?id=${id}`);
   };
 
   const toggleStatusFilter = useCallback((status: string) => {
@@ -338,8 +374,8 @@ const BillOpsAdminTicketsPage: React.FC = () => {
         <table className="min-w-full divide-y divide-slate-100">
           <thead className="bg-slate-50/50">
             <tr>
-              {['ID', 'Account', 'Subject', 'Status', 'Severity', 'SLA', 'Created', 'Chat Start', 'Closed At', 'Assigned To', 'Action'].map((h) => (
-                <th key={h} className="px-5 py-4 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">{h}</th>
+              {['ID', 'Account', 'Subject / Service', 'Status', 'Severity', 'SLA', 'Created (IST)', 'Chat Started', 'Closed At', 'Assigned To', 'Action'].map((h) => (
+                <th key={h} className="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">{h}</th>
               ))}
             </tr>
           </thead>
@@ -347,7 +383,7 @@ const BillOpsAdminTicketsPage: React.FC = () => {
             {[1, 2, 3, 4, 5].map(i => (
               <tr key={i}>
                 {Array.from({ length: 11 }).map((_, j) => (
-                  <td key={j} className="px-5 py-4">
+                  <td key={j} className="px-3 py-3">
                     <div className="h-4 bg-slate-100 rounded-full animate-pulse" style={{ width: `${40 + (j * 13) % 60}px` }}></div>
                   </td>
                 ))}
@@ -383,53 +419,64 @@ const BillOpsAdminTicketsPage: React.FC = () => {
     <tr
       key={ticket.id}
       className={`hover:bg-indigo-50/30 transition-all cursor-pointer group border-b border-transparent hover:border-indigo-100 ${getRowClasses(ticket)}`}
-      onClick={() => viewTicket(ticket.id, ticket.category)}
+      onClick={() => viewTicket(ticket.id)}
     >
       {/* ID */}
-      <td className="px-5 py-4 whitespace-nowrap">
+      <td className="px-3 py-3 whitespace-nowrap">
         <span className="text-xs font-bold text-slate-400 font-mono tracking-tighter opacity-60">#{ticket.id}</span>
       </td>
 
       {/* Account ID */}
-      <td className="px-5 py-4 whitespace-nowrap">
-        <span className="px-2 py-1 bg-slate-100 text-slate-600 rounded-lg text-[10px] font-bold font-mono tracking-tight border border-slate-200/50">
+      <td className="px-3 py-3 whitespace-nowrap">
+        <span className="px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded-lg text-[10px] font-bold font-mono tracking-tight border border-slate-200/50 truncate max-w-[90px] block">
           {ticket.accountId || 'GLOBAL'}
         </span>
       </td>
 
       {/* Subject + Service */}
-      <td className="px-5 py-4">
-        <div className="text-sm font-bold text-slate-800 group-hover:text-indigo-600 transition-colors leading-tight mb-1 max-w-[200px] truncate">
+      <td className="px-3 py-3 max-w-[180px]">
+        <div className="text-xs font-bold text-slate-800 group-hover:text-indigo-600 transition-colors leading-tight mb-0.5 truncate">
           {ticket.subject}
         </div>
-        <div className="text-[10px] text-slate-400 font-medium truncate max-w-[200px] opacity-80">
+        <div className="text-[10px] text-slate-400 font-medium truncate opacity-80">
           {ticket.service}
         </div>
       </td>
 
-      {/* Status */}
-      <td className="px-5 py-4 whitespace-nowrap">
-        <span className={`flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-black rounded-full shadow-sm ring-1 ring-inset w-fit ${getStatusBadgeClasses(ticket.status)}`}>
-          <span className={`w-1.5 h-1.5 rounded-full bg-white shadow-[0_0_8px_white] ${ticket.status === 'OPEN' ? 'animate-pulse' : ''}`}></span>
-          {ticket.status === 'IN_PROGRESS' ? 'IN PROG' : ticket.status}
-        </span>
+      {/* Status + Read/Unread */}
+      <td className="px-3 py-3 whitespace-nowrap">
+        <div className="flex flex-col gap-1">
+          <span className={`flex items-center gap-1 px-2 py-0.5 text-[10px] font-black rounded-full shadow-sm ring-1 ring-inset w-fit ${getStatusBadgeClasses(ticket.status)}`}>
+            <span className={`w-1.5 h-1.5 rounded-full bg-white shadow-[0_0_8px_white] ${ticket.status === 'OPEN' ? 'animate-pulse' : ''}`}></span>
+            {ticket.status === 'IN_PROGRESS' ? 'IN PROG' : ticket.status}
+          </span>
+          {ticket.hasUnreadUserReply ? (
+            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wide bg-amber-100 text-amber-700 w-fit">
+              Unread
+            </span>
+          ) : (
+            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wide bg-green-100 text-green-700 w-fit">
+              Read
+            </span>
+          )}
+        </div>
       </td>
 
       {/* Severity */}
-      <td className="px-5 py-4 whitespace-nowrap">
-        <div className="flex items-center gap-2">
+      <td className="px-3 py-3 whitespace-nowrap">
+        <div className="flex items-center gap-1.5">
           <span className={`w-2 h-2 rounded-full ${getSeverityDotClasses(ticket.severity)} flex-shrink-0`}></span>
           <span className="text-[10px] font-bold text-slate-600 uppercase tracking-widest">{ticket.severity}</span>
         </div>
       </td>
 
       {/* SLA */}
-      <td className="px-5 py-4 whitespace-nowrap">
+      <td className="px-3 py-3 whitespace-nowrap">
         {getSlaBadge(ticket)}
       </td>
 
       {/* Created (IST) + Relative Age */}
-      <td className="px-5 py-4 whitespace-nowrap">
+      <td className="px-3 py-3 whitespace-nowrap">
         <div className="text-[10px] font-bold text-slate-500 leading-tight">
           {ticket.createdAt ? formatIST(ticket.createdAt) : '—'}
         </div>
@@ -441,7 +488,7 @@ const BillOpsAdminTicketsPage: React.FC = () => {
       </td>
 
       {/* Chat Started */}
-      <td className="px-5 py-4 whitespace-nowrap">
+      <td className="px-3 py-3 whitespace-nowrap hidden xl:table-cell">
         {ticket.chatStartedAt ? (
           <div className="text-[10px] font-bold text-indigo-600 leading-tight">
             {formatIST(ticket.chatStartedAt)}
@@ -452,7 +499,7 @@ const BillOpsAdminTicketsPage: React.FC = () => {
       </td>
 
       {/* Closed At */}
-      <td className="px-5 py-4 whitespace-nowrap">
+      <td className="px-3 py-3 whitespace-nowrap hidden xl:table-cell">
         {ticket.closedAt ? (
           <div className="text-[10px] font-bold text-slate-500 leading-tight">
             {formatIST(ticket.closedAt)}
@@ -462,14 +509,14 @@ const BillOpsAdminTicketsPage: React.FC = () => {
         )}
       </td>
 
-      {/* Assigned To */}
-      <td className="px-5 py-4 whitespace-nowrap">
+      {/* Assigned To (with creator tooltip) */}
+      <td className="px-3 py-3 whitespace-nowrap">
         {ticket.assignedToUsername ? (
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5" title={ticket.creatorUsername ? `Creator: ${ticket.creatorUsername}` : undefined}>
             <div className="w-5 h-5 rounded-full bg-indigo-600 flex items-center justify-center text-white text-[8px] font-black flex-shrink-0">
               {ticket.assignedToUsername.charAt(0).toUpperCase()}
             </div>
-            <span className="text-[10px] font-bold text-slate-700 truncate max-w-[80px]">{ticket.assignedToUsername}</span>
+            <span className="text-[10px] font-bold text-slate-700 truncate max-w-[70px]">{ticket.assignedToUsername}</span>
           </div>
         ) : (
           <span className="text-[10px] text-slate-300 font-bold italic">Unassigned</span>
@@ -477,10 +524,10 @@ const BillOpsAdminTicketsPage: React.FC = () => {
       </td>
 
       {/* Action */}
-      <td className="px-5 py-4 whitespace-nowrap text-sm font-medium">
+      <td className="px-3 py-3 whitespace-nowrap">
         <button
-          onClick={(e) => { e.stopPropagation(); viewTicket(ticket.id, ticket.category); }}
-          className="text-slate-400 hover:text-indigo-600 bg-slate-100 hover:bg-indigo-100 transition-all w-9 h-9 flex items-center justify-center rounded-xl border border-transparent hover:border-indigo-200 shadow-sm group-hover:scale-110 active:scale-95"
+          onClick={(e) => { e.stopPropagation(); viewTicket(ticket.id); }}
+          className="text-slate-400 hover:text-indigo-600 bg-slate-100 hover:bg-indigo-100 transition-all w-8 h-8 flex items-center justify-center rounded-xl border border-transparent hover:border-indigo-200 shadow-sm group-hover:scale-110 active:scale-95"
         >
           <i className="fas fa-chevron-right text-xs"></i>
         </button>
@@ -563,7 +610,14 @@ const BillOpsAdminTicketsPage: React.FC = () => {
           {/* Tabs + Filter Toggle Row */}
           <div className="flex items-center justify-between border-b border-slate-200/50 pb-2 gap-4 flex-wrap">
             <nav className="flex space-x-2 flex-wrap gap-y-2" aria-label="Tabs">
-              {ADMIN_TICKET_TABS.map((tab) => (
+              {allowedTicketTabs === undefined ? (
+                /* Skeleton placeholder while profile loads — prevents layout flash */
+                <div className="flex space-x-2">
+                  {[1, 2, 3].map(i => (
+                    <div key={i} className="h-10 w-36 rounded-2xl bg-slate-100 animate-pulse" />
+                  ))}
+                </div>
+              ) : visibleTabs.map((tab) => (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
@@ -781,40 +835,40 @@ const BillOpsAdminTicketsPage: React.FC = () => {
                     <tr>
                       <th
                         onClick={() => handleSort('id')}
-                        className="px-5 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap cursor-pointer hover:text-indigo-600 select-none"
+                        className="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap cursor-pointer hover:text-indigo-600 select-none"
                       >
                         ID {renderSortIcon('id')}
                       </th>
-                      <th className="px-5 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap">Account</th>
-                      <th className="px-5 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap">Subject / Service</th>
+                      <th className="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap">Account</th>
+                      <th className="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap">Subject / Service</th>
                       <th
                         onClick={() => handleSort('status')}
-                        className="px-5 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap cursor-pointer hover:text-indigo-600 select-none"
+                        className="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap cursor-pointer hover:text-indigo-600 select-none"
                       >
                         Status {renderSortIcon('status')}
                       </th>
                       <th
                         onClick={() => handleSort('severity')}
-                        className="px-5 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap cursor-pointer hover:text-indigo-600 select-none"
+                        className="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap cursor-pointer hover:text-indigo-600 select-none"
                       >
                         Severity {renderSortIcon('severity')}
                       </th>
                       <th
                         onClick={() => handleSort('sla')}
-                        className="px-5 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap cursor-pointer hover:text-indigo-600 select-none"
+                        className="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap cursor-pointer hover:text-indigo-600 select-none"
                       >
                         SLA {renderSortIcon('sla')}
                       </th>
                       <th
                         onClick={() => handleSort('createdAt')}
-                        className="px-5 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap cursor-pointer hover:text-indigo-600 select-none"
+                        className="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap cursor-pointer hover:text-indigo-600 select-none"
                       >
                         Created (IST) {renderSortIcon('createdAt')}
                       </th>
-                      <th className="px-5 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap">Chat Started</th>
-                      <th className="px-5 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap">Closed At</th>
-                      <th className="px-5 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap">Assigned To</th>
-                      <th className="px-5 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap">Action</th>
+                      <th className="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap hidden xl:table-cell">Chat Started</th>
+                      <th className="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap hidden xl:table-cell">Closed At</th>
+                      <th className="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap">Assigned To</th>
+                      <th className="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap">Action</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white/20 divide-y divide-slate-50">

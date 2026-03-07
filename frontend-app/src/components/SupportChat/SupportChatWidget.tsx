@@ -18,7 +18,7 @@
  * - Same auto-refresh behavior
  */
 
-import React, { useCallback, KeyboardEvent } from 'react';
+import React, { useCallback, useState, KeyboardEvent } from 'react';
 import useSupportChat from '../../hooks/useSupportChat';
 import './SupportChatWidget.css';
 
@@ -33,8 +33,13 @@ const SupportChatWidget: React.FC = () => {
     isXamopsUser,
     sendMessage,
     fetchHistory,
+    editMessage,
+    deleteMessage,
     messagesEndRef
   } = useSupportChat();
+
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editContent, setEditContent] = useState('');
 
   /**
    * Handle toggle open/close
@@ -64,16 +69,32 @@ const SupportChatWidget: React.FC = () => {
   }, [sendMessage]);
 
   /**
-   * Format timestamp for display
+   * Format timestamp for display — date + time
    */
   const formatTime = (timestamp?: string): string => {
     if (!timestamp) return '';
     try {
-      const date = new Date(timestamp);
-      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const d = new Date(timestamp);
+      const day = d.getDate().toString().padStart(2, '0');
+      const month = d.toLocaleString('default', { month: 'short' });
+      const year = d.getFullYear();
+      const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      return `${day} ${month} ${year}, ${time}`;
     } catch {
       return '';
     }
+  };
+
+  const canEdit = (timestamp?: string) =>
+    !!timestamp && (Date.now() - new Date(timestamp).getTime()) < 15 * 60 * 1000;
+
+  const canDelete = (timestamp?: string) =>
+    !!timestamp && (Date.now() - new Date(timestamp).getTime()) < 60 * 60 * 1000;
+
+  const handleEditSave = async (id: number) => {
+    if (!editContent.trim()) return;
+    await editMessage(id, editContent);
+    setEditingId(null);
   };
 
   // Don't render if user doesn't have ROLE_XAMOPS
@@ -143,7 +164,7 @@ const SupportChatWidget: React.FC = () => {
             <>
               {messages.map((msg) => (
                 <div
-                  key={msg.id}
+                  key={msg.id ?? msg.timestamp}
                   className={`support-chat-message ${msg.isUser ? 'support-chat-message-user' : 'support-chat-message-bot'}`}
                 >
                   {!msg.isUser && (
@@ -151,11 +172,55 @@ const SupportChatWidget: React.FC = () => {
                       <i className="fas fa-robot" />
                     </div>
                   )}
-                  <div className={`support-chat-message-bubble ${msg.isUser ? 'support-chat-bubble-user' : 'support-chat-bubble-bot'}`}>
-                    <p className="support-chat-message-text">{msg.text}</p>
-                    {msg.timestamp && (
+                  <div className={`support-chat-message-bubble ${msg.isUser ? 'support-chat-bubble-user' : 'support-chat-bubble-bot'} support-chat-bubble-group`}
+                    style={{ position: 'relative' }}
+                  >
+                    {msg.isDeleted ? (
+                      <p className="support-chat-message-text" style={{ fontStyle: 'italic', opacity: 0.65 }}>
+                        🚫 This message was deleted
+                      </p>
+                    ) : editingId === msg.id ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', minWidth: '180px' }}>
+                        <textarea
+                          value={editContent}
+                          onChange={e => setEditContent(e.target.value)}
+                          rows={3}
+                          autoFocus
+                          style={{ width: '100%', borderRadius: '8px', border: '1px solid #6366f1', padding: '6px 8px', fontSize: '13px', resize: 'none' }}
+                        />
+                        <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
+                          <button onClick={() => setEditingId(null)} style={{ fontSize: '11px', padding: '3px 10px', borderRadius: '6px', background: '#e5e7eb', border: 'none', cursor: 'pointer' }}>Cancel</button>
+                          <button onClick={() => msg.id && handleEditSave(msg.id)} style={{ fontSize: '11px', padding: '3px 10px', borderRadius: '6px', background: '#6366f1', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 600 }}>Save</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <p className="support-chat-message-text">{msg.text}</p>
+                        {/* Edit / Delete — only for user's own messages, on hover */}
+                        {msg.isUser && (
+                          <div className="support-chat-msg-actions">
+                            {canEdit(msg.timestamp) && (
+                              <button
+                                onClick={() => { setEditingId(msg.id!); setEditContent(msg.text); }}
+                                title="Edit (within 15 min)"
+                                className="support-chat-msg-action-btn"
+                              >✏️</button>
+                            )}
+                            {canDelete(msg.timestamp) && (
+                              <button
+                                onClick={() => msg.id && deleteMessage(msg.id)}
+                                title="Delete (within 60 min)"
+                                className="support-chat-msg-action-btn"
+                              >🗑️</button>
+                            )}
+                          </div>
+                        )}
+                      </>
+                    )}
+                    {!msg.isDeleted && editingId !== msg.id && msg.timestamp && (
                       <span className="support-chat-message-time">
                         {formatTime(msg.timestamp)}
+                        {msg.isEdited && <span style={{ marginLeft: '4px', fontStyle: 'italic', fontSize: '10px', opacity: 0.75 }}>· Edited</span>}
                       </span>
                     )}
                   </div>

@@ -37,7 +37,8 @@ const BillOpsTicketDetailPage: React.FC = () => {
     submitReply,
     closeTicket,
     submitRCA,
-    assignTicket
+    assignTicket,
+    sendEmailThread
   } = useBillOpsTicketDetail(ticketId);
 
   // Quill editor
@@ -56,6 +57,13 @@ const BillOpsTicketDetailPage: React.FC = () => {
   // Assignment dropdown state
   const [showAssignDropdown, setShowAssignDropdown] = useState(false);
   const [isAssigning, setIsAssigning] = useState(false);
+
+  // Email Thread Modal
+  const [showEmailModal, setShowEmailModal] = useState(false);
+  const [emailRecipients, setEmailRecipients] = useState<string[]>([]);
+  const [emailInput, setEmailInput] = useState('');
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
+  const [sendMode, setSendMode] = useState<'separate' | 'combined'>('separate');
 
   // RCA Modal
   const [showRcaModal, setShowRcaModal] = useState(false);
@@ -85,9 +93,13 @@ const BillOpsTicketDetailPage: React.FC = () => {
   }, []);
 
   const isMe = useCallback((reply: any): boolean => {
+    // Position logic (mirrors support dashboard):
+    // - Admin viewer: admin replies → RIGHT (with real username), customer replies → LEFT
+    // - Customer viewer: own replies → RIGHT ("You"), admin replies → LEFT ("Support Team")
+    if (isAdmin) return reply.admin === true;
     if (!currentUser?.id) return false;
-    return String(reply.authorId) === String(currentUser.id);
-  }, [currentUser]);
+    return !reply.admin && String(reply.authorId) === String(currentUser.id);
+  }, [currentUser, isAdmin]);
 
   const handleCloseTicket = useCallback(async () => {
     if (globalThis.confirm('Are you sure you want to close this ticket?')) {
@@ -307,6 +319,16 @@ const BillOpsTicketDetailPage: React.FC = () => {
             </button>
           )}
 
+          {isAdmin && (ticket.status === 'CLOSED' || ticket.status === 'IN_PROGRESS') && (
+            <button
+              onClick={() => setShowEmailModal(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-sky-50 text-sky-700 rounded-xl text-xs font-bold border border-sky-200 hover:bg-sky-100 transition-all active:scale-95"
+            >
+              <i className="fas fa-envelope"></i>
+              <span>Email Thread</span>
+            </button>
+          )}
+
           {ticket.status !== 'CLOSED' && (
             <button
               onClick={handleCloseTicket}
@@ -322,7 +344,56 @@ const BillOpsTicketDetailPage: React.FC = () => {
 
     return () => clearActions();
   }, [setActions, clearActions, ticket, isAdmin, handleCloseTicket, goBackToTickets,
-      adminUsers, showAssignDropdown, isAssigning, handleAssign]);
+      adminUsers, showAssignDropdown, isAssigning, handleAssign, showEmailModal]);
+
+  const addEmailRecipient = (email: string) => {
+    const trimmed = email.trim().toLowerCase();
+    if (trimmed && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed) && !emailRecipients.includes(trimmed)) {
+      setEmailRecipients(prev => [...prev, trimmed]);
+    }
+    setEmailInput('');
+  };
+
+  const removeEmailRecipient = (email: string) => {
+    setEmailRecipients(prev => prev.filter(e => e !== email));
+  };
+
+  const handleEmailInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault();
+      addEmailRecipient(emailInput);
+    } else if (e.key === 'Backspace' && !emailInput && emailRecipients.length > 0) {
+      setEmailRecipients(prev => prev.slice(0, -1));
+    }
+  };
+
+  const closeEmailModal = () => {
+    setShowEmailModal(false);
+    setEmailRecipients([]);
+    setEmailInput('');
+    setSendMode('separate');
+  };
+
+  const handleSendEmail = async () => {
+    const allRecipients = emailInput.trim()
+      ? [...emailRecipients, emailInput.trim()]
+      : emailRecipients;
+    if (allRecipients.length === 0) {
+      globalThis.alert('Please add at least one recipient email address.');
+      return;
+    }
+    setIsSendingEmail(true);
+    try {
+      await sendEmailThread(allRecipients, sendMode);
+      const modeLabel = sendMode === 'combined' ? 'one combined email' : `${allRecipients.length} separate email${allRecipients.length > 1 ? 's' : ''}`;
+      globalThis.alert(`Sent as ${modeLabel}!`);
+      closeEmailModal();
+    } catch {
+      globalThis.alert('Failed to send email. Please try again.');
+    } finally {
+      setIsSendingEmail(false);
+    }
+  };
 
   const handleSubmitReply = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -470,6 +541,34 @@ const BillOpsTicketDetailPage: React.FC = () => {
                 <div className="text-base text-slate-700 font-medium leading-relaxed whitespace-pre-wrap">{ticket.description}</div>
 
                 <div className="flex flex-wrap gap-4 pt-4 border-t border-slate-100">
+                  {ticket.accountId && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Account / Project:</span>
+                      <span className="text-[10px] font-black text-indigo-600 font-mono">{ticket.accountId}</span>
+                    </div>
+                  )}
+                  {ticket.creatorUsername && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Raised by:</span>
+                      <span className="flex items-center gap-1.5 text-[10px] font-black text-slate-700">
+                        <span className="w-4 h-4 rounded-full bg-slate-300 text-slate-600 flex items-center justify-center text-[7px] font-black">
+                          {ticket.creatorUsername.charAt(0).toUpperCase()}
+                        </span>
+                        {ticket.creatorUsername}
+                      </span>
+                    </div>
+                  )}
+                  {isAdmin && ticket.assignedToUsername && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Assigned:</span>
+                      <span className="flex items-center gap-1.5 text-[10px] font-black text-indigo-700">
+                        <span className="w-4 h-4 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[7px] font-black">
+                          {ticket.assignedToUsername.charAt(0).toUpperCase()}
+                        </span>
+                        {ticket.assignedToUsername}
+                      </span>
+                    </div>
+                  )}
                   <div className="flex items-center gap-2">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Service:</span>
                     <span className="text-[10px] font-black text-indigo-600">{ticket.service}</span>
@@ -545,7 +644,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                           <div className="flex items-center gap-2 px-1 flex-wrap">
                             <span className="text-[10px] font-black text-amber-700 uppercase tracking-widest">{reply.authorUsername}</span>
                             <span className="px-2 py-0.5 text-[8px] font-black bg-amber-100 text-amber-600 border border-amber-200 rounded-full uppercase tracking-widest">Internal Note</span>
-                            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">{formatIST(reply.createdAt, { short: true })}</span>
+                            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">{formatIST(reply.createdAt)}</span>
                           </div>
                           <div className="p-5 rounded-[1.5rem] shadow-sm text-sm font-medium leading-relaxed bg-amber-50 text-amber-900 border border-amber-200 rounded-tl-none">
                             <div dangerouslySetInnerHTML={{ __html: reply.message }} className="prose-chat !p-0" />
@@ -568,8 +667,12 @@ const BillOpsTicketDetailPage: React.FC = () => {
                       <div className={`space-y-2 ${isMine ? 'text-right' : 'text-left'}`}>
                         <div className="flex items-center gap-2 px-1">
                           {!isMine && <span className="text-[10px] font-black text-slate-800 uppercase tracking-widest">{reply.authorUsername}</span>}
-                          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">{formatIST(reply.createdAt, { short: true })}</span>
-                          {isMine && <span className="text-[10px] font-black text-slate-800 uppercase tracking-widest">You</span>}
+                          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">{formatIST(reply.createdAt)}</span>
+                          {isMine && (
+                            <span className="text-[10px] font-black text-slate-800 uppercase tracking-widest">
+                              {isAdmin ? reply.authorUsername : 'You'}
+                            </span>
+                          )}
                         </div>
 
                         <div className={`p-5 rounded-[1.5rem] shadow-sm text-sm font-medium leading-relaxed ${isMine ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white text-slate-700 border border-slate-100 rounded-tl-none'}`}>
@@ -720,6 +823,208 @@ const BillOpsTicketDetailPage: React.FC = () => {
               <i className="fas fa-lock"></i>
               Ticket Interaction Disabled &bull; Case Closed
               {ticket.closedAt && <span className="text-slate-400">· {formatIST(ticket.closedAt)}</span>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Email Thread Modal */}
+      {showEmailModal && (
+        <div className="fixed inset-0 z-50 overflow-y-auto">
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" onClick={closeEmailModal}></div>
+          <div className="flex items-center justify-center min-h-screen px-4 py-8">
+            <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden" onClick={e => e.stopPropagation()}>
+
+              {/* Header */}
+              <div className="px-6 pt-6 pb-4 border-b border-slate-100">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-base font-bold text-slate-900 flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-sky-100 flex items-center justify-center flex-shrink-0">
+                      <i className="fas fa-envelope text-sky-600 text-sm"></i>
+                    </div>
+                    Email Ticket Thread
+                  </h3>
+                  <button onClick={closeEmailModal} className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors">
+                    <i className="fas fa-times text-sm"></i>
+                  </button>
+                </div>
+                <p className="mt-1 text-xs text-slate-400 pl-10">Send the full conversation history as a formatted email.</p>
+              </div>
+
+              <div className="px-6 py-5 space-y-5 max-h-[65vh] overflow-y-auto custom-scrollbar">
+
+                {/* Chip-based recipients input */}
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 mb-2 uppercase tracking-widest">
+                    Recipients <span className="text-red-500">*</span>
+                  </label>
+                  <div className="min-h-[52px] border border-slate-200 rounded-xl px-3 py-2 flex flex-wrap gap-1.5 items-center focus-within:ring-2 focus-within:ring-sky-400 focus-within:border-sky-400 transition-all bg-white cursor-text">
+                    {emailRecipients.map(email => (
+                      <span key={email} className="flex items-center gap-1 pl-2.5 pr-1 py-0.5 bg-sky-100 text-sky-800 rounded-full text-[11px] font-bold border border-sky-200 flex-shrink-0">
+                        {email}
+                        <button type="button" onClick={() => removeEmailRecipient(email)} className="w-4 h-4 flex items-center justify-center rounded-full hover:bg-sky-200 transition-colors ml-0.5 text-sky-500">
+                          <i className="fas fa-times text-[7px]"></i>
+                        </button>
+                      </span>
+                    ))}
+                    <input
+                      type="text"
+                      value={emailInput}
+                      onChange={e => setEmailInput(e.target.value)}
+                      onKeyDown={handleEmailInputKeyDown}
+                      onBlur={() => emailInput.trim() && addEmailRecipient(emailInput)}
+                      placeholder={emailRecipients.length === 0 ? 'Type email and press Enter...' : 'Add more...'}
+                      className="flex-1 min-w-[160px] outline-none text-sm text-slate-700 placeholder-slate-300 bg-transparent py-0.5"
+                    />
+                  </div>
+                  <p className="mt-1 text-[10px] text-slate-400">Press Enter or comma to add • Backspace to remove last</p>
+                </div>
+
+                {/* Quick-add: known users */}
+                {(adminUsers.filter(a => a.email).length > 0 || ticket?.creatorEmail) && (
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-500 mb-2 uppercase tracking-widest">Quick Add Users</label>
+                    <div className="space-y-1.5 border border-slate-100 rounded-xl overflow-hidden divide-y divide-slate-100">
+
+                      {/* Ticket creator */}
+                      {ticket?.creatorEmail && (
+                        <div className="flex items-center justify-between px-3.5 py-3 bg-white hover:bg-slate-50 transition-colors">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="w-7 h-7 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center text-[10px] font-black flex-shrink-0">
+                              {(ticket.creatorUsername || 'U').charAt(0).toUpperCase()}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <p className="text-[11px] font-bold text-slate-700 leading-none">{ticket.creatorUsername}</p>
+                                <span className="px-1.5 py-0.5 text-[8px] font-black bg-emerald-100 text-emerald-700 rounded-full uppercase tracking-widest border border-emerald-200">Creator</span>
+                              </div>
+                              <p className="text-[10px] text-slate-400 mt-0.5 truncate">{ticket.creatorEmail}</p>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => addEmailRecipient(ticket.creatorEmail!)}
+                            disabled={emailRecipients.includes(ticket.creatorEmail!.toLowerCase())}
+                            className="flex items-center gap-1 px-3 py-1.5 text-[10px] font-black rounded-lg border transition-all disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0 ml-3 bg-white text-sky-600 border-sky-200 hover:bg-sky-50 active:scale-95"
+                          >
+                            {emailRecipients.includes(ticket.creatorEmail.toLowerCase())
+                              ? <><i className="fas fa-check text-emerald-500"></i> Added</>
+                              : <><i className="fas fa-plus"></i> Add</>
+                            }
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Admin users */}
+                      {adminUsers.filter(a => a.email).map(admin => (
+                        <div key={admin.id} className="flex items-center justify-between px-3.5 py-3 bg-white hover:bg-slate-50 transition-colors">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="w-7 h-7 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px] font-black flex-shrink-0">
+                              {admin.username.charAt(0).toUpperCase()}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <p className="text-[11px] font-bold text-slate-700 leading-none">{admin.username}</p>
+                                <span className="px-1.5 py-0.5 text-[8px] font-black bg-indigo-100 text-indigo-700 rounded-full uppercase tracking-widest border border-indigo-200">Admin</span>
+                              </div>
+                              <p className="text-[10px] text-slate-400 mt-0.5 truncate">{admin.email}</p>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => addEmailRecipient(admin.email!)}
+                            disabled={emailRecipients.includes(admin.email!.toLowerCase())}
+                            className="flex items-center gap-1 px-3 py-1.5 text-[10px] font-black rounded-lg border transition-all disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0 ml-3 bg-white text-sky-600 border-sky-200 hover:bg-sky-50 active:scale-95"
+                          >
+                            {emailRecipients.includes(admin.email!.toLowerCase())
+                              ? <><i className="fas fa-check text-emerald-500"></i> Added</>
+                              : <><i className="fas fa-plus"></i> Add</>
+                            }
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Send mode toggle */}
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 mb-2 uppercase tracking-widest">Send Mode</label>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSendMode('separate')}
+                      className={`flex-1 flex items-center gap-2.5 px-4 py-3 rounded-xl border text-left transition-all ${
+                        sendMode === 'separate'
+                          ? 'bg-sky-50 border-sky-400 text-sky-800 shadow-sm shadow-sky-100'
+                          : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'
+                      }`}
+                    >
+                      <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${sendMode === 'separate' ? 'border-sky-500' : 'border-slate-300'}`}>
+                        {sendMode === 'separate' && <div className="w-2 h-2 rounded-full bg-sky-500"></div>}
+                      </div>
+                      <div>
+                        <div className="text-[11px] font-black uppercase tracking-widest leading-none">Separate</div>
+                        <div className="text-[9px] font-medium text-slate-400 mt-0.5 leading-snug">One email per recipient</div>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSendMode('combined')}
+                      className={`flex-1 flex items-center gap-2.5 px-4 py-3 rounded-xl border text-left transition-all ${
+                        sendMode === 'combined'
+                          ? 'bg-sky-50 border-sky-400 text-sky-800 shadow-sm shadow-sky-100'
+                          : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'
+                      }`}
+                    >
+                      <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${sendMode === 'combined' ? 'border-sky-500' : 'border-slate-300'}`}>
+                        {sendMode === 'combined' && <div className="w-2 h-2 rounded-full bg-sky-500"></div>}
+                      </div>
+                      <div>
+                        <div className="text-[11px] font-black uppercase tracking-widest leading-none">Combined</div>
+                        <div className="text-[9px] font-medium text-slate-400 mt-0.5 leading-snug">All in one email (CC visible)</div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Info banner */}
+                <div className="bg-sky-50 border border-sky-100 rounded-xl px-4 py-3 text-xs text-sky-700 space-y-1">
+                  <div className="font-bold flex items-center gap-1.5"><i className="fas fa-info-circle"></i> What will be sent:</div>
+                  <ul className="list-disc list-inside space-y-0.5 pl-1 text-sky-600">
+                    <li>Ticket #{ticket?.id} — {ticket?.subject}</li>
+                    <li>All public replies (internal notes excluded)</li>
+                    <li>Admin replies shown as "Support Team"</li>
+                  </ul>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="px-6 py-4 flex justify-between items-center border-t border-slate-100 bg-slate-50/50">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                  {emailRecipients.length + (emailInput.trim() ? 1 : 0)} recipient{(emailRecipients.length + (emailInput.trim() ? 1 : 0)) !== 1 ? 's' : ''} selected
+                </span>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={closeEmailModal}
+                    className="px-4 py-2 text-sm font-semibold text-slate-600 bg-white border border-slate-200 hover:bg-slate-100 rounded-xl transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSendEmail}
+                    disabled={isSendingEmail || (emailRecipients.length === 0 && !emailInput.trim())}
+                    className="flex items-center gap-2 px-5 py-2 text-sm font-bold text-white bg-sky-600 hover:bg-sky-700 rounded-xl shadow-lg shadow-sky-500/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed active:scale-95"
+                  >
+                    {isSendingEmail
+                      ? <><i className="fas fa-circle-notch fa-spin"></i> Sending...</>
+                      : <><i className="fas fa-paper-plane"></i> Send Email</>
+                    }
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>

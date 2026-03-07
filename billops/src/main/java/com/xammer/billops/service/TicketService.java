@@ -2,15 +2,21 @@ package com.xammer.billops.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.xammer.billops.domain.Client;
+import com.xammer.billops.domain.CloudAccount;
+import com.xammer.cloud.domain.AppUser;
 import com.xammer.cloud.domain.Ticket;
 import com.xammer.cloud.domain.TicketReply;
 import com.xammer.cloud.domain.User;
 import com.xammer.billops.dto.TicketDto;
 import com.xammer.billops.dto.TicketReplyDto;
+import com.xammer.billops.repository.AppUserRepository;
 import com.xammer.billops.repository.ClientRepository;
+import com.xammer.billops.repository.CloudAccountRepository;
 import com.xammer.billops.repository.TicketReplyRepository;
 import com.xammer.billops.repository.TicketRepository;
+import com.xammer.billops.repository.UserCloudAccountAccessRepository;
 import com.xammer.billops.repository.UserRepository;
+import com.xammer.billops.util.SecurityUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -57,6 +63,12 @@ public class TicketService {
     private FileStorageService fileStorageService;
     @Autowired
     private RedisCacheService redisCache;
+    @Autowired
+    private AppUserRepository appUserRepository;
+    @Autowired
+    private UserCloudAccountAccessRepository userCloudAccountAccessRepository;
+    @Autowired
+    private CloudAccountRepository cloudAccountRepository;
 
     @Transactional
     public TicketDto createTicket(TicketDto ticketDto) {
@@ -127,10 +139,13 @@ public class TicketService {
 
     /**
      * Unified method to get all tickets.
+     * For sub-users (createdBy != null), tickets are filtered to only those
+     * belonging to their allowed cloud accounts.
      */
     @Transactional(readOnly = true)
     public List<TicketDto> getAllTickets(boolean forceRefresh) {
         String cacheKey = getTenantCacheKey(TICKETS_ALL_CACHE_KEY);
+        List<TicketDto> allTickets;
 
         if (!forceRefresh) {
             Optional<List<TicketDto>> cached = redisCache.get(cacheKey,
@@ -138,14 +153,14 @@ public class TicketService {
                     });
             if (cached.isPresent()) {
                 logger.debug("Returning CACHED all tickets for tenant: {}", cacheKey);
-                return cached.get();
+                allTickets = cached.get();
+                return applyAccountFilter(allTickets);
             }
         }
 
         logger.debug("Fetching FRESH all tickets and updating cache for tenant: {}", cacheKey);
         long now = System.currentTimeMillis();
-        // Use lightweight query — no reply joins needed for the admin list view
-        List<TicketDto> freshData = ticketRepository.findAllForAdminList().stream()
+        allTickets = ticketRepository.findAllForAdminList().stream()
                 .map(t -> {
                     TicketDto dto = this.convertToListDto(t);
                     dto.setLastUpdated(now);
@@ -153,8 +168,54 @@ public class TicketService {
                 })
                 .collect(Collectors.toList());
 
-        redisCache.put(cacheKey, freshData, CACHE_TTL_MINUTES);
-        return freshData;
+        redisCache.put(cacheKey, allTickets, CACHE_TTL_MINUTES);
+        return applyAccountFilter(allTickets);
+    }
+
+    /**
+     * Filters tickets by the current user's allowed cloud accounts.
+     * Primary admins (createdBy == null) see all tickets unfiltered.
+     * Sub-users see only tickets belonging to their permitted accounts.
+     */
+    private List<TicketDto> applyAccountFilter(List<TicketDto> tickets) {
+        Long userId = SecurityUtils.getCurrentUserId();
+        AppUser currentUser = appUserRepository.findById(userId).orElse(null);
+
+        // Primary admin — no restriction
+        if (currentUser == null || currentUser.getCreatedBy() == null) {
+            return tickets;
+        }
+
+        // Sub-user: resolve allowed provider account ID strings
+        List<Long> allowedDbIds = userCloudAccountAccessRepository.findCloudAccountIdsByUserId(userId);
+        if (allowedDbIds.isEmpty()) {
+            return java.util.Collections.emptyList();
+        }
+
+        List<CloudAccount> allowedAccounts = cloudAccountRepository.findAllById(allowedDbIds);
+        java.util.Set<String> allowedProviderIds = allowedAccounts.stream()
+                .map(this::resolveProviderAccountId)
+                .filter(id -> id != null && !id.isEmpty())
+                .collect(java.util.stream.Collectors.toSet());
+
+        logger.debug("Sub-user {} allowed provider account IDs: {}", userId, allowedProviderIds);
+
+        return tickets.stream()
+                .filter(t -> t.getAccountId() != null && allowedProviderIds.contains(t.getAccountId()))
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Returns the cloud-provider-specific account identifier for a CloudAccount,
+     * which is what gets stored in Ticket.accountId.
+     */
+    private String resolveProviderAccountId(CloudAccount account) {
+        if (account == null) return null;
+        String provider = account.getProvider();
+        if ("AWS".equalsIgnoreCase(provider)) return account.getAwsAccountId();
+        if ("GCP".equalsIgnoreCase(provider)) return account.getGcpProjectId();
+        if ("Azure".equalsIgnoreCase(provider)) return account.getAzureSubscriptionId();
+        return null;
     }
 
     @Transactional(readOnly = true)
@@ -248,6 +309,18 @@ public class TicketService {
 
         ticket.setStatus("IN_PROGRESS");
 
+        // Auto-assign: when an admin replies and no admin is currently assigned, auto-assign to this admin
+        boolean isAdminReply = author.getRole() != null && author.getRole().contains("ADMIN");
+        if (isAdminReply && (ticket.getAssignedToId() == null || ticket.getAssignedToId() == 0)) {
+            ticket.setAssignedToId(author.getId());
+            ticket.setAssignedToUsername(author.getUsername());
+        }
+
+        // Track read/unread: admin reply marks ticket as read; user reply marks as unread
+        if (!replyDto.isInternal()) {
+            ticket.setHasNewUserReply(!isAdminReply);
+        }
+
         Ticket updatedTicket = ticketRepository.save(ticket);
 
         // Skip email notifications for internal admin notes
@@ -270,7 +343,6 @@ public class TicketService {
                     text += "\n\n[Attachment: " + reply.getAttachmentName() + "]";
                 }
 
-                boolean isAdminReply = author.getRole() != null && (author.getRole().contains("ADMIN"));
                 if (isAdminReply) {
                     if (ticketCreator != null && ticketCreator.getEmail() != null) {
                         emailService.sendSimpleMessage(ticketCreator.getEmail(), subject, text);
@@ -322,6 +394,112 @@ public class TicketService {
         return userRepository.findAll().stream()
                 .filter(u -> u.getRole() != null && u.getRole().contains("ROLE_BILLOPS_ADMIN"))
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * Send the full ticket conversation thread as a formatted HTML email.
+     * sendMode: "separate" → one email per recipient; "combined" → single email with all in TO.
+     */
+    @Transactional(readOnly = true)
+    public void sendTicketThreadEmail(Long ticketId, List<String> recipientEmails, String sendMode) {
+        Ticket ticket = ticketRepository.findByIdWithRepliesAndAuthors(ticketId);
+        if (ticket == null) {
+            throw new RuntimeException("Ticket not found");
+        }
+
+        List<String> validEmails = recipientEmails.stream()
+                .filter(e -> e != null && !e.isBlank())
+                .map(String::trim)
+                .collect(Collectors.toList());
+
+        if (validEmails.isEmpty()) return;
+
+        String subject = String.format("Ticket Thread [#%d]: %s", ticket.getId(), ticket.getSubject());
+        String htmlBody = buildTicketThreadEmailTemplate(ticket);
+
+        if ("combined".equalsIgnoreCase(sendMode)) {
+            emailService.sendHtmlEmailToMultiple(validEmails.toArray(new String[0]), subject, htmlBody);
+        } else {
+            for (String email : validEmails) {
+                emailService.sendHtmlEmail(email, subject, htmlBody);
+            }
+        }
+    }
+
+    /**
+     * Build a full chat-thread email for a ticket (sent by admin on demand).
+     */
+    private String buildTicketThreadEmailTemplate(Ticket ticket) {
+        StringBuilder replies = new StringBuilder();
+        if (ticket.getReplies() != null) {
+            List<TicketReply> sorted = ticket.getReplies().stream()
+                    .filter(r -> !r.isInternal())
+                    .sorted(Comparator.comparing(TicketReply::getCreatedAt))
+                    .collect(Collectors.toList());
+
+            for (TicketReply reply : sorted) {
+                String username = reply.getAuthor() != null ? reply.getAuthor().getUsername() : "Unknown";
+                boolean isAdmin = reply.getAuthor() != null && reply.getAuthor().getRole() != null
+                        && reply.getAuthor().getRole().contains("ADMIN");
+                String label = isAdmin ? "Support Team" : username;
+                String bgColor = isAdmin ? "#eef2ff" : "#f9fafb";
+                String borderColor = isAdmin ? "#6366f1" : "#e5e7eb";
+                String labelColor = isAdmin ? "#4f46e5" : "#374151";
+                String time = reply.getCreatedAt() != null ? reply.getCreatedAt().toString().replace("T", " ").substring(0, 16) : "";
+
+                replies.append("<div style=\"margin-bottom:16px;padding:16px 20px;background:")
+                        .append(bgColor)
+                        .append(";border-left:4px solid ")
+                        .append(borderColor)
+                        .append(";border-radius:8px;\">")
+                        .append("<div style=\"margin-bottom:8px;display:flex;justify-content:space-between;\">")
+                        .append("<span style=\"font-weight:700;font-size:13px;color:")
+                        .append(labelColor)
+                        .append(";\">")
+                        .append(escapeHtml(label))
+                        .append("</span>")
+                        .append("<span style=\"font-size:11px;color:#9ca3af;\">")
+                        .append(escapeHtml(time))
+                        .append("</span></div>")
+                        .append("<div style=\"font-size:14px;color:#374151;line-height:1.6;\">")
+                        .append(reply.getMessage() != null ? reply.getMessage() : "")
+                        .append("</div>");
+
+                if (reply.getAttachmentName() != null) {
+                    replies.append("<div style=\"margin-top:8px;font-size:12px;color:#6b7280;\">")
+                            .append("📎 ").append(escapeHtml(reply.getAttachmentName()))
+                            .append("</div>");
+                }
+                replies.append("</div>");
+            }
+        }
+
+        String creatorName = ticket.getCreator() != null ? ticket.getCreator().getUsername() : "Unknown";
+        String statusColor = getStatusColor(ticket.getStatus());
+
+        return "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"></head>"
+                + "<body style=\"margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f3f4f6;\">"
+                + "<div style=\"max-width:640px;margin:32px auto;background:white;border-radius:16px;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,0.08);\">"
+                + "<div style=\"background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);padding:28px 24px;\">"
+                + "<h1 style=\"margin:0;color:white;font-size:20px;font-weight:700;\">Ticket Thread</h1>"
+                + "<p style=\"margin:6px 0 0 0;color:rgba(255,255,255,0.85);font-size:13px;\">Case #" + ticket.getId() + " — " + escapeHtml(ticket.getSubject()) + "</p>"
+                + "</div>"
+                + "<div style=\"padding:24px;border-bottom:1px solid #e5e7eb;\">"
+                + "<table style=\"width:100%;border-collapse:collapse;font-size:13px;\">"
+                + "<tr><td style=\"padding:4px 12px 4px 0;color:#6b7280;font-weight:600;\">Status</td>"
+                + "<td><span style=\"background:" + statusColor + ";color:white;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:700;\">" + escapeHtml(ticket.getStatus()) + "</span></td></tr>"
+                + "<tr><td style=\"padding:4px 12px 4px 0;color:#6b7280;font-weight:600;\">Created by</td><td style=\"color:#111827;\">" + escapeHtml(creatorName) + "</td></tr>"
+                + "<tr><td style=\"padding:4px 12px 4px 0;color:#6b7280;font-weight:600;\">Category</td><td style=\"color:#111827;\">" + escapeHtml(ticket.getCategory() != null ? ticket.getCategory() : "") + "</td></tr>"
+                + "<tr><td style=\"padding:4px 12px 4px 0;color:#6b7280;font-weight:600;\">Service</td><td style=\"color:#111827;\">" + escapeHtml(ticket.getService() != null ? ticket.getService() : "") + "</td></tr>"
+                + "</table></div>"
+                + "<div style=\"padding:24px;\">"
+                + "<h2 style=\"margin:0 0 16px 0;font-size:14px;font-weight:800;color:#374151;text-transform:uppercase;letter-spacing:0.05em;\">Conversation</h2>"
+                + replies.toString()
+                + "</div>"
+                + "<div style=\"padding:16px 24px;background:#f9fafb;border-top:1px solid #e5e7eb;text-align:center;\">"
+                + "<p style=\"margin:0;font-size:11px;color:#9ca3af;\">This conversation was exported from <strong style=\"color:#667eea;\">XamOps Support</strong></p>"
+                + "</div>"
+                + "</div></body></html>";
     }
 
     /**
@@ -548,7 +726,9 @@ public class TicketService {
         if (ticket.getCreator() != null) {
             dto.setCreatorId(ticket.getCreator().getId());
             dto.setCreatorUsername(ticket.getCreator().getUsername());
+            dto.setCreatorEmail(ticket.getCreator().getEmail());
         }
+        dto.setHasUnreadUserReply(ticket.isHasNewUserReply());
         // Replies intentionally omitted for list view performance
         return dto;
     }
@@ -576,20 +756,23 @@ public class TicketService {
         if (ticket.getCreator() != null) {
             dto.setCreatorId(ticket.getCreator().getId());
             dto.setCreatorUsername(ticket.getCreator().getUsername());
+            dto.setCreatorEmail(ticket.getCreator().getEmail());
         }
 
         if (ticket.getReplies() != null) {
             dto.setReplies(ticket.getReplies().stream()
                     .filter(reply -> isAdmin || !reply.isInternal()) // Non-admins never see internal notes
-                    .map(this::convertReplyToDto)
+                    .map(reply -> convertReplyToDto(reply, isAdmin))
                     .sorted(Comparator.comparing(TicketReplyDto::getCreatedAt))
                     .collect(Collectors.toList()));
         }
 
+        dto.setHasUnreadUserReply(ticket.isHasNewUserReply());
+
         return dto;
     }
 
-    private TicketReplyDto convertReplyToDto(TicketReply reply) {
+    private TicketReplyDto convertReplyToDto(TicketReply reply, boolean viewerIsAdmin) {
         TicketReplyDto dto = new TicketReplyDto();
         dto.setId(reply.getId());
         dto.setTicketId(reply.getTicket().getId());
@@ -598,12 +781,18 @@ public class TicketService {
         dto.setInternal(reply.isInternal());
         if (reply.getAuthor() != null) {
             dto.setAuthorId(reply.getAuthor().getId());
-            dto.setAuthorUsername(reply.getAuthor().getUsername());
 
             // Map admin status
-            boolean isAdmin = reply.getAuthor().getRole() != null &&
-                    (reply.getAuthor().getRole().contains("ADMIN"));
-            dto.setAdmin(isAdmin);
+            boolean isAdminAuthor = reply.getAuthor().getRole() != null &&
+                    reply.getAuthor().getRole().contains("ADMIN");
+            dto.setAdmin(isAdminAuthor);
+
+            // Non-admin viewers see "Support Team" instead of the actual admin username
+            if (!viewerIsAdmin && isAdminAuthor) {
+                dto.setAuthorUsername("Support Team");
+            } else {
+                dto.setAuthorUsername(reply.getAuthor().getUsername());
+            }
         }
 
         if (reply.getAttachmentKey() != null) {

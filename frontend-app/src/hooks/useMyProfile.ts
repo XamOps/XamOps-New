@@ -330,17 +330,24 @@ export const useMyProfile = () => {
   }, []);
 
   /**
-   * Toggle tab key in selected user's allowedTabs
+   * Toggle tab key in selected user's allowedTabs.
+   * When 'all-tickets' is removed, also clear ticket category sub-keys.
    */
   const toggleTab = useCallback((tabKey: string) => {
     setSelectedUser(prev => {
-      const allowedTabs = [...prev.allowedTabs];
+      let allowedTabs = [...prev.allowedTabs];
       const index = allowedTabs.indexOf(tabKey);
 
       if (index === -1) {
         allowedTabs.push(tabKey);
       } else {
         allowedTabs.splice(index, 1);
+        // When unchecking 'all-tickets', also remove ticket category sub-permissions
+        if (tabKey === 'all-tickets') {
+          allowedTabs = allowedTabs.filter(
+            t => t !== 'tickets-account-billing' && t !== 'tickets-technical' && t !== 'tickets-all'
+          );
+        }
       }
 
       return { ...prev, allowedTabs };

@@ -38,6 +38,7 @@ interface UseBillOpsTicketDetailReturn {
   closeTicket: () => Promise<void>;
   submitRCA: (rcaData: RCAFormData) => Promise<void>;
   assignTicket: (adminId: number, adminUsername: string) => Promise<void>;
+  sendEmailThread: (recipientEmails: string[], sendMode?: 'separate' | 'combined') => Promise<void>;
 }
 
 export const useBillOpsTicketDetail = (
@@ -236,6 +237,27 @@ export const useBillOpsTicketDetail = (
   );
 
   /**
+   * Send the full ticket conversation thread as an email to the given address
+   */
+  const sendEmailThread = useCallback(
+    async (recipientEmails: string[], sendMode: 'separate' | 'combined' = 'separate') => {
+      if (!ticketId) return;
+
+      const response = await fetch(`/api/billops/tickets/${ticketId}/email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ recipientEmails, sendMode })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to send email thread');
+      }
+    },
+    [ticketId]
+  );
+
+  /**
    * Assign ticket to a specific admin
    */
   const assignTicket = useCallback(
@@ -400,6 +422,7 @@ export const useBillOpsTicketDetail = (
     submitReply,
     closeTicket,
     submitRCA,
-    assignTicket
+    assignTicket,
+    sendEmailThread
   };
 };

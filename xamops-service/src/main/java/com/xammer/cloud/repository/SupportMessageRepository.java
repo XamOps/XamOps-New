@@ -11,6 +11,22 @@ public interface SupportMessageRepository extends JpaRepository<SupportMessage, 
 
     List<SupportMessage> findByAccountIdOrderByTimestampAsc(String accountId);
 
+    // ── Sender-only queries (user-based conversations — no accountId filter) ──
+
+    long countBySenderAndIsUserMessageFalseAndStatus(User sender, String status);
+
+    List<SupportMessage> findBySenderAndIsUserMessageFalseAndStatus(User sender, String status);
+
+    // ── Sender+account scoped queries (kept for legacy / backward compat) ──
+
+    List<SupportMessage> findByAccountIdAndSenderOrderByTimestampAsc(String accountId, User sender);
+
+    long countByAccountIdAndSenderAndIsUserMessageFalseAndStatus(String accountId, User sender, String status);
+
+    List<SupportMessage> findByAccountIdAndSenderAndIsUserMessageFalseAndStatus(String accountId, User sender, String status);
+
+    // ── Legacy fallbacks (used when sender is unknown) ──
+
     // Count unread admin messages (isUserMessage = false means admin sent it)
     long countByAccountIdAndIsUserMessageFalseAndStatus(String accountId, String status);
 
