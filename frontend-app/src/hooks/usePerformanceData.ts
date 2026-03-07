@@ -71,6 +71,7 @@ export const usePerformanceData = ({
   const [currentSeverity, setCurrentSeverity] = useState<SeverityFilter>('ALL');
   const [selectedInsights, setSelectedInsights] = useState<string[]>([]);
   const [toast, setToast] = useState<ToastState>({ show: false, message: '', type: 'success' });
+  const [pendingBulkArchive, setPendingBulkArchive] = useState(false);
 
   /**
    * Show toast notification
@@ -260,15 +261,17 @@ export const usePerformanceData = ({
   }, []);
 
   /**
-   * Bulk archive selected insights
+   * Bulk archive selected insights — opens confirmation dialog
    */
-  const bulkArchive = useCallback(async () => {
+  const requestBulkArchive = useCallback(() => {
     if (selectedInsights.length === 0) return;
+    setPendingBulkArchive(true);
+  }, [selectedInsights.length]);
 
-    const confirmed = window.confirm(
-      `Are you sure you want to archive ${selectedInsights.length} insights?`
-    );
-    if (!confirmed) return;
+  const cancelBulkArchive = useCallback(() => setPendingBulkArchive(false), []);
+
+  const bulkArchive = useCallback(async () => {
+    setPendingBulkArchive(false);
 
     try {
       await apiClient.post('/api/xamops/metrics/insights/bulk-archive', selectedInsights);
@@ -380,6 +383,9 @@ export const usePerformanceData = ({
     setSelectedInsights,
     toggleAllInsights,
     toggleInsightSelection,
+    pendingBulkArchive,
+    requestBulkArchive,
+    cancelBulkArchive,
     bulkArchive,
     showToast,
     hideToast,

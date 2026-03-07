@@ -22,6 +22,7 @@ import BulkActionBar from '../components/GcpPerformance/BulkActionBar';
 import InsightsTable from '../components/GcpPerformance/InsightsTable';
 import BestPracticesTable from '../components/GcpPerformance/BestPracticesTable';
 import clsx from 'clsx';
+import { AlertDialog } from '../components/ui';
 import '../styles/gcpPerformance.css';
 
 const GcpPerformancePage: React.FC = () => {
@@ -31,6 +32,7 @@ const GcpPerformancePage: React.FC = () => {
   const [currentSeverity, setCurrentSeverity] = useState<'ALL' | PerformanceSeverity>('ALL');
   const [selectedInsights, setSelectedInsights] = useState<string[]>([]);
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [pendingArchive, setPendingArchive] = useState(false);
 
   // Fetch data using custom hook
   const { insights, summary, loading, error, refresh, archiveInsights } = useGcpPerformanceData({
@@ -114,15 +116,13 @@ const GcpPerformancePage: React.FC = () => {
   };
 
   // Handle bulk archive
-  const handleBulkArchive = async () => {
+  const handleBulkArchive = () => {
     if (selectedInsights.length === 0) return;
+    setPendingArchive(true);
+  };
 
-    const confirmed = window.confirm(
-      `Are you sure you want to archive ${selectedInsights.length} insight${selectedInsights.length > 1 ? 's' : ''}?`
-    );
-
-    if (!confirmed) return;
-
+  const confirmBulkArchive = async () => {
+    setPendingArchive(false);
     try {
       await archiveInsights(selectedInsights);
       showNotification(`${selectedInsights.length} insights archived successfully`, 'success');
@@ -251,6 +251,15 @@ const GcpPerformancePage: React.FC = () => {
 
   return (
     <div className="gcp-performance-content">
+      <AlertDialog
+        isOpen={pendingArchive}
+        title={`Archive ${selectedInsights.length} insight${selectedInsights.length !== 1 ? 's' : ''}?`}
+        description="Archived insights will no longer appear in your active list."
+        confirmLabel="Archive"
+        variant="warning"
+        onConfirm={confirmBulkArchive}
+        onCancel={() => setPendingArchive(false)}
+      />
       {/* Header Removed - Integrated into Topbar */}
 
       {/* Main Content */}

@@ -8,6 +8,7 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useSupportDashboard } from '../hooks/useSupportDashboard';
 import { useTopbarActions } from '../contexts/TopbarContext';
 import { SupportConversation, SupportAccount, AttachmentInfo, ChatMessage, CloudProvider } from '../types/supportDashboard';
+import { DialogRoot, DialogPanel } from '../components/ui';
 
 /* ─── pending attachment (before send) ─── */
 interface PendingAttachment extends AttachmentInfo {
@@ -780,24 +781,37 @@ const BillOpsSupportDashboardPage: React.FC = () => {
       </div>
 
       {/* ─── New Chat Modal ─── */}
-      {showNewChatModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden flex flex-col max-h-[90vh]">
-
-            {/* Modal Header */}
-            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gradient-to-r from-indigo-600 to-purple-600">
-              <div>
-                <h3 className="text-base font-bold text-white flex items-center gap-2">
-                  <i className="fas fa-plus-circle"></i> Start New Conversation
-                </h3>
-                <p className="text-xs text-indigo-200 mt-0.5">Select a client account and send your first message</p>
+      <DialogRoot isOpen={showNewChatModal} onClose={closeNewChatModal} maxWidth="max-w-lg">
+        <DialogPanel
+          title={
+            <div>
+              <div className="text-base font-bold text-gray-900 flex items-center gap-2">
+                <i className="fas fa-plus-circle text-indigo-600"></i> Start New Conversation
               </div>
-              <button onClick={closeNewChatModal} className="text-white/70 hover:text-white transition p-1.5 rounded-full hover:bg-white/10">
-                <i className="fas fa-times text-sm"></i>
-              </button>
+              <p className="text-xs text-gray-500 mt-0.5">Select a client account and send your first message</p>
             </div>
-
-            <div className="flex flex-col flex-1 overflow-hidden p-6 gap-5">
+          }
+          onClose={closeNewChatModal}
+          footer={
+            <>
+              <button onClick={closeNewChatModal} className="px-4 py-2 text-sm font-semibold text-gray-600 hover:text-gray-800 border border-gray-200 rounded-xl hover:bg-gray-100 transition-all">
+                Cancel
+              </button>
+              <button
+                onClick={handleStartConversation}
+                disabled={!selectedNewAccount || !newChatMessage.trim() || sending}
+                className="flex items-center gap-2 px-5 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white text-sm font-bold rounded-xl shadow-md transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100"
+              >
+                {sending ? (
+                  <><i className="fas fa-circle-notch fa-spin text-xs"></i><span>Starting...</span></>
+                ) : (
+                  <><i className="fas fa-paper-plane text-xs"></i><span>Start Conversation</span></>
+                )}
+              </button>
+            </>
+          }
+        >
+          <div className="flex flex-col gap-5 overflow-y-auto max-h-[60vh]">
 
               {/* Error banner */}
               {modalError && (
@@ -887,27 +901,8 @@ const BillOpsSupportDashboardPage: React.FC = () => {
                 <p className="text-[10px] text-gray-400 mt-1">Ctrl+Enter to send</p>
               </div>
             </div>
-
-            {/* Modal Footer */}
-            <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-end gap-3 bg-gray-50/50">
-              <button onClick={closeNewChatModal} className="px-4 py-2 text-sm font-semibold text-gray-600 hover:text-gray-800 border border-gray-200 rounded-xl hover:bg-gray-100 transition-all">
-                Cancel
-              </button>
-              <button
-                onClick={handleStartConversation}
-                disabled={!selectedNewAccount || !newChatMessage.trim() || sending}
-                className="flex items-center gap-2 px-5 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white text-sm font-bold rounded-xl shadow-md transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100"
-              >
-                {sending ? (
-                  <><i className="fas fa-circle-notch fa-spin text-xs"></i><span>Starting...</span></>
-                ) : (
-                  <><i className="fas fa-paper-plane text-xs"></i><span>Start Conversation</span></>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+        </DialogPanel>
+      </DialogRoot>
 
       {/* ─── Image Lightbox ─── */}
       {lightboxImage && (

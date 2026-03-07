@@ -14,6 +14,7 @@ export interface GcpMIG {
     currentCost: number;
     savings: number;
     potentialSavings: number;
+    gkeManagedPool: boolean;
     updating?: boolean;
 }
 
@@ -91,6 +92,7 @@ export const useGcpSpotAutomationData = ({ selectedAccountId }: UseGcpSpotAutoma
                 currentCost: mig.currentHourlyCost,
                 savings: mig.actualHourlySavings,
                 potentialSavings: mig.potentialHourlySavings,
+                gkeManagedPool: mig.gkeManagedPool ?? (typeof mig.name === 'string' && mig.name.startsWith('gke-')),
             }));
 
             setMigs(migData);

@@ -5,6 +5,7 @@
  */
 
 import React, { useState } from 'react';
+import { DialogRoot, DialogPanel } from '../ui';
 
 interface HelpModalProps {
   isOpen: boolean;
@@ -62,35 +63,29 @@ const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => {
     setOpenSection(openSection === section ? null : section);
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div
-        className="modal-content max-w-4xl max-h-[90vh] overflow-hidden flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="modal-header flex-shrink-0">
+    <DialogRoot isOpen={isOpen} onClose={onClose} maxWidth="max-w-4xl">
+      <DialogPanel
+        title={
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center">
               <i className="fas fa-life-ring text-white text-lg" />
             </div>
             <div>
-              <h3 className="text-xl font-bold text-gray-900">XamOps Help Desk</h3>
-              <p className="text-sm text-gray-500">Pre-Onboarding Guide</p>
+              <div className="text-xl font-bold text-gray-900">XamOps Help Desk</div>
+              <div className="text-sm text-gray-500">Pre-Onboarding Guide</div>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
-          >
-            <i className="fas fa-times text-xl" />
+        }
+        onClose={onClose}
+        footer={
+          <button onClick={onClose} className="btn-primary">
+            <i className="fas fa-check mr-2" />
+            Got It
           </button>
-        </div>
-
-        {/* Body - Scrollable */}
-        <div className="modal-body overflow-y-auto flex-1">
+        }
+      >
+        <div className="overflow-y-auto max-h-[60vh]">
           {/* Introduction */}
           <div className="prose prose-sm max-w-none mb-6">
             <p className="text-gray-600 leading-relaxed">
@@ -235,16 +230,8 @@ enforcement: DENY`}</CodeBlock>
             </ul>
           </div>
         </div>
-
-        {/* Footer */}
-        <div className="modal-footer flex-shrink-0">
-          <button onClick={onClose} className="btn-primary">
-            <i className="fas fa-check mr-2" />
-            Got It
-          </button>
-        </div>
-      </div>
-    </div>
+      </DialogPanel>
+    </DialogRoot>
   );
 };
 

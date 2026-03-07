@@ -6,8 +6,8 @@
  */
 
 import React from 'react';
-import { createPortal } from 'react-dom';
 import type { ViewMode, SubAccount } from '../../types/dashboard';
+import { DialogRoot, DialogPanel } from '../ui';
 
 interface AccountBreakdownModalProps {
   show: boolean;
@@ -26,8 +26,6 @@ export const AccountBreakdownModal: React.FC<AccountBreakdownModalProps> = ({
   accountList,
   onSelectAccount,
 }) => {
-  if (!show) return null;
-
   const formatCurrency = (value: number | undefined) => {
     if (value === null || value === undefined || isNaN(value)) return '$0.00';
     return new Intl.NumberFormat('en-US', {
@@ -45,24 +43,14 @@ export const AccountBreakdownModal: React.FC<AccountBreakdownModalProps> = ({
     }).format(value);
   };
 
-  return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" aria-labelledby="modal-title" role="dialog" aria-modal="true">
-      <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" onClick={onClose}></div>
-      <div className="relative bg-white rounded-xl text-left shadow-2xl transform transition-all w-full max-w-2xl border border-gray-200 overflow-y-auto max-h-[90vh]">
-        <div className="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
-          <div className="flex justify-between items-center mb-4 border-b border-gray-100 pb-3">
-            <h3 className="text-lg leading-6 font-bold text-gray-900 flex items-center gap-2" id="modal-title">
-              <i className="fas fa-layer-group text-indigo-600"></i>
-              <span>{provider} Accounts Breakdown</span>
-            </h3>
-            <button
-              onClick={onClose}
-              className="text-gray-400 hover:text-gray-500 transition-colors w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100"
-            >
-              <i className="fas fa-times"></i>
-            </button>
-          </div>
-          <div className="mt-2 max-h-[60vh] overflow-y-auto custom-scrollbar">
+  return (
+    <DialogRoot isOpen={show} onClose={onClose} maxWidth="max-w-2xl">
+      <DialogPanel
+        title={<><i className="fas fa-layer-group text-indigo-600 mr-2"></i>{provider} Accounts Breakdown</>}
+        onClose={onClose}
+        footer={<button onClick={onClose} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium transition-colors">Close</button>}
+      >
+        <div className="max-h-[60vh] overflow-y-auto custom-scrollbar">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50 sticky top-0">
                 <tr>
@@ -165,10 +153,8 @@ export const AccountBreakdownModal: React.FC<AccountBreakdownModalProps> = ({
                 )}
               </tbody>
             </table>
-          </div>
         </div>
-      </div>
-    </div>,
-    document.body
+      </DialogPanel>
+    </DialogRoot>
   );
 };

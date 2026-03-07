@@ -17,6 +17,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useAccounts } from '../contexts/AccountContext';
 import { useTopbarActions } from '../contexts/TopbarContext';
 import Skeleton from '../components/Shared/Skeleton';
+import { DialogRoot, DialogPanel } from '../components/ui';
 
 interface Ticket {
   id: number;
@@ -510,32 +511,45 @@ const TicketsPage: React.FC = () => {
       )}
 
       {/* Create Ticket Modal */}
-      {showModal && (
-        <div className="fixed inset-0 z-50 overflow-y-auto">
-          {/* Backdrop */}
-          <div
-            className="fixed inset-0 bg-gray-900/50 backdrop-blur-sm transition-opacity"
-            onClick={closeModal}
-          ></div>
-
-          {/* Modal */}
-          <div className="flex min-h-full items-center justify-center p-4">
-            <div
-              className="relative bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden transform transition-all border border-gray-100"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <form onSubmit={submitTicket}>
-                {/* Modal Header */}
-                <div className="bg-gradient-to-r from-indigo-600 to-purple-600 px-8 py-6">
-                  <h3 className="text-xl font-bold text-white flex items-center">
-                    <i className="fas fa-plus-circle mr-3 text-indigo-200"></i>
-                    Create Support Case
-                  </h3>
-                  <p className="text-indigo-100 text-sm mt-1">Submit a new request for technical support</p>
-                </div>
-
-                {/* Modal Body */}
-                <div className="px-8 py-6 space-y-5">
+      <DialogRoot isOpen={showModal} onClose={closeModal} maxWidth="max-w-lg">
+        <DialogPanel
+          title={
+            <div className="flex items-center gap-3">
+              <i className="fas fa-plus-circle text-indigo-600"></i>
+              <div>
+                <div className="text-xl font-bold text-gray-900">Create Support Case</div>
+                <p className="text-gray-500 text-sm mt-0.5">Submit a new request for technical support</p>
+              </div>
+            </div>
+          }
+          onClose={closeModal}
+          footer={
+            <>
+              <button
+                type="button"
+                onClick={closeModal}
+                disabled={isSubmitting}
+                className="px-5 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:text-gray-900 transition-colors shadow-sm"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                form="create-ticket-form"
+                disabled={isSubmitting}
+                className="px-5 py-2.5 text-sm font-medium text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 disabled:opacity-70 disabled:cursor-not-allowed transition-all shadow-sm hover:shadow hover:translate-y-px flex items-center"
+              >
+                {isSubmitting ? (
+                  <><i className="fas fa-circle-notch fa-spin mr-2"></i>Submitting...</>
+                ) : (
+                  <><i className="fas fa-check mr-2"></i>Submit Case</>
+                )}
+              </button>
+            </>
+          }
+        >
+          <form id="create-ticket-form" onSubmit={submitTicket}>
+            <div className="space-y-5">
                   {/* Category */}
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-2">
@@ -662,40 +676,9 @@ const TicketsPage: React.FC = () => {
                     </div>
                   </div>
                 </div>
-
-                {/* Modal Footer */}
-                <div className="bg-gray-50 px-8 py-5 flex justify-end gap-3 border-t border-gray-100">
-                  <button
-                    type="button"
-                    onClick={closeModal}
-                    disabled={isSubmitting}
-                    className="px-5 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:text-gray-900 transition-colors shadow-sm"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isSubmitting}
-                    className="px-5 py-2.5 text-sm font-medium text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 disabled:opacity-70 disabled:cursor-not-allowed transition-all shadow-sm hover:shadow hover:translate-y-px flex items-center"
-                  >
-                    {isSubmitting ? (
-                      <>
-                        <i className="fas fa-circle-notch fa-spin mr-2"></i>
-                        Submitting...
-                      </>
-                    ) : (
-                      <>
-                        <i className="fas fa-check mr-2"></i>
-                        Submit Case
-                      </>
-                    )}
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        </div>
-      )}
+          </form>
+        </DialogPanel>
+      </DialogRoot>
     </div>
   );
 };

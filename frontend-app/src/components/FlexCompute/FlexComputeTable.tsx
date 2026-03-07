@@ -7,6 +7,7 @@
 import React, { useState, useMemo } from 'react';
 import type { FlexComputeCapacity } from '../../types/flexCompute';
 import ViewCapacityDetailModal from './ViewCapacityDetailModal';
+import { AlertDialog } from '../ui';
 
 interface FlexComputeTableProps {
   capacities: FlexComputeCapacity[];
@@ -86,15 +87,19 @@ const FlexComputeTable: React.FC<FlexComputeTableProps> = ({
   const [selectedCapacity, setSelectedCapacity] = useState<FlexComputeCapacity | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
+  const [confirmCancel, setConfirmCancel] = useState<{ cidrId: string; name: string } | null>(null);
 
-  const handleCancel = async (cidrId: string, capacityName: string) => {
-    if (!window.confirm(`Are you sure you want to cancel "${capacityName}"? This action cannot be undone.`)) {
-      return;
-    }
-    setCancelling(cidrId);
+  const handleCancel = (cidrId: string, capacityName: string) => {
+    setConfirmCancel({ cidrId, name: capacityName });
     setOpenDropdown(null);
+  };
+
+  const handleConfirmCancel = async () => {
+    if (!confirmCancel) return;
+    setCancelling(confirmCancel.cidrId);
+    setConfirmCancel(null);
     try {
-      await onCancelCapacity(cidrId);
+      await onCancelCapacity(confirmCancel.cidrId);
     } finally {
       setCancelling(null);
     }
@@ -133,6 +138,16 @@ const FlexComputeTable: React.FC<FlexComputeTableProps> = ({
 
   return (
     <>
+    <AlertDialog
+      isOpen={!!confirmCancel}
+      title={`Cancel "${confirmCancel?.name}"?`}
+      description="This action cannot be undone."
+      confirmLabel="Cancel Capacity"
+      cancelLabel="Keep"
+      variant="danger"
+      onConfirm={handleConfirmCancel}
+      onCancel={() => setConfirmCancel(null)}
+    />
     <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
       {/* Header with search and filters */}
       <div className="px-6 py-4 border-b border-gray-200 space-y-4">

@@ -7,6 +7,7 @@
 import React, { useMemo, useState } from 'react';
 import type { SearchCapacityForm } from '../../types/flexCompute';
 import { INSTANCE_TYPES, TIME_ZONES } from '../../types/flexCompute';
+import { RadioGroup, Radio } from 'react-aria-components';
 
 interface LinkedAccount {
   id: string;
@@ -406,41 +407,34 @@ const WizardStep1Search: React.FC<WizardStep1SearchProps> = ({
                   <i className="fas fa-info-circle"></i>
                 </span>
               </label>
-              <div className="flex gap-6">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="renewalFrequency"
-                    value="24hrs"
-                    checked={form.renewalFrequency === '24hrs'}
-                    onChange={(e) => onChange({ renewalFrequency: e.target.value as '24hrs' | '1week' | '1month' })}
-                    className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
-                  />
-                  <span className="text-sm text-gray-700">24 hrs</span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="renewalFrequency"
-                    value="1week"
-                    checked={form.renewalFrequency === '1week'}
-                    onChange={(e) => onChange({ renewalFrequency: e.target.value as '24hrs' | '1week' | '1month' })}
-                    className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
-                  />
-                  <span className="text-sm text-gray-700">1 Week</span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="renewalFrequency"
-                    value="1month"
-                    checked={form.renewalFrequency === '1month'}
-                    onChange={(e) => onChange({ renewalFrequency: e.target.value as '24hrs' | '1week' | '1month' })}
-                    className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
-                  />
-                  <span className="text-sm text-gray-700">1 Month</span>
-                </label>
-              </div>
+              <RadioGroup
+                value={form.renewalFrequency ?? '24hrs'}
+                onChange={(v) => onChange({ renewalFrequency: v as '24hrs' | '1week' | '1month' })}
+                aria-label="Renewal frequency"
+                orientation="horizontal"
+                className="flex gap-6"
+              >
+                {(['24hrs', '1week', '1month'] as const).map((freq) => (
+                  <Radio
+                    key={freq}
+                    value={freq}
+                    className={({ isFocusVisible }) =>
+                      `flex items-center gap-2 cursor-pointer outline-none ${isFocusVisible ? 'ring-2 ring-blue-400 rounded' : ''}`
+                    }
+                  >
+                    {({ isSelected }) => (
+                      <>
+                        <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${isSelected ? 'border-blue-600 bg-blue-600' : 'border-gray-300'}`}>
+                          {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                        </div>
+                        <span className="text-sm text-gray-700">
+                          {freq === '24hrs' ? '24 hrs' : freq === '1week' ? '1 Week' : '1 Month'}
+                        </span>
+                      </>
+                    )}
+                  </Radio>
+                ))}
+              </RadioGroup>
               <p className="text-xs text-gray-500 mt-2">
                 Specifies the time period that will be added to the current end date each time the auto-renewal is triggered.
               </p>

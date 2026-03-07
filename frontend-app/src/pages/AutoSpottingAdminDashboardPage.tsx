@@ -15,6 +15,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import Chart from 'chart.js/auto';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useAutoSpottingCache } from '../contexts/AutoSpottingCacheContext';
+import { useTheme } from '../contexts/ThemeContext';
 import { DashboardSkeleton } from '../components/Shared/Skeleton';
 import {
     SavingsMetrics,
@@ -26,6 +27,7 @@ import {
 const AutoSpottingAdminDashboardPage: React.FC = () => {
     const { setActions, clearActions } = useTopbar();
     const { getAdminData, setAdminData } = useAutoSpottingCache();
+    const { theme } = useTheme();
 
     // State
     const [metrics, setMetrics] = useState<SavingsMetrics | null>(null);
@@ -156,7 +158,7 @@ const AutoSpottingAdminDashboardPage: React.FC = () => {
                     pointRadius: 4,
                     pointHoverRadius: 6,
                     pointBackgroundColor: '#F59E0B',
-                    pointBorderColor: '#0F172A',
+                    pointBorderColor: theme === 'dark' ? '#0F172A' : '#ffffff',
                     pointBorderWidth: 2
                 }]
             },
@@ -168,10 +170,10 @@ const AutoSpottingAdminDashboardPage: React.FC = () => {
                         display: false
                     },
                     tooltip: {
-                        backgroundColor: '#1E293B',
-                        titleColor: '#F8FAFC',
-                        bodyColor: '#F8FAFC',
-                        borderColor: '#334155',
+                        backgroundColor: theme === 'dark' ? '#1E293B' : 'rgba(255,255,255,0.95)',
+                        titleColor: theme === 'dark' ? '#F8FAFC' : '#111827',
+                        bodyColor: theme === 'dark' ? '#F8FAFC' : '#374151',
+                        borderColor: theme === 'dark' ? '#334155' : '#e5e7eb',
                         borderWidth: 1,
                         padding: 12,
                         displayColors: false,
@@ -183,11 +185,11 @@ const AutoSpottingAdminDashboardPage: React.FC = () => {
                 scales: {
                     x: {
                         grid: {
-                            color: '#1E293B',
+                            color: theme === 'dark' ? '#1E293B' : '#f3f4f6',
                             drawBorder: false
                         },
                         ticks: {
-                            color: '#94A3B8',
+                            color: theme === 'dark' ? '#94A3B8' : '#6b7280',
                             font: {
                                 family: 'Fira Sans',
                                 size: 11
@@ -196,11 +198,11 @@ const AutoSpottingAdminDashboardPage: React.FC = () => {
                     },
                     y: {
                         grid: {
-                            color: '#1E293B',
+                            color: theme === 'dark' ? '#1E293B' : '#f3f4f6',
                             drawBorder: false
                         },
                         ticks: {
-                            color: '#94A3B8',
+                            color: theme === 'dark' ? '#94A3B8' : '#6b7280',
                             font: {
                                 family: 'Fira Sans',
                                 size: 11
@@ -217,7 +219,7 @@ const AutoSpottingAdminDashboardPage: React.FC = () => {
                 savingsChartInstance.current.destroy();
             }
         };
-    }, [historicalData]);
+    }, [historicalData, theme]);
 
     // Account breakdown chart
     useEffect(() => {
@@ -240,7 +242,7 @@ const AutoSpottingAdminDashboardPage: React.FC = () => {
                 datasets: [{
                     data: accountBreakdown.map(a => a.totalSavings),
                     backgroundColor: colors.slice(0, accountBreakdown.length),
-                    borderColor: '#0F172A',
+                    borderColor: theme === 'dark' ? '#0F172A' : '#ffffff',
                     borderWidth: 2
                 }]
             },
@@ -251,7 +253,7 @@ const AutoSpottingAdminDashboardPage: React.FC = () => {
                     legend: {
                         position: 'right',
                         labels: {
-                            color: '#F8FAFC',
+                            color: theme === 'dark' ? '#F8FAFC' : '#374151',
                             font: {
                                 family: 'Fira Sans',
                                 size: 12
@@ -262,10 +264,10 @@ const AutoSpottingAdminDashboardPage: React.FC = () => {
                         }
                     },
                     tooltip: {
-                        backgroundColor: '#1E293B',
-                        titleColor: '#F8FAFC',
-                        bodyColor: '#F8FAFC',
-                        borderColor: '#334155',
+                        backgroundColor: theme === 'dark' ? '#1E293B' : 'rgba(255,255,255,0.95)',
+                        titleColor: theme === 'dark' ? '#F8FAFC' : '#111827',
+                        bodyColor: theme === 'dark' ? '#F8FAFC' : '#374151',
+                        borderColor: theme === 'dark' ? '#334155' : '#e5e7eb',
                         borderWidth: 1,
                         padding: 12,
                         callbacks: {
@@ -287,7 +289,7 @@ const AutoSpottingAdminDashboardPage: React.FC = () => {
                 accountChartInstance.current.destroy();
             }
         };
-    }, [accountBreakdown]);
+    }, [accountBreakdown, theme]);
 
     if (loading && !metrics) {
         return <DashboardSkeleton />;
@@ -295,10 +297,10 @@ const AutoSpottingAdminDashboardPage: React.FC = () => {
 
     if (error) {
         return (
-            <div className="flex items-center justify-center min-h-screen bg-slate-900">
+            <div className={`flex items-center justify-center min-h-screen ${theme === 'dark' ? 'bg-slate-900' : 'bg-gray-50'}`}>
                 <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-6 max-w-md">
                     <h3 className="text-red-400 font-['Fira_Code'] text-lg mb-2">Error Loading Dashboard</h3>
-                    <p className="text-slate-300 font-['Fira_Sans']">{error}</p>
+                    <p className={`font-['Fira_Sans'] ${theme === 'dark' ? 'text-slate-300' : 'text-gray-700'}`}>{error}</p>
                     <button
                         onClick={() => fetchDashboardData(true)}
                         className="mt-4 px-4 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg transition-colors font-['Fira_Sans']"
@@ -311,15 +313,15 @@ const AutoSpottingAdminDashboardPage: React.FC = () => {
     }
 
     return (
-        <div className="min-h-screen bg-slate-900 p-6">
+        <div className={`min-h-screen p-6 ${theme === 'dark' ? 'bg-slate-900' : 'bg-gray-50'}`}>
             <div className="max-w-7xl mx-auto space-y-6">
                 {/* Header */}
                 <div className="flex items-center justify-between">
                     <div>
-                        <h1 className="text-3xl font-bold text-slate-100 font-['Fira_Code']">
+                        <h1 className={`text-3xl font-bold font-['Fira_Code'] ${theme === 'dark' ? 'text-slate-100' : 'text-gray-900'}`}>
                             AutoSpotting Dashboard
                         </h1>
-                        <p className="text-slate-400 mt-1 font-['Fira_Sans']">
+                        <p className={`mt-1 font-['Fira_Sans'] ${theme === 'dark' ? 'text-slate-400' : 'text-gray-500'}`}>
                             Monitor spot instance cost savings across all customer accounts
                         </p>
                     </div>
@@ -332,7 +334,7 @@ const AutoSpottingAdminDashboardPage: React.FC = () => {
                                 onClick={() => setDateRange(range)}
                                 className={`px-4 py-2 rounded-lg font-['Fira_Sans'] transition-all ${dateRange === range
                                     ? 'bg-amber-500 text-slate-900'
-                                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                                    : theme === 'dark' ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-100'
                                     }`}
                             >
                                 {range === '7d' ? 'Last 7 Days' : range === '30d' ? 'Last 30 Days' : 'Last 90 Days'}
@@ -395,8 +397,8 @@ const AutoSpottingAdminDashboardPage: React.FC = () => {
                 {/* Charts Row */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     {/* Savings Trend Chart */}
-                    <div className="lg:col-span-2 bg-slate-800/50 backdrop-blur-sm border border-slate-700/50 rounded-xl p-6">
-                        <h2 className="text-xl font-semibold text-slate-100 mb-4 font-['Fira_Code']">
+                    <div className={`lg:col-span-2 backdrop-blur-sm border rounded-xl p-6 ${theme === 'dark' ? 'bg-slate-800/50 border-slate-700/50' : 'bg-white border-gray-200 shadow-sm'}`}>
+                        <h2 className={`text-xl font-semibold mb-4 font-['Fira_Code'] ${theme === 'dark' ? 'text-slate-100' : 'text-gray-900'}`}>
                             Savings Trend
                         </h2>
                         <div className="h-80">
@@ -405,8 +407,8 @@ const AutoSpottingAdminDashboardPage: React.FC = () => {
                     </div>
 
                     {/* Account Breakdown Chart */}
-                    <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700/50 rounded-xl p-6">
-                        <h2 className="text-xl font-semibold text-slate-100 mb-4 font-['Fira_Code']">
+                    <div className={`backdrop-blur-sm border rounded-xl p-6 ${theme === 'dark' ? 'bg-slate-800/50 border-slate-700/50' : 'bg-white border-gray-200 shadow-sm'}`}>
+                        <h2 className={`text-xl font-semibold mb-4 font-['Fira_Code'] ${theme === 'dark' ? 'text-slate-100' : 'text-gray-900'}`}>
                             Savings by Account
                         </h2>
                         <div className="h-80">
@@ -416,43 +418,43 @@ const AutoSpottingAdminDashboardPage: React.FC = () => {
                 </div>
 
                 {/* Recent Activity Table */}
-                <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700/50 rounded-xl p-6">
-                    <h2 className="text-xl font-semibold text-slate-100 mb-4 font-['Fira_Code']">
+                <div className={`backdrop-blur-sm border rounded-xl p-6 ${theme === 'dark' ? 'bg-slate-800/50 border-slate-700/50' : 'bg-white border-gray-200 shadow-sm'}`}>
+                    <h2 className={`text-xl font-semibold mb-4 font-['Fira_Code'] ${theme === 'dark' ? 'text-slate-100' : 'text-gray-900'}`}>
                         Recent Activity
                     </h2>
                     <div className="overflow-x-auto">
                         <table className="w-full">
                             <thead>
-                                <tr className="border-b border-slate-700">
-                                    <th className="text-left py-3 px-4 text-slate-400 font-['Fira_Sans'] font-medium text-sm">Timestamp</th>
-                                    <th className="text-left py-3 px-4 text-slate-400 font-['Fira_Sans'] font-medium text-sm">Account</th>
-                                    <th className="text-left py-3 px-4 text-slate-400 font-['Fira_Sans'] font-medium text-sm">Instance</th>
-                                    <th className="text-left py-3 px-4 text-slate-400 font-['Fira_Sans'] font-medium text-sm">Type</th>
-                                    <th className="text-left py-3 px-4 text-slate-400 font-['Fira_Sans'] font-medium text-sm">Event</th>
-                                    <th className="text-left py-3 px-4 text-slate-400 font-['Fira_Sans'] font-medium text-sm">Hourly Savings</th>
-                                    <th className="text-left py-3 px-4 text-slate-400 font-['Fira_Sans'] font-medium text-sm">Region</th>
+                                <tr className={`border-b ${theme === 'dark' ? 'border-slate-700' : 'border-gray-200'}`}>
+                                    <th className={`text-left py-3 px-4 font-['Fira_Sans'] font-medium text-sm ${theme === 'dark' ? 'text-slate-400' : 'text-gray-500'}`}>Timestamp</th>
+                                    <th className={`text-left py-3 px-4 font-['Fira_Sans'] font-medium text-sm ${theme === 'dark' ? 'text-slate-400' : 'text-gray-500'}`}>Account</th>
+                                    <th className={`text-left py-3 px-4 font-['Fira_Sans'] font-medium text-sm ${theme === 'dark' ? 'text-slate-400' : 'text-gray-500'}`}>Instance</th>
+                                    <th className={`text-left py-3 px-4 font-['Fira_Sans'] font-medium text-sm ${theme === 'dark' ? 'text-slate-400' : 'text-gray-500'}`}>Type</th>
+                                    <th className={`text-left py-3 px-4 font-['Fira_Sans'] font-medium text-sm ${theme === 'dark' ? 'text-slate-400' : 'text-gray-500'}`}>Event</th>
+                                    <th className={`text-left py-3 px-4 font-['Fira_Sans'] font-medium text-sm ${theme === 'dark' ? 'text-slate-400' : 'text-gray-500'}`}>Hourly Savings</th>
+                                    <th className={`text-left py-3 px-4 font-['Fira_Sans'] font-medium text-sm ${theme === 'dark' ? 'text-slate-400' : 'text-gray-500'}`}>Region</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {recentActivity.length === 0 ? (
                                     <tr>
-                                        <td colSpan={7} className="text-center py-8 text-slate-500 font-['Fira_Sans']">
+                                        <td colSpan={7} className={`text-center py-8 font-['Fira_Sans'] ${theme === 'dark' ? 'text-slate-500' : 'text-gray-400'}`}>
                                             No recent activity
                                         </td>
                                     </tr>
                                 ) : (
                                     recentActivity.map((activity) => (
-                                        <tr key={activity.id} className="border-b border-slate-700/50 hover:bg-slate-700/30 transition-colors">
-                                            <td className="py-3 px-4 text-slate-300 font-['Fira_Code'] text-sm">
+                                        <tr key={activity.id} className={`border-b transition-colors ${theme === 'dark' ? 'border-slate-700/50 hover:bg-slate-700/30' : 'border-gray-100 hover:bg-gray-50'}`}>
+                                            <td className={`py-3 px-4 font-['Fira_Code'] text-sm ${theme === 'dark' ? 'text-slate-300' : 'text-gray-700'}`}>
                                                 {new Date(activity.timestamp).toLocaleString()}
                                             </td>
-                                            <td className="py-3 px-4 text-slate-300 font-['Fira_Sans']">
+                                            <td className={`py-3 px-4 font-['Fira_Sans'] ${theme === 'dark' ? 'text-slate-300' : 'text-gray-700'}`}>
                                                 {activity.accountName}
                                             </td>
-                                            <td className="py-3 px-4 text-slate-300 font-['Fira_Code'] text-sm">
+                                            <td className={`py-3 px-4 font-['Fira_Code'] text-sm ${theme === 'dark' ? 'text-slate-300' : 'text-gray-700'}`}>
                                                 {activity.instanceId}
                                             </td>
-                                            <td className="py-3 px-4 text-slate-300 font-['Fira_Sans']">
+                                            <td className={`py-3 px-4 font-['Fira_Sans'] ${theme === 'dark' ? 'text-slate-300' : 'text-gray-700'}`}>
                                                 {activity.instanceType} → {activity.spotInstanceType}
                                             </td>
                                             <td className="py-3 px-4">
@@ -463,10 +465,10 @@ const AutoSpottingAdminDashboardPage: React.FC = () => {
                                                     {activity.eventType}
                                                 </span>
                                             </td>
-                                            <td className="py-3 px-4 text-amber-400 font-['Fira_Code']">
+                                            <td className="py-3 px-4 text-amber-500 font-['Fira_Code']">
                                                 ${activity.hourlySavings.toFixed(4)}/hr
                                             </td>
-                                            <td className="py-3 px-4 text-slate-400 font-['Fira_Sans'] text-sm">
+                                            <td className={`py-3 px-4 font-['Fira_Sans'] text-sm ${theme === 'dark' ? 'text-slate-400' : 'text-gray-500'}`}>
                                                 {activity.region}
                                             </td>
                                         </tr>
@@ -491,6 +493,7 @@ interface KPICardProps {
 }
 
 const KPICard: React.FC<KPICardProps> = ({ title, value, subtitle, icon, color }) => {
+    const { theme } = useTheme();
     const colorClasses = {
         amber: 'text-amber-500',
         yellow: 'text-yellow-500',
@@ -499,14 +502,14 @@ const KPICard: React.FC<KPICardProps> = ({ title, value, subtitle, icon, color }
     };
 
     return (
-        <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700/50 rounded-xl p-6 hover:border-slate-600/50 transition-all cursor-pointer group">
+        <div className={`backdrop-blur-sm border rounded-xl p-6 transition-all cursor-pointer group ${theme === 'dark' ? 'bg-slate-800/50 border-slate-700/50 hover:border-slate-600/50' : 'bg-white border-gray-200 hover:border-gray-300 shadow-sm'}`}>
             <div className="flex items-start justify-between">
                 <div className="flex-1">
-                    <p className="text-slate-400 text-sm font-['Fira_Sans'] mb-1">{title}</p>
+                    <p className={`text-sm font-['Fira_Sans'] mb-1 ${theme === 'dark' ? 'text-slate-400' : 'text-gray-500'}`}>{title}</p>
                     <p className={`text-3xl font-bold font-['Fira_Code'] ${colorClasses[color]} group-hover:scale-105 transition-transform`}>
                         {value}
                     </p>
-                    <p className="text-slate-500 text-xs font-['Fira_Sans'] mt-1">{subtitle}</p>
+                    <p className={`text-xs font-['Fira_Sans'] mt-1 ${theme === 'dark' ? 'text-slate-500' : 'text-gray-400'}`}>{subtitle}</p>
                 </div>
                 <div className={`${colorClasses[color]} opacity-60 group-hover:opacity-100 transition-opacity`}>
                     {icon}

@@ -34,6 +34,8 @@ export const useAdminAgreements = (): UseAdminAgreementsResult => {
     const [uploading, setUploading] = useState<boolean>(false);
     const [uploadError, setUploadError] = useState<string | null>(null);
     const [uploadSuccess, setUploadSuccess] = useState<boolean>(false);
+    const [pendingFinalize, setPendingFinalize] = useState<Agreement | null>(null);
+    const [pendingDelete, setPendingDelete] = useState<Agreement | null>(null);
 
     /**
      * Handle file selection from input
@@ -106,15 +108,16 @@ export const useAdminAgreements = (): UseAdminAgreementsResult => {
     }, [selectedFile, baseHook.accountId, baseHook.fetchAgreements]);
 
     /**
-     * Finalize a DRAFT agreement (makes it visible to users)
+     * Finalize a DRAFT agreement — opens confirmation dialog
      */
+    const requestFinalize = useCallback((agreement: Agreement) => {
+        setPendingFinalize(agreement);
+    }, []);
+
+    const cancelFinalize = useCallback(() => setPendingFinalize(null), []);
+
     const finalizeAgreement = useCallback(async (agreement: Agreement) => {
-        const confirmed = window.confirm(
-            `Are you sure you want to finalize "${agreement.fileName}"? This will make it visible to the user.`
-        );
-
-        if (!confirmed) return;
-
+        setPendingFinalize(null);
         console.log(`[AdminAgreements] Finalizing agreement: ${agreement.id}`);
 
         try {
@@ -141,15 +144,16 @@ export const useAdminAgreements = (): UseAdminAgreementsResult => {
     }, [baseHook.fetchAgreements]);
 
     /**
-     * Delete an agreement
+     * Delete an agreement — opens confirmation dialog
      */
+    const requestDelete = useCallback((agreement: Agreement) => {
+        setPendingDelete(agreement);
+    }, []);
+
+    const cancelDelete = useCallback(() => setPendingDelete(null), []);
+
     const deleteAgreement = useCallback(async (agreement: Agreement) => {
-        const confirmed = window.confirm(
-            `Delete "${agreement.fileName}"? This cannot be undone.`
-        );
-
-        if (!confirmed) return;
-
+        setPendingDelete(null);
         console.log(`[AdminAgreements] Deleting agreement: ${agreement.id}`);
 
         try {
@@ -181,6 +185,14 @@ export const useAdminAgreements = (): UseAdminAgreementsResult => {
         uploading,
         uploadError,
         uploadSuccess,
+
+        // Confirm-action state
+        pendingFinalize,
+        pendingDelete,
+        requestFinalize,
+        cancelFinalize,
+        requestDelete,
+        cancelDelete,
 
         // Admin operations
         handleFileSelect,

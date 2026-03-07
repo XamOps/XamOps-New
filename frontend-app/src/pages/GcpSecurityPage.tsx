@@ -24,6 +24,7 @@ import { useGcpSecurityData } from '../hooks/useGcpSecurityData';
 import type { GcpSeverityLevel } from '../types/gcpSecurity';
 import clsx from 'clsx';
 import '../styles/gcpSecurity.css';
+import { DialogRoot, DialogPanel } from '../components/ui';
 
 const GcpSecurityPage: React.FC = () => {
   const { selectedAccountIds } = useAccounts();
@@ -432,41 +433,27 @@ const GcpSecurityPage: React.FC = () => {
       </div>
 
       {/* Remediation Modal */}
-      {isModalOpen && (
-        <div
-          className="modal-overlay fixed inset-0 flex items-center justify-center z-50"
-          onClick={closeModal}
+      <DialogRoot isOpen={isModalOpen} onClose={closeModal} maxWidth="max-w-4xl">
+        <DialogPanel
+          title="Remediation Guide"
+          onClose={closeModal}
+          footer={
+            <button
+              onClick={closeModal}
+              className="px-6 py-3 text-sm font-semibold text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300 transition-colors"
+            >
+              Close Guide
+            </button>
+          }
         >
-          <div
-            className="modal-content rounded-2xl p-8 w-full max-w-4xl mx-4 max-h-[90vh] overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex justify-between items-start pb-6 border-b border-gray-200">
-              <h3 className="text-2xl font-bold text-gray-800">Remediation Guide</h3>
-              <button
-                onClick={closeModal}
-                className="text-gray-400 hover:text-gray-600 transition-colors"
-              >
-                <i className="fas fa-times text-2xl"></i>
-              </button>
-            </div>
-            <div className="mt-8">
-              <div
-                className="remediation-steps"
-                dangerouslySetInnerHTML={{ __html: remediationSteps }}
-              ></div>
-              <div className="flex justify-end mt-8 pt-6 border-t border-gray-200">
-                <button
-                  onClick={closeModal}
-                  className="px-6 py-3 text-sm font-semibold text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300 transition-colors"
-                >
-                  Close Guide
-                </button>
-              </div>
-            </div>
+          <div className="overflow-y-auto max-h-[60vh]">
+            <div
+              className="remediation-steps"
+              dangerouslySetInnerHTML={{ __html: remediationSteps }}
+            ></div>
           </div>
-        </div>
-      )}
+        </DialogPanel>
+      </DialogRoot>
     </main>
   );
 };

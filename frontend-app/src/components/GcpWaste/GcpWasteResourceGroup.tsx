@@ -36,7 +36,15 @@ const GcpWasteResourceGroup: React.FC<GcpWasteResourceGroupProps> = ({
   return (
     <div className="gcp-waste-service-group">
       {/* Group Header */}
-      <div className="gcp-waste-group-header" onClick={onToggle}>
+      <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={isOpen}
+        aria-controls={`gcp-waste-group-${type.replace(/\s+/g, '-').toLowerCase()}`}
+        className="gcp-waste-group-header"
+        onClick={onToggle}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(); } }}
+      >
         <div className="gcp-waste-group-header-left">
           <i
             className={`fas fa-chevron-right gcp-waste-chevron ${isOpen ? 'gcp-waste-chevron-open' : ''}`}
@@ -52,7 +60,7 @@ const GcpWasteResourceGroup: React.FC<GcpWasteResourceGroupProps> = ({
 
       {/* Group Resources */}
       {isOpen && (
-        <div className="gcp-waste-group-resources">
+        <div id={`gcp-waste-group-${type.replace(/\s+/g, '-').toLowerCase()}`} className="gcp-waste-group-resources">
           {resources.map((resource, index) => (
             <div key={index} className="gcp-waste-resource-row">
               <div className="gcp-waste-resource-name">{resource.resourceName}</div>
