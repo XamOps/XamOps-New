@@ -723,7 +723,7 @@
 
     <div class="p-4 border-b bg-gradient-to-r from-gray-50 to-white flex-shrink-0">
         <div class="relative">
-            <button @click="open = !open"
+            <button type="button" @click="open = !open"
                 aria-haspopup="listbox"
                 :aria-expanded="open"
                 aria-label="Select Cloud Account"
@@ -765,7 +765,7 @@
                             <p class="text-sm font-medium text-gray-700">Multi-Account Mode</p>
                             <p class="text-xs text-gray-500">AWS or GCP accounts</p>
                         </div>
-                        <button role="switch"
+                        <button type="button" role="switch"
                             :aria-checked="multiAccountMode"
                             @click="toggleMultiAccountMode()"
                             aria-label="Toggle Multi-Account Mode"
@@ -776,30 +776,47 @@
                     </div>
                 </div>
 
-                <div class="p-3 border-b bg-gray-50">
+                <div class="p-3 border-b bg-gray-50 relative">
                     <input type="text" x-model="searchTerm" placeholder="Search accounts..."
                         aria-label="Search accounts"
-                        class="w-full px-3 py-2 text-sm rounded-lg focus:outline-none border focus:ring-2 focus:ring-indigo-500">
+                        class="w-full pl-3 pr-8 py-2 text-sm rounded-lg focus:outline-none border focus:ring-2 focus:ring-indigo-500">
+                    <button type="button" x-show="searchTerm" @click="searchTerm = ''"
+                        aria-label="Clear account search"
+                        class="absolute right-5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none">
+                        <i class="fas fa-times-circle"></i>
+                    </button>
                 </div>
 
                 <div x-show="multiAccountMode && isDashboardPage" class="p-2 border-b bg-gray-50 flex flex-col gap-2">
                     <div class="flex gap-2">
-                        <button @click="selectAllAws()"
+                        <button type="button" @click="selectAllAws()"
                             class="flex-1 px-3 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors border border-indigo-200">
                             <i class="fab fa-aws mr-1"></i> Select All AWS
                         </button>
-                        <button @click="selectAllGcp()"
+                        <button type="button" @click="selectAllGcp()"
                             class="flex-1 px-3 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50 rounded-md transition-colors border border-blue-200">
                             <i class="fab fa-google mr-1"></i> Select All GCP
                         </button>
                     </div>
-                    <button @click="clearAllSelections()"
+                    <button type="button" @click="clearAllSelections()"
                         class="w-full px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-md transition-colors border border-gray-200">
                         <i class="fas fa-times mr-1"></i> Clear All
                     </button>
                 </div>
 
-                <div class="py-1 max-h-60 overflow-y-auto sidebar-scroll">
+                <div class="py-1 max-h-60 overflow-y-auto sidebar-scroll" aria-live="polite">
+                    <template x-if="filteredAccounts.length === 0 && accounts.length > 0">
+                        <div class="px-4 py-8 text-center">
+                            <i class="fas fa-search text-gray-300 text-3xl mb-3"></i>
+                            <p class="text-sm text-gray-500">No accounts match "<span x-text="searchTerm"></span>"</p>
+                            <button type="button" @click="searchTerm = ''"
+                                aria-label="Clear search and show all accounts"
+                                class="mt-2 text-xs font-semibold text-indigo-600 hover:text-indigo-800">
+                                Clear search
+                            </button>
+                        </div>
+                    </template>
+
                     <template x-if="awsAccounts.length > 0">
                         <div>
                             <div class="px-3 py-2 text-xs font-semibold text-gray-400 uppercase bg-gray-50">
@@ -817,6 +834,7 @@
                                         :disabled="isAccountDisabled(account.id)" class="mr-3 rounded text-indigo-600"
                                         x-show="multiAccountMode && isDashboardPage">
                                     <img :src="getProviderIcon(account.provider)"
+                                        :alt="account.provider + ' logo'"
                                         class="w-8 h-8 rounded-full mr-3 flex-shrink-0 object-cover">
                                     <div class="flex-1 min-w-0">
                                         <div class="font-medium text-gray-900 truncate" x-text="account.name"></div>
@@ -848,6 +866,7 @@
                                         :disabled="isAccountDisabled(account.id)" class="mr-3 rounded text-blue-600"
                                         x-show="multiAccountMode && isDashboardPage">
                                     <img :src="getProviderIcon(account.provider)"
+                                        :alt="account.provider + ' logo'"
                                         class="w-8 h-8 rounded-full mr-3 flex-shrink-0 object-cover">
                                     <div class="flex-1 min-w-0">
                                         <div class="font-medium text-gray-900 truncate" x-text="account.name"></div>
@@ -873,6 +892,7 @@
                                     class="flex items-center px-4 py-3 text-sm hover:bg-blue-50 cursor-pointer transition-colors"
                                     :class="{ 'bg-blue-50': isAccountSelected(account.id) }">
                                     <img :src="getProviderIcon(account.provider)"
+                                        :alt="account.provider + ' logo'"
                                         class="w-8 h-8 rounded-full mr-3 flex-shrink-0 object-cover">
                                     <div class="flex-1 min-w-0">
                                         <div class="font-medium text-gray-900 truncate" x-text="account.name"></div>
@@ -887,7 +907,7 @@
                 </div>
 
                 <div class="p-3 bg-gray-50 border-t">
-                    <button @click="applySelection()"
+                    <button type="button" @click="applySelection()"
                         :disabled="tempSelectedAccounts.length === 0"
                         class="w-full bg-indigo-600 text-white font-semibold py-2 rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         :aria-label="'Apply Selection' + (tempSelectedAccounts.length > 0 ? ' (' + tempSelectedAccounts.length + ' selected)' : '')">
@@ -923,7 +943,7 @@
 
             <div class="sidebar-section" :class="{'active': isActive('/finops')}">
                 <div x-data="{ open: isActive('/finops') }">
-                    <button @click="open = !open"
+                    <button type="button" @click="open = !open"
                         class="nav-item w-full flex items-center justify-between gap-3 rounded-xl px-4 py-3 font-semibold"
                         :class="isActive('/finops') ? 'bg-gradient-to-r from-green-500 to-teal-600 text-white shadow-lg' : 'text-gray-600 hover:bg-green-50'">
                         <div class="flex items-center gap-3">
@@ -965,7 +985,7 @@
 
             <div class="sidebar-section" :class="{'active': isActive('/cloudops')}">
                 <div x-data="{ open: isActive('/cloudops') }">
-                    <button @click="open = !open"
+                    <button type="button" @click="open = !open"
                         class="nav-item w-full flex items-center justify-between gap-3 rounded-xl px-4 py-3 font-semibold"
                         :class="isActive('/cloudops') ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg' : 'text-gray-600 hover:bg-indigo-50'">
                         <div class="flex items-center gap-3">
@@ -1008,7 +1028,7 @@
 
             <div class="sidebar-section" :class="{'active': isActive('/security')}">
                 <div x-data="{ open: isActive('/security') }">
-                    <button @click="open = !open"
+                    <button type="button" @click="open = !open"
                         class="nav-item w-full flex items-center justify-between gap-3 rounded-xl px-4 py-3 font-semibold"
                         :class="isActive('/security') ? 'bg-gradient-to-r from-red-500 to-orange-600 text-white shadow-lg' : 'text-gray-600 hover:bg-red-50'">
                         <div class="flex items-center gap-3">
@@ -1076,7 +1096,7 @@
                         </div>
                     </div>
 
-                    <button @click="open = !open"
+                    <button type="button" @click="open = !open"
                         class="nav-item w-full flex items-center justify-between rounded-xl px-7 py-3 font-semibold"
                         :class="isActive('/billops/') ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg' : 'text-gray-600 hover:bg-cyan-50'">
                         <div class="flex items-center">
@@ -1123,7 +1143,7 @@
                         </div>
                     </div>
 
-                    <button @click="open = !open"
+                    <button type="button" @click="open = !open"
                         class="nav-item w-full flex items-center justify-between gap-3 rounded-xl px-4 py-3 font-semibold mx-3"
                         :class="isActive('/billops/admin_') ? 'bg-gradient-to-r from-gray-700 to-gray-800 text-white shadow-lg' : 'text-gray-600 hover:bg-gray-100'">
                         <div x-show="hasAnyRole('ROLE_BILLOPS_ADMIN')" x-cloak>
@@ -1131,7 +1151,7 @@
 
                             <div class="sidebar-section">
                                 <div x-data="{ open: isActive('/billops/admin_') }">
-                                    <button @click="open = !open"
+                                    <button type="button" @click="open = !open"
                                         class="nav-item w-full flex items-center justify-between gap-3 rounded-xl px-4 py-3 font-semibold mx-3"
                                         :class="isActive('/billops/admin_') ? 'bg-gradient-to-r from-gray-700 to-gray-800 text-white shadow-lg' : 'text-gray-600 hover:bg-gray-100'">
                                         <div class="flex items-center gap-3">
@@ -1172,7 +1192,7 @@
                                 </div>
 
                                 <div x-data="{ open: isActive('/billops/licenses_') }" class="mt-2">
-                                    <button @click="open = !open"
+                                    <button type="button" @click="open = !open"
                                         class="nav-item w-full flex items-center justify-between gap-3 rounded-xl px-4 py-3 font-semibold mx-3"
                                         :class="isActive('/billops/licenses_') ? 'bg-gradient-to-r from-gray-700 to-gray-800 text-white shadow-lg' : 'text-gray-600 hover:bg-gray-100'">
                                         <div class="flex items-center gap-3">
