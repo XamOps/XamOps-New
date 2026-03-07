@@ -5,12 +5,14 @@ import com.xammer.cloud.domain.AppUser;
 import com.xammer.billops.service.AppUserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
 @RestController
 @RequestMapping("/api/billops/users")
+@PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')") // Only administrators can manage users
 public class UserManagementController {
 
     @Autowired
