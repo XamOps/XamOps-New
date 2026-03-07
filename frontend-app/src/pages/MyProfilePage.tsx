@@ -15,6 +15,7 @@
 
 import React from 'react';
 import { useMyProfile } from '../hooks/useMyProfile';
+import { DialogRoot, DialogPanel } from '../components/ui';
 import { TeamUser, CloudAccount } from '../types/myProfile';
 
 const ProfileSkeleton: React.FC = () => {
@@ -544,23 +545,19 @@ const MyProfilePage: React.FC = () => {
           )}
 
           {/* Password Change Modal */}
-          {showPasswordModal && (
-            <div className="modal-overlay">
-              <div className="modal-backdrop" onClick={() => setShowPasswordModal(false)} />
-              <div className="modal-content">
-                <div className="modal-header">
-                  <h3 className="modal-title">
-                    <i className="fas fa-shield-halved mr-3 text-indigo-600"></i>
-                    Security Authentication
-                  </h3>
-                  <button
-                    onClick={() => setShowPasswordModal(false)}
-                    className="modal-close-btn"
-                  >
-                    <i className="fas fa-times"></i>
-                  </button>
-                </div>
+          <DialogRoot isOpen={showPasswordModal} onClose={() => setShowPasswordModal(false)}>
+            <DialogPanel
+              title={<><i className="fas fa-shield-halved mr-3 text-indigo-600"></i>Security Authentication</>}
+              onClose={() => setShowPasswordModal(false)}
+              footer={
+                <>
+                  <button type="button" onClick={() => setShowPasswordModal(false)} className="btn-cancel">Cancel</button>
+                  <button type="submit" form="password-change-form" className="btn-primary-gradient"><i className="fas fa-check mr-2"></i>Update Password</button>
+                </>
+              }
+            >
                 <form
+                  id="password-change-form"
                   onSubmit={(e) => {
                     e.preventDefault();
                     changePassword();
@@ -610,23 +607,9 @@ const MyProfilePage: React.FC = () => {
                       />
                     </div>
                   </div>
-                  <div className="modal-footer">
-                    <button
-                      type="button"
-                      onClick={() => setShowPasswordModal(false)}
-                      className="btn-cancel"
-                    >
-                      Cancel
-                    </button>
-                    <button type="submit" className="btn-primary-gradient">
-                      <i className="fas fa-check mr-2"></i>
-                      Update Password
-                    </button>
-                  </div>
                 </form>
-              </div>
-            </div>
-          )}
+            </DialogPanel>
+          </DialogRoot>
         </div>
       )}
     </main>

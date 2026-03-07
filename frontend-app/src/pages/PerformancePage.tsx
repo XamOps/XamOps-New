@@ -23,6 +23,7 @@ import { usePerformanceData } from '../hooks/usePerformanceData';
 import type { SeverityFilter } from '../types/performance';
 import Skeleton from '../components/Shared/Skeleton';
 import clsx from 'clsx';
+import { AlertDialog } from '../components/ui';
 import '../styles/performance.css';
 
 const PerformancePage: React.FC = () => {
@@ -48,6 +49,9 @@ const PerformancePage: React.FC = () => {
     setSelectedInsights,
     toggleAllInsights,
     bulkArchive,
+    pendingBulkArchive,
+    requestBulkArchive,
+    cancelBulkArchive,
   } = usePerformanceData({ selectedAccountId });
 
   // Topbar Integration
@@ -106,6 +110,15 @@ const PerformancePage: React.FC = () => {
 
   return (
     <main className="performance-page">
+      <AlertDialog
+        isOpen={pendingBulkArchive}
+        title={`Archive ${selectedInsights.length} insights?`}
+        description="Archived insights will no longer appear in your active list."
+        confirmLabel="Archive"
+        variant="warning"
+        onConfirm={bulkArchive}
+        onCancel={cancelBulkArchive}
+      />
       {/* Toast Notification */}
       <div className={`performance-toast ${toast.show ? 'show' : ''} ${toast.type}`}>
         <div className="performance-toast-content">
@@ -240,7 +253,7 @@ const PerformancePage: React.FC = () => {
                           </span>
                         </div>
                         <div className="performance-bulk-buttons">
-                          <button onClick={bulkArchive} className="performance-btn performance-btn-outline">
+                          <button onClick={requestBulkArchive} className="performance-btn performance-btn-outline">
                             <i className="fas fa-archive" />
                             Archive Selected
                           </button>

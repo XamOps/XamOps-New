@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { gooeyToast } from 'goey-toast';
 import apiClient from '../../utils/apiClient';
+import { AriaSwitch, AriaSlider } from '../ui';
 
 interface RispSettingsProps {
   accountId: string | null;
@@ -86,61 +87,26 @@ const RispSettings: React.FC<RispSettingsProps> = ({ accountId }) => {
       ) : (
         <div className="space-y-6">
           {/* Toggle Switch */}
-          <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-200">
-            <div className="flex-1">
-              <label htmlFor="respectRiSp" className="text-sm font-semibold text-gray-900 cursor-pointer">
-                Respect RI/SP Commitments
-              </label>
-              <p className="text-xs text-gray-600 mt-1">
-                When enabled, AutoSpotting will only convert to Spot when RI/SP utilization is high
-              </p>
-            </div>
-
-            <label className="relative inline-flex items-center cursor-pointer ml-4">
-              <input
-                id="respectRiSp"
-                type="checkbox"
-                checked={settings.respectRiSpCommitments}
-                onChange={(e) => setSettings({ ...settings, respectRiSpCommitments: e.target.checked })}
-                className="sr-only peer"
-              />
-              <div className="w-14 h-7 bg-gray-300 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[4px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-blue-600"></div>
-              <span className="ml-3 text-sm font-medium text-gray-900">
-                {settings.respectRiSpCommitments ? 'Enabled' : 'Disabled'}
-              </span>
-            </label>
-          </div>
+          <AriaSwitch
+            isSelected={settings.respectRiSpCommitments}
+            onChange={(checked) => setSettings({ ...settings, respectRiSpCommitments: checked })}
+            label="Respect RI/SP Commitments"
+            description="When enabled, AutoSpotting will only convert to Spot when RI/SP utilization is high"
+          />
 
           {/* Threshold Slider */}
           <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-            <label htmlFor="threshold" className="text-sm font-semibold text-gray-900 block mb-3">
-              Utilization Threshold: {settings.riSpUtilizationThreshold}%
-            </label>
-            <p className="text-xs text-gray-600 mb-4">
-              Only convert to Spot when (RI + SP) / 2 utilization ≥ this threshold
-            </p>
-
-            <div className="flex items-center gap-4">
-              <span className="text-xs text-gray-500 font-medium">0%</span>
-              <input
-                id="threshold"
-                type="range"
-                min="0"
-                max="100"
-                step="5"
-                value={settings.riSpUtilizationThreshold}
-                onChange={(e) => setSettings({ ...settings, riSpUtilizationThreshold: parseInt(e.target.value) })}
-                disabled={!settings.respectRiSpCommitments}
-                className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                style={{
-                  background: settings.respectRiSpCommitments
-                    ? `linear-gradient(to right, rgb(37 99 235) 0%, rgb(37 99 235) ${settings.riSpUtilizationThreshold}%, rgb(229 231 235) ${settings.riSpUtilizationThreshold}%, rgb(229 231 235) 100%)`
-                    : '#E5E7EB',
-                }}
-              />
-              <span className="text-xs text-gray-500 font-medium">100%</span>
-            </div>
-
+            <AriaSlider
+              label="Utilization Threshold"
+              value={settings.riSpUtilizationThreshold}
+              onChange={(v) => setSettings({ ...settings, riSpUtilizationThreshold: v })}
+              minValue={0}
+              maxValue={100}
+              step={5}
+              isDisabled={!settings.respectRiSpCommitments}
+              formatValue={(v) => `${v}%`}
+              description="Only convert to Spot when (RI + SP) / 2 utilization ≥ this threshold"
+            />
             <div className="mt-3 text-xs text-gray-600 bg-blue-50 border border-blue-200 rounded p-3">
               <i className="fas fa-info-circle text-blue-600 mr-2"></i>
               <strong>Example:</strong> If set to 90%, AutoSpotting will only enable Spot when your RI/SP average utilization is ≥ 90%. This prevents wasting unused commitments.

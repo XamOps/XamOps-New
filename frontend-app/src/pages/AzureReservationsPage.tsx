@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useAzureReservationsData } from '../hooks/useAzureReservationsData';
+import { AriaTabGroup } from '../components/ui';
 import type { AzureReservationTabType } from '../types/azureReservations';
 import {
   AzureReservationHeader,
@@ -66,37 +67,15 @@ export const AzureReservationsPage: React.FC = () => {
 
       <div className="flex-1 p-8 space-y-6 custom-scrollbar overflow-y-auto">
         {/* Tab navigation */}
-        <div className="glass-card rounded-xl p-1 shadow-sm">
-          <nav className="flex space-x-1" aria-label="Tabs">
-            <button
-              onClick={() => setActiveTab('overview')}
-              className={`tab-btn flex-1 whitespace-nowrap py-3 px-4 border-b-0 font-semibold text-sm rounded-lg transition-all flex items-center justify-center gap-2 ${
-                activeTab === 'overview'
-                  ? 'bg-gradient-to-br from-blue-50 to-blue-100 text-blue-700 shadow-sm'
-                  : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'
-              }`}
-            >
-              <i className="fas fa-chart-line"></i>
-              Overview &amp; Inventory
-            </button>
-            <button
-              onClick={() => setActiveTab('recommendations')}
-              className={`tab-btn flex-1 whitespace-nowrap py-3 px-4 border-b-0 font-semibold text-sm rounded-lg transition-all flex items-center justify-center gap-2 ${
-                activeTab === 'recommendations'
-                  ? 'bg-gradient-to-br from-blue-50 to-blue-100 text-blue-700 shadow-sm'
-                  : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'
-              }`}
-            >
-              <i className="fas fa-lightbulb"></i>
-              Recommendations
-              {data.recommendations.length > 0 && (
-                <span className="ml-1 bg-blue-600 text-white py-0.5 px-2.5 rounded-full text-xs font-bold shadow-sm">
-                  {data.recommendations.length}
-                </span>
-              )}
-            </button>
-          </nav>
-        </div>
+        <AriaTabGroup
+          variant="pill"
+          tabs={[
+            { id: 'overview',         label: 'Overview & Inventory', icon: 'fas fa-chart-line' },
+            { id: 'recommendations',  label: 'Recommendations',      icon: 'fas fa-lightbulb' },
+          ]}
+          selectedKey={activeTab}
+          onSelectionChange={(key) => setActiveTab(key as AzureReservationTabType)}
+        />
 
         {/* Loading skeleton */}
         {isLoading && !hasData && (

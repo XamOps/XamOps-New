@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { gooeyToast } from 'goey-toast';
 import { useAccounts } from '../contexts/AccountContext';
 import { useGcpSpotAutomationData, GcpMIG } from '../hooks/useGcpSpotAutomationData';
+import { AriaTabGroup } from '../components/ui';
 import { DashboardSkeleton } from '../components/Shared/Skeleton';
 import SpotAutomationKPIs from '../components/SpotAutomation/SpotAutomationKPIs';
 import SpotAutomationChart from '../components/SpotAutomation/SpotAutomationChart';
@@ -87,38 +88,15 @@ const GcpSpotAutomationPage: React.FC = () => {
         <div className="flex-1 flex flex-col min-h-screen bg-slate-50 relative">
             {/* Tab Navigation */}
             <div className="bg-white/80 border-b border-slate-200 px-8 backdrop-blur-md sticky top-0 z-40">
-                <nav className="flex space-x-8" aria-label="Tabs">
-                    <button
-                        onClick={() => setActiveTab('dashboard')}
-                        className={`py-4 px-1 border-b-2 font-medium text-sm transition-all flex items-center gap-2 ${activeTab === 'dashboard'
-                            ? 'border-indigo-600 text-indigo-600'
-                            : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
-                            }`}
-                    >
-                        <i className="fas fa-tachometer-alt"></i>
-                        Dashboard
-                    </button>
-                    <button
-                        onClick={() => setActiveTab('analytics')}
-                        className={`py-4 px-1 border-b-2 font-medium text-sm transition-all flex items-center gap-2 ${activeTab === 'analytics'
-                            ? 'border-indigo-600 text-indigo-600'
-                            : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
-                            }`}
-                    >
-                        <i className="fas fa-chart-line"></i>
-                        Launch Analytics
-                    </button>
-                    <button
-                        onClick={() => setActiveTab('history')}
-                        className={`py-4 px-1 border-b-2 font-medium text-sm transition-all flex items-center gap-2 ${activeTab === 'history'
-                            ? 'border-indigo-600 text-indigo-600'
-                            : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
-                            }`}
-                    >
-                        <i className="fas fa-history"></i>
-                        Actions History
-                    </button>
-                </nav>
+                <AriaTabGroup
+                    tabs={[
+                        { id: 'dashboard', label: 'Dashboard',        icon: 'fas fa-tachometer-alt' },
+                        { id: 'analytics', label: 'Launch Analytics', icon: 'fas fa-chart-line' },
+                        { id: 'history',   label: 'Actions History',  icon: 'fas fa-history' },
+                    ]}
+                    selectedKey={activeTab}
+                    onSelectionChange={(key) => setActiveTab(key as typeof activeTab)}
+                />
             </div>
 
             {/* Main Content */}
@@ -192,7 +170,12 @@ const GcpSpotAutomationPage: React.FC = () => {
                                                                 <div className="text-sm font-bold text-slate-800 group-hover:text-indigo-600 transition-colors">
                                                                     {mig.name}
                                                                 </div>
-                                                                <div className="text-[10px] text-slate-400 font-mono mt-0.5">GOOGLE CLOUD</div>
+                                                                <div className="flex items-center gap-1.5 mt-0.5">
+                                                                    <span className="text-[10px] text-slate-400 font-mono">GOOGLE CLOUD</span>
+                                                                    {mig.gkeManagedPool && (
+                                                                        <span className="text-[9px] font-bold bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full border border-blue-200">GKE</span>
+                                                                    )}
+                                                                </div>
                                                             </div>
                                                         </div>
                                                     </td>
@@ -231,22 +214,40 @@ const GcpSpotAutomationPage: React.FC = () => {
                                                     </td>
                                                     <td className="px-6 py-4">
                                                         <div className="flex justify-center">
-                                                            <button
-                                                                onClick={() => handleToggle(mig)}
-                                                                disabled={mig.updating}
-                                                                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 ${mig.isEnabled ? 'bg-indigo-600' : 'bg-slate-200'
-                                                                    } ${mig.updating ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-                                                            >
-                                                                <span className="sr-only">Toggle AutoSpotting</span>
-                                                                <span
-                                                                    className={`${mig.isEnabled ? 'translate-x-6' : 'translate-x-1'
-                                                                        } inline-block h-4 w-4 transform rounded-full bg-white transition-transform ease-in-out duration-200 flex items-center justify-center`}
+                                                            {mig.gkeManagedPool && !mig.isEnabled ? (
+                                                                <div className="relative group/gke">
+                                                                    <button
+                                                                        onClick={() => handleToggle(mig)}
+                                                                        disabled={mig.updating}
+                                                                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2 bg-slate-200 ${mig.updating ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                                                                        title="GKE-managed pool — modifying this template may conflict with GKE lifecycle management"
+                                                                    >
+                                                                        <span className="sr-only">Toggle AutoSpotting (GKE Pool)</span>
+                                                                        <span className="translate-x-1 inline-block h-4 w-4 transform rounded-full bg-amber-400 transition-transform ease-in-out duration-200" />
+                                                                    </button>
+                                                                    <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-56 bg-amber-50 border border-amber-200 text-amber-800 text-[10px] rounded-lg px-2.5 py-2 shadow-lg hidden group-hover/gke:block z-10 pointer-events-none">
+                                                                        <i className="fas fa-exclamation-triangle mr-1"></i>
+                                                                        GKE-managed pool. Modifying its template may conflict with GKE. Consider creating a new Spot node pool instead.
+                                                                    </div>
+                                                                </div>
+                                                            ) : (
+                                                                <button
+                                                                    onClick={() => handleToggle(mig)}
+                                                                    disabled={mig.updating}
+                                                                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 ${mig.isEnabled ? 'bg-indigo-600' : 'bg-slate-200'
+                                                                        } ${mig.updating ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                                                                 >
-                                                                    {mig.updating && (
-                                                                        <i className="fas fa-circle-notch fa-spin text-[8px] text-indigo-600"></i>
-                                                                    )}
-                                                                </span>
-                                                            </button>
+                                                                    <span className="sr-only">Toggle AutoSpotting</span>
+                                                                    <span
+                                                                        className={`${mig.isEnabled ? 'translate-x-6' : 'translate-x-1'
+                                                                            } inline-block h-4 w-4 transform rounded-full bg-white transition-transform ease-in-out duration-200 flex items-center justify-center`}
+                                                                    >
+                                                                        {mig.updating && (
+                                                                            <i className="fas fa-circle-notch fa-spin text-[8px] text-indigo-600"></i>
+                                                                        )}
+                                                                    </span>
+                                                                </button>
+                                                            )}
                                                         </div>
                                                     </td>
                                                 </tr>

@@ -12,6 +12,7 @@ import {
   AzureFinOpsScheduleSection,
   AzureFinOpsSavingsCallout,
 } from '../components/AzureFinOps';
+import { DialogRoot, DialogPanel } from '../components/ui';
 
 const AzureFinOpsPage: React.FC = () => {
   const { selectedAccountIds } = useAccounts();
@@ -159,84 +160,78 @@ const AzureFinOpsPage: React.FC = () => {
       )}
 
       {/* Schedule Modal */}
-      {isScheduleModalOpen && (
-        <div
-          className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50"
-          onClick={() => setIsScheduleModalOpen(false)}
-        >
-          <div
-            className={clsx(
-              'rounded-2xl p-8 w-full max-w-md mx-4 shadow-2xl',
-              theme === 'dark' ? 'bg-slate-800 border border-slate-700' : 'bg-white'
-            )}
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="flex items-center gap-3 mb-6">
+      <DialogRoot isOpen={isScheduleModalOpen} onClose={() => setIsScheduleModalOpen(false)} maxWidth="max-w-md">
+        <DialogPanel
+          title={
+            <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-600 rounded-xl flex items-center justify-center shadow-lg">
                 <i className="fas fa-envelope text-white" />
               </div>
-              <h3 className={clsx('text-xl font-bold', theme === 'dark' ? 'text-slate-100' : 'text-gray-900')}>
+              <span className={clsx('text-xl font-bold', theme === 'dark' ? 'text-slate-100' : 'text-gray-900')}>
                 Schedule FinOps Report
-              </h3>
+              </span>
             </div>
-
-            <form onSubmit={onCreateSchedule} className="space-y-5">
-              <div>
-                <label className={labelCls}>Email Address</label>
-                <input
-                  type="email"
-                  value={newSchedule.email}
-                  onChange={e => setNewSchedule({ ...newSchedule, email: e.target.value })}
-                  placeholder="report-recipient@example.com"
-                  className={inputCls}
-                  required
-                />
-              </div>
-              <div>
-                <label className={labelCls}>Frequency</label>
-                <select
-                  value={newSchedule.frequency}
-                  onChange={e => setNewSchedule({ ...newSchedule, frequency: e.target.value })}
-                  className={inputCls}
-                  required
-                >
-                  <option value="" disabled>Select a frequency</option>
-                  <option value="DAILY">Daily (at 6 PM)</option>
-                  <option value="WEEKLY">Weekly (Friday at 6 PM)</option>
-                  <option value="MONTHLY">Monthly (30th at 6 PM)</option>
-                </select>
-              </div>
-
-              <div className="flex justify-end gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsScheduleModalOpen(false)}
-                  className={clsx(
-                    'px-5 py-2.5 rounded-lg text-sm font-medium transition-colors',
-                    theme === 'dark'
-                      ? 'bg-slate-700 text-slate-200 hover:bg-slate-600'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  )}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isCreatingSchedule}
-                  className="px-5 py-2.5 rounded-lg text-sm font-medium bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50 transition-colors flex items-center gap-2"
-                >
-                  {isCreatingSchedule ? (
-                    <>
-                      <i className="fas fa-circle-notch fa-spin text-xs" />
-                      Saving...
-                    </>
-                  ) : 'Create Schedule'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+          }
+          onClose={() => setIsScheduleModalOpen(false)}
+          footer={
+            <>
+              <button
+                type="button"
+                onClick={() => setIsScheduleModalOpen(false)}
+                className={clsx(
+                  'px-5 py-2.5 rounded-lg text-sm font-medium transition-colors',
+                  theme === 'dark'
+                    ? 'bg-slate-700 text-slate-200 hover:bg-slate-600'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                )}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                form="schedule-finops-form"
+                disabled={isCreatingSchedule}
+                className="px-5 py-2.5 rounded-lg text-sm font-medium bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50 transition-colors flex items-center gap-2"
+              >
+                {isCreatingSchedule ? (
+                  <>
+                    <i className="fas fa-circle-notch fa-spin text-xs" />
+                    Saving...
+                  </>
+                ) : 'Create Schedule'}
+              </button>
+            </>
+          }
+        >
+          <form id="schedule-finops-form" onSubmit={onCreateSchedule} className="space-y-5">
+            <div>
+              <label className={labelCls}>Email Address</label>
+              <input
+                type="email"
+                value={newSchedule.email}
+                onChange={e => setNewSchedule({ ...newSchedule, email: e.target.value })}
+                placeholder="report-recipient@example.com"
+                className={inputCls}
+                required
+              />
+            </div>
+            <div>
+              <label className={labelCls}>Frequency</label>
+              <select
+                value={newSchedule.frequency}
+                onChange={e => setNewSchedule({ ...newSchedule, frequency: e.target.value })}
+                className={inputCls}
+                required
+              >
+                <option value="" disabled>Select a frequency</option>
+                <option value="DAILY">Daily (at 6 PM)</option>
+                <option value="WEEKLY">Weekly (Friday at 6 PM)</option>
+                <option value="MONTHLY">Monthly (30th at 6 PM)</option>
+              </select>
+            </div>
+          </form>
+        </DialogPanel>
+      </DialogRoot>
 
       {/* Success toast */}
       {showToast && (

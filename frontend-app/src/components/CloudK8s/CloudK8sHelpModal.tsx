@@ -5,6 +5,7 @@
  */
 
 import React, { useState } from 'react';
+import { DialogRoot, DialogPanel } from '../ui';
 
 interface CloudK8sHelpModalProps {
   isOpen: boolean;
@@ -64,44 +65,26 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ children }) => {
 };
 
 const CloudK8sHelpModal: React.FC<CloudK8sHelpModalProps> = ({ isOpen, onClose }) => {
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Backdrop */}
-      <div
-        onClick={onClose}
-        className="modal-overlay fixed inset-0 bg-black/50 backdrop-blur-sm"
-      />
-
-      {/* Modal Content */}
-      <div
-        className="modal-content bg-white rounded-2xl p-8 w-full max-w-4xl mx-auto max-h-[90vh] overflow-y-auto fade-in z-50 shadow-2xl relative"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between pb-4 border-b border-gray-200">
+    <DialogRoot isOpen={isOpen} onClose={onClose} maxWidth="max-w-4xl">
+      <DialogPanel
+        title={
           <div className="flex items-center space-x-4">
             <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg">
               <i className="fas fa-rocket text-white text-xl"></i>
             </div>
             <div>
-              <h3 className="font-bold text-xl text-gray-800">COMPLETE OBSERVABILITY SETUP GUIDE</h3>
-              <p className="text-sm text-gray-600">
-                Install Falco + OTel Collector on EKS &rarr; Forward Metrics &rarr; EC2 &rarr; Prometheus
-              </p>
+              <div className="font-bold text-xl text-gray-800">COMPLETE OBSERVABILITY SETUP GUIDE</div>
+              <div className="text-sm text-gray-600">
+                Install Falco + OTel Collector on EKS → Forward Metrics → EC2 → Prometheus
+              </div>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 text-3xl leading-none hover:bg-gray-100 w-10 h-10 rounded-full flex items-center justify-center transition-colors"
-          >
-            &times;
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="mt-6 pr-2">
+        }
+        onClose={onClose}
+        footer={<button onClick={onClose} className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">Done</button>}
+      >
+        <div className="overflow-y-auto max-h-[60vh] pr-2">
           {/* Overview */}
           <div className="bg-blue-50 border-l-4 border-blue-500 p-4 mb-6 rounded-r-lg">
             <p className="text-sm text-blue-700">
@@ -465,8 +448,8 @@ helm upgrade --install otel-agent open-telemetry/opentelemetry-collector --names
             </li>
           </ul>
         </div>
-      </div>
-    </div>
+      </DialogPanel>
+    </DialogRoot>
   );
 };
 

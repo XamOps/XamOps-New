@@ -5,6 +5,7 @@
  */
 
 import React, { useState } from 'react';
+import { DialogRoot, DialogPanel } from '../ui';
 
 interface GkeHelpModalProps {
   isOpen: boolean;
@@ -32,8 +33,6 @@ const GkeHelpModal: React.FC<GkeHelpModalProps> = ({ isOpen, onClose }) => {
       )}
     </button>
   );
-
-  if (!isOpen) return null;
 
   const installCmd = `helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 helm repo update
@@ -76,30 +75,23 @@ helm install trivy-operator aqua/trivy-operator \\
   --set serviceMonitor.enabled=true`;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div onClick={onClose} className="fixed inset-0 bg-black/40"></div>
-      <div
-        className="relative bg-white rounded-2xl p-8 w-full max-w-3xl mx-auto max-h-[90vh] overflow-y-auto shadow-2xl z-50"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between pb-4 border-b border-gray-200">
+    <DialogRoot isOpen={isOpen} onClose={onClose} maxWidth="max-w-3xl">
+      <DialogPanel
+        title={
           <div className="flex items-center space-x-4">
             <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center">
               <i className="fas fa-book text-white text-xl"></i>
             </div>
             <div>
-              <h3 className="font-bold text-xl text-gray-800">GKE MONITORING SETUP</h3>
-              <p className="text-sm text-gray-500">Connect Prometheus to this cluster in 3 steps</p>
+              <div className="font-bold text-xl text-gray-800">GKE MONITORING SETUP</div>
+              <div className="text-sm text-gray-500">Connect Prometheus to this cluster in 3 steps</div>
             </div>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">
-            &times;
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="mt-6 space-y-8">
+        }
+        onClose={onClose}
+        footer={<button onClick={onClose} className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">Done</button>}
+      >
+        <div className="overflow-y-auto max-h-[60vh] space-y-8">
 
           {/* Step 1 */}
           <section>
@@ -283,8 +275,8 @@ helm install trivy-operator aqua/trivy-operator \\
           </div>
 
         </div>
-      </div>
-    </div>
+      </DialogPanel>
+    </DialogRoot>
   );
 };
 

@@ -5,6 +5,7 @@
  */
 
 import React, { useState } from 'react';
+import { DialogRoot, DialogPanel } from '../ui';
 
 interface GcpCloudK8sHelpModalProps {
   isOpen: boolean;
@@ -20,35 +21,26 @@ const GcpCloudK8sHelpModal: React.FC<GcpCloudK8sHelpModalProps> = ({ isOpen, onC
     setTimeout(() => setCopiedStep(null), 2000);
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div onClick={onClose} className="modal-overlay fixed inset-0"></div>
-      <div
-        className="modal-content rounded-2xl p-8 w-full max-w-4xl mx-auto max-h-[90vh] overflow-y-auto fade-in z-50 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between pb-4 border-b">
+    <DialogRoot isOpen={isOpen} onClose={onClose} maxWidth="max-w-4xl">
+      <DialogPanel
+        title={
           <div className="flex items-center space-x-4">
             <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center">
               <i className="fas fa-rocket text-white text-xl"></i>
             </div>
             <div>
-              <h3 className="font-bold text-xl text-gray-800">GKE OBSERVABILITY SETUP GUIDE</h3>
-              <p className="text-sm text-gray-600">
+              <div className="font-bold text-xl text-gray-800">GKE OBSERVABILITY SETUP GUIDE</div>
+              <div className="text-sm text-gray-600">
                 Install monitoring stack on GKE → Forward metrics to monitoring instance
-              </p>
+              </div>
             </div>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl">
-            &times;
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="mt-6 pr-2 space-y-6">
+        }
+        onClose={onClose}
+        footer={<button onClick={onClose} className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">Done</button>}
+      >
+        <div className="overflow-y-auto max-h-[60vh] pr-2 space-y-6">
 
           {/* Quick Start (Recommended) */}
           <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-5">
@@ -509,8 +501,8 @@ kubectl get pods -n trivy-system`}
             </ul>
           </div>
         </div>
-      </div>
-    </div>
+      </DialogPanel>
+    </DialogRoot>
   );
 };
 

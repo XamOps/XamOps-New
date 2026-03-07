@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { DialogRoot, DialogPanel } from '../ui';
 
 interface AzureCloudK8sHelpModalProps {
   isOpen: boolean;
@@ -41,8 +42,6 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ code }) => {
 const AzureCloudK8sHelpModal: React.FC<AzureCloudK8sHelpModalProps> = ({ isOpen, onClose }) => {
   const [activePhase, setActivePhase] = useState<1 | 2 | 3>(1);
 
-  if (!isOpen) return null;
-
   const getCredentialsCmd = `az aks get-credentials --resource-group <your-resource-group> --name <your-cluster-name>
 
 # Verify connection
@@ -84,29 +83,41 @@ helm install trivy-operator aqua/trivy-operator -n trivy-system --create-namespa
   const trivyServiceMonitorCmd = `helm upgrade trivy-operator aqua/trivy-operator -n trivy-system --reuse-values --set serviceMonitor.enabled=true`;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-200">
+    <DialogRoot isOpen={isOpen} onClose={onClose} maxWidth="max-w-3xl">
+      <DialogPanel
+        title={
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-cyan-600 rounded-xl flex items-center justify-center">
               <i className="fas fa-dharmachakra text-white text-lg"></i>
             </div>
             <div>
-              <h2 className="text-xl font-bold text-gray-800">AKS Setup Guide</h2>
-              <p className="text-sm text-gray-500">Connect Azure Kubernetes Service to XamOps</p>
+              <div className="text-xl font-bold text-gray-800">AKS Setup Guide</div>
+              <div className="text-sm text-gray-500">Connect Azure Kubernetes Service to XamOps</div>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
-          >
-            <i className="fas fa-times"></i>
-          </button>
-        </div>
-
+        }
+        onClose={onClose}
+        footer={
+          <div className="flex items-center justify-between w-full">
+            <button
+              onClick={() => setActivePhase(prev => Math.max(1, prev - 1) as 1 | 2 | 3)}
+              disabled={activePhase === 1}
+              className="px-4 py-2 text-sm text-gray-600 font-medium rounded-lg hover:bg-gray-200 disabled:opacity-30 transition-colors"
+            >
+              <i className="fas fa-arrow-left mr-1"></i> Previous
+            </button>
+            <span className="text-xs text-gray-400">Phase {activePhase} of 3</span>
+            <button
+              onClick={() => activePhase < 3 ? setActivePhase(prev => (prev + 1) as 1 | 2 | 3) : onClose()}
+              className="px-4 py-2 text-sm bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              {activePhase < 3 ? <>Next <i className="fas fa-arrow-right ml-1"></i></> : 'Done'}
+            </button>
+          </div>
+        }
+      >
         {/* Phase tabs */}
-        <div className="flex gap-1 p-4 border-b border-gray-100 bg-gray-50">
+        <div className="flex gap-1 mb-4 p-1 bg-gray-100 rounded-lg">
           {([1, 2, 3] as const).map((phase) => (
             <button
               key={phase}
@@ -125,7 +136,7 @@ helm install trivy-operator aqua/trivy-operator -n trivy-system --create-namespa
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        <div className="overflow-y-auto max-h-[55vh] space-y-6">
           {activePhase === 1 && (
             <>
               <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
@@ -266,26 +277,8 @@ helm install trivy-operator aqua/trivy-operator -n trivy-system --create-namespa
             </>
           )}
         </div>
-
-        {/* Footer */}
-        <div className="p-4 border-t border-gray-100 bg-gray-50 flex items-center justify-between rounded-b-2xl">
-          <button
-            onClick={() => setActivePhase(prev => Math.max(1, prev - 1) as 1 | 2 | 3)}
-            disabled={activePhase === 1}
-            className="px-4 py-2 text-sm text-gray-600 font-medium rounded-lg hover:bg-gray-200 disabled:opacity-30 transition-colors"
-          >
-            <i className="fas fa-arrow-left mr-1"></i> Previous
-          </button>
-          <span className="text-xs text-gray-400">Phase {activePhase} of 3</span>
-          <button
-            onClick={() => activePhase < 3 ? setActivePhase(prev => (prev + 1) as 1 | 2 | 3) : onClose()}
-            className="px-4 py-2 text-sm bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            {activePhase < 3 ? <>Next <i className="fas fa-arrow-right ml-1"></i></> : 'Done'}
-          </button>
-        </div>
-      </div>
-    </div>
+      </DialogPanel>
+    </DialogRoot>
   );
 };
 

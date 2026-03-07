@@ -17,6 +17,7 @@
 import React, { useState } from 'react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useRightsizingData } from '../hooks/useRightsizingData';
+import { AriaTabGroup } from '../components/ui';
 
 // Component imports
 import RightsizingHeader from '../components/Rightsizing/RightsizingHeader';
@@ -106,22 +107,14 @@ export const RightsizingPage: React.FC = () => {
         {/* Tabs */}
         {selectedAccountId && (
           <>
-            <div className="flex border-b border-gray-200">
-              <button
-                onClick={() => setActiveTab('aws')}
-                className={`tab-button px-6 py-3 text-sm font-semibold ${activeTab === 'aws' ? 'active' : ''
-                  }`}
-              >
-                <i className="fab fa-aws mr-2"></i>AWS Recommendations
-              </button>
-              <button
-                onClick={() => setActiveTab('xamops')}
-                className={`tab-button px-6 py-3 text-sm font-semibold ${activeTab === 'xamops' ? 'active' : ''
-                  }`}
-              >
-                <i className="fas fa-bolt mr-2"></i>XamAi Recommendations
-              </button>
-            </div>
+            <AriaTabGroup
+              tabs={[
+                { id: 'aws',    label: 'AWS Recommendations',  icon: 'fab fa-aws' },
+                { id: 'xamops', label: 'XamAi Recommendations', icon: 'fas fa-bolt' },
+              ]}
+              selectedKey={activeTab}
+              onSelectionChange={(key) => setActiveTab(key as 'aws' | 'xamops')}
+            />
 
             {/* AWS Recommendations Tab */}
             {activeTab === 'aws' && (

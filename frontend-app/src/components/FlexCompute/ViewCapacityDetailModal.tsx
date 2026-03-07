@@ -6,6 +6,7 @@
 
 import React, { useState } from 'react';
 import type { FlexComputeCapacity } from '../../types/flexCompute';
+import { DialogRoot, DialogPanel } from '../ui';
 import ExtendUsageModal from './ExtendUsageModal';
 
 interface ViewCapacityDetailModalProps {
@@ -95,45 +96,32 @@ const ViewCapacityDetailModal: React.FC<ViewCapacityDetailModalProps> = ({ capac
 
   return (
     <>
-      {/* Backdrop - Lower z-index with stronger blur */}
-      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40" onClick={onClose} />
-
-      {/* Modal Container - Higher z-index above backdrop */}
-      <div className="fixed inset-0 z-50 overflow-hidden pointer-events-none flex items-center justify-center p-4">
-        <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-6xl max-h-[90vh] overflow-hidden pointer-events-auto flex flex-col">
-
-          {/* Header - Fixed at top */}
-          <div className="flex-shrink-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+      <DialogRoot isOpen={!!capacity} onClose={onClose} maxWidth="max-w-6xl">
+        <DialogPanel
+          title={
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
                 <i className="fas fa-server text-blue-600 text-sm"></i>
               </div>
-              <h2 className="text-lg font-bold text-gray-900 truncate">{capacity.name}</h2>
+              <div className="text-lg font-bold text-gray-900 truncate">{capacity.name}</div>
             </div>
-            <div className="flex items-center gap-2 flex-shrink-0">
-              {/* Only show Extend Usage button for purchased policies without auto-renewal */}
+          }
+          onClose={onClose}
+          footer={
+            <div className="flex items-center gap-2">
               {!capacity.instanceState?.toUpperCase().includes('NOT_PURCHASED') &&
                !capacity.policyOperatingState?.toUpperCase().includes('NOT_PURCHASED') &&
                !capacity.autoRenewal && (
-                <button
-                  onClick={() => setShowExtendModal(true)}
-                  className="px-4 py-2 text-sm text-white bg-purple-600 rounded-lg hover:bg-purple-700 transition-colors flex items-center gap-2"
-                >
+                <button onClick={() => setShowExtendModal(true)} className="px-4 py-2 text-sm text-white bg-purple-600 rounded-lg hover:bg-purple-700 transition-colors flex items-center gap-2">
                   <i className="fas fa-clock text-xs"></i> Extend Usage
                 </button>
               )}
-              <button
-                onClick={onClose}
-                className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-700 rounded-lg hover:bg-gray-100 transition-colors"
-              >
-                <i className="fas fa-times"></i>
-              </button>
+              <button onClick={onClose} className="px-4 py-2 text-sm text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors">Close</button>
             </div>
-          </div>
-
-          {/* Body - Scrollable */}
-          <div className="flex-1 overflow-y-auto">
-            <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
+          }
+        >
+          <div className="overflow-y-auto max-h-[65vh]">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
               {/* ── LEFT COLUMN ── */}
               <div className="space-y-6">
@@ -406,8 +394,8 @@ const ViewCapacityDetailModal: React.FC<ViewCapacityDetailModalProps> = ({ capac
               </div>
             </div>
           </div>
-        </div>
-      </div>
+        </DialogPanel>
+      </DialogRoot>
 
       {/* Extend Usage Modal (stacked on top) */}
       {showExtendModal && (

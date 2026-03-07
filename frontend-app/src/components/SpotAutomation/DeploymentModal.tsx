@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { DialogRoot, DialogPanel } from '../ui';
 
 interface DeploymentModalProps {
   isOpen: boolean;
@@ -45,36 +46,27 @@ const DeploymentModal: React.FC<DeploymentModalProps> = ({ isOpen, onClose, onGe
     onClose();
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto" onClick={handleClose}>
-      <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
-        {/* Backdrop */}
-        <div className="fixed inset-0 transition-opacity bg-gray-900 bg-opacity-75"></div>
-
-        <span className="hidden sm:inline-block sm:align-middle sm:h-screen">&#8203;</span>
-
-        {/* Modal */}
-        <div
-          onClick={(e) => e.stopPropagation()}
-          className="inline-block align-bottom bg-white rounded-xl text-left overflow-hidden shadow-2xl transform transition-all sm:my-8 sm:align-middle sm:max-w-2xl sm:w-full"
-        >
-          {/* Header */}
-          <div className="bg-gradient-to-r from-orange-500 to-orange-600 px-6 py-5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <i className="fab fa-aws text-white text-3xl"></i>
-                <h3 className="text-2xl font-bold text-white">Deploy AutoSpotting to AWS</h3>
-              </div>
-              <button onClick={handleClose} className="text-white hover:text-gray-200 transition-colors">
-                <i className="fas fa-times text-2xl"></i>
-              </button>
-            </div>
-          </div>
-
-          {/* Body */}
-          <div className="px-6 py-6 space-y-6">
+    <DialogRoot isOpen={isOpen} onClose={handleClose} maxWidth="max-w-2xl">
+      <DialogPanel
+        title={<><i className="fab fa-aws mr-2" />Deploy AutoSpotting to AWS</>}
+        onClose={handleClose}
+        footer={
+          <>
+            <button onClick={handleClose} className="px-5 py-2 text-gray-700 hover:text-gray-900 font-semibold transition-colors">Cancel</button>
+            <button onClick={handleGenerateUrl} disabled={isGenerating} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2">
+              <i className={`fas ${isGenerating ? 'fa-spinner fa-spin' : 'fa-cog'}`}></i>
+              <span>{isGenerating ? 'Generating...' : 'Generate URL'}</span>
+            </button>
+            <button onClick={handleLaunchStack} disabled={!generatedUrl} className="px-6 py-2 bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white rounded-lg font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2">
+              <i className="fab fa-aws"></i>
+              <span>Launch Stack</span>
+              <i className="fas fa-external-link-alt text-xs"></i>
+            </button>
+          </>
+        }
+      >
+          <div className="space-y-6">
             {/* Info Section */}
             <div className="p-4 bg-blue-50 border-2 border-blue-200 rounded-xl">
               <div className="flex items-start space-x-3">
@@ -177,38 +169,8 @@ const DeploymentModal: React.FC<DeploymentModalProps> = ({ isOpen, onClose, onGe
               </div>
             )}
           </div>
-
-          {/* Footer */}
-          <div className="bg-gray-50 px-6 py-4 flex justify-between items-center border-t-2 border-gray-200">
-            <button
-              onClick={handleClose}
-              className="px-5 py-2 text-gray-700 hover:text-gray-900 font-semibold transition-colors"
-            >
-              Cancel
-            </button>
-            <div className="flex space-x-3">
-              <button
-                onClick={handleGenerateUrl}
-                disabled={isGenerating}
-                className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2 shadow-lg hover:shadow-xl"
-              >
-                <i className={`fas ${isGenerating ? 'fa-spinner fa-spin' : 'fa-cog'}`}></i>
-                <span>{isGenerating ? 'Generating...' : 'Generate URL'}</span>
-              </button>
-              <button
-                onClick={handleLaunchStack}
-                disabled={!generatedUrl}
-                className="px-6 py-2 bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white rounded-lg font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2 shadow-lg hover:shadow-xl"
-              >
-                <i className="fab fa-aws"></i>
-                <span>Launch Stack</span>
-                <i className="fas fa-external-link-alt text-xs"></i>
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+      </DialogPanel>
+    </DialogRoot>
   );
 };
 

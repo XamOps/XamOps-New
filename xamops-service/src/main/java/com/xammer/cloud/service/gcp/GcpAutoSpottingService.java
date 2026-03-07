@@ -94,6 +94,7 @@ public class GcpAutoSpottingService {
         public int spotInstanceCount;
         public int ondemandInstanceCount;
         public String machineType; // Added to track machine type
+        public boolean gkeManagedPool; // true if this MIG is managed by GKE (name starts with "gke-")
     }
 
     public List<GcpAutoSpottingGroupDto> listMigsAllRegionsWithCosts(String accountId) {
@@ -278,6 +279,8 @@ public class GcpAutoSpottingService {
                            igm.getName().toLowerCase().contains("preempt");
         }
 
+        boolean isGkeManagedPool = igm.getName() != null && igm.getName().startsWith("gke-");
+
         return GcpAutoSpottingGroupDto.builder()
                 .name(igm.getName())
                 .region(location)
@@ -286,6 +289,7 @@ public class GcpAutoSpottingService {
                 .ondemandInstanceCount(isSpotEnabled ? 0 : instanceCount)
                 .spotInstanceCount(isSpotEnabled ? instanceCount : 0)
                 .machineType(machineType)
+                .gkeManagedPool(isGkeManagedPool)
                 .build();
     }
 

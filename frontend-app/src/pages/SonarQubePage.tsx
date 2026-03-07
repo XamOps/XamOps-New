@@ -21,6 +21,7 @@ import { QualityGateStatus, Rating, NewSonarQubeProject } from '../types/sonarqu
 import { useTopbar } from '../contexts/TopbarContext';
 import Skeleton from '../components/Shared/Skeleton';
 import clsx from 'clsx';
+import { AlertDialog, DialogRoot, DialogPanel } from '../components/ui';
 
 const SonarQubePage: React.FC = () => {
   const {
@@ -39,6 +40,7 @@ const SonarQubePage: React.FC = () => {
 
   const [isManageModalOpen, setIsManageModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [pendingDeleteProjectId, setPendingDeleteProjectId] = useState<number | null>(null);
   const [newProject, setNewProject] = useState<NewSonarQubeProject>({
     projectName: '',
     serverUrl: '',
@@ -157,17 +159,20 @@ const SonarQubePage: React.FC = () => {
   /**
    * Handle delete project
    */
-  const handleDeleteProject = useCallback(async (projectId: number) => {
-    if (!window.confirm('Are you sure? This will remove the project configuration.')) {
-      return;
-    }
+  const handleDeleteProject = useCallback((projectId: number) => {
+    setPendingDeleteProjectId(projectId);
+  }, []);
 
+  const confirmDeleteProject = useCallback(async () => {
+    if (pendingDeleteProjectId === null) return;
+    const id = pendingDeleteProjectId;
+    setPendingDeleteProjectId(null);
     try {
-      await deleteProject(projectId);
+      await deleteProject(id);
     } catch (err) {
       // Error is already set in the hook
     }
-  }, [deleteProject]);
+  }, [pendingDeleteProjectId, deleteProject]);
 
   /**
    * Close modal on escape key
@@ -210,6 +215,15 @@ const SonarQubePage: React.FC = () => {
 
   return (
     <div className="sonarqube-container min-h-screen bg-gray-50">
+      <AlertDialog
+        isOpen={pendingDeleteProjectId !== null}
+        title="Remove project configuration?"
+        description="This will remove the SonarQube project from XamOps."
+        confirmLabel="Remove"
+        variant="danger"
+        onConfirm={confirmDeleteProject}
+        onCancel={() => setPendingDeleteProjectId(null)}
+      />
       {/* Header Bar */}
       {/* Main Content */}
 
@@ -522,36 +536,47 @@ const SonarQubePage: React.FC = () => {
       </main>
 
       {/* Manage Projects Modal */}
-      {isManageModalOpen && (
-        <div
-          className="fixed inset-0 z-50 bg-black/30 backdrop-blur-sm flex items-center justify-center p-4"
-          onClick={() => setIsManageModalOpen(false)}
-        >
-          <div
-            className="glass-card w-full max-w-2xl max-h-[90vh] overflow-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Modal Header */}
-            <div className="sticky top-0 px-8 py-6 bg-gradient-to-r from-indigo-50 to-purple-50 border-b border-gray-200 flex justify-between items-center">
-              <div className="flex items-center gap-3">
-                <i className="fas fa-cog text-indigo-600 text-2xl icon-pulse"></i>
-                <h2 className="text-2xl font-bold text-gray-900">Manage Projects</h2>
-              </div>
-              <button
-                onClick={() => setIsManageModalOpen(false)}
-                className="text-gray-600 hover:text-gray-900 text-3xl transition-colors"
-              >
-                <i className="fas fa-times"></i>
-              </button>
+      <DialogRoot isOpen={isManageModalOpen} onClose={() => setIsManageModalOpen(false)} maxWidth="max-w-2xl">
+        <DialogPanel
+          title={
+            <div className="flex items-center gap-3">
+              <i className="fas fa-cog text-indigo-600 text-2xl icon-pulse"></i>
+              <span className="text-2xl font-bold text-gray-900">Manage Projects</span>
             </div>
-
+          }
+          onClose={() => setIsManageModalOpen(false)}
+          footer={
+            <>
+              <button
+                type="button"
+                onClick={() => setIsManageModalOpen(false)}
+                className="px-6 py-3 text-sm font-bold text-gray-700 btn-secondary rounded-lg transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                form="add-project-form"
+                disabled={isSaving}
+                className="px-6 py-3 text-sm font-bold text-white btn-primary rounded-lg disabled:opacity-50 transition-all flex items-center gap-2"
+              >
+                {isSaving ? (
+                  <><i className="fas fa-spinner fa-spin"></i> Saving...</>
+                ) : (
+                  <><i className="fas fa-plus"></i> Add Project</>
+                )}
+              </button>
+            </>
+          }
+        >
+          <div className="overflow-y-auto max-h-[60vh] space-y-6">
             {/* Configured Projects List */}
-            <div className="p-8 border-b border-gray-200">
+            <div className="border-b border-gray-200 pb-6">
               <h3 className="text-xl font-bold text-gray-900 mb-5 flex items-center gap-2">
                 <i className="fas fa-list text-indigo-600"></i>
                 Configured Projects
               </h3>
-              <div className="max-h-64 overflow-y-auto space-y-2">
+              <div className="max-h-48 overflow-y-auto space-y-2">
                 {projects.length === 0 ? (
                   <div className="text-center py-12">
                     <i className="fas fa-inbox text-gray-400 text-5xl mb-3"></i>
@@ -581,7 +606,7 @@ const SonarQubePage: React.FC = () => {
             </div>
 
             {/* Add New Project Form */}
-            <form onSubmit={handleAddProject} className="p-8 space-y-6">
+            <form id="add-project-form" onSubmit={handleAddProject} className="space-y-6">
               <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
                 <i className="fas fa-plus-circle text-green-600"></i>
                 Add New Project
@@ -655,35 +680,10 @@ const SonarQubePage: React.FC = () => {
                   <p className="text-sm text-red-700">{modalError}</p>
                 </div>
               )}
-
-              <div className="flex justify-end gap-3 pt-6 border-t border-gray-200">
-                <button
-                  type="button"
-                  onClick={() => setIsManageModalOpen(false)}
-                  className="px-6 py-3 text-sm font-bold text-gray-700 btn-secondary rounded-lg transition-all"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSaving}
-                  className="px-6 py-3 text-sm font-bold text-white btn-primary rounded-lg disabled:opacity-50 transition-all flex items-center gap-2"
-                >
-                  {isSaving ? (
-                    <>
-                      <i className="fas fa-spinner fa-spin"></i> Saving...
-                    </>
-                  ) : (
-                    <>
-                      <i className="fas fa-plus"></i> Add Project
-                    </>
-                  )}
-                </button>
-              </div>
             </form>
           </div>
-        </div>
-      )}
+        </DialogPanel>
+      </DialogRoot>
     </div>
   );
 };

@@ -11,6 +11,7 @@
 
 import React, { useState } from 'react';
 import { useEksAutoscaling, WorkloadRecommendation, EvictorCandidate } from '../../../hooks/useEksAutoscaling';
+import { AriaSlider } from '../../ui';
 import {
   AutoscalerMode,
   ApplyMode,
@@ -131,28 +132,17 @@ const SliderField: React.FC<{
   unit?: string;
   onChange: (v: number) => void;
   color?: string;
-}> = ({ label, value, min, max, step = 1, unit = '', onChange, color = 'accent-purple-600' }) => (
-  <div>
-    <div className="flex items-center justify-between mb-1">
-      <span className="text-xs font-semibold text-gray-600">{label}</span>
-      <span className="text-xs font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded-md">
-        {value}{unit}
-      </span>
-    </div>
-    <input
-      type="range"
-      min={min}
-      max={max}
-      step={step}
-      value={value}
-      onChange={e => onChange(Number(e.target.value))}
-      className={`w-full h-1.5 rounded-full appearance-none bg-gray-200 ${color} cursor-pointer`}
-    />
-    <div className="flex justify-between text-[10px] text-gray-400 mt-1">
-      <span>{min}{unit}</span>
-      <span>{max}{unit}</span>
-    </div>
-  </div>
+}> = ({ label, value, min, max, step = 1, unit = '', onChange }) => (
+  <AriaSlider
+    label={label}
+    value={value}
+    onChange={onChange}
+    minValue={min}
+    maxValue={max}
+    step={step}
+    formatValue={(v) => `${v}${unit}`}
+    fillColor="rgb(124 58 237)"
+  />
 );
 
 // ─── Number input field ───────────────────────────────────────────────────────

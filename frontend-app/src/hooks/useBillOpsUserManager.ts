@@ -52,6 +52,7 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
         title: string;
         message: string;
     } | null>(null);
+    const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
     /**
      * Clear current notification
@@ -224,12 +225,20 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
     }, [selectedUser, getCsrfToken, fetchUsers, cancelEdit]);
 
     /**
-     * Delete a user
+     * Delete a user — opens confirmation dialog
      */
-    const deleteUser = useCallback(async (id: string) => {
-        if (!window.confirm('Are you sure you want to delete this user?')) {
-            return;
-        }
+    const deleteUser = useCallback((id: string) => {
+        setPendingDeleteId(id);
+    }, []);
+
+    const cancelDelete = useCallback(() => {
+        setPendingDeleteId(null);
+    }, []);
+
+    const confirmDelete = useCallback(async () => {
+        if (!pendingDeleteId) return;
+        const id = pendingDeleteId;
+        setPendingDeleteId(null);
 
         console.log('[UserManager] Deleting user:', id);
 
@@ -262,7 +271,7 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
                 message: err instanceof Error ? err.message : 'An error occurred while deleting the user.'
             });
         }
-    }, [getCsrfToken, fetchUsers]);
+    }, [pendingDeleteId, getCsrfToken, fetchUsers]);
 
     /**
      * Update a field in the selected user form
@@ -284,6 +293,11 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
         isEditing,
         selectedUser,
         notification,
+
+        // Confirm-delete state
+        pendingDeleteId,
+        confirmDelete,
+        cancelDelete,
 
         // Available roles
         roles: AVAILABLE_ROLES,

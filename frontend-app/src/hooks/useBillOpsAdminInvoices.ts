@@ -53,6 +53,7 @@ export const useBillOpsAdminInvoices = (): UseBillOpsAdminInvoicesReturn => {
     month: new Date().getMonth() + 1
   });
   const [generating, setGenerating] = useState(false);
+  const [pendingMerge, setPendingMerge] = useState(false);
 
   const isMountedRef = useRef(true);
 
@@ -358,21 +359,23 @@ export const useBillOpsAdminInvoices = (): UseBillOpsAdminInvoicesReturn => {
   }, []);
 
   /**
-   * Merge selected invoices
+   * Merge selected invoices — opens confirmation dialog
    */
+  const requestMerge = useCallback(() => {
+    if (!canMergeSelection) return;
+    const order = determineMergeOrder();
+    if (!order) return;
+    setPendingMerge(true);
+  }, [canMergeSelection, determineMergeOrder]);
+
+  const cancelMerge = useCallback(() => setPendingMerge(false), []);
+
   const mergeSelectedInvoices = useCallback(async () => {
     if (!canMergeSelection) return;
+    setPendingMerge(false);
 
     const order = determineMergeOrder();
     if (!order) return;
-
-    const { target, source } = order;
-
-    const confirmed = window.confirm(
-      `Are you sure you want to merge:\nSource: ${source.invoiceNumber} (${formatCurrency(source.amount)})\nTarget: ${target.invoiceNumber} (${formatCurrency(target.amount)})\n\nThis will combine line items and DELETE the source invoice.`
-    );
-
-    if (!confirmed) return;
 
     setIsUpdating(true);
 
@@ -557,6 +560,9 @@ export const useBillOpsAdminInvoices = (): UseBillOpsAdminInvoicesReturn => {
     generateInvoice,
     setSelectedIds,
     setGeneration,
+    requestMerge,
+    cancelMerge,
+    pendingMerge,
     mergeSelectedInvoices,
     downloadPreview,
     getSelectedAccountName,

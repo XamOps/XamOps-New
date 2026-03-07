@@ -19,6 +19,7 @@ import { RunHistory } from '../types/cicdPipelines';
 import clsx from 'clsx';
 import { useTopbar } from '../contexts/TopbarContext';
 import Skeleton from '../components/Shared/Skeleton';
+import { DialogRoot, DialogPanel } from '../components/ui';
 
 const CICDPipelinesPage: React.FC = () => {
   const {
@@ -367,35 +368,22 @@ const CICDPipelinesPage: React.FC = () => {
       </div>
 
       {/* Workflow History Modal */}
-      {selectedWorkflow && (
-        <div
-          className="fixed inset-0 z-50 overflow-y-auto bg-black bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4"
-          onClick={closeWorkflow}
-        >
-          <div
-            className="relative bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Modal Header */}
-            <div className="sticky top-0 z-10 bg-gray-100 px-6 py-4 border-b flex justify-between items-center">
+      <DialogRoot isOpen={!!selectedWorkflow} onClose={closeWorkflow} maxWidth="max-w-4xl">
+        {selectedWorkflow && (
+          <DialogPanel
+            title={
               <div className="min-w-0">
-                <h2 className="text-lg font-bold text-gray-900">{selectedWorkflow.name}</h2>
+                <div className="text-lg font-bold text-gray-900">{selectedWorkflow.name}</div>
                 <p className="text-sm text-gray-500">
                   {'repository' in selectedWorkflow && selectedWorkflow.repository
                     ? selectedWorkflow.repository.full_name
                     : 'Jenkins Job'}
                 </p>
               </div>
-              <button
-                onClick={closeWorkflow}
-                className="w-8 h-8 rounded-full text-gray-500 hover:bg-gray-200 transition-all flex items-center justify-center"
-              >
-                <i className="fas fa-times text-lg"></i>
-              </button>
-            </div>
-
-            {/* Modal Body */}
-            <div className="flex-1 overflow-hidden flex flex-col md:flex-row">
+            }
+            onClose={closeWorkflow}
+          >
+            <div className="flex flex-col md:flex-row -mx-6 -mb-5 overflow-hidden" style={{ maxHeight: '60vh' }}>
               {/* History List */}
               <div className="w-full md:w-1/3 border-r bg-gray-50 overflow-y-auto max-h-[60vh] md:max-h-[calc(90vh-80px)]">
                 <div className="p-4 border-b bg-gray-100">
@@ -523,9 +511,9 @@ const CICDPipelinesPage: React.FC = () => {
                 )}
               </div>
             </div>
-          </div>
-        </div>
-      )}
+          </DialogPanel>
+        )}
+      </DialogRoot>
     </div>
   );
 };
