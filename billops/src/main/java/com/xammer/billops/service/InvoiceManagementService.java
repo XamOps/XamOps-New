@@ -72,6 +72,7 @@ public class InvoiceManagementService {
     private final CloudFrontPrivateRateRepository privateRateRepository;
     private final ClientRepository clientRepository;
     private final RedisCacheService redisCache;
+    private AccountAccessHelper accountAccessHelper;
 
     private static final String INVOICE_LIST_CACHE_KEY = "billops:invoices:list:admin";
     private static final long CACHE_TTL_MINUTES = 60;
@@ -88,7 +89,8 @@ public class InvoiceManagementService {
             CloudFrontUsageService cloudFrontUsageService,
             CloudFrontPrivateRateRepository privateRateRepository,
             ClientRepository clientRepository,
-            RedisCacheService redisCache) {
+            RedisCacheService redisCache,
+            AccountAccessHelper accountAccessHelper) {
         this.invoiceRepository = invoiceRepository;
         this.cloudAccountRepository = cloudAccountRepository;
         this.discountRepository = discountRepository;
@@ -101,6 +103,7 @@ public class InvoiceManagementService {
         this.privateRateRepository = privateRateRepository;
         this.clientRepository = clientRepository;
         this.redisCache = redisCache;
+        this.accountAccessHelper = accountAccessHelper;
     }
 
     @PostConstruct
@@ -1004,8 +1007,9 @@ public class InvoiceManagementService {
     @Transactional(readOnly = true)
     public Optional<List<InvoiceDto>> getCachedAllInvoices() {
         String cacheKey = getTenantCacheKey(INVOICE_LIST_CACHE_KEY);
-        return redisCache.get(cacheKey, new TypeReference<List<InvoiceDto>>() {
-        });
+        Optional<List<InvoiceDto>> cached = redisCache.get(cacheKey, new TypeReference<List<InvoiceDto>>() {});
+        // Apply per-user account filter on the cached full list before returning
+        return cached.map(this::applyInvoiceFilter);
     }
 
     @Transactional(readOnly = true)
@@ -1018,9 +1022,25 @@ public class InvoiceManagementService {
             return dto;
         }).collect(Collectors.toList());
 
+        // Cache the FULL unfiltered list so all users share the same warm cache
         String cacheKey = getTenantCacheKey(INVOICE_LIST_CACHE_KEY);
         redisCache.put(cacheKey, dtos, CACHE_TTL_MINUTES);
-        return dtos;
+
+        // Return filtered view for the current user
+        return applyInvoiceFilter(dtos);
+    }
+
+    /**
+     * Filters invoices to only those whose CloudAccount the current sub-user is allowed to see.
+     * Primary admins (createdBy == null) see all invoices unfiltered.
+     */
+    private List<InvoiceDto> applyInvoiceFilter(List<InvoiceDto> invoices) {
+        java.util.Set<Long> allowedDbIds = accountAccessHelper.getAllowedDbIds();
+        if (allowedDbIds == null) return invoices; // Primary admin — no restriction
+        if (allowedDbIds.isEmpty()) return Collections.emptyList();
+        return invoices.stream()
+                .filter(dto -> dto.getCloudAccountId() != null && allowedDbIds.contains(dto.getCloudAccountId()))
+                .collect(Collectors.toList());
     }
 
     @Transactional

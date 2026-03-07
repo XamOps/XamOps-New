@@ -28,6 +28,7 @@ export interface AdminTicket {
   chatStartedAt?: string;
   assignedToId?: number;
   assignedToUsername?: string;
+  hasUnreadUserReply?: boolean;  // true = customer replied and admin hasn't responded yet
 }
 
 export interface AdminTicketCacheData {

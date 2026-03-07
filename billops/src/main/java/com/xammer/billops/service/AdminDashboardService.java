@@ -43,6 +43,7 @@ public class AdminDashboardService {
     private final TicketRepository ticketRepository;
     private final ClientRepository clientRepository;
     private final RedisCacheService redisCache;
+    private final AccountAccessHelper accountAccessHelper;
 
     private static final String CACHE_KEY = "billops:admin:dashboard";
     private static final long CACHE_TTL_MINUTES = 1440; // 24 hours
@@ -55,13 +56,15 @@ public class AdminDashboardService {
             TicketRepository ticketRepository,
             ClientRepository clientRepository,
             RedisCacheService redisCacheService,
-            BillingService billingService) {
+            BillingService billingService,
+            AccountAccessHelper accountAccessHelper) {
         this.invoiceRepository = invoiceRepository;
         this.cloudAccountRepository = cloudAccountRepository;
         this.ticketRepository = ticketRepository;
         this.clientRepository = clientRepository;
         this.redisCache = redisCacheService;
         this.billingService = billingService;
+        this.accountAccessHelper = accountAccessHelper;
     }
 
     private String getCacheKey() {
@@ -72,22 +75,37 @@ public class AdminDashboardService {
     }
 
     public AdminDashboardDto getAdminDashboardSummary(boolean forceRefresh) {
-        String tenantCacheKey = getCacheKey();
+        // Sub-users get a custom filtered view — never served from (or stored to) the global cache
+        List<CloudAccount> filteredAccounts = accountAccessHelper.filterAccounts(cloudAccountRepository.findAll());
+        boolean isSubUser = accountAccessHelper.getAllowedDbIds() != null;
 
-        // Check cache first
-        if (!forceRefresh) {
-            Optional<AdminDashboardDto> cached = redisCache.get(tenantCacheKey, AdminDashboardDto.class);
-            if (cached.isPresent()) {
-                logger.info("Returning cached admin dashboard data for tenant: {}", tenantCacheKey);
-                return cached.get();
+        if (!isSubUser) {
+            // Primary admin: use global cache
+            String tenantCacheKey = getCacheKey();
+            if (!forceRefresh) {
+                Optional<AdminDashboardDto> cached = redisCache.get(tenantCacheKey, AdminDashboardDto.class);
+                if (cached.isPresent()) {
+                    logger.info("Returning cached admin dashboard data for tenant: {}", tenantCacheKey);
+                    return cached.get();
+                }
             }
+            logger.info("Building admin dashboard summary");
+            AdminDashboardDto dashboard = buildDashboard(filteredAccounts);
+            dashboard.setLastUpdated(System.currentTimeMillis());
+            redisCache.put(tenantCacheKey, dashboard, CACHE_TTL_MINUTES);
+            logger.info("Admin dashboard data cached for tenant {} for {} minutes", tenantCacheKey, CACHE_TTL_MINUTES);
+            return dashboard;
         }
 
-        logger.info("Building admin dashboard summary");
-        AdminDashboardDto dashboard = new AdminDashboardDto();
+        // Sub-user: build filtered dashboard without caching
+        logger.info("Building filtered admin dashboard summary for sub-user");
+        AdminDashboardDto dashboard = buildDashboard(filteredAccounts);
+        dashboard.setLastUpdated(System.currentTimeMillis());
+        return dashboard;
+    }
 
-        // Get all cloud accounts
-        List<CloudAccount> allAccounts = cloudAccountRepository.findAll();
+    private AdminDashboardDto buildDashboard(List<CloudAccount> allAccounts) {
+        AdminDashboardDto dashboard = new AdminDashboardDto();
         dashboard.setTotalAccounts((long) allAccounts.size());
 
         // Count by provider
@@ -194,11 +212,6 @@ public class AdminDashboardService {
 
         // Spending trend (last 6 months)
         dashboard.setSpendingTrend(calculateSpendingTrend(allAccounts, 6));
-
-        // Cache the result
-        dashboard.setLastUpdated(System.currentTimeMillis());
-        redisCache.put(tenantCacheKey, dashboard, CACHE_TTL_MINUTES);
-        logger.info("Admin dashboard data cached for tenant {} for {} minutes", tenantCacheKey, CACHE_TTL_MINUTES);
 
         return dashboard;
     }

@@ -25,11 +25,13 @@ public class TicketDto {
 
     private Long creatorId;
     private String creatorUsername;
+    private String creatorEmail;
 
     private LocalDateTime closedAt;
     private LocalDateTime chatStartedAt;
     private Long assignedToId;
     private String assignedToUsername;
+    private boolean hasUnreadUserReply;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -61,6 +63,8 @@ public class TicketDto {
     public void setCreatorId(Long creatorId) { this.creatorId = creatorId; }
     public String getCreatorUsername() { return creatorUsername; }
     public void setCreatorUsername(String creatorUsername) { this.creatorUsername = creatorUsername; }
+    public String getCreatorEmail() { return creatorEmail; }
+    public void setCreatorEmail(String creatorEmail) { this.creatorEmail = creatorEmail; }
     public LocalDateTime getClosedAt() { return closedAt; }
     public void setClosedAt(LocalDateTime closedAt) { this.closedAt = closedAt; }
     public LocalDateTime getChatStartedAt() { return chatStartedAt; }
@@ -69,4 +73,6 @@ public class TicketDto {
     public void setAssignedToId(Long assignedToId) { this.assignedToId = assignedToId; }
     public String getAssignedToUsername() { return assignedToUsername; }
     public void setAssignedToUsername(String assignedToUsername) { this.assignedToUsername = assignedToUsername; }
+    public boolean isHasUnreadUserReply() { return hasUnreadUserReply; }
+    public void setHasUnreadUserReply(boolean hasUnreadUserReply) { this.hasUnreadUserReply = hasUnreadUserReply; }
 }

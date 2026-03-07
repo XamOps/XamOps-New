@@ -25,6 +25,7 @@ export interface BillOpsTicket {
   assignedToId?: number;
   assignedToUsername?: string;
   creatorUsername?: string;
+  creatorEmail?: string;
 }
 
 export interface CreateTicketFormData {
@@ -78,6 +79,7 @@ export interface TicketReply {
 export interface AdminUser {
   id: number;
   username: string;
+  email?: string;
 }
 
 /**

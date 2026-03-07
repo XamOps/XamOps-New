@@ -13,7 +13,7 @@
  * All backend connections and functionality preserved
  */
 
-import React from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useMyProfile } from '../hooks/useMyProfile';
 import { DialogRoot, DialogPanel } from '../components/ui';
 import { TeamUser, CloudAccount } from '../types/myProfile';
@@ -99,6 +99,54 @@ const MyProfilePage: React.FC = () => {
     { key: 'client-details', label: 'Client Details', icon: 'fas fa-users-cog' },
     { key: 'autospotting-admin', label: 'AutoSpotting Admin', icon: 'fas fa-magic' },
   ];
+
+  // ── Account Access UI state ──────────────────────────────────────────
+  const [accountAccessMode, setAccountAccessMode] = useState<'all' | 'selected'>('selected');
+  const [accountSearch, setAccountSearch] = useState('');
+  const [accountProviderFilter, setAccountProviderFilter] = useState<'All' | 'AWS' | 'GCP' | 'Azure'>('All');
+
+  // When a form opens, auto-detect whether current selection equals all accounts
+  useEffect(() => {
+    if (isEditing) {
+      const total = profile.cloudAccounts?.length ?? 0;
+      const isAll = total > 0 && selectedUser.accountIds.length === total &&
+        profile.cloudAccounts.every(a => selectedUser.accountIds.includes(a.id));
+      setAccountAccessMode(isAll ? 'all' : 'selected');
+      setAccountSearch('');
+      setAccountProviderFilter('All');
+    }
+  }, [isEditing]);
+
+  // Accounts visible in the picker after search + provider filter
+  const filteredAccounts = useMemo(() => {
+    const accounts: CloudAccount[] = profile.cloudAccounts ?? [];
+    return accounts.filter(a => {
+      const matchProvider = accountProviderFilter === 'All' || a.provider === accountProviderFilter;
+      const matchSearch = !accountSearch ||
+        a.name.toLowerCase().includes(accountSearch.toLowerCase()) ||
+        a.provider.toLowerCase().includes(accountSearch.toLowerCase());
+      return matchProvider && matchSearch;
+    });
+  }, [profile.cloudAccounts, accountSearch, accountProviderFilter]);
+
+  const handleAccountModeChange = (mode: 'all' | 'selected') => {
+    setAccountAccessMode(mode);
+    if (mode === 'all') {
+      updateSelectedUser('accountIds', (profile.cloudAccounts ?? []).map(a => a.id));
+    }
+  };
+
+  const selectVisibleAccounts = () => {
+    const visibleIds = filteredAccounts.map(a => a.id);
+    const merged = Array.from(new Set([...selectedUser.accountIds, ...visibleIds]));
+    updateSelectedUser('accountIds', merged);
+  };
+
+  const clearVisibleAccounts = () => {
+    const visibleIds = new Set(filteredAccounts.map(a => a.id));
+    updateSelectedUser('accountIds', selectedUser.accountIds.filter(id => !visibleIds.has(id)));
+  };
+  // ─────────────────────────────────────────────────────────────────────
 
   if (error) {
     return (
@@ -200,7 +248,7 @@ const MyProfilePage: React.FC = () => {
                               : 'fab fa-microsoft'
                             }`}
                         ></i>
-                        {account.name}
+                        {account.accountName}
                       </span>
                     ))
                   ) : (
@@ -327,37 +375,164 @@ const MyProfilePage: React.FC = () => {
                           <i className="fas fa-cloud mr-2"></i>
                           Cloud Account Access
                         </label>
-                        <p className="text-sm text-gray-500 mb-3">
-                          Select which cloud accounts this team member can access
-                        </p>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          {profile.cloudAccounts.map((account: CloudAccount) => (
-                            <label
-                              key={account.id}
-                              className="cloud-account-checkbox"
-                            >
-                              <input
-                                type="checkbox"
-                                checked={selectedUser.accountIds.includes(account.id)}
-                                onChange={() => toggleAccountId(account.id)}
-                                className="checkbox-input"
-                              />
-                              <div className="ml-3 flex items-center">
-                                <i
-                                  className={`mr-2 ${account.provider === 'AWS'
-                                    ? 'fab fa-aws text-orange-500'
-                                    : account.provider === 'GCP'
-                                      ? 'fab fa-google text-blue-500'
-                                      : 'fab fa-microsoft text-sky-500'
+
+                        {/* Mode toggle: All vs Selected */}
+                        <div className="grid grid-cols-2 gap-3 mb-4">
+                          <button
+                            type="button"
+                            onClick={() => handleAccountModeChange('all')}
+                            className={`flex items-center gap-3 p-3 rounded-xl border-2 transition-all text-left ${
+                              accountAccessMode === 'all'
+                                ? 'border-indigo-500 bg-indigo-50'
+                                : 'border-gray-200 bg-white hover:border-indigo-300'
+                            }`}
+                          >
+                            <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
+                              accountAccessMode === 'all' ? 'border-indigo-500' : 'border-gray-300'
+                            }`}>
+                              {accountAccessMode === 'all' && <div className="w-2 h-2 rounded-full bg-indigo-500" />}
+                            </div>
+                            <div>
+                              <p className="text-sm font-semibold text-gray-800">All Accounts</p>
+                              <p className="text-xs text-gray-500">{profile.cloudAccounts.length} accounts</p>
+                            </div>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleAccountModeChange('selected')}
+                            className={`flex items-center gap-3 p-3 rounded-xl border-2 transition-all text-left ${
+                              accountAccessMode === 'selected'
+                                ? 'border-indigo-500 bg-indigo-50'
+                                : 'border-gray-200 bg-white hover:border-indigo-300'
+                            }`}
+                          >
+                            <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
+                              accountAccessMode === 'selected' ? 'border-indigo-500' : 'border-gray-300'
+                            }`}>
+                              {accountAccessMode === 'selected' && <div className="w-2 h-2 rounded-full bg-indigo-500" />}
+                            </div>
+                            <div>
+                              <p className="text-sm font-semibold text-gray-800">Selected Accounts</p>
+                              <p className="text-xs text-gray-500">
+                                {accountAccessMode === 'selected' ? `${selectedUser.accountIds.length} selected` : 'Choose specific accounts'}
+                              </p>
+                            </div>
+                          </button>
+                        </div>
+
+                        {/* Selected mode: search + filter + scrollable list */}
+                        {accountAccessMode === 'selected' && (
+                          <div className="border border-gray-200 rounded-xl overflow-hidden">
+                            {/* Search bar */}
+                            <div className="p-3 border-b border-gray-100 bg-gray-50">
+                              <div className="relative">
+                                <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i>
+                                <input
+                                  type="text"
+                                  value={accountSearch}
+                                  onChange={e => setAccountSearch(e.target.value)}
+                                  placeholder="Search by name or provider..."
+                                  className="w-full pl-8 pr-8 py-2 text-sm bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400"
+                                />
+                                {accountSearch && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setAccountSearch('')}
+                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                                  >
+                                    <i className="fas fa-times text-xs"></i>
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Provider filter pills + shortcuts */}
+                            <div className="px-3 py-2 border-b border-gray-100 bg-gray-50 flex items-center justify-between flex-wrap gap-2">
+                              <div className="flex items-center gap-1.5">
+                                {(['All', 'AWS', 'GCP', 'Azure'] as const).map(p => (
+                                  <button
+                                    key={p}
+                                    type="button"
+                                    onClick={() => setAccountProviderFilter(p)}
+                                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
+                                      accountProviderFilter === p
+                                        ? 'bg-indigo-600 text-white'
+                                        : 'bg-white border border-gray-200 text-gray-600 hover:border-indigo-300 hover:text-indigo-600'
                                     }`}
-                                ></i>
-                                <span className="text-sm font-medium text-gray-700">
-                                  {account.name}
+                                  >
+                                    {p === 'AWS' && <i className="fab fa-aws mr-1"></i>}
+                                    {p === 'GCP' && <i className="fab fa-google mr-1"></i>}
+                                    {p === 'Azure' && <i className="fab fa-microsoft mr-1"></i>}
+                                    {p}
+                                    {p !== 'All' && (
+                                      <span className="ml-1 opacity-70">
+                                        {(profile.cloudAccounts ?? []).filter(a => a.provider === p).length}
+                                      </span>
+                                    )}
+                                  </button>
+                                ))}
+                              </div>
+                              <div className="flex items-center gap-3 text-xs">
+                                <button
+                                  type="button"
+                                  onClick={selectVisibleAccounts}
+                                  className="text-indigo-600 hover:text-indigo-800 font-semibold"
+                                >
+                                  <i className="fas fa-check-double mr-1"></i>
+                                  Select all ({filteredAccounts.length})
+                                </button>
+                                <span className="text-gray-300">|</span>
+                                <button
+                                  type="button"
+                                  onClick={clearVisibleAccounts}
+                                  className="text-red-500 hover:text-red-700 font-semibold"
+                                >
+                                  <i className="fas fa-times mr-1"></i>
+                                  Clear
+                                </button>
+                                <span className="text-gray-300">|</span>
+                                <span className="font-bold text-indigo-700">
+                                  {selectedUser.accountIds.length} selected
                                 </span>
                               </div>
-                            </label>
-                          ))}
-                        </div>
+                            </div>
+
+                            {/* Scrollable account list */}
+                            <div className="max-h-64 overflow-y-auto divide-y divide-gray-50">
+                              {filteredAccounts.length === 0 ? (
+                                <div className="py-8 text-center text-sm text-gray-400">
+                                  <i className="fas fa-search mb-2 block text-lg"></i>
+                                  No accounts match your search
+                                </div>
+                              ) : filteredAccounts.map((account: CloudAccount) => (
+                                <label
+                                  key={account.id}
+                                  className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors hover:bg-indigo-50/50 ${
+                                    selectedUser.accountIds.includes(account.id) ? 'bg-indigo-50/30' : ''
+                                  }`}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedUser.accountIds.includes(account.id)}
+                                    onChange={() => toggleAccountId(account.id)}
+                                    className="checkbox-input flex-shrink-0"
+                                  />
+                                  <i className={`text-sm flex-shrink-0 ${
+                                    account.provider === 'AWS' ? 'fab fa-aws text-orange-500'
+                                    : account.provider === 'GCP' ? 'fab fa-google text-blue-500'
+                                    : 'fab fa-microsoft text-sky-500'
+                                  }`}></i>
+                                  <span className="text-sm text-gray-700 truncate">{account.accountName}</span>
+                                  <span className={`ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 ${
+                                    account.provider === 'AWS' ? 'bg-orange-50 text-orange-600'
+                                    : account.provider === 'GCP' ? 'bg-blue-50 text-blue-600'
+                                    : 'bg-sky-50 text-sky-600'
+                                  }`}>{account.provider}</span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -392,6 +567,40 @@ const MyProfilePage: React.FC = () => {
                             </label>
                           ))}
                         </div>
+
+                        {/* Ticket Category Sub-Access — shown when All Tickets tab is enabled */}
+                        {selectedUser.allowedTabs.includes('all-tickets') && (
+                          <div className="mt-3 ml-4 p-4 bg-indigo-50 rounded-xl border border-indigo-200">
+                            <p className="text-xs font-bold text-indigo-700 uppercase tracking-widest mb-3">
+                              <i className="fas fa-filter mr-1.5"></i>
+                              Ticket Category Access
+                            </p>
+                            <p className="text-xs text-indigo-500 mb-3">
+                              Choose which ticket categories this member can view
+                            </p>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                              {[
+                                { key: 'tickets-account-billing', label: 'Account & Billing', icon: 'fas fa-file-invoice-dollar' },
+                                { key: 'tickets-technical', label: 'Technical Support', icon: 'fas fa-server' },
+                                { key: 'tickets-all', label: 'All Tickets', icon: 'fas fa-list' },
+                              ].map(cat => (
+                                <label
+                                  key={cat.key}
+                                  className="flex items-center gap-2 px-3 py-2 bg-white rounded-lg border border-indigo-100 cursor-pointer hover:border-indigo-300 transition-colors"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedUser.allowedTabs.includes(cat.key)}
+                                    onChange={() => toggleTab(cat.key)}
+                                    className="checkbox-input"
+                                  />
+                                  <i className={`${cat.icon} text-indigo-400 text-xs`}></i>
+                                  <span className="text-xs font-medium text-gray-700">{cat.label}</span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -480,7 +689,7 @@ const MyProfilePage: React.FC = () => {
                                             : 'fab fa-microsoft'
                                           }`}
                                       ></i>
-                                      {account.name}
+                                      {account.accountName}
                                     </span>
                                   ))}
                                 </div>
@@ -490,19 +699,37 @@ const MyProfilePage: React.FC = () => {
                             </td>
                             {profile.role === 'ROLE_BILLOPS_ADMIN' && (
                               <td>
-                                {user.allowedTabs && user.allowedTabs.length > 0 ? (
-                                  <div className="flex flex-wrap gap-1">
-                                    {user.allowedTabs.map(tabKey => {
-                                      const tab = BILLOPS_ADMIN_TABS.find(t => t.key === tabKey);
-                                      return tab ? (
-                                        <span key={tabKey} className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">
-                                          <i className={`${tab.icon} mr-1`}></i>
-                                          {tab.label}
-                                        </span>
-                                      ) : null;
-                                    })}
-                                  </div>
-                                ) : (
+                                {user.allowedTabs && user.allowedTabs.length > 0 ? (() => {
+                                  const TICKET_CATEGORY_LABELS: Record<string, { label: string; icon: string }> = {
+                                    'tickets-account-billing': { label: 'Account & Billing', icon: 'fas fa-file-invoice-dollar' },
+                                    'tickets-technical': { label: 'Technical Support', icon: 'fas fa-server' },
+                                    'tickets-all': { label: 'All Tickets', icon: 'fas fa-list' },
+                                  };
+                                  const mainTabs = user.allowedTabs.filter(k => !k.startsWith('tickets-'));
+                                  const ticketCats = user.allowedTabs.filter(k => k.startsWith('tickets-'));
+                                  return (
+                                    <div className="flex flex-wrap gap-1">
+                                      {mainTabs.map(tabKey => {
+                                        const tab = BILLOPS_ADMIN_TABS.find(t => t.key === tabKey);
+                                        return tab ? (
+                                          <span key={tabKey} className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">
+                                            <i className={`${tab.icon} mr-1`}></i>
+                                            {tab.label}
+                                          </span>
+                                        ) : null;
+                                      })}
+                                      {ticketCats.map(catKey => {
+                                        const cat = TICKET_CATEGORY_LABELS[catKey];
+                                        return cat ? (
+                                          <span key={catKey} className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-amber-50 text-amber-700 border border-amber-100">
+                                            <i className={`${cat.icon} mr-1`}></i>
+                                            {cat.label}
+                                          </span>
+                                        ) : null;
+                                      })}
+                                    </div>
+                                  );
+                                })() : (
                                   <span className="text-xs text-gray-400 italic">No tab access</span>
                                 )}
                               </td>

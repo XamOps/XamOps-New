@@ -186,6 +186,27 @@ public class BillingService {
         return dto;
     }
 
+    /**
+     * Converts an amount from the account's native billing currency to USD.
+     * Returns the original amount unchanged if the account is already in USD
+     * (billingCurrency is null/blank/"USD") or if no valid exchange rate is set.
+     * Exchange rate semantics: how many native-currency units = 1 USD.
+     * e.g. billingCurrency="INR", usdExchangeRate=84.0 → amount / 84.0
+     */
+    private double convertToUsd(double amount, CloudAccount account) {
+        String currency = account.getBillingCurrency();
+        if (currency == null || currency.isBlank() || "USD".equalsIgnoreCase(currency)) {
+            return amount;
+        }
+        Double rate = account.getUsdExchangeRate();
+        if (rate == null || rate <= 0 || rate == 1.0) {
+            logger.warn("No valid usdExchangeRate for account {} (currency={}). Returning raw amount.",
+                    account.getAccountName(), currency);
+            return amount;
+        }
+        return amount / rate;
+    }
+
     private BillingDashboardDto fetchGcpBillingSummary(CloudAccount account, Integer year, Integer month) {
         try {
             String accountIdentifier = account.getGcpProjectId();
@@ -207,18 +228,19 @@ public class BillingService {
 
                 BillingDashboardDto dto = new BillingDashboardDto();
 
-                // Map History
+                // Map History (with currency conversion to USD)
                 if (gcpDto.getCostHistory() != null) {
                     dto.setCostHistory(gcpDto.getCostHistory().stream()
-                            .map(h -> new BillingDashboardDto.CostHistory(h.getDate(), h.getAmount().doubleValue()))
+                            .map(h -> new BillingDashboardDto.CostHistory(h.getDate(),
+                                    convertToUsd(h.getAmount().doubleValue(), account)))
                             .collect(Collectors.toList()));
                 }
 
-                // Map Service Breakdown
+                // Map Service Breakdown (with currency conversion to USD)
                 if (gcpDto.getServiceBreakdown() != null) {
                     dto.setServiceBreakdown(gcpDto.getServiceBreakdown().stream()
                             .map(s -> new BillingDashboardDto.ServiceBreakdown(s.getServiceName(),
-                                    s.getAmount().doubleValue()))
+                                    convertToUsd(s.getAmount().doubleValue(), account)))
                             .collect(Collectors.toList()));
                 }
 
@@ -247,32 +269,92 @@ public class BillingService {
             com.xammer.billops.dto.azure.AzureBillingDashboardDto azureDto = azureCostService
                     .getBillingDashboard(subscriptionId, year, month);
 
-            if (azureDto != null) {
+            boolean hasBillopsData = azureDto != null
+                    && ((azureDto.getServiceBreakdown() != null && !azureDto.getServiceBreakdown().isEmpty())
+                            || (azureDto.getCostHistory() != null && !azureDto.getCostHistory().isEmpty()));
+
+            if (hasBillopsData) {
                 logger.info("✅ Successfully fetched Azure data for {}. Total Cost: {}", subscriptionId,
                         azureDto.getTotalCost());
                 BillingDashboardDto dto = new BillingDashboardDto();
 
-                // Map History
+                // Map History (with currency conversion to USD)
                 if (azureDto.getCostHistory() != null) {
                     dto.setCostHistory(azureDto.getCostHistory().stream()
-                            .map(h -> new BillingDashboardDto.CostHistory(h.getDate(), h.getCost()))
+                            .map(h -> new BillingDashboardDto.CostHistory(h.getDate(),
+                                    convertToUsd(h.getCost(), account)))
                             .collect(Collectors.toList()));
                 }
 
-                // Map Service Breakdown
+                // Map Service Breakdown (with currency conversion to USD)
                 if (azureDto.getServiceBreakdown() != null) {
                     dto.setServiceBreakdown(azureDto.getServiceBreakdown().stream()
-                            .map(s -> new BillingDashboardDto.ServiceBreakdown(s.getServiceName(), s.getAmount()))
+                            .map(s -> new BillingDashboardDto.ServiceBreakdown(s.getServiceName(),
+                                    convertToUsd(s.getAmount(), account)))
                             .collect(Collectors.toList()));
                 }
 
                 return dto;
             }
+
+            // Fallback: read from xamops-service cache (azure:billing-summary: / azure:cost-history:)
+            logger.info("⚠️ Billops Azure cache miss for {}. Trying xamops-service cache fallback.", subscriptionId);
+            return buildDtoFromXamopsAzureCache(subscriptionId, account);
+
         } catch (Exception e) {
             logger.error("❌ Error fetching Azure summary for account {}: {}", account.getAzureSubscriptionId(),
                     e.getMessage(), e);
         }
         return new BillingDashboardDto();
+    }
+
+    /**
+     * Fallback: reads Azure billing data cached by the xamops-service ingestion job.
+     * Keys: "azure:billing-summary:{subscriptionId}" and "azure:cost-history:{subscriptionId}"
+     */
+    @SuppressWarnings("unchecked")
+    private BillingDashboardDto buildDtoFromXamopsAzureCache(String subscriptionId, CloudAccount account) {
+        BillingDashboardDto dto = new BillingDashboardDto();
+
+        // Service breakdown: List of {serviceName, monthToDateCost}
+        Optional<List<Map<String, Object>>> summaryOpt = redisCache.get(
+                "azure:billing-summary:" + subscriptionId,
+                new TypeReference<List<Map<String, Object>>>() {});
+        if (summaryOpt.isPresent() && !summaryOpt.get().isEmpty()) {
+            List<BillingDashboardDto.ServiceBreakdown> breakdown = summaryOpt.get().stream()
+                    .map(entry -> {
+                        String name = (String) entry.getOrDefault("serviceName", "Unknown");
+                        double cost = entry.get("monthToDateCost") instanceof Number
+                                ? ((Number) entry.get("monthToDateCost")).doubleValue() : 0.0;
+                        return new BillingDashboardDto.ServiceBreakdown(name, convertToUsd(cost, account));
+                    })
+                    .collect(Collectors.toList());
+            dto.setServiceBreakdown(breakdown);
+            logger.info("✅ Azure fallback: loaded {} services from xamops cache for {}", breakdown.size(), subscriptionId);
+        }
+
+        // Cost history: {labels: [...], costs: [...], anomalies: [...]}
+        Optional<Map<String, Object>> historyOpt = redisCache.get(
+                "azure:cost-history:" + subscriptionId,
+                new TypeReference<Map<String, Object>>() {});
+        if (historyOpt.isPresent()) {
+            Map<String, Object> historyData = historyOpt.get();
+            List<String> labels = (List<String>) historyData.get("labels");
+            List<?> rawCosts = (List<?>) historyData.get("costs");
+            if (labels != null && rawCosts != null) {
+                List<BillingDashboardDto.CostHistory> costHistory = new ArrayList<>();
+                for (int i = 0; i < Math.min(labels.size(), rawCosts.size()); i++) {
+                    double cost = rawCosts.get(i) instanceof Number
+                            ? ((Number) rawCosts.get(i)).doubleValue() : 0.0;
+                    costHistory.add(new BillingDashboardDto.CostHistory(
+                            labels.get(i), convertToUsd(cost, account)));
+                }
+                dto.setCostHistory(costHistory);
+                logger.info("✅ Azure fallback: loaded {} history entries from xamops cache for {}", costHistory.size(), subscriptionId);
+            }
+        }
+
+        return dto;
     }
 
     private List<ServiceCostDetailDto> fetchSingleAccountDetails(CloudAccount account, Integer year, Integer month) {

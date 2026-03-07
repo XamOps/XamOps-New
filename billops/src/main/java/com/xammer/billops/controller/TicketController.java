@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @RestController
@@ -99,7 +100,7 @@ public class TicketController {
     @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
     public ResponseEntity<List<AdminUserDto>> getAdmins() {
         List<AdminUserDto> admins = ticketService.getAdminUsers().stream()
-                .map(u -> new AdminUserDto(u.getId(), u.getUsername()))
+                .map(u -> new AdminUserDto(u.getId(), u.getUsername(), u.getEmail()))
                 .collect(Collectors.toList());
         return ResponseEntity.ok(admins);
     }
@@ -187,6 +188,43 @@ public class TicketController {
             return ResponseEntity.ok(ticketService.closeTicket(id));
         } catch (RuntimeException e) {
             logger.error("Error closing ticket {}: {}", id, e.getMessage());
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        }
+    }
+
+    @PostMapping("/tickets/{id}/email")
+    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
+    public ResponseEntity<Void> sendTicketEmail(
+            @PathVariable Long id,
+            @RequestBody Map<String, Object> body) {
+        try {
+            List<String> recipients = new java.util.ArrayList<>();
+
+            // Support both { recipientEmails: [...] } and legacy { recipientEmail: "..." }
+            Object emailsField = body.get("recipientEmails");
+            if (emailsField instanceof java.util.List) {
+                ((java.util.List<?>) emailsField).forEach(e -> {
+                    if (e instanceof String) recipients.add((String) e);
+                });
+            } else {
+                Object singleEmail = body.get("recipientEmail");
+                if (singleEmail instanceof String && !((String) singleEmail).isBlank()) {
+                    recipients.add((String) singleEmail);
+                }
+            }
+
+            if (recipients.isEmpty()) {
+                return ResponseEntity.badRequest().build();
+            }
+
+            String sendMode = body.getOrDefault("sendMode", "separate") instanceof String
+                    ? (String) body.get("sendMode")
+                    : "separate";
+
+            ticketService.sendTicketThreadEmail(id, recipients, sendMode);
+            return ResponseEntity.ok().build();
+        } catch (RuntimeException e) {
+            logger.error("Error sending ticket email for ticket {}: {}", id, e.getMessage());
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         }
     }

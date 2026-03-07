@@ -239,12 +239,46 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   return <>{children}</>;
 };
 
+/** Tab key → React route mapping for BillOps admin tabs */
+const BILLOPS_ADMIN_TAB_ROUTES: Record<string, string> = {
+  'admin-dashboard':   '/billops-admin-dashboard',
+  'support-inbox':     '/billops-support-dashboard',
+  'all-tickets':       '/billops-admin-tickets',
+  'all-invoices':      '/billops-admin-invoices',
+  'credit-requests':   '/billops-admin-credits',
+  'agreement-admin':   '/billops-admin-agreements',
+  'client-details':    '/billops-client-details',
+  'autospotting-admin':'/autospotting-admin',
+};
+const BILLOPS_ADMIN_TAB_ORDER = Object.keys(BILLOPS_ADMIN_TAB_ROUTES);
+
 /**
  * Dashboard Guard - Redirects ROLE_BILLOPS (non-XAMOPS) users to BillOps dashboard
  * whenever they try to access standard dashboards.
+ * For ROLE_BILLOPS_ADMIN sub-users, redirects to their first allowed tab instead
+ * of always landing on the admin dashboard they may not have access to.
  */
 const DashboardGuard: React.FC = () => {
   const { hasAnyRole, isLoading } = useAuth();
+  const [billopsRedirect, setBillopsRedirect] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (isLoading || !hasAnyRole('ROLE_BILLOPS_ADMIN') || hasAnyRole('ROLE_SUPER_ADMIN')) return;
+
+    fetch('/api/billops/team/profile', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!data || data.isPrimaryUser) {
+          setBillopsRedirect('/billops-admin-dashboard');
+          return;
+        }
+        // Sub-user: redirect to their first allowed tab
+        const allowedTabs: string[] = data.allowedTabs || [];
+        const firstTab = BILLOPS_ADMIN_TAB_ORDER.find(t => allowedTabs.includes(t));
+        setBillopsRedirect(firstTab ? BILLOPS_ADMIN_TAB_ROUTES[firstTab] : '/billops-admin-dashboard');
+      })
+      .catch(() => setBillopsRedirect('/billops-admin-dashboard'));
+  }, [isLoading]);
 
   if (isLoading) {
     return (
@@ -255,8 +289,16 @@ const DashboardGuard: React.FC = () => {
   }
 
   if (hasAnyRole('ROLE_BILLOPS_ADMIN') && !hasAnyRole('ROLE_SUPER_ADMIN')) {
-    console.log('🚫 Restricted Admin role detected, redirecting to BillOps Admin dashboard');
-    return <Navigate to="/billops-admin-dashboard" replace />;
+    if (!billopsRedirect) {
+      // Profile fetch still in-flight — show spinner to avoid flash to wrong page
+      return (
+        <div className="flex items-center justify-center h-screen">
+          <div className="text-gray-600">Checking permissions...</div>
+        </div>
+      );
+    }
+    console.log('🚫 BILLOPS_ADMIN redirecting to:', billopsRedirect);
+    return <Navigate to={billopsRedirect} replace />;
   }
 
   if (hasAnyRole('ROLE_BILLOPS') && !hasAnyRole('ROLE_XAMOPS') && !hasAnyRole('ROLE_SUPER_ADMIN')) {

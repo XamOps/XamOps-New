@@ -52,9 +52,6 @@ public class TeamUserService {
     @Autowired
     private EmailService emailService;
 
-    @Autowired
-    private MasterDatabaseService masterDatabaseService;
-
     public ProfileDTO getMyProfile() {
         Long currentUserId = SecurityUtils.getCurrentUserId();
         log.info("Getting profile for user ID: {}", currentUserId);
@@ -100,7 +97,7 @@ public class TeamUserService {
 
             List<ProfileDTO.CloudAccountInfo> accountInfos = accounts.stream()
                     .filter(acc -> "CONNECTED".equals(acc.getStatus()))
-                    .map(acc -> new ProfileDTO.CloudAccountInfo(acc.getId(), acc.getAccountName(), acc.getProvider()))
+                    .map(acc -> new ProfileDTO.CloudAccountInfo(acc.getId(), null, acc.getAccountName(), acc.getProvider()))
                     .collect(Collectors.toList());
             profile.setCloudAccounts(accountInfos);
             log.info("Returning {} cloud accounts in profile", accountInfos.size());
@@ -142,8 +139,8 @@ public class TeamUserService {
                     if (!accountIds.isEmpty()) {
                         List<CloudAccount> accounts = cloudAccountRepository.findAllById(accountIds);
                         List<ProfileDTO.CloudAccountInfo> accountInfos = accounts.stream()
-                                .map(acc -> new ProfileDTO.CloudAccountInfo(acc.getId(), acc.getAccountName(),
-                                        acc.getProvider()))
+                                .map(acc -> new ProfileDTO.CloudAccountInfo(acc.getId(), null,
+                                        acc.getAccountName(), acc.getProvider()))
                                 .collect(Collectors.toList());
                         dto.setCloudAccounts(accountInfos);
                     }
@@ -336,13 +333,6 @@ public class TeamUserService {
         // Then delete the user
         appUserRepository.delete(userToDelete);
 
-        // --- Synchronize deletion with Master DB ---
-        try {
-            log.info("Synchronizing deleted sub-user '{}' from Master DB", userToDelete.getUsername());
-            masterDatabaseService.deleteGlobalUser(userToDelete.getUsername());
-        } catch (Exception e) {
-            log.error("Failed to sync user deletion from Master DB: {}", userToDelete.getUsername(), e);
-        }
     }
 
     @Transactional

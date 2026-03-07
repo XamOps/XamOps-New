@@ -316,21 +316,36 @@ public class MultiTenantDataSourceConfig {
     }
 
     /**
-     * Master DataSource Bean for PROD & PREPROD Profiles
-     * (exposed for services that need to query master DB directly)
-     * Points to production_db for tenant_config and global_users lookups
+     * Master DataSource Bean for PROD Profile
+     * Points to the same single DB as the primary datasource (no separate master DB).
      */
     @Bean(name = "masterDataSource")
     @ConditionalOnProperty(name = "spring.profiles.active", havingValue = "prod")
     public DataSource prodMasterDataSource() {
-        logger.info("Creating masterDataSource bean pointing to production_db for global_users lookups");
-        return createMasterDataSourceForLookup();
+        logger.info("Creating masterDataSource bean pointing to prod DB (same as primary)");
+        HikariDataSource ds = new HikariDataSource();
+        ds.setJdbcUrl(dataSourceUrl);
+        ds.setUsername(dataSourceUsername);
+        ds.setPassword(dataSourcePassword);
+        ds.setDriverClassName(dataSourceDriver);
+        applyMasterHikariSettings(ds, "MasterPool-Prod");
+        return ds;
     }
 
+    /**
+     * Master DataSource Bean for PREPROD Profile
+     * Points to the same single DB as the primary datasource (no separate master DB).
+     */
     @Bean(name = "masterDataSource")
     @ConditionalOnProperty(name = "spring.profiles.active", havingValue = "preprod")
     public DataSource preprodMasterDataSource() {
-        logger.info("Creating masterDataSource bean pointing to production_db for global_users lookups (PREPROD)");
-        return createMasterDataSourceForLookup();
+        logger.info("Creating masterDataSource bean pointing to preprod DB (same as primary)");
+        HikariDataSource ds = new HikariDataSource();
+        ds.setJdbcUrl(dataSourceUrl);
+        ds.setUsername(dataSourceUsername);
+        ds.setPassword(dataSourcePassword);
+        ds.setDriverClassName(dataSourceDriver);
+        applyMasterHikariSettings(ds, "MasterPool-Preprod");
+        return ds;
     }
 }
