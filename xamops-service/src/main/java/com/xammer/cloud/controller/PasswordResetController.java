@@ -13,7 +13,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Optional;
-import java.util.Random;
+import java.security.SecureRandom;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -67,8 +67,9 @@ public class PasswordResetController {
                 return ResponseEntity.badRequest().body("Email does not match our records.");
             }
 
-            // Generate 6-digit OTP
-            String otp = String.format("%06d", new Random().nextInt(999999));
+            // Generate 6-digit OTP using SecureRandom
+            SecureRandom secureRandom = new SecureRandom();
+            String otp = String.format("%06d", secureRandom.nextInt(1000000));
             
             // Save OTP to Redis (Expires in 5 minutes)
             redisCacheService.saveOtp(username, otp);
@@ -78,9 +79,6 @@ public class PasswordResetController {
             String body = "<h3>Password Reset Request</h3>" +
                           "<p>Your verification code is: <strong>" + otp + "</strong></p>" +
                           "<p>This code expires in 5 minutes.</p>";
-            
-            // Log for debugging (in case email fails)
-            System.out.println(">>> OTP for " + username + ": " + otp);
             
             emailService.sendHtmlEmail(email, subject, body);
 
