@@ -5,3 +5,7 @@
 ## 2025-05-15 - Resilient DOM Traversal for Input Effects
 **Learning:** When adding interactive elements like password visibility toggles that require nesting inputs in new wrapper elements (e.g., `relative` containers), existing DOM-traversal-based scripts (like those using `parentElement`) can break. Using `.closest()` in event listeners provides a more resilient way to target container elements for animations or state changes, regardless of the nesting depth.
 **Action:** Use `.closest()` instead of `parentElement` when writing scripts that interact with the parent containers of form inputs to ensure compatibility with nested UI enhancements.
+
+## 2025-05-16 - Search Experience and Empty States
+**Learning:** Providing immediate focus to search inputs and clear feedback for empty results significantly improves the "flow" of data filtering components. Without automatic focus, users must perform an extra click/tap, and without an explicit empty state, they may be confused as to whether the application is still loading or if no matches exist.
+**Action:** Always implement auto-focus for search inputs in modals/dropdowns and provide a clear "No results" feedback block with an easy reset action.
