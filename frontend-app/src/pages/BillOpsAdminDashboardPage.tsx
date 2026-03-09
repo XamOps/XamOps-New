@@ -31,8 +31,18 @@ import { useBillOpsAdminNotifications } from '../hooks/useBillOpsAdminNotificati
 import { useTopbar } from '../contexts/TopbarContext';
 import type { TopSpendingAccount, AdminInvoice, AdminTicket, SpendingTrendItem } from '../types/billopsAdminDashboard';
 import BillOpsNotificationDropdown from '../components/BillOps/BillOpsNotificationDropdown';
+import { apiFetch } from '../utils/apiClient';
 
 import { useCurrency } from '../hooks/useCurrency';
+
+interface CustomerSpotSavings {
+  clientId: number;
+  clientName: string;
+  awsSavings: number;
+  gcpSavings: number;
+  azureSavings: number;
+  totalSavings: number;
+}
 
 const BillOpsAdminDashboardPage: React.FC = () => {
   const { data, loading, isRefreshing, error, refreshDashboard } = useBillOpsAdminDashboard();
@@ -43,6 +53,18 @@ const BillOpsAdminDashboardPage: React.FC = () => {
   // State for notification dropdown
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const notificationRef = useRef<HTMLDivElement>(null);
+
+  // Customer AutoSpotting savings state
+  const [customerSavings, setCustomerSavings] = useState<CustomerSpotSavings[]>([]);
+  const [customerSavingsLoading, setCustomerSavingsLoading] = useState(true);
+
+  useEffect(() => {
+    apiFetch('/api/admin/autospotting/customer-savings', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then((data: CustomerSpotSavings[]) => setCustomerSavings(data))
+      .catch(err => console.error('Failed to load customer spot savings', err))
+      .finally(() => setCustomerSavingsLoading(false));
+  }, []);
 
   // Chart refs
   const providerChartRef = useRef<HTMLCanvasElement>(null);
@@ -653,6 +675,83 @@ const BillOpsAdminDashboardPage: React.FC = () => {
                       </td>
                     </tr>
                   )}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+
+        {/* AutoSpotting Savings by Customer */}
+        <div className="admin-glass-card admin-border-green rounded-xl p-6">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h3 className="text-lg font-black text-gray-900 flex items-center gap-2">
+                <i className="fas fa-bolt text-green-600" />
+                AutoSpotting Savings by Customer
+              </h3>
+              <p className="text-xs text-gray-500 mt-1 font-medium">Only customers with AutoSpotting enabled</p>
+            </div>
+            <Link
+              to="/autospotting-admin"
+              className="text-xs font-bold text-green-600 hover:text-green-800 hover:underline uppercase tracking-wide"
+            >
+              Full Report &rarr;
+            </Link>
+          </div>
+
+          <div className="overflow-x-auto rounded-xl border border-gray-100">
+            {customerSavingsLoading ? (
+              <div className="p-4 space-y-4">
+                {[1, 2, 3].map(i => (
+                  <div key={i} className="h-10 w-full bg-gray-100 admin-shimmer rounded-lg animate-pulse" />
+                ))}
+              </div>
+            ) : customerSavings.length === 0 ? (
+              <div className="px-6 py-10 text-center text-gray-400 text-sm font-medium">
+                <i className="fas fa-bolt text-gray-300 text-2xl mb-2 block" />
+                No customers have AutoSpotting enabled yet
+              </div>
+            ) : (
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50/80 backdrop-blur-sm">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">
+                      Customer
+                    </th>
+                    <th className="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">
+                      <i className="fab fa-aws admin-provider-aws mr-1" /> AWS
+                    </th>
+                    <th className="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">
+                      <i className="fab fa-google admin-provider-gcp mr-1" /> GCP
+                    </th>
+                    <th className="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">
+                      <i className="fab fa-microsoft admin-provider-azure mr-1" /> Azure
+                    </th>
+                    <th className="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">
+                      Total Saved
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white/40 divide-y divide-gray-200">
+                  {customerSavings.map(row => (
+                    <tr key={row.clientId} className="admin-table-row">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
+                        {row.clientName}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-700 font-medium">
+                        {row.awsSavings > 0 ? formatCurrency(row.awsSavings) : <span className="text-gray-300">—</span>}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-700 font-medium">
+                        {row.gcpSavings > 0 ? formatCurrency(row.gcpSavings) : <span className="text-gray-300">—</span>}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-700 font-medium">
+                        {row.azureSavings > 0 ? formatCurrency(row.azureSavings) : <span className="text-gray-300">—</span>}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-black text-green-700">
+                        {formatCurrency(row.totalSavings)}
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             )}

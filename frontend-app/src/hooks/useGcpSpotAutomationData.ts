@@ -99,7 +99,10 @@ export const useGcpSpotAutomationData = ({ selectedAccountId }: UseGcpSpotAutoma
 
             const totalCurrent = migData.reduce((sum, item) => sum + item.currentCost, 0);
             const totalSavings = migData.reduce((sum, item) => sum + item.savings, 0);
-            const totalPotential = migData.reduce((sum, item) => sum + item.potentialSavings, 0);
+            // GKE-managed pools cannot be converted to Spot — exclude from potential savings
+            const totalPotential = migData
+                .filter(item => !item.gkeManagedPool)
+                .reduce((sum, item) => sum + item.potentialSavings, 0);
 
             setCosts({
                 currentHourly: totalCurrent,
