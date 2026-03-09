@@ -71,37 +71,32 @@ public class TeamUserService {
         profile.setPrimaryUser(currentUser.getCreatedBy() == null);
 
         // Get cloud accounts based on user type
-        if (currentUser.getClient() != null) {
-            List<CloudAccount> accounts;
+        List<CloudAccount> accounts = new ArrayList<>();
 
-            if (currentUser.getCreatedBy() == null) {
-                // Primary user: show all client accounts
-                log.info("Primary user - fetching all client accounts for client ID: {}",
-                        currentUser.getClient().getId());
-                accounts = cloudAccountRepository.findByClientId(currentUser.getClient().getId());
-                log.info("Found {} accounts for primary user", accounts.size());
-            } else {
-                // Sub-user: show only assigned accounts
-                log.info("Sub-user - fetching only assigned accounts");
-                List<Long> accessibleAccountIds = userCloudAccountAccessRepository
-                        .findCloudAccountIdsByUserId(currentUserId);
-                log.info("Accessible account IDs: {}", accessibleAccountIds);
+        if (currentUser.getCreatedBy() == null) {
+            // Primary ROLE_BILLOPS_ADMIN: see ALL accounts across all clients
+            accounts = cloudAccountRepository.findAll();
+            log.info("Primary BILLOPS_ADMIN user {} — fetching ALL {} accounts across all clients",
+                    currentUserId, accounts.size());
+        } else {
+            // Sub-user: show only assigned accounts
+            log.info("Sub-user - fetching only assigned accounts");
+            List<Long> accessibleAccountIds = userCloudAccountAccessRepository
+                    .findCloudAccountIdsByUserId(currentUserId);
+            log.info("Accessible account IDs: {}", accessibleAccountIds);
 
-                if (accessibleAccountIds.isEmpty()) {
-                    accounts = new ArrayList<>();
-                } else {
-                    accounts = cloudAccountRepository.findAllById(accessibleAccountIds);
-                }
-                log.info("Found {} accounts for sub-user", accounts.size());
+            if (!accessibleAccountIds.isEmpty()) {
+                accounts = cloudAccountRepository.findAllById(accessibleAccountIds);
             }
-
-            List<ProfileDTO.CloudAccountInfo> accountInfos = accounts.stream()
-                    .filter(acc -> "CONNECTED".equals(acc.getStatus()))
-                    .map(acc -> new ProfileDTO.CloudAccountInfo(acc.getId(), null, acc.getAccountName(), acc.getProvider()))
-                    .collect(Collectors.toList());
-            profile.setCloudAccounts(accountInfos);
-            log.info("Returning {} cloud accounts in profile", accountInfos.size());
+            log.info("Found {} accounts for sub-user", accounts.size());
         }
+
+        // Include all accounts (no status filter) so admins can assign PENDING accounts too
+        List<ProfileDTO.CloudAccountInfo> accountInfos = accounts.stream()
+                .map(acc -> new ProfileDTO.CloudAccountInfo(acc.getId(), null, acc.getAccountName(), acc.getProvider()))
+                .collect(Collectors.toList());
+        profile.setCloudAccounts(accountInfos);
+        log.info("Returning {} cloud accounts in profile", accountInfos.size());
 
         // For ROLE_BILLOPS_ADMIN sub-users, include allowed tabs
         if (currentUser.getCreatedBy() != null && "ROLE_BILLOPS_ADMIN".equals(currentUser.getRole())) {
