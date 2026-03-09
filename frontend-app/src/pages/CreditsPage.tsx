@@ -30,6 +30,7 @@ import React, { useEffect } from 'react';
 import { useCredits } from '../hooks/useCredits';
 import { useTopbar } from '../contexts/TopbarContext';
 import type { CreditRequest, CreditFilter } from '../types/credits';
+import { DialogRoot, DialogPanel } from '../components/ui';
 
 const CreditsPage: React.FC = () => {
   const {
@@ -208,32 +209,36 @@ const CreditsPage: React.FC = () => {
       </main>
 
       {/* New Request Form Modal */}
-      {showForm && (
-        <div
-          className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
-          onClick={handleCloseForm}
-        >
-          <div
-            className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="sticky top-0 bg-white px-8 py-6 border-b border-gray-100 z-10">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="text-2xl font-bold text-gray-900">Request Cloud Credits</h4>
-                  <p className="text-gray-500 text-sm mt-1">Submit a new request for cloud cost credits</p>
-                </div>
-                <button
-                  onClick={handleCloseForm}
-                  className="w-10 h-10 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-xl transition-all cursor-pointer"
-                >
-                  <i className="fas fa-times text-lg" />
-                </button>
-              </div>
+      <DialogRoot isOpen={showForm} onClose={handleCloseForm} maxWidth="max-w-2xl">
+        <DialogPanel
+          title={
+            <div>
+              <div className="text-2xl font-bold text-gray-900">Request Cloud Credits</div>
+              <p className="text-gray-500 text-sm mt-1">Submit a new request for cloud cost credits</p>
             </div>
-
-            <form onSubmit={handleSubmit} className="p-8">
-              <div className="space-y-6">
+          }
+          onClose={handleCloseForm}
+          footer={
+            <>
+              <button
+                type="button"
+                onClick={handleCloseForm}
+                className="px-6 py-3 bg-white text-gray-700 font-bold rounded-xl hover:bg-gray-50 border border-gray-200 transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                form="credits-request-form"
+                className="px-8 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-600/20 cursor-pointer"
+              >
+                Submit Request
+              </button>
+            </>
+          }
+        >
+          <div className="overflow-y-auto max-h-[60vh]">
+            <form id="credits-request-form" onSubmit={handleSubmit} className="space-y-6">
                 {/* Cloud Account ID */}
                 <div>
                   <label htmlFor="awsAccountId" className="block text-sm font-bold text-gray-700 mb-2">
@@ -344,28 +349,11 @@ const CreditsPage: React.FC = () => {
                     required
                   />
                 </div>
-              </div>
 
-              {/* Form Actions */}
-              <div className="mt-10 flex justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={handleCloseForm}
-                  className="px-6 py-3 bg-white text-gray-700 font-bold rounded-xl hover:bg-gray-50 border border-gray-200 transition-all cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-8 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-600/20 cursor-pointer"
-                >
-                  Submit Request
-                </button>
-              </div>
             </form>
           </div>
-        </div>
-      )}
+        </DialogPanel>
+      </DialogRoot>
     </div>
   );
 };

@@ -34,6 +34,8 @@ const AzureWasteResourceGroup: React.FC<AzureWasteResourceGroupProps> = ({ group
       {/* Group Header */}
       <button
         onClick={() => setIsOpen(prev => !prev)}
+        aria-expanded={isOpen}
+        aria-controls={`azure-waste-group-${group.type.replace(/\s+/g, '-').toLowerCase()}`}
         className="w-full flex items-center justify-between px-6 py-4 hover:bg-gray-50/50 transition-colors text-left"
       >
         <div className="flex items-center gap-3">
@@ -57,7 +59,7 @@ const AzureWasteResourceGroup: React.FC<AzureWasteResourceGroupProps> = ({ group
 
       {/* Resource Rows */}
       {isOpen && (
-        <div className="border-t border-gray-100">
+        <div id={`azure-waste-group-${group.type.replace(/\s+/g, '-').toLowerCase()}`} className="border-t border-gray-100">
           {/* Table Header */}
           <div className="grid grid-cols-12 gap-2 px-6 py-2 bg-gray-50/50 border-b border-gray-100 text-xs font-semibold text-gray-500 uppercase tracking-wider">
             <div className="col-span-3">Resource Name</div>

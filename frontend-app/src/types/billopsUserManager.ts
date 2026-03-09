@@ -59,13 +59,18 @@ export interface UseBillOpsUserManagerResult {
     // Available roles
     roles: BillOpsRole[];
 
+    // Confirm-delete state (replaces window.confirm)
+    pendingDeleteId: string | null;
+    confirmDelete: () => Promise<void>;
+    cancelDelete: () => void;
+
     // Actions
     fetchUsers: () => Promise<void>;
     newUser: () => void;
     editUser: (user: BillOpsUser) => void;
     cancelEdit: () => void;
     saveUser: () => Promise<void>;
-    deleteUser: (id: string) => Promise<void>;
+    deleteUser: (id: string) => void;
     updateSelectedUser: (field: keyof BillOpsUserFormData, value: string) => void;
     clearNotification: () => void;
 }

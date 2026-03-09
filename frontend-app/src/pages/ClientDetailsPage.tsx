@@ -193,7 +193,7 @@ const ClientDetailsPage: React.FC = () => {
             <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4 animate-premium-fade-in">
                 <div>
                     <div className="flex items-center gap-3 mb-1">
-                        <span className="p-2 bg-slate-800 rounded-lg text-white shadow-sm">
+                        <span className="p-2 bg-indigo-600 rounded-lg text-white shadow-sm">
                             <i className="fas fa-users-cog text-sm"></i>
                         </span>
                         <h1 className="text-2xl font-extrabold tracking-tight text-slate-900">
@@ -338,7 +338,7 @@ const ClientDetailsPage: React.FC = () => {
                             onClick={() => toggleClient(client.id)}
                         >
                             <div className="flex items-center gap-5">
-                                <div className="w-14 h-14 rounded-xl bg-slate-800 flex items-center justify-center text-white text-xl font-black shadow-lg shadow-slate-200">
+                                <div className="w-14 h-14 rounded-xl bg-indigo-600 flex items-center justify-center text-white text-xl font-black shadow-lg shadow-indigo-200">
                                     {client.name.charAt(0).toUpperCase()}
                                 </div>
                                 <div className="space-y-1">

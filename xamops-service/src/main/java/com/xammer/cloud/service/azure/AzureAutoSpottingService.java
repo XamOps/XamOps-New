@@ -349,13 +349,14 @@ public class AzureAutoSpottingService {
 
             // Step 1 — Validate candidacy
             int currentCapacity = vmss.capacity();
-            if (currentCapacity < 2) {
-                log.warn("VMSS {} has fewer than 2 instances ({}). Skipping — AutoSpotting requires min 2 instances for safe replacement.",
-                        vmssName, currentCapacity);
+            if (currentCapacity < 1) {
+                log.warn("VMSS {} has 0 instances. Skipping — nothing to replace.", vmssName);
                 recordEvent(account, vmssName, vmss.regionName(), "FAILED",
-                        "Candidacy check failed: VMSS must have at least 2 instances for safe Spot replacement.", 0.0);
+                        "Candidacy check failed: VMSS has no running instances.", 0.0);
                 return;
             }
+            // Single-instance VMSS is safe: we scale up first (1→2), wait for new Spot VM,
+            // then delete the old Regular VM, returning to 1 Spot instance with no downtime.
 
             // Check already Spot-enabled
             if (isSpotEnabled(vmss)) {

@@ -4,7 +4,8 @@
  * Complete Terraform & SSL Configuration guide for setting up Grafana monitoring
  */
 
-import React, { useEffect } from 'react';
+import React from 'react';
+import { DialogRoot, DialogPanel } from '../ui';
 
 interface GrafanaHelpModalProps {
   isOpen: boolean;
@@ -16,64 +17,22 @@ const CodeBlock: React.FC<{ children: string }> = ({ children }) => (
 );
 
 const GrafanaHelpModal: React.FC<GrafanaHelpModalProps> = ({ isOpen, onClose }) => {
-  // Handle escape key
-  useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
-        onClose();
-      }
-    };
-    document.addEventListener('keydown', handleEscape);
-    return () => document.removeEventListener('keydown', handleEscape);
-  }, [isOpen, onClose]);
-
-  // Prevent body scroll when modal is open
-  useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
-    return () => {
-      document.body.style.overflow = '';
-    };
-  }, [isOpen]);
-
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Overlay */}
-      <div
-        className="grafana-modal-overlay fixed inset-0"
-        onClick={onClose}
-      />
-
-      {/* Modal Content */}
-      <div
-        className="grafana-modal-content rounded-2xl p-0 w-full max-w-5xl mx-auto h-[85vh] flex flex-col grafana-fade-in"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b bg-gradient-to-r from-gray-50 to-white rounded-t-2xl">
+    <DialogRoot isOpen={isOpen} onClose={onClose} maxWidth="max-w-5xl">
+      <DialogPanel
+        title={
           <div>
-            <h3 className="font-bold text-xl text-gray-800">
+            <div className="font-bold text-xl text-gray-800">
               <i className="fab fa-aws text-orange-500 mr-2"></i>
               Grafana Monitoring Setup Guide
-            </h3>
-            <p className="text-sm text-gray-500 mt-1">Complete Terraform & SSL Configuration</p>
+            </div>
+            <div className="text-sm text-gray-500 mt-1">Complete Terraform & SSL Configuration</div>
           </div>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 text-2xl w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 transition-all"
-            aria-label="Close modal"
-          >
-            <i className="fas fa-times"></i>
-          </button>
-        </div>
-
-        {/* Scrollable Content */}
-        <div className="p-8 overflow-y-auto flex-1 grafana-modal-scroll">
+        }
+        onClose={onClose}
+        footer={<button onClick={onClose} className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">Done</button>}
+      >
+        <div className="overflow-y-auto max-h-[65vh] grafana-modal-scroll">
           {/* Introduction */}
           <div className="mb-8 p-6 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl border border-blue-100">
             <p className="text-gray-700 leading-relaxed">
@@ -529,8 +488,8 @@ docker logs grafana`}
           <p className="grafana-guide-text">To remove all resources created by Terraform:</p>
           <CodeBlock>{`terraform destroy`}</CodeBlock>
         </div>
-      </div>
-    </div>
+      </DialogPanel>
+    </DialogRoot>
   );
 };
 

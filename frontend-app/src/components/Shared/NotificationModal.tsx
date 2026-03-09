@@ -1,6 +1,6 @@
-import React, { useEffect } from 'react';
-import { createPortal } from 'react-dom';
+import React from 'react';
 import clsx from 'clsx';
+import { DialogRoot, DialogPanel } from '../ui';
 
 export type NotificationType = 'success' | 'error' | 'info';
 
@@ -21,27 +21,6 @@ const NotificationModal: React.FC<NotificationModalProps> = ({
     message,
     confirmLabel = 'OK',
 }) => {
-    // Lock body scroll and handle Esc key
-    useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') onClose();
-        };
-
-        if (isOpen) {
-            document.body.style.overflow = 'hidden';
-            window.addEventListener('keydown', handleKeyDown);
-        } else {
-            document.body.style.overflow = '';
-            window.removeEventListener('keydown', handleKeyDown);
-        }
-        return () => {
-            document.body.style.overflow = '';
-            window.removeEventListener('keydown', handleKeyDown);
-        };
-    }, [isOpen, onClose]);
-
-    if (!isOpen) return null;
-
     const config = {
         success: {
             icon: 'fa-check-circle',
@@ -69,32 +48,18 @@ const NotificationModal: React.FC<NotificationModalProps> = ({
         }
     }[type];
 
-    return createPortal(
-        <div
-            className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-md animate-in fade-in duration-300"
-            onClick={onClose}
-            role="dialog"
-            aria-modal="true"
-        >
-            <div
-                className={clsx(
-                    "w-full max-w-sm rounded-3xl p-8 bg-white/90 backdrop-blur-2xl shadow-2xl border border-white/30 transform transition-all duration-300",
-                    "notification-modal-content"
-                )}
-                onClick={(e) => e.stopPropagation()}
-                role="document"
-            >
-                <div className="flex flex-col items-center text-center">
+    return (
+        <DialogRoot isOpen={isOpen} onClose={onClose} maxWidth="max-w-sm">
+            <DialogPanel onClose={onClose} hideCloseButton>
+                <div className="flex flex-col items-center text-center py-2">
                     <div className={clsx("w-20 h-20 rounded-full flex items-center justify-center mb-6 shadow-inner border", config.bg, config.border)}>
-                        <div className={clsx("w-14 h-14 rounded-full bg-gradient-to-br flex items-center justify-center text-white shadow-lg animate-pulse-slow", config.gradient, config.shadow)}>
+                        <div className={clsx("w-14 h-14 rounded-full bg-gradient-to-br flex items-center justify-center text-white shadow-lg", config.gradient, config.shadow)}>
                             <i className={clsx("fas text-2xl", config.icon)} />
                         </div>
                     </div>
 
                     <h3 className="text-2xl font-extrabold text-slate-900 mb-2">{title}</h3>
-                    <p className="text-slate-600 mb-8 leading-relaxed">
-                        {message}
-                    </p>
+                    <p className="text-slate-600 mb-8 leading-relaxed">{message}</p>
 
                     <div className="flex flex-col w-full">
                         <button
@@ -108,33 +73,8 @@ const NotificationModal: React.FC<NotificationModalProps> = ({
                         </button>
                     </div>
                 </div>
-
-                <style>{`
-                    @keyframes modal-backdrop-in {
-                        from { opacity: 0; backdrop-filter: blur(0px); }
-                        to { opacity: 1; backdrop-filter: blur(12px); }
-                    }
-                    @keyframes modal-content-in {
-                        from { opacity: 0; transform: scale(0.9) translateY(20px); }
-                        to { opacity: 1; transform: scale(1) translateY(0); }
-                    }
-                    @keyframes pulse-slow {
-                        0%, 100% { transform: scale(1); opacity: 1; }
-                        50% { transform: scale(1.05); opacity: 0.9; }
-                    }
-                    .animate-in {
-                        animation: modal-backdrop-in 0.3s ease-out forwards;
-                    }
-                    .notification-modal-content {
-                        animation: modal-content-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
-                    }
-                    .animate-pulse-slow {
-                        animation: pulse-slow 3s infinite ease-in-out;
-                    }
-                `}</style>
-            </div>
-        </div>,
-        document.body
+            </DialogPanel>
+        </DialogRoot>
     );
 };
 

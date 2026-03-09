@@ -18,6 +18,7 @@ import { useNavigate } from 'react-router-dom';
 import useBillOpsAdminInvoices from '../hooks/useBillOpsAdminInvoices';
 import { useTopbar } from '../contexts/TopbarContext';
 import type { AdminInvoiceItem } from '../types/billopsAdminInvoices';
+import { AlertDialog } from '../components/ui';
 import '../styles/billopsAdminInvoices.css';
 
 const YEARS = [2026, 2025, 2024];
@@ -60,6 +61,9 @@ const BillOpsAdminInvoicesPage: React.FC = () => {
     downloadPreview,
     getSelectedAccountName,
     isCloudFront,
+    requestMerge,
+    cancelMerge,
+    pendingMerge,
   } = useBillOpsAdminInvoices();
 
   const { setActions, clearActions } = useTopbar();
@@ -139,6 +143,15 @@ const BillOpsAdminInvoicesPage: React.FC = () => {
 
   return (
     <div className="admin-invoices-page flex-1 flex flex-col h-full overflow-hidden bg-transparent">
+      <AlertDialog
+        isOpen={!!pendingMerge}
+        title="Merge Invoices?"
+        description="This will combine line items and permanently delete the source invoice."
+        confirmLabel="Merge"
+        variant="warning"
+        onConfirm={mergeSelectedInvoices}
+        onCancel={cancelMerge}
+      />
 
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto p-8 space-y-6 admin-invoices-scrollbar">
@@ -271,7 +284,7 @@ const BillOpsAdminInvoicesPage: React.FC = () => {
 
             <div>
               <button
-                onClick={mergeSelectedInvoices}
+                onClick={requestMerge}
                 disabled={!canMergeSelection}
                 className={`invoice-merge-btn ${canMergeSelection ? 'invoice-merge-btn-active' : 'invoice-merge-btn-disabled'}`}
               >

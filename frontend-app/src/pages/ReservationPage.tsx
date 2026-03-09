@@ -17,6 +17,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useReservationData } from '../hooks/useReservationData';
+import { AriaTabGroup } from '../components/ui';
 import type { TabType } from '../types/reservation';
 
 // Component imports
@@ -89,69 +90,30 @@ export const ReservationPage: React.FC = () => {
         {isLoading && (!data.inventory || data.inventory.length === 0) ? (
           <>
             {/* Tab Navigation Skeleton */}
-            <div className="glass-card rounded-xl p-1 shadow-sm">
-              <nav className="flex space-x-1" aria-label="Tabs">
-                <button
-                  onClick={() => setActiveTab('recommendations')}
-                  className={`tab-btn flex-1 whitespace-nowrap py-3 px-4 border-b-0 font-semibold text-sm rounded-lg transition-all flex items-center justify-center gap-2 ${
-                    activeTab === 'recommendations'
-                      ? 'bg-gradient-to-br from-indigo-50 to-purple-50 text-indigo-700 shadow-sm active'
-                      : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'
-                  }`}
-                >
-                  <i className="fas fa-lightbulb"></i>
-                  Purchase Recommendations
-                </button>
-                <button
-                  onClick={() => setActiveTab('overview')}
-                  className={`tab-btn flex-1 whitespace-nowrap py-3 px-4 border-b-0 font-semibold text-sm rounded-lg transition-all ${
-                    activeTab === 'overview'
-                      ? 'bg-gradient-to-br from-indigo-50 to-purple-50 text-indigo-700 shadow-sm active'
-                      : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'
-                  }`}
-                >
-                  <i className="fas fa-chart-line mr-2"></i>
-                  Overview & Inventory
-                </button>
-              </nav>
-            </div>
+            <AriaTabGroup
+              variant="pill"
+              tabs={[
+                { id: 'recommendations', label: 'Purchase Recommendations', icon: 'fas fa-lightbulb' },
+                { id: 'overview',        label: 'Overview & Inventory',     icon: 'fas fa-chart-line' },
+              ]}
+              selectedKey={activeTab}
+              onSelectionChange={(key) => setActiveTab(key as TabType)}
+            />
             <ReservationSkeleton type={activeTab} />
           </>
         ) : (
           /* Content */
           <div className="space-y-6 fade-in">
             {/* Tab Navigation */}
-            <div className="glass-card rounded-xl p-1 shadow-sm">
-              <nav className="flex space-x-1" aria-label="Tabs">
-                <button
-                  onClick={() => setActiveTab('recommendations')}
-                  className={`tab-btn flex-1 whitespace-nowrap py-3 px-4 border-b-0 font-semibold text-sm rounded-lg transition-all flex items-center justify-center gap-2 ${
-                    activeTab === 'recommendations'
-                      ? 'bg-gradient-to-br from-indigo-50 to-purple-50 text-indigo-700 shadow-sm active'
-                      : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'
-                  }`}
-                >
-                  <i className="fas fa-lightbulb"></i>
-                  Purchase Recommendations
-                  {data.purchaseRecommendations && data.purchaseRecommendations.length > 0 && (
-                    <span className="ml-1 bg-gradient-to-br from-indigo-500 to-purple-500 text-white py-0.5 px-2.5 rounded-full text-xs font-bold shadow-md">
-                      {data.purchaseRecommendations.length}
-                    </span>
-                  )}
-                </button>
-                <button
-                  onClick={() => setActiveTab('overview')}
-                  className={`tab-btn flex-1 whitespace-nowrap py-3 px-4 border-b-0 font-semibold text-sm rounded-lg transition-all ${
-                    activeTab === 'overview'
-                      ? 'bg-gradient-to-br from-indigo-50 to-purple-50 text-indigo-700 shadow-sm active'
-                      : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'
-                  }`}
-                >
-                  <i className="fas fa-chart-line mr-2"></i>
-                  Overview & Inventory
-                </button>
-              </nav>
-            </div>
+            <AriaTabGroup
+              variant="pill"
+              tabs={[
+                { id: 'recommendations', label: 'Purchase Recommendations', icon: 'fas fa-lightbulb' },
+                { id: 'overview',        label: 'Overview & Inventory',     icon: 'fas fa-chart-line' },
+              ]}
+              selectedKey={activeTab}
+              onSelectionChange={(key) => setActiveTab(key as TabType)}
+            />
 
             {/* Overview Tab */}
             {activeTab === 'overview' && (

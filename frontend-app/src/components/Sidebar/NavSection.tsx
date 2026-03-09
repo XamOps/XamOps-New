@@ -42,6 +42,8 @@ const NavSection: React.FC<NavSectionProps> = ({
       {/* Section Header */}
       <button
         onClick={onToggle}
+        aria-expanded={isOpen}
+        aria-controls={`navsection-${label.replace(/\s+/g, '-').toLowerCase()}`}
         className={clsx(
           'sidebar-section w-full flex items-center rounded-lg transition-all duration-300 ease-in-out px-3 py-2.5 justify-between',
           isOpen
@@ -69,12 +71,17 @@ const NavSection: React.FC<NavSectionProps> = ({
       </button>
 
       {/* Dropdown Content - Below for 'down' direction (Standard flow) */}
-      <div className={clsx(
-        'grid transition-[grid-template-rows,opacity,margin] duration-200 ease-[cubic-bezier(0.2,1,0.2,1)] overflow-hidden will-change-[grid-template-rows,opacity]',
-        isOpen && direction === 'down'
-          ? 'grid-rows-[1fr] opacity-100 mt-2'
-          : 'grid-rows-[0fr] opacity-0 mt-0'
-      )}>
+      <div
+        id={`navsection-${label.replace(/\s+/g, '-').toLowerCase()}`}
+        role="region"
+        aria-label={label}
+        className={clsx(
+          'grid transition-[grid-template-rows,opacity,margin] duration-200 ease-[cubic-bezier(0.2,1,0.2,1)] overflow-hidden will-change-[grid-template-rows,opacity]',
+          isOpen && direction === 'down'
+            ? 'grid-rows-[1fr] opacity-100 mt-2'
+            : 'grid-rows-[0fr] opacity-0 mt-0'
+        )}
+      >
         <div className={clsx(
           'min-h-0 space-y-1 transition-all duration-300 ml-4 border-l-2 pl-4',
           theme === 'dark' ? 'border-slate-800' : 'border-gray-200'

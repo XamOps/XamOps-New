@@ -18,6 +18,7 @@ import { useDevOpsScripts } from '../hooks/useDevOpsScripts';
 import { DevOpsScript, ScriptCategory } from '../types/devopsInTheBox';
 import Skeleton from '../components/Shared/Skeleton';
 import clsx from 'clsx';
+import { DialogRoot, DialogPanel } from '../components/ui';
 
 const DevOpsInTheBoxPage: React.FC = () => {
   const {
@@ -70,19 +71,6 @@ const DevOpsInTheBoxPage: React.FC = () => {
       ansible: 'fas fa-cogs',
     };
     return icons[category] || 'fas fa-file-code';
-  };
-
-  /**
-   * Get gradient class for category
-   */
-  const getGradientClass = (category?: ScriptCategory): string => {
-    const gradients = {
-      terraform: 'from-purple-600 via-indigo-600 to-blue-600',
-      bash: 'from-green-600 via-teal-600 to-cyan-600',
-      python: 'from-blue-600 via-indigo-600 to-purple-600',
-      ansible: 'from-red-600 via-pink-600 to-rose-600',
-    };
-    return gradients[category || 'terraform'] || 'from-purple-600 via-indigo-600 to-blue-600';
   };
 
   /**
@@ -350,115 +338,92 @@ const DevOpsInTheBoxPage: React.FC = () => {
       </div>
 
       {/* Script Detail Modal */}
-      {selectedScript && (
-        <div
-          className="fixed inset-0 z-50 overflow-y-auto bg-black bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4"
-          onClick={() => setSelectedScript(null)}
-        >
-          <div
-            className="relative bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Modal Header */}
-            <div
-              className={clsx(
-                'sticky top-0 z-10 bg-gradient-to-r px-8 py-6 text-white',
-                getGradientClass(selectedScript.category)
-              )}
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-3 flex-1 pr-4">
-                  <i className={clsx(getIcon(selectedScript.category), 'text-3xl')}></i>
-                  <div className="flex-1 min-w-0">
-                    <h2 className="text-2xl font-bold truncate">{selectedScript.name}</h2>
-                    <p className="text-sm text-white text-opacity-90 mt-1">{selectedScript.description}</p>
-                  </div>
+      <DialogRoot isOpen={!!selectedScript} onClose={() => setSelectedScript(null)} maxWidth="max-w-4xl">
+        {selectedScript && (
+          <DialogPanel
+            title={
+              <div className="flex items-center space-x-3">
+                <i className={clsx(getIcon(selectedScript.category), 'text-2xl text-gray-600')}></i>
+                <div className="min-w-0">
+                  <div className="text-xl font-bold text-gray-900 truncate">{selectedScript.name}</div>
+                  <p className="text-sm text-gray-500 mt-0.5">{selectedScript.description}</p>
                 </div>
+              </div>
+            }
+            onClose={() => setSelectedScript(null)}
+            footer={
+              <div className="flex items-center gap-3 w-full">
+                <button
+                  onClick={downloadScript}
+                  className="flex items-center space-x-2 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium shadow-md hover:shadow-lg"
+                >
+                  <i className="fas fa-download"></i>
+                  <span>Download Script</span>
+                </button>
                 <button
                   onClick={() => setSelectedScript(null)}
-                  className="flex-shrink-0 w-10 h-10 rounded-full bg-white bg-opacity-20 hover:bg-opacity-30 transition-all flex items-center justify-center"
-                  aria-label="Close modal"
+                  className="ml-auto px-6 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors font-medium"
                 >
-                  <i className="fas fa-times text-xl"></i>
+                  Close
                 </button>
               </div>
-            </div>
-
-            {/* Modal Content */}
-            <div className="overflow-y-auto max-h-[calc(90vh-200px)] px-8 py-6">
-              <div className="space-y-6">
-                {/* Metadata Grid */}
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-gradient-to-br from-gray-50 to-gray-100 p-4 rounded-lg border border-gray-200">
-                    <p className="text-sm text-gray-600 mb-1 font-medium">Category</p>
-                    <p className="font-bold text-gray-900 capitalize">{selectedScript.category}</p>
-                  </div>
-                  <div className="bg-gradient-to-br from-gray-50 to-gray-100 p-4 rounded-lg border border-gray-200">
-                    <p className="text-sm text-gray-600 mb-1 font-medium">Downloads</p>
-                    <p className="font-bold text-gray-900">{selectedScript.downloads}</p>
-                  </div>
-                  <div className="bg-gradient-to-br from-gray-50 to-gray-100 p-4 rounded-lg border border-gray-200">
-                    <p className="text-sm text-gray-600 mb-1 font-medium">Last Updated</p>
-                    <p className="font-bold text-gray-900">{selectedScript.lastUpdated}</p>
-                  </div>
-                  <div className="bg-gradient-to-br from-gray-50 to-gray-100 p-4 rounded-lg border border-gray-200">
-                    <p className="text-sm text-gray-600 mb-1 font-medium">Version</p>
-                    <p className="font-bold text-gray-900">{selectedScript.version}</p>
-                  </div>
+            }
+          >
+            <div className="overflow-y-auto max-h-[60vh] space-y-6">
+              {/* Metadata Grid */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-gradient-to-br from-gray-50 to-gray-100 p-4 rounded-lg border border-gray-200">
+                  <p className="text-sm text-gray-600 mb-1 font-medium">Category</p>
+                  <p className="font-bold text-gray-900 capitalize">{selectedScript.category}</p>
                 </div>
-
-                {/* Code Block */}
-                <div className="bg-gray-900 rounded-lg overflow-hidden shadow-lg border border-gray-700">
-                  <div className="flex items-center justify-between px-6 py-4 bg-gray-800 border-b border-gray-700">
-                    <span className="text-gray-300 text-sm font-mono">{getFileName(selectedScript)}</span>
-                    <button
-                      onClick={copyCode}
-                      className="flex items-center gap-2 text-gray-300 hover:text-white transition-colors px-3 py-1 rounded hover:bg-gray-700"
-                    >
-                      <i className={clsx('fas', copySuccess ? 'fa-check' : 'fa-copy')}></i>
-                      <span className="text-sm">{copySuccess ? 'Copied!' : 'Copy'}</span>
-                    </button>
-                  </div>
-                  <div className="p-6 overflow-x-auto">
-                    <pre className="text-green-400 text-sm font-mono whitespace-pre-wrap break-words">
-                      {selectedScript.code}
-                    </pre>
-                  </div>
+                <div className="bg-gradient-to-br from-gray-50 to-gray-100 p-4 rounded-lg border border-gray-200">
+                  <p className="text-sm text-gray-600 mb-1 font-medium">Downloads</p>
+                  <p className="font-bold text-gray-900">{selectedScript.downloads}</p>
                 </div>
-
-                {/* Usage Instructions */}
-                <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-6 shadow-sm">
-                  <h3 className="font-bold text-gray-900 mb-3 flex items-center text-lg">
-                    <i className="fas fa-info-circle text-blue-600 mr-2"></i>
-                    Usage Instructions
-                  </h3>
-                  <div
-                    className="text-sm text-gray-700 prose prose-sm max-w-none"
-                    dangerouslySetInnerHTML={{ __html: selectedScript.usage }}
-                  />
+                <div className="bg-gradient-to-br from-gray-50 to-gray-100 p-4 rounded-lg border border-gray-200">
+                  <p className="text-sm text-gray-600 mb-1 font-medium">Last Updated</p>
+                  <p className="font-bold text-gray-900">{selectedScript.lastUpdated}</p>
+                </div>
+                <div className="bg-gradient-to-br from-gray-50 to-gray-100 p-4 rounded-lg border border-gray-200">
+                  <p className="text-sm text-gray-600 mb-1 font-medium">Version</p>
+                  <p className="font-bold text-gray-900">{selectedScript.version}</p>
                 </div>
               </div>
-            </div>
 
-            {/* Modal Footer */}
-            <div className="sticky bottom-0 bg-white border-t border-gray-200 px-8 py-4 flex items-center justify-between gap-4">
-              <button
-                onClick={downloadScript}
-                className="flex items-center space-x-2 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium shadow-md hover:shadow-lg"
-              >
-                <i className="fas fa-download"></i>
-                <span>Download Script</span>
-              </button>
-              <button
-                onClick={() => setSelectedScript(null)}
-                className="px-6 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors font-medium"
-              >
-                Close
-              </button>
+              {/* Code Block */}
+              <div className="bg-gray-900 rounded-lg overflow-hidden shadow-lg border border-gray-700">
+                <div className="flex items-center justify-between px-6 py-4 bg-gray-800 border-b border-gray-700">
+                  <span className="text-gray-300 text-sm font-mono">{getFileName(selectedScript)}</span>
+                  <button
+                    onClick={copyCode}
+                    className="flex items-center gap-2 text-gray-300 hover:text-white transition-colors px-3 py-1 rounded hover:bg-gray-700"
+                  >
+                    <i className={clsx('fas', copySuccess ? 'fa-check' : 'fa-copy')}></i>
+                    <span className="text-sm">{copySuccess ? 'Copied!' : 'Copy'}</span>
+                  </button>
+                </div>
+                <div className="p-6 overflow-x-auto">
+                  <pre className="text-green-400 text-sm font-mono whitespace-pre-wrap break-words">
+                    {selectedScript.code}
+                  </pre>
+                </div>
+              </div>
+
+              {/* Usage Instructions */}
+              <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-6 shadow-sm">
+                <h3 className="font-bold text-gray-900 mb-3 flex items-center text-lg">
+                  <i className="fas fa-info-circle text-blue-600 mr-2"></i>
+                  Usage Instructions
+                </h3>
+                <div
+                  className="text-sm text-gray-700 prose prose-sm max-w-none"
+                  dangerouslySetInnerHTML={{ __html: selectedScript.usage }}
+                />
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          </DialogPanel>
+        )}
+      </DialogRoot>
     </div>
   );
 };

@@ -1011,9 +1011,7 @@ const BillOpsSupportDashboardPage: React.FC = () => {
                 </h3>
                 <p className="text-xs text-indigo-200 mt-0.5">Select client → profile → send your message</p>
               </div>
-              <button onClick={closeNewChatModal} className="text-white/70 hover:text-white transition p-1.5 rounded-full hover:bg-white/10">
-                <i className="fas fa-times text-sm"></i>
-              </button>
+              <p className="text-xs text-gray-500 mt-0.5">Select a client account and send your first message</p>
             </div>
 
             {/* Step breadcrumb */}

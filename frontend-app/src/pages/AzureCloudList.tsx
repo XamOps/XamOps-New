@@ -378,12 +378,28 @@ const AzureCloudList: React.FC = () => {
         )}
 
         <div id="resource-list-container" className="space-y-4">
-          {/* Loading State */}
+          {/* Skeleton Loading State */}
           {loading && filteredData.length === 0 && (
-            <div className="text-center py-20">
-              <i className="fas fa-spinner fa-spin text-4xl text-blue-600 mb-4"></i>
-              <p className="text-gray-600 text-lg">Loading Azure resources...</p>
-            </div>
+            <>
+              {[...Array(6)].map((_, i) => (
+                <div key={i} className="rounded-xl shadow-md border bg-white overflow-hidden animate-pulse">
+                  <div className="p-5 flex items-center justify-between">
+                    <div className="flex items-center space-x-4">
+                      {/* chevron placeholder */}
+                      <div className="w-3 h-3 bg-gray-200 rounded" />
+                      {/* icon placeholder */}
+                      <div className="w-10 h-10 bg-gray-200 rounded-xl flex-shrink-0" />
+                      <div className="space-y-2">
+                        <div className={`h-4 bg-gray-200 rounded ${i % 3 === 0 ? 'w-36' : i % 3 === 1 ? 'w-28' : 'w-44'}`} />
+                        <div className="h-3 bg-gray-100 rounded w-20" />
+                      </div>
+                    </div>
+                    {/* badge placeholder */}
+                    <div className="w-8 h-8 bg-gray-200 rounded-full" />
+                  </div>
+                </div>
+              ))}
+            </>
           )}
 
           {/* Empty State */}

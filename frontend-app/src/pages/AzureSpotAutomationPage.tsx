@@ -6,6 +6,7 @@ import { DashboardSkeleton } from '../components/Shared/Skeleton';
 import SpotAutomationKPIs from '../components/SpotAutomation/SpotAutomationKPIs';
 import SpotAutomationChart from '../components/SpotAutomation/SpotAutomationChart';
 import ActionsHistory from '../components/ActionsHistory/ActionsHistory';
+import { AriaSlider, AriaTabGroup, DialogRoot, DialogPanel } from '../components/ui';
 
 type Tab = 'dashboard' | 'history' | 'analytics' | 'settings';
 
@@ -106,19 +107,26 @@ const VmssConfigModal: React.FC<VmssConfigModalProps> = ({
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
-                <div className="bg-blue-600 px-6 py-4 flex items-center justify-between">
-                    <div>
-                        <h3 className="text-white font-black text-base uppercase tracking-tight">{vmss.name}</h3>
-                        <p className="text-blue-200 text-xs mt-0.5">VMSS Spot Configuration</p>
-                    </div>
-                    <button onClick={onClose} className="text-blue-200 hover:text-white transition-colors">
-                        <i className="fas fa-times text-lg"></i>
-                    </button>
-                </div>
-
-                <div className="p-6 space-y-5">
+        <DialogRoot isOpen={true} onClose={onClose} maxWidth="max-w-lg">
+          <DialogPanel
+            title={
+              <div>
+                <div className="text-base font-black uppercase tracking-tight">{vmss.name}</div>
+                <div className="text-sm text-gray-500 mt-0.5">VMSS Spot Configuration</div>
+              </div>
+            }
+            onClose={onClose}
+            footer={
+              <>
+                <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors font-semibold">Cancel</button>
+                <button onClick={handleSave} disabled={saving} className="px-4 py-2 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors font-semibold flex items-center gap-2 disabled:opacity-60">
+                  {saving ? <i className="fas fa-circle-notch fa-spin"></i> : saved ? <i className="fas fa-check"></i> : null}
+                  {saved ? 'Saved!' : 'Save Config'}
+                </button>
+              </>
+            }
+          >
+                <div className="space-y-5">
                     {/* Spot Ratio */}
                     <div>
                         <h4 className="text-xs font-black uppercase tracking-widest text-slate-500 mb-3">
@@ -212,25 +220,8 @@ const VmssConfigModal: React.FC<VmssConfigModalProps> = ({
                         </div>
                     </div>
                 </div>
-
-                <div className="px-6 pb-6 flex justify-end gap-3">
-                    <button
-                        onClick={onClose}
-                        className="px-4 py-2 text-sm text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors font-semibold"
-                    >
-                        Cancel
-                    </button>
-                    <button
-                        onClick={handleSave}
-                        disabled={saving}
-                        className="px-4 py-2 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors font-semibold flex items-center gap-2 disabled:opacity-60"
-                    >
-                        {saving ? <i className="fas fa-circle-notch fa-spin"></i> : saved ? <i className="fas fa-check"></i> : null}
-                        {saved ? 'Saved!' : 'Save Config'}
-                    </button>
-                </div>
-            </div>
-        </div>
+          </DialogPanel>
+        </DialogRoot>
     );
 };
 
@@ -389,7 +380,7 @@ const AzureSpotAutomationPage: React.FC = () => {
 
     const enabledVmssCount = vmssList.filter(v => v.isEnabled).length;
 
-    const tabs: { id: Tab; label: string; icon: string }[] = [
+    const tabs = [
         { id: 'dashboard',  label: 'Dashboard',        icon: 'fas fa-tachometer-alt' },
         { id: 'history',    label: 'Actions History',   icon: 'fas fa-history' },
         { id: 'analytics',  label: 'Launch Analytics',  icon: 'fas fa-chart-bar' },
@@ -413,22 +404,11 @@ const AzureSpotAutomationPage: React.FC = () => {
 
             {/* Tab Navigation */}
             <div className="bg-white/80 border-b border-slate-200 px-8 sticky top-0 z-40 backdrop-blur-md">
-                <nav className="flex space-x-8" aria-label="Tabs">
-                    {tabs.map(tab => (
-                        <button
-                            key={tab.id}
-                            onClick={() => setActiveTab(tab.id)}
-                            className={`py-4 px-1 border-b-2 font-medium text-sm transition-all flex items-center gap-2 ${
-                                activeTab === tab.id
-                                    ? 'border-blue-600 text-blue-600'
-                                    : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
-                            }`}
-                        >
-                            <i className={tab.icon}></i>
-                            {tab.label}
-                        </button>
-                    ))}
-                </nav>
+                <AriaTabGroup
+                    tabs={tabs}
+                    selectedKey={activeTab}
+                    onSelectionChange={(key) => setActiveTab(key as Tab)}
+                />
             </div>
 
             {/* Main Content */}
@@ -884,23 +864,16 @@ const AzureSpotAutomationPage: React.FC = () => {
 
                             {rispEnabled && (
                                 <div className="pt-2 border-t border-slate-100">
-                                    <label className="text-sm font-bold text-slate-800 mb-2 block">
-                                        Utilization Threshold: <span className="text-blue-600">{rispThreshold}%</span>
-                                    </label>
-                                    <input
-                                        type="range" min="0" max="100" step="5"
+                                    <AriaSlider
+                                        label="Utilization Threshold"
                                         value={rispThreshold}
-                                        onChange={e => setRispThreshold(Number(e.target.value))}
-                                        className="w-full accent-blue-600"
+                                        onChange={setRispThreshold}
+                                        minValue={0}
+                                        maxValue={100}
+                                        step={5}
+                                        formatValue={(v) => `${v}%`}
+                                        description={`Only convert to Spot when Reserved Instance utilization ≥ ${rispThreshold}%`}
                                     />
-                                    <div className="flex justify-between text-xs text-slate-400 mt-1">
-                                        <span>0%</span>
-                                        <span>50%</span>
-                                        <span>100%</span>
-                                    </div>
-                                    <p className="text-xs text-slate-500 mt-2">
-                                        Only convert to Spot when Reserved Instance utilization ≥ {rispThreshold}%
-                                    </p>
                                 </div>
                             )}
 
@@ -931,7 +904,7 @@ const AzureSpotAutomationPage: React.FC = () => {
                                 <button
                                     onClick={handleSync}
                                     disabled={syncing}
-                                    className="px-5 py-2 text-sm text-white bg-slate-700 hover:bg-slate-800 rounded-lg transition-colors font-bold flex items-center gap-2 disabled:opacity-60"
+                                    className="px-5 py-2 text-sm text-white bg-gray-600 hover:bg-gray-700 rounded-lg transition-colors font-bold flex items-center gap-2 disabled:opacity-60"
                                 >
                                     {syncing
                                         ? <><i className="fas fa-circle-notch fa-spin"></i> Syncing...</>

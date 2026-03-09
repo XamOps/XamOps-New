@@ -6,6 +6,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { DialogRoot, DialogPanel } from '../ui';
 
 interface EksIntegrationModalProps {
   isOpen: boolean;
@@ -117,8 +118,6 @@ const EksIntegrationModal: React.FC<EksIntegrationModalProps> = ({ isOpen, onClo
     };
   }, [isOpen]);
 
-  if (!isOpen) return null;
-
   const tabs = [
     { id: 'overview', label: 'Overview', icon: 'fas fa-info-circle' },
     { id: 'part1', label: 'Part 1: Monitoring Instance', icon: 'fas fa-server' },
@@ -129,55 +128,25 @@ const EksIntegrationModal: React.FC<EksIntegrationModalProps> = ({ isOpen, onClo
     // { id: 'autoscaler', label: 'Autoscaler Setup', icon: 'fas fa-robot' }, // XAMOPS-AUTOSCALER: Hidden until ready
   ];
 
-  // Handle wheel event to prevent scroll propagation
-  const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
-    const target = e.currentTarget;
-    const { scrollTop, scrollHeight, clientHeight } = target;
-    const isAtTop = scrollTop === 0 && e.deltaY < 0;
-    const isAtBottom = scrollTop + clientHeight >= scrollHeight && e.deltaY > 0;
-
-    // Only stop propagation if we're not at the boundaries or if we're scrolling within bounds
-    if (!isAtTop && !isAtBottom) {
-      e.stopPropagation();
-    } else {
-      // Prevent the scroll from propagating to parent when at boundaries
-      e.preventDefault();
-      e.stopPropagation();
-    }
-  };
-
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      onWheel={(e) => e.stopPropagation()}
-    >
-      <div onClick={onClose} className="fixed inset-0 bg-black/50 backdrop-blur-sm" />
-
-      <div
-        className="bg-white rounded-2xl w-full max-w-6xl mx-auto max-h-[95vh] overflow-hidden z-50 shadow-2xl relative flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header - Fixed */}
-        <div className="flex-shrink-0 flex items-center justify-between p-6 border-b border-gray-200 bg-gradient-to-r from-slate-50 to-blue-50">
+    <DialogRoot isOpen={isOpen} onClose={onClose} maxWidth="max-w-6xl">
+      <DialogPanel
+        title={
           <div className="flex items-center space-x-4">
             <div className="w-14 h-14 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg">
               <i className="fas fa-book text-white text-2xl"></i>
             </div>
             <div>
-              <h3 className="font-bold text-xl text-gray-800">Complete EKS Monitoring Setup Guide</h3>
-              <p className="text-sm text-gray-600">OTel + Falco + Kube-State-Metrics + cAdvisor + OpenCost + Kubescape + Trivy</p>
+              <div className="font-bold text-xl text-gray-800">Complete EKS Monitoring Setup Guide</div>
+              <div className="text-sm text-gray-600">OTel + Falco + Kube-State-Metrics + cAdvisor + OpenCost + Kubescape + Trivy</div>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 text-3xl leading-none hover:bg-gray-100 w-10 h-10 rounded-full flex items-center justify-center transition-colors"
-          >
-            &times;
-          </button>
-        </div>
-
-        {/* Tab Navigation - Fixed/Sticky */}
-        <div className="flex-shrink-0 flex border-b border-gray-200 bg-gray-50 overflow-x-auto sticky top-0 z-10">
+        }
+        onClose={onClose}
+        footer={<button onClick={onClose} className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold transition-all shadow-sm">Close Guide</button>}
+      >
+        {/* Tab Navigation */}
+        <div className="flex border-b border-gray-200 bg-gray-50 overflow-x-auto -mx-6 px-6 mb-4">
           {tabs.map((tab) => (
             <button
               key={tab.id}
@@ -193,33 +162,17 @@ const EksIntegrationModal: React.FC<EksIntegrationModalProps> = ({ isOpen, onClo
           ))}
         </div>
 
-        {/* Content - Scrollable with contained overscroll */}
-        <div
-          className="flex-1 overflow-y-auto p-6"
-          style={{ overscrollBehavior: 'contain' }}
-          onWheel={handleWheel}
-        >
+        {/* Content */}
+        <div className="overflow-y-auto max-h-[60vh]" style={{ overscrollBehavior: 'contain' }}>
           {activeTab === 'overview' && <OverviewTab />}
           {activeTab === 'part1' && <Part1Tab />}
           {activeTab === 'part2' && <Part2Tab />}
           {activeTab === 'part3' && <Part3Tab />}
           {activeTab === 'part4' && <Part4Tab />}
           {activeTab === 'part5' && <Part5Tab />}
-          {/* XAMOPS-AUTOSCALER: Hidden until ready */}
-          {/* {activeTab === 'autoscaler' && <AutoscalerTab />} */}
         </div>
-
-        {/* Footer - Fixed */}
-        <div className="flex-shrink-0 p-4 border-t border-gray-200 bg-gray-50 flex justify-end">
-          <button
-            onClick={onClose}
-            className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold transition-all shadow-sm"
-          >
-            Close Guide
-          </button>
-        </div>
-      </div>
-    </div>
+      </DialogPanel>
+    </DialogRoot>
   );
 };
 

@@ -72,7 +72,7 @@ const AccountManagerPage: React.FC = () => {
         </Link>
         <Link
           to="/add-github-config"
-          className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-xl text-xs font-bold hover:bg-slate-900 transition-all shadow-lg shadow-slate-500/10"
+          className="flex items-center gap-2 px-4 py-2 bg-gray-700 text-white rounded-xl text-xs font-bold hover:bg-gray-800 transition-all shadow-lg shadow-gray-500/10"
         >
           <i className="fab fa-github"></i>
           <span>Add Repo</span>

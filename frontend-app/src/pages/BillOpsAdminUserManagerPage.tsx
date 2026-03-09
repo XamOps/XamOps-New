@@ -30,6 +30,7 @@ import { useTopbar } from '../contexts/TopbarContext';
 import { useBillOpsUserManager } from '../hooks/useBillOpsUserManager';
 import type { BillOpsUser, BillOpsRole } from '../types/billopsUserManager';
 import NotificationModal from '../components/Shared/NotificationModal';
+import { AlertDialog } from '../components/ui';
 import '../styles/billopsAdminUserManager.css';
 
 const BillOpsAdminUserManagerPage: React.FC = () => {
@@ -48,6 +49,9 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
         updateSelectedUser,
         notification,
         clearNotification,
+        pendingDeleteId,
+        confirmDelete,
+        cancelDelete,
     } = useBillOpsUserManager();
 
     const [searchQuery, setSearchQuery] = useState('');
@@ -125,6 +129,15 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
 
     return (
         <div className="user-manager-page">
+            <AlertDialog
+                isOpen={!!pendingDeleteId}
+                title="Delete user?"
+                description="This action cannot be undone."
+                confirmLabel="Delete"
+                variant="danger"
+                onConfirm={confirmDelete}
+                onCancel={cancelDelete}
+            />
             {/* Error State */}
             {error && (
                 <div className="user-manager-error">
