@@ -122,7 +122,7 @@ const MyProfilePage: React.FC = () => {
     return accounts.filter(a => {
       const matchProvider = accountProviderFilter === 'All' || a.provider === accountProviderFilter;
       const matchSearch = !accountSearch ||
-        a.name.toLowerCase().includes(accountSearch.toLowerCase()) ||
+        a.accountName.toLowerCase().includes(accountSearch.toLowerCase()) ||
         a.provider.toLowerCase().includes(accountSearch.toLowerCase());
       return matchProvider && matchSearch;
     });
