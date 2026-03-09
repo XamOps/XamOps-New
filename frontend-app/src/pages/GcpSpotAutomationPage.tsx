@@ -68,6 +68,7 @@ const GcpSpotAutomationPage: React.FC = () => {
     }
 
     const handleToggle = async (mig: GcpMIG) => {
+        if (mig.gkeManagedPool) return; // GKE-managed pools cannot be toggled
         try {
             await toggleMIG(mig);
             gooeyToast.success(`AutoSpotting ${!mig.isEnabled ? 'enabled' : 'disabled'} for ${mig.name}`);
@@ -207,27 +208,34 @@ const GcpSpotAutomationPage: React.FC = () => {
                                                         </div>
                                                     </td>
                                                     <td className="px-6 py-4 text-right">
-                                                        <div className="text-sm font-bold text-emerald-600">
-                                                            +₹{mig.potentialSavings.toFixed(2)}
-                                                            <span className="text-[10px] text-slate-400 ml-1 font-medium">/hr</span>
-                                                        </div>
+                                                        {mig.gkeManagedPool ? (
+                                                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-400 bg-slate-100 border border-slate-200 px-2 py-1 rounded-full">
+                                                                <i className="fas fa-ban text-[9px]"></i>
+                                                                N/A
+                                                            </span>
+                                                        ) : (
+                                                            <div className="text-sm font-bold text-emerald-600">
+                                                                +₹{mig.potentialSavings.toFixed(2)}
+                                                                <span className="text-[10px] text-slate-400 ml-1 font-medium">/hr</span>
+                                                            </div>
+                                                        )}
                                                     </td>
                                                     <td className="px-6 py-4">
                                                         <div className="flex justify-center">
-                                                            {mig.gkeManagedPool && !mig.isEnabled ? (
+                                                            {mig.gkeManagedPool ? (
                                                                 <div className="relative group/gke">
-                                                                    <button
-                                                                        onClick={() => handleToggle(mig)}
-                                                                        disabled={mig.updating}
-                                                                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2 bg-slate-200 ${mig.updating ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-                                                                        title="GKE-managed pool — modifying this template may conflict with GKE lifecycle management"
+                                                                    <div
+                                                                        className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 cursor-not-allowed select-none"
+                                                                        aria-disabled="true"
                                                                     >
-                                                                        <span className="sr-only">Toggle AutoSpotting (GKE Pool)</span>
-                                                                        <span className="translate-x-1 inline-block h-4 w-4 transform rounded-full bg-amber-400 transition-transform ease-in-out duration-200" />
-                                                                    </button>
-                                                                    <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-56 bg-amber-50 border border-amber-200 text-amber-800 text-[10px] rounded-lg px-2.5 py-2 shadow-lg hidden group-hover/gke:block z-10 pointer-events-none">
-                                                                        <i className="fas fa-exclamation-triangle mr-1"></i>
-                                                                        GKE-managed pool. Modifying its template may conflict with GKE. Consider creating a new Spot node pool instead.
+                                                                        <i className="fas fa-lock text-[9px]"></i>
+                                                                        GKE Managed
+                                                                    </div>
+                                                                    <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-64 bg-slate-900 text-white text-[10px] rounded-lg px-3 py-2 shadow-lg hidden group-hover/gke:block z-10 pointer-events-none leading-relaxed">
+                                                                        <div className="flex items-start gap-1.5">
+                                                                            <i className="fas fa-info-circle text-blue-400 mt-0.5 shrink-0"></i>
+                                                                            <span>This is a <strong className="text-white">GKE-managed node pool</strong>. AutoSpotting cannot convert it — GKE controls its lifecycle. To use Spot VMs, create a dedicated Spot node pool in the GKE console.</span>
+                                                                        </div>
                                                                     </div>
                                                                 </div>
                                                             ) : (
