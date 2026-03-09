@@ -5,6 +5,8 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { InfoTooltip, AriaSlider, DialogRoot, DialogPanel } from '../ui';
+import { RadioGroup, Radio } from 'react-aria-components';
 
 interface InstanceTypeConfigModalProps {
   isOpen: boolean;
@@ -105,38 +107,41 @@ const InstanceTypeConfigModal: React.FC<InstanceTypeConfigModalProps> = ({
   const allPredefinedTypes = new Set(Object.values(INSTANCE_TYPE_FAMILIES).flat());
   const customTypes = Array.from(selectedTypes).filter((type) => !allPredefinedTypes.has(type));
 
-  if (!isOpen) return null;
-
   return (
-    <div
-      className="fixed inset-0 flex items-center justify-center z-50 bg-black/50 backdrop-blur-sm"
-      onClick={handleClose}
-    >
-      <div
-        className="bg-white rounded-2xl p-8 w-full max-w-4xl mx-4 shadow-2xl border border-gray-200 max-h-[90vh] overflow-y-auto"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between mb-6">
+    <DialogRoot isOpen={isOpen} onClose={handleClose} maxWidth="max-w-4xl">
+      <DialogPanel
+        title={
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center shadow-md">
               <i className="fas fa-server text-white"></i>
             </div>
             <div>
-              <h3 className="text-xl font-bold text-gray-800">Configure Instance Types</h3>
-              <p className="text-sm text-gray-600">
-                {asgName} ({region})
-              </p>
+              <div className="text-xl font-bold text-gray-800">Configure Instance Types</div>
+              <div className="text-sm text-gray-600">{asgName} ({region})</div>
             </div>
           </div>
-          <button
-            onClick={handleClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
-          >
-            <i className="fas fa-times text-xl"></i>
-          </button>
-        </div>
-
-        <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+        }
+        onClose={handleClose}
+        footer={
+          <>
+            <div className="text-sm text-gray-600 mr-auto">
+              <span className="font-semibold">{selectedTypes.size}</span> instance type{selectedTypes.size !== 1 ? 's' : ''} selected
+            </div>
+            <button type="button" onClick={handleClose} className="px-6 py-3 bg-white border border-gray-200 text-gray-700 font-semibold rounded-lg hover:bg-gray-50 transition-all">
+              Cancel
+            </button>
+            <button type="button" onClick={handleSave} disabled={isSaving} className="px-6 py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 transition-all flex items-center disabled:opacity-50">
+              {isSaving ? (
+                <><div className="loading-spinner mr-2 border-2 border-white border-t-transparent rounded-full w-4 h-4 animate-spin"></div>Saving...</>
+              ) : (
+                <><i className="fas fa-save mr-2"></i>Save Configuration</>
+              )}
+            </button>
+          </>
+        }
+      >
+        <div className="overflow-y-auto max-h-[60vh] space-y-6">
+        <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
           <div className="flex items-start space-x-2">
             <i className="fas fa-lightbulb text-blue-600 mt-1"></i>
             <div className="text-sm text-blue-800">
@@ -158,99 +163,89 @@ const InstanceTypeConfigModal: React.FC<InstanceTypeConfigModalProps> = ({
           </h4>
 
           {/* Radio Button Group */}
-          <div className="space-y-4">
+          <RadioGroup
+            value={configMode}
+            onChange={(v) => setConfigMode(v as 'percentage' | 'count')}
+            aria-label="Spot configuration mode"
+            className="space-y-4"
+          >
             {/* % Spot Instances Option */}
-            <div className="flex items-start space-x-3">
-              <input
-                type="radio"
-                id="percentage-mode"
-                name="config-mode"
-                checked={configMode === 'percentage'}
-                onChange={() => setConfigMode('percentage')}
-                className="mt-1 w-4 h-4 text-indigo-600"
-              />
-              <div className="flex-1">
-                <label htmlFor="percentage-mode" className="flex items-center space-x-2 cursor-pointer">
-                  <span className="font-semibold text-gray-700">% Spot instances</span>
-                  <div className="group relative">
-                    <i className="fas fa-info-circle text-gray-400 hover:text-gray-600"></i>
-                    <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block w-64 p-2 bg-gray-800 text-white text-xs rounded-lg shadow-lg z-10">
-                      Set the target percentage of Spot instances. AWS will maintain this ratio automatically.
-                    </div>
+            <Radio
+              value="percentage"
+              className={({ isFocusVisible }) =>
+                `flex items-start space-x-3 outline-none ${isFocusVisible ? 'ring-2 ring-indigo-400 rounded-lg' : ''}`
+              }
+            >
+              {({ isSelected }) => (
+                <>
+                  <div className={`mt-1 w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${isSelected ? 'border-indigo-600 bg-indigo-600' : 'border-gray-300'}`}>
+                    {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
                   </div>
-                </label>
-
-                {configMode === 'percentage' && (
-                  <div className="mt-3">
-                    <div className="flex items-center space-x-4">
-                      <input
-                        type="range"
-                        min="0"
-                        max="100"
-                        value={spotPercentage}
-                        onChange={(e) => setSpotPercentage(Number(e.target.value))}
-                        className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
-                        style={{
-                          background: `linear-gradient(to right, rgb(79 70 229) 0%, rgb(79 70 229) ${spotPercentage}%, rgb(229 231 235) ${spotPercentage}%, rgb(229 231 235) 100%)`
-                        }}
-                      />
-                      <input
-                        type="number"
-                        min="0"
-                        max="100"
-                        value={spotPercentage}
-                        onChange={(e) => setSpotPercentage(Math.min(100, Math.max(0, Number(e.target.value))))}
-                        className="w-20 px-3 py-2 border border-gray-300 rounded-lg text-center font-semibold focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
-                      />
+                  <div className="flex-1">
+                    <div className="flex items-center space-x-2 cursor-pointer">
+                      <span className="font-semibold text-gray-700">% Spot instances</span>
+                      <InfoTooltip placement="top">
+                        Set the target percentage of Spot instances. AWS will maintain this ratio automatically.
+                      </InfoTooltip>
                     </div>
-                    <div className="flex justify-between text-xs text-gray-500 mt-2">
-                      <span>0% (All On-Demand)</span>
-                      <span>100% (All Spot)</span>
-                    </div>
+                    {isSelected && (
+                      <div className="mt-3">
+                        <AriaSlider
+                          label="Spot Percentage"
+                          value={spotPercentage}
+                          onChange={setSpotPercentage}
+                          minValue={0}
+                          maxValue={100}
+                          step={1}
+                          formatValue={(v) => `${v}%`}
+                          fillColor="rgb(79 70 229)"
+                        />
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            </div>
+                </>
+              )}
+            </Radio>
 
             {/* Specific On-Demand Count Option */}
-            <div className="flex items-start space-x-3">
-              <input
-                type="radio"
-                id="count-mode"
-                name="config-mode"
-                checked={configMode === 'count'}
-                onChange={() => setConfigMode('count')}
-                className="mt-1 w-4 h-4 text-indigo-600"
-              />
-              <div className="flex-1">
-                <label htmlFor="count-mode" className="flex items-center space-x-2 cursor-pointer">
-                  <span className="font-semibold text-gray-700">Specific on-demand count</span>
-                  <div className="group relative">
-                    <i className="fas fa-info-circle text-gray-400 hover:text-gray-600"></i>
-                    <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block w-64 p-2 bg-gray-800 text-white text-xs rounded-lg shadow-lg z-10">
-                      Set a fixed number of On-Demand instances. All other instances will be Spot.
+            <Radio
+              value="count"
+              className={({ isFocusVisible }) =>
+                `flex items-start space-x-3 outline-none ${isFocusVisible ? 'ring-2 ring-indigo-400 rounded-lg' : ''}`
+              }
+            >
+              {({ isSelected }) => (
+                <>
+                  <div className={`mt-1 w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${isSelected ? 'border-indigo-600 bg-indigo-600' : 'border-gray-300'}`}>
+                    {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center space-x-2 cursor-pointer">
+                      <span className="font-semibold text-gray-700">Specific on-demand count</span>
+                      <InfoTooltip placement="top">
+                        Set a fixed number of On-Demand instances. All other instances will be Spot.
+                      </InfoTooltip>
                     </div>
+                    {isSelected && (
+                      <div className="mt-3">
+                        <input
+                          type="number"
+                          min="0"
+                          value={onDemandCount}
+                          onChange={(e) => setOnDemandCount(Math.max(0, Number(e.target.value)))}
+                          placeholder="Enter count..."
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
+                        />
+                        <p className="text-xs text-gray-500 mt-1">
+                          Number of On-Demand instances to maintain. Remaining will be Spot.
+                        </p>
+                      </div>
+                    )}
                   </div>
-                </label>
-
-                {configMode === 'count' && (
-                  <div className="mt-3">
-                    <input
-                      type="number"
-                      min="0"
-                      value={onDemandCount}
-                      onChange={(e) => setOnDemandCount(Math.max(0, Number(e.target.value)))}
-                      placeholder="Enter count..."
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">
-                      Number of On-Demand instances to maintain. Remaining will be Spot.
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
+                </>
+              )}
+            </Radio>
+          </RadioGroup>
         </div>
 
         <div className="space-y-6">
@@ -330,40 +325,9 @@ const InstanceTypeConfigModal: React.FC<InstanceTypeConfigModalProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center justify-between mt-8 pt-6 border-t border-gray-200">
-          <div className="text-sm text-gray-600">
-            <span className="font-semibold">{selectedTypes.size}</span> instance type{selectedTypes.size !== 1 ? 's' : ''} selected
-          </div>
-          <div className="flex space-x-3">
-            <button
-              type="button"
-              onClick={handleClose}
-              className="px-6 py-3 bg-white border border-gray-200 text-gray-700 font-semibold rounded-lg hover:bg-gray-50 transition-all"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={isSaving}
-              className="px-6 py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 transition-all flex items-center disabled:opacity-50"
-            >
-              {isSaving ? (
-                <>
-                  <div className="loading-spinner mr-2 border-2 border-white border-t-transparent rounded-full w-4 h-4 animate-spin"></div>
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <i className="fas fa-save mr-2"></i>
-                  Save Configuration
-                </>
-              )}
-            </button>
-          </div>
         </div>
-      </div>
-    </div>
+      </DialogPanel>
+    </DialogRoot>
   );
 };
 

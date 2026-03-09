@@ -1,0 +1,94 @@
+/**
+ * Accessible Tabs primitive built on react-aria-components.
+ * Provides: arrow key navigation, tablist/tab/tabpanel roles,
+ * roving tabindex, keyboard Home/End support.
+ *
+ * Usage:
+ *   <AriaTabGroup
+ *     tabs={[
+ *       { id: 'dashboard', label: 'Dashboard' },
+ *       { id: 'history',   label: 'History',  icon: 'fas fa-history' },
+ *     ]}
+ *     selectedKey={activeTab}
+ *     onSelectionChange={(key) => setActiveTab(key as string)}
+ *   />
+ *
+ *   // Render panels separately with your existing content:
+ *   {activeTab === 'dashboard' && <DashboardContent />}
+ */
+
+import React from 'react';
+import { Tabs, TabList, Tab } from 'react-aria-components';
+
+export interface TabItem {
+  id: string;
+  label: React.ReactNode;
+  /** Optional Font Awesome icon class e.g. "fas fa-chart-bar" */
+  icon?: string;
+  /** Disable this tab */
+  disabled?: boolean;
+}
+
+interface AriaTabGroupProps {
+  tabs: TabItem[];
+  selectedKey: string;
+  onSelectionChange: (key: string) => void;
+  /** Extra class on the tablist container */
+  className?: string;
+  /** Visual style variant */
+  variant?: 'underline' | 'pill';
+}
+
+export function AriaTabGroup({
+  tabs,
+  selectedKey,
+  onSelectionChange,
+  className = '',
+  variant = 'underline',
+}: AriaTabGroupProps) {
+  return (
+    <Tabs
+      selectedKey={selectedKey}
+      onSelectionChange={(key) => onSelectionChange(String(key))}
+    >
+      <TabList
+        aria-label="Page sections"
+        className={
+          variant === 'pill'
+            ? `flex gap-1 p-1 bg-slate-100 rounded-xl ${className}`
+            : `flex gap-1 border-b border-gray-200 ${className}`
+        }
+      >
+        {tabs.map((tab) => (
+          <Tab
+            key={tab.id}
+            id={tab.id}
+            isDisabled={tab.disabled}
+            className={({ isSelected, isFocusVisible }) =>
+              variant === 'pill'
+                ? [
+                    'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all outline-none cursor-pointer',
+                    isSelected
+                      ? 'bg-white text-indigo-700 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700',
+                    isFocusVisible ? 'ring-2 ring-indigo-500 ring-offset-1' : '',
+                    tab.disabled ? 'opacity-40 cursor-not-allowed' : '',
+                  ].join(' ')
+                : [
+                    'flex items-center gap-2 px-4 py-3 text-sm font-semibold border-b-2 transition-all outline-none cursor-pointer -mb-px',
+                    isSelected
+                      ? 'border-indigo-600 text-indigo-700'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300',
+                    isFocusVisible ? 'ring-2 ring-indigo-500 ring-inset' : '',
+                    tab.disabled ? 'opacity-40 cursor-not-allowed' : '',
+                  ].join(' ')
+            }
+          >
+            {tab.icon && <i className={`${tab.icon} text-xs`} />}
+            {tab.label}
+          </Tab>
+        ))}
+      </TabList>
+    </Tabs>
+  );
+}

@@ -21,6 +21,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.xammer.cloud.domain.AutoSpottingSettings;
@@ -72,10 +73,12 @@ public class AutoSpottingService {
     private final RedisCacheService redisCacheService;
 
     // Redis cache key prefixes for SpotAutomation page data
-    private static final String CACHE_KEY_ASG_LIST   = "autospotting-asgs-";
-    private static final String CACHE_KEY_COST        = "autospotting-cost-";
-    private static final String CACHE_KEY_INSTANCES   = "autospotting-instances-";
-    private static final int    CACHE_TTL_MINUTES     = 240; // 4 hours
+    private static final String CACHE_KEY_ASG_LIST          = "autospotting-asgs-";
+    private static final String CACHE_KEY_COST               = "autospotting-cost-";
+    private static final String CACHE_KEY_INSTANCES          = "autospotting-instances-";
+    private static final String CACHE_KEY_CUSTOMER_SAVINGS   = "autospotting-admin-customer-savings";
+    private static final int    CACHE_TTL_MINUTES            = 240; // 4 hours
+    private static final int    CACHE_TTL_ADMIN_MINUTES      = 30;  // 30 min for admin aggregates
 
     // Cache for region discovery
     private final Map<String, CachedRegionInfo> regionCache = new ConcurrentHashMap<>();
@@ -2618,6 +2621,7 @@ public class AutoSpottingService {
     /**
      * Get aggregated historical savings for all accounts (Admin Dashboard)
      */
+    @Transactional(readOnly = true)
     public List<Map<String, Object>> getAdminHistoricalSavings(int days) {
         LocalDate startDate = LocalDate.now().minusDays(days);
         List<Object[]> results = savingsRepository.getAggregatedHistory(startDate);
@@ -2658,6 +2662,7 @@ public class AutoSpottingService {
     /**
      * Get global savings metrics for Admin Dashboard
      */
+    @Transactional(readOnly = true)
     public Map<String, Object> getAdminDashboardMetrics() {
         Double totalSavings = savingsRepository.getTotalSavings();
         if (totalSavings == null) {
@@ -2689,6 +2694,7 @@ public class AutoSpottingService {
     /**
      * Get account-by-account breakdown for Admin Dashboard
      */
+    @Transactional(readOnly = true)
     public List<Map<String, Object>> getAdminAccountBreakdown() {
         List<CloudAccount> accounts = cloudAccountRepository.findAll();
         List<Map<String, Object>> breakdown = new ArrayList<>();
@@ -2717,8 +2723,89 @@ public class AutoSpottingService {
     }
 
     /**
+     * Get per-customer AutoSpotting savings breakdown by provider (AWS/GCP/Azure).
+     * Only includes customers who have AutoSpotting enabled on at least one account.
+     * Groups savings by client (customer), summing across all their cloud accounts per provider.
+     * Result is cached in Redis for CACHE_TTL_ADMIN_MINUTES minutes.
+     */
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> getCustomerSpotSavings() {
+        // Try Redis cache first
+        Optional<List<Map<String, Object>>> cached = redisCacheService.get(
+                CACHE_KEY_CUSTOMER_SAVINGS,
+                new com.fasterxml.jackson.core.type.TypeReference<List<Map<String, Object>>>() {});
+        if (cached.isPresent()) {
+            logger.info("--- CUSTOMER SAVINGS: loaded from Redis cache ---");
+            return cached.get();
+        }
+
+        List<com.xammer.cloud.domain.AutoSpottingSettings> enabledSettings =
+                settingsRepository.findAllByEnabled(true);
+
+        // clientId → { clientName, awsSavings, gcpSavings, azureSavings }
+        Map<Long, Map<String, Object>> clientMap = new java.util.LinkedHashMap<>();
+
+        for (com.xammer.cloud.domain.AutoSpottingSettings settings : enabledSettings) {
+            CloudAccount account = settings.getAccount();
+            if (account == null) {
+                account = cloudAccountRepository.findById(settings.getAccountId()).orElse(null);
+            }
+            if (account == null || account.getClient() == null) continue;
+
+            com.xammer.cloud.domain.Client client = account.getClient();
+            Long clientId = client.getId();
+            String provider = account.getProvider(); // AWS, GCP, Azure
+
+            // Sum all-time savings from DailySpotSavings for this account
+            double savings = savingsRepository
+                    .findByAccountIdAndDateAfterOrderByDateAsc(account.getId(), java.time.LocalDate.of(2000, 1, 1))
+                    .stream()
+                    .mapToDouble(d -> d.getAmountSaved() != null ? d.getAmountSaved() : 0.0)
+                    .sum();
+
+            Map<String, Object> entry = clientMap.computeIfAbsent(clientId, k -> {
+                Map<String, Object> m = new java.util.LinkedHashMap<>();
+                m.put("clientId", clientId);
+                m.put("clientName", client.getName());
+                m.put("awsSavings", 0.0);
+                m.put("gcpSavings", 0.0);
+                m.put("azureSavings", 0.0);
+                return m;
+            });
+
+            if ("AWS".equals(provider)) {
+                entry.put("awsSavings", (Double) entry.get("awsSavings") + savings);
+            } else if ("GCP".equals(provider)) {
+                entry.put("gcpSavings", (Double) entry.get("gcpSavings") + savings);
+            } else if ("Azure".equals(provider)) {
+                entry.put("azureSavings", (Double) entry.get("azureSavings") + savings);
+            }
+        }
+
+        // Add total and sort descending
+        List<Map<String, Object>> result = clientMap.values().stream()
+                .map(entry -> {
+                    double total = (Double) entry.get("awsSavings")
+                            + (Double) entry.get("gcpSavings")
+                            + (Double) entry.get("azureSavings");
+                    entry.put("totalSavings", total);
+                    return entry;
+                })
+                .sorted((a, b) -> Double.compare((Double) b.get("totalSavings"), (Double) a.get("totalSavings")))
+                .collect(Collectors.toList());
+
+        // Save to Redis cache
+        redisCacheService.put(CACHE_KEY_CUSTOMER_SAVINGS, result, CACHE_TTL_ADMIN_MINUTES);
+        logger.info("--- CUSTOMER SAVINGS: cached {} customer entries in Redis (TTL: {} min) ---",
+                result.size(), CACHE_TTL_ADMIN_MINUTES);
+
+        return result;
+    }
+
+    /**
      * Get recent activity for Admin Dashboard
      */
+    @Transactional(readOnly = true)
     public List<Map<String, Object>> getAdminRecentActivity(int limit) {
         List<SpotOptimizationEvent> events = limit <= 10
                 ? eventRepository.findTop10ByOrderByEventTimeDesc()

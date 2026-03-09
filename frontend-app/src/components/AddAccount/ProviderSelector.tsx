@@ -32,18 +32,29 @@ const GCPIcon = () => (
 );
 
 const AzureIcon = () => (
-  <svg viewBox="0 0 256 242" width="32" height="32" preserveAspectRatio="xMidYMid">
-    <path d="M85.343 0 .003 214.794l52.418.003L140.932 0H85.343Z" fill="#0089D6" />
-    <path d="M195.723 156.278 256 213.95l-158.867.003L195.723 156.278Z" fill="#0089D6" />
-    <path d="M172.89 0 82.177 213.86l76.47.003L252.003 0H172.89Z" fill="#0089D6" />
-  </svg>
+  <img src="/icons/azure-icon.png" alt="Microsoft Azure" width="32" height="32" style={{ objectFit: 'contain' }} />
 );
 
 const JenkinsIcon = () => (
-  <svg viewBox="0 0 256 256" width="32" height="32" preserveAspectRatio="xMidYMid">
-    <path d="M128 0C57.308 0 0 57.308 0 128s57.308 128 128 128 128-57.308 128-128S198.692 0 128 0" fill="#D33833" />
-    <path d="M128 20c59.647 0 108 48.353 108 108s-48.353 108-108 108S20 187.647 20 128 68.353 20 128 20" fill="#EF3D3A" />
-    <path d="M91.2 157.6c-3.2 4.8-7.2 8.8-12 12-4.8 3.2-10.4 4.8-16.8 4.8-6.4 0-12.8-1.6-18.4-4.8-5.6-3.2-9.6-8-12-13.6L20 128l12-28c2.4-5.6 6.4-10.4 12-13.6 5.6-3.2 12-4.8 18.4-4.8 6.4 0 12 1.6 16.8 4.8 4.8 3.2 8.8 7.2 12 12l-8.8 5.6c-2.4-4-5.6-7.2-9.6-9.6-4-2.4-8.8-4-13.6-4-4.8 0-9.6 1.2-13.6 4s-7.2 6.4-9.6 11.2l-8 18.4 8 18.4c2.4 4.8 5.6 8.8 9.6 11.2 4 2.4 8.8 4 13.6 4 4.8 0 9.6-1.2 13.6-4 4-2.4 7.2-5.6 9.6-9.6l8.8 5.6Zm76.8-29.6c0 6.4-1.2 12-4 17.6-2.4 5.6-6.4 10.4-11.2 14.4-4.8 4-10.4 7.2-16.8 9.6-6.4 2.4-13.6 3.2-20.8 3.2H80v-88h35.2c7.2 0 14.4 1.2 20.8 3.2 6.4 2.4 12 5.6 16.8 9.6 4.8 4 8.8 8.8 11.2 14.4 2.8 5.6 4 11.6 4 16Zm-19.2 0c0-4.8-.8-9.2-2.4-13.2-1.6-4-4-7.6-6.8-10.4-2.8-2.8-6.4-5.2-10.4-6.8-4-1.6-8.4-2.4-13.2-2.4h-16v65.6h16c4.8 0 9.2-.8 13.2-2.4 4-1.6 7.6-4 10.4-6.8 2.8-2.8 5.2-6.4 6.8-10.4 1.6-4 2.4-8.4 2.4-13.2v.4Z" fill="#FFF" />
+  <svg viewBox="0 0 256 256" width="32" height="32" xmlns="http://www.w3.org/2000/svg">
+    {/* Jenkins: teal/dark background with butler silhouette */}
+    <circle cx="128" cy="128" r="128" fill="#335061" />
+    <circle cx="128" cy="128" r="112" fill="#3d6275" />
+    {/* Butler head */}
+    <ellipse cx="128" cy="90" rx="38" ry="44" fill="#f5e6c8" />
+    {/* Top hat brim */}
+    <rect x="86" y="72" width="84" height="8" rx="4" fill="#1a1a1a" />
+    {/* Top hat body */}
+    <rect x="96" y="38" width="64" height="36" rx="4" fill="#1a1a1a" />
+    {/* Face features */}
+    <ellipse cx="116" cy="88" rx="5" ry="6" fill="#1a1a1a" />
+    <ellipse cx="140" cy="88" rx="5" ry="6" fill="#1a1a1a" />
+    <path d="M112 104 Q128 116 144 104" stroke="#c0856a" strokeWidth="3" fill="none" strokeLinecap="round" />
+    {/* Bow tie */}
+    <ellipse cx="128" cy="130" rx="14" ry="8" fill="#1a1a1a" />
+    {/* Body/suit */}
+    <path d="M80 200 Q90 148 114 138 L128 150 L142 138 Q166 148 176 200 Z" fill="#f5e6c8" />
+    <path d="M100 200 Q105 155 114 138 L128 155 L142 138 Q151 155 156 200 Z" fill="#1a1a1a" />
   </svg>
 );
 

@@ -2,6 +2,7 @@ import React, { useRef, useEffect } from 'react';
 import { useAdminAgreements } from '../hooks/useAdminAgreements';
 import { useTopbar } from '../contexts/TopbarContext';
 import type { Agreement } from '../types/agreements';
+import { AlertDialog } from '../components/ui';
 
 const BillOpsAdminAgreementsPage: React.FC = () => {
     const {
@@ -18,6 +19,12 @@ const BillOpsAdminAgreementsPage: React.FC = () => {
         uploadAgreement,
         finalizeAgreement,
         deleteAgreement,
+        pendingFinalize,
+        pendingDelete,
+        requestFinalize,
+        cancelFinalize,
+        requestDelete,
+        cancelDelete,
     } = useAdminAgreements();
 
     const { setActions, clearActions } = useTopbar();
@@ -104,6 +111,24 @@ const BillOpsAdminAgreementsPage: React.FC = () => {
 
     return (
         <div className="flex-1 flex flex-col h-full overflow-hidden bg-transparent">
+            <AlertDialog
+                isOpen={!!pendingFinalize}
+                title={`Finalize "${pendingFinalize?.fileName}"?`}
+                description="This will make the agreement visible to the user."
+                confirmLabel="Finalize"
+                variant="info"
+                onConfirm={() => pendingFinalize && finalizeAgreement(pendingFinalize)}
+                onCancel={cancelFinalize}
+            />
+            <AlertDialog
+                isOpen={!!pendingDelete}
+                title={`Delete "${pendingDelete?.fileName}"?`}
+                description="This action cannot be undone."
+                confirmLabel="Delete"
+                variant="danger"
+                onConfirm={() => pendingDelete && deleteAgreement(pendingDelete)}
+                onCancel={cancelDelete}
+            />
             {/* Main Content */}
             <main className="flex-1 overflow-y-auto p-8 custom-scrollbar relative z-0">
 
@@ -330,7 +355,7 @@ const BillOpsAdminAgreementsPage: React.FC = () => {
                                                                     {/* Finalize Button - Only for DRAFT */}
                                                                     {agreement.status === 'DRAFT' && (
                                                                         <button
-                                                                            onClick={() => finalizeAgreement(agreement)}
+                                                                            onClick={() => requestFinalize(agreement)}
                                                                             className="w-10 h-10 bg-white border border-gray-100 rounded-xl flex items-center justify-center text-gray-500 hover:text-green-600 hover:border-green-200 hover:shadow-md transition-all active:scale-90"
                                                                             title="Finalize to Client"
                                                                         >
@@ -340,7 +365,7 @@ const BillOpsAdminAgreementsPage: React.FC = () => {
 
                                                                     {/* Delete Button */}
                                                                     <button
-                                                                        onClick={() => deleteAgreement(agreement)}
+                                                                        onClick={() => requestDelete(agreement)}
                                                                         className="w-10 h-10 bg-white border border-gray-100 rounded-xl flex items-center justify-center text-gray-500 hover:text-red-600 hover:border-red-200 hover:shadow-md transition-all active:scale-90"
                                                                         title="Delete Permanent"
                                                                     >

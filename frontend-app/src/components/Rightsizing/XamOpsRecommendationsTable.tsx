@@ -121,7 +121,7 @@ const XamOpsRecommendationsTable: React.FC<XamOpsRecommendationsTableProps> = ({
                         )}
                       </div>
                     </td>
-                    <td style={{ color: '#111827' }}>{rec.loadRange}</td>
+                    <td className="text-gray-900 dark:text-gray-100">{rec.loadRange}</td>
                     <td>
                       <div className="flex flex-col">
                         <span className="font-medium text-gray-800 dark:text-gray-200" style={{ fontSize: '0.7rem' }}>
@@ -146,11 +146,11 @@ const XamOpsRecommendationsTable: React.FC<XamOpsRecommendationsTableProps> = ({
                         )}
                       </div>
                     </td>
-                    <td style={{ color: '#111827' }}>{rec.projectedMaxUtil}</td>
+                    <td className="text-gray-900 dark:text-gray-100">{rec.projectedMaxUtil}</td>
                     <td>
                       <span className="savings-badge">{rec.approxCostSavings}</span>
                     </td>
-                    <td className="reason-text" style={{ color: '#111827' }}>
+                    <td className="reason-text" className="text-gray-900 dark:text-gray-100">
                       {rec.reason}
                     </td>
                   </tr>

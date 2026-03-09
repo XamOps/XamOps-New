@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { gooeyToast } from 'goey-toast';
 import type { ASG, SpotCosts } from '../../hooks/useSpotAutomationData';
+import { InfoTooltip } from '../ui';
+import { Switch } from 'react-aria-components';
 
 interface SpotAutomationASGTableProps {
   asgs: ASG[];
@@ -114,27 +116,19 @@ const SpotAutomationASGTable: React.FC<SpotAutomationASGTableProps> = ({
               <th className="px-6 py-4 font-bold">Hourly Cost</th>
               <th className="px-6 py-4 font-bold">Monthly Cost</th>
               <th className="px-6 py-4 font-bold">
-                <div className="flex items-center">
+                <div className="flex items-center gap-1">
                   <span>Actual Savings/mo</span>
-                  <div className="group relative ml-2">
-                    <i className="fas fa-info-circle text-gray-400 hover:text-gray-600 cursor-help"></i>
-                    <div className="hidden group-hover:block absolute top-full left-1/2 -translate-x-1/2 mt-2 w-64 bg-gray-900 text-white text-xs rounded-lg p-3 shadow-xl z-[100]">
-                      Monthly savings you're already getting from Spot instances currently running in this ASG.
-                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-[-1px] w-3 h-3 bg-gray-900 transform rotate-45"></div>
-                    </div>
-                  </div>
+                  <InfoTooltip placement="top">
+                    Monthly savings you're already getting from Spot instances currently running in this ASG.
+                  </InfoTooltip>
                 </div>
               </th>
               <th className="px-6 py-4 font-bold">
-                <div className="flex items-center">
+                <div className="flex items-center gap-1">
                   <span>Potential Savings/mo</span>
-                  <div className="group relative ml-2">
-                    <i className="fas fa-info-circle text-gray-400 hover:text-gray-600 cursor-help"></i>
-                    <div className="hidden group-hover:block absolute top-full left-1/2 -translate-x-1/2 mt-2 w-64 bg-gray-900 text-white text-xs rounded-lg p-3 shadow-xl z-[100]">
-                      Estimated monthly savings if all on-demand instances in this ASG were converted to Spot instances.
-                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-[-1px] w-3 h-3 bg-gray-900 transform rotate-45"></div>
-                    </div>
-                  </div>
+                  <InfoTooltip placement="top">
+                    Estimated monthly savings if all on-demand instances in this ASG were converted to Spot instances.
+                  </InfoTooltip>
                 </div>
               </th>
               <th className="px-6 py-4 font-bold text-center">AutoSpotting</th>
@@ -233,37 +227,38 @@ const SpotAutomationASGTable: React.FC<SpotAutomationASGTableProps> = ({
                       )}
                     </td>
                     <td className="px-6 py-4 text-center">
-                      <div className="flex items-center justify-center space-x-3">
-                        <div className="relative inline-block w-12 align-middle select-none transition duration-200 ease-in">
-                          <input
-                            type="checkbox"
-                            id={`toggle-${asgKey}`}
-                            className="toggle-checkbox absolute block w-7 h-7 rounded-full bg-white border-4 appearance-none cursor-pointer transition-all duration-200 shadow-md"
-                            style={{
-                              right: asg.isEnabled ? '0' : 'auto',
-                              left: asg.isEnabled ? 'auto' : '0',
-                              borderColor: asg.isEnabled ? '#10b981' : '#d1d5db',
-                              opacity: isToggling ? 0.5 : 1,
-                            }}
-                            checked={asg.isEnabled}
-                            disabled={isToggling}
-                            onChange={() => handleToggle(asg)}
-                          />
-                          <label
-                            htmlFor={`toggle-${asgKey}`}
-                            className="toggle-label block overflow-hidden h-7 rounded-full cursor-pointer transition-colors duration-200"
-                            style={{ backgroundColor: asg.isEnabled ? '#10b981' : '#d1d5db' }}
-                          ></label>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <span
-                            className="text-xs font-bold"
-                            style={{ color: asg.isEnabled ? '#10b981' : '#6b7280' }}
-                          >
-                            {asg.isEnabled ? 'Enabled' : 'Disabled'}
-                          </span>
-                          {isToggling && <i className="fas fa-spinner fa-spin text-gray-400 text-xs"></i>}
-                        </div>
+                      <div className="flex items-center justify-center gap-2">
+                        <Switch
+                          isSelected={asg.isEnabled}
+                          onChange={() => handleToggle(asg)}
+                          isDisabled={isToggling}
+                          aria-label={`AutoSpotting for ${asg.name}`}
+                          className="flex items-center gap-2 cursor-pointer outline-none group"
+                        >
+                          {({ isSelected, isFocusVisible }) => (
+                            <>
+                              <div
+                                className={[
+                                  'relative w-12 h-7 rounded-full transition-colors duration-200',
+                                  isSelected ? 'bg-emerald-500' : 'bg-gray-300',
+                                  isToggling ? 'opacity-50' : '',
+                                  isFocusVisible ? 'ring-2 ring-emerald-400 ring-offset-1' : '',
+                                ].join(' ')}
+                              >
+                                <div
+                                  className={[
+                                    'absolute top-0.5 w-6 h-6 bg-white rounded-full shadow-md transition-all duration-200',
+                                    isSelected ? 'left-[calc(100%-1.625rem)]' : 'left-0.5',
+                                  ].join(' ')}
+                                />
+                              </div>
+                              <span className={`text-xs font-bold ${isSelected ? 'text-emerald-600' : 'text-gray-500'}`}>
+                                {isSelected ? 'Enabled' : 'Disabled'}
+                              </span>
+                            </>
+                          )}
+                        </Switch>
+                        {isToggling && <i className="fas fa-spinner fa-spin text-gray-400 text-xs" />}
                       </div>
                       {asg.isEnabled && (
                         <div className="flex items-center space-x-2 mt-2">

@@ -70,4 +70,15 @@ public class AutoSpottingAdminController {
         log.info("Fetching savings breakdown per account");
         return ResponseEntity.ok(autoSpottingService.getAdminAccountBreakdown());
     }
+
+    /**
+     * Get per-customer AutoSpotting savings broken down by provider (AWS/GCP/Azure).
+     * Only includes customers with AutoSpotting enabled on at least one account.
+     * GET /api/admin/autospotting/customer-savings
+     */
+    @GetMapping("/customer-savings")
+    public ResponseEntity<List<Map<String, Object>>> getCustomerSavings() {
+        log.info("Fetching per-customer AutoSpotting savings by provider");
+        return ResponseEntity.ok(autoSpottingService.getCustomerSpotSavings());
+    }
 }

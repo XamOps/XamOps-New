@@ -13,6 +13,7 @@
 import React, { useState, useMemo } from 'react';
 import { gooeyToast } from 'goey-toast';
 import { useFlexComputeData } from '../hooks/useFlexComputeData';
+import { AriaTabGroup } from '../components/ui';
 import FlexComputeKPICards from '../components/FlexCompute/FlexComputeKPICards';
 import FlexComputeTable from '../components/FlexCompute/FlexComputeTable';
 import FlexComputeWizard from '../components/FlexCompute/FlexComputeWizard';
@@ -86,30 +87,14 @@ const FlexComputePage: React.FC = () => {
       <div className="bg-white border-b border-gray-200 px-8">
         <div className="flex items-center justify-between">
           {/* Tabs */}
-          <nav className="flex space-x-8" aria-label="Tabs">
-            <button
-              onClick={() => setActiveTab('dashboard')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-                activeTab === 'dashboard'
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              <i className="fas fa-tachometer-alt mr-2"></i>
-              Dashboard
-            </button>
-            <button
-              onClick={() => setActiveTab('create')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-                activeTab === 'create'
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              <i className="fas fa-plus-circle mr-2"></i>
-              New Reservation
-            </button>
-          </nav>
+          <AriaTabGroup
+            tabs={[
+              { id: 'dashboard', label: 'Dashboard',       icon: 'fas fa-tachometer-alt' },
+              { id: 'create',    label: 'New Reservation', icon: 'fas fa-plus-circle' },
+            ]}
+            selectedKey={activeTab}
+            onSelectionChange={(key) => setActiveTab(key as FlexComputeTab)}
+          />
 
           {/* Refresh Button */}
           <button

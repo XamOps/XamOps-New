@@ -26,6 +26,7 @@ import React, { useState } from 'react';
 import { gooeyToast } from 'goey-toast';
 import { useAccounts } from '../contexts/AccountContext';
 import { useSpotAutomationData } from '../hooks/useSpotAutomationData';
+import { AriaTabGroup } from '../components/ui';
 import SpotAutomationHeader from '../components/SpotAutomation/SpotAutomationHeader';
 import SpotAutomationKPIs from '../components/SpotAutomation/SpotAutomationKPIs';
 import SpotAutomationChart from '../components/SpotAutomation/SpotAutomationChart';
@@ -86,48 +87,16 @@ const SpotAutomationPage: React.FC = () => {
 
       {/* Tab Navigation */}
       <div className="bg-white border-b border-gray-200 px-8">
-        <nav className="flex space-x-8" aria-label="Tabs">
-          <button
-            onClick={() => setActiveTab('dashboard')}
-            className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'dashboard'
-              ? 'border-blue-500 text-blue-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-          >
-            <i className="fas fa-tachometer-alt mr-2"></i>
-            Dashboard
-          </button>
-          <button
-            onClick={() => setActiveTab('analytics')}
-            className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'analytics'
-              ? 'border-blue-500 text-blue-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-          >
-            <i className="fas fa-chart-line mr-2"></i>
-            Launch Analytics
-          </button>
-          <button
-            onClick={() => setActiveTab('history')}
-            className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'history'
-              ? 'border-blue-500 text-blue-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-          >
-            <i className="fas fa-history mr-2"></i>
-            Actions History
-          </button>
-          <button
-            onClick={() => setActiveTab('risp-coverage')}
-            className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'risp-coverage'
-              ? 'border-blue-500 text-blue-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-          >
-            <i className="fas fa-chart-pie mr-2"></i>
-            RI/SP Coverage
-          </button>
-        </nav>
+        <AriaTabGroup
+          tabs={[
+            { id: 'dashboard',     label: 'Dashboard',        icon: 'fas fa-tachometer-alt' },
+            { id: 'analytics',     label: 'Launch Analytics', icon: 'fas fa-chart-line' },
+            { id: 'history',       label: 'Actions History',  icon: 'fas fa-history' },
+            { id: 'risp-coverage', label: 'RI/SP Coverage',   icon: 'fas fa-chart-pie' },
+          ]}
+          selectedKey={activeTab}
+          onSelectionChange={(key) => setActiveTab(key as typeof activeTab)}
+        />
       </div>
 
       {/* Main Content */}

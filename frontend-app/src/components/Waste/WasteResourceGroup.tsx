@@ -109,7 +109,12 @@ const WasteResourceGroup: React.FC<WasteResourceGroupProps> = ({
               <div key={resource.resourceId} className="resource-row border-t border-gray-200/30 dark:border-gray-700/30">
                 {/* Resource Row */}
                 <div
+                  role="button"
+                  tabIndex={0}
+                  aria-expanded={isDetailsOpen}
+                  aria-controls={`waste-detail-${resource.resourceId}`}
                   onClick={() => toggleResourceDetails(resource.resourceId)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleResourceDetails(resource.resourceId); } }}
                   className="grid grid-cols-12 items-center p-6 pl-16 text-sm cursor-pointer"
                 >
                   <div className="col-span-5 flex items-center space-x-4">
@@ -159,7 +164,7 @@ const WasteResourceGroup: React.FC<WasteResourceGroupProps> = ({
 
                 {/* Resource Details */}
                 {isDetailsOpen && (
-                  <div className="resource-details p-6 pl-24 text-sm text-gray-700 dark:text-gray-300 bg-gray-50/20 dark:bg-gray-800/20 border-t border-gray-200/30 dark:border-gray-700/30">
+                  <div id={`waste-detail-${resource.resourceId}`} className="resource-details p-6 pl-24 text-sm text-gray-700 dark:text-gray-300 bg-gray-50/20 dark:bg-gray-800/20 border-t border-gray-200/30 dark:border-gray-700/30">
                     <h4 className="font-semibold text-base mb-3 text-gray-800 dark:text-gray-200">Waste Details:</h4>
                     <div className="grid grid-cols-2 gap-3">
                       <div className="flex items-start">

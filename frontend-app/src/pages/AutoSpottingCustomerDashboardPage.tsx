@@ -17,6 +17,7 @@ import Chart from 'chart.js/auto';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useAccounts } from '../contexts/AccountContext';
 import { useAutoSpottingCache } from '../contexts/AutoSpottingCacheContext';
+import { useTheme } from '../contexts/ThemeContext';
 import { DashboardSkeleton } from '../components/Shared/Skeleton';
 import {
     CustomerSavings,
@@ -28,6 +29,7 @@ import {
 const AutoSpottingCustomerDashboardPage: React.FC = () => {
     const { setActions, clearActions } = useTopbar();
     const { selectedAccountDisplay } = useAccounts();
+    const { theme } = useTheme();
     const { getCustomerData, setCustomerData } = useAutoSpottingCache();
 
     const selectedAccount = selectedAccountDisplay.id && selectedAccountDisplay.id !== 'No account selected' ? { accountId: selectedAccountDisplay.id, accountName: selectedAccountDisplay.name } : null;
@@ -209,10 +211,10 @@ const AutoSpottingCustomerDashboardPage: React.FC = () => {
                         display: false
                     },
                     tooltip: {
-                        backgroundColor: 'rgba(15, 23, 42, 0.95)',
-                        titleColor: '#F8FAFC',
-                        bodyColor: '#F8FAFC',
-                        borderColor: 'rgba(255, 255, 255, 0.2)',
+                        backgroundColor: theme === 'dark' ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255,255,255,0.95)',
+                        titleColor: theme === 'dark' ? '#F8FAFC' : '#111827',
+                        bodyColor: theme === 'dark' ? '#F8FAFC' : '#374151',
+                        borderColor: theme === 'dark' ? 'rgba(255, 255, 255, 0.2)' : '#e5e7eb',
                         borderWidth: 1,
                         padding: 12,
                         displayColors: false,
@@ -224,11 +226,11 @@ const AutoSpottingCustomerDashboardPage: React.FC = () => {
                 scales: {
                     x: {
                         grid: {
-                            color: 'rgba(255, 255, 255, 0.1)',
+                            color: theme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : '#f3f4f6',
                             drawBorder: false
                         },
                         ticks: {
-                            color: '#94A3B8',
+                            color: theme === 'dark' ? '#94A3B8' : '#6b7280',
                             font: {
                                 family: 'Fira Sans',
                                 size: 12
@@ -237,11 +239,11 @@ const AutoSpottingCustomerDashboardPage: React.FC = () => {
                     },
                     y: {
                         grid: {
-                            color: 'rgba(255, 255, 255, 0.1)',
+                            color: theme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : '#f3f4f6',
                             drawBorder: false
                         },
                         ticks: {
-                            color: '#94A3B8',
+                            color: theme === 'dark' ? '#94A3B8' : '#6b7280',
                             font: {
                                 family: 'Fira Sans',
                                 size: 12
@@ -258,7 +260,7 @@ const AutoSpottingCustomerDashboardPage: React.FC = () => {
                 savingsChartInstance.current.destroy();
             }
         };
-    }, [savings]);
+    }, [savings, theme]);
 
     if (loading && !savings) {
         return <DashboardSkeleton />;
@@ -266,10 +268,10 @@ const AutoSpottingCustomerDashboardPage: React.FC = () => {
 
     if (error) {
         return (
-            <div className="flex items-center justify-center min-h-screen bg-slate-900">
+            <div className={`flex items-center justify-center min-h-screen ${theme === 'dark' ? 'bg-slate-900' : 'bg-gray-50'}`}>
                 <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-6 max-w-md">
                     <h3 className="text-red-400 font-['Fira_Code'] text-lg mb-2">Error Loading Dashboard</h3>
-                    <p className="text-slate-300 font-['Fira_Sans']">{error}</p>
+                    <p className={`font-['Fira_Sans'] ${theme === 'dark' ? 'text-slate-300' : 'text-gray-700'}`}>{error}</p>
                     <button
                         onClick={() => fetchDashboardData(true)}
                         className="mt-4 px-4 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg transition-colors font-['Fira_Sans']"
@@ -283,27 +285,27 @@ const AutoSpottingCustomerDashboardPage: React.FC = () => {
 
     if (!selectedAccount) {
         return (
-            <div className="flex items-center justify-center min-h-screen bg-slate-900">
+            <div className={`flex items-center justify-center min-h-screen ${theme === 'dark' ? 'bg-slate-900' : 'bg-gray-50'}`}>
                 <div className="text-center">
-                    <svg className="w-16 h-16 mx-auto text-slate-600 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className={`w-16 h-16 mx-auto mb-4 ${theme === 'dark' ? 'text-slate-600' : 'text-gray-300'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
                     </svg>
-                    <p className="text-slate-400 font-['Fira_Sans']">Please select an AWS account to view AutoSpotting data</p>
+                    <p className={`font-['Fira_Sans'] ${theme === 'dark' ? 'text-slate-400' : 'text-gray-500'}`}>Please select an AWS account to view AutoSpotting data</p>
                 </div>
             </div>
         );
     }
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900/20 to-slate-900 p-6">
+        <div className={`min-h-screen p-6 ${theme === 'dark' ? 'bg-gradient-to-br from-slate-900 via-purple-900/20 to-slate-900' : 'bg-gray-50'}`}>
             <div className="max-w-7xl mx-auto space-y-6">
                 {/* Header */}
-                <div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-6 shadow-2xl">
-                    <h1 className="text-3xl font-bold text-slate-100 font-['Fira_Code'] mb-2">
+                <div className={`backdrop-blur-xl border rounded-2xl p-6 shadow-xl ${theme === 'dark' ? 'bg-white/5 border-white/10' : 'bg-white border-gray-200'}`}>
+                    <h1 className={`text-3xl font-bold font-['Fira_Code'] mb-2 ${theme === 'dark' ? 'text-slate-100' : 'text-gray-900'}`}>
                         AutoSpotting Dashboard
                     </h1>
-                    <p className="text-slate-400 font-['Fira_Sans']">
-                        Track your spot instance cost savings for <span className="text-amber-400 font-semibold">{selectedAccount.accountName}</span>
+                    <p className={`font-['Fira_Sans'] ${theme === 'dark' ? 'text-slate-400' : 'text-gray-500'}`}>
+                        Track your spot instance cost savings for <span className="text-amber-500 font-semibold">{selectedAccount.accountName}</span>
                     </p>
                 </div>
 
@@ -360,8 +362,8 @@ const AutoSpottingCustomerDashboardPage: React.FC = () => {
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     {/* Cost Comparison Chart */}
-                    <div className="lg:col-span-2 backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-6 shadow-xl">
-                        <h3 className="text-xl font-bold text-slate-100 font-['Fira_Code'] mb-6 flex items-center gap-2">
+                    <div className={`lg:col-span-2 backdrop-blur-xl border rounded-2xl p-6 shadow-xl ${theme === 'dark' ? 'bg-white/5 border-white/10' : 'bg-white border-gray-200'}`}>
+                        <h3 className={`text-xl font-bold font-['Fira_Code'] mb-6 flex items-center gap-2 ${theme === 'dark' ? 'text-slate-100' : 'text-gray-900'}`}>
                             <span className="w-2 h-8 bg-indigo-500 rounded-full"></span>
                             Cost Comparison
                         </h3>
@@ -371,8 +373,8 @@ const AutoSpottingCustomerDashboardPage: React.FC = () => {
                     </div>
 
                     {/* Active Instances Table */}
-                    <div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-6 shadow-xl overflow-hidden flex flex-col">
-                        <h3 className="text-xl font-bold text-slate-100 font-['Fira_Code'] mb-4 flex items-center gap-2">
+                    <div className={`backdrop-blur-xl border rounded-2xl p-6 shadow-xl overflow-hidden flex flex-col ${theme === 'dark' ? 'bg-white/5 border-white/10' : 'bg-white border-gray-200'}`}>
+                        <h3 className={`text-xl font-bold font-['Fira_Code'] mb-4 flex items-center gap-2 ${theme === 'dark' ? 'text-slate-100' : 'text-gray-900'}`}>
                             <span className="w-2 h-8 bg-amber-500 rounded-full"></span>
                             Active Spot Instances
                         </h3>
@@ -380,7 +382,7 @@ const AutoSpottingCustomerDashboardPage: React.FC = () => {
                             {spotInstances.length > 0 ? (
                                 <table className="w-full text-left">
                                     <thead>
-                                        <tr className="text-slate-400 font-['Fira_Code'] text-xs border-b border-white/10">
+                                        <tr className={`font-['Fira_Code'] text-xs border-b ${theme === 'dark' ? 'text-slate-400 border-white/10' : 'text-gray-500 border-gray-200'}`}>
                                             <th className="pb-2">Instance ID</th>
                                             <th className="pb-2">Type</th>
                                             <th className="pb-2 text-right">Savings</th>
@@ -388,18 +390,18 @@ const AutoSpottingCustomerDashboardPage: React.FC = () => {
                                     </thead>
                                     <tbody className="space-y-2">
                                         {spotInstances.filter(i => i.lifecycle === 'spot').map((instance) => (
-                                            <tr key={instance.instanceId} className="group hover:bg-white/5 transition-colors">
-                                                <td className="py-2 text-slate-300 font-['Fira_Code'] text-xs">
+                                            <tr key={instance.instanceId} className={`group transition-colors ${theme === 'dark' ? 'hover:bg-white/5' : 'hover:bg-gray-50'}`}>
+                                                <td className={`py-2 font-['Fira_Code'] text-xs ${theme === 'dark' ? 'text-slate-300' : 'text-gray-700'}`}>
                                                     {instance.instanceId.substring(0, 10)}...
-                                                    <div className="text-[10px] text-slate-500">{instance.availabilityZone}</div>
+                                                    <div className={`text-[10px] ${theme === 'dark' ? 'text-slate-500' : 'text-gray-400'}`}>{instance.availabilityZone}</div>
                                                 </td>
                                                 <td className="py-2">
-                                                    <span className="bg-indigo-500/20 text-indigo-300 text-[10px] px-2 py-0.5 rounded font-['Fira_Code']">
+                                                    <span className="bg-indigo-500/20 text-indigo-500 text-[10px] px-2 py-0.5 rounded font-['Fira_Code']">
                                                         {instance.instanceType}
                                                     </span>
                                                 </td>
                                                 <td className="py-2 text-right">
-                                                    <span className="text-green-400 font-bold font-['Fira_Code'] text-xs">
+                                                    <span className="text-green-500 font-bold font-['Fira_Code'] text-xs">
                                                         ${instance.estimatedHourlySavings?.toFixed(3) || '0.000'}/hr
                                                     </span>
                                                 </td>
@@ -408,7 +410,7 @@ const AutoSpottingCustomerDashboardPage: React.FC = () => {
                                     </tbody>
                                 </table>
                             ) : (
-                                <div className="text-center py-8 text-slate-500 italic">
+                                <div className={`text-center py-8 italic ${theme === 'dark' ? 'text-slate-500' : 'text-gray-400'}`}>
                                     No active Spot instances found.
                                 </div>
                             )}
@@ -419,14 +421,14 @@ const AutoSpottingCustomerDashboardPage: React.FC = () => {
                 {/* Recent Activity and Recommendations */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-6">
                     {/* Recent Activity */}
-                    <div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-6 shadow-xl">
-                        <h3 className="text-xl font-bold text-slate-100 font-['Fira_Code'] mb-4 flex items-center gap-2">
+                    <div className={`backdrop-blur-xl border rounded-2xl p-6 shadow-xl ${theme === 'dark' ? 'bg-white/5 border-white/10' : 'bg-white border-gray-200'}`}>
+                        <h3 className={`text-xl font-bold font-['Fira_Code'] mb-4 flex items-center gap-2 ${theme === 'dark' ? 'text-slate-100' : 'text-gray-900'}`}>
                             <span className="w-2 h-8 bg-purple-500 rounded-full"></span>
                             Recent Activity
                         </h3>
                         <div className="space-y-4 max-h-80 overflow-y-auto pr-2">
                             {recentActivity.length > 0 ? recentActivity.map((activity) => (
-                                <div key={activity.id} className="flex items-start gap-4 p-3 rounded-lg bg-white/5 border border-white/5 hover:border-white/10 transition-colors">
+                                <div key={activity.id} className={`flex items-start gap-4 p-3 rounded-lg border transition-colors ${theme === 'dark' ? 'bg-white/5 border-white/5 hover:border-white/10' : 'bg-gray-50 border-gray-100 hover:border-gray-200'}`}>
                                     <div className={`p-2 rounded-lg ${activity.eventType === 'LAUNCH' || activity.eventType?.includes('launched') ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
                                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             {activity.eventType === 'LAUNCH' || activity.eventType?.includes('launched') ? (
@@ -437,13 +439,13 @@ const AutoSpottingCustomerDashboardPage: React.FC = () => {
                                         </svg>
                                     </div>
                                     <div className="flex-1 min-w-0">
-                                        <p className="text-slate-200 text-sm font-medium truncate">{activity.description}</p>
+                                        <p className={`text-sm font-medium truncate ${theme === 'dark' ? 'text-slate-200' : 'text-gray-800'}`}>{activity.description}</p>
                                         <div className="flex items-center gap-3 mt-1">
-                                            <span className="text-xs text-slate-500 font-['Fira_Code']">
+                                            <span className={`text-xs font-['Fira_Code'] ${theme === 'dark' ? 'text-slate-500' : 'text-gray-400'}`}>
                                                 {new Date(activity.timestamp).toLocaleString()}
                                             </span>
                                             {activity.region && (
-                                                <span className="text-[10px] bg-slate-700/50 text-slate-400 px-1.5 py-0.5 rounded border border-white/5">
+                                                <span className={`text-[10px] px-1.5 py-0.5 rounded border ${theme === 'dark' ? 'bg-slate-700/50 text-slate-400 border-white/5' : 'bg-gray-100 text-gray-500 border-gray-200'}`}>
                                                     {activity.region}
                                                 </span>
                                             )}
@@ -451,15 +453,15 @@ const AutoSpottingCustomerDashboardPage: React.FC = () => {
                                     </div>
                                     {activity.savings && (
                                         <div className="text-right">
-                                            <span className="block text-green-400 font-bold font-['Fira_Code'] text-sm">
+                                            <span className="block text-green-500 font-bold font-['Fira_Code'] text-sm">
                                                 +${activity.savings.toFixed(3)}
                                             </span>
-                                            <span className="text-[10px] text-slate-500">saved</span>
+                                            <span className={`text-[10px] ${theme === 'dark' ? 'text-slate-500' : 'text-gray-400'}`}>saved</span>
                                         </div>
                                     )}
                                 </div>
                             )) : (
-                                <div className="text-center py-8 text-slate-500 italic">
+                                <div className={`text-center py-8 italic ${theme === 'dark' ? 'text-slate-500' : 'text-gray-400'}`}>
                                     No recent activity.
                                 </div>
                             )}
@@ -467,8 +469,8 @@ const AutoSpottingCustomerDashboardPage: React.FC = () => {
                     </div>
 
                     {/* Recommendations */}
-                    <div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-6 shadow-xl">
-                        <h3 className="text-xl font-bold text-slate-100 font-['Fira_Code'] mb-4 flex items-center gap-2">
+                    <div className={`backdrop-blur-xl border rounded-2xl p-6 shadow-xl ${theme === 'dark' ? 'bg-white/5 border-white/10' : 'bg-white border-gray-200'}`}>
+                        <h3 className={`text-xl font-bold font-['Fira_Code'] mb-4 flex items-center gap-2 ${theme === 'dark' ? 'text-slate-100' : 'text-gray-900'}`}>
                             <span className="w-2 h-8 bg-blue-500 rounded-full"></span>
                             Optimization Recommendations
                         </h3>
@@ -478,30 +480,30 @@ const AutoSpottingCustomerDashboardPage: React.FC = () => {
                                     <svg className="w-12 h-12 mx-auto text-green-500 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                                     </svg>
-                                    <p className="text-slate-400 font-['Fira_Sans']">All optimized! No recommendations at this time.</p>
+                                    <p className={`font-['Fira_Sans'] ${theme === 'dark' ? 'text-slate-400' : 'text-gray-500'}`}>All optimized! No recommendations at this time.</p>
                                 </div>
                             ) : (
                                 recommendations.map((rec) => (
                                     <div
                                         key={rec.id}
-                                        className="backdrop-blur-sm bg-white/5 border border-white/10 rounded-lg p-4 hover:bg-white/10 transition-all cursor-pointer"
+                                        className={`backdrop-blur-sm border rounded-lg p-4 transition-all cursor-pointer ${theme === 'dark' ? 'bg-white/5 border-white/10 hover:bg-white/10' : 'bg-gray-50 border-gray-100 hover:bg-gray-100'}`}
                                     >
                                         <div className="flex items-start justify-between">
                                             <div className="flex-1">
                                                 <div className="flex items-center gap-2 mb-1">
                                                     <span className={`px-2 py-0.5 rounded text-xs font-['Fira_Sans'] ${rec.priority === 'high' ? 'bg-red-500/20 text-red-400' :
-                                                        rec.priority === 'medium' ? 'bg-yellow-500/20 text-yellow-400' :
-                                                            'bg-blue-500/20 text-blue-400'
+                                                        rec.priority === 'medium' ? 'bg-yellow-500/20 text-yellow-500' :
+                                                            'bg-blue-500/20 text-blue-500'
                                                         }`}>
                                                         {rec.priority.toUpperCase()}
                                                     </span>
-                                                    <h3 className="text-slate-200 font-['Fira_Sans'] font-semibold">{rec.title}</h3>
+                                                    <h3 className={`font-['Fira_Sans'] font-semibold ${theme === 'dark' ? 'text-slate-200' : 'text-gray-800'}`}>{rec.title}</h3>
                                                 </div>
-                                                <p className="text-sm text-slate-400 font-['Fira_Sans']">{rec.description}</p>
+                                                <p className={`text-sm font-['Fira_Sans'] ${theme === 'dark' ? 'text-slate-400' : 'text-gray-500'}`}>{rec.description}</p>
                                             </div>
                                             <div className="text-right ml-4">
-                                                <p className="text-green-400 font-['Fira_Code'] font-semibold">+${rec.potentialSavings.toFixed(2)}</p>
-                                                <p className="text-xs text-slate-500 font-['Fira_Sans']">potential</p>
+                                                <p className="text-green-500 font-['Fira_Code'] font-semibold">+${rec.potentialSavings.toFixed(2)}</p>
+                                                <p className={`text-xs font-['Fira_Sans'] ${theme === 'dark' ? 'text-slate-500' : 'text-gray-400'}`}>potential</p>
                                             </div>
                                         </div>
                                     </div>
@@ -523,23 +525,24 @@ const GlassCard: React.FC<{
     icon: React.ReactNode;
     color: 'amber' | 'blue' | 'purple' | 'green' | 'red' | 'indigo' | 'yellow';
 }> = ({ title, value, subtitle, icon, color }) => {
+    const { theme } = useTheme();
     const colorClasses = {
-        amber: 'bg-amber-500/20 text-amber-400',
-        blue: 'bg-blue-500/20 text-blue-400',
-        purple: 'bg-purple-500/20 text-purple-400',
-        green: 'bg-green-500/20 text-green-400',
-        red: 'bg-red-500/20 text-red-400',
-        indigo: 'bg-indigo-500/20 text-indigo-400',
-        yellow: 'bg-yellow-500/20 text-yellow-400'
+        amber: 'bg-amber-500/20 text-amber-500',
+        blue: 'bg-blue-500/20 text-blue-500',
+        purple: 'bg-purple-500/20 text-purple-500',
+        green: 'bg-green-500/20 text-green-500',
+        red: 'bg-red-500/20 text-red-500',
+        indigo: 'bg-indigo-500/20 text-indigo-500',
+        yellow: 'bg-yellow-500/20 text-yellow-500'
     };
 
     return (
-        <div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-6 shadow-xl hover:bg-white/10 transition-colors group">
+        <div className={`backdrop-blur-xl border rounded-2xl p-6 shadow-xl transition-colors group ${theme === 'dark' ? 'bg-white/5 border-white/10 hover:bg-white/10' : 'bg-white border-gray-200 hover:bg-gray-50'}`}>
             <div className="flex items-start justify-between">
                 <div>
-                    <h3 className="text-slate-400 text-sm font-medium font-['Fira_Sans'] mb-1">{title}</h3>
-                    <div className="text-2xl font-bold text-slate-100 font-['Fira_Code'] mt-1">{value}</div>
-                    <div className="text-xs text-slate-500 mt-1 font-['Fira_Sans']">{subtitle}</div>
+                    <h3 className={`text-sm font-medium font-['Fira_Sans'] mb-1 ${theme === 'dark' ? 'text-slate-400' : 'text-gray-500'}`}>{title}</h3>
+                    <div className={`text-2xl font-bold font-['Fira_Code'] mt-1 ${theme === 'dark' ? 'text-slate-100' : 'text-gray-900'}`}>{value}</div>
+                    <div className={`text-xs mt-1 font-['Fira_Sans'] ${theme === 'dark' ? 'text-slate-500' : 'text-gray-400'}`}>{subtitle}</div>
                 </div>
                 <div className={`p-3 rounded-xl ${colorClasses[color]} group-hover:scale-110 transition-transform duration-300`}>
                     {icon}

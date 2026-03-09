@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { DialogRoot, DialogPanel } from '../ui';
 
 interface SyncAccountModalProps {
   isOpen: boolean;
@@ -44,36 +45,22 @@ const SyncAccountModal: React.FC<SyncAccountModalProps> = ({ isOpen, onClose, on
     onClose();
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto" onClick={handleClose}>
-      <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
-        {/* Backdrop */}
-        <div className="fixed inset-0 transition-opacity bg-gray-900 bg-opacity-75"></div>
-
-        <span className="hidden sm:inline-block sm:align-middle sm:h-screen">&#8203;</span>
-
-        {/* Modal */}
-        <div
-          onClick={(e) => e.stopPropagation()}
-          className="inline-block align-bottom bg-white rounded-xl text-left overflow-hidden shadow-2xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full"
-        >
-          {/* Header */}
-          <div className="bg-gradient-to-r from-blue-500 to-blue-600 px-6 py-5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <i className="fas fa-sync text-white text-3xl"></i>
-                <h3 className="text-2xl font-bold text-white">Sync Customer Account</h3>
-              </div>
-              <button onClick={handleClose} className="text-white hover:text-gray-200 transition-colors">
-                <i className="fas fa-times text-2xl"></i>
-              </button>
-            </div>
-          </div>
-
-          {/* Body */}
-          <div className="px-6 py-6 space-y-5">
+    <DialogRoot isOpen={isOpen} onClose={handleClose}>
+      <DialogPanel
+        title={<><i className="fas fa-sync mr-2" />Sync Customer Account</>}
+        onClose={handleClose}
+        footer={
+          <>
+            <button onClick={handleClose} className="px-5 py-2 text-gray-700 hover:text-gray-900 font-semibold transition-colors">Cancel</button>
+            <button onClick={handleSync} disabled={isSyncing || !accountId || accountId.length !== 12} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2">
+              <i className={`fas ${isSyncing ? 'fa-spinner fa-spin' : 'fa-sync'}`}></i>
+              <span>{isSyncing ? 'Syncing...' : 'Sync Account'}</span>
+            </button>
+          </>
+        }
+      >
+          <div className="space-y-5">
             {/* Account ID */}
             <div>
               <label className="block text-sm font-bold text-gray-800 mb-2 flex items-center">
@@ -145,27 +132,8 @@ const SyncAccountModal: React.FC<SyncAccountModalProps> = ({ isOpen, onClose, on
               </div>
             )}
           </div>
-
-          {/* Footer */}
-          <div className="bg-gray-50 px-6 py-4 flex justify-end space-x-3 border-t-2 border-gray-200">
-            <button
-              onClick={handleClose}
-              className="px-5 py-2 text-gray-700 hover:text-gray-900 font-semibold transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleSync}
-              disabled={isSyncing || !accountId || accountId.length !== 12}
-              className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2 shadow-lg hover:shadow-xl"
-            >
-              <i className={`fas ${isSyncing ? 'fa-spinner fa-spin' : 'fa-sync'}`}></i>
-              <span>{isSyncing ? 'Syncing...' : 'Sync Account'}</span>
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
+      </DialogPanel>
+    </DialogRoot>
   );
 };
 

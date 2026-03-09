@@ -10,8 +10,21 @@ const SpotAutomationHeader: React.FC<SpotAutomationHeaderProps> = () => {
   const [showTooltip, setShowTooltip] = useState(false);
 
   useEffect(() => {
+    const CF_TEMPLATE_URL = 'https://xamops-cloudformation-templates.s3.us-east-1.amazonaws.com/autospotting-customer.yaml';
+    const cfConsoleUrl = `https://console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/create/review?templateURL=${encodeURIComponent(CF_TEMPLATE_URL)}&stackName=autospotting-customer`;
+
     setActions(
       <div className="flex items-center gap-3">
+        {/* Deploy CloudFormation Stack Button */}
+        <button
+          onClick={() => window.open(cfConsoleUrl, '_blank', 'noopener,noreferrer')}
+          className="flex items-center gap-2 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
+          title="Deploy AutoSpotting CloudFormation Stack"
+        >
+          <i className="fab fa-aws"></i>
+          Deploy CF Stack
+        </button>
+
         {/* Help Icon */}
         <div className="relative">
           <button
