@@ -167,7 +167,7 @@ public class CloudGuardService {
 
                     logger.info("Successfully fetched {} VPC quota alerts for account {}.", allQuotaInfo.size(),
                             accountId);
-                    redisCache.put(cacheKey, allQuotaInfo, 10);
+                    redisCache.put(cacheKey, allQuotaInfo, 60);
                     return allQuotaInfo;
                 } catch (Exception e) {
                     logger.error("Could not fetch VPC quota alerts for account {}.", accountId, e);
@@ -225,7 +225,7 @@ public class CloudGuardService {
             }
 
             logger.info("Successfully fetched {} network quota alerts for account {}.", allQuotaInfo.size(), accountId);
-            redisCache.put(cacheKey, allQuotaInfo, 10);
+            redisCache.put(cacheKey, allQuotaInfo, 60);
             return allQuotaInfo;
         });
     }
@@ -341,7 +341,7 @@ public class CloudGuardService {
                             .fromCache(true)
                             .build());
                 }
-                redisCache.put(dbKey, cachedResponse, 10); // re-warm Redis so next request skips DB
+                redisCache.put(dbKey, cachedResponse, 60); // re-warm Redis so next request skips DB
                 return CompletableFuture.completedFuture(cachedResponse);
             }
         }
@@ -527,7 +527,7 @@ public class CloudGuardService {
                             .errors(errors)
                             .metadata(metadata)
                             .build();
-                    redisCache.put(dbKey, response, 10); // save to Redis after fresh AWS fetch
+                    redisCache.put(dbKey, response, 60); // save to Redis after fresh AWS fetch
                     return response;
                 }).exceptionally(ex -> {
                     logger.error("Fatal error fetching alerts for account {}: {}", accountId, ex.getMessage(), ex);

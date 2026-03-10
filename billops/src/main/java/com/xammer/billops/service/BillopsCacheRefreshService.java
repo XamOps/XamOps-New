@@ -4,10 +4,13 @@ import com.xammer.billops.repository.AppUserRepository;
 import com.xammer.cloud.domain.AppUser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 import javax.annotation.PostConstruct;
 
@@ -31,6 +34,24 @@ public class BillopsCacheRefreshService {
     @PostConstruct
     public void init() {
         logger.info("✅ BillopsCacheRefreshService initialized");
+    }
+
+    /**
+     * On startup, seeds Redis from existing cached data (forceRefresh=false).
+     * If Redis is warm, returns immediately. If cold, rebuilds from DB aggregation.
+     * Runs asynchronously so it does not delay application startup.
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void warmUpCacheOnStartup() {
+        logger.info("[BillOps CacheWarmUp] Application ready — seeding admin dashboard Redis cache...");
+        CompletableFuture.runAsync(() -> {
+            try {
+                adminDashboardService.getAdminDashboardSummary(false);
+                logger.info("[BillOps CacheWarmUp] Admin dashboard cache warm-up complete.");
+            } catch (Exception e) {
+                logger.warn("[BillOps CacheWarmUp] Admin dashboard warm-up failed: {}", e.getMessage());
+            }
+        });
     }
 
     /**

@@ -92,4 +92,37 @@ public class RedisCacheService {
         redisTemplate.delete(key);
     }
 
+    // --- Login OTP (email-based 2FA login) ---
+
+    public void saveLoginOtp(String email, String otp) {
+        String key = "LOGIN_OTP:" + email;
+        redisTemplate.opsForValue().set(key, otp, 300, TimeUnit.SECONDS);
+    }
+
+    public String getLoginOtp(String email) {
+        String key = "LOGIN_OTP:" + email;
+        Object otp = redisTemplate.opsForValue().get(key);
+        return otp != null ? otp.toString() : null;
+    }
+
+    public void deleteLoginOtp(String email) {
+        String key = "LOGIN_OTP:" + email;
+        redisTemplate.delete(key);
+    }
+
+    public void savePreAuthFlag(String email) {
+        String key = "PRE_AUTH:" + email;
+        redisTemplate.opsForValue().set(key, "true", 300, TimeUnit.SECONDS);
+    }
+
+    public boolean getPreAuthFlag(String email) {
+        String key = "PRE_AUTH:" + email;
+        return Boolean.TRUE.equals(redisTemplate.hasKey(key));
+    }
+
+    public void deletePreAuthFlag(String email) {
+        String key = "PRE_AUTH:" + email;
+        redisTemplate.delete(key);
+    }
+
 }

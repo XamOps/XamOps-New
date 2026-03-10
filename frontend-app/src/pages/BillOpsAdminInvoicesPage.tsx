@@ -53,13 +53,14 @@ const BillOpsAdminInvoicesPage: React.FC = () => {
     canMergeSelection,
     mergeButtonText,
     filterIds,
+    accounts,
     fetchData,
     generateInvoice,
     setSelectedIds,
+    setFilterIds,
     setGeneration,
     mergeSelectedInvoices,
     downloadPreview,
-    getSelectedAccountName,
     isCloudFront,
     requestMerge,
     cancelMerge,
@@ -110,7 +111,6 @@ const BillOpsAdminInvoicesPage: React.FC = () => {
    * Navigate to invoice detail page
    */
   const navigateToDetail = useCallback((invoiceId: number) => {
-    navigate(`/billops-admin-invoice-detail?id=${invoiceId}`);
     navigate(`/billops-admin-invoice-detail?id=${invoiceId}`);
   }, [navigate]);
 
@@ -163,15 +163,21 @@ const BillOpsAdminInvoicesPage: React.FC = () => {
           </h3>
 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-            {/* Target Account (Read-only) */}
+            {/* Target Account (Dropdown) */}
             <div>
               <label className="invoice-form-label">Target Account</label>
-              <div
-                className="invoice-form-input invoice-readonly-input truncate"
-                title="Selected from sidebar"
+              <select
+                value={generation.accountId}
+                onChange={(e) => setGeneration(prev => ({ ...prev, accountId: e.target.value }))}
+                className="invoice-form-input"
               >
-                {getSelectedAccountName()}
-              </div>
+                <option value="">— Select Account —</option>
+                {accounts.map(acc => (
+                  <option key={acc.id} value={acc.identifier}>
+                    {acc.name} ({acc.identifier})
+                  </option>
+                ))}
+              </select>
             </div>
 
             {/* Year */}
@@ -218,12 +224,6 @@ const BillOpsAdminInvoicesPage: React.FC = () => {
               )}
             </button>
           </div>
-
-          {!generation.accountId && (
-            <div className="mt-3 text-xs text-red-500">
-              * Please select an account from the sidebar to generate an invoice.
-            </div>
-          )}
         </div>
 
         {/* Update Error Alert */}
@@ -268,6 +268,37 @@ const BillOpsAdminInvoicesPage: React.FC = () => {
             <p className="text-sm text-green-700 font-bold">Invoices Merged Successfully!</p>
           </div>
         )}
+
+        {/* Account Filter */}
+        <div className="flex items-center gap-3">
+          <label className="text-xs font-semibold text-slate-500 whitespace-nowrap">
+            <i className="fas fa-filter mr-1" />
+            Filter by Account:
+          </label>
+          <select
+            value={filterIds[0] || ''}
+            onChange={(e) => {
+              const val = e.target.value;
+              setFilterIds(val ? [val] : []);
+            }}
+            className="invoice-form-input max-w-xs text-sm"
+          >
+            <option value="">All Accounts</option>
+            {accounts.map(acc => (
+              <option key={acc.id} value={String(acc.id)}>
+                {acc.name} ({acc.identifier})
+              </option>
+            ))}
+          </select>
+          {filterIds.length > 0 && (
+            <button
+              onClick={() => setFilterIds([])}
+              className="text-xs text-indigo-600 hover:underline"
+            >
+              Clear filter
+            </button>
+          )}
+        </div>
 
         {/* Selection & Merge Panel */}
         {selectedIds.length > 0 && (

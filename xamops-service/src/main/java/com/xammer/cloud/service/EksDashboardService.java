@@ -31,7 +31,7 @@ public class EksDashboardService {
 
     private static final Logger logger = LoggerFactory.getLogger(EksDashboardService.class);
     private static final String EKS_DASHBOARD_CACHE_PREFIX = "EKS_DASHBOARD::";
-    private static final int CACHE_TTL_MINUTES = 2; // Cache for 2 minutes
+    private static final int CACHE_TTL_MINUTES = 60; // Cache for 60 minutes
 
     private final PrometheusService prometheusService;
     private final KubernetesClusterRepository kubernetesClusterRepository;

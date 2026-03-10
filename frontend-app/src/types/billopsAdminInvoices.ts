@@ -79,7 +79,11 @@ export interface UseBillOpsAdminInvoicesReturn {
   fetchData: (forceRefresh: boolean) => void;
   generateInvoice: () => Promise<void>;
   setSelectedIds: React.Dispatch<React.SetStateAction<string[]>>;
+  setFilterIds: React.Dispatch<React.SetStateAction<string[]>>;
   setGeneration: React.Dispatch<React.SetStateAction<GenerationParams>>;
+  requestMerge: () => void;
+  cancelMerge: () => void;
+  pendingMerge: boolean;
   mergeSelectedInvoices: () => Promise<void>;
   downloadPreview: (invoice: AdminInvoiceItem) => Promise<void>;
   getSelectedAccountName: () => string;

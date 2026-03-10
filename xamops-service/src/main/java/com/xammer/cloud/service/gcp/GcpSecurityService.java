@@ -1,16 +1,21 @@
 package com.xammer.cloud.service.gcp;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.cloud.securitycenter.v2.Finding;
 import com.google.cloud.securitycenter.v2.ListFindingsRequest;
 import com.google.cloud.securitycenter.v2.SecurityCenterClient;
+import com.xammer.cloud.domain.CachedData;
 import com.xammer.cloud.dto.gcp.GcpContainerVulnerabilityDto;
 import com.xammer.cloud.dto.gcp.GcpIamPolicyDriftDto;
 import com.xammer.cloud.dto.gcp.GcpSecurityFinding;
+import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.service.RedisCacheService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
@@ -21,6 +26,8 @@ public class GcpSecurityService {
 
     private final GcpClientProvider gcpClientProvider;
     private final RedisCacheService redisCacheService;
+    private final CachedDataRepository cachedDataRepository;
+    private final ObjectMapper objectMapper;
 
     private static final String SECURITY_FINDINGS_CACHE_PREFIX = "gcp:security-findings:";
     private static final String IAM_POLICY_DRIFT_CACHE_PREFIX = "gcp:iam-policy-drift:";
@@ -30,9 +37,27 @@ public class GcpSecurityService {
             "roles/owner",
             List.of(new GcpIamPolicyDriftDto.DriftDetail("user:admin@example.com", "roles/owner", "BASELINE")));
 
-    public GcpSecurityService(GcpClientProvider gcpClientProvider, RedisCacheService redisCacheService) {
+    public GcpSecurityService(GcpClientProvider gcpClientProvider,
+                              RedisCacheService redisCacheService,
+                              CachedDataRepository cachedDataRepository,
+                              ObjectMapper objectMapper) {
         this.gcpClientProvider = gcpClientProvider;
         this.redisCacheService = redisCacheService;
+        this.cachedDataRepository = cachedDataRepository;
+        this.objectMapper = objectMapper;
+    }
+
+    private void saveToDb(String dbKey, Object data) {
+        try {
+            String json = objectMapper.writeValueAsString(data);
+            CachedData entity = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+            entity.setCacheKey(dbKey);
+            entity.setJsonData(json);
+            entity.setLastUpdated(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
+            cachedDataRepository.save(entity);
+        } catch (Exception e) {
+            log.warn("Failed to save GCP security DB snapshot for key {}: {}", dbKey, e.getMessage());
+        }
     }
 
     /**
@@ -60,7 +85,7 @@ public class GcpSecurityService {
                 List<GcpIamPolicyDriftDto> result = new ArrayList<>();
 
                 // Cache the result
-                redisCacheService.put(cacheKey, result, 10);
+                redisCacheService.put(cacheKey, result, 60);
 
                 return result;
             } catch (Throwable t) {
@@ -95,7 +120,7 @@ public class GcpSecurityService {
                 List<GcpContainerVulnerabilityDto> result = new ArrayList<>();
 
                 // Cache the result
-                redisCacheService.put(cacheKey, result, 10);
+                redisCacheService.put(cacheKey, result, 60);
 
                 return result;
             } catch (Throwable t) {
@@ -115,19 +140,33 @@ public class GcpSecurityService {
 
         return CompletableFuture.supplyAsync(() -> {
             try {
-                // Try to get from Redis cache using TypeReference for List
+                // 1. Try Redis cache
                 Optional<List<GcpSecurityFinding>> cached = redisCacheService.get(
                         cacheKey,
                         new TypeReference<List<GcpSecurityFinding>>() {
                         });
 
                 if (cached.isPresent()) {
-                    log.info("✅ Returning cached security findings for project {} ({} findings)",
+                    log.info("✅ Returning Redis-cached security findings for project {} ({} findings)",
                             gcpProjectId, cached.get().size());
                     return cached.get();
                 }
 
-                // Cache miss - fetch fresh data
+                // 2. Try DB snapshot
+                try {
+                    Optional<CachedData> dbSnapshot = cachedDataRepository.findById(cacheKey);
+                    if (dbSnapshot.isPresent()) {
+                        List<GcpSecurityFinding> dbResult = objectMapper.readValue(
+                                dbSnapshot.get().getJsonData(), new TypeReference<>() {});
+                        log.info("✅ Returning DB-cached security findings for project {} — re-warming Redis", gcpProjectId);
+                        redisCacheService.put(cacheKey, dbResult, 60);
+                        return dbResult;
+                    }
+                } catch (Exception e) {
+                    log.warn("DB snapshot load failed for security findings {}: {}", gcpProjectId, e.getMessage());
+                }
+
+                // 3. Fetch fresh from API
                 log.info("🔍 Cache miss - fetching fresh security findings for project {}", gcpProjectId);
 
                 Optional<SecurityCenterClient> clientOpt = gcpClientProvider.getSecurityCenterV2Client(gcpProjectId);
@@ -156,8 +195,8 @@ public class GcpSecurityService {
                     log.info("Successfully fetched {} active security findings for project {}.",
                             findings.size(), gcpProjectId);
 
-                    // Cache the successful result in Redis
-                    redisCacheService.put(cacheKey, findings, 10);
+                    redisCacheService.put(cacheKey, findings, 60);
+                    saveToDb(cacheKey, findings);
                     log.info("💾 Cached {} security findings for project {}", findings.size(), gcpProjectId);
 
                 } catch (Exception e) {

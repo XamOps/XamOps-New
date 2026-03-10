@@ -14,5 +14,8 @@ public interface InvoiceRepository extends JpaRepository<Invoice, Long> {
             Invoice.InvoiceStatus status);
 
     List<Invoice> findByCloudAccountIdAndBillingPeriod(Long cloudAccountId, String billingPeriod);
+
+    // Fix N+1: fetch last invoice date per account without loading all invoices
+    Optional<Invoice> findTop1ByCloudAccountIdOrderByInvoiceDateDesc(Long cloudAccountId);
     // --- END FIX ---
 }

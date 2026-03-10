@@ -230,7 +230,7 @@ public class PerformanceInsightsService {
                     peakCpu, projectedPeakCpu,
                     "Projected peak CPU utilization would be approximately " + String.format("%.1f", projectedPeakCpu) + "%."
             );
-            redisCache.put(cacheKey, result, 10);
+            redisCache.put(cacheKey, result, 60);
             return result;
         });
     }
@@ -655,7 +655,7 @@ private List<PerformanceInsightDto> getEC2InsightsForRegion(CloudAccount account
         summary.put("potentialSavings", allInsights.stream().mapToDouble(PerformanceInsightDto::getPotentialSavings).sum());
         summary.put("performanceScore", calculatePerformanceScore(allInsights));
         
-        redisCache.put(cacheKey, summary, 10);
+        redisCache.put(cacheKey, summary, 60);
         return summary;
     }
 

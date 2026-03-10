@@ -138,7 +138,7 @@ public class OptimizationService {
                     if (!allRecs.isEmpty()) {
                         logger.info("✅ Serving {} rightsizing recs from DB — repopulating Redis for account {}",
                             allRecs.size(), accountId);
-                        redisCache.put(cacheKey, allRecs, 10); // re-warm Redis so next request skips DB
+                        redisCache.put(cacheKey, allRecs, 60); // re-warm Redis so next request skips DB
                         return CompletableFuture.completedFuture(allRecs);
                     }
                 }
@@ -168,7 +168,7 @@ public class OptimizationService {
                         .of(ec2.join(), ebs.join(), lambda.join()).flatMap(List::stream).collect(Collectors.toList());
                 logger.debug("Fetched a total of {} optimization recommendations for account {}", allRecs.size(),
                         accountId);
-                redisCache.put(cacheKey, allRecs, 10);
+                redisCache.put(cacheKey, allRecs, 60);
                 // Save merged results under a stable date-independent key so the DB cache
                 // survives across midnight without a daily miss.
                 try {
@@ -267,7 +267,7 @@ public class OptimizationService {
 
             return recommendations;
         }, "EC2 Recommendations").thenApply(result -> {
-            redisCache.put(cacheKey, result, 10);
+            redisCache.put(cacheKey, result, 60);
 
             // ✅ Archive Data for Superset
             archiveData("RIGHTSIZING_EC2", account.getAwsAccountId(), result);
@@ -338,7 +338,7 @@ public class OptimizationService {
 
             return recommendations;
         }, "EBS Recommendations").thenApply(result -> {
-            redisCache.put(cacheKey, result, 10);
+            redisCache.put(cacheKey, result, 60);
 
             // ✅ Archive Data for Superset
             archiveData("RIGHTSIZING_EBS", account.getAwsAccountId(), result);
@@ -415,7 +415,7 @@ public class OptimizationService {
             }
             return recommendations;
         }, "Lambda Recommendations").thenApply(result -> {
-            redisCache.put(cacheKey, result, 10);
+            redisCache.put(cacheKey, result, 60);
 
             // ✅ Archive Data for Superset
             archiveData("RIGHTSIZING_LAMBDA", account.getAwsAccountId(), result);
@@ -458,7 +458,7 @@ public class OptimizationService {
                             .collect(Collectors.toList());
                     logger.debug("... found {} total wasted resources for account {}.", allWasted.size(),
                             account.getAwsAccountId());
-                    redisCache.put(cacheKey, allWasted, 10);
+                    redisCache.put(cacheKey, allWasted, 60);
 
                     // ✅ Archive Data for Superset
                     archiveData("WASTE", account.getAwsAccountId(), allWasted);

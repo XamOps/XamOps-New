@@ -6,13 +6,18 @@ import com.azure.resourcemanager.compute.models.PowerState;
 import com.azure.resourcemanager.compute.models.VirtualMachine;
 import com.azure.resourcemanager.network.models.NetworkInterface;
 import com.azure.resourcemanager.network.models.PublicIpAddress;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.xammer.cloud.domain.CachedData;
 import com.xammer.cloud.dto.azure.AzureWasteItem;
+import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.service.RedisCacheService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -28,13 +33,14 @@ import java.util.Optional;
  *  - Orphaned Public IPs   (!pip.hasAssignedNetworkInterface() && !pip.hasAssignedLoadBalancer())
  *  - Unattached NICs       (nic.innerModel().virtualMachine() == null — NIC exists but no VM attached)
  *
- * Results are cached in Redis for 60 minutes.
+ * Results are cached in Redis (60-min TTL) + persisted to DB for cross-restart resilience.
  */
 @Service
 public class AzureWasteService {
 
     private static final Logger log = LoggerFactory.getLogger(AzureWasteService.class);
     private static final String CACHE_PREFIX = "azure:waste:";
+    private static final String DB_CACHE_PREFIX = "AZURE_WASTE::";
     private static final int CACHE_TTL_MINUTES = 60;
 
     // Flat monthly savings estimates in INR
@@ -46,39 +52,76 @@ public class AzureWasteService {
 
     private final AzureClientProvider clientProvider;
     private final RedisCacheService redisCache;
+    private final CachedDataRepository cachedDataRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public AzureWasteService(AzureClientProvider clientProvider, RedisCacheService redisCache) {
+    public AzureWasteService(AzureClientProvider clientProvider,
+                             RedisCacheService redisCache,
+                             CachedDataRepository cachedDataRepository) {
         this.clientProvider = clientProvider;
         this.redisCache = redisCache;
+        this.cachedDataRepository = cachedDataRepository;
     }
 
     /**
      * Returns a list of waste items for the given subscription.
-     * Uses Redis cache (60-min TTL). Pass forceRefresh=true to bypass cache.
+     * Cache strategy: Redis (60-min TTL) → DB snapshot → Azure API.
+     * Pass forceRefresh=true to bypass all caches.
      */
     public List<AzureWasteItem> getWasteItems(String subscriptionId, boolean forceRefresh) {
         String cacheKey = CACHE_PREFIX + subscriptionId;
+        String dbKey = DB_CACHE_PREFIX + subscriptionId;
 
         if (!forceRefresh) {
+            // 1. Try Redis first
             try {
                 Optional<Object> cached = redisCache.get(cacheKey, Object.class);
                 if (cached.isPresent()) {
-                    @SuppressWarnings("unchecked")
                     List<AzureWasteItem> items = objectMapper.convertValue(
                             cached.get(),
                             objectMapper.getTypeFactory().constructCollectionType(List.class, AzureWasteItem.class));
-                    log.info("Returning cached waste items for {} ({} items)", subscriptionId, items.size());
+                    log.info("Returning Redis-cached waste items for {} ({} items)", subscriptionId, items.size());
                     return items;
                 }
             } catch (Exception e) {
-                log.warn("Cache deserialization failed for waste items, re-fetching: {}", e.getMessage());
+                log.warn("Redis deserialization failed for waste items for {}: {}", subscriptionId, e.getMessage());
+            }
+
+            // 2. Try DB snapshot
+            try {
+                Optional<CachedData> dbSnapshot = cachedDataRepository.findById(dbKey);
+                if (dbSnapshot.isPresent()) {
+                    List<AzureWasteItem> items = objectMapper.readValue(
+                            dbSnapshot.get().getJsonData(),
+                            new TypeReference<List<AzureWasteItem>>() {});
+                    log.info("Returning DB-cached waste items for {} ({} items) — re-warming Redis", subscriptionId, items.size());
+                    redisCache.put(cacheKey, items, CACHE_TTL_MINUTES);
+                    return items;
+                }
+            } catch (Exception e) {
+                log.warn("DB snapshot load failed for waste items for {}: {}", subscriptionId, e.getMessage());
             }
         }
 
+        // 3. Fetch from Azure API
         List<AzureWasteItem> items = detectWaste(subscriptionId);
         redisCache.put(cacheKey, items, CACHE_TTL_MINUTES);
+        saveToDb(dbKey, items);
         return items;
+    }
+
+    private void saveToDb(String dbKey, List<AzureWasteItem> items) {
+        try {
+            String json = objectMapper.writeValueAsString(items);
+            CachedData entity = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+            entity.setCacheKey(dbKey);
+            entity.setJsonData(json);
+            entity.setLastUpdated(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
+            cachedDataRepository.save(entity);
+            log.info("✅ DB snapshot saved for Azure waste: {}", dbKey);
+        } catch (Exception e) {
+            log.warn("Failed to save DB snapshot for Azure waste {}: {}", dbKey, e.getMessage());
+        }
     }
 
     private List<AzureWasteItem> detectWaste(String subscriptionId) {

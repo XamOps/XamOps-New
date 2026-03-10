@@ -4,8 +4,10 @@ import com.azure.core.credential.TokenCredential;
 import com.azure.core.credential.TokenRequestContext;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.xammer.cloud.domain.CachedData;
 import com.xammer.cloud.dto.azure.AzureRightsizingRecommendation;
 import com.xammer.cloud.dto.azure.AzureRightsizingResponse;
+import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.service.RedisCacheService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,6 +17,8 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -35,41 +39,77 @@ public class AzureRightsizingService {
 
     private static final Logger log = LoggerFactory.getLogger(AzureRightsizingService.class);
     private static final String CACHE_PREFIX = "azure:rightsizing:";
+    private static final String DB_CACHE_PREFIX = "AZURE_RIGHTSIZING::";
     private static final int CACHE_TTL_MINUTES = 60;
 
     private final AzureClientProvider clientProvider;
     private final RedisCacheService redisCache;
+    private final CachedDataRepository cachedDataRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public AzureRightsizingService(AzureClientProvider clientProvider,
-                                   RedisCacheService redisCache) {
+                                   RedisCacheService redisCache,
+                                   CachedDataRepository cachedDataRepository) {
         this.clientProvider = clientProvider;
         this.redisCache = redisCache;
+        this.cachedDataRepository = cachedDataRepository;
     }
 
     /**
      * Returns Azure Advisor Cost recommendations for the given subscription.
-     * Uses Redis cache (60-min TTL). Pass forceRefresh=true to bypass cache.
+     * Cache strategy: Redis (60-min TTL) → DB snapshot → Azure API.
+     * Pass forceRefresh=true to bypass all caches.
      */
     public AzureRightsizingResponse getRecommendations(String subscriptionId,
                                                        boolean forceRefresh) {
         String cacheKey = CACHE_PREFIX + subscriptionId;
+        String dbKey = DB_CACHE_PREFIX + subscriptionId;
 
         if (!forceRefresh) {
+            // 1. Try Redis
             Optional<AzureRightsizingResponse> cached = redisCache.get(cacheKey, AzureRightsizingResponse.class);
             if (cached.isPresent()) {
-                log.info("Returning cached rightsizing response for {}", subscriptionId);
+                log.info("Returning Redis-cached rightsizing response for {}", subscriptionId);
                 try {
                     return objectMapper.convertValue(cached.get(), AzureRightsizingResponse.class);
                 } catch (Exception e) {
-                    log.warn("Cache deserialization failed, re-fetching: {}", e.getMessage());
+                    log.warn("Redis deserialization failed, trying DB: {}", e.getMessage());
                 }
+            }
+
+            // 2. Try DB snapshot
+            try {
+                Optional<CachedData> dbSnapshot = cachedDataRepository.findById(dbKey);
+                if (dbSnapshot.isPresent()) {
+                    AzureRightsizingResponse response = objectMapper.readValue(
+                            dbSnapshot.get().getJsonData(), AzureRightsizingResponse.class);
+                    log.info("Returning DB-cached rightsizing response for {} — re-warming Redis", subscriptionId);
+                    redisCache.put(cacheKey, response, CACHE_TTL_MINUTES);
+                    return response;
+                }
+            } catch (Exception e) {
+                log.warn("DB snapshot load failed for rightsizing {}: {}", subscriptionId, e.getMessage());
             }
         }
 
         AzureRightsizingResponse response = fetchFromAdvisor(subscriptionId);
         redisCache.put(cacheKey, response, CACHE_TTL_MINUTES);
+        saveToDb(dbKey, response);
         return response;
+    }
+
+    private void saveToDb(String dbKey, AzureRightsizingResponse response) {
+        try {
+            String json = objectMapper.writeValueAsString(response);
+            CachedData entity = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+            entity.setCacheKey(dbKey);
+            entity.setJsonData(json);
+            entity.setLastUpdated(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
+            cachedDataRepository.save(entity);
+            log.info("✅ DB snapshot saved for Azure rightsizing: {}", dbKey);
+        } catch (Exception e) {
+            log.warn("Failed to save DB snapshot for Azure rightsizing {}: {}", dbKey, e.getMessage());
+        }
     }
 
     private AzureRightsizingResponse fetchFromAdvisor(String subscriptionId) {

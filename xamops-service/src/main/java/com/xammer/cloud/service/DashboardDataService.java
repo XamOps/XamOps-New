@@ -2151,7 +2151,7 @@ public class DashboardDataService {
         }
 
         DashboardData.CloudWatchStatus status = new DashboardData.CloudWatchStatus(0, 0, 0);
-        redisCache.put(cacheKey, status, 10);
+        redisCache.put(cacheKey, status, 60);
         return CompletableFuture.completedFuture(status);
     }
 
@@ -2242,7 +2242,7 @@ public class DashboardDataService {
         }
 
         DashboardData.IamResources resources = new DashboardData.IamResources(users, groups, policies, roles);
-        redisCache.put(cacheKey, resources, 10);
+        redisCache.put(cacheKey, resources, 60);
         return CompletableFuture.completedFuture(resources);
     }
 
@@ -2308,7 +2308,7 @@ public class DashboardDataService {
                     }).filter(java.util.Objects::nonNull).collect(Collectors.toList());
 
             DashboardData.IamDetail details = new DashboardData.IamDetail(users, roles);
-            redisCache.put(cacheKey, details, 10);
+            redisCache.put(cacheKey, details, 60);
             return details;
         });
     }

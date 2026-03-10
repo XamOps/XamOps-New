@@ -7,10 +7,12 @@ import com.google.cloud.compute.v1.Disk;
 import com.google.cloud.compute.v1.DisksClient;
 import com.google.cloud.compute.v1.Instance;
 import com.google.cloud.compute.v1.InstancesClient;
+import com.xammer.cloud.domain.CachedData;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.PerformanceInsightDto;
 import com.xammer.cloud.dto.gcp.GcpMetricDto;
 import com.xammer.cloud.dto.gcp.GcpOptimizationRecommendation;
+import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.service.RedisCacheService;
 import lombok.extern.slf4j.Slf4j;
@@ -20,6 +22,8 @@ import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
@@ -36,6 +40,9 @@ public class GcpPerformanceInsightsService {
     private final GcpOptimizationService gcpOptimizationService;
     private final RedisCacheService redisCache;
     private final ObjectMapper objectMapper;
+    private final CachedDataRepository cachedDataRepository;
+
+    private static final String DB_CACHE_PREFIX = "GCP_PERFORMANCE::";
 
     @Autowired
     public GcpPerformanceInsightsService(
@@ -45,7 +52,8 @@ public class GcpPerformanceInsightsService {
             @Lazy GcpDataService gcpDataService,
             @Lazy GcpOptimizationService gcpOptimizationService,
             RedisCacheService redisCache,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            CachedDataRepository cachedDataRepository) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.gcpClientProvider = gcpClientProvider;
         this.gcpMetricsService = gcpMetricsService;
@@ -53,6 +61,20 @@ public class GcpPerformanceInsightsService {
         this.gcpOptimizationService = gcpOptimizationService;
         this.redisCache = redisCache;
         this.objectMapper = objectMapper;
+        this.cachedDataRepository = cachedDataRepository;
+    }
+
+    private void saveToDb(String dbKey, Object data) {
+        try {
+            String json = objectMapper.writeValueAsString(data);
+            CachedData entity = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+            entity.setCacheKey(dbKey);
+            entity.setJsonData(json);
+            entity.setLastUpdated(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
+            cachedDataRepository.save(entity);
+        } catch (Exception e) {
+            log.warn("Failed to save GCP performance DB snapshot for key {}: {}", dbKey, e.getMessage());
+        }
     }
 
     /**
@@ -89,13 +111,29 @@ public class GcpPerformanceInsightsService {
      */
     public List<PerformanceInsightDto> getInsights(String gcpProjectId, String severity, boolean forceRefresh) {
         String cacheKey = "gcpPerformanceInsights-" + gcpProjectId + "-ALL";
+        String dbKey = DB_CACHE_PREFIX + gcpProjectId;
 
         // Try cache first if not forcing refresh
         if (!forceRefresh) {
+            // 1. Redis
             Optional<List<PerformanceInsightDto>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {});
             if (cachedData.isPresent()) {
-                log.info("GCP Performance insights found in cache for project {}. Filtering by severity '{}'.", gcpProjectId, severity);
+                log.info("GCP Performance insights found in Redis for project {}. Filtering by severity '{}'.", gcpProjectId, severity);
                 return filterBySeverity(cachedData.get(), severity);
+            }
+
+            // 2. DB snapshot
+            try {
+                Optional<CachedData> dbSnapshot = cachedDataRepository.findById(dbKey);
+                if (dbSnapshot.isPresent()) {
+                    List<PerformanceInsightDto> dbResult = objectMapper.readValue(
+                            dbSnapshot.get().getJsonData(), new TypeReference<>() {});
+                    log.info("GCP Performance insights found in DB for project {} — re-warming Redis.", gcpProjectId);
+                    redisCache.put(cacheKey, dbResult, 60);
+                    return filterBySeverity(dbResult, severity);
+                }
+            } catch (Exception e) {
+                log.warn("DB snapshot load failed for GCP performance {}: {}", gcpProjectId, e.getMessage());
             }
         }
 
@@ -122,7 +160,8 @@ public class GcpPerformanceInsightsService {
                     .collect(Collectors.toList());
 
             // Cache the results
-            redisCache.put(cacheKey, allInsights, 10); // Cache for 10 minutes
+            redisCache.put(cacheKey, allInsights, 60);
+            saveToDb(dbKey, allInsights);
             log.info("Total GCP insights generated and cached for project {}: {}", gcpProjectId, allInsights.size());
 
             return filterBySeverity(allInsights, severity);
@@ -361,7 +400,7 @@ public class GcpPerformanceInsightsService {
         summary.put("performanceScore", calculatePerformanceScore(allInsights));
 
         // Cache summary
-        redisCache.put(cacheKey, summary, 10);
+        redisCache.put(cacheKey, summary, 60);
         log.info("Cached fresh GCP insights summary for project {}", gcpProjectId);
         
         return summary;

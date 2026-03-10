@@ -120,15 +120,10 @@ const ClientDetailsPage: React.FC = () => {
 
     const handleLoginAs = (userId: number, tenantId: string) => {
         const url = `${window.location.origin}/unified-dashboard?impersonateUserId=${userId}&tenantId=${tenantId}`;
-        const width = 1200;
-        const height = 800;
-        const left = (window.screen.width / 2) - (width / 2);
-        const top = (window.screen.height / 2) - (height / 2);
-        window.open(
-            url,
-            `LoginAs_${userId}`,
-            `width=${width},height=${height},top=${top},left=${left},scrollbars=yes,resizable=yes,menubar=no,toolbar=no`
-        );
+        // Use '_blank' without popup features so browsers always open a true
+        // new tab. Named popup windows can be blocked → browser falls back to
+        // navigating the CURRENT tab, which contaminates the admin session.
+        window.open(url, '_blank');
     };
 
     const stats = useMemo(() => ({

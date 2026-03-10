@@ -299,7 +299,7 @@ public class CostService {
                 if (useMockData) {
                         List<CostDto> mockResult = costMockService.getMockCostBreakdown(accountId, groupBy, tag,
                                         startDate, endDate);
-                        redisCache.put(cacheKey, mockResult, 10);
+                        redisCache.put(cacheKey, mockResult, 60);
                         return CompletableFuture.completedFuture(mockResult);
                 }
 
@@ -391,7 +391,7 @@ public class CostService {
                 if (useMockData) {
                         HistoricalCostDto mockResult = costMockService.getMockHistoricalCost(accountId, serviceName,
                                         regionName, days);
-                        redisCache.put(cacheKey, mockResult, 10);
+                        redisCache.put(cacheKey, mockResult, 60);
                         return CompletableFuture.completedFuture(mockResult);
                 }
 
@@ -463,7 +463,7 @@ public class CostService {
                                 }
 
                                 HistoricalCostDto historicalCost = new HistoricalCostDto(labels, costs);
-                                redisCache.put(cacheKey, historicalCost, 10);
+                                redisCache.put(cacheKey, historicalCost, 60);
 
                                 logger.info("✅ Historical cost fetched: {} days for account {}", labels.size(),
                                                 accountId);
@@ -499,7 +499,7 @@ public class CostService {
                 if (useMockData) {
                         HistoricalCostDto mockResult = costMockService.getMockHistoricalCostForDimension(accountId,
                                         groupBy, dimensionValue, tagKey);
-                        redisCache.put(cacheKey, mockResult, 10);
+                        redisCache.put(cacheKey, mockResult, 60);
                         return CompletableFuture.completedFuture(mockResult);
                 }
 
@@ -545,7 +545,7 @@ public class CostService {
                                 }
 
                                 HistoricalCostDto historicalCost = new HistoricalCostDto(labels, costs);
-                                redisCache.put(cacheKey, historicalCost, 10);
+                                redisCache.put(cacheKey, historicalCost, 60);
 
                                 logger.info("✅ Historical cost for dimension fetched: 6 months for {}", dimensionValue);
                                 return historicalCost;

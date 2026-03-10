@@ -1,10 +1,13 @@
 package com.xammer.cloud.service.gcp;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.cloud.bigquery.*;
+import com.xammer.cloud.domain.CachedData;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.DetailedCostDto; // <-- NEW IMPORT
 import com.xammer.cloud.dto.gcp.GcpCostDto;
+import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.service.RedisCacheService;
 import lombok.extern.slf4j.Slf4j;
@@ -12,6 +15,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -27,6 +32,8 @@ public class GcpCostService {
     private final GcpClientProvider gcpClientProvider;
     private final RedisCacheService redisCacheService;
     private final CloudAccountRepository cloudAccountRepository;
+    private final CachedDataRepository cachedDataRepository;
+    private final ObjectMapper objectMapper;
     private final ExecutorService executor = Executors.newCachedThreadPool();
 
     @Value("${gcp.billing.export-table-name:}")
@@ -44,10 +51,28 @@ public class GcpCostService {
     private static final String COST_BY_SERVICE_REGION_CACHE_PREFIX = "gcp:cost-by-service-region:";
 
     public GcpCostService(GcpClientProvider gcpClientProvider, RedisCacheService redisCacheService,
-            CloudAccountRepository cloudAccountRepository) {
+            CloudAccountRepository cloudAccountRepository,
+            CachedDataRepository cachedDataRepository,
+            ObjectMapper objectMapper) {
         this.gcpClientProvider = gcpClientProvider;
         this.redisCacheService = redisCacheService;
         this.cloudAccountRepository = cloudAccountRepository;
+        this.cachedDataRepository = cachedDataRepository;
+        this.objectMapper = objectMapper;
+    }
+
+    /** Persist data to DB snapshot, ignoring failures so main flow is never blocked. */
+    private void saveToDb(String dbKey, Object data) {
+        try {
+            String json = objectMapper.writeValueAsString(data);
+            CachedData entity = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+            entity.setCacheKey(dbKey);
+            entity.setJsonData(json);
+            entity.setLastUpdated(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
+            cachedDataRepository.save(entity);
+        } catch (Exception e) {
+            log.warn("Failed to save GCP cost DB snapshot for key {}: {}", dbKey, e.getMessage());
+        }
     }
 
     // --- NEW METHOD FOR DETAILED REPORTING ---
@@ -172,7 +197,7 @@ public class GcpCostService {
                 today.format(DateTimeFormatter.ISO_LOCAL_DATE));
 
         List<GcpCostDto> result = executeQuery(bigquery, query, gcpProjectId);
-        redisCacheService.put(cacheKey, result, 10);
+        redisCacheService.put(cacheKey, result, 60);
         return result;
     }
 
@@ -214,7 +239,8 @@ public class GcpCostService {
             TableResult results = bigquery.query(QueryJobConfiguration.newBuilder(query).build());
             FieldValue value = results.getValues().iterator().next().get("total_cost");
             Double result = value.isNull() ? 0.0 : value.getDoubleValue();
-            redisCacheService.put(cacheKey, result, 10);
+            redisCacheService.put(cacheKey, result, 60);
+            saveToDb(cacheKey, result);
             return result;
         } catch (Exception e) {
             log.error("BigQuery query failed for MTD spend on project {}: {}", gcpProjectId, e.getMessage(), e);
@@ -239,8 +265,21 @@ public class GcpCostService {
                 });
 
         if (cached.isPresent()) {
-            log.info("✅ Returning cached billing summary for project {}", gcpProjectId);
+            log.info("✅ Returning Redis-cached billing summary for project {}", gcpProjectId);
             return cached.get();
+        }
+
+        // Try DB snapshot
+        try {
+            Optional<CachedData> dbSnapshot = cachedDataRepository.findById(cacheKey);
+            if (dbSnapshot.isPresent()) {
+                List<GcpCostDto> dbResult = objectMapper.readValue(dbSnapshot.get().getJsonData(), new TypeReference<>() {});
+                log.info("✅ Returning DB-cached billing summary for project {} — re-warming Redis", gcpProjectId);
+                redisCacheService.put(cacheKey, dbResult, 60);
+                return dbResult;
+            }
+        } catch (Exception e) {
+            log.warn("DB snapshot load failed for billing summary {}: {}", gcpProjectId, e.getMessage());
         }
 
         log.info("🔍 Fetching billing summary for project {}", gcpProjectId);
@@ -253,7 +292,8 @@ public class GcpCostService {
         LocalDate startDate = endDate.withDayOfMonth(1);
 
         List<GcpCostDto> result = queryCostData(bqOpt.get(), gcpProjectId, "service.description", startDate, endDate);
-        redisCacheService.put(cacheKey, result, 10);
+        redisCacheService.put(cacheKey, result, 60);
+        saveToDb(cacheKey, result);
         return result;
     }
 
@@ -300,7 +340,8 @@ public class GcpCostService {
                 tableNameOpt.get(), startDate, endDate);
 
         List<GcpCostDto> result = executeQuery(bigquery, query, gcpProjectId);
-        redisCacheService.put(cacheKey, result, 10);
+        redisCacheService.put(cacheKey, result, 60);
+        saveToDb(cacheKey, result);
         return result;
     }
 
@@ -319,8 +360,21 @@ public class GcpCostService {
                 });
 
         if (cached.isPresent()) {
-            log.info("✅ Returning cached cost by region for project {}", gcpProjectId);
+            log.info("✅ Returning Redis-cached cost by region for project {}", gcpProjectId);
             return cached.get();
+        }
+
+        // Try DB snapshot
+        try {
+            Optional<CachedData> dbSnapshot = cachedDataRepository.findById(cacheKey);
+            if (dbSnapshot.isPresent()) {
+                List<GcpCostDto> dbResult = objectMapper.readValue(dbSnapshot.get().getJsonData(), new TypeReference<>() {});
+                log.info("✅ Returning DB-cached cost by region for project {} — re-warming Redis", gcpProjectId);
+                redisCacheService.put(cacheKey, dbResult, 60);
+                return dbResult;
+            }
+        } catch (Exception e) {
+            log.warn("DB snapshot load failed for cost by region {}: {}", gcpProjectId, e.getMessage());
         }
 
         log.info("🔍 Fetching cost by region for project {}", gcpProjectId);
@@ -333,7 +387,8 @@ public class GcpCostService {
         LocalDate startDate = endDate.withDayOfMonth(1);
 
         List<GcpCostDto> result = queryCostData(bqOpt.get(), gcpProjectId, "location.region", startDate, endDate);
-        redisCacheService.put(cacheKey, result, 10);
+        redisCacheService.put(cacheKey, result, 60);
+        saveToDb(cacheKey, result);
         return result;
     }
 
@@ -389,7 +444,7 @@ public class GcpCostService {
                     .map(row -> Map.<String, Object>of("date", row.get("date").getStringValue(), "cost",
                             row.get("cost").getDoubleValue()))
                     .collect(Collectors.toList());
-            redisCacheService.put(cacheKey, result, 10);
+            redisCacheService.put(cacheKey, result, 60);
             return result;
         } catch (Exception e) {
             log.error("Error fetching daily GCP costs for forecast", e);
@@ -415,8 +470,21 @@ public class GcpCostService {
                 });
 
         if (cached.isPresent()) {
-            log.info("✅ Returning cached cost breakdown for project {} / groupBy {}", gcpProjectId, groupBy);
+            log.info("✅ Returning Redis-cached cost breakdown for project {} / groupBy {}", gcpProjectId, groupBy);
             return cached.get();
+        }
+
+        // Try DB snapshot
+        try {
+            Optional<CachedData> dbSnapshot = cachedDataRepository.findById(cacheKey);
+            if (dbSnapshot.isPresent()) {
+                List<GcpCostDto> dbResult = objectMapper.readValue(dbSnapshot.get().getJsonData(), new TypeReference<>() {});
+                log.info("✅ Returning DB-cached cost breakdown for project {} / groupBy {} — re-warming Redis", gcpProjectId, groupBy);
+                redisCacheService.put(cacheKey, dbResult, 60);
+                return dbResult;
+            }
+        } catch (Exception e) {
+            log.warn("DB snapshot load failed for cost breakdown {}: {}", gcpProjectId, e.getMessage());
         }
 
         log.info("🔍 Fetching cost breakdown for project {} / groupBy {}", gcpProjectId, groupBy);
@@ -436,7 +504,8 @@ public class GcpCostService {
         LocalDate startDate = endDate.withDayOfMonth(1);
 
         List<GcpCostDto> result = queryCostData(bqOpt.get(), gcpProjectId, dimension, startDate, endDate);
-        redisCacheService.put(cacheKey, result, 10);
+        redisCacheService.put(cacheKey, result, 60);
+        saveToDb(cacheKey, result);
         return result;
     }
 

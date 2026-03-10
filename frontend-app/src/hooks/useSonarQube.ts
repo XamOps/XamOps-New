@@ -102,14 +102,15 @@ export const useSonarQube = (): UseSonarQubeReturn => {
   /**
    * Refresh metrics for current project
    */
-  const refreshMetrics = useCallback(() => {
+  const refreshMetrics = useCallback(async () => {
     if (!selectedProjectId) return;
 
     setIsRefreshing(true);
-    fetchMetrics(selectedProjectId);
-    setTimeout(() => {
+    try {
+      await fetchMetrics(selectedProjectId);
+    } finally {
       setIsRefreshing(false);
-    }, 1000);
+    }
   }, [selectedProjectId, fetchMetrics]);
 
   /**

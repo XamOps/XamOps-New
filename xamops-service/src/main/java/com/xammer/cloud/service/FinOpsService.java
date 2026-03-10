@@ -118,7 +118,7 @@ public class FinOpsService {
                 FinOpsReportDto dbData = dashboardDataService.getFinOpsSnapshot(dbKey);
                 if (dbData != null) {
                     logger.info("✅ DB hit for FinOps report — repopulating Redis: {}", accountId);
-                    redisCache.put(cacheKey, dbData, 10);
+                    redisCache.put(cacheKey, dbData, 60);
                     return CompletableFuture.completedFuture(dbData);
                 }
             }
@@ -259,7 +259,7 @@ public class FinOpsService {
                         FinOpsReportDto report = new FinOpsReportDto(kpis, costBreakdown, rightsizingFuture.join(),
                                 wastedResourcesFuture.join(), anomaliesFuture.join(), taggingComplianceFuture.join(),
                                 budgetsFuture.join());
-                        redisCache.put(cacheKey, report, 10);
+                        redisCache.put(cacheKey, report, 60);
                         // Save to DB for default (no custom date range) requests — warm for post-deploy cold starts
                         if (startDate == null && endDate == null) {
                             dashboardDataService.saveFinOpsSnapshot(dbKey, report);
@@ -290,7 +290,7 @@ public class FinOpsService {
         // Return mock data if mock mode is enabled
         if (useMockData) {
             List<BudgetDetails> mockResult = costMockService.getMockAccountBudgets(account);
-            redisCache.put(cacheKey, mockResult, 10);
+            redisCache.put(cacheKey, mockResult, 60);
             return CompletableFuture.completedFuture(mockResult);
         }
 
@@ -307,7 +307,7 @@ public class FinOpsService {
                             ? b.calculatedSpend().forecastedSpend().amount()
                             : BigDecimal.ZERO))
                     .collect(Collectors.toList());
-            redisCache.put(cacheKey, result, 10);
+            redisCache.put(cacheKey, result, 60);
             return CompletableFuture.completedFuture(result);
         } catch (Exception e) {
             logger.error("Failed to fetch AWS Budgets for account {}", account.getAwsAccountId(), e);
@@ -554,7 +554,7 @@ public class FinOpsService {
             double percentage = (totalScanned > 0) ? ((double) taggedCount / totalScanned) * 100.0 : 100.0;
             DashboardData.TaggingCompliance result = new DashboardData.TaggingCompliance(percentage, totalScanned,
                     untaggedList.size(), untaggedList);
-            redisCache.put(cacheKey, result, 10);
+            redisCache.put(cacheKey, result, 60);
             return result;
         });
     }
@@ -577,7 +577,7 @@ public class FinOpsService {
         // Return mock data if mock mode is enabled
         if (useMockData) {
             List<Map<String, Object>> mockResult = costMockService.getMockCostByTag(accountId, tagKey);
-            redisCache.put(cacheKey, mockResult, 10);
+            redisCache.put(cacheKey, mockResult, 60);
             return CompletableFuture.completedFuture(mockResult);
         }
 
@@ -600,7 +600,7 @@ public class FinOpsService {
                     })
                     .filter(map -> (double) map.get("cost") > 0.01)
                     .collect(Collectors.toList());
-            redisCache.put(cacheKey, result, 10);
+            redisCache.put(cacheKey, result, 60);
             return CompletableFuture.completedFuture(result);
         } catch (Exception e) {
             logger.error(
@@ -629,7 +629,7 @@ public class FinOpsService {
         // Return mock data if mock mode is enabled
         if (useMockData) {
             List<Map<String, Object>> mockResult = costMockService.getMockCostByRegion(account, startDate, endDate);
-            redisCache.put(cacheKey, mockResult, 10);
+            redisCache.put(cacheKey, mockResult, 60);
             return CompletableFuture.completedFuture(mockResult);
         }
 
@@ -675,7 +675,7 @@ public class FinOpsService {
                     .collect(Collectors.toList());
 
             logger.info("Fetched {} regions with costs for account {}", result.size(), account.getAwsAccountId());
-            redisCache.put(cacheKey, result, 10);
+            redisCache.put(cacheKey, result, 60);
             return CompletableFuture.completedFuture(result);
         } catch (Exception e) {
             logger.error("Could not fetch cost by region for account {} (dates: {} to {}): {}",
@@ -704,7 +704,7 @@ public class FinOpsService {
         if (useMockData) {
             List<DashboardData.BillingSummary> mockResult = costMockService.getMockBillingSummary(account, startDate,
                     endDate);
-            redisCache.put(cacheKey, mockResult, 10);
+            redisCache.put(cacheKey, mockResult, 60);
             return CompletableFuture.completedFuture(mockResult);
         }
 
@@ -750,7 +750,7 @@ public class FinOpsService {
                     .collect(Collectors.toList());
 
             logger.info("Fetched {} services with costs for account {}", result.size(), account.getAwsAccountId());
-            redisCache.put(cacheKey, result, 10);
+            redisCache.put(cacheKey, result, 60);
             return CompletableFuture.completedFuture(result);
         } catch (Exception e) {
             logger.error("Could not fetch billing summary for account {} (dates: {} to {}): {}",
@@ -777,7 +777,7 @@ public class FinOpsService {
         // Return mock data if mock mode is enabled
         if (useMockData) {
             DashboardData.CostHistory mockResult = costMockService.getMockCostHistory(account, startDate, endDate);
-            redisCache.put(cacheKey, mockResult, 10);
+            redisCache.put(cacheKey, mockResult, 60);
             return CompletableFuture.completedFuture(mockResult);
         }
 
@@ -847,7 +847,7 @@ public class FinOpsService {
         }
 
         DashboardData.CostHistory result = new DashboardData.CostHistory(labels, costs, anomalies);
-        redisCache.put(cacheKey, result, 10);
+        redisCache.put(cacheKey, result, 60);
         return CompletableFuture.completedFuture(result);
     }
 
@@ -866,7 +866,7 @@ public class FinOpsService {
         // Return mock data if mock mode is enabled
         if (useMockData) {
             List<DashboardData.CostAnomaly> mockResult = costMockService.getMockCostAnomalies(account);
-            redisCache.put(cacheKey, mockResult, 10);
+            redisCache.put(cacheKey, mockResult, 60);
             return CompletableFuture.completedFuture(mockResult);
         }
 
@@ -885,7 +885,7 @@ public class FinOpsService {
                             a.anomalyEndDate() != null ? LocalDate.parse(a.anomalyEndDate().substring(0, 10))
                                     : LocalDate.now()))
                     .collect(Collectors.toList());
-            redisCache.put(cacheKey, result, 10);
+            redisCache.put(cacheKey, result, 60);
             return CompletableFuture.completedFuture(result);
         } catch (Exception e) {
             logger.error(

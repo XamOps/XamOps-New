@@ -83,7 +83,7 @@ public class AwsSecurityHubService {
                     }
 
                     // Cache results
-                    redisCache.put(cacheKey, allFindings, 10);
+                    redisCache.put(cacheKey, allFindings, 60);
                     logger.info("Fetched {} SecurityHub findings for account {}", allFindings.size(), accountId);
 
                     return allFindings;

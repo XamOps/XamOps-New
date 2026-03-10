@@ -76,10 +76,43 @@ public class SupportAdminController {
         return (auth != null && auth.getName() != null) ? auth.getName() : "BillOps Admin";
     }
 
+    // ── helper: look up the currently authenticated AppUser ──
+    private AppUser getCurrentUser() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || auth.getName() == null) return null;
+        return appUserRepository.findByUsername(auth.getName()).orElse(null);
+    }
+
+    /**
+     * Returns the set of client IDs accessible to the current user.
+     * Primary admins (createdBy == null) → returns null (no restriction, see all).
+     * Sub-users → derives client IDs from their assigned cloud accounts.
+     *   e.g. assigned accounts [2, 3, 5] belong to clients [A, B]
+     *   → returns {clientId_A, clientId_B}
+     */
+    private Set<Long> getAllowedClientIds(AppUser currentUser) {
+        if (currentUser == null || currentUser.getCreatedBy() == null) {
+            return null; // Primary admin — no restriction
+        }
+        List<Long> accountIds = userCloudAccountAccessRepository.findCloudAccountIdsByUserId(currentUser.getId());
+        if (accountIds.isEmpty()) return Collections.emptySet();
+
+        Set<Long> clientIds = new HashSet<>();
+        for (CloudAccount account : cloudAccountRepository.findAllById(accountIds)) {
+            if (account.getClient() != null) {
+                clientIds.add(account.getClient().getId());
+            }
+        }
+        return clientIds;
+    }
+
     // 1. Get Inbox — one entry per user (keyed by userId, not accountId)
     @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
     @GetMapping("/inbox")
     public List<Map<String, Object>> getInbox() {
+        AppUser currentUser = getCurrentUser();
+        Set<Long> allowedClientIds = getAllowedClientIds(currentUser);
+
         List<Object[]> results = messageRepository.findDistinctUserConversations();
         List<Map<String, Object>> inbox = new ArrayList<>();
 
@@ -92,6 +125,15 @@ public class SupportAdminController {
             AppUser appUser = appUserRepository.findById(userId).orElse(null);
             String username = (String) row[1];
             if (username == null && appUser != null) username = appUser.getUsername();
+
+            // Sub-user access control: only show conversations from users in allowed clients
+            if (allowedClientIds != null) {
+                Long userClientId = (appUser != null && appUser.getClient() != null)
+                        ? appUser.getClient().getId() : null;
+                if (userClientId == null || !allowedClientIds.contains(userClientId)) {
+                    continue; // skip — user belongs to a client this sub-admin cannot see
+                }
+            }
 
             Map<String, Object> conversation = new HashMap<>();
             conversation.put("userId", userId);
@@ -371,7 +413,23 @@ public class SupportAdminController {
     @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
     @GetMapping("/accounts")
     public List<Map<String, Object>> getAvailableAccounts() {
-        List<CloudAccount> accounts = cloudAccountRepository.findAll();
+        AppUser currentUser = getCurrentUser();
+        Set<Long> allowedClientIds = getAllowedClientIds(currentUser);
+
+        List<CloudAccount> accounts;
+        if (allowedClientIds == null) {
+            // Primary admin — see all accounts
+            accounts = cloudAccountRepository.findAll();
+        } else if (allowedClientIds.isEmpty()) {
+            accounts = Collections.emptyList();
+        } else {
+            // Sub-user — show ALL accounts belonging to their allowed clients (client-level access)
+            // e.g. assigned [2,3,5] → clients [A, B] → accounts [1,2,3,4,5,6]
+            accounts = new ArrayList<>();
+            for (Long clientId : allowedClientIds) {
+                accounts.addAll(cloudAccountRepository.findByClientId(clientId));
+            }
+        }
 
         List<Map<String, Object>> result = new ArrayList<>();
         for (CloudAccount account : accounts) {
@@ -448,7 +506,19 @@ public class SupportAdminController {
     @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
     @GetMapping("/clients")
     public List<Map<String, Object>> getClients() {
-        List<Client> clients = clientRepository.findAll();
+        AppUser currentUser = getCurrentUser();
+        Set<Long> allowedClientIds = getAllowedClientIds(currentUser);
+
+        List<Client> clients;
+        if (allowedClientIds == null) {
+            // Primary admin — see all clients
+            clients = clientRepository.findAll();
+        } else if (allowedClientIds.isEmpty()) {
+            clients = Collections.emptyList();
+        } else {
+            clients = clientRepository.findAllById(allowedClientIds);
+        }
+
         List<Map<String, Object>> result = new ArrayList<>();
         for (Client client : clients) {
             Map<String, Object> item = new HashMap<>();
@@ -463,6 +533,13 @@ public class SupportAdminController {
     @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
     @GetMapping("/clients/{clientId}/profiles")
     public List<Map<String, Object>> getClientProfiles(@PathVariable Long clientId) {
+        // Sub-user access guard: deny if this client is not derived from their assigned accounts
+        AppUser currentUser = getCurrentUser();
+        Set<Long> allowedClientIds = getAllowedClientIds(currentUser);
+        if (allowedClientIds != null && !allowedClientIds.contains(clientId)) {
+            return Collections.emptyList();
+        }
+
         List<AppUser> users = appUserRepository.findByClientId(clientId);
         List<Map<String, Object>> result = new ArrayList<>();
 

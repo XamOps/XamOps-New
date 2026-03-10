@@ -107,7 +107,7 @@ const AzureCloudList: React.FC = () => {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState<string>('');
 
-  const { data, loading, error, refresh, lastUpdated } = useAzureCloudListData({
+  const { data, loading, isRefreshing, error, refresh, lastUpdated } = useAzureCloudListData({
     accountIds: selectedAccountIds,
     autoRefresh: false,
   });
@@ -185,16 +185,16 @@ const AzureCloudList: React.FC = () => {
         )}
         <button
           onClick={handleRefresh}
-          disabled={loading}
+          disabled={loading || isRefreshing}
           className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 transition-all disabled:opacity-50 active:scale-95"
         >
-          <i className={`fas fa-sync-alt text-xs ${loading ? 'animate-spin' : ''}`}></i>
-          <span>{loading ? 'Refreshing...' : 'Refresh'}</span>
+          <i className={`fas fa-sync-alt text-xs ${(loading || isRefreshing) ? 'animate-spin' : ''}`}></i>
+          <span>{loading || isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
         </button>
       </div>
     );
     return () => clearActions();
-  }, [setActions, clearActions, loading, lastUpdated, handleRefresh, searchTerm]);
+  }, [setActions, clearActions, loading, isRefreshing, lastUpdated, handleRefresh, searchTerm]);
 
   const toggleGroup = useCallback((serviceType: string) => {
     setExpandedGroups((prev) => {

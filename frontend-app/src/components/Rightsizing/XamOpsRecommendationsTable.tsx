@@ -150,7 +150,7 @@ const XamOpsRecommendationsTable: React.FC<XamOpsRecommendationsTableProps> = ({
                     <td>
                       <span className="savings-badge">{rec.approxCostSavings}</span>
                     </td>
-                    <td className="reason-text" className="text-gray-900 dark:text-gray-100">
+                    <td className="reason-text text-gray-900 dark:text-gray-100">
                       {rec.reason}
                     </td>
                   </tr>

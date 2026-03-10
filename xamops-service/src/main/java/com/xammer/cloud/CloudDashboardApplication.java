@@ -17,7 +17,7 @@ import org.springframework.context.annotation.ComponentScan;
 public class CloudDashboardApplication {
 
     public static void main(String[] args) {
-        System.setProperty("user.timezone", "ASIA/Kolkata");
+        System.setProperty("user.timezone", "Asia/Kolkata");
         SpringApplication.run(CloudDashboardApplication.class, args);
     }
 

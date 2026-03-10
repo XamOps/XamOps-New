@@ -198,7 +198,7 @@ public class GcpDataService {
             if (dbCached != null) {
                 log.info("✅ Returning DB-cached GCP dashboard data for project: {}", gcpProjectId);
                 // Also populate Redis for faster subsequent access
-                redisCache.put(redisCacheKey, dbCached, 10);
+                redisCache.put(redisCacheKey, dbCached, 60);
                 return CompletableFuture.completedFuture(dbCached);
             }
         }
@@ -370,7 +370,7 @@ public class GcpDataService {
                             .format(java.time.format.DateTimeFormatter.ofPattern("MMM dd, HH:mm:ss")));
 
                     // ✅ Cache the result in Redis for 10 minutes
-                    redisCache.put(redisCacheKey, data, 10);
+                    redisCache.put(redisCacheKey, data, 60);
 
                     // ✅ Also persist to database for long-term caching (run synchronously to ensure
                     // it completes)

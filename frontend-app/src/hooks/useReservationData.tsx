@@ -12,7 +12,7 @@
  * - Cache versioning and invalidation
  */
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import type {
   ReservationData,
   PurchaseRecommendation,
@@ -122,6 +122,7 @@ export const useReservationData = ({
   const [isLoading, setIsLoading] = useState(true);
   const [isRecsLoading, setIsRecsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const [recFilters, setRecFilters] = useState<RecommendationFilters>({
     term: 'ONE_YEAR',
@@ -139,6 +140,11 @@ export const useReservationData = ({
         setIsLoading(false);
         return;
       }
+
+      // Cancel any in-flight request before starting a new one
+      abortControllerRef.current?.abort();
+      abortControllerRef.current = new AbortController();
+      const { signal } = abortControllerRef.current;
 
       const cacheKey = `reservationData-${selectedAccountId}`;
 
@@ -166,6 +172,7 @@ export const useReservationData = ({
 
         const response = await fetch(url, {
           credentials: 'include',
+          signal,
           headers: {
             Accept: 'application/json',
           },
@@ -182,6 +189,7 @@ export const useReservationData = ({
         setData(responseData);
         setCachedData(cacheKey, responseData);
       } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') return;
         console.error('[Reservation] Failed to load data:', err);
         setError(err instanceof Error ? err : new Error('Failed to load reservation data'));
       } finally {
@@ -194,9 +202,16 @@ export const useReservationData = ({
   /**
    * Fetch purchase recommendations from backend
    */
+  const recsAbortControllerRef = useRef<AbortController | null>(null);
+
   const fetchPurchaseRecommendations = useCallback(
     async (forceRefresh = false) => {
       if (!selectedAccountId) return;
+
+      // Cancel any in-flight recommendations request
+      recsAbortControllerRef.current?.abort();
+      recsAbortControllerRef.current = new AbortController();
+      const { signal } = recsAbortControllerRef.current;
 
       const { term, paymentOption, lookback, offeringClass } = recFilters;
       const cacheKey = `reservationRecs-${selectedAccountId}-${term}-${paymentOption}-${lookback}-${offeringClass}`;
@@ -222,6 +237,7 @@ export const useReservationData = ({
 
         const response = await fetch(url, {
           credentials: 'include',
+          signal,
           headers: {
             Accept: 'application/json',
           },
@@ -240,6 +256,7 @@ export const useReservationData = ({
         }));
         setCachedData(cacheKey, recommendations);
       } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') return;
         console.error('[Reservation] Failed to load recommendations:', err);
         setData((prev) => ({
           ...prev,

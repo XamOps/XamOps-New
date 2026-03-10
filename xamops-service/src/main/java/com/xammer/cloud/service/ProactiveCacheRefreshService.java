@@ -8,8 +8,19 @@ import com.xammer.cloud.dto.FinOpsReportDto;
 import com.xammer.cloud.dto.ReservationDto;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.JobExecutionHistoryRepository;
+import com.xammer.cloud.service.azure.AzureCloudListService;
 import com.xammer.cloud.service.azure.AzureDashboardService;
+import com.xammer.cloud.service.azure.AzurePerformanceService;
+import com.xammer.cloud.service.azure.AzureRightsizingService;
+import com.xammer.cloud.service.azure.AzureSecurityService;
+import com.xammer.cloud.service.azure.AzureWasteService;
+import com.xammer.cloud.service.gcp.GcpCloudGuardService;
+import com.xammer.cloud.service.gcp.GcpCostService;
 import com.xammer.cloud.service.gcp.GcpDataService;
+import com.xammer.cloud.service.gcp.GcpFinOpsReportService;
+import com.xammer.cloud.service.gcp.GcpOptimizationService;
+import com.xammer.cloud.service.gcp.GcpPerformanceInsightsService;
+import com.xammer.cloud.service.gcp.GcpSecurityService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -49,6 +60,21 @@ public class ProactiveCacheRefreshService {
     private final GcpDataService gcpDataService; // For GCP dashboard caching
     private final AzureDashboardService azureDashboardService; // For Azure dashboard caching
 
+    // GCP page services (non-dashboard)
+    private final GcpCostService gcpCostService;
+    private final GcpSecurityService gcpSecurityService;
+    private final GcpOptimizationService gcpOptimizationService;
+    private final GcpPerformanceInsightsService gcpPerformanceInsightsService;
+    private final GcpCloudGuardService gcpCloudGuardService;
+    private final GcpFinOpsReportService gcpFinOpsReportService;
+
+    // Azure page services (non-dashboard)
+    private final AzureWasteService azureWasteService;
+    private final AzureSecurityService azureSecurityService;
+    private final AzureRightsizingService azureRightsizingService;
+    private final AzurePerformanceService azurePerformanceService;
+    private final AzureCloudListService azureCloudListService;
+
     private final JobExecutionHistoryRepository jobExecutionHistoryRepository;
     private final JdbcTemplate masterJdbcTemplate;
 
@@ -74,6 +100,17 @@ public class ProactiveCacheRefreshService {
             CloudGuardService cloudGuardService,
             GcpDataService gcpDataService,
             AzureDashboardService azureDashboardService,
+            GcpCostService gcpCostService,
+            GcpSecurityService gcpSecurityService,
+            GcpOptimizationService gcpOptimizationService,
+            GcpPerformanceInsightsService gcpPerformanceInsightsService,
+            GcpCloudGuardService gcpCloudGuardService,
+            GcpFinOpsReportService gcpFinOpsReportService,
+            AzureWasteService azureWasteService,
+            AzureSecurityService azureSecurityService,
+            AzureRightsizingService azureRightsizingService,
+            AzurePerformanceService azurePerformanceService,
+            AzureCloudListService azureCloudListService,
             JobExecutionHistoryRepository jobExecutionHistoryRepository,
             @Qualifier("masterDataSource") DataSource masterDataSource,
             com.xammer.cloud.config.SchedulingEnvironmentConfig envConfig,
@@ -92,6 +129,17 @@ public class ProactiveCacheRefreshService {
         this.cloudGuardService = cloudGuardService;
         this.gcpDataService = gcpDataService;
         this.azureDashboardService = azureDashboardService;
+        this.gcpCostService = gcpCostService;
+        this.gcpSecurityService = gcpSecurityService;
+        this.gcpOptimizationService = gcpOptimizationService;
+        this.gcpPerformanceInsightsService = gcpPerformanceInsightsService;
+        this.gcpCloudGuardService = gcpCloudGuardService;
+        this.gcpFinOpsReportService = gcpFinOpsReportService;
+        this.azureWasteService = azureWasteService;
+        this.azureSecurityService = azureSecurityService;
+        this.azureRightsizingService = azureRightsizingService;
+        this.azurePerformanceService = azurePerformanceService;
+        this.azureCloudListService = azureCloudListService;
         this.jobExecutionHistoryRepository = jobExecutionHistoryRepository;
         this.masterJdbcTemplate = new JdbcTemplate(masterDataSource);
         this.envConfig = envConfig;
@@ -112,17 +160,10 @@ public class ProactiveCacheRefreshService {
      */
     @EventListener(ApplicationReadyEvent.class)
     public void warmUpCacheOnStartup() {
-        logger.info("[CacheWarmUp] Application ready — seeding Redis from DB snapshots (no AWS calls at startup)...");
-        // AWS pages: read from DB snapshot → warm Redis. No live AWS calls.
+        logger.info("[CacheWarmUp] Application ready — seeding Redis from DB snapshots (no API calls at startup)...");
+        // All pages (AWS + GCP + Azure): read from DB snapshot → warm Redis. No live API calls.
         CompletableFuture.runAsync(() -> {
             try { seedRedisFromDb(); } catch (Exception e) { logger.warn("[CacheWarmUp] DB seed failed: {}", e.getMessage()); }
-        });
-        // Azure and GCP: their refresh methods write to DB first, then serve from DB — keep as-is
-        CompletableFuture.runAsync(() -> {
-            try { refreshAzureDashboardData(); } catch (Exception e) { logger.warn("[CacheWarmUp] Azure failed: {}", e.getMessage()); }
-        });
-        CompletableFuture.runAsync(() -> {
-            try { refreshGcpDashboardData(); } catch (Exception e) { logger.warn("[CacheWarmUp] GCP failed: {}", e.getMessage()); }
         });
         logger.info("[CacheWarmUp] Startup warm-up tasks submitted.");
     }
@@ -165,12 +206,95 @@ public class ProactiveCacheRefreshService {
 
                     try { xamOpsRightsizingService.getLiveRecommendations(accountId, false); }
                     catch (Exception e) { logger.debug("[Seed] Rightsizing skipped for {}: {}", accountId, e.getMessage()); }
+
+                    try {
+                        List<DashboardData.RegionStatus> regions = getActiveRegions(account);
+                        securityService.getComprehensiveSecurityFindings(account, regions, false).join();
+                    }
+                    catch (Exception e) { logger.debug("[Seed] Security skipped for {}: {}", accountId, e.getMessage()); }
+
+                    try { performanceService.getInsights(accountId, "ALL", false); }
+                    catch (Exception e) { logger.debug("[Seed] Performance skipped for {}: {}", accountId, e.getMessage()); }
                 }
             } finally {
                 TenantContext.clear();
             }
         }
-        logger.info("[CacheWarmUp] DB → Redis seed complete. All AWS pages will serve cached data.");
+        logger.info("[CacheWarmUp] AWS DB → Redis seed complete.");
+
+        // ── GCP pages: DB → Redis seed (forceRefresh=false) ──────────────────────────
+        logger.info("[CacheWarmUp] Seeding GCP non-dashboard pages from DB...");
+        for (String tenantId : fetchActiveTenants()) {
+            TenantContext.setCurrentTenant(tenantId);
+            try {
+                for (CloudAccount account : getAllAccounts()) {
+                    if (!"GCP".equalsIgnoreCase(account.getProvider())) continue;
+                    String gcpProjectId = account.getGcpProjectId();
+                    if (gcpProjectId == null || gcpProjectId.isEmpty()) continue;
+
+                    try { gcpDataService.getDashboardData(gcpProjectId, false).join(); }
+                    catch (Exception e) { logger.debug("[Seed] GCP Dashboard skipped for {}: {}", gcpProjectId, e.getMessage()); }
+
+                    try { gcpFinOpsReportService.generateFinOpsReportSync(gcpProjectId); }
+                    catch (Exception e) { logger.debug("[Seed] GCP FinOps skipped for {}: {}", gcpProjectId, e.getMessage()); }
+
+                    try { gcpCostService.getBillingSummarySync(gcpProjectId); }
+                    catch (Exception e) { logger.debug("[Seed] GCP Cost skipped for {}: {}", gcpProjectId, e.getMessage()); }
+
+                    try { gcpSecurityService.getSecurityFindings(gcpProjectId).join(); }
+                    catch (Exception e) { logger.debug("[Seed] GCP Security skipped for {}: {}", gcpProjectId, e.getMessage()); }
+
+                    try { gcpPerformanceInsightsService.getInsights(gcpProjectId, "ALL", false); }
+                    catch (Exception e) { logger.debug("[Seed] GCP Performance skipped for {}: {}", gcpProjectId, e.getMessage()); }
+
+                    try { gcpCloudGuardService.getAlerts(gcpProjectId, false).join(); }
+                    catch (Exception e) { logger.debug("[Seed] GCP Alerts skipped for {}: {}", gcpProjectId, e.getMessage()); }
+
+                    try { gcpOptimizationService.getWasteReport(gcpProjectId, false); }
+                    catch (Exception e) { logger.debug("[Seed] GCP Waste skipped for {}: {}", gcpProjectId, e.getMessage()); }
+
+                    try { gcpOptimizationService.getRightsizingRecommendations(gcpProjectId, false); }
+                    catch (Exception e) { logger.debug("[Seed] GCP Rightsizing skipped for {}: {}", gcpProjectId, e.getMessage()); }
+                }
+            } finally {
+                TenantContext.clear();
+            }
+        }
+        logger.info("[CacheWarmUp] GCP DB → Redis seed complete.");
+
+        // ── Azure pages: DB → Redis seed (forceRefresh=false) ────────────────────────
+        logger.info("[CacheWarmUp] Seeding Azure non-dashboard pages from DB...");
+        for (String tenantId : fetchActiveTenants()) {
+            TenantContext.setCurrentTenant(tenantId);
+            try {
+                for (CloudAccount account : getAllAccounts()) {
+                    if (!"Azure".equalsIgnoreCase(account.getProvider())) continue;
+                    String subscriptionId = account.getAzureSubscriptionId();
+                    if (subscriptionId == null || subscriptionId.isEmpty()) continue;
+
+                    try { azureDashboardService.getDashboardData(subscriptionId, false); }
+                    catch (Exception e) { logger.debug("[Seed] Azure Dashboard skipped for {}: {}", subscriptionId, e.getMessage()); }
+
+                    try { azureWasteService.getWasteItems(subscriptionId, false); }
+                    catch (Exception e) { logger.debug("[Seed] Azure Waste skipped for {}: {}", subscriptionId, e.getMessage()); }
+
+                    try { azureSecurityService.getSecurityData(subscriptionId, false); }
+                    catch (Exception e) { logger.debug("[Seed] Azure Security skipped for {}: {}", subscriptionId, e.getMessage()); }
+
+                    try { azureRightsizingService.getRecommendations(subscriptionId, false); }
+                    catch (Exception e) { logger.debug("[Seed] Azure Rightsizing skipped for {}: {}", subscriptionId, e.getMessage()); }
+
+                    try { azurePerformanceService.getPerformanceInsights(subscriptionId, false); }
+                    catch (Exception e) { logger.debug("[Seed] Azure Performance skipped for {}: {}", subscriptionId, e.getMessage()); }
+
+                    try { azureCloudListService.getAzureResources(subscriptionId, false); }
+                    catch (Exception e) { logger.debug("[Seed] Azure Cloudlist skipped for {}: {}", subscriptionId, e.getMessage()); }
+                }
+            } finally {
+                TenantContext.clear();
+            }
+        }
+        logger.info("[CacheWarmUp] DB → Redis seed complete. All AWS + GCP + Azure pages will serve cached data.");
     }
 
     /**
@@ -800,6 +924,584 @@ public class ProactiveCacheRefreshService {
 
             } catch (Exception e) {
                 logger.error("❌ Failed GCP dashboard refresh for tenant {}", tenantId, e);
+                if (jobHistory.getId() != null) {
+                    jobHistory.setStatus("FAILURE");
+                    jobHistory.setErrorMessage(e.getMessage());
+                    jobHistory.setEndTime(LocalDateTime.now());
+                    jobExecutionHistoryRepository.save(jobHistory);
+                }
+            } finally {
+                TenantContext.clear();
+            }
+        }
+    }
+
+    // ===================================================================================
+    // 2:00 AM -> GCP FinOps Report Refresh (Daily, runs alongside AWS FinOps)
+    // ===================================================================================
+    @Scheduled(cron = "0 5 2 * * ?")
+    public void refreshGcpFinOpsData() {
+        logger.info("--- [2:05 AM] Starting GCP FinOps Report Refresh ---");
+        List<String> tenants = fetchActiveTenants();
+
+        for (String tenantId : tenants) {
+            JobExecutionHistory jobHistory = new JobExecutionHistory("REFRESH_GCP_FINOPS", tenantId,
+                    LocalDateTime.now(), "RUNNING");
+            try {
+                TenantContext.setCurrentTenant(tenantId);
+                jobHistory = jobExecutionHistoryRepository.save(jobHistory);
+
+                int count = 0;
+                for (CloudAccount account : getAllAccounts()) {
+                    if (!"GCP".equalsIgnoreCase(account.getProvider())) continue;
+                    String gcpProjectId = account.getGcpProjectId();
+                    if (gcpProjectId == null || gcpProjectId.isEmpty()) continue;
+                    try {
+                        gcpFinOpsReportService.refreshFinOpsReport(gcpProjectId).join();
+                        logger.info("✓ GCP FinOps refreshed for project {}", gcpProjectId);
+                        count++;
+                    } catch (Exception e) {
+                        logger.error("Failed GCP FinOps refresh for {}: {}", gcpProjectId, e.getMessage());
+                    }
+                }
+
+                jobHistory.setStatus("SUCCESS");
+                jobHistory.setItemsProcessed(count);
+                jobHistory.setEndTime(LocalDateTime.now());
+                jobExecutionHistoryRepository.save(jobHistory);
+
+            } catch (Exception e) {
+                logger.error("❌ Failed GCP FinOps refresh for tenant {}", tenantId, e);
+                if (jobHistory.getId() != null) {
+                    jobHistory.setStatus("FAILURE");
+                    jobHistory.setErrorMessage(e.getMessage());
+                    jobHistory.setEndTime(LocalDateTime.now());
+                    jobExecutionHistoryRepository.save(jobHistory);
+                }
+            } finally {
+                TenantContext.clear();
+            }
+        }
+    }
+
+    // ===================================================================================
+    // 2:35 AM -> GCP Cost Data Refresh (Daily, runs alongside AWS Cost)
+    // ===================================================================================
+    @Scheduled(cron = "0 35 2 * * ?")
+    public void refreshGcpCostData() {
+        logger.info("--- [2:35 AM] Starting GCP Cost Data Refresh ---");
+        List<String> tenants = fetchActiveTenants();
+
+        for (String tenantId : tenants) {
+            JobExecutionHistory jobHistory = new JobExecutionHistory("REFRESH_GCP_COST", tenantId,
+                    LocalDateTime.now(), "RUNNING");
+            try {
+                TenantContext.setCurrentTenant(tenantId);
+                jobHistory = jobExecutionHistoryRepository.save(jobHistory);
+
+                int count = 0;
+                for (CloudAccount account : getAllAccounts()) {
+                    if (!"GCP".equalsIgnoreCase(account.getProvider())) continue;
+                    String gcpProjectId = account.getGcpProjectId();
+                    if (gcpProjectId == null || gcpProjectId.isEmpty()) continue;
+                    try {
+                        gcpCostService.getBillingSummarySync(gcpProjectId);
+                        gcpCostService.getCostByRegionSync(gcpProjectId);
+                        gcpCostService.getHistoricalCostsSync(gcpProjectId);
+                        logger.info("✓ GCP Cost refreshed for project {}", gcpProjectId);
+                        count++;
+                    } catch (Exception e) {
+                        logger.error("Failed GCP Cost refresh for {}: {}", gcpProjectId, e.getMessage());
+                    }
+                }
+
+                jobHistory.setStatus("SUCCESS");
+                jobHistory.setItemsProcessed(count);
+                jobHistory.setEndTime(LocalDateTime.now());
+                jobExecutionHistoryRepository.save(jobHistory);
+
+            } catch (Exception e) {
+                logger.error("❌ Failed GCP Cost refresh for tenant {}", tenantId, e);
+                if (jobHistory.getId() != null) {
+                    jobHistory.setStatus("FAILURE");
+                    jobHistory.setErrorMessage(e.getMessage());
+                    jobHistory.setEndTime(LocalDateTime.now());
+                    jobExecutionHistoryRepository.save(jobHistory);
+                }
+            } finally {
+                TenantContext.clear();
+            }
+        }
+    }
+
+    // ===================================================================================
+    // 3:05 AM -> GCP Security Refresh (Daily, runs alongside AWS Security)
+    // ===================================================================================
+    @Scheduled(cron = "0 5 3 * * ?")
+    public void refreshGcpSecurityData() {
+        logger.info("--- [3:05 AM] Starting GCP Security Refresh ---");
+        List<String> tenants = fetchActiveTenants();
+
+        for (String tenantId : tenants) {
+            JobExecutionHistory jobHistory = new JobExecutionHistory("REFRESH_GCP_SECURITY", tenantId,
+                    LocalDateTime.now(), "RUNNING");
+            try {
+                TenantContext.setCurrentTenant(tenantId);
+                jobHistory = jobExecutionHistoryRepository.save(jobHistory);
+
+                int count = 0;
+                for (CloudAccount account : getAllAccounts()) {
+                    if (!"GCP".equalsIgnoreCase(account.getProvider())) continue;
+                    String gcpProjectId = account.getGcpProjectId();
+                    if (gcpProjectId == null || gcpProjectId.isEmpty()) continue;
+                    try {
+                        gcpSecurityService.refreshSecurityFindings(gcpProjectId).join();
+                        logger.info("✓ GCP Security refreshed for project {}", gcpProjectId);
+                        count++;
+                    } catch (Exception e) {
+                        logger.error("Failed GCP Security refresh for {}: {}", gcpProjectId, e.getMessage());
+                    }
+                }
+
+                jobHistory.setStatus("SUCCESS");
+                jobHistory.setItemsProcessed(count);
+                jobHistory.setEndTime(LocalDateTime.now());
+                jobExecutionHistoryRepository.save(jobHistory);
+
+            } catch (Exception e) {
+                logger.error("❌ Failed GCP Security refresh for tenant {}", tenantId, e);
+                if (jobHistory.getId() != null) {
+                    jobHistory.setStatus("FAILURE");
+                    jobHistory.setErrorMessage(e.getMessage());
+                    jobHistory.setEndTime(LocalDateTime.now());
+                    jobExecutionHistoryRepository.save(jobHistory);
+                }
+            } finally {
+                TenantContext.clear();
+            }
+        }
+    }
+
+    // ===================================================================================
+    // 3:10 AM -> GCP Performance Refresh (Daily, runs alongside AWS Performance)
+    // ===================================================================================
+    @Scheduled(cron = "0 10 3 * * ?")
+    public void refreshGcpPerformanceData() {
+        logger.info("--- [3:10 AM] Starting GCP Performance Refresh ---");
+        List<String> tenants = fetchActiveTenants();
+
+        for (String tenantId : tenants) {
+            JobExecutionHistory jobHistory = new JobExecutionHistory("REFRESH_GCP_PERFORMANCE", tenantId,
+                    LocalDateTime.now(), "RUNNING");
+            try {
+                TenantContext.setCurrentTenant(tenantId);
+                jobHistory = jobExecutionHistoryRepository.save(jobHistory);
+
+                int count = 0;
+                for (CloudAccount account : getAllAccounts()) {
+                    if (!"GCP".equalsIgnoreCase(account.getProvider())) continue;
+                    String gcpProjectId = account.getGcpProjectId();
+                    if (gcpProjectId == null || gcpProjectId.isEmpty()) continue;
+                    try {
+                        gcpPerformanceInsightsService.getInsights(gcpProjectId, "ALL", true);
+                        logger.info("✓ GCP Performance refreshed for project {}", gcpProjectId);
+                        count++;
+                    } catch (Exception e) {
+                        logger.error("Failed GCP Performance refresh for {}: {}", gcpProjectId, e.getMessage());
+                    }
+                }
+
+                jobHistory.setStatus("SUCCESS");
+                jobHistory.setItemsProcessed(count);
+                jobHistory.setEndTime(LocalDateTime.now());
+                jobExecutionHistoryRepository.save(jobHistory);
+
+            } catch (Exception e) {
+                logger.error("❌ Failed GCP Performance refresh for tenant {}", tenantId, e);
+                if (jobHistory.getId() != null) {
+                    jobHistory.setStatus("FAILURE");
+                    jobHistory.setErrorMessage(e.getMessage());
+                    jobHistory.setEndTime(LocalDateTime.now());
+                    jobExecutionHistoryRepository.save(jobHistory);
+                }
+            } finally {
+                TenantContext.clear();
+            }
+        }
+    }
+
+    // ===================================================================================
+    // 3:05 AM Tue/Thu/Sat -> GCP Alerts Refresh
+    // ===================================================================================
+    @Scheduled(cron = "0 5 3 * * TUE,THU,SAT")
+    public void refreshGcpAlertsData() {
+        logger.info("--- [3:05 AM Tue/Thu/Sat] Starting GCP Alerts Refresh ---");
+        List<String> tenants = fetchActiveTenants();
+
+        for (String tenantId : tenants) {
+            JobExecutionHistory jobHistory = new JobExecutionHistory("REFRESH_GCP_ALERTS", tenantId,
+                    LocalDateTime.now(), "RUNNING");
+            try {
+                TenantContext.setCurrentTenant(tenantId);
+                jobHistory = jobExecutionHistoryRepository.save(jobHistory);
+
+                int count = 0;
+                for (CloudAccount account : getAllAccounts()) {
+                    if (!"GCP".equalsIgnoreCase(account.getProvider())) continue;
+                    String gcpProjectId = account.getGcpProjectId();
+                    if (gcpProjectId == null || gcpProjectId.isEmpty()) continue;
+                    try {
+                        gcpCloudGuardService.getAlerts(gcpProjectId, true).join();
+                        logger.info("✓ GCP Alerts refreshed for project {}", gcpProjectId);
+                        count++;
+                    } catch (Exception e) {
+                        logger.error("Failed GCP Alerts refresh for {}: {}", gcpProjectId, e.getMessage());
+                    }
+                }
+
+                jobHistory.setStatus("SUCCESS");
+                jobHistory.setItemsProcessed(count);
+                jobHistory.setEndTime(LocalDateTime.now());
+                jobExecutionHistoryRepository.save(jobHistory);
+
+            } catch (Exception e) {
+                logger.error("❌ Failed GCP Alerts refresh for tenant {}", tenantId, e);
+                if (jobHistory.getId() != null) {
+                    jobHistory.setStatus("FAILURE");
+                    jobHistory.setErrorMessage(e.getMessage());
+                    jobHistory.setEndTime(LocalDateTime.now());
+                    jobExecutionHistoryRepository.save(jobHistory);
+                }
+            } finally {
+                TenantContext.clear();
+            }
+        }
+    }
+
+    // ===================================================================================
+    // 3:35 AM Mon/Wed/Fri -> GCP Waste Refresh
+    // ===================================================================================
+    @Scheduled(cron = "0 35 3 * * MON,WED,FRI")
+    public void refreshGcpWasteData() {
+        logger.info("--- [3:35 AM Mon/Wed/Fri] Starting GCP Waste Refresh ---");
+        List<String> tenants = fetchActiveTenants();
+
+        for (String tenantId : tenants) {
+            JobExecutionHistory jobHistory = new JobExecutionHistory("REFRESH_GCP_WASTE", tenantId,
+                    LocalDateTime.now(), "RUNNING");
+            try {
+                TenantContext.setCurrentTenant(tenantId);
+                jobHistory = jobExecutionHistoryRepository.save(jobHistory);
+
+                int count = 0;
+                for (CloudAccount account : getAllAccounts()) {
+                    if (!"GCP".equalsIgnoreCase(account.getProvider())) continue;
+                    String gcpProjectId = account.getGcpProjectId();
+                    if (gcpProjectId == null || gcpProjectId.isEmpty()) continue;
+                    try {
+                        gcpOptimizationService.getWasteReport(gcpProjectId, true);
+                        logger.info("✓ GCP Waste refreshed for project {}", gcpProjectId);
+                        count++;
+                    } catch (Exception e) {
+                        logger.error("Failed GCP Waste refresh for {}: {}", gcpProjectId, e.getMessage());
+                    }
+                }
+
+                jobHistory.setStatus("SUCCESS");
+                jobHistory.setItemsProcessed(count);
+                jobHistory.setEndTime(LocalDateTime.now());
+                jobExecutionHistoryRepository.save(jobHistory);
+
+            } catch (Exception e) {
+                logger.error("❌ Failed GCP Waste refresh for tenant {}", tenantId, e);
+                if (jobHistory.getId() != null) {
+                    jobHistory.setStatus("FAILURE");
+                    jobHistory.setErrorMessage(e.getMessage());
+                    jobHistory.setEndTime(LocalDateTime.now());
+                    jobExecutionHistoryRepository.save(jobHistory);
+                }
+            } finally {
+                TenantContext.clear();
+            }
+        }
+    }
+
+    // ===================================================================================
+    // 3:35 AM Mon/Wed/Fri -> GCP Rightsizing Refresh
+    // ===================================================================================
+    @Scheduled(cron = "0 35 3 * * MON,WED,FRI")
+    public void refreshGcpRightsizingData() {
+        logger.info("--- [3:35 AM Mon/Wed/Fri] Starting GCP Rightsizing Refresh ---");
+        List<String> tenants = fetchActiveTenants();
+
+        for (String tenantId : tenants) {
+            JobExecutionHistory jobHistory = new JobExecutionHistory("REFRESH_GCP_RIGHTSIZING", tenantId,
+                    LocalDateTime.now(), "RUNNING");
+            try {
+                TenantContext.setCurrentTenant(tenantId);
+                jobHistory = jobExecutionHistoryRepository.save(jobHistory);
+
+                int count = 0;
+                for (CloudAccount account : getAllAccounts()) {
+                    if (!"GCP".equalsIgnoreCase(account.getProvider())) continue;
+                    String gcpProjectId = account.getGcpProjectId();
+                    if (gcpProjectId == null || gcpProjectId.isEmpty()) continue;
+                    try {
+                        gcpOptimizationService.getRightsizingRecommendations(gcpProjectId, true);
+                        logger.info("✓ GCP Rightsizing refreshed for project {}", gcpProjectId);
+                        count++;
+                    } catch (Exception e) {
+                        logger.error("Failed GCP Rightsizing refresh for {}: {}", gcpProjectId, e.getMessage());
+                    }
+                }
+
+                jobHistory.setStatus("SUCCESS");
+                jobHistory.setItemsProcessed(count);
+                jobHistory.setEndTime(LocalDateTime.now());
+                jobExecutionHistoryRepository.save(jobHistory);
+
+            } catch (Exception e) {
+                logger.error("❌ Failed GCP Rightsizing refresh for tenant {}", tenantId, e);
+                if (jobHistory.getId() != null) {
+                    jobHistory.setStatus("FAILURE");
+                    jobHistory.setErrorMessage(e.getMessage());
+                    jobHistory.setEndTime(LocalDateTime.now());
+                    jobExecutionHistoryRepository.save(jobHistory);
+                }
+            } finally {
+                TenantContext.clear();
+            }
+        }
+    }
+
+    // ===================================================================================
+    // 4:40 AM -> Azure Waste Refresh (Daily)
+    // ===================================================================================
+    @Scheduled(cron = "0 40 4 * * ?")
+    public void refreshAzureWasteData() {
+        logger.info("--- [4:40 AM] Starting Azure Waste Refresh ---");
+        List<String> tenants = fetchActiveTenants();
+
+        for (String tenantId : tenants) {
+            JobExecutionHistory jobHistory = new JobExecutionHistory("REFRESH_AZURE_WASTE", tenantId,
+                    LocalDateTime.now(), "RUNNING");
+            try {
+                TenantContext.setCurrentTenant(tenantId);
+                jobHistory = jobExecutionHistoryRepository.save(jobHistory);
+
+                int count = 0;
+                for (CloudAccount account : getAllAccounts()) {
+                    if (!"Azure".equalsIgnoreCase(account.getProvider())) continue;
+                    String subscriptionId = account.getAzureSubscriptionId();
+                    if (subscriptionId == null || subscriptionId.isEmpty()) continue;
+                    try {
+                        azureWasteService.getWasteItems(subscriptionId, true);
+                        logger.info("✓ Azure Waste refreshed for subscription {}", subscriptionId);
+                        count++;
+                    } catch (Exception e) {
+                        logger.error("Failed Azure Waste refresh for {}: {}", subscriptionId, e.getMessage());
+                    }
+                }
+
+                jobHistory.setStatus("SUCCESS");
+                jobHistory.setItemsProcessed(count);
+                jobHistory.setEndTime(LocalDateTime.now());
+                jobExecutionHistoryRepository.save(jobHistory);
+
+            } catch (Exception e) {
+                logger.error("❌ Failed Azure Waste refresh for tenant {}", tenantId, e);
+                if (jobHistory.getId() != null) {
+                    jobHistory.setStatus("FAILURE");
+                    jobHistory.setErrorMessage(e.getMessage());
+                    jobHistory.setEndTime(LocalDateTime.now());
+                    jobExecutionHistoryRepository.save(jobHistory);
+                }
+            } finally {
+                TenantContext.clear();
+            }
+        }
+    }
+
+    // ===================================================================================
+    // 4:45 AM -> Azure Security Refresh (Daily)
+    // ===================================================================================
+    @Scheduled(cron = "0 45 4 * * ?")
+    public void refreshAzureSecurityData() {
+        logger.info("--- [4:45 AM] Starting Azure Security Refresh ---");
+        List<String> tenants = fetchActiveTenants();
+
+        for (String tenantId : tenants) {
+            JobExecutionHistory jobHistory = new JobExecutionHistory("REFRESH_AZURE_SECURITY", tenantId,
+                    LocalDateTime.now(), "RUNNING");
+            try {
+                TenantContext.setCurrentTenant(tenantId);
+                jobHistory = jobExecutionHistoryRepository.save(jobHistory);
+
+                int count = 0;
+                for (CloudAccount account : getAllAccounts()) {
+                    if (!"Azure".equalsIgnoreCase(account.getProvider())) continue;
+                    String subscriptionId = account.getAzureSubscriptionId();
+                    if (subscriptionId == null || subscriptionId.isEmpty()) continue;
+                    try {
+                        azureSecurityService.getSecurityData(subscriptionId, true);
+                        logger.info("✓ Azure Security refreshed for subscription {}", subscriptionId);
+                        count++;
+                    } catch (Exception e) {
+                        logger.error("Failed Azure Security refresh for {}: {}", subscriptionId, e.getMessage());
+                    }
+                }
+
+                jobHistory.setStatus("SUCCESS");
+                jobHistory.setItemsProcessed(count);
+                jobHistory.setEndTime(LocalDateTime.now());
+                jobExecutionHistoryRepository.save(jobHistory);
+
+            } catch (Exception e) {
+                logger.error("❌ Failed Azure Security refresh for tenant {}", tenantId, e);
+                if (jobHistory.getId() != null) {
+                    jobHistory.setStatus("FAILURE");
+                    jobHistory.setErrorMessage(e.getMessage());
+                    jobHistory.setEndTime(LocalDateTime.now());
+                    jobExecutionHistoryRepository.save(jobHistory);
+                }
+            } finally {
+                TenantContext.clear();
+            }
+        }
+    }
+
+    // ===================================================================================
+    // 4:50 AM -> Azure Performance Refresh (Daily)
+    // ===================================================================================
+    @Scheduled(cron = "0 50 4 * * ?")
+    public void refreshAzurePerformanceData() {
+        logger.info("--- [4:50 AM] Starting Azure Performance Refresh ---");
+        List<String> tenants = fetchActiveTenants();
+
+        for (String tenantId : tenants) {
+            JobExecutionHistory jobHistory = new JobExecutionHistory("REFRESH_AZURE_PERFORMANCE", tenantId,
+                    LocalDateTime.now(), "RUNNING");
+            try {
+                TenantContext.setCurrentTenant(tenantId);
+                jobHistory = jobExecutionHistoryRepository.save(jobHistory);
+
+                int count = 0;
+                for (CloudAccount account : getAllAccounts()) {
+                    if (!"Azure".equalsIgnoreCase(account.getProvider())) continue;
+                    String subscriptionId = account.getAzureSubscriptionId();
+                    if (subscriptionId == null || subscriptionId.isEmpty()) continue;
+                    try {
+                        azurePerformanceService.getPerformanceInsights(subscriptionId, true);
+                        logger.info("✓ Azure Performance refreshed for subscription {}", subscriptionId);
+                        count++;
+                    } catch (Exception e) {
+                        logger.error("Failed Azure Performance refresh for {}: {}", subscriptionId, e.getMessage());
+                    }
+                }
+
+                jobHistory.setStatus("SUCCESS");
+                jobHistory.setItemsProcessed(count);
+                jobHistory.setEndTime(LocalDateTime.now());
+                jobExecutionHistoryRepository.save(jobHistory);
+
+            } catch (Exception e) {
+                logger.error("❌ Failed Azure Performance refresh for tenant {}", tenantId, e);
+                if (jobHistory.getId() != null) {
+                    jobHistory.setStatus("FAILURE");
+                    jobHistory.setErrorMessage(e.getMessage());
+                    jobHistory.setEndTime(LocalDateTime.now());
+                    jobExecutionHistoryRepository.save(jobHistory);
+                }
+            } finally {
+                TenantContext.clear();
+            }
+        }
+    }
+
+    // ===================================================================================
+    // 4:55 AM Mon/Wed/Fri -> Azure Rightsizing Refresh
+    // ===================================================================================
+    @Scheduled(cron = "0 55 4 * * MON,WED,FRI")
+    public void refreshAzureRightsizingData() {
+        logger.info("--- [4:55 AM Mon/Wed/Fri] Starting Azure Rightsizing Refresh ---");
+        List<String> tenants = fetchActiveTenants();
+
+        for (String tenantId : tenants) {
+            JobExecutionHistory jobHistory = new JobExecutionHistory("REFRESH_AZURE_RIGHTSIZING", tenantId,
+                    LocalDateTime.now(), "RUNNING");
+            try {
+                TenantContext.setCurrentTenant(tenantId);
+                jobHistory = jobExecutionHistoryRepository.save(jobHistory);
+
+                int count = 0;
+                for (CloudAccount account : getAllAccounts()) {
+                    if (!"Azure".equalsIgnoreCase(account.getProvider())) continue;
+                    String subscriptionId = account.getAzureSubscriptionId();
+                    if (subscriptionId == null || subscriptionId.isEmpty()) continue;
+                    try {
+                        azureRightsizingService.getRecommendations(subscriptionId, true);
+                        logger.info("✓ Azure Rightsizing refreshed for subscription {}", subscriptionId);
+                        count++;
+                    } catch (Exception e) {
+                        logger.error("Failed Azure Rightsizing refresh for {}: {}", subscriptionId, e.getMessage());
+                    }
+                }
+
+                jobHistory.setStatus("SUCCESS");
+                jobHistory.setItemsProcessed(count);
+                jobHistory.setEndTime(LocalDateTime.now());
+                jobExecutionHistoryRepository.save(jobHistory);
+
+            } catch (Exception e) {
+                logger.error("❌ Failed Azure Rightsizing refresh for tenant {}", tenantId, e);
+                if (jobHistory.getId() != null) {
+                    jobHistory.setStatus("FAILURE");
+                    jobHistory.setErrorMessage(e.getMessage());
+                    jobHistory.setEndTime(LocalDateTime.now());
+                    jobExecutionHistoryRepository.save(jobHistory);
+                }
+            } finally {
+                TenantContext.clear();
+            }
+        }
+    }
+
+    // ===================================================================================
+    // 5:00 AM -> Azure Cloudlist Refresh (Daily)
+    // ===================================================================================
+    @Scheduled(cron = "0 0 5 * * ?")
+    public void refreshAzureCloudListData() {
+        logger.info("--- [5:00 AM] Starting Azure Cloudlist Refresh ---");
+        List<String> tenants = fetchActiveTenants();
+
+        for (String tenantId : tenants) {
+            JobExecutionHistory jobHistory = new JobExecutionHistory("REFRESH_AZURE_CLOUDLIST", tenantId,
+                    LocalDateTime.now(), "RUNNING");
+            try {
+                TenantContext.setCurrentTenant(tenantId);
+                jobHistory = jobExecutionHistoryRepository.save(jobHistory);
+
+                int count = 0;
+                for (CloudAccount account : getAllAccounts()) {
+                    if (!"Azure".equalsIgnoreCase(account.getProvider())) continue;
+                    String subscriptionId = account.getAzureSubscriptionId();
+                    if (subscriptionId == null || subscriptionId.isEmpty()) continue;
+                    try {
+                        azureCloudListService.getAzureResources(subscriptionId, true);
+                        logger.info("✓ Azure Cloudlist refreshed for subscription {}", subscriptionId);
+                        count++;
+                    } catch (Exception e) {
+                        logger.error("Failed Azure Cloudlist refresh for {}: {}", subscriptionId, e.getMessage());
+                    }
+                }
+
+                jobHistory.setStatus("SUCCESS");
+                jobHistory.setItemsProcessed(count);
+                jobHistory.setEndTime(LocalDateTime.now());
+                jobExecutionHistoryRepository.save(jobHistory);
+
+            } catch (Exception e) {
+                logger.error("❌ Failed Azure Cloudlist refresh for tenant {}", tenantId, e);
                 if (jobHistory.getId() != null) {
                     jobHistory.setStatus("FAILURE");
                     jobHistory.setErrorMessage(e.getMessage());

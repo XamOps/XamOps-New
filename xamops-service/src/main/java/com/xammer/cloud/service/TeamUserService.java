@@ -339,8 +339,8 @@ public class TeamUserService {
                 "<div class='credentials-box'>" +
                 "<h3 style='margin-top: 0; color: #667eea;'>Your Login Credentials</h3>" +
                 "<div class='credential-item'>" +
-                "<span class='label'>Username:</span>" +
-                "<span class='value'>" + username + "</span>" +
+                "<span class='label'>Email (Login):</span>" +
+                "<span class='value'>" + email + "</span>" +
                 "</div>" +
                 "<div class='credential-item'>" +
                 "<span class='label'>Password:</span>" +
