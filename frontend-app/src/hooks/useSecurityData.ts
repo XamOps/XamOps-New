@@ -46,6 +46,7 @@ export const useSecurityData = ({
   const [prowlerStatus, setProwlerStatus] = useState<ProwlerStatus>({ status: 'UNKNOWN' });
 
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   /**
    * Process and sort findings by severity
@@ -84,6 +85,11 @@ export const useSecurityData = ({
         return;
       }
 
+      // Cancel any in-flight request before starting a new one
+      abortControllerRef.current?.abort();
+      abortControllerRef.current = new AbortController();
+      const { signal } = abortControllerRef.current;
+
       if (!silent) {
         setIsLoading(true);
       }
@@ -97,6 +103,7 @@ export const useSecurityData = ({
       try {
         const response = await fetch(url, {
           credentials: 'include',
+          signal,
         });
 
         if (!response.ok) {
@@ -107,6 +114,7 @@ export const useSecurityData = ({
         const processed = processFindings(data);
         setFindings(processed);
       } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') return;
         console.error('Fetch error:', err);
         if (!silent) {
           setFindings([]);

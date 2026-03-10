@@ -4,8 +4,8 @@
  * Converted from: billops/dashboard_admin.html (adminDashboard Alpine.js component)
  *
  * Manages BillOps admin dashboard data fetching with:
- * - LocalStorage caching for instant load
- * - Background polling every 30 seconds
+ * - LocalStorage caching for instant load (no skeleton if data was loaded before)
+ * - Background polling every 30 seconds (never shows skeleton after first load)
  * - Manual refresh capability
  * - Proper cleanup on unmount
  *
@@ -31,14 +31,23 @@ export const useBillOpsAdminDashboard = (): UseBillOpsAdminDashboardReturn => {
 
   const pollingIntervalRef = useRef<number | null>(null);
   const isMountedRef = useRef(true);
+  // Tracks whether ANY data has been shown to the user (from localStorage OR a successful API call).
+  // Using a ref instead of state so loadDashboard does not need it as a dependency,
+  // avoiding the stale-closure bug where the polling interval always sees hasLoaded=false.
+  const hasLoadedRef = useRef<boolean>(false);
 
   /**
-   * Load dashboard data from API
-   * Mimics exact behavior from original adminDashboard() function
+   * Load dashboard data from API.
+   * - Shows skeleton (loading=true) ONLY when hasLoadedRef.current is false
+   *   (i.e. there is no data to display yet).
+   * - All background/polling fetches run silently while existing data stays visible.
+   *
+   * Note: loadDashboard has NO state dependencies so its reference is stable — the
+   * polling interval will always call the latest version without stale-closure issues.
    */
   const loadDashboard = useCallback(async (forceRefresh: boolean = false) => {
-    // Show loading spinner ONLY if there's no data yet (first time load)
-    if (!data) {
+    // Show skeleton only when there is nothing to show yet
+    if (!hasLoadedRef.current) {
       setLoading(true);
     }
     setError(null);
@@ -54,22 +63,17 @@ export const useBillOpsAdminDashboard = (): UseBillOpsAdminDashboardReturn => {
 
       const newData: BillOpsAdminDashboardData = await response.json();
 
-      // Store in LocalStorage for next time
+      // Persist to localStorage for next page visit
       localStorage.setItem(CACHE_KEY, JSON.stringify(newData));
 
-      // Smoothly update data if changed
       if (isMountedRef.current) {
-        const currentDataStr = JSON.stringify(data);
-        const newDataStr = JSON.stringify(newData);
-
-        if (currentDataStr !== newDataStr || !data) {
-          setData(newData);
-          console.log('✅ [BillOps Admin] Dashboard data updated');
-        }
+        hasLoadedRef.current = true;
+        setData(newData);
+        console.log('✅ [BillOps Admin] Dashboard data updated');
       }
     } catch (err) {
       console.error('Error loading admin dashboard:', err);
-      // Don't show error on background refresh, only on manual refresh
+      // Only surface the error on a manual refresh (not silent background polls)
       if (forceRefresh && isMountedRef.current) {
         setError('Failed to load dashboard data. Please try again.');
       }
@@ -79,10 +83,10 @@ export const useBillOpsAdminDashboard = (): UseBillOpsAdminDashboardReturn => {
         setIsRefreshing(false);
       }
     }
-  }, [data]);
+  }, []); // stable reference — no state deps, uses refs for data-presence check
 
   /**
-   * Manual refresh function - used by refresh button
+   * Manual refresh — called by the Refresh button.
    */
   const refreshDashboard = useCallback(() => {
     setIsRefreshing(true);
@@ -90,33 +94,36 @@ export const useBillOpsAdminDashboard = (): UseBillOpsAdminDashboardReturn => {
   }, [loadDashboard]);
 
   /**
-   * Initialize: Load from cache, then fetch fresh data
+   * Initialise: load from localStorage immediately, then fetch fresh data in background.
    */
   useEffect(() => {
     isMountedRef.current = true;
 
-    // 1. Load from LocalStorage immediately (Instant Load)
+    // 1. Load from localStorage immediately (instant display, no skeleton)
     const cached = localStorage.getItem(CACHE_KEY);
     if (cached) {
       try {
         const cachedData = JSON.parse(cached) as BillOpsAdminDashboardData;
         setData(cachedData);
+        hasLoadedRef.current = true; // Data is visible — never show skeleton again
         console.log('✅ Loaded BillOps admin dashboard data from LocalStorage');
       } catch (e) {
         console.error('Failed to parse cached admin dashboard data', e);
       }
     }
 
-    // 2. Fetch fresh data from backend (Background)
+    // 2. Fetch fresh data from backend in background
+    //    (setLoading(true) is skipped because hasLoadedRef.current=true if localStorage had data)
     loadDashboard(false);
 
-    // 3. Start background polling every 30 seconds
+    // 3. Poll every 30 seconds — only when the tab is visible, never shows skeleton
     pollingIntervalRef.current = window.setInterval(() => {
-      console.log('🔄 Auto-refreshing BillOps admin dashboard...');
-      loadDashboard(false);
+      if (document.visibilityState === 'visible') {
+        console.log('🔄 Auto-refreshing BillOps admin dashboard...');
+        loadDashboard(false);
+      }
     }, POLL_INTERVAL);
 
-    // Cleanup on unmount
     return () => {
       isMountedRef.current = false;
       if (pollingIntervalRef.current) {

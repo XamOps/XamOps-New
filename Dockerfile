@@ -43,7 +43,10 @@ COPY . .
 
 # Build the application (Skipping tests for speed)
 ARG MODULE_NAME=xamops-service
-RUN mvn clean package -pl ${MODULE_NAME} -am -DskipTests
+RUN mvn clean package -pl ${MODULE_NAME} -am -DskipTests \
+    -Dmaven.wagon.http.retryHandler.count=3 \
+    -Dmaven.wagon.http.connectionTimeout=30000 \
+    -Dmaven.wagon.http.readTimeout=60000
 
 # --- KEY FIX: Move the built JAR to a standard location ---
 RUN cp ${MODULE_NAME}/target/*.jar /app/app.jar

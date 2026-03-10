@@ -46,6 +46,9 @@ interface UsePerformanceDataReturn {
   setSelectedInsights: React.Dispatch<React.SetStateAction<string[]>>;
   toggleAllInsights: () => void;
   toggleInsightSelection: (id: string) => void;
+  pendingBulkArchive: boolean;
+  requestBulkArchive: () => void;
+  cancelBulkArchive: () => void;
   bulkArchive: () => Promise<void>;
   showToast: (message: string, type: 'success' | 'error') => void;
   hideToast: () => void;

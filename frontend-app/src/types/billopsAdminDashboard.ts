@@ -8,8 +8,10 @@
 export interface TopSpendingAccount {
   id: string;
   accountName: string;
+  accountIdentifier?: string;
   provider: 'AWS' | 'GCP' | 'Azure';
   clientName: string;
+  clientId?: number;
   status: 'ACTIVE' | 'PENDING' | 'INACTIVE';
   currentMonthSpending: number;
   lastMonthSpending: number;

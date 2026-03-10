@@ -9,7 +9,7 @@
  * - GET /api/xamops/cloudguard/grafana-alerts
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import type { Alert, GrafanaAlert, AlertCounts, AlertTab, AlertSeverityClass, AlertError, AlertsMetadata, AlertsResponse } from '../types/alerts';
 
 interface UseAlertsDataOptions {
@@ -65,6 +65,7 @@ export const useAlertsData = ({
   // Enhanced error handling state
   const [errors, setErrors] = useState<AlertError[]>([]);
   const [metadata, setMetadata] = useState<AlertsMetadata | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   /**
    * Process and sort alerts by usage percentage
@@ -127,6 +128,11 @@ export const useAlertsData = ({
         return;
       }
 
+      // Cancel any in-flight request before starting a new one
+      abortControllerRef.current?.abort();
+      abortControllerRef.current = new AbortController();
+      const { signal } = abortControllerRef.current;
+
       const cacheKey = `alertsData-${selectedAccountId}`;
       const cachedData = sessionStorage.getItem(cacheKey);
 
@@ -159,6 +165,7 @@ export const useAlertsData = ({
           `/api/xamops/cloudguard/alerts?accountId=${selectedAccountId}&forceRefresh=${forceRefresh}`,
           {
             credentials: 'include',
+            signal,
             headers: {
               'Accept': 'application/json',
             }
@@ -198,6 +205,7 @@ export const useAlertsData = ({
           console.log(`[Alerts] Successfully loaded ${processedAlerts.length} alerts`);
         }
       } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') return;
         console.error('[Alerts] Failed to load alert data:', err);
 
         // Set error state

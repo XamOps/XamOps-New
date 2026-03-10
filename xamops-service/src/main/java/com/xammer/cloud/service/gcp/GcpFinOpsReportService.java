@@ -1,12 +1,17 @@
 package com.xammer.cloud.service.gcp;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.xammer.cloud.domain.CachedData;
 import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.dto.gcp.*;
+import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.service.RedisCacheService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -25,17 +30,37 @@ public class GcpFinOpsReportService {
     private final GcpOptimizationService gcpOptimizationService;
     private final GcpBudgetService gcpBudgetService;
     private final RedisCacheService redisCacheService;
+    private final CachedDataRepository cachedDataRepository;
+    private final ObjectMapper objectMapper;
 
     private static final String FINOPS_REPORT_CACHE_PREFIX = "gcp:finops-report:";
+    private static final String DB_CACHE_KEY_PREFIX = "GCP_FINOPS::";
 
     public GcpFinOpsReportService(GcpCostService gcpCostService,
                                   GcpOptimizationService gcpOptimizationService,
                                   GcpBudgetService gcpBudgetService,
-                                  RedisCacheService redisCacheService) {
+                                  RedisCacheService redisCacheService,
+                                  CachedDataRepository cachedDataRepository,
+                                  ObjectMapper objectMapper) {
         this.gcpCostService = gcpCostService;
         this.gcpOptimizationService = gcpOptimizationService;
         this.gcpBudgetService = gcpBudgetService;
         this.redisCacheService = redisCacheService;
+        this.cachedDataRepository = cachedDataRepository;
+        this.objectMapper = objectMapper;
+    }
+
+    private void saveToDb(String dbKey, Object data) {
+        try {
+            String json = objectMapper.writeValueAsString(data);
+            CachedData entity = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+            entity.setCacheKey(dbKey);
+            entity.setJsonData(json);
+            entity.setLastUpdated(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
+            cachedDataRepository.save(entity);
+        } catch (Exception e) {
+            logger.warn("Failed to save GCP FinOps DB snapshot for key {}: {}", dbKey, e.getMessage());
+        }
     }
 
     /**
@@ -50,12 +75,27 @@ public class GcpFinOpsReportService {
      */
     public GcpFinOpsReportDto generateFinOpsReportSync(String gcpProjectId) {
         String cacheKey = FINOPS_REPORT_CACHE_PREFIX + gcpProjectId;
+        String dbKey = DB_CACHE_KEY_PREFIX + gcpProjectId;
 
-        // Try to get from cache first
+        // 1. Try Redis cache
         Optional<GcpFinOpsReportDto> cached = redisCacheService.get(cacheKey, GcpFinOpsReportDto.class);
         if (cached.isPresent()) {
-            logger.info("✅ Returning cached FinOps report for project {}", gcpProjectId);
+            logger.info("✅ Returning Redis-cached FinOps report for project {}", gcpProjectId);
             return cached.get();
+        }
+
+        // 2. Try DB snapshot
+        try {
+            Optional<CachedData> dbSnapshot = cachedDataRepository.findById(dbKey);
+            if (dbSnapshot.isPresent()) {
+                GcpFinOpsReportDto dbResult = objectMapper.readValue(
+                        dbSnapshot.get().getJsonData(), GcpFinOpsReportDto.class);
+                logger.info("✅ Returning DB-cached FinOps report for project {} — re-warming Redis", gcpProjectId);
+                redisCacheService.put(cacheKey, dbResult, 60);
+                return dbResult;
+            }
+        } catch (Exception e) {
+            logger.warn("DB snapshot load failed for GCP FinOps {}: {}", gcpProjectId, e.getMessage());
         }
 
         logger.info("🔍 Generating fresh FinOps report for GCP project: {}", gcpProjectId);
@@ -163,7 +203,8 @@ public class GcpFinOpsReportService {
             report.setCostAnomalies(costAnomaliesFuture.join());
 
             // ✅ Cache the complete report
-            redisCacheService.put(cacheKey, report, 10);
+            redisCacheService.put(cacheKey, report, 60);
+            saveToDb(dbKey, report);
             logger.info("💾 Successfully generated and cached FinOps report for GCP project: {}", gcpProjectId);
 
             return report;
@@ -320,7 +361,7 @@ public class GcpFinOpsReportService {
             report.setCostAnomalies(costAnomaliesFuture.join());
 
             // Cache the report
-            redisCacheService.put(cacheKey, report, 10);
+            redisCacheService.put(cacheKey, report, 60);
             logger.info("Successfully generated and cached FinOps report for GCP project {} (dates: {} to {})",
                     gcpProjectId, startDate, endDate);
 

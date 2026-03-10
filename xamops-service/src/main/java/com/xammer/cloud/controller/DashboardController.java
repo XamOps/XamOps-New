@@ -278,6 +278,13 @@ public class DashboardController {
         return cloudListService.getRegionStatusForAccount(account, forceRefresh)
                 .thenCompose(
                         activeRegions -> optimizationService.getWastedResources(account, activeRegions, forceRefresh))
+                .thenApply(result -> {
+                    // Always update the DB cache with the freshly fetched data so that
+                    // subsequent loads (after Redis TTL expires) don't serve stale data.
+                    dashboardDataService.saveWasteSnapshot(cacheKey, result);
+                    logger.info("Updated DB cache with fresh Waste data for account {}", accountIdToUse);
+                    return result;
+                })
                 .exceptionally(ex -> {
                     logger.error("Error fetching wasted resources for account {}", accountIdToUse, ex);
                     return Collections.emptyList();

@@ -36,6 +36,14 @@ export interface UseAdminAgreementsResult extends UseAgreementsResult {
   uploadError: string | null;
   uploadSuccess: boolean;
 
+  // Confirm-action state
+  pendingFinalize: Agreement | null;
+  pendingDelete: Agreement | null;
+  requestFinalize: (agreement: Agreement) => void;
+  cancelFinalize: () => void;
+  requestDelete: (agreement: Agreement) => void;
+  cancelDelete: () => void;
+
   // Admin operations
   handleFileSelect: (event: React.ChangeEvent<HTMLInputElement>) => void;
   uploadAgreement: () => Promise<void>;

@@ -2,6 +2,7 @@
 package com.xammer.cloud.service.gcp;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 // Correct Compute Engine Region import
 import com.google.cloud.compute.v1.Region;
 // *** REMOVE THIS INCORRECT IMPORT ***
@@ -12,10 +13,12 @@ import com.google.cloud.compute.v1.GetRegionRequest;
 import com.google.cloud.compute.v1.NetworksClient;
 import com.google.cloud.compute.v1.Quota;
 import com.google.cloud.compute.v1.RegionsClient;
+import com.xammer.cloud.domain.CachedData;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.AlertDto;
 import com.xammer.cloud.dto.gcp.GcpCostDto;
 import com.xammer.cloud.dto.gcp.GcpSecurityFinding;
+import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.service.EmailService;
 import com.xammer.cloud.service.RedisCacheService;
@@ -24,6 +27,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -41,10 +46,13 @@ public class GcpCloudGuardService {
     private final GcpCostService gcpCostService;
     private final GcpSecurityService gcpSecurityService;
     private final EmailService emailService;
+    private final CachedDataRepository cachedDataRepository;
+    private final ObjectMapper objectMapper;
 
     // Define Quota details
     private static final String NETWORK_QUOTA_NAME = "NETWORKS";
     private static final double NETWORK_QUOTA_THRESHOLD = 75.0;
+    private static final String DB_CACHE_PREFIX = "GCP_ALERTS::";
 
     @Autowired
     public GcpCloudGuardService(
@@ -54,7 +62,9 @@ public class GcpCloudGuardService {
             GcpDataService gcpDataService,
             GcpCostService gcpCostService,
             GcpSecurityService gcpSecurityService,
-            EmailService emailService
+            EmailService emailService,
+            CachedDataRepository cachedDataRepository,
+            ObjectMapper objectMapper
     ) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.gcpClientProvider = gcpClientProvider;
@@ -63,6 +73,21 @@ public class GcpCloudGuardService {
         this.gcpCostService = gcpCostService;
         this.gcpSecurityService = gcpSecurityService;
         this.emailService = emailService;
+        this.cachedDataRepository = cachedDataRepository;
+        this.objectMapper = objectMapper;
+    }
+
+    private void saveToDb(String dbKey, Object data) {
+        try {
+            String json = objectMapper.writeValueAsString(data);
+            CachedData entity = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+            entity.setCacheKey(dbKey);
+            entity.setJsonData(json);
+            entity.setLastUpdated(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
+            cachedDataRepository.save(entity);
+        } catch (Exception e) {
+            log.warn("Failed to save GCP alerts DB snapshot for key {}: {}", dbKey, e.getMessage());
+        }
     }
 
     private CloudAccount getAccount(String accountId) {
@@ -84,13 +109,29 @@ public class GcpCloudGuardService {
     @Transactional(readOnly = true) // Add transactional annotation
     public CompletableFuture<List<AlertDto>> getAlerts(String gcpProjectId, boolean forceRefresh) {
         String cacheKey = "gcpAlerts-" + gcpProjectId;
+        String dbKey = DB_CACHE_PREFIX + gcpProjectId;
         log.info("🔍 Fetching alerts for GCP project: {}", gcpProjectId);
 
         if (!forceRefresh) {
+            // 1. Try Redis
             Optional<List<AlertDto>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {});
             if (cachedData.isPresent()) {
-                log.info("✅ Returning cached GCP alerts for project {}", gcpProjectId);
+                log.info("✅ Returning Redis-cached GCP alerts for project {}", gcpProjectId);
                 return CompletableFuture.completedFuture(cachedData.get());
+            }
+
+            // 2. Try DB snapshot
+            try {
+                Optional<CachedData> dbSnapshot = cachedDataRepository.findById(dbKey);
+                if (dbSnapshot.isPresent()) {
+                    List<AlertDto> dbResult = objectMapper.readValue(
+                            dbSnapshot.get().getJsonData(), new TypeReference<>() {});
+                    log.info("✅ Returning DB-cached GCP alerts for project {} — re-warming Redis", gcpProjectId);
+                    redisCache.put(cacheKey, dbResult, 60);
+                    return CompletableFuture.completedFuture(dbResult);
+                }
+            } catch (Exception e) {
+                log.warn("DB snapshot load failed for GCP alerts {}: {}", gcpProjectId, e.getMessage());
             }
         }
 
@@ -136,7 +177,8 @@ public class GcpCloudGuardService {
                         log.warn("No client email configured for account {}, cannot send alert emails.", gcpProjectId);
                     }
 
-                    redisCache.put(cacheKey, alerts, 10); // Cache for 10 minutes
+                    redisCache.put(cacheKey, alerts, 60);
+                    saveToDb(dbKey, alerts);
                     log.info("✅ Returning {} total GCP alerts for project {}", alerts.size(), gcpProjectId);
                     return alerts;
                 })

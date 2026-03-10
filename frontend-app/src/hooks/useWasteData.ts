@@ -4,7 +4,7 @@
  * Custom hook to fetch and manage waste management data
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { WastedResource } from '../types/waste';
 
 interface UseWasteDataOptions {
@@ -26,8 +26,8 @@ export const useWasteData = ({
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [error, setError] = useState<Error | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
-  // Load waste data with caching
   const loadWastedResources = useCallback(
     async (forceRefresh: boolean = false) => {
       if (!selectedAccountId) {
@@ -36,38 +36,39 @@ export const useWasteData = ({
         return;
       }
 
-      // Set loading states
+      // Cancel any in-flight request before starting a new one
+      abortControllerRef.current?.abort();
+      abortControllerRef.current = new AbortController();
+      const { signal } = abortControllerRef.current;
+
+      const cacheKey = `waste_data_${selectedAccountId}`;
+
       if (forceRefresh) {
+        // Clear browser cache so the UI never serves stale data after a refresh
+        sessionStorage.removeItem(cacheKey);
         setIsRefreshing(true);
-      } else if (wastedResources.length === 0) {
-        setIsLoading(true);
+      } else {
+        // Serve cached data instantly while fresh data loads in background
+        const cachedData = sessionStorage.getItem(cacheKey);
+        if (cachedData) {
+          try {
+            setWastedResources(JSON.parse(cachedData));
+            setIsLoading(false);
+            console.log('[Waste] Served session cache while fetching fresh data');
+          } catch (e) {
+            console.error('[Waste] Failed to parse cached data:', e);
+          }
+        } else {
+          setIsLoading(true);
+        }
       }
 
       try {
-        // Check cache first (only if not forcing refresh)
-        const cacheKey = `waste_data_${selectedAccountId}`;
-        if (!forceRefresh) {
-          const cachedData = sessionStorage.getItem(cacheKey);
-          if (cachedData) {
-            try {
-              const parsed = JSON.parse(cachedData);
-              setWastedResources(parsed);
-              setIsLoading(false);
-              console.log('[Waste] Loaded cached data:', parsed.length, 'resources');
-            } catch (e) {
-              console.error('[Waste] Failed to parse cached data:', e);
-            }
-          }
-        }
-
-        // Fetch fresh data
         console.log('[Waste] Fetching waste data for account:', selectedAccountId, 'forceRefresh:', forceRefresh);
 
         const response = await fetch(
           `/api/xamops/waste?accountIds=${selectedAccountId}&forceRefresh=${forceRefresh}`,
-          {
-            credentials: 'include',
-          }
+          { credentials: 'include', signal }
         );
 
         if (!response.ok) {
@@ -81,13 +82,13 @@ export const useWasteData = ({
         setWastedResources(resources);
         console.log('[Waste] Loaded', resources.length, 'waste resources');
 
-        // Cache the data
         try {
           sessionStorage.setItem(cacheKey, JSON.stringify(resources));
         } catch (e) {
           console.error('[Waste] Failed to cache data:', e);
         }
       } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') return;
         console.error('[Waste] Failed to load waste data:', err);
         setError(err instanceof Error ? err : new Error('Failed to load waste data'));
         setWastedResources([]);
@@ -96,7 +97,7 @@ export const useWasteData = ({
         setIsRefreshing(false);
       }
     },
-    [selectedAccountId, wastedResources.length]
+    [selectedAccountId]
   );
 
   // Initial load

@@ -167,12 +167,12 @@ public class TeamUserService {
             throw new RuntimeException("Username already exists");
         }
 
-        // Validate account IDs belong to the same client
+        // Validate account IDs exist (primary BILLOPS_ADMIN can assign any account across all clients)
         if (dto.getAccountIds() != null && !dto.getAccountIds().isEmpty()) {
-            List<CloudAccount> clientAccounts = cloudAccountRepository.findByClientId(currentUser.getClient().getId());
-            Set<Long> validAccountIds = clientAccounts.stream().map(CloudAccount::getId).collect(Collectors.toSet());
+            Set<Long> allAccountIds = cloudAccountRepository.findAll()
+                    .stream().map(CloudAccount::getId).collect(Collectors.toSet());
             for (Long accountId : dto.getAccountIds()) {
-                if (!validAccountIds.contains(accountId)) {
+                if (!allAccountIds.contains(accountId)) {
                     throw new RuntimeException("Invalid account ID: " + accountId);
                 }
             }
@@ -244,12 +244,12 @@ public class TeamUserService {
             throw new RuntimeException("You can only update users you created");
         }
 
-        // Validate account IDs belong to the same client
+        // Validate account IDs exist (primary BILLOPS_ADMIN can assign any account across all clients)
         if (dto.getAccountIds() != null && !dto.getAccountIds().isEmpty()) {
-            List<CloudAccount> clientAccounts = cloudAccountRepository.findByClientId(currentUser.getClient().getId());
-            Set<Long> validAccountIds = clientAccounts.stream().map(CloudAccount::getId).collect(Collectors.toSet());
+            Set<Long> allAccountIds = cloudAccountRepository.findAll()
+                    .stream().map(CloudAccount::getId).collect(Collectors.toSet());
             for (Long accountId : dto.getAccountIds()) {
-                if (!validAccountIds.contains(accountId)) {
+                if (!allAccountIds.contains(accountId)) {
                     throw new RuntimeException("Invalid account ID: " + accountId);
                 }
             }
@@ -384,8 +384,8 @@ public class TeamUserService {
                 "<div class='credentials-box'>" +
                 "<h3 style='margin-top: 0; color: #667eea;'>Your Login Credentials</h3>" +
                 "<div class='credential-item'>" +
-                "<span class='label'>Username:</span>" +
-                "<span class='value'>" + username + "</span>" +
+                "<span class='label'>Email (Login):</span>" +
+                "<span class='value'>" + email + "</span>" +
                 "</div>" +
                 "<div class='credential-item'>" +
                 "<span class='label'>Password:</span>" +

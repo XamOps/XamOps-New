@@ -2,15 +2,20 @@ package com.xammer.cloud.service.azure;
 
 import com.azure.resourcemanager.AzureResourceManager;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.xammer.cloud.domain.CachedData;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.dto.ResourceDto;
+import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.service.RedisCacheService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -29,28 +34,64 @@ public class AzureCloudListService {
     private static final Logger log = LoggerFactory.getLogger(AzureCloudListService.class);
     private static final int CACHE_TTL_MINUTES = 60;
     private static final String CACHE_KEY_PREFIX = "azure-cloudlist-";
+    private static final String DB_CACHE_KEY_PREFIX = "AZURE_CLOUDLIST::";
 
     private final AzureClientProvider clientProvider;
     private final CloudAccountRepository cloudAccountRepository;
     private final RedisCacheService redisCache;
+    private final CachedDataRepository cachedDataRepository;
+    private final ObjectMapper objectMapper;
 
     public AzureCloudListService(AzureClientProvider clientProvider,
                                   CloudAccountRepository cloudAccountRepository,
-                                  RedisCacheService redisCache) {
+                                  RedisCacheService redisCache,
+                                  CachedDataRepository cachedDataRepository,
+                                  ObjectMapper objectMapper) {
         this.clientProvider = clientProvider;
         this.cloudAccountRepository = cloudAccountRepository;
         this.redisCache = redisCache;
+        this.cachedDataRepository = cachedDataRepository;
+        this.objectMapper = objectMapper;
+    }
+
+    private void saveToDb(String dbKey, Object data) {
+        try {
+            String json = objectMapper.writeValueAsString(data);
+            CachedData entity = new CachedData();
+            entity.setCacheKey(dbKey);
+            entity.setJsonData(json);
+            entity.setLastUpdated(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
+            cachedDataRepository.save(entity);
+            log.debug("Saved Azure cloudlist snapshot to DB: {}", dbKey);
+        } catch (Exception e) {
+            log.warn("Failed to save Azure cloudlist snapshot to DB for {}: {}", dbKey, e.getMessage());
+        }
     }
 
     public List<DashboardData.ServiceGroupDto> getAzureResources(String accountId, boolean forceRefresh) {
         log.info("Fetching cloudlist data for Azure account ID: {}, forceRefresh: {}", accountId, forceRefresh);
 
         String cacheKey = CACHE_KEY_PREFIX + accountId;
+        String dbKey = DB_CACHE_KEY_PREFIX + accountId;
         if (!forceRefresh) {
+            // 1. Try Redis
             Optional<List<DashboardData.ServiceGroupDto>> cached = redisCache.get(cacheKey, new TypeReference<>() {});
             if (cached.isPresent()) {
-                log.info("Returning cached Azure cloudlist for account {} ({} service groups)", accountId, cached.get().size());
+                log.info("Returning Redis-cached Azure cloudlist for account {} ({} service groups)", accountId, cached.get().size());
                 return cached.get();
+            }
+            // 2. Try DB snapshot
+            Optional<CachedData> dbEntry = cachedDataRepository.findById(dbKey);
+            if (dbEntry.isPresent()) {
+                try {
+                    List<DashboardData.ServiceGroupDto> dbData = objectMapper.readValue(
+                            dbEntry.get().getJsonData(), new TypeReference<>() {});
+                    redisCache.put(cacheKey, dbData, CACHE_TTL_MINUTES);
+                    log.info("Returning DB-cached Azure cloudlist for account {} ({} service groups), re-warmed Redis", accountId, dbData.size());
+                    return dbData;
+                } catch (Exception e) {
+                    log.warn("Failed to deserialize DB cloudlist snapshot for {}: {}", dbKey, e.getMessage());
+                }
             }
         } else {
             redisCache.evict(cacheKey);
@@ -138,6 +179,7 @@ public class AzureCloudListService {
 
             if (!result.isEmpty()) {
                 redisCache.put(cacheKey, result, CACHE_TTL_MINUTES);
+                saveToDb(dbKey, result);
                 log.info("Cached Azure cloudlist for account {} ({} service groups, TTL {}min)", accountId, result.size(), CACHE_TTL_MINUTES);
             } else {
                 log.warn("Azure cloudlist returned 0 results for account {} — skipping cache to allow retry on next request", accountId);

@@ -393,6 +393,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setSelectedTenant(tenantId);
       }
 
+      // Clear stale account cache so AccountContext re-fetches with the
+      // correct impersonation header after reload instead of showing the
+      // previous user's (admin's) accounts.
+      sessionStorage.removeItem('cached_accounts');
+      sessionStorage.removeItem('selectedAccountIds');
+
       // Clean up the URL
       const newUrl = window.location.pathname;
       window.history.replaceState({}, '', newUrl);

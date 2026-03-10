@@ -1,5 +1,6 @@
 package com.xammer.billops.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xammer.billops.domain.CloudAccount;
 import com.xammer.billops.dto.AccountSummaryDto;
 import com.xammer.billops.dto.AdminDashboardDto;
@@ -7,10 +8,12 @@ import com.xammer.billops.dto.UserDashboardDto;
 import com.xammer.billops.dto.BillingDashboardDto;
 import com.xammer.billops.dto.InvoiceDto;
 import com.xammer.billops.dto.TicketDto;
+import com.xammer.billops.repository.BillOpsCachedDataRepository;
 import com.xammer.billops.repository.ClientRepository;
 import com.xammer.billops.repository.CloudAccountRepository;
 import com.xammer.billops.repository.InvoiceRepository;
 import com.xammer.billops.repository.TicketRepository;
+import com.xammer.cloud.domain.CachedData;
 import com.xammer.cloud.domain.Invoice;
 import com.xammer.cloud.domain.Ticket;
 import org.slf4j.Logger;
@@ -23,7 +26,9 @@ import javax.annotation.PostConstruct;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.YearMonth;
+import java.time.ZoneId;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.Optional;
@@ -44,9 +49,12 @@ public class AdminDashboardService {
     private final ClientRepository clientRepository;
     private final RedisCacheService redisCache;
     private final AccountAccessHelper accountAccessHelper;
+    private final BillOpsCachedDataRepository cachedDataRepository;
+    private final ObjectMapper objectMapper;
 
     private static final String CACHE_KEY = "billops:admin:dashboard";
-    private static final long CACHE_TTL_MINUTES = 1440; // 24 hours
+    private static final String DB_CACHE_KEY_PREFIX = "BILLOPS_ADMIN_DASHBOARD::";
+    private static final long CACHE_TTL_MINUTES = 120; // 2 hours — nightly job refreshes at 2 AM; admin can force-refresh anytime
 
     private final BillingService billingService;
 
@@ -57,7 +65,9 @@ public class AdminDashboardService {
             ClientRepository clientRepository,
             RedisCacheService redisCacheService,
             BillingService billingService,
-            AccountAccessHelper accountAccessHelper) {
+            AccountAccessHelper accountAccessHelper,
+            BillOpsCachedDataRepository cachedDataRepository,
+            ObjectMapper objectMapper) {
         this.invoiceRepository = invoiceRepository;
         this.cloudAccountRepository = cloudAccountRepository;
         this.ticketRepository = ticketRepository;
@@ -65,6 +75,22 @@ public class AdminDashboardService {
         this.redisCache = redisCacheService;
         this.billingService = billingService;
         this.accountAccessHelper = accountAccessHelper;
+        this.cachedDataRepository = cachedDataRepository;
+        this.objectMapper = objectMapper;
+    }
+
+    private void saveToDb(String dbKey, AdminDashboardDto data) {
+        try {
+            String json = objectMapper.writeValueAsString(data);
+            CachedData entity = new CachedData();
+            entity.setCacheKey(dbKey);
+            entity.setJsonData(json);
+            entity.setLastUpdated(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
+            cachedDataRepository.save(entity);
+            logger.debug("Saved admin dashboard snapshot to DB: {}", dbKey);
+        } catch (Exception e) {
+            logger.warn("Failed to save admin dashboard snapshot to DB for {}: {}", dbKey, e.getMessage());
+        }
     }
 
     private String getCacheKey() {
@@ -80,20 +106,39 @@ public class AdminDashboardService {
         boolean isSubUser = accountAccessHelper.getAllowedDbIds() != null;
 
         if (!isSubUser) {
-            // Primary admin: use global cache
+            // Primary admin: 3-layer cache — Redis → DB snapshot → live build
             String tenantCacheKey = getCacheKey();
+            String tenantId = com.xammer.billops.config.multitenancy.TenantContext.getCurrentTenant();
+            String dbKey = DB_CACHE_KEY_PREFIX + (tenantId != null ? tenantId : "default");
+
             if (!forceRefresh) {
+                // 1. Try Redis
                 Optional<AdminDashboardDto> cached = redisCache.get(tenantCacheKey, AdminDashboardDto.class);
                 if (cached.isPresent()) {
-                    logger.info("Returning cached admin dashboard data for tenant: {}", tenantCacheKey);
+                    logger.info("Returning Redis-cached admin dashboard for tenant: {}", tenantCacheKey);
                     return cached.get();
                 }
+                // 2. Try DB snapshot
+                Optional<CachedData> dbEntry = cachedDataRepository.findById(dbKey);
+                if (dbEntry.isPresent()) {
+                    try {
+                        AdminDashboardDto dbData = objectMapper.readValue(dbEntry.get().getJsonData(), AdminDashboardDto.class);
+                        redisCache.put(tenantCacheKey, dbData, CACHE_TTL_MINUTES);
+                        logger.info("Returning DB-cached admin dashboard for tenant {}, re-warmed Redis", tenantCacheKey);
+                        return dbData;
+                    } catch (Exception e) {
+                        logger.warn("Failed to deserialize DB admin dashboard snapshot for {}: {}", dbKey, e.getMessage());
+                    }
+                }
             }
-            logger.info("Building admin dashboard summary");
+
+            // 3. Build from source (DB aggregation + BillingService)
+            logger.info("Building admin dashboard summary for tenant {}", tenantCacheKey);
             AdminDashboardDto dashboard = buildDashboard(filteredAccounts);
             dashboard.setLastUpdated(System.currentTimeMillis());
             redisCache.put(tenantCacheKey, dashboard, CACHE_TTL_MINUTES);
-            logger.info("Admin dashboard data cached for tenant {} for {} minutes", tenantCacheKey, CACHE_TTL_MINUTES);
+            saveToDb(dbKey, dashboard);
+            logger.info("Admin dashboard cached for tenant {} (Redis {}min + DB snapshot)", tenantCacheKey, CACHE_TTL_MINUTES);
             return dashboard;
         }
 
@@ -124,7 +169,7 @@ public class AdminDashboardService {
                         Collectors.counting()));
         dashboard.setAccountsByStatus(accountsByStatus);
 
-        // Get invoice counts
+        // Get invoice counts — load once, reuse across all counts
         List<Invoice> allInvoices = invoiceRepository.findAll();
         long pendingInvoices = allInvoices.stream()
                 .filter(inv -> inv.getStatus() == Invoice.InvoiceStatus.DRAFT)
@@ -132,7 +177,6 @@ public class AdminDashboardService {
         long finalizedInvoices = allInvoices.stream()
                 .filter(inv -> inv.getStatus() == Invoice.InvoiceStatus.FINALIZED)
                 .count();
-
         dashboard.setPendingInvoices(pendingInvoices);
         dashboard.setFinalizedInvoices(finalizedInvoices);
 
@@ -267,16 +311,10 @@ public class AdminDashboardService {
 
     private LocalDate getLastInvoiceDate(CloudAccount account) {
         try {
-            List<Invoice> invoices = invoiceRepository.findAll().stream()
-                    .filter(inv -> inv.getCloudAccount() != null
-                            && inv.getCloudAccount().getId().equals(account.getId()))
-                    .sorted((i1, i2) -> i2.getInvoiceDate().compareTo(i1.getInvoiceDate()))
-                    .limit(1)
-                    .collect(Collectors.toList());
-
-            if (!invoices.isEmpty()) {
-                return invoices.get(0).getInvoiceDate();
-            }
+            return invoiceRepository
+                    .findTop1ByCloudAccountIdOrderByInvoiceDateDesc(account.getId())
+                    .map(Invoice::getInvoiceDate)
+                    .orElse(null);
         } catch (Exception e) {
             logger.warn("Error getting last invoice date for account {}: {}", account.getAccountName(), e.getMessage());
         }

@@ -124,7 +124,7 @@ export const useEksDashboard = ({
 
     try {
       const data = await apiClient.get<EksDashboard>(
-        `/api/xamops/eks/${clusterName}/dashboard?accountId=${accountId}&region=${region}&version=${version}&forceRefresh=false`
+        `/api/xamops/eks/${clusterName}/dashboard?accountId=${accountId}&region=${region}&version=${version}&forceRefresh=${forceRefresh}`
       );
 
       setDashboard(data);

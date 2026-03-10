@@ -122,7 +122,7 @@ public class ReservationService {
                                 historicalDataFuture.join(),
                                 modificationRecsFuture.join(),
                                 savingsPlansFuture.join());
-                        redisCache.put(cacheKey, result, 10);
+                        redisCache.put(cacheKey, result, 60);
                         return result;
                     });
         });
@@ -226,7 +226,7 @@ public class ReservationService {
                 double finalCov = (riCov > 0) ? riCov : spCov;
 
                 DashboardData.ReservationAnalysis result = new DashboardData.ReservationAnalysis(finalUtil, finalCov);
-                redisCache.put(cacheKey, result, 10);
+                redisCache.put(cacheKey, result, 60);
                 return result;
             } catch (Exception e) {
                 logger.error("Error fetching analysis for account {}", account.getAwsAccountId(), e);
@@ -346,7 +346,7 @@ public class ReservationService {
 
                 HistoricalReservationDataDto result = new HistoricalReservationDataDto(labels, utilPercentages,
                         covPercentages);
-                redisCache.put(cacheKey, result, 10);
+                redisCache.put(cacheKey, result, 60);
                 return result;
             } catch (Exception e) {
                 logger.error("Error fetching historical data for account {}", account.getAwsAccountId(), e);
@@ -419,7 +419,7 @@ public class ReservationService {
                             }))
                     .filter(Objects::nonNull)
                     .collect(Collectors.toList());
-            redisCache.put(cacheKey, result, 10);
+            redisCache.put(cacheKey, result, 60);
             return CompletableFuture.completedFuture(result);
         } catch (Exception e) {
             logger.error("Could not fetch reservation purchase recommendations.", e);
@@ -540,7 +540,7 @@ public class ReservationService {
                                 .map(CompletableFuture::join)
                                 .collect(Collectors.toList());
 
-                        redisCache.put(cacheKey, updatedInventory, 10);
+                        redisCache.put(cacheKey, updatedInventory, 60);
                         return updatedInventory;
                     });
         });
@@ -587,7 +587,7 @@ public class ReservationService {
                         }
                     }
                 }
-                redisCache.put(cacheKey, recommendations, 10);
+                redisCache.put(cacheKey, recommendations, 60);
                 return CompletableFuture.completedFuture(recommendations);
             } catch (Exception e) {
                 logger.error("Could not generate reservation modification recommendations for account {}",
@@ -692,7 +692,7 @@ public class ReservationService {
                     })
                     .filter(dto -> dto.getCost() > 0.01)
                     .collect(Collectors.toList());
-            redisCache.put(cacheKey, resultList, 10);
+            redisCache.put(cacheKey, resultList, 60);
             return CompletableFuture.completedFuture(resultList);
         } catch (Exception e) {
             logger.error("Could not fetch reservation cost by tag key '{}' for account {}.", tagKey, e);

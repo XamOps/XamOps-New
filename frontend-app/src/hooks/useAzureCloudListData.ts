@@ -1,7 +1,9 @@
 /**
  * useAzureCloudListData Hook
  *
- * Custom hook for fetching and managing Azure CloudList data
+ * Custom hook for fetching and managing Azure CloudList data.
+ * Uses stale-while-revalidate: cached data (even stale) is shown immediately,
+ * skeleton only appears on the very first fetch when there is no data at all.
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -16,14 +18,17 @@ interface UseAzureCloudListDataOptions {
 
 interface UseAzureCloudListDataResult {
   data: AzureServiceGroup[];
-  loading: boolean;
+  loading: boolean;       // true only when NO data exists yet (shows skeleton)
+  isRefreshing: boolean;  // true during a background refresh (data already visible)
   error: Error | null;
   refresh: (forceRefresh?: boolean) => Promise<void>;
   lastUpdated: string | null;
 }
 
 // Module-level cache — survives navigation (component unmount/remount)
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+// TTL matches the backend Redis TTL (60 min). Stale entries are kept in the Map
+// and served immediately; a background refresh is triggered if they are stale.
+const CACHE_TTL_MS = 60 * 60 * 1000; // 60 minutes
 
 interface CacheEntry {
   data: AzureServiceGroup[];
@@ -37,30 +42,33 @@ function getCacheKey(accountIds: string[]): string {
   return [...accountIds].sort().join(',');
 }
 
+// Always returns the entry if it exists — never auto-deletes stale entries.
 function getCachedEntry(key: string): CacheEntry | null {
-  const entry = cache.get(key);
-  if (!entry) return null;
-  if (Date.now() - entry.fetchedAt > CACHE_TTL_MS) {
-    cache.delete(key);
-    return null;
-  }
-  return entry;
+  return cache.get(key) ?? null;
+}
+
+// Returns true when the entry is still within the freshness window.
+function isEntryFresh(entry: CacheEntry): boolean {
+  return Date.now() - entry.fetchedAt <= CACHE_TTL_MS;
 }
 
 export const useAzureCloudListData = ({
   accountIds,
   autoRefresh = false,
-  refreshInterval = 300, // Default: 5 minutes
+  refreshInterval = 300,
 }: UseAzureCloudListDataOptions): UseAzureCloudListDataResult => {
   const cacheKey = getCacheKey(accountIds);
   const cached = accountIds.length > 0 ? getCachedEntry(cacheKey) : null;
 
+  // Initialise state from cache so data is available on the very first render
   const [data, setData] = useState<AzureServiceGroup[]>(cached?.data ?? []);
+  // loading=true only when we have absolutely no data (first ever fetch → skeleton)
   const [loading, setLoading] = useState<boolean>(!cached && accountIds.length > 0);
+  // isRefreshing=true during a background fetch while stale data is visible
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [error, setError] = useState<Error | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string | null>(cached?.lastUpdated ?? null);
 
-  // Track current accountIds string to detect changes
   const prevCacheKeyRef = useRef<string>(cacheKey);
 
   const fetchData = useCallback(
@@ -72,37 +80,43 @@ export const useAzureCloudListData = ({
 
       const key = getCacheKey(accountIds);
 
-      // Return cached data if valid and not forcing refresh
+      // Return fresh cache immediately (no network call)
       if (!forceRefresh) {
         const entry = getCachedEntry(key);
-        if (entry) {
-          console.log('✅ Azure CloudList: Serving from cache for', key);
+        if (entry && isEntryFresh(entry)) {
           setData(entry.data);
           setLastUpdated(entry.lastUpdated);
           setLoading(false);
+          setIsRefreshing(false);
           return;
         }
       }
 
-      setLoading(true);
+      // Decide whether to show skeleton or background-refresh indicator
+      const hasCachedData = getCachedEntry(key) !== null;
+      if (hasCachedData) {
+        // We already have data to show — do a silent background refresh
+        setIsRefreshing(true);
+      } else {
+        // No data at all — show skeleton
+        setLoading(true);
+      }
       setError(null);
 
       try {
-        console.log('🔵 Azure CloudList Hook: Fetching resources for accounts:', accountIds);
+        console.log('🔵 Azure CloudList: Fetching resources for accounts:', accountIds);
         const result = await fetchAzureCloudListResources(accountIds, forceRefresh);
         const now = new Date().toISOString();
-
-        // Save to module-level cache
         cache.set(key, { data: result, lastUpdated: now, fetchedAt: Date.now() });
-
         setData(result);
         setLastUpdated(now);
-        console.log('✅ Azure CloudList Hook: Successfully fetched', result.length, 'service groups');
+        console.log('✅ Azure CloudList: Fetched', result.length, 'service groups');
       } catch (err) {
-        console.error('❌ Azure CloudList Hook: Error fetching data:', err);
+        console.error('❌ Azure CloudList: Error fetching data:', err);
         setError(err instanceof Error ? err : new Error('Unknown error'));
       } finally {
         setLoading(false);
+        setIsRefreshing(false);
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -111,13 +125,13 @@ export const useAzureCloudListData = ({
 
   const refresh = useCallback(
     async (forceRefresh: boolean = false) => {
-      console.log('🔵 Azure CloudList Hook: Manual refresh triggered, forceRefresh:', forceRefresh);
+      console.log('🔵 Azure CloudList: Manual refresh triggered, forceRefresh:', forceRefresh);
       await fetchData(forceRefresh);
     },
     [fetchData]
   );
 
-  // On mount or accountIds change: use cache if available, otherwise fetch
+  // On mount or accountIds change
   useEffect(() => {
     if (accountIds.length === 0) return;
 
@@ -127,29 +141,29 @@ export const useAzureCloudListData = ({
 
     const entry = getCachedEntry(key);
     if (entry && !accountsChanged) {
-      // Already populated state from initial useState — no fetch needed
-      console.log('✅ Azure CloudList: Using cache on mount for', key);
+      // Show cached data immediately (fresh or stale)
       setData(entry.data);
       setLastUpdated(entry.lastUpdated);
       setLoading(false);
+
+      // If stale, kick off a silent background refresh
+      if (!isEntryFresh(entry)) {
+        console.log('🔄 Azure CloudList: Stale cache — background refresh for', key);
+        fetchData(false);
+      }
       return;
     }
 
     fetchData(false);
   }, [fetchData, accountIds.length]);
 
-  // Auto-refresh interval
+  // Optional auto-refresh interval
   useEffect(() => {
     if (!autoRefresh || accountIds.length === 0) return;
-
     const intervalMs = refreshInterval * 1000;
-    const intervalId = setInterval(() => {
-      console.log('🔵 Azure CloudList Hook: Auto-refresh triggered');
-      fetchData(false);
-    }, intervalMs);
-
+    const intervalId = setInterval(() => fetchData(false), intervalMs);
     return () => clearInterval(intervalId);
   }, [autoRefresh, refreshInterval, fetchData]);
 
-  return { data, loading, error, refresh, lastUpdated };
+  return { data, loading, isRefreshing, error, refresh, lastUpdated };
 };

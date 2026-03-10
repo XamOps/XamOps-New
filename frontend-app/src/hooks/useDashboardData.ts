@@ -153,7 +153,7 @@ export const useDashboardData = ({
         }
       }
     },
-    [selectedAccountIds, isMultiAccountMode, isRefreshing]
+    [selectedAccountIds, isMultiAccountMode]
   );
 
   /**

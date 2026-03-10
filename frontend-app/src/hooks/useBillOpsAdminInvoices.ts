@@ -93,23 +93,20 @@ export const useBillOpsAdminInvoices = (): UseBillOpsAdminInvoicesReturn => {
    */
   const fetchAccounts = useCallback(async () => {
     try {
-      const response = await apiFetch('/api/accounts', { credentials: 'include' });
+      const response = await apiFetch('/api/billops/support/accounts', { credentials: 'include' });
       if (!response.ok) return;
 
       const data = await response.json();
       const mappedAccounts: CloudAccount[] = data.map((a: {
         id: number;
         accountName: string;
-        provider: 'AWS' | 'GCP' | 'Azure';
-        awsAccountId?: string;
-        gcpProjectId?: string;
-        azureSubscriptionId?: string;
+        provider: string;
+        accountId: string;
       }) => ({
         id: a.id,
         name: a.accountName,
-        provider: a.provider,
-        identifier: a.provider === 'AWS' ? a.awsAccountId :
-          (a.provider === 'GCP' ? a.gcpProjectId : a.azureSubscriptionId)
+        provider: a.provider as 'AWS' | 'GCP' | 'Azure',
+        identifier: a.accountId,
       }));
 
       if (isMountedRef.current) {
@@ -117,22 +114,6 @@ export const useBillOpsAdminInvoices = (): UseBillOpsAdminInvoicesReturn => {
       }
     } catch (err) {
       console.warn('Failed to load accounts list', err);
-    }
-  }, []);
-
-  /**
-   * Sync selection from sidebar/URL
-   */
-  const syncSelectionFromSidebar = useCallback((accountList: CloudAccount[], ids: string[]) => {
-    if (ids.length > 0) {
-      const selectedId = ids[0];
-      const account = accountList.find(a =>
-        String(a.id) === String(selectedId) ||
-        String(a.identifier) === String(selectedId)
-      );
-      if (account) {
-        setGeneration(prev => ({ ...prev, accountId: account.identifier }));
-      }
     }
   }, []);
 
@@ -377,6 +358,8 @@ export const useBillOpsAdminInvoices = (): UseBillOpsAdminInvoicesReturn => {
     const order = determineMergeOrder();
     if (!order) return;
 
+    const { target, source } = order;
+
     setIsUpdating(true);
 
     try {
@@ -484,35 +467,19 @@ export const useBillOpsAdminInvoices = (): UseBillOpsAdminInvoicesReturn => {
   useEffect(() => {
     isMountedRef.current = true;
 
-    // Get filter IDs from URL or session storage
+    // Only apply filter from URL params (for deep linking) — never from sessionStorage
+    // Admin invoices page shows ALL invoices by default; filtering is done via UI controls
     const urlParams = new URLSearchParams(window.location.search);
     const urlIds = urlParams.get('accountIds') || urlParams.get('accountId');
 
-    let initialFilterIds: string[] = [];
     if (urlIds) {
-      initialFilterIds = urlIds.split(',');
-    } else {
-      const storageIds = sessionStorage.getItem('selectedAccountIds');
-      if (storageIds) {
-        try {
-          initialFilterIds = JSON.parse(storageIds);
-        } catch (e) {
-          console.warn('Failed to parse selectedAccountIds from session storage');
-        }
-      }
-    }
-
-    setFilterIds(initialFilterIds);
-
-    if (initialFilterIds.length > 0) {
+      const initialFilterIds = urlIds.split(',');
+      setFilterIds(initialFilterIds);
       setGeneration(prev => ({ ...prev, accountId: initialFilterIds[0] }));
     }
 
-    // Fetch accounts
-    fetchAccounts().then(() => {
-      // After accounts load, sync selection from sidebar
-      // We'll need to wait for accounts to be in state
-    });
+    // Fetch accounts for the filter/generation dropdown
+    fetchAccounts();
 
     // Load from cache first
     loadFromCache();
@@ -524,15 +491,6 @@ export const useBillOpsAdminInvoices = (): UseBillOpsAdminInvoicesReturn => {
       isMountedRef.current = false;
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  /**
-   * Sync account selection when accounts and filterIds change
-   */
-  useEffect(() => {
-    if (accounts.length > 0 && filterIds.length > 0) {
-      syncSelectionFromSidebar(accounts, filterIds);
-    }
-  }, [accounts, filterIds, syncSelectionFromSidebar]);
 
   return {
     // State
@@ -559,6 +517,7 @@ export const useBillOpsAdminInvoices = (): UseBillOpsAdminInvoicesReturn => {
     fetchData,
     generateInvoice,
     setSelectedIds,
+    setFilterIds,
     setGeneration,
     requestMerge,
     cancelMerge,

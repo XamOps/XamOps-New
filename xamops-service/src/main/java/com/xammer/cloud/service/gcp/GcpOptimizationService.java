@@ -16,12 +16,17 @@ import com.google.cloud.billing.v1.CloudCatalogClient;
 import com.google.cloud.billing.v1.ListSkusRequest;
 import com.google.cloud.billing.v1.Sku;
 import com.google.cloud.billing.v1.PricingExpression;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.xammer.cloud.domain.CachedData;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.dto.gcp.GcpCommittedUseDiscountDto;
 import com.xammer.cloud.dto.gcp.GcpCudUtilizationDto;
 import com.xammer.cloud.dto.gcp.GcpOptimizationRecommendation;
 import com.xammer.cloud.dto.gcp.GcpWasteItem;
+import com.xammer.cloud.repository.CachedDataRepository;
+import com.xammer.cloud.service.RedisCacheService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.annotation.Lazy;
@@ -30,6 +35,8 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
@@ -51,6 +58,9 @@ public class GcpOptimizationService {
     private final GcpDataService gcpDataService;
     private final CloudAccountService cloudAccountService;
     private final GcpMetricsService gcpMetricsService;
+    private final RedisCacheService redisCacheService;
+    private final CachedDataRepository cachedDataRepository;
+    private final ObjectMapper objectMapper;
 
     // Utilization thresholds for validation (similar to AWS approach)
     private static final double HIGH_CPU_THRESHOLD = 80.0; // Recommend upgrade if CPU > 80% (Increased from 50.0)
@@ -119,11 +129,30 @@ public class GcpOptimizationService {
             GcpClientProvider gcpClientProvider,
             @Lazy GcpDataService gcpDataService,
             CloudAccountService cloudAccountService,
-            GcpMetricsService gcpMetricsService) {
+            GcpMetricsService gcpMetricsService,
+            RedisCacheService redisCacheService,
+            CachedDataRepository cachedDataRepository,
+            ObjectMapper objectMapper) {
         this.gcpClientProvider = gcpClientProvider;
         this.gcpDataService = gcpDataService;
         this.cloudAccountService = cloudAccountService;
         this.gcpMetricsService = gcpMetricsService;
+        this.redisCacheService = redisCacheService;
+        this.cachedDataRepository = cachedDataRepository;
+        this.objectMapper = objectMapper;
+    }
+
+    private void saveToDb(String dbKey, Object data) {
+        try {
+            String json = objectMapper.writeValueAsString(data);
+            CachedData entity = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+            entity.setCacheKey(dbKey);
+            entity.setJsonData(json);
+            entity.setLastUpdated(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
+            cachedDataRepository.save(entity);
+        } catch (Exception e) {
+            log.warn("Failed to save GCP optimization DB snapshot for key {}: {}", dbKey, e.getMessage());
+        }
     }
 
     @Cacheable(value = "gcpCommittedUseDiscounts", key = "'gcp:committed-use-discounts:' + #gcpProjectId")
@@ -178,8 +207,37 @@ public class GcpOptimizationService {
         return CompletableFuture.supplyAsync(() -> getCudUtilizationSync(gcpProjectId, cudId), executor);
     }
 
-    @Cacheable(value = "gcpRightsizingRecommendations", key = "'gcp:rightsizing-recommendations:' + #gcpProjectId")
     public List<GcpOptimizationRecommendation> getRightsizingRecommendations(String gcpProjectId) {
+        return getRightsizingRecommendations(gcpProjectId, false);
+    }
+
+    public List<GcpOptimizationRecommendation> getRightsizingRecommendations(String gcpProjectId, boolean forceRefresh) {
+        String cacheKey = "gcp:rightsizing-recommendations:" + gcpProjectId;
+        String dbKey = "GCP_RIGHTSIZING::" + gcpProjectId;
+
+        if (!forceRefresh) {
+            // 1. Try Redis
+            Optional<List<GcpOptimizationRecommendation>> cached = redisCacheService.get(cacheKey, new TypeReference<>() {});
+            if (cached.isPresent()) {
+                log.info("✅ Returning Redis-cached rightsizing recommendations for project {}", gcpProjectId);
+                return cached.get();
+            }
+
+            // 2. Try DB snapshot
+            try {
+                Optional<CachedData> dbSnapshot = cachedDataRepository.findById(dbKey);
+                if (dbSnapshot.isPresent()) {
+                    List<GcpOptimizationRecommendation> dbResult = objectMapper.readValue(
+                            dbSnapshot.get().getJsonData(), new TypeReference<>() {});
+                    log.info("✅ Returning DB-cached rightsizing recommendations for project {} — re-warming Redis", gcpProjectId);
+                    redisCacheService.put(cacheKey, dbResult, 60);
+                    return dbResult;
+                }
+            } catch (Exception e) {
+                log.warn("DB snapshot load failed for rightsizing {}: {}", gcpProjectId, e.getMessage());
+            }
+        }
+
         log.info("🔍 Fetching rightsizing recommendations for GCP project: {}", gcpProjectId);
 
         // Dynamic regions via API (fallback to static if fails)
@@ -255,6 +313,8 @@ public class GcpOptimizationService {
                 uniqueRecommendations);
 
         log.info("✅ Total validated rightsizing recommendations found: {}", validatedRecommendations.size());
+        redisCacheService.put("gcp:rightsizing-recommendations:" + gcpProjectId, validatedRecommendations, 60);
+        saveToDb("GCP_RIGHTSIZING::" + gcpProjectId, validatedRecommendations);
         return validatedRecommendations;
     }
 
@@ -589,8 +649,37 @@ public class GcpOptimizationService {
         return "Unknown"; // Fallback
     }
 
-    @Cacheable(value = "gcpWasteReport", key = "'gcp:waste-report:' + #gcpProjectId")
     public List<GcpWasteItem> getWasteReport(String gcpProjectId) {
+        return getWasteReport(gcpProjectId, false);
+    }
+
+    public List<GcpWasteItem> getWasteReport(String gcpProjectId, boolean forceRefresh) {
+        String cacheKey = "gcp:waste-report:" + gcpProjectId;
+        String dbKey = "GCP_WASTE::" + gcpProjectId;
+
+        if (!forceRefresh) {
+            // 1. Try Redis
+            Optional<List<GcpWasteItem>> cached = redisCacheService.get(cacheKey, new TypeReference<>() {});
+            if (cached.isPresent()) {
+                log.info("✅ Returning Redis-cached waste report for project {}", gcpProjectId);
+                return cached.get();
+            }
+
+            // 2. Try DB snapshot
+            try {
+                Optional<CachedData> dbSnapshot = cachedDataRepository.findById(dbKey);
+                if (dbSnapshot.isPresent()) {
+                    List<GcpWasteItem> dbResult = objectMapper.readValue(
+                            dbSnapshot.get().getJsonData(), new TypeReference<>() {});
+                    log.info("✅ Returning DB-cached waste report for project {} — re-warming Redis", gcpProjectId);
+                    redisCacheService.put(cacheKey, dbResult, 60);
+                    return dbResult;
+                }
+            } catch (Exception e) {
+                log.warn("DB snapshot load failed for waste report {}: {}", gcpProjectId, e.getMessage());
+            }
+        }
+
         log.info("Starting waste report generation for GCP project: {}", gcpProjectId);
         List<CompletableFuture<List<GcpWasteItem>>> futures = new ArrayList<>();
 
@@ -635,6 +724,8 @@ public class GcpOptimizationService {
                 .collect(Collectors.toList());
 
         log.info("✅ Total waste items found: {}", allWaste.size());
+        redisCacheService.put("gcp:waste-report:" + gcpProjectId, allWaste, 60);
+        saveToDb("GCP_WASTE::" + gcpProjectId, allWaste);
         return allWaste;
     }
 

@@ -130,19 +130,17 @@ public class AppUserService {
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
         Client client = user.getClient();
-        Long clientId = client.getId();
+        Long clientId = client != null ? client.getId() : null;
 
-        // Delete the user first
-        appUserRepository.deleteById(id);
+        // Use direct JPQL delete to bypass Hibernate entity lifecycle nullability checks
+        appUserRepository.deleteByIdDirect(id);
 
         // Check if any other users are still using this client
-        long usersWithClient = appUserRepository.findAll().stream()
-                .filter(u -> u.getClient() != null && u.getClient().getId().equals(clientId))
-                .count();
-
-        // If no other users have this client, delete it
-        if (usersWithClient == 0) {
-            clientRepository.deleteById(clientId);
+        if (clientId != null) {
+            long usersWithClient = appUserRepository.findByClientId(clientId).size();
+            if (usersWithClient == 0) {
+                clientRepository.deleteById(clientId);
+            }
         }
     }
 
@@ -184,8 +182,8 @@ public class AppUserService {
                 "<div class='credentials-box'>" +
                 "<h3 style='margin-top: 0; color: #667eea;'>Your Login Credentials</h3>" +
                 "<div class='credential-item'>" +
-                "<span class='label'>Username:</span>" +
-                "<span class='value'>" + username + "</span>" +
+                "<span class='label'>Email (Login):</span>" +
+                "<span class='value'>" + email + "</span>" +
                 "</div>" +
                 "<div class='credential-item'>" +
                 "<span class='label'>Password:</span>" +

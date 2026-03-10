@@ -4,7 +4,7 @@
  * Manages CloudSitter state and API interactions
  */
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import type {
   EC2Resource,
   CloudSitterPolicy,
@@ -24,6 +24,8 @@ export const useCloudSitter = (accountId: string | null) => {
   const [resources, setResources] = useState<EC2Resource[]>([]);
   const [policies, setPolicies] = useState<CloudSitterPolicy[]>([]);
   const [, setAssignments] = useState<Record<string, PolicyAssignment>>({});
+
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Policy Form State
   const [policyForm, setPolicyForm] = useState<PolicyFormData>({
@@ -97,6 +99,12 @@ export const useCloudSitter = (accountId: string | null) => {
    */
   const loadData = useCallback(async (forceRefresh = false) => {
     if (!accountId) return;
+
+    // Cancel any in-flight request before starting a new one
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = new AbortController();
+    const { signal } = abortControllerRef.current;
+
     setIsLoading(true);
     console.log('Loading CloudSitter data for account:', accountId);
 
@@ -120,6 +128,10 @@ export const useCloudSitter = (accountId: string | null) => {
             ec2Instances = JSON.parse(cachedData);
           }
         }
+      } else {
+        // Clear cache on force refresh
+        sessionStorage.removeItem(`cloudlist-ec2-${accountId}`);
+        sessionStorage.removeItem(`cloudlist-ec2-timestamp-${accountId}`);
       }
 
       // Fetch fresh data if cache miss or force refresh
@@ -128,7 +140,7 @@ export const useCloudSitter = (accountId: string | null) => {
       if (ec2Instances.length === 0 || forceRefresh) {
         console.log('🔄 Fetching fresh EC2 data from CloudList API');
         fetchPromises.push(
-          fetch(`/api/xamops/cloudlist/all?accountId=${accountId}&size=100`)
+          fetch(`/api/xamops/cloudlist/all?accountId=${accountId}&size=100`, { signal })
             .then(async (resResponse) => {
               if (resResponse.ok) {
                 const resData = await resResponse.json();
@@ -144,14 +156,15 @@ export const useCloudSitter = (accountId: string | null) => {
               }
             })
             .catch((err) => {
+              if (err instanceof DOMException && err.name === 'AbortError') throw err;
               console.error('❌ CloudList API fetch failed:', err);
             })
         );
       }
 
       fetchPromises.push(
-        fetch('/api/xamops/cloudsitter/policies').then(r => r.json()),
-        fetch(`/api/xamops/cloudsitter/assignments?accountId=${accountId}`).then(r => r.json())
+        fetch('/api/xamops/cloudsitter/policies', { signal }).then(r => r.json()),
+        fetch(`/api/xamops/cloudsitter/assignments?accountId=${accountId}`, { signal }).then(r => r.json())
       );
 
       const results = await Promise.all(fetchPromises);
@@ -177,6 +190,7 @@ export const useCloudSitter = (accountId: string | null) => {
       setResources(mappedResources);
       console.log(`✅ Mapped ${mappedResources.length} resources for CloudSitter display`);
     } catch (e) {
+      if (e instanceof DOMException && e.name === 'AbortError') return;
       console.error('Failed to load CloudSitter data:', e);
     } finally {
       setIsLoading(false);
