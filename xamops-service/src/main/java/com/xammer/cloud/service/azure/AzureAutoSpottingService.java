@@ -130,6 +130,7 @@ public class AzureAutoSpottingService {
         public String resourceGroup;
         public String region;
         public boolean isEnabled;           // true when VMSS priority == Spot
+        public boolean aksManaged;          // true if managed by AKS (cannot be toggled)
         public int instanceCount;
         public int spotInstanceCount;
         public int ondemandInstanceCount;
@@ -268,6 +269,11 @@ public class AzureAutoSpottingService {
             log.debug("Could not read priority for VMSS {}: {}", vmss.name(), e.getMessage());
         }
 
+        // Detect AKS-managed VMSS: name starts with "aks-" OR resource group starts with "MC_"
+        // Same pattern as GCP GKE detection (name starts with "gke-")
+        boolean aksManaged = (vmss.name() != null && vmss.name().toLowerCase().startsWith("aks-"))
+                || (vmss.resourceGroupName() != null && vmss.resourceGroupName().toUpperCase().startsWith("MC_"));
+
         // Use DB-tracked enabled state as source of truth (user intent persists across reloads)
         String dbKey = (vmss.resourceGroupName() + "/" + vmss.name()).toLowerCase();
         boolean dbEnabled = dbEnabledMap.getOrDefault(dbKey, false);
@@ -280,6 +286,7 @@ public class AzureAutoSpottingService {
                 .resourceGroup(vmss.resourceGroupName())
                 .region(vmss.regionName())
                 .isEnabled(isSpotEnabled)
+                .aksManaged(aksManaged)
                 .instanceCount(instanceCount)
                 .spotInstanceCount(azureSpotPriority ? instanceCount : 0)
                 .ondemandInstanceCount(azureSpotPriority ? 0 : instanceCount)
@@ -319,6 +326,15 @@ public class AzureAutoSpottingService {
     public void enableAutoSpotting(String subscriptionId, String resourceGroup, String vmssName) {
         log.info("🚀 [Azure AutoSpotting] Starting Spot enablement for VMSS {} in RG {} (subscription {})",
                 vmssName, resourceGroup, subscriptionId);
+
+        // Guard: AKS-managed VMSS cannot have Spot priority changed — same lock as GKE MIGs
+        boolean isAksManaged = (vmssName != null && vmssName.toLowerCase().startsWith("aks-"))
+                || (resourceGroup != null && resourceGroup.toUpperCase().startsWith("MC_"));
+        if (isAksManaged) {
+            log.warn("⛔ [Azure AutoSpotting] Skipping AKS-managed VMSS {} in RG {} — Azure controls its lifecycle. " +
+                    "To use Spot, create a Spot node pool in the AKS console.", vmssName, resourceGroup);
+            return;
+        }
 
         CloudAccount account = resolveAccount(subscriptionId);
 
@@ -368,11 +384,28 @@ public class AzureAutoSpottingService {
             }
 
             // Step 2 — Update VMSS profile priority to Spot so newly added VMs are Spot
-            // Works for Uniform orchestration VMSS. Flexible mode has no shared VM profile.
+            // Works for Uniform orchestration VMSS. Flexible mode requires per-VM replacement.
             boolean priorityChanged = false;
             var vmProfile = vmss.innerModel().virtualMachineProfile();
-            if (vmProfile == null) {
-                // Flexible orchestration mode: no shared VM profile exists.
+
+            // Detect Flexible orchestration mode:
+            // Primary: check orchestrationMode field (most reliable)
+            // Fallback: vmProfile == null (some Flexible VMSS still return a profile object)
+            boolean isFlexible = false;
+            try {
+                var orchMode = vmss.innerModel().orchestrationMode();
+                if (orchMode != null && orchMode.toString().equalsIgnoreCase("Flexible")) {
+                    isFlexible = true;
+                }
+            } catch (Exception e) {
+                log.debug("Could not read orchestrationMode for VMSS {}: {}", vmssName, e.getMessage());
+            }
+            if (!isFlexible && vmProfile == null) {
+                isFlexible = true;
+            }
+
+            if (isFlexible) {
+                // Flexible orchestration mode: no shared VM profile for priority.
                 // Use per-VM replacement — same as Spot.io/Elastigroup:
                 //   create new Spot VM (same image + network + SSH) → wait healthy → delete Regular VM
                 log.info("Step 2: VMSS {} uses Flexible orchestration mode. Starting per-VM Spot replacement...", vmssName);
