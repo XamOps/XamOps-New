@@ -503,7 +503,7 @@ const BillOpsAdminDashboardPage: React.FC = () => {
                     </thead>
                     <tbody className="bg-white/40 divide-y divide-gray-200">
                       {convertedData?.topSpendingAccounts?.length ? (
-                        convertedData.topSpendingAccounts.map((account: TopSpendingAccount, idx: number) => {
+                        [...convertedData.topSpendingAccounts].sort((a, b) => (b.currentMonthSpending ?? 0) - (a.currentMonthSpending ?? 0)).map((account: TopSpendingAccount, idx: number) => {
                           const mom = getMoMChange(account.currentMonthSpending, account.lastMonthSpending);
                           return (
                             <tr key={account.id} className="admin-table-row">

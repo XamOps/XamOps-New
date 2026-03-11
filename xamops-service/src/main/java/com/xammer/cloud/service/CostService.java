@@ -269,7 +269,8 @@ public class CostService {
 
                 String cacheKey = "costBreakdown-" + accountId + "-" + groupBy + "-" + (tag != null ? tag : "") + "-"
                                 + startDate + "-" + endDate;
-                String dbKey = "cost-" + accountId;
+                String dbKey = "AWS_COST_BREAKDOWN::" + accountId + "::" + groupBy + "::" + (tag != null ? tag : "")
+                                + "::" + startDate + "::" + endDate;
 
                 if (!forceRefresh) {
                         // 1. Check Redis first (fast, no DB connection consumed)
@@ -378,12 +379,30 @@ public class CostService {
                                 serviceName != null ? serviceName : "ALL",
                                 regionName != null ? regionName : "ALL",
                                 days);
+                String dbKey = String.format("AWS_COST_HISTORY::%s::%s::%s::%d",
+                                accountId,
+                                serviceName != null ? serviceName : "ALL",
+                                regionName != null ? regionName : "ALL",
+                                days);
 
                 if (!forceRefresh) {
                         Optional<HistoricalCostDto> cachedData = redisCache.get(cacheKey, HistoricalCostDto.class);
                         if (cachedData.isPresent()) {
                                 logger.info("✅ Cache hit for historical cost: {}", cacheKey);
                                 return CompletableFuture.completedFuture(cachedData.get());
+                        }
+                        // DB fallback
+                        try {
+                                Optional<CachedData> dbSnapshot = cachedDataRepository.findById(dbKey);
+                                if (dbSnapshot.isPresent()) {
+                                        HistoricalCostDto dbResult = objectMapper.readValue(
+                                                        dbSnapshot.get().getJsonData(), HistoricalCostDto.class);
+                                        logger.info("✅ Historical cost loaded from DB for {} — re-warming Redis", accountId);
+                                        redisCache.put(cacheKey, dbResult, 60);
+                                        return CompletableFuture.completedFuture(dbResult);
+                                }
+                        } catch (Exception e) {
+                                logger.warn("DB snapshot load failed for historical cost {}: {}", accountId, e.getMessage());
                         }
                 }
 
@@ -464,6 +483,16 @@ public class CostService {
 
                                 HistoricalCostDto historicalCost = new HistoricalCostDto(labels, costs);
                                 redisCache.put(cacheKey, historicalCost, 60);
+                                try {
+                                        CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+                                        snapshot.setCacheKey(dbKey);
+                                        snapshot.setJsonData(objectMapper.writeValueAsString(historicalCost));
+                                        snapshot.setLastUpdated(java.time.LocalDateTime.now());
+                                        cachedDataRepository.save(snapshot);
+                                        logger.info("✅ Historical cost saved to DB snapshot: {}", dbKey);
+                                } catch (Exception e) {
+                                        logger.warn("Failed to save historical cost DB snapshot {}: {}", dbKey, e.getMessage());
+                                }
 
                                 logger.info("✅ Historical cost fetched: {} days for account {}", labels.size(),
                                                 accountId);
