@@ -47,6 +47,9 @@ public class AccountAccessHelper {
             if (currentUser == null || currentUser.getCreatedBy() == null) {
                 return null; // Primary admin — no restriction
             }
+            if (currentUser.isAllAccountsAccess()) {
+                return null; // Sub-user with all-accounts access — no restriction (dynamic)
+            }
             List<Long> ids = userCloudAccountAccessRepository.findCloudAccountIdsByUserId(userId);
             return new HashSet<>(ids);
         } catch (Exception e) {

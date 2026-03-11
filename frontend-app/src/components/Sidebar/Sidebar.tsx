@@ -212,14 +212,14 @@ const Sidebar: React.FC = () => {
                 ))
               ) : (
                 <>
-                  {isTabAllowed('admin-dashboard') && <NavItem href="/billops-admin-dashboard" icon="fas fa-chart-bar" label="Admin Dashboard" isActive={isActive('/billops-admin-dashboard')} />}
-                  {isTabAllowed('support-inbox') && <NavItem href="/billops-support-dashboard" icon="fas fa-headset" label="Support Inbox" isActive={isActive('/billops-support-dashboard')} />}
-                  {isTabAllowed('all-tickets') && <NavItem href="/billops-admin-tickets" icon="fas fa-ticket-alt" label="All Tickets" isActive={isActive('/billops-admin-tickets')} />}
-                  {isTabAllowed('all-invoices') && <NavItem href="/billops-admin-invoices" icon="fas fa-file-invoice" label="All Invoices" isActive={isActive('/billops-admin-invoices')} />}
-                  {isTabAllowed('credit-requests') && <NavItem href="/billops-admin-credits" icon="fas fa-coins" label="Credit Requests" isActive={isActive('/billops-admin-credits')} />}
-                  {isTabAllowed('agreement-admin') && <NavItem href="/billops-admin-agreements" icon="fas fa-file-signature" label="Agreement Admin" isActive={isActive('/billops-admin-agreements')} />}
-                  {isTabAllowed('client-details') && <NavItem href="/billops-client-details" icon="fas fa-users-cog" label="Client Details" isActive={isActive('/billops-client-details')} />}
-                  {isTabAllowed('autospotting-admin') && <NavItem href="/autospotting-admin" icon="fas fa-magic" label="AutoSpotting Admin" isActive={isActive('/autospotting-admin')} />}
+                  {isTabAllowed('admin-dashboard') && <NavItem href="/billops-admin-dashboard" icon="fas fa-chart-bar" label="Dashboard" isActive={isActive('/billops-admin-dashboard')} />}
+                  {isTabAllowed('support-inbox') && <NavItem href="/billops-support-dashboard" icon="fas fa-headset" label="Chat" isActive={isActive('/billops-support-dashboard')} />}
+                  {isTabAllowed('all-tickets') && <NavItem href="/billops-admin-tickets" icon="fas fa-ticket-alt" label="Tickets" isActive={isActive('/billops-admin-tickets')} />}
+                  {isTabAllowed('all-invoices') && <NavItem href="/billops-admin-invoices" icon="fas fa-file-invoice" label="Billing" isActive={isActive('/billops-admin-invoices')} />}
+                  {isTabAllowed('credit-requests') && <NavItem href="/billops-admin-credits" icon="fas fa-coins" label="Credit" isActive={isActive('/billops-admin-credits')} />}
+                  {isTabAllowed('client-details') && <NavItem href="/billops-client-details" icon="fas fa-users-cog" label="Accounts" isActive={isActive('/billops-client-details')} />}
+                  {isTabAllowed('agreement-admin') && <NavItem href="/billops-admin-agreements" icon="fas fa-file-signature" label="Agreement" isActive={isActive('/billops-admin-agreements')} />}
+                  {isTabAllowed('autospotting-admin') && <NavItem href="/autospotting-admin" icon="fas fa-magic" label="AutoSpotting" isActive={isActive('/autospotting-admin')} />}
                 </>
               )}
             </>
@@ -344,7 +344,7 @@ const Sidebar: React.FC = () => {
             {hasAnyRole(['ROLE_XAMOPS', 'ROLE_BILLOPS', 'ROLE_SUPER_ADMIN']) && (
               <NavItem href="/user-management" icon="fas fa-users-cog" label="User Management" isActive={isActive('/user-management')} />
             )}
-            {(hasAnyRole('ROLE_BILLOPS_ADMIN') || hasAnyRole('ROLE_SUPER_ADMIN')) && !isAdminSubUser && (
+            {(hasAnyRole('ROLE_BILLOPS_ADMIN') || hasAnyRole('ROLE_SUPER_ADMIN')) && (!isAdminSubUser || isTabAllowed('user-manager')) && (
               <NavItem href="/billops-admin-user-manager" icon="fas fa-user-cog" label="User Manager" isActive={isActive('/billops-admin-user-manager')} />
             )}
             {hasAnyRole('ROLE_BILLOPS_ADMIN') && !isAdminSubUser && (

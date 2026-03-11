@@ -13,6 +13,7 @@ public class TeamUserDTO {
     private List<Long> accountIds; // Cloud account IDs this user can access
     private List<ProfileDTO.CloudAccountInfo> cloudAccounts; // Full cloud account details for display
     private List<String> allowedTabs; // Tab keys this user can access (ROLE_BILLOPS_ADMIN sub-users)
+    private boolean allAccountsAccess; // If true, user sees all accounts dynamically (no fixed list)
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -30,4 +31,6 @@ public class TeamUserDTO {
     public void setCloudAccounts(List<ProfileDTO.CloudAccountInfo> cloudAccounts) { this.cloudAccounts = cloudAccounts; }
     public List<String> getAllowedTabs() { return allowedTabs; }
     public void setAllowedTabs(List<String> allowedTabs) { this.allowedTabs = allowedTabs; }
+    public boolean isAllAccountsAccess() { return allAccountsAccess; }
+    public void setAllAccountsAccess(boolean allAccountsAccess) { this.allAccountsAccess = allAccountsAccess; }
 }

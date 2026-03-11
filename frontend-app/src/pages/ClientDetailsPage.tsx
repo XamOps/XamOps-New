@@ -120,10 +120,11 @@ const ClientDetailsPage: React.FC = () => {
 
     const handleLoginAs = (userId: number, tenantId: string) => {
         const url = `${window.location.origin}/unified-dashboard?impersonateUserId=${userId}&tenantId=${tenantId}`;
-        // Use '_blank' without popup features so browsers always open a true
-        // new tab. Named popup windows can be blocked → browser falls back to
-        // navigating the CURRENT tab, which contaminates the admin session.
-        window.open(url, '_blank');
+        // noopener,noreferrer forces a separate browsing context group so
+        // Tab B gets its own isolated sessionStorage — preventing Tab A's
+        // admin session from being contaminated when Tab B writes
+        // impersonateUserId / selectedTenantId into sessionStorage.
+        window.open(url, '_blank', 'noopener,noreferrer');
     };
 
     const stats = useMemo(() => ({
