@@ -19,6 +19,7 @@ export interface AzureVMSS {
     resourceGroup: string;
     region: string;
     isEnabled: boolean;
+    aksManaged: boolean;
     instanceCount: number;
     spotCount: number;
     onDemandCount: number;
@@ -98,6 +99,10 @@ export const useAzureSpotAutomationData = ({ selectedAccountId }: UseAzureSpotAu
                 resourceGroup: vmss.resourceGroup,
                 region: vmss.region,
                 isEnabled: vmss.isEnabled,
+                aksManaged: vmss.aksManaged ?? (
+                    (typeof vmss.name === 'string' && vmss.name.toLowerCase().startsWith('aks-')) ||
+                    (typeof vmss.resourceGroup === 'string' && vmss.resourceGroup.toUpperCase().startsWith('MC_'))
+                ),
                 instanceCount: vmss.instanceCount,
                 spotCount: vmss.spotInstanceCount,
                 onDemandCount: vmss.ondemandInstanceCount,

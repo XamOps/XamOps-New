@@ -332,6 +332,7 @@ const AzureSpotAutomationPage: React.FC = () => {
     }
 
     const handleToggle = async (vmss: AzureVMSS) => {
+        if (vmss.aksManaged) return; // AKS-managed VMSS cannot be toggled
         try {
             await toggleVMSS(vmss);
             gooeyToast.success(`AutoSpotting ${!vmss.isEnabled ? 'enabled' : 'disabled'} for ${vmss.name}`);
@@ -501,8 +502,11 @@ const AzureSpotAutomationPage: React.FC = () => {
                                                                 <div className="text-sm font-bold text-slate-800 group-hover:text-blue-600 transition-colors">
                                                                     {vmss.name}
                                                                 </div>
-                                                                <div className="text-[10px] text-slate-400 font-mono mt-0.5">
-                                                                    AZURE VMSS
+                                                                <div className="flex items-center gap-1.5 mt-0.5">
+                                                                    <span className="text-[10px] text-slate-400 font-mono">AZURE VMSS</span>
+                                                                    {vmss.aksManaged && (
+                                                                        <span className="text-[9px] font-bold bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full border border-blue-200">AKS</span>
+                                                                    )}
                                                                 </div>
                                                             </div>
                                                         </div>
@@ -553,38 +557,63 @@ const AzureSpotAutomationPage: React.FC = () => {
                                                         </div>
                                                     </td>
                                                     <td className="px-6 py-4 text-right">
-                                                        <div className="text-sm font-bold text-emerald-600">
-                                                            +₹{vmss.potentialSavings.toFixed(2)}
-                                                            <span className="text-[10px] text-slate-400 ml-1 font-medium">
-                                                                /hr
+                                                        {vmss.aksManaged ? (
+                                                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-400 bg-slate-100 border border-slate-200 px-2 py-1 rounded-full">
+                                                                <i className="fas fa-ban text-[9px]"></i>
+                                                                N/A
                                                             </span>
-                                                        </div>
+                                                        ) : (
+                                                            <div className="text-sm font-bold text-emerald-600">
+                                                                +₹{vmss.potentialSavings.toFixed(2)}
+                                                                <span className="text-[10px] text-slate-400 ml-1 font-medium">
+                                                                    /hr
+                                                                </span>
+                                                            </div>
+                                                        )}
                                                     </td>
                                                     <td className="px-6 py-4">
                                                         <div className="flex justify-center">
-                                                            <button
-                                                                onClick={() => handleToggle(vmss)}
-                                                                disabled={vmss.updating}
-                                                                title={
-                                                                    vmss.isEnabled
-                                                                        ? 'Disable Spot for this VMSS'
-                                                                        : 'Enable Spot — starts staged replacement loop'
-                                                                }
-                                                                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-                                                                    vmss.isEnabled ? 'bg-blue-600' : 'bg-slate-200'
-                                                                } ${vmss.updating ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-                                                            >
-                                                                <span className="sr-only">Toggle AutoSpotting</span>
-                                                                <span
-                                                                    className={`${
-                                                                        vmss.isEnabled ? 'translate-x-6' : 'translate-x-1'
-                                                                    } inline-block h-4 w-4 transform rounded-full bg-white transition-transform ease-in-out duration-200 flex items-center justify-center`}
+                                                            {vmss.aksManaged ? (
+                                                                <div className="relative group/aks">
+                                                                    <div
+                                                                        className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 cursor-not-allowed select-none"
+                                                                        aria-disabled="true"
+                                                                    >
+                                                                        <i className="fas fa-lock text-[9px]"></i>
+                                                                        AKS Managed
+                                                                    </div>
+                                                                    <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-64 bg-slate-900 text-white text-[10px] rounded-lg px-3 py-2 shadow-lg hidden group-hover/aks:block z-10 pointer-events-none leading-relaxed">
+                                                                        <div className="flex items-start gap-1.5">
+                                                                            <i className="fas fa-info-circle text-blue-400 mt-0.5 shrink-0"></i>
+                                                                            <span>This is an <strong className="text-white">AKS-managed node pool</strong>. AutoSpotting cannot convert it — AKS controls its lifecycle. To use Spot VMs, create a dedicated Spot node pool in the AKS console.</span>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            ) : (
+                                                                <button
+                                                                    onClick={() => handleToggle(vmss)}
+                                                                    disabled={vmss.updating}
+                                                                    title={
+                                                                        vmss.isEnabled
+                                                                            ? 'Disable Spot for this VMSS'
+                                                                            : 'Enable Spot — starts staged replacement loop'
+                                                                    }
+                                                                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                                                                        vmss.isEnabled ? 'bg-blue-600' : 'bg-slate-200'
+                                                                    } ${vmss.updating ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                                                                 >
-                                                                    {vmss.updating && (
-                                                                        <i className="fas fa-circle-notch fa-spin text-[8px] text-blue-600"></i>
-                                                                    )}
-                                                                </span>
-                                                            </button>
+                                                                    <span className="sr-only">Toggle AutoSpotting</span>
+                                                                    <span
+                                                                        className={`${
+                                                                            vmss.isEnabled ? 'translate-x-6' : 'translate-x-1'
+                                                                        } inline-block h-4 w-4 transform rounded-full bg-white transition-transform ease-in-out duration-200 flex items-center justify-center`}
+                                                                    >
+                                                                        {vmss.updating && (
+                                                                            <i className="fas fa-circle-notch fa-spin text-[8px] text-blue-600"></i>
+                                                                        )}
+                                                                    </span>
+                                                                </button>
+                                                            )}
                                                         </div>
                                                     </td>
                                                     <td className="px-6 py-4 text-center">
