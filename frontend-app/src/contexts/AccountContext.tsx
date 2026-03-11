@@ -52,7 +52,7 @@ const AccountContext = createContext<AccountContextValue | undefined>(undefined)
 export const AccountProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { hasAnyRole } = useAuth();
+  const { hasAnyRole, authReady } = useAuth();
 
   // Load from cache immediately to prevent flicker
   const [accounts, setAccounts] = useState<Account[]>(() => {
@@ -140,13 +140,17 @@ export const AccountProvider: React.FC<{ children: ReactNode }> = ({ children })
   }, []);
 
   /**
-   * Initialize on mount
+   * Initialize on mount — but only after AuthContext has finished its profile
+   * fetch and corrected sessionStorage (authReady = true).  Waiting here
+   * prevents fetchAccounts from sending stale impersonateUserId / selectedTenantId
+   * values that were left by a previous Login-As session contamination.
    */
   useEffect(() => {
+    if (!authReady) return; // wait for AuthContext to clean up sessionStorage first
     if (initializedRef.current) return;
     initializedRef.current = true;
 
-    console.log('🚀 Account Context Init - Starting...');
+    console.log('🚀 Account Context Init - Starting (authReady)...');
     checkCurrentPage();
     fetchAccounts();
 
@@ -169,7 +173,7 @@ export const AccountProvider: React.FC<{ children: ReactNode }> = ({ children })
     return () => {
       globalThis.removeEventListener('account-changed', handleAccountChangedEvent);
     };
-  }, [checkCurrentPage, fetchAccounts]);
+  }, [authReady, checkCurrentPage, fetchAccounts]);
 
   /**
    * Handle browser back/forward buttons (PopState)
