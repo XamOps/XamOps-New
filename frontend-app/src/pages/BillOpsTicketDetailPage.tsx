@@ -16,8 +16,8 @@ import { useBillOpsTicketDetail } from '../hooks/useBillOpsTicketDetail';
 import { RCAFormData, RCAFormSection } from '../types/billopsTickets';
 import { useTopbarActions } from '../contexts/TopbarContext';
 import { formatIST, getSlaStatus, getResponseSlaLabel } from '../utils/timeUtils';
-import Quill from 'quill';
-import 'quill/dist/quill.snow.css';
+import Quill from 'react-quill-new';
+import 'react-quill-new/dist/quill.snow.css';
 import { DialogRoot, DialogPanel } from '../components/ui';
 
 const BillOpsTicketDetailPage: React.FC = () => {
