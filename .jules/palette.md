@@ -1,0 +1,3 @@
+## 2026-03-11 - Enhancing the Account Selector UX and Accessibility
+**Learning:** Interactive dropdowns with search functionality require explicit ARIA attributes (aria-expanded, aria-haspopup, aria-label, role="listbox", aria-live="polite") to ensure accessibility for screen reader users. Usability is further improved by adding a 'Clear search' button for quick resets and using the 'title' attribute to reveal full IDs for truncated text on hover.
+**Action:** Always implement ARIA landmarks and states for custom dropdowns. Include a clear button for all search inputs and use hover titles for truncated data. Ensure all interactive elements have clear 'focus-visible' ring styles for keyboard navigation.
