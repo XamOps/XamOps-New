@@ -14,6 +14,10 @@ interface AuthContextValue {
   userRoles: UserRole[];
   userProfile: UserProfile | null;
   isLoading: boolean;
+  /** True once fetchUserRoles has completed and sessionStorage is in a clean state.
+   *  AccountContext waits for this before firing fetchAccounts so it never reads
+   *  stale impersonateUserId / selectedTenantId values. */
+  authReady: boolean;
 
   // Super admin features
   tenantList: Tenant[];
@@ -49,6 +53,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  // Becomes true once fetchUserRoles completes (success or failure).
+  // AccountContext waits for this before calling fetchAccounts so it never
+  // reads stale impersonateUserId / selectedTenantId from a previous session.
+  const [authReady, setAuthReady] = useState(false);
 
   const [tenantList, setTenantList] = useState<Tenant[]>([]);
   const [tenantUsers, setTenantUsers] = useState<TenantUser[]>([]);
@@ -171,13 +179,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           await fetchTenantAccounts(currentImpersonateUser, currentTenant);
         }
       } else {
-        // For regular users: read their tenant from the profile response if available.
-        // The backend may return tenantId so the frontend can route requests correctly.
+        // For regular users: restore tenant from profile. Always overwrite any stale
+        // value (e.g. a client name injected by the old Login-As popup bug).
         const tenantId = (data as any).tenantId || (data as any).tenant_id;
         if (tenantId) {
           sessionStorage.setItem('selectedTenantId', tenantId);
           setSelectedTenant(tenantId);
-        } else if (!sessionStorage.getItem('selectedTenantId')) {
+        } else {
           sessionStorage.removeItem('selectedTenantId');
           setSelectedTenant('');
         }
@@ -214,12 +222,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             await fetchTenantAccounts(currentImpersonateUser, currentTenant);
           }
         } else {
-          // For regular users: read their tenant from the profile response if available.
+          // For regular users: restore tenant from profile (overwrite any stale value).
           const tenantId = (data as any).tenantId || (data as any).tenant_id;
           if (tenantId) {
             sessionStorage.setItem('selectedTenantId', tenantId);
             setSelectedTenant(tenantId);
-          } else if (!sessionStorage.getItem('selectedTenantId')) {
+          } else {
             sessionStorage.removeItem('selectedTenantId');
             setSelectedTenant('');
           }
@@ -234,6 +242,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
     } finally {
       setIsLoading(false);
+      // Signal that auth is done and sessionStorage values are now trustworthy.
+      // AccountContext uses this to delay fetchAccounts until after cleanup.
+      setAuthReady(true);
     }
   }, [fetchTenants, fetchTenantUsers]);
 
@@ -412,6 +423,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     userRoles,
     userProfile,
     isLoading,
+    authReady,
     tenantList,
     tenantUsers,
     tenantAccounts,
@@ -434,6 +446,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     userRoles,
     userProfile,
     isLoading,
+    authReady,
     tenantList,
     tenantUsers,
     tenantAccounts,
