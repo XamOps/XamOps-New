@@ -269,10 +269,24 @@ public class AzureAutoSpottingService {
             log.debug("Could not read priority for VMSS {}: {}", vmss.name(), e.getMessage());
         }
 
-        // Detect AKS-managed VMSS: name starts with "aks-" OR resource group starts with "MC_"
-        // Same pattern as GCP GKE detection (name starts with "gke-")
-        boolean aksManaged = (vmss.name() != null && vmss.name().toLowerCase().startsWith("aks-"))
-                || (vmss.resourceGroupName() != null && vmss.resourceGroupName().toUpperCase().startsWith("MC_"));
+        // Detect AKS-managed VMSS:
+        // Primary: AKS automatically tags all node pool VMSS with "kubernetes.azure.com/cluster"
+        // Secondary: resource group starts with "MC_" (Azure enforces this for AKS node RGs)
+        // Fallback: name starts with "aks-"
+        boolean aksManaged = false;
+        try {
+            var tags = vmss.tags();
+            if (tags != null && tags.keySet().stream().anyMatch(k ->
+                    k.startsWith("kubernetes.azure.com/") || k.startsWith("aks-managed"))) {
+                aksManaged = true;
+            }
+        } catch (Exception e) {
+            log.debug("Could not read tags for VMSS {}: {}", vmss.name(), e.getMessage());
+        }
+        if (!aksManaged) {
+            aksManaged = (vmss.resourceGroupName() != null && vmss.resourceGroupName().toUpperCase().startsWith("MC_"))
+                    || (vmss.name() != null && vmss.name().toLowerCase().startsWith("aks-"));
+        }
 
         // Use DB-tracked enabled state as source of truth (user intent persists across reloads)
         String dbKey = (vmss.resourceGroupName() + "/" + vmss.name()).toLowerCase();
@@ -328,8 +342,25 @@ public class AzureAutoSpottingService {
                 vmssName, resourceGroup, subscriptionId);
 
         // Guard: AKS-managed VMSS cannot have Spot priority changed — same lock as GKE MIGs
-        boolean isAksManaged = (vmssName != null && vmssName.toLowerCase().startsWith("aks-"))
-                || (resourceGroup != null && resourceGroup.toUpperCase().startsWith("MC_"));
+        // Primary: resource group starts with "MC_" (Azure enforces this for AKS node RGs)
+        // Fallback: name starts with "aks-"
+        // Tag-based check happens in mapToDto; here we use what's available from request params
+        boolean isAksManaged = (resourceGroup != null && resourceGroup.toUpperCase().startsWith("MC_"))
+                || (vmssName != null && vmssName.toLowerCase().startsWith("aks-"));
+        if (!isAksManaged) {
+            // Also check VMSS tags if we can fetch them
+            try {
+                CloudAccount acc = resolveAccount(subscriptionId);
+                AzureResourceManager azure = azureClientProvider.getAzureClient(acc.getAzureSubscriptionId());
+                VirtualMachineScaleSet vmss = azure.virtualMachineScaleSets().getByResourceGroup(resourceGroup, vmssName);
+                if (vmss != null && vmss.tags() != null) {
+                    isAksManaged = vmss.tags().keySet().stream()
+                            .anyMatch(k -> k.startsWith("kubernetes.azure.com/") || k.startsWith("aks-managed"));
+                }
+            } catch (Exception e) {
+                log.debug("Could not check VMSS tags for AKS detection on {}: {}", vmssName, e.getMessage());
+            }
+        }
         if (isAksManaged) {
             log.warn("⛔ [Azure AutoSpotting] Skipping AKS-managed VMSS {} in RG {} — Azure controls its lifecycle. " +
                     "To use Spot, create a Spot node pool in the AKS console.", vmssName, resourceGroup);

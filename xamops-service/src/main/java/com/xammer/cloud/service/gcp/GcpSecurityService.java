@@ -20,6 +20,10 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
+// SOC2 Trust Service Criteria mapping for GCP Security Command Center finding categories.
+// Keys are exact SCC category strings; the keyword fallback in mapToSoc2Control() handles
+// categories not explicitly listed here.
+
 @Service
 @Slf4j
 public class GcpSecurityService {
@@ -237,14 +241,97 @@ public class GcpSecurityService {
     }
 
     /**
-     * Map V2 Finding to DTO
+     * Map V2 Finding to DTO with SOC2 control tagging.
      */
     private GcpSecurityFinding mapToDto(Finding finding) {
         return new GcpSecurityFinding(
                 finding.getCategory(),
                 finding.getDescription(),
                 finding.getSeverity().toString(),
-                finding.getResourceName());
+                finding.getResourceName(),
+                mapToSoc2Control(finding.getCategory()));
+    }
+
+    /**
+     * Maps a GCP Security Command Center finding category to its SOC2 Trust Service
+     * Criteria control. Returns null when no SOC2 mapping is applicable.
+     *
+     * CC6.1  – Logical access controls (IAM, identity, privilege)
+     * CC6.6  – Network security (firewall, ports, exposure)
+     * CC6.7  – Data protection (encryption, public storage, TLS)
+     * CC6.8  – Key / credential management (KMS rotation, service-account keys)
+     * CC7.1  – Monitoring and audit logging
+     */
+    private String mapToSoc2Control(String category) {
+        if (category == null || category.isBlank()) return null;
+
+        // --- exact matches for well-known SCC categories ---
+        switch (category.toUpperCase()) {
+            // CC6.1 — access / identity
+            case "IAM_ANOMALOUS_GRANT":
+            case "ADMIN_SERVICE_ACCOUNT":
+            case "OVER_PRIVILEGED_SERVICE_ACCOUNT_USER":
+            case "PRIMITIVE_ROLES_USED":
+            case "KMS_PROJECT_HAS_OWNER":
+            case "MFA_NOT_ENFORCED":
+                return "SOC2 CC6.1";
+
+            // CC6.6 — network
+            case "OPEN_FIREWALL":
+            case "UNRESTRICTED_SSH":
+            case "UNRESTRICTED_RDP":
+            case "FIREWALL_RULE_ALLOWS_ALL":
+                return "SOC2 CC6.6";
+
+            // CC6.7 — encryption / data protection
+            case "BUCKET_POLICY_ONLY_DISABLED":
+            case "PUBLICLY_ACCESSIBLE_BUCKET":
+            case "OBJECT_VERSIONING_DISABLED":
+            case "NON_CMEK_DISKS":
+                return "SOC2 CC6.7";
+
+            // CC6.8 — key management
+            case "SERVICE_ACCOUNT_KEY_NOT_ROTATED":
+            case "KMS_KEY_NOT_ROTATED":
+                return "SOC2 CC6.8";
+
+            // CC7.1 — monitoring / logging
+            case "AUDIT_LOGGING_DISABLED":
+            case "BUCKET_LOGGING_DISABLED":
+            case "FLOW_LOGS_DISABLED":
+            case "LOG_NOT_EXPORTED":
+            case "CLOUD_AUDIT_LOGGING_DISABLED":
+                return "SOC2 CC7.1";
+
+            default:
+                break;
+        }
+
+        // --- keyword fallback for unknown / future categories ---
+        String upper = category.toUpperCase();
+
+        if (upper.contains("IAM") || upper.contains("IDENTITY") || upper.contains("PRIVILEGE")
+                || upper.contains("ADMIN") || upper.contains("MFA") || upper.contains("ACCESS_CONTROL")) {
+            return "SOC2 CC6.1";
+        }
+        if (upper.contains("FIREWALL") || upper.contains("NETWORK") || upper.contains("UNRESTRICTED")
+                || upper.contains("OPEN_PORT") || upper.contains("EXPOSED")) {
+            return "SOC2 CC6.6";
+        }
+        if (upper.contains("ENCRYPT") || upper.contains("PUBLIC_BUCKET") || upper.contains("PUBLIC_ACCESS")
+                || upper.contains("TLS") || upper.contains("SSL") || upper.contains("CMEK")) {
+            return "SOC2 CC6.7";
+        }
+        if (upper.contains("KEY_ROTATION") || upper.contains("KEY_NOT_ROTATED") || upper.contains("SECRET")
+                || upper.contains("KMS") || upper.contains("SERVICE_ACCOUNT_KEY")) {
+            return "SOC2 CC6.8";
+        }
+        if (upper.contains("LOG") || upper.contains("AUDIT") || upper.contains("MONITOR")
+                || upper.contains("FLOW_LOG") || upper.contains("TRAIL")) {
+            return "SOC2 CC7.1";
+        }
+
+        return null;
     }
 
     /**

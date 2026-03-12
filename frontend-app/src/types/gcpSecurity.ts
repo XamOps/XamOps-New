@@ -12,6 +12,7 @@ export interface GcpSecurityFinding {
   description: string;
   severity: GcpSeverityLevel;
   compliance?: string;
+  complianceControl?: string; // SOC2 control, e.g. "SOC2 CC6.1"
 }
 
 export interface GcpIamDrift {

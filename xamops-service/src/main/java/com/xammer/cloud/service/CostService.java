@@ -18,7 +18,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
-import org.springframework.web.bind.annotation.RequestParam;
 import software.amazon.awssdk.services.costexplorer.CostExplorerClient;
 import software.amazon.awssdk.services.costexplorer.model.*;
 
@@ -333,6 +332,9 @@ public class CostService {
                                 ce.getCostAndUsage(request).resultsByTime().forEach(timePeriod -> {
                                         timePeriod.groups().forEach(group -> {
                                                 String name = group.keys().get(0);
+                                                if (name == null || name.isBlank()) {
+                                                        name = "Untagged";
+                                                }
                                                 double cost = Double.parseDouble(group.metrics().get("UnblendedCost").amount());
                                                 costMap.merge(name, cost, Double::sum);
                                         });
@@ -388,7 +390,7 @@ public class CostService {
                 if (!forceRefresh) {
                         Optional<HistoricalCostDto> cachedData = redisCache.get(cacheKey, HistoricalCostDto.class);
                         if (cachedData.isPresent()) {
-                                logger.info("✅ Cache hit for historical cost: {}", cacheKey);
+                                logger.info("✅ Redis cache hit for historical cost: {}", cacheKey);
                                 return CompletableFuture.completedFuture(cachedData.get());
                         }
                         // DB fallback
@@ -507,7 +509,6 @@ public class CostService {
         }
 
         /**
-         * Get historical cost for specific dimension value
          */
         @Async("awsTaskExecutor")
         public CompletableFuture<HistoricalCostDto> getHistoricalCostForDimension(

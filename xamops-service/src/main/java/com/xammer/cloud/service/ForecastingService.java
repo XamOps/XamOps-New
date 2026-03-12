@@ -15,10 +15,6 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
-import java.io.BufferedReader;
-import java.io.BufferedWriter;
-import java.io.InputStreamReader;
-import java.io.OutputStreamWriter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -259,69 +255,79 @@ public class ForecastingService {
     }
 
     /**
-     * Generate GCP cost forecast with improved outlier preprocessing
+     * Generate GCP cost forecast using the Prophet Flask service (same as AWS)
      */
     public CompletableFuture<List<ForecastDto>> getGcpCostForecast(String gcpProjectId, String serviceName, int periods) {
-        return CompletableFuture.supplyAsync(() -> {
-            log.info("🔮 Starting GCP cost forecast for project: {}, service: {}, periods: {}",
-                    gcpProjectId, serviceName, periods);
+        int historicalDays = Math.min(periods * 3, 180);
 
-            List<Map<String, Object>> dailyCosts = gcpCostService.getDailyCostsForForecast(gcpProjectId, serviceName, 90).join();
-
-            if (dailyCosts.size() < 14) {
-                log.warn("❌ Not enough historical data for GCP cost forecast. Found {} days.", dailyCosts.size());
-                return new ArrayList<ForecastDto>();
-            }
-
-            // Apply outlier filtering to GCP data
-            List<Map<String, Object>> cleanedData = removeOutliers(dailyCosts);
-
-            // ✅ NEW: For sparse GCP data, filter out zero days
-            long nonZeroCount = cleanedData.stream()
-                    .filter(point -> ((Number) point.get("cost")).doubleValue() > 0.01)
-                    .count();
-
-            if (nonZeroCount < cleanedData.size() * 0.2 && nonZeroCount >= 14) {
-                log.info("📊 Sparse GCP data detected - using only non-zero cost days");
-                cleanedData = removeZeroDays(cleanedData);
-            }
-
-            // Convert to CSV format for Python script
-            StringBuilder csvData = new StringBuilder("ds,y\n");
-            cleanedData.forEach(costEntry ->
-                    csvData.append(costEntry.get("date"))
-                            .append(",")
-                            .append(costEntry.get("cost"))
-                            .append("\n"));
-
-            try {
-                ProcessBuilder pb = new ProcessBuilder("python", "forcasting/forecast_service.py", String.valueOf(periods));
-                Process p = pb.start();
-
-                // Send CSV data to Python process
-                try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(p.getOutputStream()))) {
-                    writer.write(csvData.toString());
-                }
-
-                // Read forecast results
-                try (BufferedReader reader = new BufferedReader(new InputStreamReader(p.getInputStream()))) {
-                    String outputJson = reader.lines().collect(Collectors.joining("\n"));
-
-                    if (p.waitFor() != 0) {
-                        try (BufferedReader errReader = new BufferedReader(new InputStreamReader(p.getErrorStream()))) {
-                            log.error("❌ Python script error: {}", errReader.lines().collect(Collectors.joining("\n")));
-                        }
-                        return new ArrayList<ForecastDto>();
+        return gcpCostService.getDailyCostsForForecast(gcpProjectId, serviceName, historicalDays)
+                .thenCompose(dailyCosts -> {
+                    if (dailyCosts.size() < 14) {
+                        log.warn("❌ Not enough historical data for GCP cost forecast. Found {} days.", dailyCosts.size());
+                        return CompletableFuture.completedFuture(new ArrayList<ForecastDto>());
                     }
 
-                    log.info("✅ GCP forecast generated successfully");
-                    return new ObjectMapper().readValue(outputJson, new TypeReference<List<ForecastDto>>() {});
-                }
-            } catch (Exception e) {
-                log.error("❌ Error executing Python forecast script for GCP", e);
-                Thread.currentThread().interrupt();
-                return new ArrayList<ForecastDto>();
-            }
-        });
+                    // Remap GCP keys ("date"/"cost") → Prophet keys ("ds"/"y")
+                    List<Map<String, Object>> formattedData = dailyCosts.stream()
+                            .map(entry -> {
+                                Map<String, Object> point = new HashMap<>();
+                                point.put("ds", entry.get("date"));
+                                point.put("y", entry.get("cost"));
+                                return point;
+                            })
+                            .collect(Collectors.toList());
+
+                    List<Map<String, Object>> cleanedData = removeOutliers(formattedData);
+
+                    long nonZeroCount = cleanedData.stream()
+                            .filter(point -> ((Number) point.get("y")).doubleValue() > 0.01)
+                            .count();
+
+                    if (nonZeroCount < cleanedData.size() * 0.2 && nonZeroCount >= 14) {
+                        log.info("📊 Sparse GCP data detected - using only non-zero cost days");
+                        cleanedData = removeZeroDays(cleanedData);
+                    }
+
+                    try {
+                        HttpHeaders headers = new HttpHeaders();
+                        headers.setContentType(MediaType.APPLICATION_JSON);
+
+                        Map<String, Object> requestBody = new HashMap<>();
+                        requestBody.put("data", cleanedData);
+                        requestBody.put("periods", periods);
+                        requestBody.put("weekly_seasonality", true);
+                        requestBody.put("yearly_seasonality", false);
+
+                        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
+                        String forecastUrl = forecastServiceUrl + "/forecast/cost";
+
+                        log.info("📡 Calling Prophet forecast service for GCP project {} with {} data points, {} periods",
+                                gcpProjectId, cleanedData.size(), periods);
+
+                        String forecastJson = restTemplate.postForObject(forecastUrl, entity, String.class);
+                        JsonNode responseNode = objectMapper.readTree(forecastJson);
+
+                        if (responseNode.has("status") && !"success".equals(responseNode.get("status").asText())) {
+                            log.error("❌ Prophet service returned error for GCP project {}", gcpProjectId);
+                            return CompletableFuture.completedFuture(new ArrayList<ForecastDto>());
+                        }
+
+                        JsonNode forecastArray = responseNode.get("forecast");
+                        if (forecastArray == null || !forecastArray.isArray()) {
+                            log.error("❌ Invalid forecast response format for GCP project {}", gcpProjectId);
+                            return CompletableFuture.completedFuture(new ArrayList<ForecastDto>());
+                        }
+
+                        List<ForecastDto> forecast = objectMapper.readValue(
+                                forecastArray.toString(), new TypeReference<List<ForecastDto>>() {});
+
+                        log.info("✅ GCP forecast generated successfully: {} predictions", forecast.size());
+                        return CompletableFuture.completedFuture(forecast);
+
+                    } catch (Exception e) {
+                        log.error("❌ Error calling Prophet forecast service for GCP project {}: {}", gcpProjectId, e.getMessage());
+                        return CompletableFuture.completedFuture(new ArrayList<ForecastDto>());
+                    }
+                });
     }
 }
