@@ -11,6 +11,7 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import ReactDOM from 'react-dom';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useBillOpsTicketDetail } from '../hooks/useBillOpsTicketDetail';
 import { RCAFormData, RCAFormSection } from '../types/billopsTickets';
@@ -46,8 +47,14 @@ const BillOpsTicketDetailPage: React.FC = () => {
   const quillInstance = useRef<Quill | null>(null);
   const [newReplyHasContent, setNewReplyHasContent] = useState(false);
 
-  // Internal note toggle
+  // Internal note toggle (kept for submit path only)
   const [isInternalNote, setIsInternalNote] = useState(false);
+
+  // Sticky note side panel
+  const [showNotePanel, setShowNotePanel] = useState(false);
+  const [noteText, setNoteText] = useState('');
+  const [noteSaved, setNoteSaved] = useState(false);
+  const noteSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // File attachment
   const [attachment, setAttachment] = useState<File | null>(null);
@@ -188,16 +195,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
     };
   }, [ticket]); // intentionally excludes isInternalNote
 
-  /**
-   * Update Quill placeholder when internal-note mode toggles (no re-init needed)
-   */
-  useEffect(() => {
-    if (!quillInstance.current) return;
-    quillInstance.current.root.setAttribute(
-      'data-placeholder',
-      isInternalNote ? 'Write an internal note (only visible to admins)...' : 'Type your message here...'
-    );
-  }, [isInternalNote]);
+  // (placeholder effect removed — notes now use the separate sticky note panel)
 
   /**
    * Scroll to bottom when replies change
@@ -211,6 +209,16 @@ const BillOpsTicketDetailPage: React.FC = () => {
       }, 100);
     }
   }, [ticket?.replies]);
+
+  /**
+   * Load sticky note from localStorage when ticketId is known
+   */
+  useEffect(() => {
+    if (ticketId) {
+      const saved = localStorage.getItem(`xamops_ticket_note_${ticketId}`);
+      setNoteText(saved || '');
+    }
+  }, [ticketId]);
 
   /**
    * Redirect if no ticket ID
@@ -745,15 +753,11 @@ const BillOpsTicketDetailPage: React.FC = () => {
         <div className="p-6 lg:p-10 bg-white/70 backdrop-blur-xl border-t border-slate-200/50">
           <div className="max-w-4xl mx-auto">
             <form onSubmit={handleSubmitReply} className="space-y-4">
-              <div className={`relative bg-white rounded-[2rem] border overflow-hidden focus-within:ring-4 transition-all shadow-xl ${
-                isInternalNote
-                  ? 'border-amber-300 focus-within:ring-amber-500/10 focus-within:border-amber-400'
-                  : 'border-slate-200 focus-within:ring-indigo-500/10 focus-within:border-indigo-500/30'
-              } shadow-slate-200/40`}>
+              <div className="relative bg-white rounded-[2rem] border overflow-hidden focus-within:ring-4 transition-all shadow-xl border-slate-200 focus-within:ring-indigo-500/10 focus-within:border-indigo-500/30 shadow-slate-200/40">
                 <div className="px-6 py-3 border-b border-slate-50 flex items-center justify-between bg-slate-50/30">
-                  <div className={`flex items-center gap-2 text-[10px] font-black uppercase tracking-widest leading-none ${isInternalNote ? 'text-amber-600' : 'text-slate-500'}`}>
-                    <i className={`${isInternalNote ? 'fas fa-lock text-amber-500' : 'fas fa-reply text-indigo-500'}`}></i>
-                    {isInternalNote ? 'Internal Note (Admin Only)' : 'Official Ticket Response'}
+                  <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest leading-none text-slate-500">
+                    <i className="fas fa-reply text-indigo-500"></i>
+                    Official Ticket Response
                   </div>
                   <div className="flex items-center gap-3">
                     {attachment && (
@@ -765,20 +769,19 @@ const BillOpsTicketDetailPage: React.FC = () => {
                         </button>
                       </div>
                     )}
-                    {/* Internal Note Toggle - admin only */}
+                    {/* Internal Note Panel trigger - admin only */}
                     {isAdmin && (
                       <button
                         type="button"
-                        onClick={() => setIsInternalNote(v => !v)}
-                        title={isInternalNote ? 'Switch to public reply' : 'Switch to internal note'}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest border transition-all ${
-                          isInternalNote
-                            ? 'bg-amber-100 text-amber-700 border-amber-300 shadow-sm'
-                            : 'bg-slate-50 text-slate-400 border-slate-200 hover:border-amber-300 hover:text-amber-600'
-                        }`}
+                        onClick={() => setShowNotePanel(true)}
+                        title="Open internal note pad"
+                        className="relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest border transition-all bg-amber-50 text-amber-600 border-amber-300 hover:bg-amber-100 active:scale-95"
                       >
-                        <i className="fas fa-lock"></i>
-                        {isInternalNote ? 'Internal' : 'Note'}
+                        <i className="fas fa-sticky-note"></i>
+                        Note
+                        {noteText.trim().length > 0 && (
+                          <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-500 border border-white"></span>
+                        )}
                       </button>
                     )}
                   </div>
@@ -798,17 +801,11 @@ const BillOpsTicketDetailPage: React.FC = () => {
                   <button
                     type="submit"
                     disabled={isSubmitting || (!newReplyHasContent && !attachment)}
-                    className={`flex items-center gap-2 px-8 py-3 text-white rounded-xl text-[11px] font-black uppercase tracking-widest shadow-lg transition-all disabled:opacity-50 active:scale-95 hover:-translate-y-0.5 ${
-                      isInternalNote
-                        ? 'bg-amber-500 shadow-amber-500/30 hover:bg-amber-600'
-                        : 'bg-indigo-600 shadow-indigo-500/30 hover:bg-indigo-700'
-                    }`}
+                    className="flex items-center gap-2 px-8 py-3 text-white rounded-xl text-[11px] font-black uppercase tracking-widest shadow-lg transition-all disabled:opacity-50 active:scale-95 hover:-translate-y-0.5 bg-indigo-600 shadow-indigo-500/30 hover:bg-indigo-700"
                   >
                     {isSubmitting
                       ? <><i className="fas fa-circle-notch fa-spin"></i> Processing...</>
-                      : isInternalNote
-                        ? <><i className="fas fa-lock"></i> Save Note</>
-                        : <><i className="fas fa-paper-plane"></i> Send Message</>
+                      : <><i className="fas fa-paper-plane"></i> Send Message</>
                     }
                   </button>
                 </div>
@@ -828,12 +825,11 @@ const BillOpsTicketDetailPage: React.FC = () => {
         </div>
       )}
 
-      {/* Email Thread Modal */}
-      {showEmailModal && (
-        <div className="fixed inset-0 z-50 overflow-y-auto">
+      {/* Email Thread Modal — rendered via portal so fixed/backdrop works regardless of scroll/transforms */}
+      {showEmailModal && ReactDOM.createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" onClick={closeEmailModal}></div>
-          <div className="flex items-center justify-center min-h-screen px-4 py-8">
-            <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden" onClick={e => e.stopPropagation()}>
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden z-10" onClick={e => e.stopPropagation()}>
 
               {/* Header */}
               <div className="px-6 pt-6 pb-4 border-b border-slate-100">
@@ -1026,8 +1022,8 @@ const BillOpsTicketDetailPage: React.FC = () => {
                 </div>
               </div>
             </div>
-          </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* RCA Modal */}
@@ -1084,6 +1080,103 @@ const BillOpsTicketDetailPage: React.FC = () => {
           </div>
         </DialogPanel>
       </DialogRoot>
+
+      {/* Sticky Note Side Panel — portal rendered so it's above all content */}
+      {showNotePanel && ReactDOM.createPortal(
+        <div className="fixed inset-0 z-50 flex justify-end" onClick={() => setShowNotePanel(false)}>
+          {/* Semi-transparent backdrop */}
+          <div className="absolute inset-0 bg-black/20" />
+
+          {/* Panel */}
+          <div
+            className="relative w-full max-w-sm h-full flex flex-col shadow-2xl"
+            style={{ background: 'linear-gradient(160deg, #fef9c3 0%, #fef08a 100%)' }}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Top fold decoration */}
+            <div className="absolute top-0 right-0 w-8 h-8 overflow-hidden pointer-events-none">
+              <div className="absolute top-0 right-0 w-0 h-0" style={{ borderLeft: '32px solid transparent', borderBottom: '32px solid #fde047', filter: 'brightness(0.85)' }} />
+            </div>
+
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-amber-200/60">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-amber-400/40 flex items-center justify-center">
+                  <i className="fas fa-lock text-amber-700 text-xs"></i>
+                </div>
+                <div>
+                  <div className="text-[11px] font-black text-amber-800 uppercase tracking-widest leading-none">Internal Note</div>
+                  <div className="text-[9px] font-bold text-amber-600/70 mt-0.5">Admin only · not visible to client</div>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowNotePanel(false)}
+                className="w-7 h-7 flex items-center justify-center rounded-lg text-amber-600 hover:bg-amber-200/60 transition-colors"
+              >
+                <i className="fas fa-times text-sm"></i>
+              </button>
+            </div>
+
+            {/* Lined paper textarea */}
+            <div className="flex-1 relative overflow-hidden">
+              {/* Decorative lines */}
+              <div className="absolute inset-0 pointer-events-none" style={{
+                backgroundImage: 'repeating-linear-gradient(transparent, transparent 31px, rgba(202,138,4,0.15) 31px, rgba(202,138,4,0.15) 32px)',
+                backgroundPosition: '0 48px',
+              }} />
+              <textarea
+                autoFocus
+                value={noteText}
+                onChange={e => {
+                  const text = e.target.value;
+                  setNoteText(text);
+                  // Debounced auto-save to localStorage
+                  if (noteSaveTimerRef.current) clearTimeout(noteSaveTimerRef.current);
+                  noteSaveTimerRef.current = setTimeout(() => {
+                    if (ticketId) {
+                      localStorage.setItem(`xamops_ticket_note_${ticketId}`, text);
+                      setNoteSaved(true);
+                      setTimeout(() => setNoteSaved(false), 2000);
+                    }
+                  }, 500);
+                }}
+                placeholder="Write your internal note here..."
+                className="w-full h-full resize-none bg-transparent px-5 py-4 text-sm text-amber-900 placeholder-amber-400/70 outline-none leading-8 font-medium"
+                style={{ lineHeight: '32px', paddingTop: '16px' }}
+              />
+            </div>
+
+            {/* Footer */}
+            <div className="px-5 py-4 border-t border-amber-200/60 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                {noteSaved ? (
+                  <span className="flex items-center gap-1 text-[9px] font-black text-emerald-600 uppercase tracking-widest">
+                    <i className="fas fa-check-circle"></i> Saved
+                  </span>
+                ) : (
+                  <span className="text-[9px] font-bold text-amber-500/60 uppercase tracking-widest">
+                    Auto-saves as you type
+                  </span>
+                )}
+              </div>
+              {noteText.trim().length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNoteText('');
+                    if (ticketId) localStorage.removeItem(`xamops_ticket_note_${ticketId}`);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-amber-700 bg-amber-100 hover:bg-red-100 hover:text-red-600 rounded-lg border border-amber-200 hover:border-red-200 transition-all active:scale-95"
+                >
+                  <i className="fas fa-trash-alt text-[9px]"></i>
+                  Clear
+                </button>
+              )}
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 };

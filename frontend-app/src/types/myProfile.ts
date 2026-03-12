@@ -27,6 +27,7 @@ export interface TeamUser {
   cloudAccounts: CloudAccount[];
   accountIds?: number[];
   allowedTabs?: string[];
+  allAccountsAccess?: boolean;
 }
 
 export interface TeamUserForm {
@@ -36,6 +37,7 @@ export interface TeamUserForm {
   password: string;
   accountIds: number[];
   allowedTabs: string[];
+  allAccountsAccess: boolean;
 }
 
 export interface PasswordChangeForm {

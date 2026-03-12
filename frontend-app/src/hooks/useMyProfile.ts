@@ -53,7 +53,8 @@ export const useMyProfile = () => {
     email: '',
     password: '',
     accountIds: [],
-    allowedTabs: []
+    allowedTabs: [],
+    allAccountsAccess: false
   });
 
   const [isEditing, setIsEditing] = useState(false);
@@ -139,7 +140,8 @@ export const useMyProfile = () => {
       email: '',
       password: '',
       accountIds: [],
-      allowedTabs: []
+      allowedTabs: [],
+      allAccountsAccess: false
     });
     setIsEditing(true);
   }, []);
@@ -154,7 +156,8 @@ export const useMyProfile = () => {
       email: user.email,
       password: '',
       accountIds: user.accountIds || [],
-      allowedTabs: user.allowedTabs || []
+      allowedTabs: user.allowedTabs || [],
+      allAccountsAccess: user.allAccountsAccess ?? false
     });
     setIsEditing(true);
   }, []);
@@ -170,7 +173,8 @@ export const useMyProfile = () => {
       email: '',
       password: '',
       accountIds: [],
-      allowedTabs: []
+      allowedTabs: [],
+      allAccountsAccess: false
     });
   }, []);
 

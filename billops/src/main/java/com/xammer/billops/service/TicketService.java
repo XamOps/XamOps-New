@@ -27,8 +27,11 @@ import org.springframework.web.multipart.MultipartFile;
 import javax.annotation.PostConstruct;
 
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -154,6 +157,7 @@ public class TicketService {
             if (cached.isPresent()) {
                 logger.debug("Returning CACHED all tickets for tenant: {}", cacheKey);
                 allTickets = cached.get();
+                enrichWithAccountNames(allTickets);
                 return applyAccountFilter(allTickets);
             }
         }
@@ -168,6 +172,7 @@ public class TicketService {
                 })
                 .collect(Collectors.toList());
 
+        enrichWithAccountNames(allTickets);
         redisCache.put(cacheKey, allTickets, CACHE_TTL_MINUTES);
         return applyAccountFilter(allTickets);
     }
@@ -704,6 +709,31 @@ public class TicketService {
     }
 
     /** Lightweight conversion for list views — does NOT access replies (avoids N+1) */
+    /**
+     * Batch-enriches a list of TicketDtos with human-readable accountName.
+     * Uses a single DB query to look up all unique accountIds at once.
+     */
+    private void enrichWithAccountNames(List<TicketDto> dtos) {
+        Set<String> ids = dtos.stream()
+                .map(TicketDto::getAccountId)
+                .filter(id -> id != null && !id.isEmpty())
+                .collect(Collectors.toSet());
+        if (ids.isEmpty()) return;
+
+        Map<String, String> nameMap = new HashMap<>();
+        cloudAccountRepository.findByAnyCloudIdIn(ids).forEach(ca -> {
+            if (ca.getAwsAccountId() != null) nameMap.put(ca.getAwsAccountId(), ca.getAccountName());
+            if (ca.getGcpProjectId() != null) nameMap.put(ca.getGcpProjectId(), ca.getAccountName());
+            if (ca.getAzureSubscriptionId() != null) nameMap.put(ca.getAzureSubscriptionId(), ca.getAccountName());
+        });
+
+        dtos.forEach(dto -> {
+            if (dto.getAccountId() != null) {
+                dto.setAccountName(nameMap.get(dto.getAccountId()));
+            }
+        });
+    }
+
     private TicketDto convertToListDto(Ticket ticket) {
         TicketDto dto = new TicketDto();
         dto.setId(ticket.getId());

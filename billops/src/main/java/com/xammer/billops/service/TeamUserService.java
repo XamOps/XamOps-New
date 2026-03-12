@@ -78,6 +78,11 @@ public class TeamUserService {
             accounts = cloudAccountRepository.findAll();
             log.info("Primary BILLOPS_ADMIN user {} — fetching ALL {} accounts across all clients",
                     currentUserId, accounts.size());
+        } else if (currentUser.isAllAccountsAccess()) {
+            // Sub-user with all-accounts access: see ALL accounts dynamically
+            accounts = cloudAccountRepository.findAll();
+            log.info("Sub-user {} has allAccountsAccess — fetching ALL {} accounts",
+                    currentUserId, accounts.size());
         } else {
             // Sub-user: show only assigned accounts
             log.info("Sub-user - fetching only assigned accounts");
@@ -126,6 +131,9 @@ public class TeamUserService {
                     dto.setEmail(user.getEmail());
                     dto.setRole(user.getRole());
 
+                    // Propagate allAccountsAccess flag
+                    dto.setAllAccountsAccess(user.isAllAccountsAccess());
+
                     // Get assigned account IDs
                     List<Long> accountIds = userCloudAccountAccessRepository.findCloudAccountIdsByUserId(user.getId());
                     dto.setAccountIds(accountIds);
@@ -167,8 +175,8 @@ public class TeamUserService {
             throw new RuntimeException("Username already exists");
         }
 
-        // Validate account IDs exist (primary BILLOPS_ADMIN can assign any account across all clients)
-        if (dto.getAccountIds() != null && !dto.getAccountIds().isEmpty()) {
+        // Validate account IDs exist (only needed when not using allAccountsAccess)
+        if (!dto.isAllAccountsAccess() && dto.getAccountIds() != null && !dto.getAccountIds().isEmpty()) {
             Set<Long> allAccountIds = cloudAccountRepository.findAll()
                     .stream().map(CloudAccount::getId).collect(Collectors.toSet());
             for (Long accountId : dto.getAccountIds()) {
@@ -186,11 +194,12 @@ public class TeamUserService {
         newUser.setRole(currentUser.getRole()); // Inherit role from parent
         newUser.setClient(currentUser.getClient()); // Same client
         newUser.setCreatedBy(currentUserId);
+        newUser.setAllAccountsAccess(dto.isAllAccountsAccess());
 
         AppUser saved = appUserRepository.save(newUser);
 
-        // Assign cloud account access
-        if (dto.getAccountIds() != null && !dto.getAccountIds().isEmpty()) {
+        // Assign cloud account access — only when not using allAccountsAccess
+        if (!dto.isAllAccountsAccess() && dto.getAccountIds() != null && !dto.getAccountIds().isEmpty()) {
             for (Long accountId : dto.getAccountIds()) {
                 CloudAccount account = cloudAccountRepository.findById(accountId)
                         .orElseThrow(() -> new RuntimeException("Account not found: " + accountId));
@@ -220,6 +229,7 @@ public class TeamUserService {
         result.setUsername(saved.getUsername());
         result.setEmail(saved.getEmail());
         result.setRole(saved.getRole());
+        result.setAllAccountsAccess(saved.isAllAccountsAccess());
         result.setAccountIds(dto.getAccountIds());
         result.setAllowedTabs(dto.getAllowedTabs());
         return result;
@@ -244,8 +254,8 @@ public class TeamUserService {
             throw new RuntimeException("You can only update users you created");
         }
 
-        // Validate account IDs exist (primary BILLOPS_ADMIN can assign any account across all clients)
-        if (dto.getAccountIds() != null && !dto.getAccountIds().isEmpty()) {
+        // Validate account IDs exist (only needed when not using allAccountsAccess)
+        if (!dto.isAllAccountsAccess() && dto.getAccountIds() != null && !dto.getAccountIds().isEmpty()) {
             Set<Long> allAccountIds = cloudAccountRepository.findAll()
                     .stream().map(CloudAccount::getId).collect(Collectors.toSet());
             for (Long accountId : dto.getAccountIds()) {
@@ -258,6 +268,7 @@ public class TeamUserService {
         // Update fields
         userToUpdate.setUsername(dto.getUsername());
         userToUpdate.setEmail(dto.getEmail());
+        userToUpdate.setAllAccountsAccess(dto.isAllAccountsAccess());
 
         // Only update password if provided
         if (dto.getPassword() != null && !dto.getPassword().trim().isEmpty()) {
@@ -266,11 +277,11 @@ public class TeamUserService {
 
         AppUser saved = appUserRepository.save(userToUpdate);
 
-        // Update cloud account access - delete existing and add new
+        // Update cloud account access - delete existing and add new (only when not allAccountsAccess)
         userCloudAccountAccessRepository.deleteByUserId(userId);
         entityManager.flush(); // Force deletion to complete before inserting new records
 
-        if (dto.getAccountIds() != null && !dto.getAccountIds().isEmpty()) {
+        if (!dto.isAllAccountsAccess() && dto.getAccountIds() != null && !dto.getAccountIds().isEmpty()) {
             for (Long accountId : dto.getAccountIds()) {
                 CloudAccount account = cloudAccountRepository.findById(accountId)
                         .orElseThrow(() -> new RuntimeException("Account not found: " + accountId));
@@ -295,6 +306,7 @@ public class TeamUserService {
         result.setUsername(saved.getUsername());
         result.setEmail(saved.getEmail());
         result.setRole(saved.getRole());
+        result.setAllAccountsAccess(saved.isAllAccountsAccess());
         result.setAccountIds(dto.getAccountIds());
         result.setAllowedTabs(dto.getAllowedTabs());
         return result;

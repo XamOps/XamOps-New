@@ -382,14 +382,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     fetchUserRoles();
   }, []); // Empty dependency array - only run on mount
 
-  // Check for impersonateUserId and tenantId in URL query parameters
+  // Check for impersonateUserId, tenantId and allowedAccountIds in URL query parameters
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const userId = params.get('impersonateUserId');
     const tenantId = params.get('tenantId');
+    const allowedAccountIds = params.get('allowedAccountIds');
 
-    if (userId || tenantId) {
-      console.log('🔄 Detected impersonation/tenant context in URL:', { userId, tenantId });
+    if (userId || tenantId || allowedAccountIds) {
+      console.log('🔄 Detected impersonation/tenant context in URL:', { userId, tenantId, allowedAccountIds });
 
       // Clear existing context to ensure clean isolation
       if (userId) {
@@ -404,9 +405,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setSelectedTenant(tenantId);
       }
 
-      // Clear stale account cache so AccountContext re-fetches with the
-      // correct impersonation header after reload instead of showing the
-      // previous user's (admin's) accounts.
+      // Store the allowed provider account IDs for this impersonated user so
+      // AccountContext can filter the sidebar to only show their permitted accounts.
+      if (allowedAccountIds) {
+        sessionStorage.setItem('allowedAccountIds', allowedAccountIds);
+      } else {
+        sessionStorage.removeItem('allowedAccountIds');
+      }
+
+      // Clear stale account cache so AccountContext re-fetches after reload
+      // instead of showing the previous user's (admin's) cached accounts.
       sessionStorage.removeItem('cached_accounts');
       sessionStorage.removeItem('selectedAccountIds');
 

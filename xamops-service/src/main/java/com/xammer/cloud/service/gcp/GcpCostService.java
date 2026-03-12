@@ -257,29 +257,37 @@ public class GcpCostService {
     }
 
     public List<GcpCostDto> getBillingSummarySync(String gcpProjectId) {
+        return getBillingSummarySync(gcpProjectId, false);
+    }
+
+    public List<GcpCostDto> getBillingSummarySync(String gcpProjectId, boolean forceRefresh) {
         String cacheKey = BILLING_SUMMARY_CACHE_PREFIX + gcpProjectId;
 
-        Optional<List<GcpCostDto>> cached = redisCacheService.get(
-                cacheKey,
-                new TypeReference<List<GcpCostDto>>() {
-                });
+        if (!forceRefresh) {
+            Optional<List<GcpCostDto>> cached = redisCacheService.get(
+                    cacheKey,
+                    new TypeReference<List<GcpCostDto>>() {
+                    });
 
-        if (cached.isPresent()) {
-            log.info("✅ Returning Redis-cached billing summary for project {}", gcpProjectId);
-            return cached.get();
-        }
-
-        // Try DB snapshot
-        try {
-            Optional<CachedData> dbSnapshot = cachedDataRepository.findById(cacheKey);
-            if (dbSnapshot.isPresent()) {
-                List<GcpCostDto> dbResult = objectMapper.readValue(dbSnapshot.get().getJsonData(), new TypeReference<>() {});
-                log.info("✅ Returning DB-cached billing summary for project {} — re-warming Redis", gcpProjectId);
-                redisCacheService.put(cacheKey, dbResult, 60);
-                return dbResult;
+            if (cached.isPresent()) {
+                log.info("✅ Returning Redis-cached billing summary for project {}", gcpProjectId);
+                return cached.get();
             }
-        } catch (Exception e) {
-            log.warn("DB snapshot load failed for billing summary {}: {}", gcpProjectId, e.getMessage());
+
+            // Try DB snapshot
+            try {
+                Optional<CachedData> dbSnapshot = cachedDataRepository.findById(cacheKey);
+                if (dbSnapshot.isPresent()) {
+                    List<GcpCostDto> dbResult = objectMapper.readValue(dbSnapshot.get().getJsonData(), new TypeReference<>() {});
+                    log.info("✅ Returning DB-cached billing summary for project {} — re-warming Redis", gcpProjectId);
+                    redisCacheService.put(cacheKey, dbResult, 60);
+                    return dbResult;
+                }
+            } catch (Exception e) {
+                log.warn("DB snapshot load failed for billing summary {}: {}", gcpProjectId, e.getMessage());
+            }
+        } else {
+            redisCacheService.evict(cacheKey);
         }
 
         log.info("🔍 Fetching billing summary for project {}", gcpProjectId);
@@ -304,16 +312,37 @@ public class GcpCostService {
     }
 
     public List<GcpCostDto> getHistoricalCostsSync(String gcpProjectId) {
+        return getHistoricalCostsSync(gcpProjectId, false);
+    }
+
+    public List<GcpCostDto> getHistoricalCostsSync(String gcpProjectId, boolean forceRefresh) {
         String cacheKey = HISTORICAL_COSTS_CACHE_PREFIX + gcpProjectId;
 
-        Optional<List<GcpCostDto>> cached = redisCacheService.get(
-                cacheKey,
-                new TypeReference<List<GcpCostDto>>() {
-                });
+        if (!forceRefresh) {
+            Optional<List<GcpCostDto>> cached = redisCacheService.get(
+                    cacheKey,
+                    new TypeReference<List<GcpCostDto>>() {
+                    });
 
-        if (cached.isPresent()) {
-            log.info("✅ Returning cached historical costs for project {}", gcpProjectId);
-            return cached.get();
+            if (cached.isPresent()) {
+                log.info("✅ Returning cached historical costs for project {}", gcpProjectId);
+                return cached.get();
+            }
+
+            // Try DB snapshot
+            try {
+                Optional<CachedData> dbSnapshot = cachedDataRepository.findById(cacheKey);
+                if (dbSnapshot.isPresent()) {
+                    List<GcpCostDto> dbResult = objectMapper.readValue(dbSnapshot.get().getJsonData(), new TypeReference<>() {});
+                    log.info("✅ Returning DB-cached historical costs for project {} — re-warming Redis", gcpProjectId);
+                    redisCacheService.put(cacheKey, dbResult, 60);
+                    return dbResult;
+                }
+            } catch (Exception e) {
+                log.warn("DB snapshot load failed for historical costs {}: {}", gcpProjectId, e.getMessage());
+            }
+        } else {
+            redisCacheService.evict(cacheKey);
         }
 
         log.info("🔍 Fetching historical costs for project {}", gcpProjectId);
@@ -352,29 +381,37 @@ public class GcpCostService {
     }
 
     public List<GcpCostDto> getCostByRegionSync(String gcpProjectId) {
+        return getCostByRegionSync(gcpProjectId, false);
+    }
+
+    public List<GcpCostDto> getCostByRegionSync(String gcpProjectId, boolean forceRefresh) {
         String cacheKey = COST_BY_REGION_CACHE_PREFIX + gcpProjectId;
 
-        Optional<List<GcpCostDto>> cached = redisCacheService.get(
-                cacheKey,
-                new TypeReference<List<GcpCostDto>>() {
-                });
+        if (!forceRefresh) {
+            Optional<List<GcpCostDto>> cached = redisCacheService.get(
+                    cacheKey,
+                    new TypeReference<List<GcpCostDto>>() {
+                    });
 
-        if (cached.isPresent()) {
-            log.info("✅ Returning Redis-cached cost by region for project {}", gcpProjectId);
-            return cached.get();
-        }
-
-        // Try DB snapshot
-        try {
-            Optional<CachedData> dbSnapshot = cachedDataRepository.findById(cacheKey);
-            if (dbSnapshot.isPresent()) {
-                List<GcpCostDto> dbResult = objectMapper.readValue(dbSnapshot.get().getJsonData(), new TypeReference<>() {});
-                log.info("✅ Returning DB-cached cost by region for project {} — re-warming Redis", gcpProjectId);
-                redisCacheService.put(cacheKey, dbResult, 60);
-                return dbResult;
+            if (cached.isPresent()) {
+                log.info("✅ Returning Redis-cached cost by region for project {}", gcpProjectId);
+                return cached.get();
             }
-        } catch (Exception e) {
-            log.warn("DB snapshot load failed for cost by region {}: {}", gcpProjectId, e.getMessage());
+
+            // Try DB snapshot
+            try {
+                Optional<CachedData> dbSnapshot = cachedDataRepository.findById(cacheKey);
+                if (dbSnapshot.isPresent()) {
+                    List<GcpCostDto> dbResult = objectMapper.readValue(dbSnapshot.get().getJsonData(), new TypeReference<>() {});
+                    log.info("✅ Returning DB-cached cost by region for project {} — re-warming Redis", gcpProjectId);
+                    redisCacheService.put(cacheKey, dbResult, 60);
+                    return dbResult;
+                }
+            } catch (Exception e) {
+                log.warn("DB snapshot load failed for cost by region {}: {}", gcpProjectId, e.getMessage());
+            }
+        } else {
+            redisCacheService.evict(cacheKey);
         }
 
         log.info("🔍 Fetching cost by region for project {}", gcpProjectId);

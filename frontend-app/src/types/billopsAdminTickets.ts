@@ -20,6 +20,7 @@ export interface AdminTicket {
   service: string;
   region?: string;
   accountId?: string;
+  accountName?: string;
   creatorId?: number;
   creatorUsername?: string;
   createdAt: string;
