@@ -1,11 +1,19 @@
 import React, { useEffect, useRef } from 'react';
+import {
+  Chart,
+  ChartConfiguration,
+  LineElement,
+  PointElement,
+  LineController,
+  CategoryScale,
+  LinearScale,
+  Tooltip,
+  Legend,
+  Filler,
+} from 'chart.js';
 import type { AzureForecastData } from '../../hooks/useAzureCostData';
 
-declare global {
-  interface Window {
-    Chart: any;
-  }
-}
+Chart.register(LineElement, PointElement, LineController, CategoryScale, LinearScale, Tooltip, Legend, Filler);
 
 interface AzureCostForecastChartProps {
   forecast: AzureForecastData | null;
@@ -13,24 +21,24 @@ interface AzureCostForecastChartProps {
 }
 
 const formatCurrency = (value: number): string => {
-  return '₹' + (value || 0).toLocaleString('en-IN', {
+  return '$' + (value || 0).toLocaleString('en-US', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
 };
 
 const AzureCostForecastChart: React.FC<AzureCostForecastChartProps> = ({ forecast, isLoading }) => {
-  const chartRef = useRef<any>(null);
+  const chartRef = useRef<Chart<'line'> | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
-    if (!canvasRef.current || !forecast?.dates?.length || !window.Chart) return;
+    if (!canvasRef.current || !forecast?.dates?.length) return;
 
     if (chartRef.current) {
       chartRef.current.destroy();
     }
 
-    chartRef.current = new window.Chart(canvasRef.current, {
+    const config: ChartConfiguration<'line'> = {
       type: 'line',
       data: {
         labels: forecast.dates,
@@ -127,7 +135,9 @@ const AzureCostForecastChart: React.FC<AzureCostForecastChartProps> = ({ forecas
           },
         },
       },
-    });
+    };
+
+    chartRef.current = new Chart(canvasRef.current, config);
 
     return () => {
       chartRef.current?.destroy();

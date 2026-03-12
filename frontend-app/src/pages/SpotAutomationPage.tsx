@@ -101,6 +101,12 @@ const SpotAutomationPage: React.FC = () => {
 
       {/* Main Content */}
       <div className="flex-1 p-8">
+        {/* Beta Warning */}
+        <div className="mb-6 flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-amber-800 text-sm">
+          <i className="fas fa-flask mt-0.5 text-amber-500"></i>
+          <span><strong>Beta Feature:</strong> AWS Spot Automation is currently in beta. Some features may be incomplete or subject to change.</span>
+        </div>
+
         {/* Dashboard Tab */}
         {activeTab === 'dashboard' && (
           isLoading && asgs.length === 0 ? (

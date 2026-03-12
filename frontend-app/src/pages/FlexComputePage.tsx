@@ -13,6 +13,7 @@
 import React, { useState, useMemo } from 'react';
 import { gooeyToast } from 'goey-toast';
 import { useFlexComputeData } from '../hooks/useFlexComputeData';
+import { useAccounts } from '../contexts/AccountContext';
 import { AriaTabGroup } from '../components/ui';
 import FlexComputeKPICards from '../components/FlexCompute/FlexComputeKPICards';
 import FlexComputeTable from '../components/FlexCompute/FlexComputeTable';
@@ -21,6 +22,7 @@ import type { FlexComputeTab, FlexComputeCapacity, CapacityPricing } from '../ty
 
 const FlexComputePage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<FlexComputeTab>('dashboard');
+  const { accounts } = useAccounts();
   const {
     capacities,
     kpis,
@@ -42,15 +44,21 @@ const FlexComputePage: React.FC = () => {
     linkedAccounts,
   } = useFlexComputeData();
 
-  // Map CloudiDR linked accounts for the wizard dropdown (with accountRegions)
+  // Map CloudiDR linked accounts for the wizard dropdown.
+  // Only show accounts that are also present in the sidebar (AccountContext),
+  // i.e. the account is both connected to CloudiDR and registered in XamOps.
+  const sidebarAccountIds = useMemo(() => new Set(accounts.map((a) => a.id)), [accounts]);
+
   const accountOptions = useMemo(() => {
-    return (linkedAccounts || []).map((acc) => ({
-      id: acc.accountId,
-      cspAccountId: acc.accountId,
-      alias: acc.accountName || `${acc.provider} ${acc.accountId}`,
-      accountRegions: acc.accountRegions,
-    }));
-  }, [linkedAccounts]);
+    return (linkedAccounts || [])
+      .filter((acc) => sidebarAccountIds.has(acc.accountId))
+      .map((acc) => ({
+        id: acc.accountId,
+        cspAccountId: acc.accountId,
+        alias: acc.accountName || `${acc.provider} ${acc.accountId}`,
+        accountRegions: acc.accountRegions,
+      }));
+  }, [linkedAccounts, sidebarAccountIds]);
 
   // Pricing pre-loaded from an existing READY_FOR_PURCHASE capacity
   const [continuePricing, setContinuePricing] = useState<CapacityPricing | null>(null);

@@ -279,6 +279,7 @@ public class GcpAutoSpottingService {
                            igm.getName().toLowerCase().contains("preempt");
         }
 
+        // Detect GKE-managed MIGs: GKE always prefixes MIG names with "gke-" (GKE enforces this)
         boolean isGkeManagedPool = igm.getName() != null && igm.getName().startsWith("gke-");
 
         return GcpAutoSpottingGroupDto.builder()
