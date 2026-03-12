@@ -37,22 +37,50 @@
 
 /* Quill Editor Overrides */
 .billops-ticket-detail-page .ql-editor {
-  min-height: 120px;
+  min-height: 80px;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-size: 0.95rem;
-  line-height: 1.6;
+  font-size: 0.875rem;
+  line-height: 1.55;
+  padding: 10px 14px !important;
 }
 
 .billops-ticket-detail-page .ql-toolbar {
-  border-radius: 0.5rem 0.5rem 0 0;
-  border-color: #e5e7eb !important;
-  background-color: #f9fafb;
+  border-radius: 0;
+  border-color: #f1f5f9 !important;
+  background-color: #f8fafc;
+  padding: 4px 8px !important;
+}
+
+.billops-ticket-detail-page .ql-toolbar .ql-formats {
+  margin-right: 8px;
 }
 
 .billops-ticket-detail-page .ql-container {
-  border-radius: 0 0 0.5rem 0.5rem;
-  border-color: #e5e7eb !important;
-  font-size: 1rem;
+  border-radius: 0;
+  border-color: transparent !important;
+  font-size: 0.875rem;
+}
+
+/* Wrapper used around the Quill reply editor — removes outer border/rounding since the parent card handles it */
+.quill-minimal-wrapper .ql-toolbar {
+  border-top: none !important;
+  border-left: none !important;
+  border-right: none !important;
+  background-color: #f8fafc;
+  padding: 4px 10px !important;
+}
+
+.quill-minimal-wrapper .ql-container {
+  border: none !important;
+}
+
+.quill-minimal-wrapper .ql-editor {
+  min-height: 80px;
+  max-height: 160px;
+  overflow-y: auto;
+  font-size: 0.875rem;
+  line-height: 1.55;
+  padding: 10px 14px !important;
 }
 
 .billops-ticket-detail-page .ql-editor ul {

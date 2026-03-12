@@ -10,16 +10,31 @@
  * - Rich text replies with file attachments
  */
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import ReactDOM from 'react-dom';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useBillOpsTicketDetail } from '../hooks/useBillOpsTicketDetail';
-import { RCAFormData, RCAFormSection } from '../types/billopsTickets';
+import { RCAFormData, RCAFormSection, TicketReply } from '../types/billopsTickets';
 import { useTopbarActions } from '../contexts/TopbarContext';
 import { formatIST, getSlaStatus, getResponseSlaLabel } from '../utils/timeUtils';
 import Quill from 'quill';
 import 'quill/dist/quill.snow.css';
+import '../styles/billopsTicketDetail.css';
 import { DialogRoot, DialogPanel } from '../components/ui';
+
+// ── Note panel types & constants ──────────────────────────────────────────
+interface NoteTask {
+  id: string;
+  text: string;
+  done: boolean;
+}
+
+const NOTE_COLORS = {
+  yellow: { bg: 'linear-gradient(160deg,#fef9c3 0%,#fef08a 100%)', line: 'rgba(202,138,4,0.12)', btn: '#fbbf24', text: '#713f12' },
+  blue:   { bg: 'linear-gradient(160deg,#dbeafe 0%,#bfdbfe 100%)', line: 'rgba(59,130,246,0.12)',  btn: '#60a5fa', text: '#1e3a8a' },
+  green:  { bg: 'linear-gradient(160deg,#dcfce7 0%,#bbf7d0 100%)', line: 'rgba(34,197,94,0.12)',   btn: '#4ade80', text: '#14532d' },
+  pink:   { bg: 'linear-gradient(160deg,#fce7f3 0%,#fbcfe8 100%)', line: 'rgba(236,72,153,0.12)',  btn: '#f472b6', text: '#831843' },
+} as const;
 
 const BillOpsTicketDetailPage: React.FC = () => {
   const navigate = useNavigate();
@@ -50,11 +65,28 @@ const BillOpsTicketDetailPage: React.FC = () => {
   // Internal note toggle (kept for submit path only)
   const [isInternalNote, setIsInternalNote] = useState(false);
 
-  // Sticky note side panel
+  // Sticky note side panel — core
   const [showNotePanel, setShowNotePanel] = useState(false);
-  const [noteText, setNoteText] = useState('');
   const [noteSaved, setNoteSaved] = useState(false);
   const noteSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Note panel — enhancements
+  const [noteTab, setNoteTab] = useState<'note' | 'tasks'>('note');
+  const [noteHtml, setNoteHtml] = useState('');
+  const [noteWordCount, setNoteWordCount] = useState(0);
+  const [noteTasks, setNoteTasks] = useState<NoteTask[]>([]);
+  const [newTaskText, setNewTaskText] = useState('');
+  const [noteColor, setNoteColor] = useState<keyof typeof NOTE_COLORS>('yellow');
+  const [noteHistory, setNoteHistory] = useState<{ html: string; savedAt: number }[]>([]);
+  const [showNoteHistory, setShowNoteHistory] = useState(false);
+  const [noteWidth, setNoteWidth] = useState(() => {
+    const saved = sessionStorage.getItem('xamops_note_panel_width');
+    return saved ? Math.min(700, Math.max(280, parseInt(saved))) : 384;
+  });
+  const [isPostingNote, setIsPostingNote] = useState(false);
+  const noteQuillRef = useRef<HTMLDivElement>(null);
+  const noteQuillInstance = useRef<Quill | null>(null);
+  const isDraggingRef = useRef(false);
 
   // File attachment
   const [attachment, setAttachment] = useState<File | null>(null);
@@ -85,8 +117,9 @@ const BillOpsTicketDetailPage: React.FC = () => {
     preventionSections: [{ heading: 'Action Item', content: '' }]
   });
 
-  // Chat container ref for auto-scroll
+  // Chat container ref for auto-scroll + scroll-to-bottom button
   const chatContainerRef = useRef<HTMLDivElement>(null);
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
 
   const getStatusBadgeClasses = (status: string) => {
     if (status === 'OPEN') return 'bg-emerald-500 text-white shadow-emerald-200 ring-4 ring-emerald-500/10';
@@ -211,14 +244,105 @@ const BillOpsTicketDetailPage: React.FC = () => {
   }, [ticket?.replies]);
 
   /**
-   * Load sticky note from localStorage when ticketId is known
+   * Load all note data (HTML, tasks, color, history) from localStorage.
+   * Migrates old plain-text notes to HTML automatically.
    */
   useEffect(() => {
-    if (ticketId) {
-      const saved = localStorage.getItem(`xamops_ticket_note_${ticketId}`);
-      setNoteText(saved || '');
+    if (!ticketId) return;
+    const oldText = localStorage.getItem(`xamops_ticket_note_${ticketId}`);
+    const html = localStorage.getItem(`xamops_ticket_note_html_${ticketId}`)
+      || (oldText ? `<p>${oldText.replace(/\n/g, '</p><p>')}</p>` : '');
+    setNoteHtml(html);
+    if (html) {
+      const tmp = document.createElement('div');
+      tmp.innerHTML = html;
+      const text = (tmp.textContent || '').trim();
+      setNoteWordCount(text ? text.split(/\s+/).filter(Boolean).length : 0);
     }
+    try {
+      const tasks = JSON.parse(localStorage.getItem(`xamops_ticket_tasks_${ticketId}`) || '[]');
+      setNoteTasks(tasks);
+    } catch { setNoteTasks([]); }
+    const savedColor = localStorage.getItem(`xamops_ticket_note_color_${ticketId}`) as keyof typeof NOTE_COLORS | null;
+    if (savedColor && NOTE_COLORS[savedColor]) setNoteColor(savedColor);
+    try {
+      const hist = JSON.parse(localStorage.getItem(`xamops_ticket_note_history_${ticketId}`) || '[]');
+      setNoteHistory(hist);
+    } catch { setNoteHistory([]); }
   }, [ticketId]);
+
+  /** Keyboard shortcut: Ctrl/Cmd + Shift + N toggles note panel (admin only) */
+  useEffect(() => {
+    if (!isAdmin) return;
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'N') {
+        e.preventDefault();
+        setShowNotePanel(v => !v);
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [isAdmin]);
+
+  /**
+   * Initialize the note Quill editor when the note panel opens.
+   * The editor div is always in the DOM while the panel is open (hidden via CSS on tasks tab),
+   * so we only need to init/cleanup based on showNotePanel.
+   */
+  useEffect(() => {
+    if (!showNotePanel) {
+      noteQuillInstance.current = null;
+      return;
+    }
+    const timer = setTimeout(() => {
+      if (!noteQuillRef.current || noteQuillInstance.current) return;
+      // Clean up any stale toolbar left from a previous session
+      const stale = noteQuillRef.current.parentElement?.querySelector('.ql-toolbar');
+      if (stale) stale.remove();
+      noteQuillRef.current.innerHTML = '';
+      noteQuillRef.current.className = '';
+
+      noteQuillInstance.current = new Quill(noteQuillRef.current, {
+        theme: 'snow',
+        placeholder: 'Write your internal note here...',
+        modules: {
+          toolbar: [
+            ['bold', 'italic', 'underline'],
+            [{ list: 'ordered' }, { list: 'bullet' }],
+            ['code-block', 'clean'],
+          ],
+        },
+      });
+
+      // Load saved content directly from storage to avoid stale-state timing issues
+      const savedHtml = ticketId
+        ? (localStorage.getItem(`xamops_ticket_note_html_${ticketId}`) || '')
+        : '';
+      if (savedHtml) noteQuillInstance.current.root.innerHTML = savedHtml;
+
+      noteQuillInstance.current.on('text-change', () => {
+        if (!noteQuillInstance.current) return;
+        const html = noteQuillInstance.current.root.innerHTML;
+        const text = noteQuillInstance.current.getText().trim();
+        setNoteHtml(html);
+        setNoteWordCount(text ? text.split(/\s+/).filter(Boolean).length : 0);
+        if (noteSaveTimerRef.current) clearTimeout(noteSaveTimerRef.current);
+        noteSaveTimerRef.current = setTimeout(() => {
+          if (!ticketId) return;
+          localStorage.setItem(`xamops_ticket_note_html_${ticketId}`, html);
+          const entry = { html, savedAt: Date.now() };
+          setNoteHistory(prev => {
+            const updated = [entry, ...prev.slice(0, 2)];
+            localStorage.setItem(`xamops_ticket_note_history_${ticketId}`, JSON.stringify(updated));
+            return updated;
+          });
+          setNoteSaved(true);
+          setTimeout(() => setNoteSaved(false), 2000);
+        }, 500);
+      });
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [showNotePanel, ticketId]);
 
   /**
    * Redirect if no ticket ID
@@ -327,7 +451,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
             </button>
           )}
 
-          {isAdmin && (ticket.status === 'CLOSED' || ticket.status === 'IN_PROGRESS') && (
+          {isAdmin && (ticket.replies?.length ?? 0) > 0 && (
             <button
               onClick={() => setShowEmailModal(true)}
               className="flex items-center gap-2 px-4 py-2 bg-sky-50 text-sky-700 rounded-xl text-xs font-bold border border-sky-200 hover:bg-sky-100 transition-all active:scale-95"
@@ -474,6 +598,137 @@ const BillOpsTicketDetailPage: React.FC = () => {
     }
   };
 
+  // ── Note panel helpers ──────────────────────────────────────────────────
+
+  /** First line of note shown as tooltip on the Note button */
+  const noteFirstLine = React.useMemo(() => {
+    if (!noteHtml) return '';
+    const tmp = document.createElement('div');
+    tmp.innerHTML = noteHtml;
+    const text = (tmp.textContent || '').trim();
+    return text.length > 80 ? text.substring(0, 80) + '…' : text;
+  }, [noteHtml]);
+
+  /** True when the note has actual text content */
+  const hasNoteContent = noteHtml && noteHtml.replace(/<[^>]+>/g, '').trim().length > 0;
+
+  /**
+   * Derive "seen by other party" for a reply from the reply ordering.
+   * A reply is considered seen when the other party has sent at least one
+   * non-internal reply AFTER this reply's createdAt timestamp.
+   */
+  const isReplySeen = useCallback((reply: TicketReply): boolean => {
+    if (!ticket?.replies) return false;
+    const replyTime = new Date(reply.createdAt).getTime();
+    if (reply.admin) {
+      // Admin's outgoing → seen once a non-internal user reply follows
+      return ticket.replies.some(r => !r.admin && !r.isInternal && new Date(r.createdAt).getTime() > replyTime);
+    } else {
+      // User's outgoing → seen once a non-internal admin reply follows
+      return ticket.replies.some(r => r.admin && !r.isInternal && new Date(r.createdAt).getTime() > replyTime);
+    }
+  }, [ticket?.replies]);
+
+  /**
+   * Index of the first "unread" reply from the other party —
+   * i.e. the first non-internal reply from the other side that appears
+   * AFTER the viewer's own last reply.  Returns -1 when everything is read.
+   */
+  const firstUnreadIndex = useMemo(() => {
+    if (!ticket?.replies) return -1;
+    let lastMyIndex = -1;
+    for (let i = ticket.replies.length - 1; i >= 0; i--) {
+      if (isMe(ticket.replies[i]) && !ticket.replies[i].isInternal) {
+        lastMyIndex = i;
+        break;
+      }
+    }
+    for (let i = lastMyIndex + 1; i < ticket.replies.length; i++) {
+      const r = ticket.replies[i];
+      if (!isMe(r) && !r.isInternal) return i;
+    }
+    return -1;
+  }, [ticket?.replies, isMe]);
+
+  const addTask = () => {
+    if (!newTaskText.trim()) return;
+    const task: NoteTask = { id: Date.now().toString(), text: newTaskText.trim(), done: false };
+    const updated = [...noteTasks, task];
+    setNoteTasks(updated);
+    setNewTaskText('');
+    if (ticketId) localStorage.setItem(`xamops_ticket_tasks_${ticketId}`, JSON.stringify(updated));
+  };
+
+  const toggleTask = (id: string) => {
+    const updated = noteTasks.map(t => t.id === id ? { ...t, done: !t.done } : t);
+    setNoteTasks(updated);
+    if (ticketId) localStorage.setItem(`xamops_ticket_tasks_${ticketId}`, JSON.stringify(updated));
+  };
+
+  const deleteTask = (id: string) => {
+    const updated = noteTasks.filter(t => t.id !== id);
+    setNoteTasks(updated);
+    if (ticketId) localStorage.setItem(`xamops_ticket_tasks_${ticketId}`, JSON.stringify(updated));
+  };
+
+  const handleCopyNote = useCallback(() => {
+    if (noteTab === 'tasks') {
+      const text = noteTasks.map(t => `${t.done ? '✓' : '☐'} ${t.text}`).join('\n');
+      navigator.clipboard.writeText(text).catch(() => {});
+    } else if (noteQuillInstance.current) {
+      navigator.clipboard.writeText(noteQuillInstance.current.getText()).catch(() => {});
+    }
+  }, [noteTab, noteTasks]);
+
+  const handlePostNoteAsInternal = async () => {
+    if (!noteQuillInstance.current) return;
+    const html = noteQuillInstance.current.root.innerHTML;
+    if (!noteQuillInstance.current.getText().trim()) return;
+    setIsPostingNote(true);
+    try {
+      await submitReply(html, null, true);
+    } catch {
+      globalThis.alert('Failed to post as internal note.');
+    } finally {
+      setIsPostingNote(false);
+    }
+  };
+
+  const startNoteDrag = useCallback((e: React.MouseEvent) => {
+    const startX = e.clientX;
+    const startWidth = noteWidth;
+    isDraggingRef.current = true;
+    e.preventDefault();
+    const onMove = (ev: MouseEvent) => {
+      if (!isDraggingRef.current) return;
+      const w = Math.min(700, Math.max(280, startWidth + (startX - ev.clientX)));
+      setNoteWidth(w);
+      sessionStorage.setItem('xamops_note_panel_width', String(w));
+    };
+    const onUp = () => {
+      isDraggingRef.current = false;
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, [noteWidth]);
+
+  const handleChatScroll = useCallback(() => {
+    if (!chatContainerRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
+    setShowScrollBtn(scrollHeight - scrollTop - clientHeight > 120);
+  }, []);
+
+  const scrollToBottom = useCallback(() => {
+    if (chatContainerRef.current) chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+  }, []);
+
+  const setNoteColorAndSave = (color: keyof typeof NOTE_COLORS) => {
+    setNoteColor(color);
+    if (ticketId) localStorage.setItem(`xamops_ticket_note_color_${ticketId}`, color);
+  };
+
   const renderRcaSection = (arrayName: keyof RCAFormData, sections: RCAFormSection[]) => (
     <>
       {sections.map((section, index) => (
@@ -527,9 +782,10 @@ const BillOpsTicketDetailPage: React.FC = () => {
       {/* Chat Container */}
       <div
         ref={chatContainerRef}
-        className="flex-1 overflow-y-auto custom-scrollbar bg-slate-50/50 scroll-smooth p-6 lg:p-10"
+        className="flex-1 overflow-y-auto custom-scrollbar bg-slate-50/50 scroll-smooth"
+        onScroll={handleChatScroll}
       >
-        <div className="max-w-4xl mx-auto space-y-8 pb-10">
+        <div className="max-w-4xl mx-auto p-6 lg:p-10 space-y-8">
 
           {/* Original Ticket + Metadata Card */}
           <div className="relative group bg-white/70 backdrop-blur-xl border border-white p-8 rounded-[2.5rem] shadow-[0_8px_40px_rgba(0,0,0,0.03)] hover:shadow-[0_24px_48px_rgba(0,0,0,0.06)] transition-all duration-500 overflow-hidden">
@@ -625,57 +881,85 @@ const BillOpsTicketDetailPage: React.FC = () => {
           </div>
 
           {/* Discussion Header */}
-          <div className="flex items-center gap-4 text-slate-400">
+          <div className="flex items-center gap-3 text-slate-400">
             <span className="text-[10px] font-black uppercase tracking-[0.2em] whitespace-nowrap">Correspondence Log</span>
             <div className="h-px bg-slate-200 flex-1"></div>
-            <span className="text-[10px] font-bold text-slate-400 whitespace-nowrap">{ticket.replies?.length || 0} messages</span>
+            <span className="text-[10px] font-bold text-slate-400 whitespace-nowrap">{ticket.replies?.length || 0} msg{(ticket.replies?.length || 0) !== 1 ? 's' : ''}</span>
           </div>
 
           {/* Replies */}
           {ticket.replies && ticket.replies.length > 0 ? (
             <div className="space-y-6">
-              {ticket.replies.map(reply => {
+              {ticket.replies.map((reply, index) => {
                 const isMine = isMe(reply);
                 const isInternalReply = reply.isInternal;
+                const seenByOther = isMine && !isInternalReply && isReplySeen(reply);
 
-                // Internal notes: amber styling, left-aligned
+                // Internal notes: amber styling, right-aligned (admin only)
                 if (isInternalReply) {
                   return (
-                    <div key={reply.id} className="flex w-full justify-start">
-                      <div className="flex max-w-[85%] md:max-w-[70%] gap-4">
-                        <div className="flex-shrink-0 mt-auto">
-                          <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center text-sm font-black shadow-sm border border-amber-200">
-                            <i className="fas fa-lock text-xs"></i>
+                    <React.Fragment key={reply.id}>
+                      <div className="flex w-full justify-end">
+                        <div className="flex max-w-[85%] md:max-w-[70%] gap-4 flex-row-reverse">
+                          <div className="flex-shrink-0 mt-auto">
+                            <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-sm font-black shadow-sm bg-amber-500 text-white">
+                              <i className="fas fa-lock text-xs"></i>
+                            </div>
                           </div>
-                        </div>
-                        <div className="space-y-2 text-left">
-                          <div className="flex items-center gap-2 px-1 flex-wrap">
-                            <span className="text-[10px] font-black text-amber-700 uppercase tracking-widest">{reply.authorUsername}</span>
-                            <span className="px-2 py-0.5 text-[8px] font-black bg-amber-100 text-amber-600 border border-amber-200 rounded-full uppercase tracking-widest">Internal Note</span>
-                            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">{formatIST(reply.createdAt)}</span>
-                          </div>
-                          <div className="p-5 rounded-[1.5rem] shadow-sm text-sm font-medium leading-relaxed bg-amber-50 text-amber-900 border border-amber-200 rounded-tl-none">
-                            <div dangerouslySetInnerHTML={{ __html: reply.message }} className="prose-chat !p-0" />
+                          <div className="space-y-2 text-right">
+                            <div className="flex items-center justify-end gap-2 px-1">
+                              <span className="px-2 py-0.5 text-[8px] font-black bg-amber-100 text-amber-600 border border-amber-200 rounded-full uppercase tracking-widest">Internal Note</span>
+                              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">{formatIST(reply.createdAt)}</span>
+                            </div>
+                            <div className="p-4 rounded-[1.5rem] rounded-tr-none shadow-sm text-sm font-medium leading-relaxed bg-amber-50 text-amber-900 border border-amber-200">
+                              <div dangerouslySetInnerHTML={{ __html: reply.message }} className="prose-chat" />
+                            </div>
                           </div>
                         </div>
                       </div>
-                    </div>
+                    </React.Fragment>
                   );
                 }
 
                 return (
-                  <div key={reply.id} className={`flex w-full ${isMine ? 'justify-end' : 'justify-start'}`}>
+                  <React.Fragment key={reply.id}>
+                    {/* ── "Unread" divider — shown before the first unread message from the other side ── */}
+                    {index === firstUnreadIndex && firstUnreadIndex > 0 && (
+                      <div className="flex items-center gap-3 py-1">
+                        <div className="h-px bg-rose-200 flex-1"></div>
+                        <span className="flex items-center gap-1.5 text-[10px] font-black text-rose-600 uppercase tracking-widest px-2.5 py-0.5 bg-rose-50 border border-rose-200 rounded-full">
+                          <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse flex-shrink-0"></span>
+                          Unread
+                        </span>
+                        <div className="h-px bg-rose-200 flex-1"></div>
+                      </div>
+                    )}
+
+                  <div className={`flex w-full ${isMine ? 'justify-end' : 'justify-start'}`}>
                     <div className={`flex max-w-[85%] md:max-w-[70%] gap-4 ${isMine ? 'flex-row-reverse' : ''}`}>
                       <div className="flex-shrink-0 mt-auto">
-                        <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-sm font-black shadow-sm ${reply.admin ? 'bg-indigo-600 text-white shadow-indigo-100' : 'bg-slate-200 text-slate-600'}`}>
+                        <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-sm font-black shadow-sm ${reply.admin ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-600'}`}>
                           {reply.admin ? <i className="fas fa-shield-alt"></i> : <span>{getInitials(reply.authorUsername)}</span>}
                         </div>
                       </div>
 
                       <div className={`space-y-2 ${isMine ? 'text-right' : 'text-left'}`}>
-                        <div className="flex items-center gap-2 px-1">
+                        <div className={`flex items-center gap-1.5 px-1 ${isMine ? 'justify-end' : 'justify-start'}`}>
                           {!isMine && <span className="text-[10px] font-black text-slate-800 uppercase tracking-widest">{reply.authorUsername}</span>}
                           <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">{formatIST(reply.createdAt)}</span>
+                          {/* ── Read receipt ticks (only on my outgoing messages) ── */}
+                          {isMine && (
+                            <span
+                              title={seenByOther ? 'Seen' : 'Delivered, not yet seen'}
+                              style={{
+                                letterSpacing: '-1px',
+                                fontSize: '13px',
+                                lineHeight: 1,
+                                color: seenByOther ? '#38bdf8' : 'rgba(148,163,184,0.7)',
+                                fontWeight: seenByOther ? 700 : 400,
+                              }}
+                            >✓✓</span>
+                          )}
                           {isMine && (
                             <span className="text-[10px] font-black text-slate-800 uppercase tracking-widest">
                               {isAdmin ? reply.authorUsername : 'You'}
@@ -683,7 +967,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                           )}
                         </div>
 
-                        <div className={`p-5 rounded-[1.5rem] shadow-sm text-sm font-medium leading-relaxed ${isMine ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white text-slate-700 border border-slate-100 rounded-tl-none'}`}>
+                        <div className={`p-4 rounded-[1.5rem] shadow-sm text-sm font-medium leading-relaxed ${isMine ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white text-slate-700 border border-slate-100 rounded-tl-none'}`}>
                           <div dangerouslySetInnerHTML={{ __html: reply.message }} className="prose-chat !p-0" />
 
                           {/* Attachments */}
@@ -737,6 +1021,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                       </div>
                     </div>
                   </div>
+                  </React.Fragment>
                 );
               })}
             </div>
@@ -745,16 +1030,38 @@ const BillOpsTicketDetailPage: React.FC = () => {
               <p className="text-gray-400 text-sm italic">No replies yet. Start the conversation below.</p>
             </div>
           )}
+
+          {/* Closed banner — shown inline at bottom of chat, same as TicketDetailPage */}
+          {isClosed && (
+            <div className="flex items-center gap-3 px-6 py-4 bg-slate-100 rounded-2xl border border-slate-200 text-[11px] font-bold text-slate-500">
+              <i className="fas fa-lock-open text-slate-400"></i>
+              This ticket was closed
+              {ticket.closedAt && <span className="text-slate-400">· {formatIST(ticket.closedAt)}</span>}
+            </div>
+          )}
         </div>
+
+        {/* Scroll-to-bottom floating button */}
+        {showScrollBtn && (
+          <div className="sticky bottom-2 flex justify-end pointer-events-none">
+            <button
+              onClick={scrollToBottom}
+              className="pointer-events-auto flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold rounded-full shadow-lg transition-all"
+            >
+              <i className="fas fa-chevron-down text-[9px]"></i>
+              Latest
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Footer - Reply Form */}
       {ticket.status !== 'CLOSED' ? (
-        <div className="p-6 lg:p-10 bg-white/70 backdrop-blur-xl border-t border-slate-200/50">
+        <div className="p-6 bg-white/70 backdrop-blur-xl border-t border-slate-200/50">
           <div className="max-w-4xl mx-auto">
-            <form onSubmit={handleSubmitReply} className="space-y-4">
-              <div className="relative bg-white rounded-[2rem] border overflow-hidden focus-within:ring-4 transition-all shadow-xl border-slate-200 focus-within:ring-indigo-500/10 focus-within:border-indigo-500/30 shadow-slate-200/40">
-                <div className="px-6 py-3 border-b border-slate-50 flex items-center justify-between bg-slate-50/30">
+            <form onSubmit={handleSubmitReply}>
+              <div className="relative bg-white rounded-3xl border overflow-hidden focus-within:ring-4 transition-all shadow-sm border-slate-200 focus-within:ring-indigo-500/10 focus-within:border-indigo-400/40">
+                <div className="px-5 py-3 border-b border-slate-50 flex items-center justify-between bg-slate-50/30">
                   <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest leading-none text-slate-500">
                     <i className="fas fa-reply text-indigo-500"></i>
                     Official Ticket Response
@@ -769,18 +1076,23 @@ const BillOpsTicketDetailPage: React.FC = () => {
                         </button>
                       </div>
                     )}
-                    {/* Internal Note Panel trigger - admin only */}
+                    {/* Sticky note side panel trigger - admin only */}
                     {isAdmin && (
                       <button
                         type="button"
                         onClick={() => setShowNotePanel(true)}
-                        title="Open internal note pad"
+                        title={noteFirstLine ? `📝 ${noteFirstLine}` : 'Internal note pad (Ctrl/⌘+Shift+N)'}
                         className="relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest border transition-all bg-amber-50 text-amber-600 border-amber-300 hover:bg-amber-100 active:scale-95"
                       >
                         <i className="fas fa-sticky-note"></i>
                         Note
-                        {noteText.trim().length > 0 && (
+                        {hasNoteContent && (
                           <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-500 border border-white"></span>
+                        )}
+                        {noteTasks.filter(t => !t.done).length > 0 && (
+                          <span className="absolute -top-1.5 -left-1 min-w-[14px] h-[14px] flex items-center justify-center rounded-full bg-indigo-500 border border-white text-white text-[7px] font-black px-0.5">
+                            {noteTasks.filter(t => !t.done).length}
+                          </span>
                         )}
                       </button>
                     )}
@@ -791,21 +1103,21 @@ const BillOpsTicketDetailPage: React.FC = () => {
                   <div ref={quillRef} className="bg-white"></div>
                 </div>
 
-                <div className="px-6 py-4 border-t border-slate-50 flex items-center justify-between bg-slate-50/10">
+                <div className="px-5 py-3 border-t border-slate-50 flex items-center justify-between bg-slate-50/10">
                   <label className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest cursor-pointer transition-all active:scale-95">
                     <i className="fas fa-paperclip text-sm"></i>
-                    <span>Add Attachments</span>
+                    <span>Attach Files</span>
                     <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileSelect} />
                   </label>
 
                   <button
                     type="submit"
                     disabled={isSubmitting || (!newReplyHasContent && !attachment)}
-                    className="flex items-center gap-2 px-8 py-3 text-white rounded-xl text-[11px] font-black uppercase tracking-widest shadow-lg transition-all disabled:opacity-50 active:scale-95 hover:-translate-y-0.5 bg-indigo-600 shadow-indigo-500/30 hover:bg-indigo-700"
+                    className="flex items-center gap-2 px-6 py-2.5 text-white rounded-xl text-[11px] font-black uppercase tracking-widest shadow-lg transition-all disabled:opacity-50 active:scale-95 bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200"
                   >
                     {isSubmitting
-                      ? <><i className="fas fa-circle-notch fa-spin"></i> Processing...</>
-                      : <><i className="fas fa-paper-plane"></i> Send Message</>
+                      ? <><i className="fas fa-circle-notch fa-spin"></i> Sending...</>
+                      : <><i className="fas fa-paper-plane"></i> Send</>
                     }
                   </button>
                 </div>
@@ -813,17 +1125,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
             </form>
           </div>
         </div>
-      ) : (
-        <div className="p-8 bg-slate-100/50 border-t border-slate-200/50 backdrop-blur-sm">
-          <div className="max-w-md mx-auto bg-white p-4 rounded-2xl shadow-sm border border-slate-200 text-center">
-            <div className="flex items-center justify-center gap-2 text-slate-400 font-bold text-[10px] uppercase tracking-[0.2em] flex-wrap">
-              <i className="fas fa-lock"></i>
-              Ticket Interaction Disabled &bull; Case Closed
-              {ticket.closedAt && <span className="text-slate-400">· {formatIST(ticket.closedAt)}</span>}
-            </div>
-          </div>
-        </div>
-      )}
+      ) : null}
 
       {/* Email Thread Modal — rendered via portal so fixed/backdrop works regardless of scroll/transforms */}
       {showEmailModal && ReactDOM.createPortal(
@@ -1081,100 +1383,262 @@ const BillOpsTicketDetailPage: React.FC = () => {
         </DialogPanel>
       </DialogRoot>
 
-      {/* Sticky Note Side Panel — portal rendered so it's above all content */}
+      {/* ── Sticky Note Panel (enhanced) ─────────────────────────────────────── */}
       {showNotePanel && ReactDOM.createPortal(
-        <div className="fixed inset-0 z-50 flex justify-end" onClick={() => setShowNotePanel(false)}>
-          {/* Semi-transparent backdrop */}
-          <div className="absolute inset-0 bg-black/20" />
+        <>
+          {/* Quill style overrides scoped to the note panel */}
+          <style>{`
+            .note-panel-quill .ql-toolbar{background:rgba(255,255,255,.22)!important;border:none!important;border-bottom:1px solid rgba(0,0,0,.07)!important;padding:5px 12px!important;flex-shrink:0}
+            .note-panel-quill .ql-container{background:transparent!important;border:none!important;font-size:13px!important;font-family:inherit!important;overflow:auto;flex:1}
+            .note-panel-quill .ql-editor{background:transparent!important;padding:14px 20px!important;line-height:2!important;color:inherit!important;min-height:120px}
+            .note-panel-quill .ql-editor.ql-blank::before{font-style:normal!important;color:inherit!important;opacity:.38!important;font-size:13px!important}
+            .note-panel-quill .ql-toolbar button:hover .ql-stroke,.note-panel-quill .ql-toolbar button.ql-active .ql-stroke{stroke:rgba(0,0,0,.65)!important}
+            .note-panel-quill .ql-toolbar button:hover .ql-fill,.note-panel-quill .ql-toolbar button.ql-active .ql-fill{fill:rgba(0,0,0,.65)!important}
+            .note-panel-quill .ql-snow .ql-stroke{stroke:rgba(0,0,0,.45)}
+            .note-panel-quill .ql-snow .ql-fill{fill:rgba(0,0,0,.45)}
+          `}</style>
 
-          {/* Panel */}
+          {/* Panel — no backdrop, floats over the right side so chat remains interactive */}
           <div
-            className="relative w-full max-w-sm h-full flex flex-col shadow-2xl"
-            style={{ background: 'linear-gradient(160deg, #fef9c3 0%, #fef08a 100%)' }}
-            onClick={e => e.stopPropagation()}
+            className="fixed right-0 top-0 bottom-0 z-50 flex flex-col shadow-2xl overflow-hidden"
+            style={{ width: noteWidth, background: NOTE_COLORS[noteColor].bg, color: NOTE_COLORS[noteColor].text }}
           >
-            {/* Top fold decoration */}
-            <div className="absolute top-0 right-0 w-8 h-8 overflow-hidden pointer-events-none">
-              <div className="absolute top-0 right-0 w-0 h-0" style={{ borderLeft: '32px solid transparent', borderBottom: '32px solid #fde047', filter: 'brightness(0.85)' }} />
-            </div>
-
-            {/* Header */}
-            <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-amber-200/60">
-              <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-lg bg-amber-400/40 flex items-center justify-center">
-                  <i className="fas fa-lock text-amber-700 text-xs"></i>
-                </div>
-                <div>
-                  <div className="text-[11px] font-black text-amber-800 uppercase tracking-widest leading-none">Internal Note</div>
-                  <div className="text-[9px] font-bold text-amber-600/70 mt-0.5">Admin only · not visible to client</div>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowNotePanel(false)}
-                className="w-7 h-7 flex items-center justify-center rounded-lg text-amber-600 hover:bg-amber-200/60 transition-colors"
+              {/* ── Drag-resize handle ─────────────────────────────────── */}
+              <div
+                className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize z-20 group flex items-center justify-center hover:bg-black/10 transition-colors"
+                onMouseDown={startNoteDrag}
+                title="Drag to resize"
               >
-                <i className="fas fa-times text-sm"></i>
-              </button>
-            </div>
-
-            {/* Lined paper textarea */}
-            <div className="flex-1 relative overflow-hidden">
-              {/* Decorative lines */}
-              <div className="absolute inset-0 pointer-events-none" style={{
-                backgroundImage: 'repeating-linear-gradient(transparent, transparent 31px, rgba(202,138,4,0.15) 31px, rgba(202,138,4,0.15) 32px)',
-                backgroundPosition: '0 48px',
-              }} />
-              <textarea
-                autoFocus
-                value={noteText}
-                onChange={e => {
-                  const text = e.target.value;
-                  setNoteText(text);
-                  // Debounced auto-save to localStorage
-                  if (noteSaveTimerRef.current) clearTimeout(noteSaveTimerRef.current);
-                  noteSaveTimerRef.current = setTimeout(() => {
-                    if (ticketId) {
-                      localStorage.setItem(`xamops_ticket_note_${ticketId}`, text);
-                      setNoteSaved(true);
-                      setTimeout(() => setNoteSaved(false), 2000);
-                    }
-                  }, 500);
-                }}
-                placeholder="Write your internal note here..."
-                className="w-full h-full resize-none bg-transparent px-5 py-4 text-sm text-amber-900 placeholder-amber-400/70 outline-none leading-8 font-medium"
-                style={{ lineHeight: '32px', paddingTop: '16px' }}
-              />
-            </div>
-
-            {/* Footer */}
-            <div className="px-5 py-4 border-t border-amber-200/60 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                {noteSaved ? (
-                  <span className="flex items-center gap-1 text-[9px] font-black text-emerald-600 uppercase tracking-widest">
-                    <i className="fas fa-check-circle"></i> Saved
-                  </span>
-                ) : (
-                  <span className="text-[9px] font-bold text-amber-500/60 uppercase tracking-widest">
-                    Auto-saves as you type
-                  </span>
-                )}
+                <div className="w-0.5 h-8 rounded-full bg-current opacity-20 group-hover:opacity-50 group-hover:h-14 transition-all" />
               </div>
-              {noteText.trim().length > 0 && (
+
+              {/* ── Header ─────────────────────────────────────────────── */}
+              <div className="flex items-center justify-between pl-6 pr-4 pt-4 pb-3 border-b border-current/10 flex-shrink-0">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.08)' }}>
+                    <i className="fas fa-lock text-xs" />
+                  </div>
+                  <div>
+                    <div className="text-[11px] font-black uppercase tracking-widest leading-none">Internal Note</div>
+                    <div className="text-[9px] font-bold opacity-50 mt-0.5">Admin only · Ctrl/⌘+Shift+N</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {/* Color theme picker */}
+                  {(['yellow', 'blue', 'green', 'pink'] as const).map(c => (
+                    <button
+                      key={c}
+                      onClick={() => setNoteColorAndSave(c)}
+                      style={{ background: NOTE_COLORS[c].btn }}
+                      className={`w-3.5 h-3.5 rounded-full transition-all border-2 ${noteColor === c ? 'scale-125 border-current/60' : 'border-transparent opacity-55 hover:opacity-100 hover:scale-110'}`}
+                      title={c.charAt(0).toUpperCase() + c.slice(1)}
+                    />
+                  ))}
+                  <div className="w-px h-4 bg-current/20 mx-1" />
+                  <button
+                    onClick={() => setShowNotePanel(false)}
+                    className="w-7 h-7 flex items-center justify-center rounded-lg transition-colors hover:bg-current/10"
+                  >
+                    <i className="fas fa-times text-sm" />
+                  </button>
+                </div>
+              </div>
+
+              {/* ── Tab bar ────────────────────────────────────────────── */}
+              <div className="flex border-b border-current/10 pl-5 gap-1 flex-shrink-0">
                 <button
-                  type="button"
-                  onClick={() => {
-                    setNoteText('');
-                    if (ticketId) localStorage.removeItem(`xamops_ticket_note_${ticketId}`);
-                  }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-amber-700 bg-amber-100 hover:bg-red-100 hover:text-red-600 rounded-lg border border-amber-200 hover:border-red-200 transition-all active:scale-95"
+                  onClick={() => setNoteTab('note')}
+                  className={`px-3 py-2.5 text-[10px] font-black uppercase tracking-widest transition-all border-b-2 flex items-center gap-1.5 ${noteTab === 'note' ? 'border-current/60 opacity-100' : 'border-transparent opacity-45 hover:opacity-70'}`}
                 >
-                  <i className="fas fa-trash-alt text-[9px]"></i>
-                  Clear
+                  <i className="fas fa-pen text-[9px]" /> Note
                 </button>
-              )}
+                <button
+                  onClick={() => setNoteTab('tasks')}
+                  className={`px-3 py-2.5 text-[10px] font-black uppercase tracking-widest transition-all border-b-2 flex items-center gap-1.5 ${noteTab === 'tasks' ? 'border-current/60 opacity-100' : 'border-transparent opacity-45 hover:opacity-70'}`}
+                >
+                  <i className="fas fa-check-square text-[9px]" /> Tasks
+                  {noteTasks.filter(t => !t.done).length > 0 && (
+                    <span className="w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-black" style={{ background: 'rgba(0,0,0,0.12)' }}>
+                      {noteTasks.filter(t => !t.done).length}
+                    </span>
+                  )}
+                </button>
+              </div>
+
+              {/* ── Note Editor tab (always in DOM; hidden via CSS when tasks active) ── */}
+              <div className={`flex-1 flex flex-col overflow-hidden relative ${noteTab !== 'note' ? 'hidden' : ''}`}>
+                {/* Lined paper decoration */}
+                <div className="absolute inset-0 pointer-events-none" style={{
+                  backgroundImage: `repeating-linear-gradient(transparent,transparent 31px,${NOTE_COLORS[noteColor].line} 31px,${NOTE_COLORS[noteColor].line} 32px)`,
+                  backgroundPosition: '0 72px',
+                }} />
+                <div className="relative flex-1 overflow-hidden flex flex-col note-panel-quill">
+                  <div ref={noteQuillRef} />
+                </div>
+              </div>
+
+              {/* ── Tasks tab ──────────────────────────────────────────── */}
+              <div className={`flex-1 flex flex-col overflow-hidden ${noteTab !== 'tasks' ? 'hidden' : ''}`}>
+                {/* Add task input */}
+                <div className="px-5 pt-4 pb-2 flex gap-2 flex-shrink-0">
+                  <input
+                    type="text"
+                    value={newTaskText}
+                    onChange={e => setNewTaskText(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && addTask()}
+                    placeholder="Add a task & press Enter…"
+                    className="flex-1 rounded-xl px-3 py-2 text-sm font-medium outline-none transition-all"
+                    style={{ background: 'rgba(255,255,255,0.45)', border: '1.5px solid rgba(0,0,0,0.08)', color: NOTE_COLORS[noteColor].text }}
+                  />
+                  <button
+                    onClick={addTask}
+                    className="w-9 h-9 flex items-center justify-center rounded-xl font-black text-sm transition-all active:scale-95"
+                    style={{ background: 'rgba(0,0,0,0.12)' }}
+                  >
+                    <i className="fas fa-plus text-xs" />
+                  </button>
+                </div>
+                <div className="flex-1 overflow-y-auto px-5 pb-4 space-y-2">
+                  {noteTasks.length === 0 ? (
+                    <div className="py-12 text-center opacity-40">
+                      <i className="fas fa-clipboard-list text-3xl mb-3 block" />
+                      <p className="text-xs font-bold">No tasks yet — add one above</p>
+                    </div>
+                  ) : noteTasks.map(task => (
+                    <div
+                      key={task.id}
+                      className={`flex items-center gap-3 px-3 py-2.5 rounded-xl group transition-all ${task.done ? 'opacity-50' : ''}`}
+                      style={{ background: 'rgba(255,255,255,0.35)', border: '1px solid rgba(0,0,0,0.06)' }}
+                    >
+                      <button
+                        onClick={() => toggleTask(task.id)}
+                        className="w-5 h-5 rounded flex-shrink-0 flex items-center justify-center border-2 transition-all"
+                        style={{ borderColor: 'rgba(0,0,0,0.3)', background: task.done ? 'rgba(0,0,0,0.25)' : 'transparent' }}
+                      >
+                        {task.done && <i className="fas fa-check text-[8px]" />}
+                      </button>
+                      <span className={`flex-1 text-sm font-medium leading-snug ${task.done ? 'line-through opacity-60' : ''}`}>{task.text}</span>
+                      <button onClick={() => deleteTask(task.id)} className="opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity">
+                        <i className="fas fa-times text-[10px]" />
+                      </button>
+                    </div>
+                  ))}
+                  {noteTasks.length > 0 && (
+                    <p className="text-center text-[10px] font-bold opacity-35 pt-2">
+                      {noteTasks.filter(t => t.done).length} of {noteTasks.length} completed
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* ── Footer ─────────────────────────────────────────────── */}
+              <div className="pl-6 pr-4 py-3 border-t border-current/10 flex items-center justify-between gap-2 flex-shrink-0">
+                {/* Saved / word count */}
+                <div className="min-w-0">
+                  {noteSaved ? (
+                    <span className="flex items-center gap-1 text-[9px] font-black text-emerald-600 uppercase tracking-widest">
+                      <i className="fas fa-check-circle" /> Saved
+                    </span>
+                  ) : (
+                    <span className="text-[9px] font-bold opacity-40 uppercase tracking-widest">
+                      {noteTab === 'note'
+                        ? `${noteWordCount} word${noteWordCount !== 1 ? 's' : ''}`
+                        : `${noteTasks.filter(t => t.done).length}/${noteTasks.length} done`}
+                    </span>
+                  )}
+                </div>
+
+                {/* Action buttons */}
+                <div className="flex items-center gap-1">
+                  {/* History (note tab only) */}
+                  {noteTab === 'note' && noteHistory.length > 0 && (
+                    <div className="relative">
+                      <button
+                        onClick={() => setShowNoteHistory(v => !v)}
+                        title="Restore a previous version"
+                        className="w-7 h-7 flex items-center justify-center rounded-lg transition-colors hover:bg-current/10 opacity-50 hover:opacity-100"
+                      >
+                        <i className="fas fa-history text-[11px]" />
+                      </button>
+                      {showNoteHistory && (
+                        <div className="absolute bottom-9 right-0 w-64 bg-white rounded-xl shadow-2xl border border-slate-100 overflow-hidden z-30">
+                          <div className="px-3 py-2 text-[9px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-50 flex items-center justify-between">
+                            <span>Restore version</span>
+                            <button onClick={() => setShowNoteHistory(false)} className="text-slate-300 hover:text-slate-500"><i className="fas fa-times" /></button>
+                          </div>
+                          {noteHistory.map((entry, i) => (
+                            <button
+                              key={i}
+                              onClick={() => {
+                                if (noteQuillInstance.current) {
+                                  noteQuillInstance.current.root.innerHTML = entry.html;
+                                  setNoteHtml(entry.html);
+                                }
+                                setShowNoteHistory(false);
+                              }}
+                              className="w-full text-left px-3 py-2.5 hover:bg-slate-50 transition-colors border-b border-slate-50 last:border-0"
+                            >
+                              <div className="text-[9px] font-black text-indigo-500 uppercase tracking-widest mb-1">
+                                {new Date(entry.savedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'short', timeStyle: 'short' })}
+                              </div>
+                              <div className="text-xs text-slate-600 font-medium line-clamp-2 leading-snug">
+                                {(() => { const d = document.createElement('div'); d.innerHTML = entry.html; return d.textContent || ''; })()}
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Copy to clipboard */}
+                  <button
+                    onClick={handleCopyNote}
+                    title="Copy to clipboard"
+                    className="w-7 h-7 flex items-center justify-center rounded-lg transition-colors hover:bg-current/10 opacity-50 hover:opacity-100"
+                  >
+                    <i className="fas fa-copy text-[11px]" />
+                  </button>
+
+                  {/* Post as internal note in thread */}
+                  {noteTab === 'note' && ticket.status !== 'CLOSED' && noteWordCount > 0 && (
+                    <button
+                      onClick={handlePostNoteAsInternal}
+                      disabled={isPostingNote}
+                      title="Post as internal message in ticket thread"
+                      className="flex items-center gap-1 px-2.5 py-1.5 text-[9px] font-black uppercase tracking-widest rounded-lg border border-current/20 transition-all active:scale-95 disabled:opacity-40 hover:bg-current/10"
+                    >
+                      {isPostingNote ? <i className="fas fa-circle-notch fa-spin text-[9px]" /> : <i className="fas fa-share text-[9px]" />}
+                      Post
+                    </button>
+                  )}
+
+                  {/* Clear */}
+                  {((noteTab === 'note' && noteWordCount > 0) || (noteTab === 'tasks' && noteTasks.length > 0)) && (
+                    <button
+                      onClick={() => {
+                        if (noteTab === 'note') {
+                          if (noteQuillInstance.current) noteQuillInstance.current.root.innerHTML = '';
+                          setNoteHtml('');
+                          setNoteWordCount(0);
+                          if (ticketId) {
+                            localStorage.removeItem(`xamops_ticket_note_html_${ticketId}`);
+                            localStorage.removeItem(`xamops_ticket_note_${ticketId}`);
+                          }
+                        } else {
+                          setNoteTasks([]);
+                          if (ticketId) localStorage.removeItem(`xamops_ticket_tasks_${ticketId}`);
+                        }
+                      }}
+                      className="flex items-center gap-1 px-2.5 py-1.5 text-[9px] font-black uppercase tracking-widest rounded-lg border border-current/20 transition-all active:scale-95 opacity-50 hover:opacity-100 hover:bg-red-50 hover:text-red-600 hover:border-red-200"
+                    >
+                      <i className="fas fa-trash-alt text-[8px]" /> Clear
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
-          </div>
-        </div>,
+        </>,
         document.body
       )}
     </div>

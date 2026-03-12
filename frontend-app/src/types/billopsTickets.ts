@@ -26,6 +26,7 @@ export interface BillOpsTicket {
   assignedToUsername?: string;
   creatorUsername?: string;
   creatorEmail?: string;
+  hasUnreadAdminReply?: boolean;  // true = admin replied and user hasn't responded yet
 }
 
 export interface CreateTicketFormData {
