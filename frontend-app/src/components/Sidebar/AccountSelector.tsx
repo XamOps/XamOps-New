@@ -1,4 +1,5 @@
 import React, { useRef, useEffect } from 'react';
+import { IoCloseCircle } from 'react-icons/io5';
 import { useAccounts } from '../../contexts/AccountContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { Account, CloudProvider } from '../../types/account';
@@ -230,14 +231,25 @@ const AccountSelector: React.FC<AccountSelectorProps> = ({ isOpen, onToggle, onC
               <input
                 type="text"
                 placeholder="Search accounts..."
+                aria-label="Search accounts"
                 value={searchTerm}
                 onChange={e => setSearchTerm(e.target.value)}
                 className={clsx(
-                  'w-full pl-9 pr-4 py-2 border rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all',
+                  'w-full pl-9 pr-9 py-2 border rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all',
                   theme === 'dark' ? 'bg-slate-800 border-slate-700 text-slate-200 placeholder-slate-600 focus:border-indigo-500/50' : 'bg-slate-50 border-gray-100 text-slate-700 placeholder-slate-400 focus:border-indigo-300'
                 )}
                 autoFocus
               />
+              {searchTerm && (
+                <button
+                  type="button"
+                  onClick={() => setSearchTerm('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-indigo-500 transition-colors p-1 flex items-center justify-center"
+                  aria-label="Clear account search"
+                >
+                  <IoCloseCircle className="text-lg" />
+                </button>
+              )}
             </div>
           </div>
 
