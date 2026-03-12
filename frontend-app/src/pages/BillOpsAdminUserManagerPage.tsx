@@ -26,6 +26,7 @@
  */
 
 import React, { useEffect, useState, useMemo } from 'react';
+import ReactDOM from 'react-dom';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useBillOpsUserManager } from '../hooks/useBillOpsUserManager';
 import type { BillOpsUser, BillOpsRole } from '../types/billopsUserManager';
@@ -146,122 +147,125 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
                 </div>
             )}
 
-            {/* Edit/Create Form */}
-            {isEditing && (
-                <div className="user-manager-form-card">
-                    <div className="user-manager-form-header">
-                        <i className="fas fa-user-edit"></i>
-                        <h2>{selectedUser.id ? 'Edit User' : 'Create User'}</h2>
-                    </div>
+            {/* Edit/Create Form — portal so it's always centered in viewport regardless of scroll */}
+            {isEditing && ReactDOM.createPortal(
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" onClick={cancelEdit}></div>
+                    <div className="relative user-manager-form-card z-10 w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+                        <div className="user-manager-form-header">
+                            <i className="fas fa-user-edit"></i>
+                            <h2>{selectedUser.id ? 'Edit User' : 'Create User'}</h2>
+                        </div>
 
-                    <form onSubmit={(e) => { e.preventDefault(); saveUser(); }}>
-                        <div className="user-manager-form-grid">
-                            <div className="user-manager-form-group">
-                                <label className="user-manager-form-label">Client Name</label>
-                                <input
-                                    type="text"
-                                    value={selectedUser.clientName}
-                                    disabled={!!selectedUser.id}
-                                    required
-                                    className="user-manager-form-input"
-                                    placeholder="Enter client name"
-                                    onChange={(e) => updateSelectedUser('clientName', e.target.value)}
-                                />
+                        <form onSubmit={(e) => { e.preventDefault(); saveUser(); }}>
+                            <div className="user-manager-form-grid">
+                                <div className="user-manager-form-group">
+                                    <label className="user-manager-form-label">Client Name</label>
+                                    <input
+                                        type="text"
+                                        value={selectedUser.clientName}
+                                        required
+                                        className="user-manager-form-input"
+                                        placeholder="Enter client name"
+                                        onChange={(e) => updateSelectedUser('clientName', e.target.value)}
+                                    />
+                                </div>
+
+                                <div className="user-manager-form-group">
+                                    <label className="user-manager-form-label">Username</label>
+                                    <input
+                                        type="text"
+                                        value={selectedUser.username}
+                                        required
+                                        className="user-manager-form-input"
+                                        placeholder="Enter username"
+                                        onChange={(e) => updateSelectedUser('username', e.target.value)}
+                                    />
+                                </div>
+
+                                <div className="user-manager-form-group">
+                                    <label className="user-manager-form-label">Email</label>
+                                    <input
+                                        type="email"
+                                        value={selectedUser.email}
+                                        required
+                                        className="user-manager-form-input"
+                                        placeholder="Enter email address"
+                                        onChange={(e) => updateSelectedUser('email', e.target.value)}
+                                    />
+                                </div>
+
+                                <div className="user-manager-form-group">
+                                    <label className="user-manager-form-label">Role</label>
+                                    <select
+                                        value={selectedUser.role}
+                                        required
+                                        className="user-manager-form-select"
+                                        onChange={(e) => updateSelectedUser('role', e.target.value)}
+                                    >
+                                        <option value="" disabled>Select Role</option>
+                                        {roles.map((role) => (
+                                            <option key={role} value={role}>
+                                                {formatRole(role)}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div className="user-manager-form-group">
+                                    <label className="user-manager-form-label">Contact Number</label>
+                                    <input
+                                        type="tel"
+                                        value={selectedUser.contact}
+                                        className="user-manager-form-input"
+                                        placeholder="Enter contact number"
+                                        onChange={(e) => updateSelectedUser('contact', e.target.value)}
+                                    />
+                                </div>
+
+                                <div className="user-manager-form-group">
+                                    <label className="user-manager-form-label">Designation</label>
+                                    <input
+                                        type="text"
+                                        value={selectedUser.designation}
+                                        className="user-manager-form-input"
+                                        placeholder="e.g. Cloud Engineer"
+                                        onChange={(e) => updateSelectedUser('designation', e.target.value)}
+                                    />
+                                </div>
+
+                                <div className="user-manager-form-group full-width">
+                                    <label className="user-manager-form-label">Password</label>
+                                    <input
+                                        type="password"
+                                        value={selectedUser.password}
+                                        required={!selectedUser.id}
+                                        className="user-manager-form-input"
+                                        placeholder={selectedUser.id ? 'Leave blank to keep current password' : 'Enter password'}
+                                        onChange={(e) => updateSelectedUser('password', e.target.value)}
+                                    />
+                                </div>
                             </div>
 
-                            <div className="user-manager-form-group">
-                                <label className="user-manager-form-label">Username</label>
-                                <input
-                                    type="text"
-                                    value={selectedUser.username}
-                                    required
-                                    className="user-manager-form-input"
-                                    placeholder="Enter username"
-                                    onChange={(e) => updateSelectedUser('username', e.target.value)}
-                                />
-                            </div>
-
-                            <div className="user-manager-form-group">
-                                <label className="user-manager-form-label">Email</label>
-                                <input
-                                    type="email"
-                                    value={selectedUser.email}
-                                    required
-                                    className="user-manager-form-input"
-                                    placeholder="Enter email address"
-                                    onChange={(e) => updateSelectedUser('email', e.target.value)}
-                                />
-                            </div>
-
-                            <div className="user-manager-form-group">
-                                <label className="user-manager-form-label">Role</label>
-                                <select
-                                    value={selectedUser.role}
-                                    required
-                                    className="user-manager-form-select"
-                                    onChange={(e) => updateSelectedUser('role', e.target.value)}
+                            <div className="user-manager-form-actions">
+                                <button
+                                    type="button"
+                                    onClick={cancelEdit}
+                                    className="user-manager-btn-cancel"
                                 >
-                                    <option value="" disabled>Select Role</option>
-                                    {roles.map((role) => (
-                                        <option key={role} value={role}>
-                                            {formatRole(role)}
-                                        </option>
-                                    ))}
-                                </select>
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    className="user-manager-btn-save"
+                                >
+                                    Save User
+                                </button>
                             </div>
-
-                            <div className="user-manager-form-group">
-                                <label className="user-manager-form-label">Contact Number</label>
-                                <input
-                                    type="tel"
-                                    value={selectedUser.contact}
-                                    className="user-manager-form-input"
-                                    placeholder="Enter contact number"
-                                    onChange={(e) => updateSelectedUser('contact', e.target.value)}
-                                />
-                            </div>
-
-                            <div className="user-manager-form-group">
-                                <label className="user-manager-form-label">Designation</label>
-                                <input
-                                    type="text"
-                                    value={selectedUser.designation}
-                                    className="user-manager-form-input"
-                                    placeholder="e.g. Cloud Engineer"
-                                    onChange={(e) => updateSelectedUser('designation', e.target.value)}
-                                />
-                            </div>
-
-                            <div className="user-manager-form-group full-width">
-                                <label className="user-manager-form-label">Password</label>
-                                <input
-                                    type="password"
-                                    value={selectedUser.password}
-                                    required={!selectedUser.id}
-                                    className="user-manager-form-input"
-                                    placeholder={selectedUser.id ? 'Leave blank to keep current password' : 'Enter password'}
-                                    onChange={(e) => updateSelectedUser('password', e.target.value)}
-                                />
-                            </div>
-                        </div>
-
-                        <div className="user-manager-form-actions">
-                            <button
-                                type="button"
-                                onClick={cancelEdit}
-                                className="user-manager-btn-cancel"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                type="submit"
-                                className="user-manager-btn-save"
-                            >
-                                Save User
-                            </button>
-                        </div>
-                    </form>
-                </div>
+                        </form>
+                    </div>
+                </div>,
+                document.body
             )}
 
             {/* Stats Summary */}

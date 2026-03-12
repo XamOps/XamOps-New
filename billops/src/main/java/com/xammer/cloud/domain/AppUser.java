@@ -52,6 +52,9 @@ public class AppUser {
     @Column(length = 100)
     private String designation;
 
+    @Column(name = "all_accounts_access", nullable = false, columnDefinition = "BOOLEAN DEFAULT FALSE")
+    private boolean allAccountsAccess = false;
+
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
     public String getUsername() { return username; }
@@ -70,6 +73,8 @@ public class AppUser {
     public void setContact(String contact) { this.contact = contact; }
     public String getDesignation() { return designation; }
     public void setDesignation(String designation) { this.designation = designation; }
+    public boolean isAllAccountsAccess() { return allAccountsAccess; }
+    public void setAllAccountsAccess(boolean allAccountsAccess) { this.allAccountsAccess = allAccountsAccess; }
 
     // Constructors
     public AppUser(String username, String password, String email, String role, Client client) {

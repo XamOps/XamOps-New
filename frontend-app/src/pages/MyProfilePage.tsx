@@ -98,6 +98,7 @@ const MyProfilePage: React.FC = () => {
     { key: 'agreement-admin', label: 'Agreement Admin', icon: 'fas fa-file-signature' },
     { key: 'client-details', label: 'Client Details', icon: 'fas fa-users-cog' },
     { key: 'autospotting-admin', label: 'AutoSpotting Admin', icon: 'fas fa-magic' },
+    { key: 'user-manager', label: 'User Manager', icon: 'fas fa-user-cog' },
   ];
 
   // ── Account Access UI state ──────────────────────────────────────────
@@ -105,13 +106,10 @@ const MyProfilePage: React.FC = () => {
   const [accountSearch, setAccountSearch] = useState('');
   const [accountProviderFilter, setAccountProviderFilter] = useState<'All' | 'AWS' | 'GCP' | 'Azure'>('All');
 
-  // When a form opens, auto-detect whether current selection equals all accounts
+  // When a form opens, restore mode from allAccountsAccess flag
   useEffect(() => {
     if (isEditing) {
-      const total = profile.cloudAccounts?.length ?? 0;
-      const isAll = total > 0 && selectedUser.accountIds.length === total &&
-        profile.cloudAccounts.every(a => selectedUser.accountIds.includes(a.id));
-      setAccountAccessMode(isAll ? 'all' : 'selected');
+      setAccountAccessMode(selectedUser.allAccountsAccess ? 'all' : 'selected');
       setAccountSearch('');
       setAccountProviderFilter('All');
     }
@@ -132,7 +130,10 @@ const MyProfilePage: React.FC = () => {
   const handleAccountModeChange = (mode: 'all' | 'selected') => {
     setAccountAccessMode(mode);
     if (mode === 'all') {
-      updateSelectedUser('accountIds', (profile.cloudAccounts ?? []).map(a => a.id));
+      updateSelectedUser('allAccountsAccess', true);
+      updateSelectedUser('accountIds', []);
+    } else {
+      updateSelectedUser('allAccountsAccess', false);
     }
   };
 
@@ -394,7 +395,7 @@ const MyProfilePage: React.FC = () => {
                             </div>
                             <div>
                               <p className="text-sm font-semibold text-gray-800">All Accounts</p>
-                              <p className="text-xs text-gray-500">{profile.cloudAccounts.length} accounts</p>
+                              <p className="text-xs text-gray-500">Includes future accounts</p>
                             </div>
                           </button>
                           <button
@@ -582,7 +583,7 @@ const MyProfilePage: React.FC = () => {
                               {[
                                 { key: 'tickets-account-billing', label: 'Account & Billing', icon: 'fas fa-file-invoice-dollar' },
                                 { key: 'tickets-technical', label: 'Technical Support', icon: 'fas fa-server' },
-                                { key: 'tickets-all', label: 'All Tickets', icon: 'fas fa-list' },
+                                { key: 'tickets-all', label: 'All Categories', icon: 'fas fa-list' },
                               ].map(cat => (
                                 <label
                                   key={cat.key}
@@ -669,7 +670,12 @@ const MyProfilePage: React.FC = () => {
                               <span className="role-badge">{user.role}</span>
                             </td>
                             <td>
-                              {user.cloudAccounts && user.cloudAccounts.length > 0 ? (
+                              {user.allAccountsAccess ? (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-green-50 text-green-700 border border-green-100">
+                                  <i className="fas fa-globe mr-1"></i>
+                                  All Accounts (dynamic)
+                                </span>
+                              ) : user.cloudAccounts && user.cloudAccounts.length > 0 ? (
                                 <div className="flex flex-wrap gap-2">
                                   {user.cloudAccounts.map((account: CloudAccount) => (
                                     <span
@@ -703,7 +709,7 @@ const MyProfilePage: React.FC = () => {
                                   const TICKET_CATEGORY_LABELS: Record<string, { label: string; icon: string }> = {
                                     'tickets-account-billing': { label: 'Account & Billing', icon: 'fas fa-file-invoice-dollar' },
                                     'tickets-technical': { label: 'Technical Support', icon: 'fas fa-server' },
-                                    'tickets-all': { label: 'All Tickets', icon: 'fas fa-list' },
+                                    'tickets-all': { label: 'All Categories', icon: 'fas fa-list' },
                                   };
                                   const mainTabs = user.allowedTabs.filter(k => !k.startsWith('tickets-'));
                                   const ticketCats = user.allowedTabs.filter(k => k.startsWith('tickets-'));

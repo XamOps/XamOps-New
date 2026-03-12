@@ -4,8 +4,11 @@ import com.azure.storage.blob.BlobServiceClient;
 import com.azure.storage.blob.BlobServiceClientBuilder;
 import com.azure.storage.blob.models.BlobItem;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.xammer.cloud.domain.CachedData;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.azure.AzureDashboardData;
+import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.service.RedisCacheService;
 import org.apache.commons.csv.CSVFormat;
@@ -20,6 +23,8 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -40,6 +45,8 @@ public class AzureBillingDataIngestionService {
     private final AzureClientProvider clientProvider;
     private final RedisCacheService redisCache;
     private final AzureCostQueryService costQueryService;
+    private final CachedDataRepository cachedDataRepository;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     // Define cache keys for the data we will save
     public static final String AZURE_BILLING_SUMMARY_CACHE_PREFIX = "azure:billing-summary:";
@@ -47,14 +54,35 @@ public class AzureBillingDataIngestionService {
     public static final String AZURE_COST_BY_REGION_CACHE_PREFIX = "azure:cost-by-region:";
     public static final String AZURE_SERVICE_MONTHLY_CACHE_PREFIX = "azure:service-monthly:";
 
+    // DB snapshot key prefixes (uppercase convention used across all Azure services)
+    private static final String AZURE_COST_BILLING_SUMMARY_DB_PREFIX = "AZURE_COST_BILLING_SUMMARY::";
+    private static final String AZURE_COST_HISTORY_DB_PREFIX       = "AZURE_COST_HISTORY::";
+    private static final String AZURE_COST_BY_REGION_DB_PREFIX     = "AZURE_COST_BY_REGION::";
+    private static final String AZURE_SERVICE_MONTHLY_DB_PREFIX    = "AZURE_COST_SERVICE_MONTHLY::";
+
     public AzureBillingDataIngestionService(CloudAccountRepository cloudAccountRepository,
             AzureClientProvider clientProvider,
             RedisCacheService redisCache,
-            AzureCostQueryService costQueryService) {
+            AzureCostQueryService costQueryService,
+            CachedDataRepository cachedDataRepository) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.clientProvider = clientProvider;
         this.redisCache = redisCache;
         this.costQueryService = costQueryService;
+        this.cachedDataRepository = cachedDataRepository;
+    }
+
+    private void saveToDb(String dbKey, Object data) {
+        try {
+            String json = objectMapper.writeValueAsString(data);
+            CachedData entity = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+            entity.setCacheKey(dbKey);
+            entity.setJsonData(json);
+            entity.setLastUpdated(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
+            cachedDataRepository.save(entity);
+        } catch (Exception e) {
+            log.warn("Failed to save Azure cost DB snapshot for key {}: {}", dbKey, e.getMessage());
+        }
     }
 
     /**
@@ -331,11 +359,13 @@ public class AzureBillingDataIngestionService {
 
         String billingCacheKey = AZURE_BILLING_SUMMARY_CACHE_PREFIX + subscriptionId;
         redisCache.put(billingCacheKey, billingSummary, 60 * 24);
+        saveToDb(AZURE_COST_BILLING_SUMMARY_DB_PREFIX + subscriptionId, billingSummary);
         log.info("✅ Cached billing summary for {}: {} services", subscriptionId, billingSummary.size());
 
         // 2. Cache Cost by Region
         String regionCacheKey = AZURE_COST_BY_REGION_CACHE_PREFIX + subscriptionId;
         redisCache.put(regionCacheKey, costByRegion, 60 * 24);
+        saveToDb(AZURE_COST_BY_REGION_DB_PREFIX + subscriptionId, costByRegion);
         log.info("✅ Cached cost by region for {}: {} regions", subscriptionId, costByRegion.size());
 
         // 3. Combine actual and forecast
@@ -385,11 +415,13 @@ public class AzureBillingDataIngestionService {
 
         String historyCacheKey = AZURE_COST_HISTORY_CACHE_PREFIX + subscriptionId;
         redisCache.put(historyCacheKey, costHistory, 60 * 24);
+        saveToDb(AZURE_COST_HISTORY_DB_PREFIX + subscriptionId, costHistory);
         log.info("✅ Cached cost history for {}: {} entries", subscriptionId, labels.size());
 
         // 4. Cache per-service monthly breakdown for service trend chart
         String serviceMonthlyKey = AZURE_SERVICE_MONTHLY_CACHE_PREFIX + subscriptionId;
         redisCache.put(serviceMonthlyKey, costByServiceByDate, 60 * 24);
+        saveToDb(AZURE_SERVICE_MONTHLY_DB_PREFIX + subscriptionId, costByServiceByDate);
         log.info("✅ Cached service monthly breakdown for {}: {} services", subscriptionId, costByServiceByDate.size());
     }
 }

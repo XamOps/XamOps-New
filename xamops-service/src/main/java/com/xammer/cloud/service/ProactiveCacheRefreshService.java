@@ -8,7 +8,9 @@ import com.xammer.cloud.dto.FinOpsReportDto;
 import com.xammer.cloud.dto.ReservationDto;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.JobExecutionHistoryRepository;
+import com.xammer.cloud.service.azure.AzureBillingDataIngestionService;
 import com.xammer.cloud.service.azure.AzureCloudListService;
+import com.xammer.cloud.service.azure.AzureCostService;
 import com.xammer.cloud.service.azure.AzureDashboardService;
 import com.xammer.cloud.service.azure.AzurePerformanceService;
 import com.xammer.cloud.service.azure.AzureRightsizingService;
@@ -74,6 +76,8 @@ public class ProactiveCacheRefreshService {
     private final AzureRightsizingService azureRightsizingService;
     private final AzurePerformanceService azurePerformanceService;
     private final AzureCloudListService azureCloudListService;
+    private final AzureCostService azureCostService;
+    private final AzureBillingDataIngestionService azureBillingDataIngestionService;
 
     private final JobExecutionHistoryRepository jobExecutionHistoryRepository;
     private final JdbcTemplate masterJdbcTemplate;
@@ -111,6 +115,8 @@ public class ProactiveCacheRefreshService {
             AzureRightsizingService azureRightsizingService,
             AzurePerformanceService azurePerformanceService,
             AzureCloudListService azureCloudListService,
+            AzureCostService azureCostService,
+            AzureBillingDataIngestionService azureBillingDataIngestionService,
             JobExecutionHistoryRepository jobExecutionHistoryRepository,
             @Qualifier("masterDataSource") DataSource masterDataSource,
             com.xammer.cloud.config.SchedulingEnvironmentConfig envConfig,
@@ -140,6 +146,8 @@ public class ProactiveCacheRefreshService {
         this.azureRightsizingService = azureRightsizingService;
         this.azurePerformanceService = azurePerformanceService;
         this.azureCloudListService = azureCloudListService;
+        this.azureCostService = azureCostService;
+        this.azureBillingDataIngestionService = azureBillingDataIngestionService;
         this.jobExecutionHistoryRepository = jobExecutionHistoryRepository;
         this.masterJdbcTemplate = new JdbcTemplate(masterDataSource);
         this.envConfig = envConfig;
@@ -274,6 +282,9 @@ public class ProactiveCacheRefreshService {
 
                     try { azureDashboardService.getDashboardData(subscriptionId, false); }
                     catch (Exception e) { logger.debug("[Seed] Azure Dashboard skipped for {}: {}", subscriptionId, e.getMessage()); }
+
+                    try { azureCostService.getTotalMonthToDateCost(subscriptionId).join(); }
+                    catch (Exception e) { logger.debug("[Seed] Azure Cost skipped for {}: {}", subscriptionId, e.getMessage()); }
 
                     try { azureWasteService.getWasteItems(subscriptionId, false); }
                     catch (Exception e) { logger.debug("[Seed] Azure Waste skipped for {}: {}", subscriptionId, e.getMessage()); }
@@ -1005,9 +1016,9 @@ public class ProactiveCacheRefreshService {
                     String gcpProjectId = account.getGcpProjectId();
                     if (gcpProjectId == null || gcpProjectId.isEmpty()) continue;
                     try {
-                        gcpCostService.getBillingSummarySync(gcpProjectId);
-                        gcpCostService.getCostByRegionSync(gcpProjectId);
-                        gcpCostService.getHistoricalCostsSync(gcpProjectId);
+                        gcpCostService.getBillingSummarySync(gcpProjectId, true);
+                        gcpCostService.getCostByRegionSync(gcpProjectId, true);
+                        gcpCostService.getHistoricalCostsSync(gcpProjectId, true);
                         logger.info("✓ GCP Cost refreshed for project {}", gcpProjectId);
                         count++;
                     } catch (Exception e) {

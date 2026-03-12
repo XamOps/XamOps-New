@@ -1,12 +1,13 @@
 package com.xammer.cloud.service.azure;
 
 import com.azure.resourcemanager.AzureResourceManager;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.KubernetesCluster;
 import com.xammer.cloud.dto.azure.AksClusterDto;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.KubernetesClusterRepository;
-import lombok.RequiredArgsConstructor;
+import com.xammer.cloud.service.RedisCacheService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -19,14 +20,49 @@ import java.util.stream.StreamSupport;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class AksService {
+
+    private static final String CACHE_PREFIX = "AKS_CLUSTERS::";
+    private static final int CACHE_TTL_MINUTES = 60;
 
     private final AzureClientProvider azureClientProvider;
     private final CloudAccountRepository cloudAccountRepository;
     private final KubernetesClusterRepository kubernetesClusterRepository;
+    private final RedisCacheService redisCacheService;
 
-    public List<AksClusterDto> getClusters(String subscriptionId) {
+    public AksService(AzureClientProvider azureClientProvider,
+                      CloudAccountRepository cloudAccountRepository,
+                      KubernetesClusterRepository kubernetesClusterRepository,
+                      RedisCacheService redisCacheService) {
+        this.azureClientProvider = azureClientProvider;
+        this.cloudAccountRepository = cloudAccountRepository;
+        this.kubernetesClusterRepository = kubernetesClusterRepository;
+        this.redisCacheService = redisCacheService;
+    }
+
+    /**
+     * Returns all AKS clusters for a given Azure subscription.
+     * Results are Redis-cached for 60 minutes.
+     *
+     * @param subscriptionId Azure subscription ID
+     * @param forceRefresh   When true, bypasses the Redis cache.
+     */
+    public List<AksClusterDto> getClusters(String subscriptionId, boolean forceRefresh) {
+        String cacheKey = CACHE_PREFIX + subscriptionId;
+
+        if (forceRefresh) {
+            redisCacheService.evict(cacheKey);
+        } else {
+            Optional<List<AksClusterDto>> cached = redisCacheService.get(
+                    cacheKey, new TypeReference<List<AksClusterDto>>() {});
+            if (cached.isPresent()) {
+                log.info("Redis cache HIT for AKS clusters: subscription={}", subscriptionId);
+                return cached.get();
+            }
+        }
+
+        log.info("Fetching AKS clusters from Azure API for subscription: {}", subscriptionId);
+
         try {
             CloudAccount account = cloudAccountRepository.findByAzureSubscriptionId(subscriptionId)
                     .orElseThrow(() -> new RuntimeException("Azure account not found: " + subscriptionId));
@@ -40,7 +76,8 @@ public class AksService {
                     .map(KubernetesCluster::getClusterName)
                     .collect(Collectors.toSet());
 
-            return StreamSupport.stream(azure.kubernetesClusters().list().spliterator(), false)
+            List<AksClusterDto> result = StreamSupport
+                    .stream(azure.kubernetesClusters().list().spliterator(), false)
                     .map(aks -> {
                         try {
                             int nodeCount = aks.agentPools().values().stream()
@@ -76,6 +113,9 @@ public class AksService {
                         }
                     })
                     .collect(Collectors.toList());
+
+            redisCacheService.put(cacheKey, result, CACHE_TTL_MINUTES);
+            return result;
 
         } catch (Exception e) {
             log.error("Failed to fetch AKS clusters for subscription {}: {}", subscriptionId, e.getMessage());

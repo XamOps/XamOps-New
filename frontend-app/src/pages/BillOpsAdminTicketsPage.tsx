@@ -284,7 +284,7 @@ const BillOpsAdminTicketsPage: React.FC = () => {
 
   const exportCSV = useCallback(() => {
     const headers = [
-      'ID', 'Account ID', 'Subject', 'Service', 'Status', 'Severity', 'SLA',
+      'ID', 'Account Name', 'Account ID', 'Subject', 'Service', 'Status', 'Severity', 'SLA',
       'Created (IST)', 'Chat Started (IST)', 'Closed At (IST)',
       'Assigned To', 'Category', 'Creator'
     ];
@@ -294,6 +294,7 @@ const BillOpsAdminTicketsPage: React.FC = () => {
         : '';
       return [
         t.id,
+        t.accountName ? `"${t.accountName.replace(/"/g, '""')}"` : '',
         t.accountId || '',
         `"${(t.subject || '').replace(/"/g, '""')}"`,
         t.service || '',
@@ -426,11 +427,22 @@ const BillOpsAdminTicketsPage: React.FC = () => {
         <span className="text-xs font-bold text-slate-400 font-mono tracking-tighter opacity-60">#{ticket.id}</span>
       </td>
 
-      {/* Account ID */}
-      <td className="px-3 py-3 whitespace-nowrap">
-        <span className="px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded-lg text-[10px] font-bold font-mono tracking-tight border border-slate-200/50 truncate max-w-[90px] block">
-          {ticket.accountId || 'GLOBAL'}
-        </span>
+      {/* Account Name */}
+      <td className="px-3 py-3 whitespace-nowrap max-w-[120px]">
+        {ticket.accountName ? (
+          <div title={ticket.accountId}>
+            <span className="text-[11px] font-bold text-slate-700 truncate block max-w-[110px]">
+              {ticket.accountName}
+            </span>
+            <span className="text-[9px] text-slate-400 font-mono truncate block max-w-[110px]">
+              {ticket.accountId}
+            </span>
+          </div>
+        ) : (
+          <span className="px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded-lg text-[10px] font-bold font-mono tracking-tight border border-slate-200/50 truncate max-w-[90px] block">
+            {ticket.accountId || 'GLOBAL'}
+          </span>
+        )}
       </td>
 
       {/* Subject + Service */}

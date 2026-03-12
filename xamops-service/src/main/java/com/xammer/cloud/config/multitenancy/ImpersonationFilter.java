@@ -34,6 +34,13 @@ public class ImpersonationFilter implements Filter {
         HttpServletRequest req = (HttpServletRequest) request;
         String impersonateId = req.getHeader(IMPERSONATION_HEADER);
 
+        // Capture the original (admin) SecurityContext BEFORE any impersonation.
+        // We restore it in the finally block so Spring Security's
+        // SecurityContextPersistenceFilter does NOT write the impersonated auth back
+        // to the HTTP session — which would contaminate every other browser tab that
+        // shares the same JSESSIONID cookie (e.g. the admin's original Tab A).
+        SecurityContext originalContext = SecurityContextHolder.getContext();
+
         if (impersonateId != null && !impersonateId.isEmpty()) {
             // SECURITY CHECK: Only allow impersonation if the current user is an admin
             // or if we have an existing verified admin session marker
@@ -42,7 +49,6 @@ public class ImpersonationFilter implements Filter {
                     Long targetUserId = Long.parseLong(impersonateId);
                     ImpersonationContext.setImpersonatedUserId(targetUserId);
 
-                    // --- NEW: Override Security Context for the duration of the request ---
                     userRepository.findById(targetUserId).ifPresent(user -> {
                         String role = user.getRole();
                         if (role != null && !role.startsWith("ROLE_")) {
@@ -60,7 +66,11 @@ public class ImpersonationFilter implements Filter {
                         UsernamePasswordAuthenticationToken impersonatedAuth = new UsernamePasswordAuthenticationToken(
                                 targetDetails, null, targetDetails.getAuthorities());
 
-                        SecurityContextHolder.getContext().setAuthentication(impersonatedAuth);
+                        // Use a FRESH SecurityContext so the original session-backed context
+                        // object is never mutated. The original is restored in the finally block.
+                        SecurityContext impersonatedContext = SecurityContextHolder.createEmptyContext();
+                        impersonatedContext.setAuthentication(impersonatedAuth);
+                        SecurityContextHolder.setContext(impersonatedContext);
                     });
                 } catch (NumberFormatException e) {
                     // Ignore invalid headers
@@ -72,6 +82,10 @@ public class ImpersonationFilter implements Filter {
             chain.doFilter(request, response);
         } finally {
             ImpersonationContext.clear();
+            // Restore the original admin SecurityContext so Spring Security's
+            // SecurityContextPersistenceFilter saves the admin's auth back to the
+            // HTTP session — not the impersonated user's auth.
+            SecurityContextHolder.setContext(originalContext);
         }
     }
 
