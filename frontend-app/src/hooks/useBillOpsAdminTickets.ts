@@ -112,6 +112,7 @@ export const useBillOpsAdminTickets = (): UseBillOpsAdminTicketsReturn => {
         (t.subject && t.subject.toLowerCase().includes(q)) ||
         (t.id && t.id.toString().includes(q)) ||
         (t.accountId && t.accountId.toString().toLowerCase().includes(q)) ||
+        (t.accountName && t.accountName.toLowerCase().includes(q)) ||
         (t.creatorId && t.creatorId.toString().includes(q)) ||
         (t.creatorUsername && t.creatorUsername.toLowerCase().includes(q)) ||
         (t.status && t.status.toLowerCase().includes(q)) ||
@@ -262,12 +263,12 @@ export const useBillOpsAdminTickets = (): UseBillOpsAdminTicketsReturn => {
    * Initialize - Load from cache then fetch fresh data
    */
   useEffect(() => {
-    // Show stale data instantly from localStorage while fresh data loads
+    // Show stale data instantly from localStorage while fresh data loads in background
     loadFromCache();
 
-    // Always force-refresh on mount to bypass Redis cache and reflect
-    // changes (assign, close, reply) made from the ticket detail page
-    fetchTickets(true);
+    // Background refresh — does NOT clear cache or show skeleton (isUpdating only)
+    // ticket:updated event handles force-refresh after mutations (close, reply, assign)
+    fetchTickets(false);
   }, []);
 
   /**

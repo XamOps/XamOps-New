@@ -31,4 +31,7 @@ public interface CloudAccountRepository extends JpaRepository<CloudAccount, Long
     // --- ADDED: Missing Method for Monitoring Update ---
     Optional<CloudAccount> findByAwsAccountIdOrGcpProjectIdOrAzureSubscriptionId(String awsAccountId, String gcpProjectId, String azureSubscriptionId);
 
+    @Query("SELECT ca FROM CloudAccount ca WHERE ca.awsAccountId IN :ids OR ca.gcpProjectId IN :ids OR ca.azureSubscriptionId IN :ids")
+    List<CloudAccount> findByAnyCloudIdIn(@Param("ids") java.util.Collection<String> ids);
+
 }

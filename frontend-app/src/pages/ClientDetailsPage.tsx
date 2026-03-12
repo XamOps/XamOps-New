@@ -118,13 +118,33 @@ const ClientDetailsPage: React.FC = () => {
         }
     };
 
-    const handleLoginAs = (userId: number, tenantId: string) => {
-        const url = `${window.location.origin}/unified-dashboard?impersonateUserId=${userId}&tenantId=${tenantId}`;
+    const handleLoginAs = (userId: number, client: ClientDetails, user: BillOpsUser) => {
+        // Compute the provider account IDs this user is allowed to see.
+        // Empty accountAccessIds = primary user → full access to all client accounts.
+        const allowedProviderIds: string[] =
+            user.accountAccessIds.length === 0
+                ? client.accounts.map(a => a.providerAccountId)
+                : user.accountAccessIds
+                      .map(id => client.accounts.find(a => a.id === id)?.providerAccountId)
+                      .filter((pid): pid is string => Boolean(pid));
+
+        const params = new URLSearchParams({
+            impersonateUserId: String(userId),
+            tenantId: client.name,
+        });
+        if (allowedProviderIds.length > 0) {
+            params.set('allowedAccountIds', allowedProviderIds.join(','));
+        }
+
         // noopener,noreferrer forces a separate browsing context group so
         // Tab B gets its own isolated sessionStorage — preventing Tab A's
         // admin session from being contaminated when Tab B writes
         // impersonateUserId / selectedTenantId into sessionStorage.
-        window.open(url, '_blank', 'noopener,noreferrer');
+        window.open(
+            `${window.location.origin}/unified-dashboard?${params.toString()}`,
+            '_blank',
+            'noopener,noreferrer'
+        );
     };
 
     const stats = useMemo(() => ({
@@ -468,7 +488,7 @@ const ClientDetailsPage: React.FC = () => {
                                                             </td>
                                                             <td className="px-6 py-4 text-right">
                                                                 <button
-                                                                    onClick={() => handleLoginAs(user.id, client.name)}
+                                                                    onClick={() => handleLoginAs(user.id, client, user)}
                                                                     className="px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-slate-900 transition-all flex items-center gap-2 ml-auto shadow-sm"
                                                                 >
                                                                     <i className="fas fa-user-secret text-[9px]"></i>
