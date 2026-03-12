@@ -158,7 +158,7 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
             alert('Role is required!');
             return;
         }
-        if (!selectedUser.id && !selectedUser.clientName?.trim()) {
+        if (!selectedUser.clientName?.trim()) {
             alert('Client Name is required!');
             return;
         }

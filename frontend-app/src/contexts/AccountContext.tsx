@@ -101,7 +101,7 @@ export const AccountProvider: React.FC<{ children: ReactNode }> = ({ children })
       console.log('📊 [AccountContext] Accounts received:', data.length, data);
 
       // Included more statuses for visibility, especially during impersonation
-      const filtered = data.filter(acc => {
+      let filtered = data.filter(acc => {
         // Filter out accounts with invalid IDs
         const hasValidId = acc.id &&
           typeof acc.id === 'string' &&
@@ -116,6 +116,16 @@ export const AccountProvider: React.FC<{ children: ReactNode }> = ({ children })
 
         return hasValidId && hasValidStatus;
       });
+
+      // When the sidebar was opened via "Login as" from the BillOps admin panel,
+      // allowedAccountIds limits the visible accounts to only what that specific
+      // user is permitted to see (their client's accounts only).
+      const allowedAccountIds = sessionStorage.getItem('allowedAccountIds');
+      if (allowedAccountIds) {
+        const allowed = new Set(allowedAccountIds.split(',').map(id => id.trim()));
+        filtered = filtered.filter(acc => allowed.has(acc.id));
+        console.log('📊 [AccountContext] Restricted to allowedAccountIds:', [...allowed], '→', filtered.length, 'accounts');
+      }
 
       console.log('📊 [AccountContext] Filtered (Visible) accounts:', filtered.length);
       setAccounts(filtered);

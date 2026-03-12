@@ -19,6 +19,7 @@ public class TicketDto {
     private String service;
     private String severity;
     private String accountId;
+    private String accountName;
     private String region;
 
     private List<TicketReplyDto> replies;
@@ -55,6 +56,8 @@ public class TicketDto {
     public void setSeverity(String severity) { this.severity = severity; }
     public String getAccountId() { return accountId; }
     public void setAccountId(String accountId) { this.accountId = accountId; }
+    public String getAccountName() { return accountName; }
+    public void setAccountName(String accountName) { this.accountName = accountName; }
     public String getRegion() { return region; }
     public void setRegion(String region) { this.region = region; }
     public List<TicketReplyDto> getReplies() { return replies; }
