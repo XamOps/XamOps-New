@@ -17,6 +17,7 @@ export interface ASG {
   name: string;
   region: string;
   isEnabled: boolean;
+  eksManaged: boolean;
   instanceCount: number;
   spotCount: number;
   onDemandCount: number;
@@ -83,6 +84,10 @@ export const useSpotAutomationData = ({ selectedAccountId }: UseSpotAutomationDa
   const { getSpotAutomationData, setSpotAutomationData } = useAutoSpottingCache();
   const isInitialLoad = useRef(true);
   const hasHistoryData = useRef(false);
+  // Tracks ASGs whose isEnabled state was recently toggled by the user.
+  // Key: "{name}|{region}", Value: the toggled boolean. Prevents background
+  // refreshes from overwriting the user's action with stale server data.
+  const recentlyToggledRef = useRef<Map<string, boolean>>(new Map());
 
   // Use refs to avoid dependency loops with cache functions
   const getCacheRef = useRef(getSpotAutomationData);
@@ -180,10 +185,21 @@ export const useSpotAutomationData = ({ selectedAccountId }: UseSpotAutomationDa
 
       // Update ASGs
       if (data.asgs && data.asgs.length > 0) {
-        const asgData: ASG[] = data.asgs.map((asg: any, index: number) => ({
-          name: asg.asg_name || `ASG-${index}`,
-          region: asg.region || 'unknown',
-          isEnabled: asg.autospotting_enabled === true,
+        const asgData: ASG[] = data.asgs.map((asg: any, index: number) => {
+          const name = asg.asg_name || `ASG-${index}`;
+          const region = asg.region || 'unknown';
+          const toggleKey = `${name}|${region}`;
+          // If user recently toggled this ASG, preserve their choice over server data
+          const isEnabled = recentlyToggledRef.current.has(toggleKey)
+            ? recentlyToggledRef.current.get(toggleKey)!
+            : asg.autospotting_enabled === true;
+          return ({
+          name,
+          region,
+          isEnabled,
+          eksManaged: asg.eksManaged ?? asg.eks_managed ?? (
+            typeof (asg.asg_name || '') === 'string' && (asg.asg_name || '').toLowerCase().startsWith('eks-')
+          ),
           instanceCount: asg.instance_count || 0,
           spotCount: asg.spot_instance_count || 0,
           onDemandCount: asg.ondemand_instance_count || 0,
@@ -193,7 +209,8 @@ export const useSpotAutomationData = ({ selectedAccountId }: UseSpotAutomationDa
           savings: asg.actual_hourly_savings || 0,
           potentialSavings: asg.potential_hourly_savings || 0,
           updating: false,
-        }));
+        });
+        });
 
         setAsgs(asgData);
         setEnabledRegionsCount(new Set(asgData.map((a) => a.region)).size);
@@ -331,6 +348,8 @@ export const useSpotAutomationData = ({ selectedAccountId }: UseSpotAutomationDa
 
     console.log(`[SpotAutomation] Toggling ${asg.name}: ${newState ? 'ENABLE' : 'DISABLE'}`);
 
+    const toggleKey = `${asg.name}|${asg.region}`;
+
     try {
       await apiClient.post(
         `/api/autospotting/asgs/${selectedAccountId}/${endpoint}?region=${asg.region}&asgName=${encodeURIComponent(asg.name)}`
@@ -338,18 +357,29 @@ export const useSpotAutomationData = ({ selectedAccountId }: UseSpotAutomationDa
 
       console.log('[SpotAutomation] Toggle successful');
 
-      // Update local state
-      setAsgs((prevAsgs) =>
-        prevAsgs.map((a) =>
-          a.name === asg.name && a.region === asg.region ? { ...a, isEnabled: newState } : a
-        )
-      );
+      // Record toggle so background refreshes don't overwrite this user action
+      recentlyToggledRef.current.set(toggleKey, newState);
 
-      // Refresh data after 10 seconds
+      // Update local state
+      setAsgs((prevAsgs) => {
+        const updated = prevAsgs.map((a) =>
+          a.name === asg.name && a.region === asg.region ? { ...a, isEnabled: newState } : a
+        );
+        // Also update in-memory cache so page reload reflects the new toggle state
+        const existing = getCacheRef.current(selectedAccountId);
+        if (existing) {
+          setCacheRef.current(selectedAccountId, { ...existing, asgs: updated });
+        }
+        return updated;
+      });
+
+      // After 30 seconds, clear the toggle lock and do one final refresh so the UI
+      // is in sync with whatever the backend confirmed (AWS propagation complete by then)
       setTimeout(() => {
-        console.log('[SpotAutomation] Refreshing data after toggle...');
+        console.log('[SpotAutomation] Clearing toggle lock and refreshing...');
+        recentlyToggledRef.current.delete(toggleKey);
         fetchCostData(true);
-      }, 10000);
+      }, 30000);
 
       return true;
     } catch (err) {

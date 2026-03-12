@@ -445,6 +445,7 @@ public class GcpCostService {
                             row.get("cost").getDoubleValue()))
                     .collect(Collectors.toList());
             redisCacheService.put(cacheKey, result, 60);
+            saveToDb(cacheKey, result);
             return result;
         } catch (Exception e) {
             log.error("Error fetching daily GCP costs for forecast", e);

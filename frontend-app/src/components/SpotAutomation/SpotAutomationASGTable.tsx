@@ -48,6 +48,7 @@ const SpotAutomationASGTable: React.FC<SpotAutomationASGTableProps> = ({
   };
 
   const handleToggle = async (asg: ASG) => {
+    if (asg.eksManaged) return; // EKS-managed ASGs cannot be toggled
     const asgKey = `${asg.name}-${asg.region}`;
     if (togglingASGs.has(asgKey)) return;
 
@@ -176,7 +177,12 @@ const SpotAutomationASGTable: React.FC<SpotAutomationASGTableProps> = ({
                         className="flex items-center hover:text-blue-600 transition-colors group"
                       >
                         <i className="fas fa-layer-group text-gray-400 mr-3 text-lg group-hover:text-blue-500"></i>
-                        <div className="font-semibold text-gray-900 group-hover:underline">{asg.name}</div>
+                        <div>
+                          <div className="font-semibold text-gray-900 group-hover:underline">{asg.name}</div>
+                          {asg.eksManaged && (
+                            <span className="text-[9px] font-bold bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full border border-blue-200 mt-0.5 inline-block">EKS</span>
+                          )}
+                        </div>
                         <i className="fas fa-external-link-alt ml-2 text-xs text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity"></i>
                       </Link>
                     </td>
@@ -218,7 +224,12 @@ const SpotAutomationASGTable: React.FC<SpotAutomationASGTableProps> = ({
                       )}
                     </td>
                     <td className="px-6 py-4">
-                      {asg.potentialSavings && asg.potentialSavings > 0 ? (
+                      {asg.eksManaged ? (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-400 bg-slate-100 border border-slate-200 px-2 py-1 rounded-full">
+                          <i className="fas fa-ban text-[9px]"></i>
+                          N/A
+                        </span>
+                      ) : asg.potentialSavings && asg.potentialSavings > 0 ? (
                         <span className="text-sm font-bold text-blue-600">
                           {formatCurrency(asg.potentialSavings * 730)}
                         </span>
@@ -228,6 +239,23 @@ const SpotAutomationASGTable: React.FC<SpotAutomationASGTableProps> = ({
                     </td>
                     <td className="px-6 py-4 text-center">
                       <div className="flex items-center justify-center gap-2">
+                        {asg.eksManaged ? (
+                          <div className="relative group/eks">
+                            <div
+                              className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 cursor-not-allowed select-none"
+                              aria-disabled="true"
+                            >
+                              <i className="fas fa-lock text-[9px]"></i>
+                              EKS Managed
+                            </div>
+                            <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-64 bg-slate-900 text-white text-[10px] rounded-lg px-3 py-2 shadow-lg hidden group-hover/eks:block z-10 pointer-events-none leading-relaxed">
+                              <div className="flex items-start gap-1.5">
+                                <i className="fas fa-info-circle text-blue-400 mt-0.5 shrink-0"></i>
+                                <span>This is an <strong className="text-white">EKS-managed node group</strong>. AutoSpotting cannot convert it — EKS controls its lifecycle. To use Spot, create a dedicated Spot node group in the EKS console.</span>
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
                         <Switch
                           isSelected={asg.isEnabled}
                           onChange={() => handleToggle(asg)}
@@ -258,9 +286,10 @@ const SpotAutomationASGTable: React.FC<SpotAutomationASGTableProps> = ({
                             </>
                           )}
                         </Switch>
-                        {isToggling && <i className="fas fa-spinner fa-spin text-gray-400 text-xs" />}
+                        )}
+                        {!asg.eksManaged && isToggling && <i className="fas fa-spinner fa-spin text-gray-400 text-xs" />}
                       </div>
-                      {asg.isEnabled && (
+                      {asg.isEnabled && !asg.eksManaged && (
                         <div className="flex items-center space-x-2 mt-2">
                           <button
                             onClick={() => handleSync(asg)}

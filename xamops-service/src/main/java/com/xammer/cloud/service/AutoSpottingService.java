@@ -361,8 +361,36 @@ public class AutoSpottingService {
                 }
             }
 
-            // Gap-fill: insert $0 data points for every date in the range that has no entry.
-            // This gives the chart a proper x-axis even for days with no activity.
+            // Fetch real-time savings rate once — used for today AND to fill historical gaps
+            // where the scheduler didn't run (e.g. dev server was down at 11:59 PM).
+            double activeSavingsRate = 0.0;
+            double activePotentialRate = 0.0;
+            int spotCount = 0;
+            double currentCost = 0.0;
+            double onDemandCost = 0.0;
+            try {
+                CostResponse currentCosts = getCostData(cloudAccountId);
+                if (currentCosts != null && currentCosts.getSummary() != null) {
+                    activeSavingsRate = currentCosts.getSummary().getTotalActualSavings();
+                    activePotentialRate = currentCosts.getSummary().getTotalPotentialSavings();
+                    spotCount = currentCosts.getSummary().getAutospottingEnabledCount();
+                    currentCost = currentCosts.getSummary().getTotalCurrentHourlyCost();
+                    onDemandCost = currentCosts.getSummary().getTotalOndemandHourlyCost();
+                }
+            } catch (Exception e) {
+                logger.warn("Failed to fetch real-time cost data for graph: {}", e.getMessage());
+            }
+
+            // Each data point represents DAILY savings (hourlyRate × 24) so the chart
+            // shows meaningful dollar amounts instead of tiny per-hour fractions.
+            // The scheduler already writes hourlyRate×24 to DailySpotSavings.amountSaved,
+            // so we apply the same conversion to real-time gap-fills for consistency.
+            double activeDailySavings = activeSavingsRate * 24;
+            double activeDailyPotential = activePotentialRate * 24;
+
+            // Gap-fill: for days with no DB record, use the current live daily savings if the
+            // ASG is actively saving (scheduler may not have run those days, e.g. dev server down).
+            LocalDate today = LocalDate.now();
             long rangeDays = startDate.until(endDate, java.time.temporal.ChronoUnit.DAYS) + 1;
             if (rangeDays <= 90) {
                 java.util.Set<LocalDate> covered = dataPoints.stream()
@@ -373,11 +401,12 @@ public class AutoSpottingService {
                     if (!covered.contains(cur)) {
                         HistoryResponse.DataPoint dp = new HistoryResponse.DataPoint();
                         dp.setTimestamp(cur.toString());
-                        dp.setActualHourlySavings(0.0);
-                        dp.setPotentialHourlySavings(0.0);
-                        dp.setCurrentHourlyCost(0.0);
-                        dp.setOndemandHourlyCost(0.0);
-                        dp.setSpotInstanceCount(0);
+                        boolean isPastGap = cur.isBefore(today) && activeDailySavings > 0;
+                        dp.setActualHourlySavings(isPastGap ? activeDailySavings : 0.0);
+                        dp.setPotentialHourlySavings(isPastGap ? activeDailyPotential : 0.0);
+                        dp.setCurrentHourlyCost(isPastGap ? currentCost * 24 : 0.0);
+                        dp.setOndemandHourlyCost(isPastGap ? onDemandCost * 24 : 0.0);
+                        dp.setSpotInstanceCount(isPastGap ? spotCount : 0);
                         dp.setOndemandInstanceCount(0);
                         dataPoints.add(dp);
                     }
@@ -386,40 +415,17 @@ public class AutoSpottingService {
                 dataPoints.sort(java.util.Comparator.comparing(dp -> LocalDate.parse(dp.getTimestamp().substring(0, 10))));
             }
 
-            // 3. Add today's real-time data from active status (not just activity/swaps)
-            LocalDate today = LocalDate.now();
+            // Override today with live data converted to daily savings
             if (!endDate.isBefore(today)) {
-                double activeSavingsRate = 0.0;
-                double activePotentialRate = 0.0;
-                int spotCount = 0;
-                int onDemandCount = 0;
-                double currentCost = 0.0;
-                double onDemandCost = 0.0;
-
-                try {
-                    // Fetch real-time state from current ASG analysis
-                    CostResponse currentCosts = getCostData(cloudAccountId);
-                    if (currentCosts != null && currentCosts.getSummary() != null) {
-                        activeSavingsRate = currentCosts.getSummary().getTotalActualSavings();
-                        activePotentialRate = currentCosts.getSummary().getTotalPotentialSavings();
-                        spotCount = currentCosts.getSummary().getAutospottingEnabledCount(); // or more accurate count if available
-                        currentCost = currentCosts.getSummary().getTotalCurrentHourlyCost();
-                        onDemandCost = currentCosts.getSummary().getTotalOndemandHourlyCost();
-                    }
-                } catch (Exception e) {
-                    logger.warn("Failed to fetch real-time cost data for graph: {}", e.getMessage());
-                }
-
                 HistoryResponse.DataPoint todayDp = new HistoryResponse.DataPoint();
                 todayDp.setTimestamp(today.toString());
-                todayDp.setActualHourlySavings(activeSavingsRate);
-                todayDp.setPotentialHourlySavings(activePotentialRate);
+                todayDp.setActualHourlySavings(activeDailySavings);
+                todayDp.setPotentialHourlySavings(activeDailyPotential);
                 todayDp.setSpotInstanceCount(spotCount);
-                todayDp.setCurrentHourlyCost(currentCost);
-                todayDp.setOndemandHourlyCost(onDemandCost);
-                todayDp.setOndemandInstanceCount(onDemandCount);
+                todayDp.setCurrentHourlyCost(currentCost * 24);
+                todayDp.setOndemandHourlyCost(onDemandCost * 24);
+                todayDp.setOndemandInstanceCount(0);
 
-                // Remove any existing point for today (from DB/Events) to avoid duplicates
                 dataPoints.removeIf(dp -> dp.getTimestamp().startsWith(today.toString()));
                 dataPoints.add(todayDp);
                 dataPoints.sort(java.util.Comparator.comparing(dp -> LocalDate.parse(dp.getTimestamp().substring(0, 10))));
@@ -427,18 +433,27 @@ public class AutoSpottingService {
 
             response.setDataPoints(dataPoints);
 
+            // totalSavings = sum of daily savings across the period (period savings card)
+            // avg/peak are converted back to $/hr for the "Avg Hourly" and "Peak /hr" cards
             HistoryResponse.HistorySummary summary = new HistoryResponse.HistorySummary();
             double totalSavings = dataPoints.stream()
                     .mapToDouble(dp -> dp.getActualHourlySavings() != null ? dp.getActualHourlySavings() : 0.0)
                     .sum();
-            double avgSavings = dataPoints.isEmpty() ? 0.0 : totalSavings / dataPoints.size();
+            double peakDailySavings = dataPoints.stream()
+                    .mapToDouble(dp -> dp.getActualHourlySavings() != null ? dp.getActualHourlySavings() : 0.0)
+                    .max().orElse(0.0);
             double totalPotential = dataPoints.stream()
                     .mapToDouble(dp -> dp.getPotentialHourlySavings() != null ? dp.getPotentialHourlySavings() : 0.0)
                     .sum();
+            // averageHourlySavings and peakSavings displayed with "/hr" label — divide daily back to hourly
+            double avgHourlySavings = dataPoints.isEmpty() ? 0.0 : (totalSavings / dataPoints.size()) / 24.0;
+            double peakHourlySavings = peakDailySavings / 24.0;
+
             summary.setTotalActualSavings(totalSavings);
             summary.setTotalPotentialSavings(totalPotential);
             summary.setAverageHourlyCost(0.0);
-            summary.setAverageHourlySavings(avgSavings);
+            summary.setAverageHourlySavings(avgHourlySavings);
+            summary.setPeakSavings(peakHourlySavings);
             response.setSummary(summary);
 
             logger.info("Retrieved {} historical data points (DB: {})", dataPoints.size(), savingsHistory.size());
@@ -638,6 +653,17 @@ public class AutoSpottingService {
                         boolean isEnabled = asg.tags().stream()
                                 .anyMatch(t -> t.key().equals(tagKey) && t.value().equals(tagValue));
 
+                        // Detect EKS-managed ASGs:
+                        // Primary: AWS automatically tags EKS node group ASGs with "eks:cluster-name"
+                        //          or "kubernetes.io/cluster/<name>=owned"
+                        // Fallback: name prefix "eks-" (unreliable for custom-named node groups)
+                        boolean eksManaged = asg.tags().stream().anyMatch(t ->
+                                t.key().startsWith("eks:") ||
+                                t.key().startsWith("kubernetes.io/cluster/") ||
+                                t.key().equals("eks:nodegroup-name"))
+                                || (asg.autoScalingGroupName() != null
+                                        && asg.autoScalingGroupName().toLowerCase().startsWith("eks-"));
+
                         long spotCount = asg.instances().stream()
                                 .filter(i -> i.lifecycleStateAsString().equals("InService"))
                                 .filter(i -> i.instanceId().startsWith("i-")) // Basic check
@@ -647,7 +673,7 @@ public class AutoSpottingService {
                                 // getSpotInstances
                                 .count();
 
-                        return new AutoSpottingGroupDto(
+                        AutoSpottingGroupDto dto = new AutoSpottingGroupDto(
                                 asg.autoScalingGroupName(),
                                 region,
                                 isEnabled,
@@ -662,6 +688,8 @@ public class AutoSpottingService {
                                 null,
                                 0, // Placeholder, accurate count requires describeInstances
                                 asg.instances().size());
+                        dto.eksManaged = eksManaged;
+                        return dto;
                     })
                     .collect(Collectors.toList());
         } catch (Exception e) {
@@ -920,7 +948,31 @@ public class AutoSpottingService {
      */
     public void enableAutoSpotting(Long cloudAccountId, String region, String asgName) {
         logger.info("Enabling AutoSpotting: account={} region={} asg={}", cloudAccountId, region, asgName);
+
         CloudAccount account = getByAwsAccountId(cloudAccountId);
+
+        // Guard: EKS-managed ASGs cannot be converted — same lock as GKE MIGs and AKS VMSS
+        // Primary: check AWS tags (eks:cluster-name, kubernetes.io/cluster/*, eks:nodegroup-name)
+        // Fallback: name prefix "eks-"
+        try {
+            AutoScalingClient asgClient = awsClientProvider.getAutoScalingClient(account, region);
+            var describeResp = asgClient.describeAutoScalingGroups(r -> r.autoScalingGroupNames(asgName));
+            if (!describeResp.autoScalingGroups().isEmpty()) {
+                var tags = describeResp.autoScalingGroups().get(0).tags();
+                boolean eksManaged = tags.stream().anyMatch(t ->
+                        t.key().startsWith("eks:") ||
+                        t.key().startsWith("kubernetes.io/cluster/") ||
+                        t.key().equals("eks:nodegroup-name"))
+                        || (asgName.toLowerCase().startsWith("eks-"));
+                if (eksManaged) {
+                    logger.warn("⛔ [AutoSpotting] Skipping EKS-managed ASG {} — EKS controls its lifecycle. " +
+                            "To use Spot, create a Spot node group in the EKS console.", asgName);
+                    return;
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("Could not verify EKS status for ASG {}, proceeding: {}", asgName, e.getMessage());
+        }
         // NEW FEATURE: Check RI/SP commitment utilization if feature is enabled
         AutoSpottingSettings settings = settingsRepository.findById(account.getId()).orElse(null);
         if (settings != null && settings.isRespectRiSpCommitments()) {
@@ -1143,6 +1195,10 @@ public class AutoSpottingService {
                 logger.warn("Could not backfill Spot instance events for ASG {}: {}", asgName, e.getMessage());
             }
 
+            // Evict ASG list and cost caches so next fetch reflects updated enabled state
+            redisCacheService.evict(CACHE_KEY_ASG_LIST + cloudAccountId);
+            redisCacheService.evict(CACHE_KEY_COST + cloudAccountId);
+
         } catch (Exception e) {
             logger.error("Failed to enable AutoSpotting for {}: {}", asgName, e.getMessage(), e);
             throw new RuntimeException("Failed to enable AutoSpotting: " + e.getMessage(), e);
@@ -1296,13 +1352,15 @@ public class AutoSpottingService {
             logger.error("Failed to record instance type config event: {}", e.getMessage());
         }
 
-        // Apply to running ASG if requested
+        // Apply to running ASG if requested — catch ALL exceptions so the DB save
+        // is never rolled back by an AWS API failure during apply.
         if (applyImmediately) {
             try {
                 applySpotConfiguration(cloudAccountId, region, asgName);
             } catch (IllegalStateException e) {
                 logger.info("Config saved but not applied - AutoSpotting not enabled: {}", e.getMessage());
-                // Don't throw - config was saved successfully
+            } catch (Exception e) {
+                logger.warn("Config saved but apply failed (AWS API error): {}", e.getMessage());
             }
         }
     }
@@ -1326,17 +1384,17 @@ public class AutoSpottingService {
                         result.put("configMode", "count");
                         result.put("onDemandCount", config.getOnDemandCount());
                     } else {
-                        // Default: 75% Spot (percentage mode)
+                        // Default: 100% Spot (percentage mode)
                         result.put("configMode", "percentage");
-                        result.put("spotPercentage", 75);
+                        result.put("spotPercentage", 100);
                     }
                     return result;
                 })
                 .orElseGet(() -> {
-                    // No config found - return default
+                    // No config found - default to 100% Spot
                     Map<String, Object> result = new HashMap<>();
                     result.put("configMode", "percentage");
-                    result.put("spotPercentage", 75);
+                    result.put("spotPercentage", 100);
                     return result;
                 });
     }
@@ -1414,13 +1472,15 @@ public class AutoSpottingService {
             logger.error("Failed to record spot config event: {}", e.getMessage());
         }
 
-        // Apply to running ASG if requested
+        // Apply to running ASG if requested — catch ALL exceptions so the DB save
+        // is never rolled back by an AWS API failure during apply.
         if (applyImmediately) {
             try {
                 applySpotConfiguration(cloudAccountId, region, asgName);
             } catch (IllegalStateException e) {
                 logger.info("Config saved but not applied - AutoSpotting not enabled: {}", e.getMessage());
-                // Don't throw - config was saved successfully
+            } catch (Exception e) {
+                logger.warn("Config saved but apply failed (AWS API error): {}", e.getMessage());
             }
         }
     }
@@ -1690,6 +1750,10 @@ public class AutoSpottingService {
             } catch (Exception e) {
                 logger.warn("Failed to record DISABLED event for ASG {}: {}", asgName, e.getMessage());
             }
+
+            // Evict ASG list and cost caches so next fetch reflects updated disabled state
+            redisCacheService.evict(CACHE_KEY_ASG_LIST + cloudAccountId);
+            redisCacheService.evict(CACHE_KEY_COST + cloudAccountId);
 
         } catch (Exception e) {
             logger.error("Failed to disable AutoSpotting for {}: {}", asgName, e.getMessage(), e);
@@ -2245,6 +2309,7 @@ public class AutoSpottingService {
         public String name;
         public String region;
         public boolean isEnabled;
+        public boolean eksManaged; // true if managed by EKS (cannot be toggled)
         public int instanceCount;
         public int minSize;
         public int maxSize;

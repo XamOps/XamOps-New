@@ -34,7 +34,7 @@ const ASGConfigPage: React.FC = () => {
 
   // Configuration State
   const [configMode, setConfigMode] = useState<'percentage' | 'count'>('percentage');
-  const [spotPercentage, setSpotPercentage] = useState(75);
+  const [spotPercentage, setSpotPercentage] = useState(100);
   const [onDemandCount, setOnDemandCount] = useState<number>(0);
   const [selectedTypes, setSelectedTypes] = useState<Set<string>>(new Set());
   const [customType, setCustomType] = useState('');
@@ -69,7 +69,7 @@ const ASGConfigPage: React.FC = () => {
 
         if (spotConfig.configMode === 'percentage') {
           setConfigMode('percentage');
-          setSpotPercentage(spotConfig.spotPercentage || 75);
+          setSpotPercentage(spotConfig.spotPercentage ?? 100);
         } else if (spotConfig.configMode === 'count') {
           setConfigMode('count');
           setOnDemandCount(spotConfig.onDemandCount || 0);
@@ -94,27 +94,28 @@ const ASGConfigPage: React.FC = () => {
       setError(null);
       setSuccessMessage(null);
 
-      // Save instance types
+      // Save instance types — apply=false keeps this as a pure DB save;
+      // the config will be picked up the next time AutoSpotting processes the ASG.
       await apiClient.put(
-        `/api/autospotting/asgs/${accountId}/instance-types?region=${region}&asgName=${encodeURIComponent(asgName)}`,
+        `/api/autospotting/asgs/${accountId}/instance-types?region=${region}&asgName=${encodeURIComponent(asgName)}&apply=false`,
         { instanceTypes: Array.from(selectedTypes) }
       );
 
       // Save spot configuration
       if (configMode === 'percentage') {
         await apiClient.put(
-          `/api/autospotting/asgs/${accountId}/spot-config?region=${region}&asgName=${encodeURIComponent(asgName)}`,
+          `/api/autospotting/asgs/${accountId}/spot-config?region=${region}&asgName=${encodeURIComponent(asgName)}&apply=false`,
           { spotPercentage }
         );
       } else {
         await apiClient.put(
-          `/api/autospotting/asgs/${accountId}/spot-config?region=${region}&asgName=${encodeURIComponent(asgName)}`,
+          `/api/autospotting/asgs/${accountId}/spot-config?region=${region}&asgName=${encodeURIComponent(asgName)}&apply=false`,
           { onDemandCount }
         );
       }
 
-      setSuccessMessage('Configuration saved successfully!');
-      setTimeout(() => setSuccessMessage(null), 4000);
+      setSuccessMessage('Configuration saved! To apply to AWS: toggle AutoSpotting OFF → ON on the ASG row.');
+      setTimeout(() => setSuccessMessage(null), 8000);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save configuration');
     } finally {
@@ -215,6 +216,15 @@ const ASGConfigPage: React.FC = () => {
           </div>
         ) : (
           <>
+            {/* How-to-apply info banner */}
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">
+              <i className="fas fa-info-circle text-blue-500 mt-0.5 shrink-0"></i>
+              <div className="text-sm text-blue-800">
+                <span className="font-semibold">How to apply:</span> Saving updates the stored config. To push changes to AWS, go back and toggle AutoSpotting{' '}
+                <span className="font-semibold">OFF → ON</span> on the ASG row — it will pick up your saved settings automatically.
+              </div>
+            </div>
+
             {/* Spot/On-Demand Configuration Section */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
               <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center">

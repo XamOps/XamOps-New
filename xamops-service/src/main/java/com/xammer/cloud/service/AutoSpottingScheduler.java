@@ -65,12 +65,6 @@ public class AutoSpottingScheduler {
 
                 // Get actual hourly savings from currently enabled ASGs
                 double hourlyActualSavings = costData.getSummary().getTotalActualSavings();
-
-                if (hourlyActualSavings <= 0.0) {
-                    log.debug("💰 [AWS Scheduler] No savings for account {}, skipping", account.getAwsAccountId());
-                    continue;
-                }
-
                 // Convert hourly to daily savings (24 hours)
                 double dailySavings = hourlyActualSavings * 24;
 
@@ -79,12 +73,12 @@ public class AutoSpottingScheduler {
                         .filter(asg -> asg.getAutospottingEnabled() != null && asg.getAutospottingEnabled())
                         .count();
 
-                // Find or create daily savings record
+                // Always write the record (even if savings are 0) so the chart has
+                // continuous data and doesn't fall back to event-based tiny amounts.
                 DailySpotSavings dailySavingsRecord = savingsRepository
                         .findByAccountIdAndDate(account.getId(), today)
                         .orElseGet(() -> new DailySpotSavings(account, today));
 
-                // Update with calculated savings
                 dailySavingsRecord.setAmountSaved(dailySavings);
                 dailySavingsRecord.setSwapCount(enabledASGs);
                 savingsRepository.save(dailySavingsRecord);

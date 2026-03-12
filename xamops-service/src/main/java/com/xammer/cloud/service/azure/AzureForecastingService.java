@@ -1,5 +1,8 @@
 package com.xammer.cloud.service.azure;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xammer.cloud.dto.ForecastDto;
 import com.xammer.cloud.dto.ProphetRequestDto;
 import com.xammer.cloud.dto.azure.AzureDashboardData;
@@ -8,12 +11,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
@@ -110,23 +110,27 @@ public class AzureForecastingService {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         HttpEntity<ProphetRequestDto> entity = new HttpEntity<>(prophetRequest, headers); // Send the single request object
-        String url = prophetApiUrl + "/predict"; // The API DTO already contains the periods
+        String url = prophetApiUrl + "/forecast/cost";
 
         try {
-            // --- FIX for RestTemplate call ---
-            // Use exchange() with ParameterizedTypeReference to correctly handle List<ForecastDto>
-            ResponseEntity<List<ForecastDto>> response = restTemplate.exchange(
-                url,
-                HttpMethod.POST,
-                entity,
-                new ParameterizedTypeReference<List<ForecastDto>>() {}
-            );
-            
-            List<ForecastDto> forecast = response.getBody();
-            if (forecast != null) {
-                logger.info("✅ Successfully generated Azure cost forecast for account {}", subscriptionId);
-                return CompletableFuture.completedFuture(forecast);
+            String responseJson = restTemplate.postForObject(url, entity, String.class);
+            JsonNode responseNode = new ObjectMapper().readTree(responseJson);
+
+            if (responseNode.has("status") && !"success".equals(responseNode.get("status").asText())) {
+                logger.error("❌ Prophet service returned error for Azure account {}", subscriptionId);
+                return CompletableFuture.completedFuture(Collections.emptyList());
             }
+
+            JsonNode forecastArray = responseNode.get("forecast");
+            if (forecastArray == null || !forecastArray.isArray()) {
+                logger.error("❌ Invalid forecast response format for Azure account {}", subscriptionId);
+                return CompletableFuture.completedFuture(Collections.emptyList());
+            }
+
+            List<ForecastDto> forecast = new ObjectMapper().readValue(
+                    forecastArray.toString(), new TypeReference<List<ForecastDto>>() {});
+            logger.info("✅ Successfully generated Azure cost forecast for account {}", subscriptionId);
+            return CompletableFuture.completedFuture(forecast);
         } catch (Exception e) {
             logger.error("❌ Error calling Prophet API for Azure account {}: {}", subscriptionId, e.getMessage());
         }

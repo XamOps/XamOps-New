@@ -217,6 +217,25 @@ const CostBreakdownSection: React.FC<CostBreakdownSectionProps> = ({
                   <i className="fas fa-table mr-2 text-indigo-600"></i>
                   Detailed Breakdown
                 </h3>
+                {filters.groupBy === 'TAG' && (() => {
+                  const untaggedItem = costData.find(d => d.name === 'Untagged');
+                  const untaggedCost = untaggedItem?.amount ?? 0;
+                  const taggedCost = totalCost - untaggedCost;
+                  const coveragePct = totalCost > 0 ? Math.round((taggedCost / totalCost) * 100) : 100;
+                  return (
+                    <div className="mt-2 flex items-center gap-3">
+                      <div className="flex-1 bg-gray-200 rounded-full h-1.5">
+                        <div
+                          className={`h-1.5 rounded-full ${coveragePct >= 80 ? 'bg-green-500' : coveragePct >= 50 ? 'bg-amber-500' : 'bg-red-500'}`}
+                          style={{ width: `${coveragePct}%` }}
+                        />
+                      </div>
+                      <span className="text-xs font-semibold text-gray-500 whitespace-nowrap">
+                        {coveragePct}% tagged
+                      </span>
+                    </div>
+                  );
+                })()}
               </div>
               <div className="overflow-x-auto max-h-96">
                 <table className="w-full text-sm text-left">
@@ -232,34 +251,39 @@ const CostBreakdownSection: React.FC<CostBreakdownSectionProps> = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
-                    {sortedData.map((item, index) => (
-                      <tr
-                        key={item.name}
-                        className="hover:bg-indigo-50/50 cursor-pointer transition-colors duration-150"
-                        onClick={() => onHistoricalClick(item.name)}
-                      >
-                        <td className="px-6 py-4 relative group">
-                          <div className="absolute left-0 top-0 bottom-0 w-1 bg-indigo-500 scale-y-0 group-hover:scale-y-100 transition-transform origin-left"></div>
-                          <div className="flex items-center space-x-3">
-                            <div
-                              className="w-3 h-3 rounded-full shadow-sm"
-                              style={{ backgroundColor: colors[index % 11] }}
-                            ></div>
-                            <span className="font-medium text-gray-800">
-                              {item.name || '(No Value)'}
+                    {sortedData.map((item, index) => {
+                      const isUntagged = item.name === 'Untagged';
+                      return (
+                        <tr
+                          key={item.name}
+                          className={`transition-colors duration-150 ${isUntagged ? 'bg-amber-50/60' : 'hover:bg-indigo-50/50 cursor-pointer'}`}
+                          onClick={() => !isUntagged && onHistoricalClick(item.name)}
+                        >
+                          <td className="px-6 py-4 relative group">
+                            {!isUntagged && (
+                              <div className="absolute left-0 top-0 bottom-0 w-1 bg-indigo-500 scale-y-0 group-hover:scale-y-100 transition-transform origin-left"></div>
+                            )}
+                            <div className="flex items-center space-x-3">
+                              <div
+                                className="w-3 h-3 rounded-full shadow-sm"
+                                style={{ backgroundColor: isUntagged ? '#f59e0b' : colors[index % 11] }}
+                              ></div>
+                              <span className={`font-medium ${isUntagged ? 'text-amber-700' : 'text-gray-800'}`}>
+                                {isUntagged ? '⚠ Untagged' : item.name}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <span className={`font-bold ${isUntagged ? 'text-amber-700' : 'text-gray-900'}`}>
+                              ${item.amount.toFixed(2)}
                             </span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          <span className="font-bold text-gray-900">
-                            ${item.amount.toFixed(2)}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-right text-gray-600">
-                          {((item.amount / totalCost) * 100).toFixed(1)}%
-                        </td>
-                      </tr>
-                    ))}
+                          </td>
+                          <td className="px-6 py-4 text-right text-gray-600">
+                            {((item.amount / totalCost) * 100).toFixed(1)}%
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

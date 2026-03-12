@@ -287,6 +287,7 @@ public class AzureSecurityService {
                     assessment.setResourceName(isGuid ? "Subscription" : lastName);
                 }
 
+                assessment.setComplianceControl(mapToSoc2Control(category, assessment.getDisplayName()));
                 result.add(assessment);
             } catch (Exception e) {
                 log.warn("Failed to parse security assessment item: {}", e.getMessage());
@@ -294,6 +295,60 @@ public class AzureSecurityService {
         }
 
         return result;
+    }
+
+    /**
+     * Maps a Defender for Cloud assessment to its SOC2 Trust Service Criteria control.
+     * Uses the Defender category first, then falls back to keyword matching on the
+     * recommendation display name. Returns null when no SOC2 mapping applies.
+     *
+     * CC6.1  – Logical access (IAM, MFA, identity, role assignment)
+     * CC6.6  – Network security (firewall, NSG, public exposure)
+     * CC6.7  – Data protection (encryption at rest/in transit, TLS, HTTPS)
+     * CC6.8  – Key / secret management (Key Vault, rotation)
+     * CC7.1  – Monitoring and audit logging (activity logs, diagnostics)
+     */
+    private String mapToSoc2Control(String category, String displayName) {
+        // --- category-level mapping (Defender categories are stable) ---
+        if (category != null) {
+            switch (category) {
+                case "IdentityAndAccess": return "SOC2 CC6.1";
+                case "Networking":        return "SOC2 CC6.6";
+                case "KeyVault":          return "SOC2 CC6.8";
+                // Data / Compute / AppServices: fall through to keyword matching
+                default: break;
+            }
+        }
+
+        // --- keyword matching on recommendation display name ---
+        if (displayName == null || displayName.isBlank()) return null;
+        String lower = displayName.toLowerCase();
+
+        if (lower.contains("mfa") || lower.contains("multi-factor") || lower.contains("authentication")
+                || lower.contains("privileged") || lower.contains("role assignment")
+                || lower.contains("identity") || lower.contains("least privilege")) {
+            return "SOC2 CC6.1";
+        }
+        if (lower.contains("firewall") || lower.contains("nsg") || lower.contains("public ip")
+                || lower.contains("internet-facing") || lower.contains("open port")
+                || lower.contains("ssh") || lower.contains("rdp") || lower.contains("network access")) {
+            return "SOC2 CC6.6";
+        }
+        if (lower.contains("encrypt") || lower.contains("tls") || lower.contains("https")
+                || lower.contains("ssl") || lower.contains("secure transfer")
+                || lower.contains("disk encryption") || lower.contains("at rest")) {
+            return "SOC2 CC6.7";
+        }
+        if (lower.contains("key vault") || lower.contains("secret") || lower.contains("rotation")
+                || lower.contains("certificate expir") || lower.contains("key expir")) {
+            return "SOC2 CC6.8";
+        }
+        if (lower.contains("audit log") || lower.contains("diagnostic") || lower.contains("monitor")
+                || lower.contains("activity log") || lower.contains("log analytic")) {
+            return "SOC2 CC7.1";
+        }
+
+        return null;
     }
 
     // ── HTTP helper ───────────────────────────────────────────────────────────
