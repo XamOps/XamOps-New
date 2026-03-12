@@ -406,7 +406,13 @@ const GcpSecurityPage: React.FC = () => {
                                       </div>
                                     </td>
                                     <td>
-                                      <span className="compliance-badge">GCP Best Practice</span>
+                                      {finding.complianceControl ? (
+                                        <span className="compliance-badge" style={{ background: '#eef2ff', color: '#4338ca', border: '1px solid #c7d2fe' }}>
+                                          {finding.complianceControl}
+                                        </span>
+                                      ) : (
+                                        <span className="compliance-badge">GCP Best Practice</span>
+                                      )}
                                     </td>
                                     <td>
                                       <button

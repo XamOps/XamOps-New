@@ -189,9 +189,25 @@ const WizardStep1Search: React.FC<WizardStep1SearchProps> = ({
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">
-              CSP Account <span className="text-red-500">*</span>
-            </label>
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <label className="block text-sm font-medium text-gray-700">
+                CSP Account <span className="text-red-500">*</span>
+              </label>
+              <div className="relative group">
+                <button
+                  type="button"
+                  className="w-4 h-4 rounded-full bg-gray-200 text-gray-500 text-[10px] font-bold flex items-center justify-center hover:bg-blue-100 hover:text-blue-600 transition-colors"
+                  tabIndex={-1}
+                >
+                  i
+                </button>
+                <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 w-64 bg-gray-900 text-white text-xs rounded-lg px-3 py-2 shadow-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50">
+                  Don't see your account? It needs to be linked to CloudiDR manually.
+                  Please <span className="underline font-medium">raise a support ticket</span> and our team will configure it for you.
+                  <div className="absolute left-1/2 -translate-x-1/2 top-full w-2 h-2 bg-gray-900 rotate-45 -mt-1"></div>
+                </div>
+              </div>
+            </div>
             <select
               value={form.cspAccount}
               onChange={(e) => onChange({ cspAccount: e.target.value })}

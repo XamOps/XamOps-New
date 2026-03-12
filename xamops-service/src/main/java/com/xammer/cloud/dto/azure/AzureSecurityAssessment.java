@@ -15,6 +15,8 @@ public class AzureSecurityAssessment {
     private String resourceName;
     private String category;
     private String remediation;
+    /** SOC2 Trust Service Criteria control, e.g. "SOC2 CC6.1". Null if no mapping applies. */
+    private String complianceControl;
 
     public AzureSecurityAssessment() {}
 
@@ -54,4 +56,7 @@ public class AzureSecurityAssessment {
 
     public String getRemediation() { return remediation; }
     public void setRemediation(String remediation) { this.remediation = remediation; }
+
+    public String getComplianceControl() { return complianceControl; }
+    public void setComplianceControl(String complianceControl) { this.complianceControl = complianceControl; }
 }

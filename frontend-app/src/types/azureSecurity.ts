@@ -19,6 +19,7 @@ export interface AzureSecurityAssessment {
   resourceName: string;
   category: string;
   remediation: string;
+  complianceControl?: string; // SOC2 control, e.g. "SOC2 CC6.1"
 }
 
 export interface AzureSecurityData {

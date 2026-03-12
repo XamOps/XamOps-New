@@ -332,6 +332,9 @@ public class CostService {
                                 ce.getCostAndUsage(request).resultsByTime().forEach(timePeriod -> {
                                         timePeriod.groups().forEach(group -> {
                                                 String name = group.keys().get(0);
+                                                if (name == null || name.isBlank()) {
+                                                        name = "Untagged";
+                                                }
                                                 double cost = Double.parseDouble(group.metrics().get("UnblendedCost").amount());
                                                 costMap.merge(name, cost, Double::sum);
                                         });
@@ -382,8 +385,22 @@ public class CostService {
                 if (!forceRefresh) {
                         Optional<HistoricalCostDto> cachedData = redisCache.get(cacheKey, HistoricalCostDto.class);
                         if (cachedData.isPresent()) {
-                                logger.info("✅ Cache hit for historical cost: {}", cacheKey);
+                                logger.info("✅ Redis cache hit for historical cost: {}", cacheKey);
                                 return CompletableFuture.completedFuture(cachedData.get());
+                        }
+
+                        // DB fallback — used when Redis is cold (restart/deployment)
+                        Optional<CachedData> dbCached = cachedDataRepository.findById(cacheKey);
+                        if (dbCached.isPresent()) {
+                                try {
+                                        HistoricalCostDto dbData = objectMapper.readValue(
+                                                        dbCached.get().getJsonData(), HistoricalCostDto.class);
+                                        logger.info("✅ DB snapshot hit for historical cost — repopulating Redis: {}", cacheKey);
+                                        redisCache.put(cacheKey, dbData, 60);
+                                        return CompletableFuture.completedFuture(dbData);
+                                } catch (Exception e) {
+                                        logger.warn("Failed to deserialize historical cost DB snapshot for {}: {}", cacheKey, e.getMessage());
+                                }
                         }
                 }
 
@@ -464,6 +481,15 @@ public class CostService {
 
                                 HistoricalCostDto historicalCost = new HistoricalCostDto(labels, costs);
                                 redisCache.put(cacheKey, historicalCost, 60);
+                                try {
+                                        CachedData snapshot = cachedDataRepository.findById(cacheKey).orElse(new CachedData());
+                                        snapshot.setCacheKey(cacheKey);
+                                        snapshot.setJsonData(objectMapper.writeValueAsString(historicalCost));
+                                        snapshot.setLastUpdated(java.time.LocalDateTime.now());
+                                        cachedDataRepository.save(snapshot);
+                                } catch (Exception e) {
+                                        logger.warn("Failed to save historical cost DB snapshot for {}: {}", cacheKey, e.getMessage());
+                                }
 
                                 logger.info("✅ Historical cost fetched: {} days for account {}", labels.size(),
                                                 accountId);

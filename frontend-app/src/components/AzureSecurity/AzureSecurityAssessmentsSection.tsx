@@ -53,6 +53,7 @@ const SkeletonRow = () => (
     <td className="px-4 py-4"><div className="h-3 bg-gray-200 rounded w-32"></div></td>
     <td className="px-4 py-4"><div className="h-3 bg-gray-200 rounded w-20"></div></td>
     <td className="px-4 py-4"><div className="h-3 bg-gray-200 rounded w-48"></div></td>
+    <td className="px-4 py-4"><div className="h-5 bg-gray-200 rounded w-20"></div></td>
     <td className="px-4 py-4"><div className="h-5 bg-gray-200 rounded w-14"></div></td>
   </tr>
 );
@@ -93,6 +94,7 @@ const SeverityGroup: React.FC<SeverityGroupProps> = ({ severity, items }) => {
                 <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Resource</th>
                 <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Category</th>
                 <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Recommendation</th>
+                <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider text-gray-500">SOC2 Control</th>
                 <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Severity</th>
               </tr>
             </thead>
@@ -113,6 +115,15 @@ const SeverityGroup: React.FC<SeverityGroupProps> = ({ severity, items }) => {
                     <span className="text-gray-700 text-xs line-clamp-2" title={item.displayName}>
                       {item.displayName || '—'}
                     </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    {item.complianceControl ? (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                        {item.complianceControl}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-gray-400">—</span>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     <SeverityBadge severity={item.severity} />

@@ -32,4 +32,10 @@ public class GcpSecurityFinding {
      * The full name of the resource associated with the finding.
      */
     private String resourceName;
+
+    /**
+     * SOC2 Trust Service Criteria control mapped to this finding.
+     * e.g., "CC6.1", "CC6.7", "CC7.1". Null if no SOC2 mapping applies.
+     */
+    private String complianceControl;
 }
