@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import apiClient from '../utils/apiClient';
 import ClientDetailsSkeleton from '../components/Shared/ClientDetailsSkeleton';
+import { useCurrency } from '../hooks/useCurrency';
 import '../styles/billopsAdminDashboard.css';
 import '../styles/billopsClientDetails.css';
 
@@ -59,6 +60,20 @@ const ClientDetailsPage: React.FC = () => {
     const [search, setSearch] = useState('');
     const [filterProvider, setFilterProvider] = useState('');
     const [sortBy, setSortBy] = useState('');
+
+    const { loadRates, convert } = useCurrency();
+    useEffect(() => { loadRates('inr'); }, [loadRates]);
+
+    // Convert GCP/Azure consumption from INR → USD; AWS is already USD
+    const convertConsumption = useCallback((amount: number, provider: string): number => {
+        if (provider !== 'GCP' && provider !== 'Azure') return amount;
+        return convert(amount, 'usd') ?? amount;
+    }, [convert]);
+
+    // Sum converted consumptions for a client
+    const clientTotal = useCallback((c: ClientDetails): number =>
+        c.accounts.reduce((s, a) => s + (convertConsumption(a.consumption || 0, a.provider)), 0),
+    [convertConsumption]);
 
     const evictServerCache = useCallback(async () => {
         try {
@@ -151,8 +166,8 @@ const ClientDetailsPage: React.FC = () => {
         clients: clients.length,
         accounts: clients.reduce((sum, c) => sum + c.accounts.length, 0),
         users: clients.reduce((sum, c) => sum + c.users.length, 0),
-        spend: clients.reduce((sum, c) => sum + (c.totalConsumption || 0), 0),
-    }), [clients]);
+        spend: clients.reduce((sum, c) => sum + clientTotal(c), 0),
+    }), [clients, clientTotal]);
 
     const availableProviders = useMemo(() => {
         const providers = new Set<string>();
@@ -179,11 +194,11 @@ const ClientDetailsPage: React.FC = () => {
 
         if (sortBy === 'name-asc') result = [...result].sort((a, b) => a.name.localeCompare(b.name));
         else if (sortBy === 'name-desc') result = [...result].sort((a, b) => b.name.localeCompare(a.name));
-        else if (sortBy === 'spend-desc') result = [...result].sort((a, b) => (b.totalConsumption || 0) - (a.totalConsumption || 0));
-        else if (sortBy === 'spend-asc') result = [...result].sort((a, b) => (a.totalConsumption || 0) - (b.totalConsumption || 0));
+        else if (sortBy === 'spend-desc') result = [...result].sort((a, b) => clientTotal(b) - clientTotal(a));
+        else if (sortBy === 'spend-asc') result = [...result].sort((a, b) => clientTotal(a) - clientTotal(b));
 
         return result;
-    }, [clients, search, filterProvider, sortBy]);
+    }, [clients, search, filterProvider, sortBy, clientTotal]);
 
     if (isLoading) {
         return (
@@ -373,7 +388,7 @@ const ClientDetailsPage: React.FC = () => {
                                 <div className="text-right">
                                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Live Consumption</p>
                                     <p className="text-3xl font-black text-slate-800">
-                                        ${client.totalConsumption?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        ${clientTotal(client).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                     </p>
                                 </div>
                                 <div className="w-px h-12 bg-gray-100 hidden md:block"></div>
@@ -432,7 +447,7 @@ const ClientDetailsPage: React.FC = () => {
                                                             {acc.provider}
                                                         </span>
                                                         <span className="text-lg font-black text-gray-900">
-                                                            ${acc.consumption?.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                                                            ${convertConsumption(acc.consumption || 0, acc.provider).toLocaleString(undefined, { maximumFractionDigits: 2 })}
                                                         </span>
                                                     </div>
                                                     <h3 className="font-extrabold text-gray-800 line-clamp-1 text-sm">{acc.name}</h3>

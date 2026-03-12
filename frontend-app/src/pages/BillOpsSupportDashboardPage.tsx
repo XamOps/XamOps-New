@@ -379,7 +379,12 @@ const BillOpsSupportDashboardPage: React.FC = () => {
     const list = [...filteredConversations];
     if (inboxSort === 'unread') return list.sort((a, b) => (b.unreadCount || 0) - (a.unreadCount || 0));
     if (inboxSort === 'name') return list.sort((a, b) => (a.username || '').localeCompare(b.username || ''));
-    return list;
+    // default = 'latest' — most recent message first
+    return list.sort((a, b) => {
+      const ta = a.lastMessageTime ? new Date(a.lastMessageTime).getTime() : 0;
+      const tb = b.lastMessageTime ? new Date(b.lastMessageTime).getTime() : 0;
+      return tb - ta;
+    });
   }, [filteredConversations, inboxSort]);
 
   /* ─── textarea auto-expand ─── */
@@ -498,6 +503,17 @@ const BillOpsSupportDashboardPage: React.FC = () => {
             ) : (
               <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wide bg-green-100 text-green-700">
                 Read
+              </span>
+            )}
+            {/* Admin messages user hasn't seen yet — shown as blue ticks count */}
+            {(conv.adminUnreadCount ?? 0) > 0 && (
+              <span
+                title={`${conv.adminUnreadCount} of your messages not yet seen by user`}
+                style={{ color: '#0ea5e9', background: '#e0f2fe', borderColor: '#bae6fd' }}
+                className="flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full border"
+              >
+                <span style={{ letterSpacing: '-1px', fontSize: '11px' }}>✓✓</span>
+                {conv.adminUnreadCount}
               </span>
             )}
             {conv.assignedAdminUsername && (
@@ -661,14 +677,27 @@ const BillOpsSupportDashboardPage: React.FC = () => {
             {renderAttachment(msg)}
           </>
         )}
-        {/* Timestamp + edited label */}
+        {/* Timestamp + edited label + read ticks */}
         {!msg.isDeleted && editingMessageId !== msg.id && (
           <span
-            className={`text-[10px] mt-1.5 block opacity-70 font-medium ${msg.userMessage ? 'text-gray-400' : 'text-indigo-100 text-right'}`}
+            className={`text-[10px] mt-1.5 flex items-center gap-1 opacity-70 font-medium ${msg.userMessage ? 'text-gray-400' : 'text-indigo-100 justify-end'}`}
             title={formatTime(msg.timestamp)}
           >
             {formatTime(msg.timestamp)}
             {msg.isEdited && <span className="ml-1 italic opacity-80">· Edited</span>}
+            {/* Read receipt ticks — only on outgoing admin messages */}
+            {!msg.userMessage && (
+              <span
+                title={msg.status === 'READ' ? 'Seen by user' : 'Delivered, not yet seen'}
+                style={{
+                  letterSpacing: '-1px', fontSize: '12px', marginLeft: '1px', opacity: 1,
+                  color: msg.status === 'READ' ? '#38bdf8' : 'rgba(255,255,255,0.45)',
+                  fontWeight: msg.status === 'READ' ? 700 : 400,
+                }}
+              >
+                ✓✓
+              </span>
+            )}
           </span>
         )}
       </div>

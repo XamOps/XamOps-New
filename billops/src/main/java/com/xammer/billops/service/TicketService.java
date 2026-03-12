@@ -759,6 +759,7 @@ public class TicketService {
             dto.setCreatorEmail(ticket.getCreator().getEmail());
         }
         dto.setHasUnreadUserReply(ticket.isHasNewUserReply());
+        dto.setHasUnreadAdminReply(!ticket.isHasNewUserReply() && ticket.getChatStartedAt() != null);
         // Replies intentionally omitted for list view performance
         return dto;
     }
@@ -798,6 +799,7 @@ public class TicketService {
         }
 
         dto.setHasUnreadUserReply(ticket.isHasNewUserReply());
+        dto.setHasUnreadAdminReply(!ticket.isHasNewUserReply() && ticket.getChatStartedAt() != null);
 
         return dto;
     }

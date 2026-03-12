@@ -30,6 +30,7 @@ export interface ChatMessage {
   timestamp?: string;
   isEdited?: boolean;
   isDeleted?: boolean;
+  status?: string;  // 'UNREAD' | 'READ' | 'DELIVERED'
 }
 
 interface ChatHistoryItem {
@@ -39,6 +40,7 @@ interface ChatHistoryItem {
   timestamp: string;
   isEdited?: boolean;
   isDeleted?: boolean;
+  status?: string;
 }
 
 interface UseSupportChatReturn {
@@ -49,6 +51,7 @@ interface UseSupportChatReturn {
   setNewMessage: (message: string) => void;
   isLoading: boolean;
   isXamopsUser: boolean;
+  unreadFromAdmin: number;  // count of admin messages user hasn't seen yet
   sendMessage: () => Promise<void>;
   fetchHistory: () => Promise<void>;
   editMessage: (id: number, content: string) => Promise<void>;
@@ -123,11 +126,17 @@ export const useSupportChat = (): UseSupportChatReturn => {
           timestamp: msg.timestamp,
           isEdited: msg.isEdited,
           isDeleted: msg.isDeleted,
+          status: msg.status,
         }));
 
         previousMessageCountRef.current = mappedMessages.length;
         setMessages(mappedMessages);
         scrollToBottom();
+
+        // Auto-mark admin messages as read when widget is open
+        if (isOpenRef.current) {
+          apiClient.post('/api/ai/chat/mark-read', {}).catch(() => {});
+        }
       }
     } catch (error) {
       console.error('Failed to fetch chat history:', error);
@@ -274,6 +283,8 @@ export const useSupportChat = (): UseSupportChatReturn => {
     }
   }, [isOpen, isXamopsUser, fetchHistory, scrollToBottom]);
 
+  const unreadFromAdmin = messages.filter(m => !m.isUser && m.status === 'DELIVERED').length;
+
   return {
     isOpen,
     setIsOpen,
@@ -282,6 +293,7 @@ export const useSupportChat = (): UseSupportChatReturn => {
     setNewMessage,
     isLoading,
     isXamopsUser,
+    unreadFromAdmin,
     sendMessage,
     fetchHistory,
     editMessage,
