@@ -26,8 +26,6 @@
   --page-bg: #f9fafb;
   --header-bg: rgba(255, 255, 255, 0.95);
 
-  background: var(--page-bg);
-  min-height: 100vh;
 }
 
 /* CSS Variables - Dark Theme */

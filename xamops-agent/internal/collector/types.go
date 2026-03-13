@@ -139,3 +139,32 @@ type PodsSummary struct {
 	Pending int `json:"pending"`
 	Failed  int `json:"failed"`
 }
+
+// DbQueryStat represents a single normalized query from performance_schema or pg_stat_statements
+type DbQueryStat struct {
+	// Connection info
+	DSNAlias  string `json:"dsnAlias"`  // e.g. "prod-mysql-0"
+	DBEngine  string `json:"dbEngine"`  // "mysql" | "postgres"
+	DBHost    string `json:"dbHost"`    // hostname extracted from DSN (no credentials)
+
+	// Query identity
+	QueryDigest string `json:"queryDigest"` // normalized query text (no literals)
+
+	// Execution stats
+	CallCount        int64   `json:"callCount"`
+	TotalTimeSeconds float64 `json:"totalTimeSeconds"`
+	AvgTimeSeconds   float64 `json:"avgTimeSeconds"`
+	MaxTimeSeconds   float64 `json:"maxTimeSeconds"`
+
+	// Row stats
+	RowsExamined int64 `json:"rowsExamined"` // MySQL only
+	RowsSent     int64 `json:"rowsSent"`     // MySQL: rows_sent / PG: rows
+
+	// I/O stats (PostgreSQL)
+	SharedBlksHit  int64 `json:"sharedBlksHit,omitempty"`
+	SharedBlksRead int64 `json:"sharedBlksRead,omitempty"`
+
+	// Flags
+	NoIndexUsed  bool `json:"noIndexUsed,omitempty"`  // MySQL: SUM_NO_INDEX_USED > 0
+	LockTimeSeconds float64 `json:"lockTimeSeconds,omitempty"` // MySQL only
+}

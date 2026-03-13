@@ -29,11 +29,19 @@ import software.amazon.awssdk.services.ec2.model.DescribeNetworkInterfacesReques
 import software.amazon.awssdk.services.ec2.model.Snapshot;
 import software.amazon.awssdk.services.ec2.model.Tag;
 import software.amazon.awssdk.services.ec2.model.Volume;
+import software.amazon.awssdk.services.acm.AcmClient;
+import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
+import software.amazon.awssdk.services.ecr.EcrClient;
 import software.amazon.awssdk.services.ecs.EcsClient;
+import software.amazon.awssdk.services.efs.EfsClient;
 import software.amazon.awssdk.services.eks.EksClient;
+import software.amazon.awssdk.services.elasticache.ElastiCacheClient;
 import software.amazon.awssdk.services.elasticloadbalancingv2.ElasticLoadBalancingV2Client;
 import software.amazon.awssdk.services.lambda.LambdaClient;
 import software.amazon.awssdk.services.rds.RdsClient;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.sns.SnsClient;
+import software.amazon.awssdk.services.sqs.SqsClient;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -448,11 +456,22 @@ public class OptimizationService {
                 findStoppedEc2InstancesForTooLong(account, activeRegions),
                 findUnattachedEnis(account, activeRegions), findIdleEksClusters(account, activeRegions),
                 findIdleEcsClusters(account, activeRegions), findUnderutilizedLambdaFunctions(account, activeRegions),
-                findOldDbSnapshots(account, activeRegions), findUnusedCloudWatchLogGroups(account, activeRegions));
+                findOldDbSnapshots(account, activeRegions), findUnusedCloudWatchLogGroups(account, activeRegions),
+                findS3StorageClassWaste(account), findIdleEfsFileSystems(account, activeRegions),
+                findIdleElastiCacheClusters(account, activeRegions), findUnusedDynamoDbTables(account, activeRegions),
+                findStaleEcrRepositories(account, activeRegions), findExpiredAcmCertificates(account, activeRegions),
+                findIdleSnsTopics(account, activeRegions), findIdleSqsQueues(account, activeRegions));
 
-        return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+        List<CompletableFuture<List<DashboardData.WastedResource>>> safeFutures = futures.stream()
+                .map(f -> f.exceptionally(e -> {
+                    logger.warn("Waste detection method failed, skipping: {}", e.getMessage());
+                    return Collections.emptyList();
+                }))
+                .collect(Collectors.toList());
+
+        return CompletableFuture.allOf(safeFutures.toArray(new CompletableFuture[0]))
                 .thenApply(v -> {
-                    List<DashboardData.WastedResource> allWasted = futures.stream()
+                    List<DashboardData.WastedResource> allWasted = safeFutures.stream()
                             .map(CompletableFuture::join)
                             .flatMap(List::stream)
                             .collect(Collectors.toList());
@@ -936,6 +955,277 @@ public class OptimizationService {
         if (snapshot.volumeSize() != null)
             return snapshot.volumeSize() * 0.05;
         return 0.0;
+    }
+
+    private CompletableFuture<List<DashboardData.WastedResource>> findS3StorageClassWaste(CloudAccount account) {
+        return CompletableFuture.supplyAsync(() -> {
+            List<DashboardData.WastedResource> results = new ArrayList<>();
+            try {
+                S3Client s3 = awsClientProvider.getS3Client(account, "us-east-1");
+                for (software.amazon.awssdk.services.s3.model.Bucket bucket : s3.listBuckets().buckets()) {
+                    try {
+                        String bucketRegion;
+                        try {
+                            String loc = s3.getBucketLocation(req -> req.bucket(bucket.name()))
+                                    .locationConstraintAsString();
+                            bucketRegion = (loc == null || loc.isEmpty()) ? "us-east-1" : loc;
+                        } catch (Exception e) {
+                            bucketRegion = "us-east-1";
+                        }
+                        CloudWatchClient cw = awsClientProvider.getCloudWatchClient(account, bucketRegion);
+                        GetMetricStatisticsRequest metricsReq = GetMetricStatisticsRequest.builder()
+                                .namespace("AWS/S3").metricName("BucketSizeBytes")
+                                .dimensions(
+                                        Dimension.builder().name("BucketName").value(bucket.name()).build(),
+                                        Dimension.builder().name("StorageType").value("StandardStorage").build())
+                                .startTime(Instant.now().minus(2, ChronoUnit.DAYS)).endTime(Instant.now())
+                                .period(86400).statistics(Statistic.AVERAGE).build();
+                        double bytesInStandard = cw.getMetricStatistics(metricsReq).datapoints().stream()
+                                .mapToDouble(Datapoint::average).max().orElse(0.0);
+                        double gbInStandard = bytesInStandard / (1024.0 * 1024 * 1024);
+                        if (gbInStandard >= 1.0) {
+                            double estimatedSavings = gbInStandard * (0.023 - 0.0125);
+                            results.add(new DashboardData.WastedResource(bucket.name(), bucket.name(), "S3 Bucket",
+                                    bucketRegion, estimatedSavings,
+                                    String.format("%.1f GB in Standard storage - consider Intelligent-Tiering or Standard-IA",
+                                            gbInStandard)));
+                        }
+                    } catch (Exception e) {
+                        logger.debug("Skipping S3 bucket {}: {}", bucket.name(), e.getMessage());
+                    }
+                }
+            } catch (Exception e) {
+                logger.error("Failed to check S3 storage class waste for account {}", account.getAwsAccountId(), e);
+            }
+            return results;
+        });
+    }
+
+    private CompletableFuture<List<DashboardData.WastedResource>> findIdleEfsFileSystems(CloudAccount account,
+            List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            EfsClient efs = awsClientProvider.getEfsClient(account, regionId);
+            CloudWatchClient cw = awsClientProvider.getCloudWatchClient(account, regionId);
+            return efs.describeFileSystems(r -> {}).fileSystems().stream()
+                    .filter(fs -> {
+                        try {
+                            GetMetricStatisticsRequest req = GetMetricStatisticsRequest.builder()
+                                    .namespace("AWS/EFS").metricName("MeteredIOBytes")
+                                    .dimensions(Dimension.builder().name("FileSystemId").value(fs.fileSystemId()).build())
+                                    .startTime(Instant.now().minus(90, ChronoUnit.DAYS)).endTime(Instant.now())
+                                    .period(7776000).statistics(Statistic.SUM).build();
+                            double totalIo = cw.getMetricStatistics(req).datapoints().stream()
+                                    .mapToDouble(Datapoint::sum).sum();
+                            return totalIo == 0.0;
+                        } catch (Exception e) {
+                            return false;
+                        }
+                    })
+                    .map(fs -> {
+                        double sizeGb = fs.sizeInBytes().value() / (1024.0 * 1024 * 1024);
+                        double monthlyCost = sizeGb * 0.30;
+                        String name = fs.name() != null && !fs.name().isEmpty() ? fs.name() : fs.fileSystemId();
+                        return new DashboardData.WastedResource(fs.fileSystemId(), name, "EFS File System",
+                                regionId, monthlyCost, "No I/O in 90 days - likely idle file system");
+                    })
+                    .collect(Collectors.toList());
+        }, "Idle EFS File Systems");
+    }
+
+    private CompletableFuture<List<DashboardData.WastedResource>> findIdleElastiCacheClusters(CloudAccount account,
+            List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            ElastiCacheClient ec = awsClientProvider.getElastiCacheClient(account, regionId);
+            CloudWatchClient cw = awsClientProvider.getCloudWatchClient(account, regionId);
+            return ec.describeCacheClusters(r -> r.showCacheNodeInfo(true)).cacheClusters().stream()
+                    .filter(cluster -> "available".equals(cluster.cacheClusterStatus()))
+                    .filter(cluster -> {
+                        try {
+                            GetMetricStatisticsRequest req = GetMetricStatisticsRequest.builder()
+                                    .namespace("AWS/ElastiCache").metricName("CurrConnections")
+                                    .dimensions(Dimension.builder().name("CacheClusterId")
+                                            .value(cluster.cacheClusterId()).build())
+                                    .startTime(Instant.now().minus(90, ChronoUnit.DAYS)).endTime(Instant.now())
+                                    .period(7776000).statistics(Statistic.MAXIMUM).build();
+                            double maxConnections = cw.getMetricStatistics(req).datapoints().stream()
+                                    .mapToDouble(Datapoint::maximum).max().orElse(0.0);
+                            return maxConnections == 0.0;
+                        } catch (Exception e) {
+                            return false;
+                        }
+                    })
+                    .map(cluster -> {
+                        int nodes = cluster.numCacheNodes() != null ? cluster.numCacheNodes() : 1;
+                        double monthlyCost = nodes * 0.034 * 730;
+                        return new DashboardData.WastedResource(cluster.cacheClusterId(),
+                                cluster.cacheClusterId(), "ElastiCache Cluster", regionId, monthlyCost,
+                                "No connections in 90 days - likely idle cluster");
+                    })
+                    .collect(Collectors.toList());
+        }, "Idle ElastiCache Clusters");
+    }
+
+    private CompletableFuture<List<DashboardData.WastedResource>> findUnusedDynamoDbTables(CloudAccount account,
+            List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            DynamoDbClient ddb = awsClientProvider.getDynamoDbClient(account, regionId);
+            CloudWatchClient cw = awsClientProvider.getCloudWatchClient(account, regionId);
+            return ddb.listTables().tableNames().stream()
+                    .filter(tableName -> {
+                        try {
+                            GetMetricStatisticsRequest readReq = GetMetricStatisticsRequest.builder()
+                                    .namespace("AWS/DynamoDB").metricName("ConsumedReadCapacityUnits")
+                                    .dimensions(Dimension.builder().name("TableName").value(tableName).build())
+                                    .startTime(Instant.now().minus(90, ChronoUnit.DAYS)).endTime(Instant.now())
+                                    .period(7776000).statistics(Statistic.SUM).build();
+                            GetMetricStatisticsRequest writeReq = GetMetricStatisticsRequest.builder()
+                                    .namespace("AWS/DynamoDB").metricName("ConsumedWriteCapacityUnits")
+                                    .dimensions(Dimension.builder().name("TableName").value(tableName).build())
+                                    .startTime(Instant.now().minus(90, ChronoUnit.DAYS)).endTime(Instant.now())
+                                    .period(7776000).statistics(Statistic.SUM).build();
+                            double reads = cw.getMetricStatistics(readReq).datapoints().stream()
+                                    .mapToDouble(Datapoint::sum).sum();
+                            double writes = cw.getMetricStatistics(writeReq).datapoints().stream()
+                                    .mapToDouble(Datapoint::sum).sum();
+                            return reads == 0.0 && writes == 0.0;
+                        } catch (Exception e) {
+                            return false;
+                        }
+                    })
+                    .map(tableName -> {
+                        double sizeGb;
+                        try {
+                            sizeGb = ddb.describeTable(r -> r.tableName(tableName)).table().tableSizeBytes()
+                                    / (1024.0 * 1024 * 1024);
+                        } catch (Exception e) {
+                            sizeGb = 0.0;
+                        }
+                        double monthlyCost = sizeGb * 0.25;
+                        return new DashboardData.WastedResource(tableName, tableName, "DynamoDB Table",
+                                regionId, monthlyCost, "No read/write activity in 90 days");
+                    })
+                    .collect(Collectors.toList());
+        }, "Unused DynamoDB Tables");
+    }
+
+    private CompletableFuture<List<DashboardData.WastedResource>> findStaleEcrRepositories(CloudAccount account,
+            List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            EcrClient ecr = awsClientProvider.getEcrClient(account, regionId);
+            Instant ninetyDaysAgo = Instant.now().minus(90, ChronoUnit.DAYS);
+            return ecr.describeRepositories().repositories().stream()
+                    .filter(repo -> {
+                        try {
+                            var images = ecr.describeImages(r -> r.repositoryName(repo.repositoryName())).imageDetails();
+                            if (images.isEmpty()) return true;
+                            return images.stream().allMatch(img -> img.imagePushedAt() != null
+                                    && img.imagePushedAt().isBefore(ninetyDaysAgo));
+                        } catch (Exception e) {
+                            return false;
+                        }
+                    })
+                    .map(repo -> {
+                        double sizeGb;
+                        try {
+                            sizeGb = ecr.describeImages(r -> r.repositoryName(repo.repositoryName()))
+                                    .imageDetails().stream()
+                                    .mapToLong(img -> img.imageSizeInBytes() != null ? img.imageSizeInBytes() : 0L)
+                                    .sum() / (1024.0 * 1024 * 1024);
+                        } catch (Exception e) {
+                            sizeGb = 0.0;
+                        }
+                        double monthlyCost = sizeGb * 0.10;
+                        return new DashboardData.WastedResource(repo.repositoryArn(), repo.repositoryName(),
+                                "ECR Repository", regionId, monthlyCost,
+                                "No image push or pull in 90 days");
+                    })
+                    .collect(Collectors.toList());
+        }, "Stale ECR Repositories");
+    }
+
+    private CompletableFuture<List<DashboardData.WastedResource>> findExpiredAcmCertificates(CloudAccount account,
+            List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            AcmClient acm = awsClientProvider.getAcmClient(account, regionId);
+            return acm.listCertificates(r -> r.certificateStatuses(
+                    software.amazon.awssdk.services.acm.model.CertificateStatus.EXPIRED,
+                    software.amazon.awssdk.services.acm.model.CertificateStatus.INACTIVE))
+                    .certificateSummaryList().stream()
+                    .map(cert -> new DashboardData.WastedResource(cert.certificateArn(),
+                            cert.domainName() != null ? cert.domainName() : cert.certificateArn(),
+                            "Certificate Manager", regionId, 0.0,
+                            "Certificate is " + cert.statusAsString() + " - review and delete if unused"))
+                    .collect(Collectors.toList());
+        }, "Expired ACM Certificates");
+    }
+
+    private CompletableFuture<List<DashboardData.WastedResource>> findIdleSnsTopics(CloudAccount account,
+            List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            SnsClient sns = awsClientProvider.getSnsClient(account, regionId);
+            CloudWatchClient cw = awsClientProvider.getCloudWatchClient(account, regionId);
+            return sns.listTopics().topics().stream()
+                    .filter(topic -> {
+                        try {
+                            String topicName = topic.topicArn().substring(topic.topicArn().lastIndexOf(':') + 1);
+                            GetMetricStatisticsRequest req = GetMetricStatisticsRequest.builder()
+                                    .namespace("AWS/SNS").metricName("NumberOfMessagesPublished")
+                                    .dimensions(Dimension.builder().name("TopicName").value(topicName).build())
+                                    .startTime(Instant.now().minus(90, ChronoUnit.DAYS)).endTime(Instant.now())
+                                    .period(7776000).statistics(Statistic.SUM).build();
+                            double total = cw.getMetricStatistics(req).datapoints().stream()
+                                    .mapToDouble(Datapoint::sum).sum();
+                            return total == 0.0;
+                        } catch (Exception e) {
+                            return false;
+                        }
+                    })
+                    .map(topic -> {
+                        String topicName = topic.topicArn().substring(topic.topicArn().lastIndexOf(':') + 1);
+                        return new DashboardData.WastedResource(topic.topicArn(), topicName,
+                                "SNS Topic", regionId, 0.10,
+                                "No messages published in 90 days");
+                    })
+                    .collect(Collectors.toList());
+        }, "Idle SNS Topics");
+    }
+
+    private CompletableFuture<List<DashboardData.WastedResource>> findIdleSqsQueues(CloudAccount account,
+            List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            SqsClient sqs = awsClientProvider.getSqsClient(account, regionId);
+            CloudWatchClient cw = awsClientProvider.getCloudWatchClient(account, regionId);
+            return sqs.listQueues().queueUrls().stream()
+                    .filter(queueUrl -> {
+                        try {
+                            String queueName = queueUrl.substring(queueUrl.lastIndexOf('/') + 1);
+                            GetMetricStatisticsRequest sentReq = GetMetricStatisticsRequest.builder()
+                                    .namespace("AWS/SQS").metricName("NumberOfMessagesSent")
+                                    .dimensions(Dimension.builder().name("QueueName").value(queueName).build())
+                                    .startTime(Instant.now().minus(90, ChronoUnit.DAYS)).endTime(Instant.now())
+                                    .period(7776000).statistics(Statistic.SUM).build();
+                            GetMetricStatisticsRequest visibleReq = GetMetricStatisticsRequest.builder()
+                                    .namespace("AWS/SQS").metricName("ApproximateNumberOfMessagesVisible")
+                                    .dimensions(Dimension.builder().name("QueueName").value(queueName).build())
+                                    .startTime(Instant.now().minus(1, ChronoUnit.DAYS)).endTime(Instant.now())
+                                    .period(86400).statistics(Statistic.MAXIMUM).build();
+                            double sent = cw.getMetricStatistics(sentReq).datapoints().stream()
+                                    .mapToDouble(Datapoint::sum).sum();
+                            double visible = cw.getMetricStatistics(visibleReq).datapoints().stream()
+                                    .mapToDouble(Datapoint::maximum).max().orElse(0.0);
+                            return sent == 0.0 && visible == 0.0;
+                        } catch (Exception e) {
+                            return false;
+                        }
+                    })
+                    .map(queueUrl -> {
+                        String queueName = queueUrl.substring(queueUrl.lastIndexOf('/') + 1);
+                        return new DashboardData.WastedResource(queueUrl, queueName,
+                                "SQS Queue", regionId, 0.05,
+                                "No messages sent in 90 days and queue is empty");
+                    })
+                    .collect(Collectors.toList());
+        }, "Idle SQS Queues");
     }
 
     private GetMetricDataRequest buildMetricDataRequest(String resourceId, String metricName, String namespace,
