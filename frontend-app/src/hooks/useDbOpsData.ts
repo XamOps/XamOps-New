@@ -122,6 +122,23 @@ export interface SlowQueriesResponse {
   queries: SlowQuery[];
 }
 
+export interface AgentQueryStat {
+  dsnAlias: string;
+  dbEngine: string;
+  dbHost: string;
+  queryDigest: string;
+  callCount: number;
+  totalTimeSeconds: number;
+  avgTimeSeconds: number;
+  maxTimeSeconds: number;
+  rowsExamined: number;
+  rowsSent: number;
+  sharedBlksHit: number;
+  sharedBlksRead: number;
+  noIndexUsed: boolean;
+  lockTimeSeconds: number;
+}
+
 // ── Hook ─────────────────────────────────────────────────────────────────────
 
 const CACHE_TTL = 12 * 60 * 60 * 1000; // 12 hours
@@ -137,6 +154,7 @@ interface CachedPayload {
   snapshots: DbSnapshot[];
   security: DbSecurityCheck[];
   slowQueries: SlowQueriesResponse | null;
+  agentQueryStats: AgentQueryStat[];
 }
 
 function readCache(accountId: string): CachedPayload | null {
@@ -172,17 +190,18 @@ async function fetchJson<T>(url: string): Promise<T | null> {
 }
 
 export function useDbOpsData(accountId: string | null) {
-  const [summary, setSummary]         = useState<DbSavingsSummary | null>(null);
-  const [inventory, setInventory]     = useState<DbInstance[]>([]);
-  const [metrics, setMetrics]         = useState<Record<string, DbMetrics>>({});
-  const [costs, setCosts]             = useState<DbCost[]>([]);
-  const [idle, setIdle]               = useState<DbIdleInstance[]>([]);
-  const [rightsizing, setRightsizing] = useState<DbRightsizing[]>([]);
-  const [snapshots, setSnapshots]     = useState<DbSnapshot[]>([]);
-  const [security, setSecurity]       = useState<DbSecurityCheck[]>([]);
-  const [slowQueries, setSlowQueries] = useState<SlowQueriesResponse | null>(null);
-  const [loading, setLoading]         = useState(false);
-  const [error, setError]             = useState<string | null>(null);
+  const [summary, setSummary]               = useState<DbSavingsSummary | null>(null);
+  const [inventory, setInventory]           = useState<DbInstance[]>([]);
+  const [metrics, setMetrics]               = useState<Record<string, DbMetrics>>({});
+  const [costs, setCosts]                   = useState<DbCost[]>([]);
+  const [idle, setIdle]                     = useState<DbIdleInstance[]>([]);
+  const [rightsizing, setRightsizing]       = useState<DbRightsizing[]>([]);
+  const [snapshots, setSnapshots]           = useState<DbSnapshot[]>([]);
+  const [security, setSecurity]             = useState<DbSecurityCheck[]>([]);
+  const [slowQueries, setSlowQueries]       = useState<SlowQueriesResponse | null>(null);
+  const [agentQueryStats, setAgentQueryStats] = useState<AgentQueryStat[]>([]);
+  const [loading, setLoading]               = useState(false);
+  const [error, setError]                   = useState<string | null>(null);
 
   const fetchingRef = useRef(false);
   const prevAccountRef = useRef<string | null>(null);
@@ -197,6 +216,7 @@ export function useDbOpsData(accountId: string | null) {
     setSnapshots(p.snapshots);
     setSecurity(p.security);
     setSlowQueries(p.slowQueries ?? null);
+    setAgentQueryStats(p.agentQueryStats ?? []);
   };
 
   const fetchAll = useCallback(async (forceRefresh = false) => {
@@ -226,7 +246,7 @@ export function useDbOpsData(accountId: string | null) {
       setSummary(summaryData);
 
       // All subsequent calls run in parallel
-      const [inv, metricsData, cost, idleData, rsData, snapData, secData, slowData] = await Promise.all([
+      const [inv, metricsData, cost, idleData, rsData, snapData, secData, slowData, agentStats] = await Promise.all([
         fetchJson<DbInstance[]>(`${base}/inventory`),
         fetchJson<Record<string, DbMetrics>>(`${base}/metrics`),
         fetchJson<DbCost[]>(`${base}/costs`),
@@ -235,18 +255,20 @@ export function useDbOpsData(accountId: string | null) {
         fetchJson<DbSnapshot[]>(`${base}/snapshots`),
         fetchJson<DbSecurityCheck[]>(`${base}/security`),
         fetchJson<SlowQueriesResponse>(`${base}/slow-queries`),
+        fetchJson<AgentQueryStat[]>(`${base}/agent-query-stats`),
       ]);
 
       const payload = {
-        summary:     summaryData,
-        inventory:   inv          ?? [],
-        metrics:     metricsData  ?? {},
-        costs:       cost         ?? [],
-        idle:        idleData     ?? [],
-        rightsizing: rsData       ?? [],
-        snapshots:   snapData     ?? [],
-        security:    secData      ?? [],
-        slowQueries: slowData,
+        summary:         summaryData,
+        inventory:       inv          ?? [],
+        metrics:         metricsData  ?? {},
+        costs:           cost         ?? [],
+        idle:            idleData     ?? [],
+        rightsizing:     rsData       ?? [],
+        snapshots:       snapData     ?? [],
+        security:        secData      ?? [],
+        slowQueries:     slowData,
+        agentQueryStats: agentStats   ?? [],
       };
 
       applyPayload(payload);
@@ -267,6 +289,7 @@ export function useDbOpsData(accountId: string | null) {
     if (!accountId) {
       setSummary(null); setInventory([]); setMetrics({}); setCosts([]); setIdle([]);
       setRightsizing([]); setSnapshots([]); setSecurity([]); setSlowQueries(null);
+      setAgentQueryStats([]);
       setLoading(false);
       return;
     }
@@ -282,6 +305,7 @@ export function useDbOpsData(accountId: string | null) {
 
   return {
     summary, inventory, metrics, costs, idle, rightsizing, snapshots, security, slowQueries,
+    agentQueryStats,
     loading, error,
     refresh,
   };

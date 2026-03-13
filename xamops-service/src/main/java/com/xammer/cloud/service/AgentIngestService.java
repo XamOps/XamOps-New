@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.xammer.cloud.domain.AgentDataCache;
 import com.xammer.cloud.domain.AgentEvent;
+import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.KubernetesClusterConfig;
 import com.xammer.cloud.dto.agent.AgentIngestPayload;
 import com.xammer.cloud.dto.agent.AgentIngestPayload.DataBatch;
@@ -12,6 +13,7 @@ import com.xammer.cloud.dto.agent.AgentIngestResponse;
 import com.xammer.cloud.dto.agent.AgentIngestResponse.BatchResult;
 import com.xammer.cloud.repository.AgentDataCacheRepository;
 import com.xammer.cloud.repository.AgentEventRepository;
+import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.KubernetesClusterConfigRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -58,6 +60,7 @@ public class AgentIngestService {
     private final KubernetesClusterConfigRepository clusterConfigRepository;
     private final AgentDataCacheRepository agentDataCacheRepository;
     private final AgentEventRepository agentEventRepository;
+    private final CloudAccountRepository cloudAccountRepository;
     private final ObjectMapper objectMapper;
 
     @Value("${xamops.agent.api-key:xamops_DEFAULT_KEY_CHANGE_IN_PRODUCTION}")
@@ -66,10 +69,12 @@ public class AgentIngestService {
     public AgentIngestService(
             KubernetesClusterConfigRepository clusterConfigRepository,
             AgentDataCacheRepository agentDataCacheRepository,
-            AgentEventRepository agentEventRepository) {
+            AgentEventRepository agentEventRepository,
+            CloudAccountRepository cloudAccountRepository) {
         this.clusterConfigRepository = clusterConfigRepository;
         this.agentDataCacheRepository = agentDataCacheRepository;
         this.agentEventRepository = agentEventRepository;
+        this.cloudAccountRepository = cloudAccountRepository;
 
         this.objectMapper = new ObjectMapper();
         this.objectMapper.registerModule(new JavaTimeModule());
@@ -127,6 +132,39 @@ public class AgentIngestService {
      */
     public String getGlobalApiKey() {
         return globalAgentApiKey;
+    }
+
+    /**
+     * Find cluster config, or auto-create a db-only entry if not found.
+     *
+     * Used when the DB agent runs on EC2 (no k8s cluster) — there is no
+     * pre-existing KubernetesClusterConfig row, so we create a lightweight
+     * placeholder with dataSourceMode="db-only" so data can be stored.
+     */
+    @Transactional
+    public KubernetesClusterConfig findOrCreateDbOnlyClusterConfig(String clusterName, Long cloudAccountId) {
+        // Try normal lookup first
+        Optional<KubernetesClusterConfig> existing = clusterConfigRepository
+                .findByCloudAccountIdAndClusterName(cloudAccountId, clusterName);
+        if (existing.isPresent()) return existing.get();
+
+        // Verify the cloud account exists
+        Optional<CloudAccount> account = cloudAccountRepository.findById(cloudAccountId);
+        if (account.isEmpty()) {
+            logger.warn("findOrCreateDbOnly: cloud account {} not found", cloudAccountId);
+            return null;
+        }
+
+        // Auto-create a db-only placeholder
+        KubernetesClusterConfig cfg = new KubernetesClusterConfig();
+        cfg.setCloudAccountId(cloudAccountId);
+        cfg.setClusterName(clusterName);
+        cfg.setRegion("auto");
+        cfg.setDataSourceMode("db-only");
+        cfg.setAgentStatus("active");
+        cfg.setLastAgentCheckin(LocalDateTime.now());
+        logger.info("Auto-created db-only cluster config for account {} cluster '{}'", cloudAccountId, clusterName);
+        return clusterConfigRepository.save(cfg);
     }
 
     /**

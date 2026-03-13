@@ -119,15 +119,20 @@ public class AgentController {
                     .body(AgentIngestResponse.error("cloudAccountId is required in payload"));
         }
 
-        // 3. Find cluster config by clusterName + cloudAccountId
+        // 3. Find cluster config — or auto-create for DB-only agents (no k8s cluster)
         KubernetesClusterConfig clusterConfig = agentIngestService.findClusterConfig(
                 payload.getClusterName(), payload.getCloudAccountId());
 
         if (clusterConfig == null) {
-            logger.warn("Cluster config not found for cluster: {} accountId: {}",
+            clusterConfig = agentIngestService.findOrCreateDbOnlyClusterConfig(
+                    payload.getClusterName(), payload.getCloudAccountId());
+        }
+
+        if (clusterConfig == null) {
+            logger.warn("Cluster config not found and could not be created for cluster: {} accountId: {}",
                     payload.getClusterName(), payload.getCloudAccountId());
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(AgentIngestResponse.error("Cluster not configured. Register cluster in XamOps first."));
+                    .body(AgentIngestResponse.error("Cloud account not found. Register account in XamOps first."));
         }
 
         // 4. Process the payload
@@ -281,6 +286,18 @@ public class AgentController {
         }
 
         return getAgentStatus(configOpt.get().getId());
+    }
+
+    /**
+     * GET /api/v1/agent/install-info
+     * Returns pre-filled values needed to generate the agent install command in the UI.
+     * Called by the frontend "Agent Stats" tab to build the one-liner.
+     */
+    @GetMapping("/install-info")
+    public ResponseEntity<Map<String, String>> getInstallInfo() {
+        return ResponseEntity.ok(Map.of(
+                "apiKey", agentIngestService.getGlobalApiKey()
+        ));
     }
 
     /**

@@ -4,7 +4,7 @@ import { useTopbar } from '../contexts/TopbarContext';
 import {
   useDbOpsData,
   DbInstance, DbMetrics, DbIdleInstance, DbRightsizing, DbCost,
-  DbSnapshot, DbSecurityCheck, DbSavingsSummary, SlowQueriesResponse,
+  DbSnapshot, DbSecurityCheck, DbSavingsSummary, SlowQueriesResponse, AgentQueryStat,
 } from '../hooks/useDbOpsData';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -78,7 +78,7 @@ function SummaryCards({ s }: { s: DbSavingsSummary }) {
 
 // ── Tab Bar ───────────────────────────────────────────────────────────────────
 
-type Tab = 'overview' | 'performance' | 'slowqueries' | 'inventory' | 'cost' | 'security' | 'snapshots';
+type Tab = 'overview' | 'performance' | 'slowqueries' | 'agentstats' | 'inventory' | 'cost' | 'security' | 'snapshots';
 
 interface TabDef { id: Tab; label: string; icon: string; badge?: number }
 
@@ -876,6 +876,189 @@ function SlowQueriesTab({ slowQueries }: { slowQueries: SlowQueriesResponse | nu
   );
 }
 
+// ── Agent Query Stats Tab ─────────────────────────────────────────────────────
+
+function AgentStatsTab({ stats, accountId }: { stats: AgentQueryStat[]; accountId: string | null }) {
+  const [apiKey, setApiKey]         = React.useState<string>('');
+  const [dsn, setDsn]               = React.useState('');
+  const [clusterName, setClusterName] = React.useState('db-agent-prod');
+  const [copied, setCopied]         = React.useState(false);
+
+  React.useEffect(() => {
+    fetch('/api/v1/agent/install-info', { credentials: 'include' })
+      .then(r => r.json())
+      .then(d => setApiKey(d.apiKey ?? ''))
+      .catch(() => {});
+  }, []);
+
+  const serverUrl = window.location.origin;
+  const dsnPlaceholder = 'xamops:password@tcp(your-rds-host:3306)/yourdb';
+
+  const command = [
+    `XAMOPS_SERVER_URL="${serverUrl}"`,
+    `XAMOPS_API_KEY="${apiKey || '<api-key>'}"`,
+    `CLOUD_ACCOUNT_ID="${accountId || '<account-id>'}"`,
+    `CLUSTER_NAME="${clusterName}"`,
+    `COLLECTOR_DB=true`,
+    `DB_DSN_0="${dsn || dsnPlaceholder}"`,
+    `./xamops-agent`,
+  ].join(' \\\n');
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(command).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  if (stats.length === 0) {
+    return (
+      <div className="max-w-2xl mx-auto space-y-5 py-4">
+        {/* Header */}
+        <div className="bg-white/90 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl border border-gray-100 dark:border-gray-700/50 p-6 text-center">
+          <div className="w-12 h-12 bg-blue-50 dark:bg-blue-900/20 rounded-full flex items-center justify-center mx-auto mb-3">
+            <i className="fas fa-database text-blue-400 text-lg" />
+          </div>
+          <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100 mb-1">Connect Your Database</h3>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Run the XamOps agent inside your VPC to collect live query stats from RDS.
+          </p>
+        </div>
+
+        {/* Step 1 — Create DB user */}
+        <div className="bg-white/90 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl border border-gray-100 dark:border-gray-700/50 p-5">
+          <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Step 1 — Create read-only DB user</p>
+          <div className="space-y-3">
+            <div>
+              <p className="text-xs text-gray-600 dark:text-gray-400 mb-1.5 font-medium">MySQL / Aurora MySQL:</p>
+              <pre className="bg-gray-900 text-green-400 rounded-lg px-4 py-3 text-[11px] leading-relaxed overflow-x-auto">{`CREATE USER 'xamops'@'%' IDENTIFIED BY 'choose-a-password';
+GRANT SELECT ON performance_schema.* TO 'xamops'@'%';
+FLUSH PRIVILEGES;`}</pre>
+            </div>
+            <div>
+              <p className="text-xs text-gray-600 dark:text-gray-400 mb-1.5 font-medium">PostgreSQL / Aurora Postgres:</p>
+              <pre className="bg-gray-900 text-green-400 rounded-lg px-4 py-3 text-[11px] leading-relaxed overflow-x-auto">{`CREATE USER xamops WITH PASSWORD 'choose-a-password';
+GRANT pg_read_all_stats TO xamops;`}</pre>
+            </div>
+          </div>
+        </div>
+
+        {/* Step 2 — Configure */}
+        <div className="bg-white/90 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl border border-gray-100 dark:border-gray-700/50 p-5">
+          <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Step 2 — Enter your database connection</p>
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Agent name <span className="text-gray-400">(any label you choose)</span>
+              </label>
+              <input
+                type="text"
+                value={clusterName}
+                onChange={e => setClusterName(e.target.value)}
+                className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                DB connection string <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                value={dsn}
+                onChange={e => setDsn(e.target.value)}
+                placeholder={dsnPlaceholder}
+                className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+              />
+              <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
+                MySQL: <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">user:pass@tcp(host:3306)/db</code>
+                &nbsp;· Postgres: <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">postgres://user:pass@host:5432/db?sslmode=require</code>
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Step 3 — Generated command */}
+        <div className="bg-white/90 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl border border-gray-100 dark:border-gray-700/50 p-5">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Step 3 — Run on your EC2</p>
+            <button
+              onClick={handleCopy}
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors"
+            >
+              <i className={`fas ${copied ? 'fa-check' : 'fa-copy'} text-[10px]`} />
+              {copied ? 'Copied!' : 'Copy'}
+            </button>
+          </div>
+          <pre className="bg-gray-900 text-green-400 rounded-lg px-4 py-3 text-[11px] leading-relaxed overflow-x-auto whitespace-pre">{command}</pre>
+          <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-2">
+            The agent must run inside the same VPC as your RDS. After running, data appears here within 5 minutes.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const fmtMs = (s: number) => s < 1 ? `${(s * 1000).toFixed(1)}ms` : `${s.toFixed(2)}s`;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl">
+        <i className="fas fa-database text-blue-500" />
+        <p className="text-sm text-blue-800 dark:text-blue-300 font-medium">
+          {stats.length} queries from agent — sorted by total execution time (heaviest first)
+        </p>
+      </div>
+      <div className="bg-white/90 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl border border-gray-100 dark:border-gray-700/50 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-100 dark:border-gray-700/50 bg-gray-50/80 dark:bg-gray-700/30">
+                {['DB', 'Calls', 'Total Time', 'Avg Time', 'Max Time', 'Rows Examined', 'Rows Sent', 'Query'].map(h => (
+                  <th key={h} className="text-left px-3 py-2.5 text-[10px] font-bold text-gray-700 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50 dark:divide-gray-700/30">
+              {stats.map((s, i) => (
+                <tr key={i} className="hover:bg-gray-50/50 dark:hover:bg-gray-700/20 transition-colors">
+                  <td className="px-3 py-3 whitespace-nowrap">
+                    <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full ${s.dbEngine === 'mysql' ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400' : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'}`}>
+                      <i className={`fas ${s.dbEngine === 'mysql' ? 'fa-leaf' : 'fa-elephant'} text-[9px]`} />
+                      {s.dsnAlias}
+                    </span>
+                  </td>
+                  <td className="px-3 py-3 tabular-nums text-gray-800 dark:text-gray-300">{s.callCount.toLocaleString()}</td>
+                  <td className="px-3 py-3 tabular-nums font-semibold text-gray-800 dark:text-gray-200">{fmtMs(s.totalTimeSeconds)}</td>
+                  <td className={`px-3 py-3 tabular-nums ${s.avgTimeSeconds > 1 ? 'text-red-600 dark:text-red-400 font-semibold' : s.avgTimeSeconds > 0.1 ? 'text-amber-600 dark:text-amber-400' : 'text-gray-800 dark:text-gray-300'}`}>
+                    {fmtMs(s.avgTimeSeconds)}
+                  </td>
+                  <td className="px-3 py-3 tabular-nums text-gray-800 dark:text-gray-300">{fmtMs(s.maxTimeSeconds)}</td>
+                  <td className="px-3 py-3 tabular-nums text-gray-800 dark:text-gray-300">{s.rowsExamined.toLocaleString()}</td>
+                  <td className="px-3 py-3 tabular-nums text-gray-800 dark:text-gray-300">{s.rowsSent.toLocaleString()}</td>
+                  <td className="px-3 py-3 max-w-xs">
+                    <code className="text-[11px] text-gray-700 dark:text-gray-300 break-words line-clamp-2">{s.queryDigest}</code>
+                    {s.noIndexUsed && (
+                      <span className="mt-1 flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400">
+                        <i className="fas fa-exclamation-triangle" />
+                        No index used
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="px-5 py-3 border-t border-gray-100 dark:border-gray-700/50 bg-gray-50/50 dark:bg-gray-700/20 text-[11px] text-gray-600 dark:text-gray-400">
+          Data from <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">performance_schema</code> /
+          <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded ml-1">pg_stat_statements</code> — collected by XamOps DB agent every 5 min.
+          Avg time &gt; 1s is highlighted red. Queries with no index usage should be reviewed.
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 const DataOpsPage: React.FC = () => {
@@ -886,6 +1069,7 @@ const DataOpsPage: React.FC = () => {
   const accountId = selectedAccountIds[0] ?? null;
   const {
     summary, inventory, metrics, costs, idle, rightsizing, snapshots, security, slowQueries,
+    agentQueryStats,
     loading, error, refresh,
   } = useDbOpsData(accountId);
 
@@ -972,6 +1156,7 @@ const DataOpsPage: React.FC = () => {
                   { id: 'overview',     label: 'Overview',       icon: 'fas fa-chart-pie' },
                   { id: 'performance',  label: 'Performance',    icon: 'fas fa-heartbeat', badge: Object.values(metrics).filter(m => instanceHealth(m) === 'critical').length },
                   { id: 'slowqueries',  label: 'Slow Queries',   icon: 'fas fa-stopwatch',  badge: slowQueries?.queries?.length ?? 0 },
+                  { id: 'agentstats',   label: 'Agent Stats',    icon: 'fas fa-database',   badge: agentQueryStats.length },
                   { id: 'inventory',    label: 'Inventory',      icon: 'fas fa-server',      badge: inventory.length },
                   { id: 'cost',         label: 'Cost & Savings', icon: 'fas fa-dollar-sign', badge: idle.length + rightsizing.length },
                   { id: 'security',     label: 'Security',       icon: 'fas fa-shield-alt',  badge: security.filter(c => c.status === 'FAIL').length },
@@ -981,6 +1166,7 @@ const DataOpsPage: React.FC = () => {
               {tab === 'overview'    && <OverviewTab summary={summary} idle={idle} rightsizing={rightsizing} />}
               {tab === 'performance' && <PerformanceTab inventory={inventory} metrics={metrics} />}
               {tab === 'slowqueries' && <SlowQueriesTab slowQueries={slowQueries} />}
+              {tab === 'agentstats'  && <AgentStatsTab stats={agentQueryStats} accountId={accountId} />}
               {tab === 'inventory'   && <InventoryTab inventory={inventory} />}
               {tab === 'cost'        && <CostTab costs={costs} idle={idle} rightsizing={rightsizing} />}
               {tab === 'security'    && <SecurityTab security={security} />}
