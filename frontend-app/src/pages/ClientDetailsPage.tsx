@@ -18,6 +18,8 @@ interface BillOpsUser {
     username: string;
     email: string;
     accountAccessIds: number[];
+    parentId?: number | null;  // null/undefined = primary user; set = sub-user
+    lastLoginAt?: string | null;  // ISO datetime string from backend
 }
 
 interface ClientDetails {
@@ -57,6 +59,7 @@ const ClientDetailsPage: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [expandedClient, setExpandedClient] = useState<number | null>(null);
     const [expandedSection, setExpandedSection] = useState<'accounts' | 'users' | null>(null);
+    const [expandedPrimaryUsers, setExpandedPrimaryUsers] = useState<Set<string>>(new Set());
     const [search, setSearch] = useState('');
     const [filterProvider, setFilterProvider] = useState('');
     const [sortBy, setSortBy] = useState('');
@@ -131,6 +134,16 @@ const ClientDetailsPage: React.FC = () => {
             setExpandedClient(clientId);
             setExpandedSection('accounts');
         }
+    };
+
+    const togglePrimaryUser = (clientId: number, userId: number) => {
+        const key = `${clientId}:${userId}`;
+        setExpandedPrimaryUsers(prev => {
+            const next = new Set(prev);
+            if (next.has(key)) next.delete(key);
+            else next.add(key);
+            return next;
+        });
     };
 
     const handleLoginAs = (userId: number, client: ClientDetails, user: BillOpsUser) => {
@@ -462,67 +475,156 @@ const ClientDetailsPage: React.FC = () => {
                                         </div>
                                     )}
 
-                                    {expandedSection === 'users' && (
-                                        <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
-                                            <table className="w-full text-left">
-                                                <thead className="bg-gray-50 border-b border-gray-200">
-                                                    <tr>
-                                                        <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase">User</th>
-                                                        <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase">Email</th>
-                                                        <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase">Account Access</th>
-                                                        <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase text-right">Actions</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody className="divide-y divide-gray-100">
-                                                    {client.users.map(user => (
-                                                        <tr key={user.id} className="hover:bg-gray-50/50 transition-colors">
-                                                            <td className="px-4 py-4">
-                                                                <div className="flex items-center gap-3">
-                                                                    <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-bold">
-                                                                        {user.username.charAt(0).toUpperCase()}
-                                                                    </div>
-                                                                    <span className="font-semibold text-gray-900">{user.username}</span>
-                                                                </div>
-                                                            </td>
-                                                            <td className="px-4 py-4 text-sm text-gray-600">{user.email}</td>
-                                                            <td className="px-4 py-4">
-                                                                <div className="flex flex-wrap gap-1">
-                                                                    {user.accountAccessIds.length > 0 ? (
-                                                                        user.accountAccessIds.map(accId => {
-                                                                            const acc = client.accounts.find(a => a.id === accId);
-                                                                            return acc ? (
-                                                                                <span key={accId} className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-[10px] font-medium border border-gray-200" title={acc.providerAccountId}>
-                                                                                    {acc.name}
-                                                                                </span>
-                                                                            ) : null;
-                                                                        })
-                                                                    ) : (
-                                                                        <span className="text-xs text-gray-400 italic">Full Access (Primary)</span>
-                                                                    )}
-                                                                </div>
-                                                            </td>
-                                                            <td className="px-6 py-4 text-right">
-                                                                <button
-                                                                    onClick={() => handleLoginAs(user.id, client, user)}
-                                                                    className="px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-slate-900 transition-all flex items-center gap-2 ml-auto shadow-sm"
-                                                                >
-                                                                    <i className="fas fa-user-secret text-[9px]"></i>
-                                                                    Login as
-                                                                </button>
-                                                            </td>
-                                                        </tr>
-                                                    ))}
-                                                    {client.users.length === 0 && (
+                                    {expandedSection === 'users' && (() => {
+                                        // Build sub-user map: parentId → sub-users
+                                        const subUserMap = new Map<string, BillOpsUser[]>();
+                                        for (const u of client.users) {
+                                            if (u.parentId != null) {
+                                                const key = String(u.parentId);
+                                                if (!subUserMap.has(key)) subUserMap.set(key, []);
+                                                subUserMap.get(key)!.push(u);
+                                            }
+                                        }
+                                        const primaryUsers = client.users.filter(u => u.parentId == null);
+
+                                        const renderAccountAccess = (user: BillOpsUser) => (
+                                            <div className="flex flex-wrap gap-1">
+                                                {user.accountAccessIds.length > 0 ? (
+                                                    user.accountAccessIds.map(accId => {
+                                                        const acc = client.accounts.find(a => a.id === accId);
+                                                        return acc ? (
+                                                            <span key={accId} className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-[10px] font-medium border border-gray-200" title={acc.providerAccountId}>
+                                                                {acc.name}
+                                                            </span>
+                                                        ) : null;
+                                                    })
+                                                ) : (
+                                                    <span className="text-xs text-gray-400 italic">Full Access</span>
+                                                )}
+                                            </div>
+                                        );
+
+                                        return (
+                                            <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+                                                <table className="w-full text-left">
+                                                    <thead className="bg-gray-50 border-b border-gray-200">
                                                         <tr>
-                                                            <td colSpan={4} className="px-4 py-8 text-center text-gray-500">
-                                                                No users found for this client.
-                                                            </td>
+                                                            <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase">User</th>
+                                                            <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase">Email</th>
+                                                            <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase">Account Access</th>
+                                                            <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase">Last Active</th>
+                                                            <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase text-right">Actions</th>
                                                         </tr>
-                                                    )}
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    )}
+                                                    </thead>
+                                                    <tbody className="divide-y divide-gray-100">
+                                                        {primaryUsers.length === 0 && (
+                                                            <tr>
+                                                                <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
+                                                                    No users found for this client.
+                                                                </td>
+                                                            </tr>
+                                                        )}
+                                                        {primaryUsers.map(primary => {
+                                                            const subUsers = subUserMap.get(String(primary.id)) ?? [];
+                                                            const hasSubUsers = subUsers.length > 0;
+                                                            const isPrimaryExpanded = expandedPrimaryUsers.has(`${client.id}:${primary.id}`);
+
+                                                            return (
+                                                                <React.Fragment key={primary.id}>
+                                                                    {/* Primary user row */}
+                                                                    <tr className="hover:bg-indigo-50/30 transition-colors border-l-4 border-l-indigo-300/60">
+                                                                        <td className="px-4 py-3.5">
+                                                                            <div className="flex items-center gap-3">
+                                                                                {hasSubUsers ? (
+                                                                                    <button
+                                                                                        onClick={() => togglePrimaryUser(client.id, primary.id)}
+                                                                                        className="w-5 h-5 flex items-center justify-center text-indigo-500 hover:text-indigo-700 flex-shrink-0 transition-colors"
+                                                                                    >
+                                                                                        <i className={`fas fa-chevron-right text-[9px] transition-transform duration-200 ${isPrimaryExpanded ? 'rotate-90' : ''}`}></i>
+                                                                                    </button>
+                                                                                ) : (
+                                                                                    <span className="w-5 h-5 flex-shrink-0"></span>
+                                                                                )}
+                                                                                <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-bold flex-shrink-0">
+                                                                                    {primary.username.charAt(0).toUpperCase()}
+                                                                                </div>
+                                                                                <div>
+                                                                                    <span className="font-semibold text-gray-900 text-sm">{primary.username}</span>
+                                                                                    {hasSubUsers && (
+                                                                                        <span className="ml-2 text-[10px] font-semibold text-indigo-500 bg-indigo-50 border border-indigo-100 px-1.5 py-0.5 rounded">
+                                                                                            {subUsers.length} sub-user{subUsers.length !== 1 ? 's' : ''}
+                                                                                        </span>
+                                                                                    )}
+                                                                                </div>
+                                                                            </div>
+                                                                        </td>
+                                                                        <td className="px-4 py-3.5 text-sm text-gray-600">{primary.email}</td>
+                                                                        <td className="px-4 py-3.5">{renderAccountAccess(primary)}</td>
+                                                                        <td className="px-4 py-3.5">
+                                                                            {primary.lastLoginAt ? (
+                                                                                <div>
+                                                                                    <p className="text-xs font-semibold text-gray-700">{new Date(primary.lastLoginAt).toLocaleDateString()}</p>
+                                                                                    <p className="text-[10px] text-gray-400">{new Date(primary.lastLoginAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                                                                                </div>
+                                                                            ) : (
+                                                                                <span className="text-xs text-gray-300 italic">Never</span>
+                                                                            )}
+                                                                        </td>
+                                                                        <td className="px-6 py-3.5 text-right">
+                                                                            <button
+                                                                                onClick={() => handleLoginAs(primary.id, client, primary)}
+                                                                                className="px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-slate-900 transition-all flex items-center gap-2 ml-auto shadow-sm"
+                                                                            >
+                                                                                <i className="fas fa-user-secret text-[9px]"></i>
+                                                                                Login as
+                                                                            </button>
+                                                                        </td>
+                                                                    </tr>
+
+                                                                    {/* Sub-user rows */}
+                                                                    {hasSubUsers && isPrimaryExpanded && subUsers.map(sub => (
+                                                                        <tr key={sub.id} className="hover:bg-emerald-50/30 transition-colors border-l-4 border-l-emerald-200/60 bg-slate-50/40">
+                                                                            <td className="px-4 py-3 pl-16">
+                                                                                <div className="flex items-center gap-3">
+                                                                                    <i className="fas fa-level-up-alt fa-rotate-90 text-slate-300 text-xs flex-shrink-0"></i>
+                                                                                    <div className="w-7 h-7 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center text-xs font-bold flex-shrink-0">
+                                                                                        {sub.username.charAt(0).toUpperCase()}
+                                                                                    </div>
+                                                                                    <span className="font-medium text-gray-700 text-sm">{sub.username}</span>
+                                                                                    <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded">sub-user</span>
+                                                                                </div>
+                                                                            </td>
+                                                                            <td className="px-4 py-3 text-sm text-gray-500">{sub.email}</td>
+                                                                            <td className="px-4 py-3">{renderAccountAccess(sub)}</td>
+                                                                            <td className="px-4 py-3">
+                                                                                {sub.lastLoginAt ? (
+                                                                                    <div>
+                                                                                        <p className="text-xs font-semibold text-gray-700">{new Date(sub.lastLoginAt).toLocaleDateString()}</p>
+                                                                                        <p className="text-[10px] text-gray-400">{new Date(sub.lastLoginAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                                                                                    </div>
+                                                                                ) : (
+                                                                                    <span className="text-xs text-gray-300 italic">Never</span>
+                                                                                )}
+                                                                            </td>
+                                                                            <td className="px-6 py-3 text-right">
+                                                                                <button
+                                                                                    onClick={() => handleLoginAs(sub.id, client, sub)}
+                                                                                    className="px-4 py-1.5 bg-emerald-600 text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-slate-900 transition-all flex items-center gap-2 ml-auto shadow-sm"
+                                                                                >
+                                                                                    <i className="fas fa-user-secret text-[9px]"></i>
+                                                                                    Login as
+                                                                                </button>
+                                                                            </td>
+                                                                        </tr>
+                                                                    ))}
+                                                                </React.Fragment>
+                                                            );
+                                                        })}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        );
+                                    })()}
                                 </div>
                             </div>
                         )}

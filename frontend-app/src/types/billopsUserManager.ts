@@ -22,6 +22,7 @@ export interface BillOpsUser {
     role: BillOpsRole;
     contact?: string;
     designation?: string;
+    parentId?: string | number | null;  // null/undefined = primary user; set = sub-user of that parent (backend returns Long)
 }
 
 /**
@@ -36,6 +37,7 @@ export interface BillOpsUserFormData {
     role: BillOpsRole | '';
     contact: string;
     designation: string;
+    parentId: string;  // empty string = primary user
 }
 
 /**
