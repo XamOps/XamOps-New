@@ -19,7 +19,6 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
 import { apiFetch } from '../utils/apiClient';
 import type {
   Invoice,
@@ -33,11 +32,12 @@ import {
   initNotificationService,
   notifyNewInvoice
 } from '../utils/notificationService';
+import { useAccounts } from '../contexts/AccountContext';
 
 const CACHE_KEY = 'invoices_list_admin';
 
 export const useInvoices = (): UseInvoicesReturn => {
-  const [searchParams] = useSearchParams();
+  const { selectedAccountIds } = useAccounts();
 
   // Data state
   const [allInvoices, setAllInvoices] = useState<Invoice[]>([]);
@@ -67,8 +67,8 @@ export const useInvoices = (): UseInvoicesReturn => {
     { name: 'December', value: 12 },
   ]);
 
-  // Account state
-  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
+  // Account state — driven by AccountContext (same pattern as useBillOpsTickets)
+  const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
   const [selectedAccountName, setSelectedAccountName] = useState<string>('');
 
   // View state
@@ -368,66 +368,29 @@ export const useInvoices = (): UseInvoicesReturn => {
   }, []);
 
   /**
-   * Initialize on mount
+   * Initialize on mount — load cache then background-refresh
    */
   useEffect(() => {
     isMountedRef.current = true;
-
-    const accountIds = searchParams.get('accountId') || searchParams.get('accountIds');
-
-    if (accountIds) {
-      const firstAccountId = accountIds.split(',')[0];
-      setSelectedAccountId(firstAccountId);
-
-      // 1. Instant Load from Cache
-      loadFromCache();
-
-      // 2. Background Refresh
-      fetchData(false);
-    } else {
-      console.warn('[Invoices] No account ID in URL, loading all invoices for user...');
-      // For BILLOPS users without account selection, load all their invoices
-      // 1. Instant Load from Cache
-      loadFromCache();
-
-      // 2. Background Refresh
-      fetchData(false);
-    }
-
-    // Listen for account changes from sidebar
-    const handleAccountChange = (event: any) => {
-      console.log('[Invoices] Account changed event received:', event.detail);
-      const newAccountId = event.detail.accountIds
-        ? event.detail.accountIds.join(',')
-        : event.detail.accountId;
-
-      if (newAccountId) {
-        const newSelectedId = newAccountId.split(',')[0];
-
-        if (newSelectedId !== selectedAccountId) {
-          console.log('[Invoices] Updating account ID to:', newSelectedId);
-          setSelectedAccountId(newSelectedId);
-          setSelectedAccountName('');
-          setError(null);
-          setListLoading(true);
-
-          if (hasData) {
-            console.log('[Invoices] Data exists, re-filtering for new account.');
-            setListLoading(false);
-          } else {
-            fetchData(false);
-          }
-        }
-      }
-    };
-
-    window.addEventListener('account-changed', handleAccountChange);
-
+    loadFromCache();
+    fetchData(false);
     return () => {
       isMountedRef.current = false;
-      window.removeEventListener('account-changed', handleAccountChange);
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /**
+   * React to sidebar account changes (same pattern as useBillOpsTickets)
+   */
+  useEffect(() => {
+    setSelectedAccountName('');
+    if (hasData) {
+      // Data already loaded — re-filter client-side
+      setListLoading(false);
+    } else {
+      fetchData(false);
+    }
+  }, [selectedAccountId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /**
    * Re-filter when filters or data change

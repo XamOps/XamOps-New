@@ -1,3 +1,4 @@
+
 -- Fix for User Creation SQL Error
 -- Adds the missing 'enabled' column to app_user and global_users tables
 

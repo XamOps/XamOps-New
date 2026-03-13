@@ -146,6 +146,10 @@ public class SupportAdminController {
             long unreadCount = messageRepository.countByUserIdAndIsUserMessageTrueAndStatus(userId, "UNREAD");
             conversation.put("unreadCount", unreadCount);
 
+            // Admin messages the user hasn't opened/seen yet (DELIVERED → not yet READ by user)
+            long adminUnreadCount = messageRepository.countByUserIdAndIsUserMessageFalseAndStatus(userId, "DELIVERED");
+            conversation.put("adminUnreadCount", adminUnreadCount);
+
             SupportMessage lastMsg = messageRepository.findFirstByUserIdOrderByTimestampDesc(userId);
             if (lastMsg != null) {
                 conversation.put("lastMessage", lastMsg.getContent());

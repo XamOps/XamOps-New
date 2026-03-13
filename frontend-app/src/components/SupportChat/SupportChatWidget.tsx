@@ -31,6 +31,7 @@ const SupportChatWidget: React.FC = () => {
     setNewMessage,
     isLoading,
     isXamopsUser,
+    unreadFromAdmin,
     sendMessage,
     fetchHistory,
     editMessage,
@@ -113,7 +114,20 @@ const SupportChatWidget: React.FC = () => {
         aria-expanded={isOpen}
       >
         <i className={`fas ${isOpen ? 'fa-times' : 'fa-headset'}`} />
-        {!isOpen && (
+        {/* Unread count badge — shown when widget is closed and there are unread admin messages */}
+        {!isOpen && unreadFromAdmin > 0 && (
+          <span style={{
+            position: 'absolute', top: '-6px', right: '-6px',
+            background: '#ef4444', color: '#fff',
+            borderRadius: '9999px', fontSize: '10px', fontWeight: 700,
+            minWidth: '18px', height: '18px', padding: '0 4px',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            border: '2px solid #fff', zIndex: 10,
+          }}>
+            {unreadFromAdmin}
+          </span>
+        )}
+        {!isOpen && unreadFromAdmin === 0 && (
           <span className="support-chat-fab-pulse">
             <span className="support-chat-fab-pulse-ring" />
             <span className="support-chat-fab-pulse-dot" />
@@ -218,9 +232,29 @@ const SupportChatWidget: React.FC = () => {
                       </>
                     )}
                     {!msg.isDeleted && editingId !== msg.id && msg.timestamp && (
-                      <span className="support-chat-message-time">
+                      <span className="support-chat-message-time" style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
                         {formatTime(msg.timestamp)}
                         {msg.isEdited && <span style={{ marginLeft: '4px', fontStyle: 'italic', fontSize: '10px', opacity: 0.75 }}>· Edited</span>}
+                        {/* Read receipt ticks — only on user's own outgoing messages */}
+                        {msg.isUser && (
+                          <span
+                            title={
+                              msg.status === 'READ' ? 'Seen by support' :
+                              msg.status === 'UNREAD' ? 'Delivered, waiting for support to read' :
+                              'Sending...'
+                            }
+                            style={{
+                              letterSpacing: '-1px', fontSize: '12px', marginLeft: '2px',
+                              color: msg.status === 'READ' ? '#0ea5e9' : '#9ca3af',
+                              fontWeight: msg.status === 'READ' ? 700 : 400,
+                            }}
+                          >
+                            {/* No status = optimistic (still sending) = single tick
+                                UNREAD = delivered to server, admin not read = double gray
+                                READ   = admin has read = double blue */}
+                            {!msg.status ? '✓' : '✓✓'}
+                          </span>
+                        )}
                       </span>
                     )}
                   </div>

@@ -86,6 +86,8 @@ class BillOpsUserDto {
     private String username;
     private String email;
     private List<Long> accountAccessIds;
+    private Long parentId;  // null = primary user, set = sub-user of that parent
+    private java.time.LocalDateTime lastLoginAt;
 
     // Getters and Setters
     public Long getId() {
@@ -119,7 +121,25 @@ class BillOpsUserDto {
     public void setAccountAccessIds(List<Long> accountAccessIds) {
         this.accountAccessIds = accountAccessIds;
     }
+
+    public Long getParentId() {
+        return parentId;
+    }
+
+    public void setParentId(Long parentId) {
+        this.parentId = parentId;
+    }
+
+    public java.time.LocalDateTime getLastLoginAt() {
+        return lastLoginAt;
+    }
+
+    public void setLastLoginAt(java.time.LocalDateTime lastLoginAt) {
+        this.lastLoginAt = lastLoginAt;
+    }
 }
+
+
 
 class BillOpsClientDetailsDto {
     private Long id;
@@ -217,6 +237,20 @@ public class BillOpsAdminController {
     public ResponseEntity<String> evictClientsCache() {
         redisCacheService.evict(CLIENTS_CACHE_KEY);
         return ResponseEntity.ok("Cache evicted");
+    }
+
+    /** Debug: check last_login_at values directly from DB (bypasses Redis cache) */
+    @GetMapping("/debug/last-login")
+    public ResponseEntity<List<java.util.Map<String, Object>>> debugLastLogin() {
+        List<java.util.Map<String, Object>> result = new ArrayList<>();
+        userRepository.findAll().forEach(user -> {
+            java.util.Map<String, Object> row = new java.util.LinkedHashMap<>();
+            row.put("id", user.getId());
+            row.put("username", user.getUsername());
+            row.put("lastLoginAt", user.getLastLoginAt() != null ? user.getLastLoginAt().toString() : null);
+            result.add(row);
+        });
+        return ResponseEntity.ok(result);
     }
 
     @GetMapping("/clients")
@@ -328,6 +362,8 @@ public class BillOpsAdminController {
                 userDto.setUsername(user.getUsername());
                 userDto.setEmail(user.getEmail());
                 userDto.setAccountAccessIds(accountAccessByUserId.getOrDefault(user.getId(), new ArrayList<>()));
+                userDto.setParentId(user.getCreatedBy());
+                userDto.setLastLoginAt(user.getLastLoginAt());
                 userDtos.add(userDto);
             }
             clientDto.setUsers(userDtos);
