@@ -36,6 +36,7 @@ const AccountSelector: React.FC<AccountSelectorProps> = ({ isOpen, onToggle, onC
 
   const { theme } = useTheme();
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Close on Escape key
   useEffect(() => {
@@ -228,16 +229,33 @@ const AccountSelector: React.FC<AccountSelectorProps> = ({ isOpen, onToggle, onC
             <div className="relative group">
               <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[10px] transition-colors group-focus-within:text-indigo-500"></i>
               <input
+                ref={searchInputRef}
                 type="text"
                 placeholder="Search accounts..."
                 value={searchTerm}
                 onChange={e => setSearchTerm(e.target.value)}
                 className={clsx(
-                  'w-full pl-9 pr-4 py-2 border rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all',
+                  'w-full pl-9 pr-10 py-2 border rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all',
                   theme === 'dark' ? 'bg-slate-800 border-slate-700 text-slate-200 placeholder-slate-600 focus:border-indigo-500/50' : 'bg-slate-50 border-gray-100 text-slate-700 placeholder-slate-400 focus:border-indigo-300'
                 )}
                 autoFocus
               />
+              {searchTerm && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchTerm('');
+                    searchInputRef.current?.focus();
+                  }}
+                  className={clsx(
+                    'absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded-full transition-all',
+                    theme === 'dark' ? 'text-slate-500 hover:text-slate-300 hover:bg-slate-700' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-200'
+                  )}
+                  aria-label="Clear account search"
+                >
+                  <i className="fas fa-times text-[10px]"></i>
+                </button>
+              )}
             </div>
           </div>
 
