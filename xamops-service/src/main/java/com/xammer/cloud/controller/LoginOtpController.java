@@ -166,6 +166,14 @@ public class LoginOtpController {
         }
         User user = userOpt.get();
 
+        // Record last login time
+        try {
+            user.setLastLoginAt(java.time.LocalDateTime.now());
+            userRepository.save(user);
+        } catch (Exception e) {
+            log.warn("Failed to record last login time for user {}: {}", user.getId(), e.getMessage());
+        }
+
         // Load full UserDetails (including authorities)
         UserDetails userDetails = userDetailsService.loadUserByUsername(user.getUsername());
 

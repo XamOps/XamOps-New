@@ -33,6 +33,7 @@ public class TicketDto {
     private Long assignedToId;
     private String assignedToUsername;
     private boolean hasUnreadUserReply;
+    private boolean hasUnreadAdminReply;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -78,4 +79,6 @@ public class TicketDto {
     public void setAssignedToUsername(String assignedToUsername) { this.assignedToUsername = assignedToUsername; }
     public boolean isHasUnreadUserReply() { return hasUnreadUserReply; }
     public void setHasUnreadUserReply(boolean hasUnreadUserReply) { this.hasUnreadUserReply = hasUnreadUserReply; }
+    public boolean isHasUnreadAdminReply() { return hasUnreadAdminReply; }
+    public void setHasUnreadAdminReply(boolean hasUnreadAdminReply) { this.hasUnreadAdminReply = hasUnreadAdminReply; }
 }

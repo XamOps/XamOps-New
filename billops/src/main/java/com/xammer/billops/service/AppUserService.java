@@ -59,6 +59,10 @@ public class AppUserService {
                 dto.getRole(), client);
         user.setContact(dto.getContact());
         user.setDesignation(dto.getDesignation());
+        // Set parent relationship if this is a sub-user
+        if (dto.getParentId() != null) {
+            user.setCreatedBy(dto.getParentId());
+        }
         AppUser savedUser = appUserRepository.save(user);
 
         // Send welcome email with credentials
@@ -85,6 +89,7 @@ public class AppUserService {
             dto.setClientName(user.getClient() != null ? user.getClient().getName() : "Unknown");
             dto.setContact(user.getContact());
             dto.setDesignation(user.getDesignation());
+            dto.setParentId(user.getCreatedBy());  // null = primary user, non-null = sub-user
             return dto;
         }).collect(Collectors.toList());
     }

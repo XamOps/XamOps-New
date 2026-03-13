@@ -18,7 +18,8 @@ public interface SupportMessageRepository extends JpaRepository<SupportMessage, 
     @Query(value = "SELECT user_id, " +
                    "MAX(CASE WHEN is_user_message = true THEN sender_username END) AS sender_username " +
                    "FROM support_message WHERE user_id IS NOT NULL " +
-                   "GROUP BY user_id",
+                   "GROUP BY user_id " +
+                   "ORDER BY MAX(timestamp) DESC",
            nativeQuery = true)
     List<Object[]> findDistinctUserConversations();
 
@@ -29,6 +30,8 @@ public interface SupportMessageRepository extends JpaRepository<SupportMessage, 
     List<SupportMessage> findByUserIdAndIsUserMessageTrueAndStatus(Long userId, String status);
 
     long countByUserIdAndIsUserMessageTrueAndStatus(Long userId, String status);
+
+    long countByUserIdAndIsUserMessageFalseAndStatus(Long userId, String status);
 
     SupportMessage findFirstByUserIdOrderByTimestampDesc(Long userId);
 

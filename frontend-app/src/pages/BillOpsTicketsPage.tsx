@@ -279,7 +279,11 @@ const BillOpsTicketsPage: React.FC = () => {
   const renderTicketCard = (ticket: BillOpsTicket) => (
     <div
       key={ticket.id}
-      className="group relative bg-white/70 backdrop-blur-xl border border-white p-7 rounded-[2.5rem] shadow-[0_8px_40px_rgba(0,0,0,0.03)] hover:shadow-[0_24px_48px_rgba(0,0,0,0.08)] hover:bg-white hover:border-purple-100/50 transition-all duration-500 cursor-pointer overflow-hidden"
+      className={`group relative bg-white/70 backdrop-blur-xl border p-7 rounded-[2.5rem] shadow-[0_8px_40px_rgba(0,0,0,0.03)] hover:shadow-[0_24px_48px_rgba(0,0,0,0.08)] hover:bg-white transition-all duration-500 cursor-pointer overflow-hidden ${
+        ticket.hasUnreadAdminReply
+          ? 'border-indigo-300 hover:border-indigo-400 ring-1 ring-indigo-200/50'
+          : 'border-white hover:border-purple-100/50'
+      }`}
       onClick={() => viewTicket(ticket.id)}
     >
       {/* Background Decor */}
@@ -289,7 +293,15 @@ const BillOpsTicketsPage: React.FC = () => {
         {/* Header: ID & Status */}
         <div className="flex justify-between items-start mb-5">
           <div className="flex flex-col gap-1.5">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Billing Case #{ticket.id}</span>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Billing Case #{ticket.id}</span>
+              {ticket.hasUnreadAdminReply && (
+                <span className="flex items-center gap-1 px-2 py-0.5 bg-indigo-600 text-white text-[9px] font-black rounded-full uppercase tracking-widest shadow-sm animate-pulse">
+                  <span className="w-1.5 h-1.5 rounded-full bg-white"></span>
+                  New Reply
+                </span>
+              )}
+            </div>
             <h3 className="text-lg font-bold text-slate-900 group-hover:text-indigo-600 transition-colors line-clamp-1 leading-tight tracking-tight">
               {ticket.subject}
             </h3>

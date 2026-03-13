@@ -2,7 +2,9 @@ package com.xammer.cloud.security;
 
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.repository.UserRepository;
 import com.xammer.cloud.service.FlexComputeService;
+import java.time.LocalDateTime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -27,13 +29,16 @@ public class CustomAuthenticationSuccessHandler extends SimpleUrlAuthenticationS
 
     private final CloudAccountRepository cloudAccountRepository;
     private final FlexComputeService flexComputeService;
+    private final UserRepository userRepository;
     private final String frontendUrl;
 
     public CustomAuthenticationSuccessHandler(CloudAccountRepository cloudAccountRepository,
             FlexComputeService flexComputeService,
+            UserRepository userRepository,
             @Value("${app.frontend.url}") String frontendUrl) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.flexComputeService = flexComputeService;
+        this.userRepository = userRepository;
         this.frontendUrl = frontendUrl;
     }
 
@@ -41,6 +46,17 @@ public class CustomAuthenticationSuccessHandler extends SimpleUrlAuthenticationS
     public void onAuthenticationSuccess(HttpServletRequest request, HttpServletResponse response,
             Authentication authentication) throws IOException, ServletException {
         ClientUserDetails userDetails = (ClientUserDetails) authentication.getPrincipal();
+
+        // Record last login time
+        try {
+            userRepository.findById(userDetails.getId()).ifPresent(user -> {
+                user.setLastLoginAt(LocalDateTime.now());
+                userRepository.save(user);
+            });
+        } catch (Exception e) {
+            logger.warn("Failed to record last login time for user {}: {}", userDetails.getId(), e.getMessage());
+        }
+
         Set<String> roles = userDetails.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
                 .collect(Collectors.toSet());

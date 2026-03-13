@@ -29,6 +29,7 @@ export interface SupportConversation {
   lastMessage?: string;
   lastMessageTime?: string;
   unreadCount?: number;
+  adminUnreadCount?: number;        // admin messages the user hasn't seen yet
   ticketStatus?: TicketStatus;      // OPEN | IN_PROGRESS | CLOSED
   assignedAdminUsername?: string;   // Which admin is currently handling this ticket
 }
@@ -50,6 +51,7 @@ export interface ChatMessage {
   attachmentSize?: number;
   isEdited?: boolean;
   isDeleted?: boolean;
+  status?: string;  // 'UNREAD' | 'READ' | 'DELIVERED'
 }
 
 /**
