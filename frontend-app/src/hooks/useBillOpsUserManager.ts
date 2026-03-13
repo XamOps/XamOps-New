@@ -36,6 +36,7 @@ const EMPTY_FORM: BillOpsUserFormData = {
     role: '',
     contact: '',
     designation: '',
+    parentId: '',
 };
 
 const AVAILABLE_ROLES: BillOpsRole[] = ['ROLE_BILLOPS', 'ROLE_BILLOPS_ADMIN', 'ROLE_XAMOPS'];
@@ -129,6 +130,7 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
             role: user.role,
             contact: user.contact || '',
             designation: user.designation || '',
+            parentId: user.parentId || '',
         });
         setIsEditing(true);
     }, []);

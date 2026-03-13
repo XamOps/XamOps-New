@@ -13,6 +13,7 @@ public class UserDTO {
     private String clientName;
     private String contact;
     private String designation;
+    private Long parentId;  // maps to AppUser.createdBy — null = primary user, set = sub-user
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -32,4 +33,6 @@ public class UserDTO {
     public void setContact(String contact) { this.contact = contact; }
     public String getDesignation() { return designation; }
     public void setDesignation(String designation) { this.designation = designation; }
+    public Long getParentId() { return parentId; }
+    public void setParentId(Long parentId) { this.parentId = parentId; }
 }

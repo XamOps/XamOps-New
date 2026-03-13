@@ -20,6 +20,7 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { apiFetch } from '../utils/apiClient';
+import { useAccounts } from '../contexts/AccountContext';
 import type {
   CreditRequest,
   NewCreditRequest,
@@ -30,6 +31,9 @@ import type {
 const POLL_INTERVAL = 5000; // 5 seconds (same as original)
 
 export const useCredits = (): UseCreditsReturn => {
+  const { selectedAccountIds } = useAccounts();
+  const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
+
   const [creditRequests, setCreditRequests] = useState<CreditRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -147,15 +151,17 @@ export const useCredits = (): UseCreditsReturn => {
   }, [fetchRequests]);
 
   /**
-   * Filtered requests based on selected filter
-   * Mimics exact behavior from original filteredRequests getter
+   * Filtered requests based on selected account + status filter
    */
   const filteredRequests = useMemo(() => {
-    if (selectedFilter === 'all') {
-      return creditRequests;
+    let results = selectedAccountId
+      ? creditRequests.filter((req) => req.awsAccountId === selectedAccountId)
+      : creditRequests;
+    if (selectedFilter !== 'all') {
+      results = results.filter((req) => req.status === selectedFilter);
     }
-    return creditRequests.filter((req) => req.status === selectedFilter);
-  }, [creditRequests, selectedFilter]);
+    return results;
+  }, [creditRequests, selectedFilter, selectedAccountId]);
 
   /**
    * Calculate total requested amount
@@ -172,6 +178,15 @@ export const useCredits = (): UseCreditsReturn => {
       (req) => req.status !== 'approved' && req.status !== 'rejected'
     ).length;
   }, [creditRequests]);
+
+  /**
+   * Auto-populate awsAccountId in form when selected account changes
+   */
+  useEffect(() => {
+    if (selectedAccountId) {
+      setNewRequestData((prev) => ({ ...prev, awsAccountId: selectedAccountId }));
+    }
+  }, [selectedAccountId]);
 
   /**
    * Initialize: Fetch data and start polling

@@ -13,6 +13,7 @@ import javax.persistence.Column;
 import javax.persistence.FetchType;
 import javax.persistence.JoinColumn;
 import javax.persistence.ManyToOne;
+import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "app_user")
@@ -55,6 +56,9 @@ public class User {
 
     @Column(name = "is_tour_seen", nullable = false)
     private boolean tourSeen = false;
+
+    @Column(name = "last_login_at", nullable = true)
+    private LocalDateTime lastLoginAt;
 
     public void setEnabled(boolean b) {
         // TODO Auto-generated method stub
