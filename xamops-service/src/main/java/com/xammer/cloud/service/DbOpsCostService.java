@@ -2,11 +2,15 @@ package com.xammer.cloud.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.xammer.cloud.domain.AgentDataCache;
 import com.xammer.cloud.domain.CachedData;
 import com.xammer.cloud.domain.CloudAccount;
+import com.xammer.cloud.domain.KubernetesClusterConfig;
 import com.xammer.cloud.dto.dbops.*;
+import com.xammer.cloud.repository.AgentDataCacheRepository;
 import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.repository.KubernetesClusterConfigRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -153,6 +157,8 @@ public class DbOpsCostService {
     private final RedisCacheService redisCache;
     private final CachedDataRepository cachedDataRepository;
     private final ObjectMapper objectMapper;
+    private final AgentDataCacheRepository agentDataCacheRepository;
+    private final KubernetesClusterConfigRepository clusterConfigRepository;
 
     @Autowired
     public DbOpsCostService(
@@ -160,12 +166,16 @@ public class DbOpsCostService {
             AwsClientProvider awsClientProvider,
             RedisCacheService redisCache,
             CachedDataRepository cachedDataRepository,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            AgentDataCacheRepository agentDataCacheRepository,
+            KubernetesClusterConfigRepository clusterConfigRepository) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
         this.redisCache = redisCache;
         this.cachedDataRepository = cachedDataRepository;
         this.objectMapper = objectMapper;
+        this.agentDataCacheRepository = agentDataCacheRepository;
+        this.clusterConfigRepository = clusterConfigRepository;
         logger.info("DbOpsCostService initialized");
     }
 
@@ -958,5 +968,66 @@ public class DbOpsCostService {
 
     private double round2(double value) {
         return Math.round(value * 100.0) / 100.0;
+    }
+
+    // ── Agent Query Stats ─────────────────────────────────────────────────────
+
+    /**
+     * GET /api/dbops/aws/{accountId}/agent-query-stats
+     *
+     * Returns aggregated query statistics pushed by the XamOps DB agent
+     * (performance_schema for MySQL, pg_stat_statements for Postgres).
+     * Data is sourced from agent_data_cache (dataType = "db-query-stats").
+     *
+     * Returns empty list if no agent has pushed data yet for this account.
+     */
+    @Async
+    public CompletableFuture<List<AgentQueryStatDto>> getAgentQueryStats(String accountId) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // 1. Resolve the CloudAccount internal ID from the accountId string
+                Optional<CloudAccount> accountOpt = cloudAccountRepository
+                        .findByAwsAccountIdOrGcpProjectIdOrAzureSubscriptionId(accountId, accountId, accountId);
+                if (accountOpt.isEmpty()) {
+                    logger.warn("[DbOps] getAgentQueryStats: account not found: {}", accountId);
+                    return List.of();
+                }
+                Long internalAccountId = accountOpt.get().getId();
+
+                // 2. Find all cluster configs registered for this cloud account
+                List<KubernetesClusterConfig> clusters = clusterConfigRepository.findByCloudAccountId(internalAccountId);
+                if (clusters.isEmpty()) {
+                    logger.debug("[DbOps] getAgentQueryStats: no cluster configs for account {}", accountId);
+                    return List.of();
+                }
+
+                // 3. Collect db-query-stats from every cluster's agent cache
+                List<AgentQueryStatDto> merged = new ArrayList<>();
+                for (KubernetesClusterConfig cluster : clusters) {
+                    Optional<AgentDataCache> cacheOpt = agentDataCacheRepository
+                            .findByClusterConfigIdAndDataType(cluster.getId(), "db-query-stats");
+                    if (cacheOpt.isEmpty()) continue;
+
+                    try {
+                        List<AgentQueryStatDto> batch = objectMapper.readValue(
+                                cacheOpt.get().getDataJson(),
+                                new TypeReference<List<AgentQueryStatDto>>() {});
+                        merged.addAll(batch);
+                    } catch (Exception e) {
+                        logger.warn("[DbOps] getAgentQueryStats: failed to parse cache for cluster {}: {}",
+                                cluster.getClusterName(), e.getMessage());
+                    }
+                }
+
+                // 4. Sort by total time descending (slowest queries first)
+                merged.sort(Comparator.comparingDouble(AgentQueryStatDto::getTotalTimeSeconds).reversed());
+                logger.info("[DbOps] getAgentQueryStats: returning {} queries for account {}", merged.size(), accountId);
+                return merged;
+
+            } catch (Exception e) {
+                logger.error("[DbOps] getAgentQueryStats error for {}: {}", accountId, e.getMessage());
+                return List.of();
+            }
+        });
     }
 }

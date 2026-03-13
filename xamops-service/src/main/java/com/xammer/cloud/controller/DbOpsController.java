@@ -250,4 +250,29 @@ public class DbOpsController {
                     return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
                 });
     }
+
+    // ── Agent Query Stats ─────────────────────────────────────────────────────
+
+    /**
+     * GET /api/dbops/aws/{accountId}/agent-query-stats
+     *
+     * Returns aggregated per-query stats pushed by the XamOps DB agent.
+     * Data comes from performance_schema (MySQL) or pg_stat_statements (Postgres).
+     * Returns [] if no agent has pushed data yet — no error.
+     */
+    @GetMapping("/{accountId}/agent-query-stats")
+    public CompletableFuture<ResponseEntity<List<AgentQueryStatDto>>> getAgentQueryStats(
+            @PathVariable String accountId) {
+
+        logger.info("🔍 [DbOps] Agent query stats request — account: {}", accountId);
+        return dbOpsCostService.getAgentQueryStats(accountId)
+                .thenApply(data -> {
+                    logger.info("✅ [DbOps] Agent query stats: {} queries for account {}", data.size(), accountId);
+                    return ResponseEntity.ok(data);
+                })
+                .exceptionally(ex -> {
+                    logger.error("❌ [DbOps] Agent query stats error for {}: {}", accountId, ex.getMessage());
+                    return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+                });
+    }
 }
