@@ -29,6 +29,15 @@ type Config struct {
 	CollectorKarpenter    bool
 	CollectorMetrics      bool
 	CollectorAutoscaling  bool // NEW: push autoscaling-metrics + autoscaling-events
+	CollectorDB           bool // DB query stats collector (opt-in)
+
+	// DB collector settings
+	// DB_DSN_0, DB_DSN_1, ... — one DSN per database instance
+	// MySQL:    "user:pass@tcp(rds-host:3306)/dbname"
+	// Postgres: "postgres://user:pass@rds-host:5432/dbname?sslmode=require"
+	DBDSNs          []string
+	DBQueryLimit    int // max queries to collect per DB instance (default 50)
+	DBCollectInterval int // seconds between DB query stat collections (default 300)
 
 	// OpenCost settings
 	OpenCostServiceURL string
@@ -65,6 +74,12 @@ func Load() (*Config, error) {
 		CollectorKarpenter:   getEnvBool("COLLECTOR_KARPENTER", true),
 		CollectorMetrics:     getEnvBool("COLLECTOR_METRICS", true),
 		CollectorAutoscaling: getEnvBool("COLLECTOR_AUTOSCALING", false), // opt-in
+		CollectorDB:          getEnvBool("COLLECTOR_DB", false),          // opt-in
+
+		// DB settings
+		DBDSNs:            getEnvDSNs(),
+		DBQueryLimit:      getEnvInt("DB_QUERY_LIMIT", 50),
+		DBCollectInterval: getEnvInt("DB_COLLECT_INTERVAL", 300),
 
 		// OpenCost
 		OpenCostServiceURL: getEnv("OPENCOST_SERVICE_URL", "http://opencost.opencost.svc.cluster.local:9003"),
@@ -119,4 +134,16 @@ func getEnvBool(key string, defaultValue bool) bool {
 		return value == "true" || value == "1" || value == "yes"
 	}
 	return defaultValue
+}
+
+// getEnvDSNs reads DB_DSN_0, DB_DSN_1, ... up to 20 entries
+func getEnvDSNs() []string {
+	dsns := []string{}
+	for i := 0; i < 20; i++ {
+		key := "DB_DSN_" + strconv.Itoa(i)
+		if v := os.Getenv(key); v != "" {
+			dsns = append(dsns, v)
+		}
+	}
+	return dsns
 }

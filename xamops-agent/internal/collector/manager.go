@@ -82,7 +82,22 @@ func (m *Manager) CollectAll() (*AgentPayload, error) {
 		Batches:        []DataBatch{},
 	}
 
+	// ── DB query stats (runs even without k8s — just needs TCP access to RDS) ──
+	if m.cfg.CollectorDB && len(m.cfg.DBDSNs) > 0 {
+		if batch, err := collectDBQueryStats(ctx, m.cfg.DBDSNs, m.cfg.DBQueryLimit); err == nil {
+			if batch.Count > 0 {
+				payload.Batches = append(payload.Batches, batch)
+			}
+		} else {
+			log.Printf("WARN: db-query-stats: %v", err)
+		}
+	}
+
 	if m.k8sClient == nil {
+		if m.cfg.CollectorDB {
+			// Running as a standalone DB agent (no k8s cluster) — DB batch already collected above
+			return payload, nil
+		}
 		log.Println("WARN: no k8s client — skipping all collectors")
 		return payload, nil
 	}
