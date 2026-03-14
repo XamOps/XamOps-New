@@ -8,6 +8,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { gooeyToast } from 'goey-toast';
 import type { CloudAccount } from '../../types/accountManager';
+import { TooltipWrapper } from '../ui/Tooltip';
 
 interface CloudAccountsTableProps {
   accounts: CloudAccount[];
@@ -193,40 +194,48 @@ const CloudAccountsTable: React.FC<CloudAccountsTableProps> = ({
                     <td className="text-right nowrap">
                       <div className="flex justify-end gap-2">
                         {isPending && account.provider === 'AWS' && (
-                          <button
-                            onClick={() => onVerify(account)}
-                            className="h-8 w-8 rounded-lg bg-amber-100 text-amber-600 hover:bg-amber-600 hover:text-white transition-all flex items-center justify-center shadow-sm"
-                            title="Verify Connection"
-                          >
-                            <i className="fas fa-check text-xs" />
-                          </button>
+                          <TooltipWrapper tip="Verify Connection">
+                            <button
+                              onClick={() => onVerify(account)}
+                              className="h-8 w-8 rounded-lg bg-amber-100 text-amber-600 hover:bg-amber-600 hover:text-white transition-all flex items-center justify-center shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-1"
+                              aria-label="Verify Connection"
+                            >
+                              <i className="fas fa-check text-xs" />
+                            </button>
+                          </TooltipWrapper>
                         )}
                         {isGcp && !hasBillingTable && (
-                          <button
-                            onClick={() => openBillingModal(account)}
-                            className="h-8 rounded-lg px-2.5 bg-amber-50 text-amber-600 hover:bg-amber-600 hover:text-white transition-all flex items-center justify-center gap-1.5 shadow-sm border border-amber-200"
-                            title="Configure BigQuery Billing Table"
-                          >
-                            <i className="fas fa-database text-xs" />
-                            <span className="text-[10px] font-bold">Configure Billing</span>
-                          </button>
+                          <TooltipWrapper tip="Configure BigQuery Billing Table">
+                            <button
+                              onClick={() => openBillingModal(account)}
+                              className="h-8 rounded-lg px-2.5 bg-amber-50 text-amber-600 hover:bg-amber-600 hover:text-white transition-all flex items-center justify-center gap-1.5 shadow-sm border border-amber-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-1"
+                              aria-label="Configure BigQuery Billing Table"
+                            >
+                              <i className="fas fa-database text-xs" />
+                              <span className="text-[10px] font-bold">Configure Billing</span>
+                            </button>
+                          </TooltipWrapper>
                         )}
                         {isGcp && hasBillingTable && (
-                          <button
-                            onClick={() => openBillingModal(account)}
-                            className="h-8 w-8 rounded-lg bg-slate-100 text-slate-500 hover:bg-indigo-500 hover:text-white transition-all flex items-center justify-center shadow-sm"
-                            title={`Billing Table: ${account.billingExportTable}`}
-                          >
-                            <i className="fas fa-database text-xs" />
-                          </button>
+                          <TooltipWrapper tip={`Billing Table: ${account.billingExportTable}`}>
+                            <button
+                              onClick={() => openBillingModal(account)}
+                              className="h-8 w-8 rounded-lg bg-slate-100 text-slate-500 hover:bg-indigo-500 hover:text-white transition-all flex items-center justify-center shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1"
+                              aria-label={`Billing Table: ${account.billingExportTable}`}
+                            >
+                              <i className="fas fa-database text-xs" />
+                            </button>
+                          </TooltipWrapper>
                         )}
-                        <button
-                          onClick={() => onRemove(account)}
-                          className="h-8 w-8 rounded-lg bg-rose-50 text-rose-500 hover:bg-rose-500 hover:text-white transition-all flex items-center justify-center shadow-sm"
-                          title="Remove Account"
-                        >
-                          <i className="fas fa-trash text-xs" />
-                        </button>
+                        <TooltipWrapper tip="Remove Account">
+                          <button
+                            onClick={() => onRemove(account)}
+                            className="h-8 w-8 rounded-lg bg-rose-50 text-rose-500 hover:bg-rose-500 hover:text-white transition-all flex items-center justify-center shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-1"
+                            aria-label="Remove Account"
+                          >
+                            <i className="fas fa-trash text-xs" />
+                          </button>
+                        </TooltipWrapper>
                       </div>
                     </td>
                   </tr>

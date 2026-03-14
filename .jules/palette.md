@@ -1,0 +1,3 @@
+## 2026-01-09 - Accessible Tooltips and Focus Indicators
+**Learning:** Icon-only buttons in the Cloud Accounts table lacked ARIA labels and consistent tooltip behavior, hindering screen reader users. Additionally, default focus states were sometimes insufficient for high-visibility keyboard navigation.
+**Action:** Use the project's `TooltipWrapper` component for all icon-only actions to provide consistent, accessible tooltips. Always include explicit `aria-label` attributes and Tailwind `focus-visible` ring utilities (e.g., `focus-visible:ring-2 focus-visible:ring-offset-1`) to ensure interactive elements are discoverable and navigable for all users.
