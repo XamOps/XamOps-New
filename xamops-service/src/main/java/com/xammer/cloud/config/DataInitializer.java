@@ -6,6 +6,7 @@ import com.xammer.cloud.repository.ClientRepository;
 import com.xammer.cloud.repository.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
@@ -24,6 +25,9 @@ public class DataInitializer implements CommandLineRunner {
     private final ClientRepository clientRepository;
     private final UserRepository userRepository;
     private final @Lazy PasswordEncoder passwordEncoder;
+
+    @Value("${SUPERADMIN_PASSWORD:SuperAdmin@123}")
+    private String superAdminPassword;
 
     public DataInitializer(ClientRepository clientRepository, UserRepository userRepository, @Lazy PasswordEncoder passwordEncoder) {
         this.clientRepository = clientRepository;
@@ -70,12 +74,12 @@ public class DataInitializer implements CommandLineRunner {
             logger.info("Creating Default SuperAdmin User...");
             User superAdmin = new User();
             superAdmin.setUsername("superadmin");
-            superAdmin.setPassword(passwordEncoder.encode("SuperAdmin@123")); // Default Password
+            superAdmin.setPassword(passwordEncoder.encode(superAdminPassword));
             superAdmin.setRole("ROLE_SUPER_ADMIN");
             superAdmin.setClient(client);
             superAdmin.setEmail("superadmin@xamops.com");
             userRepository.save(superAdmin);
-            logger.info(">>> SUPERADMIN CREATED | User: superadmin | Pass: SuperAdmin@123 <<<");
+            logger.info(">>> SUPERADMIN CREATED | User: superadmin <<<");
         }
     }
 
