@@ -190,15 +190,32 @@ public class GcpCostService {
         String query = String.format(
                 "SELECT l.value as name, SUM(cost) as total_cost, false as is_anomaly " +
                         "FROM `%s`, UNNEST(labels) as l " +
-                        "WHERE l.key = '%s' AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' " +
+                        "WHERE l.key = @tagKey AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' " +
                         "GROUP BY 1 ORDER BY total_cost DESC",
-                tableNameOpt.get(), tagKey,
+                tableNameOpt.get(),
                 startDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
                 today.format(DateTimeFormatter.ISO_LOCAL_DATE));
 
-        List<GcpCostDto> result = executeQuery(bigquery, query, gcpProjectId);
-        redisCacheService.put(cacheKey, result, 60);
-        return result;
+        try {
+            log.info("Executing parameterized BigQuery query for project {}: {}", gcpProjectId, query);
+            QueryJobConfiguration queryConfig = QueryJobConfiguration.newBuilder(query)
+                    .addNamedParameter("tagKey", QueryParameterValue.string(tagKey))
+                    .build();
+            TableResult results = bigquery.query(queryConfig);
+            List<GcpCostDto> result = StreamSupport.stream(results.iterateAll().spliterator(), false)
+                    .map(row -> new GcpCostDto(
+                            row.get("name").getStringValue(),
+                            row.get("total_cost").getDoubleValue(),
+                            row.get("is_anomaly").getBooleanValue()))
+                    .collect(Collectors.toList());
+            redisCacheService.put(cacheKey, result, 60);
+            return result;
+        } catch (Exception e) {
+            log.error("BigQuery query failed for cost by tag on project {}: {}", gcpProjectId, e.getMessage(), e);
+            if (e instanceof InterruptedException)
+                Thread.currentThread().interrupt();
+            return Collections.emptyList();
+        }
     }
 
     // ===== UNFILTERED MTD SPEND =====
@@ -465,7 +482,7 @@ public class GcpCostService {
         LocalDate startDate = endDate.minusDays(days);
 
         String serviceFilter = (serviceName != null && !serviceName.isEmpty() && !"ALL".equalsIgnoreCase(serviceName))
-                ? String.format("AND service.description = '%s'", serviceName)
+                ? "AND service.description = @serviceName"
                 : "";
 
         String query = String.format(
@@ -476,7 +493,11 @@ public class GcpCostService {
                 serviceFilter);
 
         try {
-            TableResult results = bigquery.query(QueryJobConfiguration.newBuilder(query).build());
+            QueryJobConfiguration.Builder queryBuilder = QueryJobConfiguration.newBuilder(query);
+            if (!serviceFilter.isEmpty()) {
+                queryBuilder.addNamedParameter("serviceName", QueryParameterValue.string(serviceName));
+            }
+            TableResult results = bigquery.query(queryBuilder.build());
             List<Map<String, Object>> result = StreamSupport.stream(results.iterateAll().spliterator(), false)
                     .map(row -> Map.<String, Object>of("date", row.get("date").getStringValue(), "cost",
                             row.get("cost").getDoubleValue()))
@@ -747,15 +768,18 @@ public class GcpCostService {
             String query = String.format(
                     "SELECT COALESCE(l.value, 'Untagged') as labelValue, SUM(cost) as cost " +
                             "FROM `%s`, UNNEST(labels) as l " +
-                            "WHERE l.key = '%s' AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' "
+                            "WHERE l.key = @labelKey AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' "
                             +
                             "GROUP BY 1 HAVING cost > 0.01 ORDER BY cost DESC",
-                    tableNameOpt.get(), labelKey,
+                    tableNameOpt.get(),
                     start.format(DateTimeFormatter.ISO_LOCAL_DATE),
                     end.format(DateTimeFormatter.ISO_LOCAL_DATE));
 
             try {
-                TableResult results = bigquery.query(QueryJobConfiguration.newBuilder(query).build());
+                QueryJobConfiguration queryConfig = QueryJobConfiguration.newBuilder(query)
+                        .addNamedParameter("labelKey", QueryParameterValue.string(labelKey))
+                        .build();
+                TableResult results = bigquery.query(queryConfig);
                 List<Map<String, Object>> result = StreamSupport.stream(results.iterateAll().spliterator(), false)
                         .map(row -> Map.<String, Object>of(
                                 "labelValue", row.get("labelValue").getStringValue(),
