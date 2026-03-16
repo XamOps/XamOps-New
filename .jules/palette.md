@@ -1,0 +1,3 @@
+## 2025-05-15 - Improving Custom Switch Accessibility
+**Learning:** Custom toggle buttons implemented with `div` or generic `button` elements often lack semantic meaning for screen readers and miss essential keyboard focus states. Using `role="switch"` and `aria-checked` provides the necessary semantic context, while `focus-visible` ensures that keyboard users can navigate the interface effectively without adding noise for mouse users.
+**Action:** Always use `role="switch"` and `aria-checked` for toggle buttons, and include `focus-visible:ring` styles to ensure keyboard accessibility across the application.
