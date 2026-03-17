@@ -1,18 +1,23 @@
 package com.xammer.billops.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xammer.billops.domain.CloudAccount;
 import com.xammer.billops.dto.BillingDashboardDto;
 import com.xammer.billops.dto.RegionCostDto;
 import com.xammer.billops.dto.ResourceCostDto;
 import com.xammer.billops.dto.ServiceCostDetailDto;
+import com.xammer.billops.repository.BillOpsCachedDataRepository;
 import com.xammer.billops.repository.CloudAccountRepository;
+import com.xammer.cloud.domain.CachedData;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.cache.CacheManager;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.PostConstruct;
-
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
@@ -27,22 +32,55 @@ public class BillingService {
     private final AzureCostService azureCostService;
     private final CloudAccountRepository cloudAccountRepository;
     private final RedisCacheService redisCache;
+    private final CacheManager cacheManager;
 
-    // Define cache names/prefixes as constants
+    private static final List<String> COST_SPRING_CACHES =
+            List.of("costByDimension", "costForServiceInRegion", "costByResource", "costHistory");
+
+    // Redis cache prefixes
     private static final String BILLING_DASHBOARD_CACHE_PREFIX = "billing:dashboard:";
     private static final String DETAILED_BILLING_REPORT_CACHE_PREFIX = "billing:detailed:";
     private static final long CACHE_TTL_MINUTES = 60;
+
+    // DB snapshot key prefixes
+    private static final String BILLING_DASHBOARD_DB_PREFIX = "BILLOPS_BILLING_DASHBOARD::";
+    private static final String BILLING_DETAILED_DB_PREFIX = "BILLOPS_BILLING_DETAILED::";
+
+    private final BillOpsCachedDataRepository cachedDataRepository;
+    private final ObjectMapper objectMapper;
 
     public BillingService(CostService costService,
             GcpCostService gcpCostService,
             AzureCostService azureCostService,
             CloudAccountRepository cloudAccountRepository,
-            RedisCacheService redisCache) {
+            RedisCacheService redisCache,
+            BillOpsCachedDataRepository cachedDataRepository,
+            ObjectMapper objectMapper,
+            CacheManager cacheManager) {
         this.costService = costService;
         this.gcpCostService = gcpCostService;
         this.azureCostService = azureCostService;
         this.cloudAccountRepository = cloudAccountRepository;
         this.redisCache = redisCache;
+        this.cachedDataRepository = cachedDataRepository;
+        this.objectMapper = objectMapper;
+        this.cacheManager = cacheManager;
+    }
+
+    /**
+     * Clears all Spring @Cacheable cost caches (costByDimension, costForServiceInRegion,
+     * costByResource, costHistory) so the next API call fetches live data from AWS.
+     * Called when forceRefresh=true so billing page refresh and invoice generation
+     * always read from the same fresh data source.
+     */
+    private void evictSpringCostCaches() {
+        COST_SPRING_CACHES.forEach(cacheName -> {
+            org.springframework.cache.Cache cache = cacheManager.getCache(cacheName);
+            if (cache != null) {
+                cache.clear();
+                logger.info("[BillingService] Evicted Spring cache: {}", cacheName);
+            }
+        });
     }
 
     @PostConstruct
@@ -52,23 +90,40 @@ public class BillingService {
 
     /**
      * High-performance method to get Billing Summary.
-     * 1. Checks Redis Cache (fast return).
-     * 2. If missing or forced: Fetches from AWS in parallel.
-     * 3. Aggregates and Caches the result.
+     * 3-layer cache: Redis (60 min) → DB snapshot → Cloud APIs.
      */
     public BillingDashboardDto getBillingData(List<String> accountIds, Integer year, Integer month,
             boolean forceRefresh) {
         String cacheKey = generateCacheKey(BILLING_DASHBOARD_CACHE_PREFIX, accountIds, year, month);
+        String dbKey = BILLING_DASHBOARD_DB_PREFIX + generateKeySuffix(accountIds, year, month);
 
-        // 1. Try loading from Cache
         if (!forceRefresh) {
+            // Layer 1: Redis
             Optional<BillingDashboardDto> cached = redisCache.get(cacheKey, BillingDashboardDto.class);
             if (cached.isPresent()) {
+                logger.debug("Returning Redis-cached billing dashboard for {}", cacheKey);
                 return cached.get();
             }
+            // Layer 2: DB snapshot
+            Optional<CachedData> dbEntry = cachedDataRepository.findById(dbKey);
+            if (dbEntry.isPresent()) {
+                try {
+                    BillingDashboardDto dbData = objectMapper.readValue(
+                            dbEntry.get().getJsonData(), BillingDashboardDto.class);
+                    redisCache.put(cacheKey, dbData, CACHE_TTL_MINUTES);
+                    logger.info("Returning DB-cached billing dashboard for {}, re-warmed Redis", dbKey);
+                    return dbData;
+                } catch (Exception e) {
+                    logger.warn("Failed to deserialize DB billing snapshot for {}: {}", dbKey, e.getMessage());
+                }
+            }
+        } else {
+            // forceRefresh=true: also clear Spring @Cacheable cost caches so getCostByDimension
+            // fetches live data from AWS (not a stale Spring-cached value).
+            evictSpringCostCaches();
         }
 
-        // 2. Fetch Fresh Data (Parallel Execution)
+        // Layer 3: Fetch fresh from cloud APIs (parallel)
         logger.info("Fetching FRESH summary billing data for accounts: {}", accountIds);
         List<CloudAccount> accounts = getUniqueAccounts(accountIds);
 
@@ -80,38 +135,57 @@ public class BillingService {
                 .map(account -> CompletableFuture.supplyAsync(() -> getAccountBillingSummary(account, year, month)))
                 .collect(Collectors.toList());
 
-        // 3. Aggregate Results
         BillingDashboardDto aggregatedData = futures.stream()
                 .map(CompletableFuture::join)
                 .filter(Objects::nonNull)
                 .reduce(new BillingDashboardDto(), this::mergeBillingDashboards);
 
-        // 4. Update Cache
         aggregatedData.setLastUpdated(System.currentTimeMillis());
+        // Save to Redis + DB
         redisCache.put(cacheKey, aggregatedData, CACHE_TTL_MINUTES);
+        saveDashboardToDb(dbKey, aggregatedData);
 
         return aggregatedData;
     }
 
     /**
      * High-performance method to get Detailed Breakdown.
-     * Optimized with parallel account processing.
+     * 3-layer cache: Redis (60 min) → DB snapshot → Cloud APIs.
      */
     public List<ServiceCostDetailDto> getDetailedBillingReport(List<String> accountIds, Integer year, Integer month,
             boolean forceRefresh) {
         String cacheKey = generateCacheKey(DETAILED_BILLING_REPORT_CACHE_PREFIX, accountIds, year, month);
+        String dbKey = BILLING_DETAILED_DB_PREFIX + generateKeySuffix(accountIds, year, month);
 
-        // 1. Try loading from Cache
         if (!forceRefresh) {
+            // Layer 1: Redis
             Optional<List<ServiceCostDetailDto>> cached = redisCache.get(cacheKey,
-                    new TypeReference<List<ServiceCostDetailDto>>() {
-                    });
+                    new TypeReference<List<ServiceCostDetailDto>>() {});
             if (cached.isPresent()) {
+                logger.debug("Returning Redis-cached billing detailed for {}", cacheKey);
                 return cached.get();
             }
+            // Layer 2: DB snapshot
+            Optional<CachedData> dbEntry = cachedDataRepository.findById(dbKey);
+            if (dbEntry.isPresent()) {
+                try {
+                    List<ServiceCostDetailDto> dbData = objectMapper.readValue(
+                            dbEntry.get().getJsonData(),
+                            new TypeReference<List<ServiceCostDetailDto>>() {});
+                    redisCache.put(cacheKey, dbData, CACHE_TTL_MINUTES);
+                    logger.info("Returning DB-cached billing detailed for {}, re-warmed Redis", dbKey);
+                    return dbData;
+                } catch (Exception e) {
+                    logger.warn("Failed to deserialize DB billing detailed snapshot for {}: {}", dbKey, e.getMessage());
+                }
+            }
+        } else {
+            // forceRefresh=true: clear Spring @Cacheable cost caches so all cost methods
+            // fetch live data from AWS instead of returning stale Spring-cached values.
+            evictSpringCostCaches();
         }
 
-        // 2. Fetch Fresh Data (Parallel Execution)
+        // Layer 3: Fetch fresh from cloud APIs (parallel)
         logger.info("Fetching FRESH detailed billing report for accounts: {}", accountIds);
         List<CloudAccount> accounts = getUniqueAccounts(accountIds);
 
@@ -123,19 +197,18 @@ public class BillingService {
                 .map(account -> CompletableFuture.supplyAsync(() -> fetchSingleAccountDetails(account, year, month)))
                 .collect(Collectors.toList());
 
-        // 3. Aggregate Results
         List<ServiceCostDetailDto> aggregatedReport = futures.stream()
                 .map(CompletableFuture::join)
                 .flatMap(List::stream)
-                // Merge same services across accounts
                 .collect(Collectors.groupingBy(ServiceCostDetailDto::getServiceName))
                 .values().stream()
                 .map(this::mergeServiceDetails)
                 .sorted(Comparator.comparing(ServiceCostDetailDto::getTotalCost).reversed())
                 .collect(Collectors.toList());
 
-        // 4. Update Cache
+        // Save to Redis + DB
         redisCache.put(cacheKey, aggregatedReport, CACHE_TTL_MINUTES);
+        saveDetailedToDb(dbKey, aggregatedReport);
 
         return aggregatedReport;
     }
@@ -473,7 +546,7 @@ public class BillingService {
                     return new ResourceCostDto(
                             resourceId != null ? resourceId : rawUsageType,
                             formatUsageType(rawUsageType),
-                            cost, quantity, unit);
+                            quantity, cost, unit);
                 })
                 .filter(Objects::nonNull)
                 .sorted(Comparator.comparing(ResourceCostDto::getCost).reversed())
@@ -481,10 +554,10 @@ public class BillingService {
     }
 
     private List<CloudAccount> getUniqueAccounts(List<String> accountIds) {
-        List<CloudAccount> allAccounts = cloudAccountRepository.findByAwsAccountIdIn(accountIds);
-        Map<String, CloudAccount> uniqueAccountsMap = allAccounts.stream()
+        List<CloudAccount> allAccounts = cloudAccountRepository.findByAnyCloudIdIn(accountIds);
+        Map<Long, CloudAccount> uniqueAccountsMap = allAccounts.stream()
                 .collect(Collectors.toMap(
-                        CloudAccount::getAwsAccountId,
+                        CloudAccount::getId,
                         Function.identity(),
                         (existing, replacement) -> existing));
         return new ArrayList<>(uniqueAccountsMap.values());
@@ -580,6 +653,43 @@ public class BillingService {
             return "AWS Config Item Recorded";
 
         return usageType.replace('-', ' ').replaceAll("(\\p{Ll})(\\p{Lu})", "$1 $2");
+    }
+
+    // ── DB snapshot helpers ──────────────────────────────────────────────────────
+
+    private void saveDashboardToDb(String dbKey, BillingDashboardDto data) {
+        try {
+            String json = objectMapper.writeValueAsString(data);
+            CachedData entity = new CachedData();
+            entity.setCacheKey(dbKey);
+            entity.setJsonData(json);
+            entity.setLastUpdated(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
+            cachedDataRepository.save(entity);
+            logger.debug("Saved billing dashboard snapshot to DB: {}", dbKey);
+        } catch (Exception e) {
+            logger.warn("Failed to save billing dashboard snapshot to DB {}: {}", dbKey, e.getMessage());
+        }
+    }
+
+    private void saveDetailedToDb(String dbKey, List<ServiceCostDetailDto> data) {
+        try {
+            String json = objectMapper.writeValueAsString(data);
+            CachedData entity = new CachedData();
+            entity.setCacheKey(dbKey);
+            entity.setJsonData(json);
+            entity.setLastUpdated(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
+            cachedDataRepository.save(entity);
+            logger.debug("Saved billing detailed snapshot to DB: {}", dbKey);
+        } catch (Exception e) {
+            logger.warn("Failed to save billing detailed snapshot to DB {}: {}", dbKey, e.getMessage());
+        }
+    }
+
+    /** Generates the sortable suffix used for both Redis and DB keys */
+    private String generateKeySuffix(List<String> accountIds, Integer year, Integer month) {
+        List<String> sorted = new ArrayList<>(accountIds);
+        Collections.sort(sorted);
+        return String.join(",", sorted) + ":" + year + ":" + month;
     }
 
     public void evictBillingCaches() {

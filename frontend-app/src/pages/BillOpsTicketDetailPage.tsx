@@ -1400,7 +1400,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
 
           {/* Panel — no backdrop, floats over the right side so chat remains interactive */}
           <div
-            className="fixed right-0 top-0 bottom-0 z-50 flex flex-col shadow-2xl overflow-hidden"
+            className="fixed right-0 top-20 bottom-0 z-50 flex flex-col shadow-2xl overflow-hidden"
             style={{ width: noteWidth, background: NOTE_COLORS[noteColor].bg, color: NOTE_COLORS[noteColor].text }}
           >
               {/* ── Drag-resize handle ─────────────────────────────────── */}

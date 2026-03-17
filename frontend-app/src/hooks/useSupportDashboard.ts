@@ -166,9 +166,15 @@ export const useSupportDashboard = (): UseSupportDashboardReturn => {
     const account = activeAccountRef.current;
     if (!account?.userId) return;
     try {
-      const data = await apiClient.get<ChatMessage[]>(`/api/billops/support/chat/user/${account.userId}`);
+      const data = await apiClient.get<any[]>(`/api/billops/support/chat/user/${account.userId}`);
       if (!isMountedRef.current) return;
-      const chatData = data || [];
+      // Normalize boolean fields — Jackson strips "is" prefix so backend may return
+      // "deleted"/"edited" instead of "isDeleted"/"isEdited" depending on server version
+      const chatData: ChatMessage[] = (data || []).map((msg: any) => ({
+        ...msg,
+        isDeleted: msg.isDeleted ?? msg.deleted ?? false,
+        isEdited: msg.isEdited ?? msg.edited ?? false,
+      }));
       previousMessageCountRef.current = chatData.length;
       setMessages(chatData);
     } catch (err) {
@@ -254,11 +260,20 @@ export const useSupportDashboard = (): UseSupportDashboardReturn => {
   }, [fetchChat]);
 
   const deleteAdminMessage = useCallback(async (id: number) => {
+    // Optimistic update — immediately show as deleted in UI
+    setMessages(prev => prev.map(m => m.id === id ? { ...m, isDeleted: true } : m));
     try {
-      await apiClient.fetch(`/api/billops/support/messages/${id}`, { method: 'DELETE' });
+      const response = await apiClient.fetch(`/api/billops/support/messages/${id}`, { method: 'DELETE' });
+      if (!response.ok) {
+        console.error('Delete message failed with status:', response.status);
+        // Revert optimistic update on failure
+        await fetchChat();
+        return;
+      }
       await fetchChat();
     } catch (err) {
       console.error('Delete message error:', err);
+      await fetchChat();
     }
   }, [fetchChat]);
 

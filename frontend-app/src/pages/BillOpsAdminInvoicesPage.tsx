@@ -65,6 +65,10 @@ const BillOpsAdminInvoicesPage: React.FC = () => {
     requestMerge,
     cancelMerge,
     pendingMerge,
+    requestDelete,
+    cancelDelete,
+    confirmDelete,
+    pendingDelete,
   } = useBillOpsAdminInvoices();
 
   const { setActions, clearActions } = useTopbar();
@@ -151,6 +155,16 @@ const BillOpsAdminInvoicesPage: React.FC = () => {
         variant="warning"
         onConfirm={mergeSelectedInvoices}
         onCancel={cancelMerge}
+      />
+
+      <AlertDialog
+        isOpen={pendingDelete !== null}
+        title="Delete Draft Invoice?"
+        description="This will permanently remove this draft invoice. This cannot be undone."
+        confirmLabel="Delete"
+        variant="warning"
+        onConfirm={confirmDelete}
+        onCancel={cancelDelete}
       />
 
       {/* Main Content */}
@@ -437,6 +451,16 @@ const BillOpsAdminInvoicesPage: React.FC = () => {
                           >
                             <i className="fas fa-file-pdf fa-lg" />
                           </button>
+
+                          {isDraft && (
+                            <button
+                              onClick={() => requestDelete(invoice.id)}
+                              className="invoice-action-btn text-red-500 hover:text-red-700"
+                              title="Delete Draft Invoice"
+                            >
+                              <i className="fas fa-trash fa-lg" />
+                            </button>
+                          )}
 
                           <button
                             onClick={() => navigateToDetail(invoice.id)}
