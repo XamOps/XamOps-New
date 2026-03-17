@@ -113,8 +113,8 @@ func queryMySQLMetrics(ctx context.Context, db *sql.DB, alias, host string) (*Db
 
 func queryPostgresMetrics(ctx context.Context, db *sql.DB, alias, host string) (*DbInstanceMetrics, error) {
 	m := &DbInstanceMetrics{DSNAlias: alias, DBEngine: "postgres", DBHost: host, CollectedAt: time.Now().UTC().Format(time.RFC3339)}
-	_ = db.QueryRowContext(ctx, "SELECT count(*) FROM pg_stat_activity WHERE state = 'active'").Scan(&m.CurrentConnections)
-	_ = db.QueryRowContext(ctx, "SHOW max_connections").Scan(&m.MaxConnections)
+	_ = db.QueryRowContext(ctx, "SELECT count(*) FROM pg_stat_activity WHERE state IS NOT NULL").Scan(&m.CurrentConnections)
+	_ = db.QueryRowContext(ctx, "SELECT current_setting('max_connections')::int").Scan(&m.MaxConnections)
 	_ = db.QueryRowContext(ctx, "SELECT EXTRACT(EPOCH FROM (now() - pg_postmaster_start_time()))::bigint").Scan(&m.Uptime)
 	_ = db.QueryRowContext(ctx, "SELECT version()").Scan(&m.Version)
 	if len(m.Version) > 40 {
