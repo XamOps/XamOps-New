@@ -1,264 +1,331 @@
-/**
- * DataOps Page
- *
- * Converted from: dataops.html
- *
- * This page displays the DataOps "Coming Soon" feature preview with:
- * - Modern gradient design with sky-blue theme
- * - Feature preview cards for Database Reliability and Automation
- * - Animated elements and professional UI
- * - Account context integration
- *
- * Changes from original:
- * - Converted from Alpine.js to React functional component
- * - Added TypeScript for type safety
- * - Integrated with React Sidebar
- * - Enhanced UI with better animations and hover effects
- * - Added additional feature cards and upcoming capabilities section
- */
-
-import React from 'react';
+import React, { useState } from 'react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useTopbar } from '../contexts/TopbarContext';
+import {
+  useDbOpsData,
+  DbInstance, DbSavingsSummary, AgentQueryStat,
+} from '../hooks/useDbOpsData';
+import DbInstanceDetailPage, { DrawerInstance } from '../components/DbOps/DbInstanceDetailDrawer';
 
-interface FeatureCard {
-  icon: string;
-  iconBg: string;
-  iconColor: string;
-  borderColor: string;
-  title: string;
-  description: string;
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+const fmt$ = (n: number) =>
+  `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+function EncBadge({ val }: { val: boolean }) {
+  return val
+    ? <span className="text-green-600 dark:text-green-400"><i className="fas fa-lock mr-1" />Yes</span>
+    : <span className="text-red-500"><i className="fas fa-unlock mr-1" />No</span>;
 }
+
+// ── Summary Cards ─────────────────────────────────────────────────────────────
+
+function SummaryCards({ s }: { s: DbSavingsSummary }) {
+  const cards = [
+    { icon: 'fas fa-dollar-sign',  label: 'Monthly DB Spend',         value: fmt$(s.totalDbMonthlyCost),      accent: 'border-sky-500',    iconBg: 'from-sky-500 to-blue-600' },
+    { icon: 'fas fa-piggy-bank',   label: 'Savings Potential',         value: fmt$(s.totalPotentialSavings),   accent: 'border-emerald-500', iconBg: 'from-emerald-500 to-teal-600' },
+    { icon: 'fas fa-server',       label: 'Total Instances',           value: String(s.totalInstances),        accent: 'border-indigo-500',  iconBg: 'from-indigo-500 to-purple-600' },
+    { icon: 'fas fa-moon',         label: 'Idle Instances',            value: `${s.idleInstances} (${fmt$(s.idleSavingsPotential)})`, accent: 'border-amber-500', iconBg: 'from-amber-500 to-orange-600' },
+    { icon: 'fas fa-compress-alt', label: 'Right-sizing Candidates',   value: `${s.rightsizingCandidates} (${fmt$(s.rightsizingSavingsPotential)})`, accent: 'border-pink-500', iconBg: 'from-pink-500 to-rose-600' },
+    { icon: 'fas fa-camera',       label: 'Snapshot Waste',            value: fmt$(s.snapshotWasteCost),       accent: 'border-violet-500',  iconBg: 'from-violet-500 to-purple-600' },
+  ];
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
+      {cards.map(c => (
+        <div
+          key={c.label}
+          className={`bg-white/90 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700/50 border-l-4 ${c.accent} p-4 flex flex-col gap-2 hover:-translate-y-0.5 hover:shadow-md transition-all duration-200`}
+        >
+          <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${c.iconBg} flex items-center justify-center`}>
+            <i className={`${c.icon} text-white text-xs`} />
+          </div>
+          <p className="text-[11px] text-gray-700 dark:text-gray-400 leading-tight font-medium">{c.label}</p>
+          <p className="text-sm font-bold text-gray-800 dark:text-gray-100 leading-tight">{c.value}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Inventory Tab ─────────────────────────────────────────────────────────────
+
+function InventoryTab({
+  inventory, agentStats, onSelect,
+}: {
+  inventory: DbInstance[];
+  agentStats: AgentQueryStat[];
+  onSelect: (inst: DrawerInstance) => void;
+}) {
+  const [search, setSearch] = useState('');
+
+  const agentHosts = new Map<string, AgentQueryStat[]>();
+  agentStats.forEach(s => {
+    if (!s.dbHost) return;
+    const matchesRds = inventory.some(i => i.endpoint && s.dbHost.startsWith(i.endpoint));
+    if (!matchesRds) {
+      const list = agentHosts.get(s.dbHost) ?? [];
+      list.push(s);
+      agentHosts.set(s.dbHost, list);
+    }
+  });
+
+  const allRows: DrawerInstance[] = [
+    ...inventory.map(i => ({ instanceId: i.instanceId, source: 'rds' as const, rdsData: i, engine: i.engine })),
+    ...Array.from(agentHosts.entries()).map(([host, stats]) => ({
+      instanceId: host,
+      source: 'agent' as const,
+      agentHost: host,
+      engine: stats[0]?.dbEngine ?? 'unknown',
+    })),
+  ];
+
+  const filtered = allRows.filter(r =>
+    r.instanceId.toLowerCase().includes(search.toLowerCase()) ||
+    (r.engine ?? '').toLowerCase().includes(search.toLowerCase()) ||
+    (r.rdsData?.region ?? '').toLowerCase().includes(search.toLowerCase())
+  );
+
+  return (
+    <div>
+      <div className="flex items-center gap-3 mb-4">
+        <div className="relative flex-1 max-w-xs">
+          <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm" />
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search instances..."
+            className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-sky-500"
+          />
+        </div>
+        <span className="text-sm text-gray-700 dark:text-gray-400">{filtered.length} instances</span>
+      </div>
+      <div className="bg-white/90 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700/50 overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-gray-100 dark:border-gray-700/50 bg-gray-50/80 dark:bg-gray-700/30">
+              {['Instance ID', 'Source', 'Engine', 'Class', 'Region', 'Status', 'Storage (GB)', 'Encrypted', 'Backups', 'Multi-AZ', 'Est. Cost/mo'].map(h => (
+                <th key={h} className="text-left px-4 py-3 text-[10px] font-bold text-gray-700 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.length === 0 ? (
+              <tr><td colSpan={11} className="text-center py-12 text-gray-600 dark:text-gray-500">No instances found</td></tr>
+            ) : filtered.map(row => {
+              const i = row.rdsData;
+              return (
+                <tr
+                  key={row.instanceId}
+                  onClick={() => onSelect(row)}
+                  className="border-b border-gray-50 dark:border-gray-700/50 hover:bg-indigo-50/40 dark:hover:bg-indigo-900/10 transition-colors cursor-pointer"
+                >
+                  <td className="px-4 py-3 font-medium text-indigo-700 dark:text-indigo-400 whitespace-nowrap hover:underline">{row.instanceId}</td>
+                  <td className="px-4 py-3">
+                    {row.source === 'rds'
+                      ? <span className="px-2 py-0.5 text-xs rounded-full bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 font-medium">RDS</span>
+                      : <span className="px-2 py-0.5 text-xs rounded-full bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 font-medium">Agent</span>}
+                  </td>
+                  <td className="px-4 py-3 text-gray-800 dark:text-gray-300">{row.engine}</td>
+                  <td className="px-4 py-3 text-gray-800 dark:text-gray-300 font-mono text-xs">{i?.instanceClass ?? '—'}</td>
+                  <td className="px-4 py-3 text-gray-800 dark:text-gray-300 whitespace-nowrap">{i?.region ?? '—'}</td>
+                  <td className="px-4 py-3">
+                    {i ? (
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${i.status === 'available' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-yellow-100 text-yellow-700'}`}>
+                        {i.status}
+                      </span>
+                    ) : <span className="px-2 py-0.5 rounded-full text-xs bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">agent</span>}
+                  </td>
+                  <td className="px-4 py-3 text-gray-800 dark:text-gray-300 text-center">{i?.allocatedStorage ?? '—'}</td>
+                  <td className="px-4 py-3">{i ? <EncBadge val={i.storageEncrypted} /> : <span className="text-gray-400">—</span>}</td>
+                  <td className="px-4 py-3">
+                    {i ? (i.backupEnabled
+                      ? <span className="text-green-600 dark:text-green-400"><i className="fas fa-check mr-1" />{i.backupRetentionDays}d</span>
+                      : <span className="text-red-500"><i className="fas fa-times mr-1" />Off</span>)
+                    : <span className="text-gray-400">—</span>}
+                  </td>
+                  <td className="px-4 py-3 text-gray-800 dark:text-gray-300">{i?.multiAz ?? '—'}</td>
+                  <td className="px-4 py-3 font-semibold text-gray-800 dark:text-gray-200 whitespace-nowrap">{i ? fmt$(i.estimatedMonthlyCost) : '—'}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ── Loading Skeleton ──────────────────────────────────────────────────────────
+
+function LoadingSkeleton() {
+  return (
+    <div className="space-y-4 animate-pulse">
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="bg-white/90 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl p-4 h-24 border border-gray-100 dark:border-gray-700/50 border-l-4 border-l-gray-200 dark:border-l-gray-600">
+            <div className="w-9 h-9 bg-gray-200 dark:bg-gray-600 rounded-lg mb-3" />
+            <div className="h-3 bg-gray-200 dark:bg-gray-600 rounded w-2/3 mb-2" />
+            <div className="h-4 bg-gray-200 dark:bg-gray-600 rounded w-1/2" />
+          </div>
+        ))}
+      </div>
+      <div className="bg-white/90 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl h-64 border border-gray-100 dark:border-gray-700/50" />
+    </div>
+  );
+}
+
+// ── Page ──────────────────────────────────────────────────────────────────────
 
 const DataOpsPage: React.FC = () => {
   const { selectedAccountIds } = useAccounts();
+  const { setTitle, setActions, clearActions } = useTopbar();
+  const [selectedInstance, setSelectedInstance] = useState<DrawerInstance | null>(null);
 
-  const features: FeatureCard[] = [
-    {
-      icon: 'fas fa-search-location',
-      iconBg: 'bg-sky-100',
-      iconColor: 'text-sky-600',
-      borderColor: 'border-sky-500',
-      title: 'Deep Observability',
-      description: 'Non-intrusive monitoring for thousands of instances. Pinpoint problematic queries and analyze execution patterns down to the second.',
-    },
-    {
-      icon: 'fas fa-robot',
-      iconBg: 'bg-blue-100',
-      iconColor: 'text-blue-600',
-      borderColor: 'border-blue-500',
-      title: 'Automated Remediation',
-      description: 'A rule-based engine that automatically fixes bottlenecks via intelligent caching, rate limiting, throttling, and query rewriting.',
-    },
-    {
-      icon: 'fas fa-bolt',
-      iconBg: 'bg-indigo-100',
-      iconColor: 'text-indigo-600',
-      borderColor: 'border-indigo-500',
-      title: 'Smart Caching',
-      description: 'Automatically cache frequently executed queries to drastically cut response times and improve database performance.',
-    },
-    {
-      icon: 'fas fa-hand-holding-usd',
-      iconBg: 'bg-cyan-100',
-      iconColor: 'text-cyan-600',
-      borderColor: 'border-cyan-500',
-      title: 'Cost Optimization',
-      description: 'Identify over-provisioned instances and inefficient queries to safely downgrade resources and reduce spend by up to 75%.',
-    },
-    {
-      icon: 'fas fa-tachometer-alt',
-      iconBg: 'bg-teal-100',
-      iconColor: 'text-teal-600',
-      borderColor: 'border-teal-500',
-      title: 'Performance Analytics',
-      description: 'Real-time dashboards showing query performance, connection pooling stats, and resource utilization across your database fleet.',
-    },
-    {
-      icon: 'fas fa-shield-alt',
-      iconBg: 'bg-emerald-100',
-      iconColor: 'text-emerald-600',
-      borderColor: 'border-emerald-500',
-      title: 'Security & Compliance',
-      description: 'Automated security audits, access pattern analysis, and compliance reporting for SOC2, HIPAA, and PCI-DSS standards.',
-    },
-  ];
+  const accountId = selectedAccountIds[0] ?? null;
+  const {
+    summary, inventory, metrics, idle, rightsizing, snapshots, security, slowQueries,
+    agentQueryStats, agentInstanceMetrics,
+    loading, error, refresh, fetchInstanceTimeseries, fetchAgentTimeseries, fetchAgentTableSizes,
+  } = useDbOpsData(accountId);
 
-  const upcomingCapabilities = [
-    { label: 'Query Rewriting', icon: 'fas fa-edit' },
-    { label: 'Connection Pooling', icon: 'fas fa-water' },
-    { label: 'Index Optimization', icon: 'fas fa-sort-amount-up' },
-    { label: 'Backup Automation', icon: 'fas fa-cloud-upload-alt' },
-    { label: 'Multi-Cloud Support', icon: 'fas fa-cloud' },
-    { label: 'Schema Drift Detection', icon: 'fas fa-code-branch' },
-  ];
-
-  const supportedDatabases = [
-    { name: 'PostgreSQL', icon: 'fas fa-database', color: 'text-blue-600' },
-    { name: 'MySQL', icon: 'fas fa-database', color: 'text-orange-500' },
-    { name: 'MongoDB', icon: 'fas fa-leaf', color: 'text-green-600' },
-    { name: 'Redis', icon: 'fas fa-bolt', color: 'text-red-500' },
-    { name: 'Amazon RDS', icon: 'fab fa-aws', color: 'text-amber-600' },
-    { name: 'Aurora', icon: 'fab fa-aws', color: 'text-purple-600' },
-  ];
-
-  // Topbar Integration
-  const { setActions, clearActions } = useTopbar();
-
+  // Title: instance ID when selected, else 'DbOps'
   React.useEffect(() => {
-    setActions(
-      <div className="flex items-center gap-4">
-        {selectedAccountIds.length > 0 && (
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-sky-50 text-sky-700 rounded-lg text-xs font-medium border border-sky-100">
-            <i className="fas fa-cloud"></i>
-            <span>{selectedAccountIds.length} account{selectedAccountIds.length > 1 ? 's' : ''} selected</span>
-          </div>
-        )}
-      </div>
-    );
+    setTitle(selectedInstance ? selectedInstance.instanceId : 'DbOps');
+    return () => setTitle('');
+  }, [setTitle, selectedInstance]);
+
+  // Actions: instance metadata + back btn when selected, else normal actions
+  React.useEffect(() => {
+    if (selectedInstance) {
+      const rd = selectedInstance.rdsData;
+      const engine = rd?.engine ?? selectedInstance.engine ?? 'unknown';
+      const instanceIdle = idle.find(i => i.instanceId === selectedInstance.instanceId);
+
+      setActions(
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => setSelectedInstance(null)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-600 transition-colors"
+          >
+            <i className="fas fa-arrow-left text-[10px]" />
+            Back
+          </button>
+          {selectedInstance.source === 'rds'
+            ? <span className="px-2 py-0.5 text-xs rounded-full bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 font-medium">RDS</span>
+            : <span className="px-2 py-0.5 text-xs rounded-full bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 font-medium">EC2 / Agent</span>}
+          {rd?.status && (
+            <span className={`px-2 py-0.5 text-xs rounded-full font-medium ${rd.status === 'available' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-yellow-100 text-yellow-700'}`}>
+              {rd.status}
+            </span>
+          )}
+          {instanceIdle && (
+            <span className="px-2 py-0.5 text-xs rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 font-medium">
+              <i className="fas fa-moon mr-1" />Idle
+            </span>
+          )}
+          <span className="hidden sm:flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+            <span><i className="fas fa-database mr-1" />{engine}</span>
+            {rd?.instanceClass && <span><i className="fas fa-server mr-1" />{rd.instanceClass}</span>}
+            {rd?.region && <span><i className="fas fa-map-marker-alt mr-1" />{rd.region}</span>}
+          </span>
+          {rd?.estimatedMonthlyCost !== undefined && (
+            <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+              {fmt$(rd.estimatedMonthlyCost)}/mo
+            </span>
+          )}
+        </div>
+      );
+    } else {
+      setActions(
+        <div className="flex items-center gap-2">
+          {accountId && !loading && (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 text-xs font-semibold">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+              </span>
+              Live
+            </div>
+          )}
+          {summary && (
+            <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-sky-50 dark:bg-sky-900/20 border border-sky-200 dark:border-sky-800 text-sky-700 dark:text-sky-400 text-xs font-semibold">
+              <i className="fas fa-database text-[10px]" />
+              {fmt$(summary.totalDbMonthlyCost)}/mo
+            </div>
+          )}
+          {summary && summary.totalPotentialSavings > 0 && (
+            <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 text-xs font-semibold">
+              <i className="fas fa-piggy-bank text-[10px]" />
+              {fmt$(summary.totalPotentialSavings)} potential
+            </div>
+          )}
+          <button
+            onClick={refresh}
+            disabled={loading}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 text-gray-800 dark:text-gray-300 rounded-lg text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
+          >
+            <i className={`fas fa-sync-alt text-[10px] ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
+      );
+    }
     return () => clearActions();
-  }, [setActions, clearActions, selectedAccountIds]);
+  }, [setActions, clearActions, selectedInstance, accountId, summary, loading, refresh, idle]);
 
   return (
-    <main className="dataops-page flex-1 flex flex-col min-h-screen bg-gray-50">
+    <main className="dataops-page flex-1 flex flex-col min-h-screen bg-transparent">
+      <div className="flex-1 p-6">
 
-      {/* Main Content */}
-      <div className="flex-1 p-8">
-        <div className="max-w-7xl mx-auto">
-          {/* Hero Section */}
-          <div className="dataops-hero relative overflow-hidden bg-white rounded-2xl shadow-xl mb-8">
-            {/* Background Pattern */}
-            <div className="absolute inset-0 opacity-5">
-              <div
-                className="absolute inset-0"
-                style={{
-                  backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(14, 165, 233, 0.1) 10px, rgba(14, 165, 233, 0.1) 20px)'
-                }}
-              />
+        {/* No account selected */}
+        {!accountId && (
+          <div className="text-center py-20 bg-white/90 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700/50">
+            <div className="w-16 h-16 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4">
+              <i className="fas fa-database text-gray-400 text-2xl" />
             </div>
-
-            {/* Gradient Orbs */}
-            <div className="absolute -top-24 -right-24 w-64 h-64 bg-gradient-to-br from-sky-400/20 to-blue-400/20 rounded-full blur-3xl"></div>
-            <div className="absolute -bottom-24 -left-24 w-64 h-64 bg-gradient-to-tr from-blue-400/20 to-cyan-400/20 rounded-full blur-3xl"></div>
-
-            <div className="relative z-10 text-center py-16 px-8">
-              {/* Animated Icon */}
-              <div className="mb-8 flex justify-center">
-                <div className="relative">
-                  <div className="dataops-float-animation w-28 h-28 bg-gradient-to-br from-sky-500 to-blue-600 rounded-full flex items-center justify-center shadow-2xl">
-                    <i className="fas fa-database text-white text-5xl"></i>
-                  </div>
-                  {/* Pulse rings */}
-                  <div className="absolute inset-0 w-28 h-28 bg-gradient-to-br from-sky-500 to-blue-600 rounded-full animate-ping opacity-20"></div>
-                </div>
-              </div>
-
-              {/* Title */}
-              <h2 className="text-5xl font-bold text-gray-800 mb-4">
-                <span className="bg-gradient-to-r from-sky-500 to-blue-600 bg-clip-text text-transparent">
-                  Coming Soon
-                </span>
-              </h2>
-              <p className="text-2xl text-gray-800 mb-3 font-semibold">DataOps - Database Reliability & Automation</p>
-              <p className="text-gray-600 mb-10 max-w-3xl mx-auto text-lg leading-relaxed">
-                The all-in-one database management and optimization platform. Unify observability across
-                your entire fleet, detect bottlenecks in real-time, and automate complex fixes like
-                query rewriting and caching without any code changes.
-              </p>
-
-              {/* Launch Badge */}
-              <div className="inline-flex items-center px-8 py-4 bg-gradient-to-r from-sky-500 to-blue-500 text-white rounded-full shadow-xl transform hover:scale-105 transition-all duration-300 cursor-default">
-                <i className="fas fa-rocket mr-3 text-lg"></i>
-                <span className="font-bold text-lg">Target Launch: Q1 2026</span>
-              </div>
-            </div>
+            <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-2">Select an AWS Account</h3>
+            <p className="text-sm text-gray-600 dark:text-gray-500">Choose an AWS account from the sidebar to view database cost optimisation data.</p>
           </div>
+        )}
 
-          {/* Features Grid */}
-          <div className="mb-8">
-            <h3 className="text-xl font-bold text-gray-800 mb-6 flex items-center gap-3">
-              <div className="w-8 h-8 bg-gradient-to-br from-sky-500 to-blue-600 rounded-lg flex items-center justify-center">
-                <i className="fas fa-star text-white text-sm"></i>
-              </div>
-              Planned Features
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {features.map((feature) => (
-                <div
-                  key={feature.title}
-                  className={`dataops-feature-card bg-white p-6 rounded-xl shadow-md border-l-4 ${feature.borderColor} hover:shadow-lg transition-all duration-300`}
-                >
-                  <div className="flex items-start space-x-4">
-                    <div className={`flex-shrink-0 w-14 h-14 ${feature.iconBg} rounded-xl flex items-center justify-center`}>
-                      <i className={`${feature.icon} ${feature.iconColor} text-2xl`}></i>
-                    </div>
-                    <div className="flex-1">
-                      <h4 className="font-bold text-gray-900 text-lg mb-2">{feature.title}</h4>
-                      <p className="text-sm text-gray-600 leading-relaxed">{feature.description}</p>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
+        {/* Error */}
+        {accountId && error && (
+          <div className="mb-4 flex items-center gap-3 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl text-red-700 dark:text-red-400 text-sm">
+            <i className="fas fa-exclamation-circle" />
+            {error}
+            <button onClick={refresh} className="ml-auto underline font-medium">Retry</button>
           </div>
+        )}
 
-          {/* Supported Databases */}
-          <div className="bg-white rounded-2xl shadow-lg p-8 mb-8">
-            <h3 className="text-xl font-bold text-gray-800 mb-6 flex items-center gap-3">
-              <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-cyan-600 rounded-lg flex items-center justify-center">
-                <i className="fas fa-database text-white text-sm"></i>
-              </div>
-              Supported Databases
-            </h3>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-              {supportedDatabases.map((db) => (
-                <div
-                  key={db.name}
-                  className="dataops-db-card flex flex-col items-center p-4 bg-gray-50 rounded-xl hover:bg-gradient-to-br hover:from-sky-50 hover:to-blue-50 transition-all duration-300 cursor-default"
-                >
-                  <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-md mb-3">
-                    <i className={`${db.icon} ${db.color} text-lg`}></i>
-                  </div>
-                  <span className="text-sm font-medium text-gray-700 text-center">{db.name}</span>
-                </div>
-              ))}
-            </div>
-          </div>
+        {/* Loading */}
+        {accountId && loading && <LoadingSkeleton />}
 
-          {/* Upcoming Capabilities */}
-          <div className="bg-white rounded-2xl shadow-lg p-8">
-            <h3 className="text-xl font-bold text-gray-800 mb-6 flex items-center gap-3">
-              <div className="w-8 h-8 bg-gradient-to-br from-cyan-500 to-teal-600 rounded-lg flex items-center justify-center">
-                <i className="fas fa-lightbulb text-white text-sm"></i>
-              </div>
-              Upcoming Capabilities
-            </h3>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-              {upcomingCapabilities.map((capability) => (
-                <div
-                  key={capability.label}
-                  className="dataops-capability-card flex flex-col items-center p-4 bg-gray-50 rounded-xl hover:bg-gradient-to-br hover:from-sky-50 hover:to-blue-50 transition-all duration-300 cursor-default"
-                >
-                  <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-md mb-3">
-                    <i className={`${capability.icon} text-sky-600 text-lg`}></i>
-                  </div>
-                  <span className="text-sm font-medium text-gray-700 text-center">{capability.label}</span>
-                </div>
-              ))}
-            </div>
+        {/* Instance detail — full page */}
+        {accountId && !loading && selectedInstance && (
+          <DbInstanceDetailPage
+            instance={selectedInstance}
+            metrics={metrics[selectedInstance.instanceId]}
+            agentStats={agentQueryStats}
+            agentInstanceMetrics={agentInstanceMetrics}
+            slowQueries={slowQueries?.queries ?? []}
+            idle={idle}
+            rightsizing={rightsizing}
+            security={security}
+            allSnapshots={snapshots}
+            fetchTimeseries={fetchInstanceTimeseries}
+            fetchAgentTimeseries={fetchAgentTimeseries}
+            fetchAgentTableSizes={fetchAgentTableSizes}
+          />
+        )}
 
-            {/* Footer Note */}
-            <div className="mt-8 pt-6 border-t border-gray-100">
-              <div className="flex items-center justify-center gap-3 text-gray-500">
-                <i className="fas fa-info-circle text-sky-500"></i>
-                <p className="text-sm">
-                  DataOps will integrate seamlessly with your existing cloud accounts and database infrastructure.
-                  Stay tuned for early access announcements.
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
+        {/* Inventory */}
+        {accountId && !loading && !selectedInstance && (
+          <>
+            {summary && <SummaryCards s={summary} />}
+            <InventoryTab inventory={inventory} agentStats={agentQueryStats} onSelect={setSelectedInstance} />
+          </>
+        )}
+
       </div>
     </main>
   );

@@ -60,6 +60,17 @@ const FlexComputePage: React.FC = () => {
       }));
   }, [linkedAccounts, sidebarAccountIds]);
 
+  // Only show capacities whose account is in both CloudiDR and the sidebar dropdown
+  const allowedAccountNames = useMemo(
+    () => new Set(accountOptions.map((a) => a.alias)),
+    [accountOptions]
+  );
+
+  const filteredCapacities = useMemo(
+    () => (capacities || []).filter((c) => allowedAccountNames.has(c.accountName)),
+    [capacities, allowedAccountNames]
+  );
+
   // Pricing pre-loaded from an existing READY_FOR_PURCHASE capacity
   const [continuePricing, setContinuePricing] = useState<CapacityPricing | null>(null);
 
@@ -130,7 +141,7 @@ const FlexComputePage: React.FC = () => {
           <div className="space-y-8">
             <FlexComputeKPICards kpis={kpis} />
             <FlexComputeTable
-              capacities={capacities}
+              capacities={filteredCapacities}
               isLoading={isLoading}
               onCancelCapacity={cancelCapacity}
               onExtendCapacity={extendCapacity}

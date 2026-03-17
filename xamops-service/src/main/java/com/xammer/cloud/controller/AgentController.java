@@ -2,6 +2,7 @@ package com.xammer.cloud.controller;
 
 import com.xammer.cloud.domain.AgentDataCache;
 import com.xammer.cloud.domain.AgentEvent;
+import com.xammer.cloud.domain.DbAgentConfig;
 import com.xammer.cloud.domain.KubernetesClusterConfig;
 import com.xammer.cloud.dto.agent.AgentIngestPayload;
 import com.xammer.cloud.dto.agent.AgentIngestResponse;
@@ -9,6 +10,7 @@ import com.xammer.cloud.repository.AgentDataCacheRepository;
 import com.xammer.cloud.repository.AgentEventRepository;
 import com.xammer.cloud.repository.KubernetesClusterConfigRepository;
 import com.xammer.cloud.service.AgentIngestService;
+import com.xammer.cloud.service.DbAgentService;
 import com.xammer.cloud.service.EksAutoscalingService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,16 +41,19 @@ public class AgentController {
     private static final Logger logger = LoggerFactory.getLogger(AgentController.class);
 
     private final AgentIngestService agentIngestService;
+    private final DbAgentService dbAgentService;
     private final KubernetesClusterConfigRepository clusterConfigRepository;
     private final AgentDataCacheRepository agentDataCacheRepository;
     private final AgentEventRepository agentEventRepository;
 
     public AgentController(
             AgentIngestService agentIngestService,
+            DbAgentService dbAgentService,
             KubernetesClusterConfigRepository clusterConfigRepository,
             AgentDataCacheRepository agentDataCacheRepository,
             AgentEventRepository agentEventRepository) {
         this.agentIngestService = agentIngestService;
+        this.dbAgentService = dbAgentService;
         this.clusterConfigRepository = clusterConfigRepository;
         this.agentDataCacheRepository = agentDataCacheRepository;
         this.agentEventRepository = agentEventRepository;
@@ -113,32 +118,74 @@ public class AgentController {
                     .body(AgentIngestResponse.error("clusterName is required in payload"));
         }
 
-        if (payload.getCloudAccountId() == null) {
+        if (payload.getCloudAccountId() == null || payload.getCloudAccountId().isEmpty()) {
             logger.warn("Agent ingest request missing cloudAccountId");
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body(AgentIngestResponse.error("cloudAccountId is required in payload"));
         }
 
-        // 3. Find cluster config by clusterName + cloudAccountId
+        String clientIp = getClientIp(request);
+
+        // 3. Check DB agent registry first — DB agents are pre-registered via the wizard
+        java.util.Optional<DbAgentConfig> dbAgent = dbAgentService.findDbAgent(
+                payload.getCloudAccountId(), payload.getClusterName());
+        if (dbAgent.isPresent()) {
+            AgentIngestResponse response = dbAgentService.processIngest(dbAgent.get(), payload, clientIp);
+            logger.info("DB agent ingest completed for agent: {} (batches={})",
+                    dbAgent.get().getAgentName(), response.getResults().size());
+            return ResponseEntity.ok(response);
+        }
+
+        // 4. Fall through to K8s cluster agent path
         KubernetesClusterConfig clusterConfig = agentIngestService.findClusterConfig(
                 payload.getClusterName(), payload.getCloudAccountId());
 
         if (clusterConfig == null) {
-            logger.warn("Cluster config not found for cluster: {} accountId: {}",
+            logger.warn("No DB agent or K8s cluster config found for cluster: {} accountId: {}",
                     payload.getClusterName(), payload.getCloudAccountId());
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(AgentIngestResponse.error("Cluster not configured. Register cluster in XamOps first."));
+                    .body(AgentIngestResponse.error("Agent not registered. Use the DbOps wizard to register this agent first."));
         }
 
-        // 4. Process the payload
-        String clientIp = getClientIp(request);
         AgentIngestResponse response = agentIngestService.processIngest(clusterConfig, payload, clientIp);
-
-        logger.info("Agent ingest completed for cluster: {} (success={}, batches={})",
-                clusterConfig.getClusterName(), response.isSuccess(),
-                response.getResults().size());
+        logger.info("K8s agent ingest completed for cluster: {} (success={}, batches={})",
+                clusterConfig.getClusterName(), response.isSuccess(), response.getResults().size());
 
         return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Register a DB agent before deployment (called by the DbOps wizard).
+     * Idempotent — safe to call multiple times.
+     *
+     * POST /api/v1/agent/db/register
+     * Authorization: Bearer <global_api_key>
+     * Body: { "agentName": "my-rds-agent", "cloudAccountId": "015764906357" }
+     */
+    @PostMapping("/db/register")
+    public ResponseEntity<Map<String, Object>> registerDbAgent(
+            @RequestBody Map<String, String> body) {
+
+        String agentName = body.get("agentName");
+        String cloudAccountId = body.get("cloudAccountId");
+
+        if (agentName == null || agentName.isEmpty() || cloudAccountId == null || cloudAccountId.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("error", "agentName and cloudAccountId are required"));
+        }
+
+        DbAgentConfig cfg = dbAgentService.registerDbAgent(cloudAccountId, agentName);
+        if (cfg == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("error", "Cloud account not found. Add account to XamOps first."));
+        }
+
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "agentId", cfg.getId(),
+                "agentName", cfg.getAgentName(),
+                "status", cfg.getStatus()
+        ));
     }
 
     /**
@@ -173,34 +220,43 @@ public class AgentController {
         }
 
         String clusterName = (String) body.get("clusterName");
-        Object cloudAccountIdObj = body.get("cloudAccountId");
-        Long cloudAccountId = cloudAccountIdObj instanceof Number ? ((Number) cloudAccountIdObj).longValue() : null;
+        String cloudAccountId = body.get("cloudAccountId") != null ? body.get("cloudAccountId").toString() : null;
 
-        if (clusterName == null || cloudAccountId == null) {
+        if (clusterName == null || cloudAccountId == null || cloudAccountId.isEmpty()) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body(Map.of("error", "clusterName and cloudAccountId are required"));
         }
 
-        // 3. Find cluster config
+        String agentVersion = (String) body.get("agentVersion");
+        String clientIp = getClientIp(request);
+
+        // 3. Check DB agent registry first
+        java.util.Optional<DbAgentConfig> dbAgent = dbAgentService.findDbAgent(cloudAccountId, clusterName);
+        if (dbAgent.isPresent()) {
+            dbAgentService.recordHeartbeat(dbAgent.get(), agentVersion, clientIp);
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "agentName", dbAgent.get().getAgentName(),
+                    "agentType", "db",
+                    "serverTime", LocalDateTime.now().toString()
+            ));
+        }
+
+        // 4. Fall through to K8s cluster agent path
         KubernetesClusterConfig clusterConfig = agentIngestService.findClusterConfig(clusterName, cloudAccountId);
         if (clusterConfig == null) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(Map.of("error", "Cluster not configured"));
+                    .body(Map.of("error", "Agent not registered"));
         }
 
-        // 4. Update last check-in
-        String agentVersion = (String) body.get("agentVersion");
         clusterConfig.setLastAgentCheckin(LocalDateTime.now());
-        if (agentVersion != null) {
-            clusterConfig.setAgentVersion(agentVersion);
-        }
+        if (agentVersion != null) clusterConfig.setAgentVersion(agentVersion);
         clusterConfig.setAgentStatus("active");
         clusterConfigRepository.save(clusterConfig);
 
-        // 5. Log heartbeat event
         AgentEvent event = new AgentEvent(clusterConfig.getId(), "checkin");
         event.setAgentVersion(agentVersion);
-        event.setAgentIp(getClientIp(request));
+        event.setAgentIp(clientIp);
         agentEventRepository.save(event);
 
         return ResponseEntity.ok(Map.of(
@@ -281,6 +337,112 @@ public class AgentController {
         }
 
         return getAgentStatus(configOpt.get().getId());
+    }
+
+    /**
+     * GET /api/v1/agent/install-info
+     * Returns pre-filled values needed to generate the agent install command in the UI.
+     * Called by the frontend "Agent Stats" tab to build the one-liner.
+     */
+    @GetMapping("/install-info")
+    public ResponseEntity<Map<String, String>> getInstallInfo() {
+        return ResponseEntity.ok(Map.of(
+                "apiKey", agentIngestService.getGlobalApiKey()
+        ));
+    }
+
+    /**
+     * POST /api/v1/agent/db/config
+     * Save connection configuration from the wizard (Step 2).
+     */
+    @PostMapping("/db/config")
+    public ResponseEntity<Map<String, Object>> saveDbAgentConfig(
+            @RequestBody Map<String, String> body) {
+
+        String agentName     = body.get("agentName");
+        String cloudAccountId = body.get("cloudAccountId");
+        if (agentName == null || cloudAccountId == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "agentName and cloudAccountId are required"));
+        }
+
+        DbAgentConfig cfg = dbAgentService.saveConnectionConfig(
+                cloudAccountId, agentName,
+                body.get("dbEngine"), body.get("dbHost"), body.get("dbPort"),
+                body.get("dbName"), body.get("dbUser"), body.get("dbPassword"),
+                body.get("serverUrl"));
+
+        if (cfg == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("error", "Cloud account not found"));
+        }
+
+        return ResponseEntity.ok(Map.of("success", true, "agentId", cfg.getId()));
+    }
+
+    /**
+     * GET /api/v1/agent/db/config?agentName=xxx&cloudAccountId=xxx
+     * Load saved connection configuration — pre-fills the wizard fields.
+     */
+    @GetMapping("/db/config")
+    public ResponseEntity<Map<String, Object>> loadDbAgentConfig(
+            @RequestParam String agentName,
+            @RequestParam String cloudAccountId) {
+
+        DbAgentConfig cfg = dbAgentService.loadConnectionConfig(cloudAccountId, agentName);
+        if (cfg == null) {
+            return ResponseEntity.ok(Map.of("found", false));
+        }
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("found", true);
+        result.put("dbEngine",  cfg.getDbEngine()   != null ? cfg.getDbEngine()   : "");
+        result.put("dbHost",    cfg.getDbHost()     != null ? cfg.getDbHost()     : "");
+        result.put("dbPort",    cfg.getDbPort()     != null ? cfg.getDbPort()     : "");
+        result.put("dbName",    cfg.getDbName()     != null ? cfg.getDbName()     : "");
+        result.put("dbUser",    cfg.getDbUser()     != null ? cfg.getDbUser()     : "");
+        result.put("dbPassword",cfg.getDbPassword() != null ? cfg.getDbPassword() : "");
+        result.put("serverUrl", cfg.getServerUrl()  != null ? cfg.getServerUrl()  : "");
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * GET /api/v1/agent/db/status?agentName=xxx&cloudAccountId=xxx
+     * Returns live status of a registered DB agent — used by the wizard polling.
+     */
+    @GetMapping("/db/status")
+    public ResponseEntity<Map<String, Object>> getDbAgentStatus(
+            @RequestParam String agentName,
+            @RequestParam String cloudAccountId) {
+
+        java.util.Optional<DbAgentConfig> cfgOpt = dbAgentService.findDbAgent(cloudAccountId, agentName);
+        if (cfgOpt.isEmpty()) {
+            return ResponseEntity.ok(Map.of(
+                    "registered", false,
+                    "status", "not_registered"
+            ));
+        }
+
+        DbAgentConfig cfg = cfgOpt.get();
+        Map<String, Object> result = new HashMap<>();
+        result.put("registered", true);
+        result.put("status", cfg.getStatus());
+        result.put("agentVersion", cfg.getAgentVersion() != null ? cfg.getAgentVersion() : "");
+        result.put("agentIp", cfg.getAgentIp() != null ? cfg.getAgentIp() : "");
+        result.put("lastCheckin", cfg.getLastCheckin() != null ? cfg.getLastCheckin().toString() : null);
+        result.put("isActive", cfg.isActive());
+
+        // Data counts from db_agent_data_cache
+        List<com.xammer.cloud.domain.DbAgentDataCache> data = dbAgentService.getCachedData(cfg.getId());
+        Map<String, Object> dataCounts = new HashMap<>();
+        for (com.xammer.cloud.domain.DbAgentDataCache cache : data) {
+            dataCounts.put(cache.getDataType(), Map.of(
+                    "itemCount", cache.getItemCount() != null ? cache.getItemCount() : 0,
+                    "collectedAt", cache.getCollectedAt().toString()
+            ));
+        }
+        result.put("dataCounts", dataCounts);
+
+        return ResponseEntity.ok(result);
     }
 
     /**

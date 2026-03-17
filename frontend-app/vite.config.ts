@@ -189,6 +189,8 @@ export default defineConfig({
       '/api/flexcompute': { target: 'http://localhost:8080', changeOrigin: true, secure: false }, // FlexCompute (CloudiDR)
       '/api/autospotting': { target: 'http://localhost:8080', changeOrigin: true, secure: false },
       '/api/rightsizing': { target: 'http://localhost:8080', changeOrigin: true, secure: false }, // K8s Right-Sizing
+      '/api/dbops': { target: 'http://localhost:8080', changeOrigin: true, secure: false }, // DbOps
+      '/api/v1': { target: 'http://localhost:8080', changeOrigin: true, secure: false }, // Agent endpoints
 
 
     }

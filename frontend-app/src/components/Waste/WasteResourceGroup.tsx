@@ -42,6 +42,7 @@ const getServiceIcon = (serviceType: string): string => {
     'ECS Cluster': 'aws-ecs.png',
     'DB Snapshot': 'rds-instance.png',
     'Log Group': 'cloudwatch-log-group.png',
+    'EFS File System': 'disk-storage.png',
   };
   return iconMap[serviceType] || 'default-icon.png';
 };

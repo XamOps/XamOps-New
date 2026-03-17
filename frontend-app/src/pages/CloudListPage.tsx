@@ -436,6 +436,7 @@ const CloudListPage: React.FC = () => {
       'Amplify App': 'amplify.png',
       'AWS Step Functions': 'step-functions.png',
       'Amazon ElastiCache': 'elasticache.png',
+      'ElastiCache Cluster': 'elasticache-cluster.png',
       'AWS Config': 'Config.png',
       'AWS Security Hub': 'security-hub.png',
       'AWS Glue': 'glue.png',
