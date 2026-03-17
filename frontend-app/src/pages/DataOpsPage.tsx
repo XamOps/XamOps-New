@@ -61,7 +61,7 @@ function InventoryTab({
   const agentHosts = new Map<string, AgentQueryStat[]>();
   agentStats.forEach(s => {
     if (!s.dbHost) return;
-    const matchesRds = inventory.some(i => i.endpoint?.includes(s.dbHost));
+    const matchesRds = inventory.some(i => i.endpoint && s.dbHost.startsWith(i.endpoint));
     if (!matchesRds) {
       const list = agentHosts.get(s.dbHost) ?? [];
       list.push(s);

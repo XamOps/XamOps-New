@@ -108,20 +108,21 @@ function MetricChart({
       <ResponsiveContainer width="100%" height={110}>
         <AreaChart data={data} margin={{ top: 2, right: 4, left: -20, bottom: 0 }}>
           <defs>
-            <linearGradient id={`grad_${title}`} x1="0" y1="0" x2="0" y2="1">
+            <linearGradient id={`grad_${title.replace(/\W+/g, '_')}`} x1="0" y1="0" x2="0" y2="1">
               <stop offset="5%" stopColor={color} stopOpacity={0.3} />
               <stop offset="95%" stopColor={color} stopOpacity={0} />
             </linearGradient>
           </defs>
           <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" strokeOpacity={0.5} />
-          <XAxis dataKey="label" tick={{ fontSize: 9 }} tickFormatter={(l: string) => l.split(' ')[1]} />
+          <XAxis dataKey="ts" scale="time" type="number" domain={['dataMin', 'dataMax']}
+            tick={{ fontSize: 9 }} tickFormatter={(ts: number) => fmtTime(ts)} />
           <YAxis tick={{ fontSize: 9 }} />
           <Tooltip
-            labelFormatter={(l) => String(l)}
+            labelFormatter={(ts) => fmtLabel(Number(ts))}
             formatter={(v) => [`${round2(Number(v))}${unit ? ' ' + unit : ''}`, title] as [string, string]}
             contentStyle={{ fontSize: 11 }}
           />
-          <Area type="monotone" dataKey={dataKey} stroke={color} fill={`url(#grad_${title})`}
+          <Area type="monotone" dataKey={dataKey} stroke={color} fill={`url(#grad_${title.replace(/\W+/g, '_')})`}
             strokeWidth={1.5} dot={false} />
         </AreaChart>
       </ResponsiveContainer>
@@ -442,6 +443,44 @@ CREATE EXTENSION IF NOT EXISTS pg_stat_statements;`;
               </button>
             ))}
           </div>
+
+          {/* AWS RDS Parameter Group requirements */}
+          <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/50 rounded-xl p-4 space-y-2">
+            <p className="text-xs font-semibold text-amber-800 dark:text-amber-300 flex items-center gap-2">
+              <i className="fas fa-cogs" /> AWS RDS — Required Parameter Group Settings
+            </p>
+            {isPostgres ? (
+              <div className="space-y-2">
+                <p className="text-xs text-amber-700 dark:text-amber-400">
+                  To enable slow query analysis, add <code className="bg-amber-100 dark:bg-amber-800/40 px-1 rounded font-mono">pg_stat_statements</code> to your RDS parameter group:
+                </p>
+                <ol className="text-xs text-amber-700 dark:text-amber-400 space-y-1 list-decimal pl-4">
+                  <li>AWS Console → RDS → Parameter Groups → create or edit a group</li>
+                  <li>Set <code className="bg-amber-100 dark:bg-amber-800/40 px-1 rounded font-mono">shared_preload_libraries</code> = <code className="bg-amber-100 dark:bg-amber-800/40 px-1 rounded font-mono">pg_stat_statements</code></li>
+                  <li>Assign the parameter group to your instance → <strong>Reboot</strong></li>
+                  <li>Run once on your DB: <code className="bg-amber-100 dark:bg-amber-800/40 px-1 rounded font-mono">CREATE EXTENSION IF NOT EXISTS pg_stat_statements;</code></li>
+                </ol>
+                <p className="text-[11px] text-amber-600 dark:text-amber-500">
+                  Without this, instance metrics (connections, table sizes, deadlocks) still work — only slow query analysis is disabled.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-xs text-amber-700 dark:text-amber-400">
+                  Enable <code className="bg-amber-100 dark:bg-amber-800/40 px-1 rounded font-mono">performance_schema</code> in your RDS parameter group:
+                </p>
+                <ol className="text-xs text-amber-700 dark:text-amber-400 space-y-1 list-decimal pl-4">
+                  <li>AWS Console → RDS → Parameter Groups → create or edit a group</li>
+                  <li>Set <code className="bg-amber-100 dark:bg-amber-800/40 px-1 rounded font-mono">performance_schema</code> = <code className="bg-amber-100 dark:bg-amber-800/40 px-1 rounded font-mono">1</code></li>
+                  <li>Assign the parameter group to your instance → <strong>Reboot</strong></li>
+                </ol>
+                <p className="text-[11px] text-amber-600 dark:text-amber-500">
+                  Without this, instance metrics (connections, table sizes, lock waits) still work — only slow query analysis is disabled.
+                </p>
+              </div>
+            )}
+          </div>
+
           <div className="relative">
             <pre className="bg-gray-900 text-gray-100 rounded-xl p-4 text-xs overflow-x-auto leading-relaxed">
               {isPostgres ? postgresSql : mysqlSql}
