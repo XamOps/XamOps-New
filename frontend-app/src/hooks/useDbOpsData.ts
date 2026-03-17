@@ -122,6 +122,84 @@ export interface SlowQueriesResponse {
   queries: SlowQuery[];
 }
 
+export interface TimeseriesPoint { ts: number; v: number; }
+
+export interface DbInstanceTimeseries {
+  instanceId: string;
+  region: string;
+  cpu: TimeseriesPoint[];
+  connections: TimeseriesPoint[];
+  readIops: TimeseriesPoint[];
+  writeIops: TimeseriesPoint[];
+  readLatencyMs: TimeseriesPoint[];
+  writeLatencyMs: TimeseriesPoint[];
+  freeStorageGb: TimeseriesPoint[];
+  freeableMemoryMb: TimeseriesPoint[];
+  networkReceiveMbps: TimeseriesPoint[];
+  networkTransmitMbps: TimeseriesPoint[];
+  replicaLagSeconds?: TimeseriesPoint[];
+}
+
+export interface AgentInstanceMetrics {
+  dsnAlias: string;
+  dbEngine: string;
+  dbHost: string;
+  currentConnections: number;
+  maxConnections: number;
+  maxUsedConnections: number;
+  totalQueries: number;
+  totalSlowQueries: number;
+  comSelect: number;
+  comInsert: number;
+  comUpdate: number;
+  comDelete: number;
+  innodbBufferPoolReads: number;
+  innodbBufferPoolHitPct: number;
+  innodbRowLockWaits: number;
+  innodbDeadlocks: number;
+  threadsRunning: number;
+  bytesReceived: number;
+  bytesSent: number;
+  uptime: number;
+  version: string;
+  collectedAt: string;
+}
+
+export interface AgentTimeseriesSnapshot {
+  ts: string;
+  connections: number;
+  maxConnections: number;
+  bufferPoolHitPct: number;
+  totalQueries: number;
+  totalSlowQueries: number;
+  comSelect: number;
+  comInsert: number;
+  comUpdate: number;
+  comDelete: number;
+  innodbRowLockWaits: number;
+  innodbDeadlocks: number;
+  threadsRunning: number;
+}
+
+export interface AgentTableSize {
+  dsnAlias: string;
+  dbEngine: string;
+  dbHost: string;
+  schemaName: string;
+  tableName: string;
+  dataSizeBytes: number;
+  indexSizeBytes: number;
+  totalSizeBytes: number;
+  rows: number;
+  collectedAt: string;
+}
+
+export interface AgentTimeseries {
+  agentName: string;
+  dbHost: string;
+  snapshots: AgentTimeseriesSnapshot[];
+}
+
 export interface AgentQueryStat {
   dsnAlias: string;
   dbEngine: string;
@@ -155,6 +233,7 @@ interface CachedPayload {
   security: DbSecurityCheck[];
   slowQueries: SlowQueriesResponse | null;
   agentQueryStats: AgentQueryStat[];
+  agentInstanceMetrics: AgentInstanceMetrics[];
 }
 
 function readCache(accountId: string): CachedPayload | null {
@@ -200,6 +279,7 @@ export function useDbOpsData(accountId: string | null) {
   const [security, setSecurity]             = useState<DbSecurityCheck[]>([]);
   const [slowQueries, setSlowQueries]       = useState<SlowQueriesResponse | null>(null);
   const [agentQueryStats, setAgentQueryStats] = useState<AgentQueryStat[]>([]);
+  const [agentInstanceMetrics, setAgentInstanceMetrics] = useState<AgentInstanceMetrics[]>([]);
   const [loading, setLoading]               = useState(false);
   const [error, setError]                   = useState<string | null>(null);
 
@@ -217,6 +297,7 @@ export function useDbOpsData(accountId: string | null) {
     setSecurity(p.security);
     setSlowQueries(p.slowQueries ?? null);
     setAgentQueryStats(p.agentQueryStats ?? []);
+    setAgentInstanceMetrics(p.agentInstanceMetrics ?? []);
   };
 
   const fetchAll = useCallback(async (forceRefresh = false) => {
@@ -246,7 +327,7 @@ export function useDbOpsData(accountId: string | null) {
       setSummary(summaryData);
 
       // All subsequent calls run in parallel
-      const [inv, metricsData, cost, idleData, rsData, snapData, secData, slowData, agentStats] = await Promise.all([
+      const [inv, metricsData, cost, idleData, rsData, snapData, secData, slowData, agentStats, agentMetrics] = await Promise.all([
         fetchJson<DbInstance[]>(`${base}/inventory`),
         fetchJson<Record<string, DbMetrics>>(`${base}/metrics`),
         fetchJson<DbCost[]>(`${base}/costs`),
@@ -256,6 +337,7 @@ export function useDbOpsData(accountId: string | null) {
         fetchJson<DbSecurityCheck[]>(`${base}/security`),
         fetchJson<SlowQueriesResponse>(`${base}/slow-queries`),
         fetchJson<AgentQueryStat[]>(`${base}/agent-query-stats`),
+        fetchJson<AgentInstanceMetrics[]>(`${base}/agent-instance-metrics`),
       ]);
 
       const payload = {
@@ -267,8 +349,9 @@ export function useDbOpsData(accountId: string | null) {
         rightsizing:     rsData       ?? [],
         snapshots:       snapData     ?? [],
         security:        secData      ?? [],
-        slowQueries:     slowData,
-        agentQueryStats: agentStats   ?? [],
+        slowQueries:          slowData,
+        agentQueryStats:      agentStats   ?? [],
+        agentInstanceMetrics: agentMetrics ?? [],
       };
 
       applyPayload(payload);
@@ -289,7 +372,7 @@ export function useDbOpsData(accountId: string | null) {
     if (!accountId) {
       setSummary(null); setInventory([]); setMetrics({}); setCosts([]); setIdle([]);
       setRightsizing([]); setSnapshots([]); setSecurity([]); setSlowQueries(null);
-      setAgentQueryStats([]);
+      setAgentQueryStats([]); setAgentInstanceMetrics([]);
       setLoading(false);
       return;
     }
@@ -303,10 +386,38 @@ export function useDbOpsData(accountId: string | null) {
 
   const refresh = useCallback(() => fetchAll(true), [fetchAll]);
 
+  const fetchInstanceTimeseries = useCallback(async (
+    instanceId: string, hours = 24
+  ): Promise<DbInstanceTimeseries | null> => {
+    if (!accountId) return null;
+    return fetchJson<DbInstanceTimeseries>(
+      `/api/dbops/aws/${accountId}/instance/${encodeURIComponent(instanceId)}/timeseries?hours=${hours}`
+    );
+  }, [accountId]);
+
+  const fetchAgentTimeseries = useCallback(async (
+    hours = 24
+  ): Promise<AgentTimeseries[]> => {
+    if (!accountId) return [];
+    return fetchJson<AgentTimeseries[]>(
+      `/api/dbops/aws/${accountId}/agent-timeseries?hours=${hours}`
+    ).then(r => r ?? []);
+  }, [accountId]);
+
+  const fetchAgentTableSizes = useCallback(async (): Promise<AgentTableSize[]> => {
+    if (!accountId) return [];
+    return fetchJson<AgentTableSize[]>(
+      `/api/dbops/aws/${accountId}/agent-table-sizes`
+    ).then(r => r ?? []);
+  }, [accountId]);
+
   return {
     summary, inventory, metrics, costs, idle, rightsizing, snapshots, security, slowQueries,
-    agentQueryStats,
+    agentQueryStats, agentInstanceMetrics,
     loading, error,
     refresh,
+    fetchInstanceTimeseries,
+    fetchAgentTimeseries,
+    fetchAgentTableSizes,
   };
 }

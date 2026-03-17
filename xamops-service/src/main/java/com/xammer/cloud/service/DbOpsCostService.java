@@ -5,11 +5,17 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xammer.cloud.domain.AgentDataCache;
 import com.xammer.cloud.domain.CachedData;
 import com.xammer.cloud.domain.CloudAccount;
+import com.xammer.cloud.domain.DbAgentConfig;
+import com.xammer.cloud.domain.DbAgentDataCache;
 import com.xammer.cloud.domain.KubernetesClusterConfig;
 import com.xammer.cloud.dto.dbops.*;
 import com.xammer.cloud.repository.AgentDataCacheRepository;
 import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.domain.DbAgentMetricsHistory;
+import com.xammer.cloud.repository.DbAgentConfigRepository;
+import com.xammer.cloud.repository.DbAgentDataCacheRepository;
+import com.xammer.cloud.repository.DbAgentMetricsHistoryRepository;
 import com.xammer.cloud.repository.KubernetesClusterConfigRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -159,6 +165,9 @@ public class DbOpsCostService {
     private final ObjectMapper objectMapper;
     private final AgentDataCacheRepository agentDataCacheRepository;
     private final KubernetesClusterConfigRepository clusterConfigRepository;
+    private final DbAgentConfigRepository dbAgentConfigRepository;
+    private final DbAgentDataCacheRepository dbAgentDataCacheRepository;
+    private final DbAgentMetricsHistoryRepository dbAgentMetricsHistoryRepository;
 
     @Autowired
     public DbOpsCostService(
@@ -168,7 +177,10 @@ public class DbOpsCostService {
             CachedDataRepository cachedDataRepository,
             ObjectMapper objectMapper,
             AgentDataCacheRepository agentDataCacheRepository,
-            KubernetesClusterConfigRepository clusterConfigRepository) {
+            KubernetesClusterConfigRepository clusterConfigRepository,
+            DbAgentConfigRepository dbAgentConfigRepository,
+            DbAgentDataCacheRepository dbAgentDataCacheRepository,
+            DbAgentMetricsHistoryRepository dbAgentMetricsHistoryRepository) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
         this.redisCache = redisCache;
@@ -176,6 +188,9 @@ public class DbOpsCostService {
         this.objectMapper = objectMapper;
         this.agentDataCacheRepository = agentDataCacheRepository;
         this.clusterConfigRepository = clusterConfigRepository;
+        this.dbAgentConfigRepository = dbAgentConfigRepository;
+        this.dbAgentDataCacheRepository = dbAgentDataCacheRepository;
+        this.dbAgentMetricsHistoryRepository = dbAgentMetricsHistoryRepository;
         logger.info("DbOpsCostService initialized");
     }
 
@@ -690,6 +705,10 @@ public class DbOpsCostService {
                     List<DbCostDto>         costs       = costsFuture.join();
 
                     double totalCost          = costs.stream().mapToDouble(DbCostDto::getCost).sum();
+                    // Fallback: if Cost Explorer returned nothing, sum estimated costs from inventory
+                    if (totalCost == 0.0 && !inventory.isEmpty()) {
+                        totalCost = inventory.stream().mapToDouble(DbInstanceDto::getEstimatedMonthlyCost).sum();
+                    }
                     double idleSavings        = idle.stream().mapToDouble(DbIdleInstanceDto::getPotentialSavings).sum();
                     double rightsizingSavings = rightsizing.stream().mapToDouble(DbRightsizingDto::getEstimatedSavings).sum();
                     double snapshotWaste      = snapshots.stream().mapToDouble(DbSnapshotWasteDto::getEstimatedMonthlyCost).sum();
@@ -727,6 +746,178 @@ public class DbOpsCostService {
      * Sanitize a DB instance ID for use as a CloudWatch MetricDataQuery ID.
      * Rule: must match [a-z][a-zA-Z0-9_]*, max 128 chars.
      */
+    // =========================================================================
+    // PUBLIC API — AGENT INSTANCE METRICS (server-level stats from SHOW STATUS)
+    // =========================================================================
+
+    @Async
+    public CompletableFuture<List<AgentInstanceMetricsDto>> getAgentInstanceMetrics(String accountId) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                Optional<CloudAccount> accountOpt = cloudAccountRepository
+                        .findByAwsAccountIdOrGcpProjectIdOrAzureSubscriptionId(accountId, accountId, accountId);
+                if (accountOpt.isEmpty()) return List.of();
+                Long internalAccountId = accountOpt.get().getId();
+
+                List<AgentInstanceMetricsDto> merged = new ArrayList<>();
+
+                // 1. Read from db_agent_data_cache (DB-only agents registered via wizard)
+                List<DbAgentConfig> dbAgents = dbAgentConfigRepository.findByCloudAccountId(internalAccountId);
+                for (DbAgentConfig agent : dbAgents) {
+                    Optional<DbAgentDataCache> cacheOpt = dbAgentDataCacheRepository
+                            .findByDbAgentIdAndDataType(agent.getId(), "db-instance-metrics");
+                    if (cacheOpt.isEmpty()) continue;
+                    try {
+                        List<AgentInstanceMetricsDto> batch = objectMapper.readValue(
+                                cacheOpt.get().getDataJson(),
+                                new TypeReference<List<AgentInstanceMetricsDto>>() {});
+                        merged.addAll(batch);
+                    } catch (Exception e) {
+                        logger.warn("[DbOps] getAgentInstanceMetrics: parse failed for db agent {}: {}",
+                                agent.getAgentName(), e.getMessage());
+                    }
+                }
+
+                // 2. Also read from agent_data_cache (K8s agents that push db-instance-metrics)
+                List<KubernetesClusterConfig> clusters = clusterConfigRepository.findByCloudAccountId(internalAccountId);
+                for (KubernetesClusterConfig cluster : clusters) {
+                    Optional<AgentDataCache> cacheOpt = agentDataCacheRepository
+                            .findByClusterConfigIdAndDataType(cluster.getId(), "db-instance-metrics");
+                    if (cacheOpt.isEmpty()) continue;
+                    try {
+                        List<AgentInstanceMetricsDto> batch = objectMapper.readValue(
+                                cacheOpt.get().getDataJson(),
+                                new TypeReference<List<AgentInstanceMetricsDto>>() {});
+                        merged.addAll(batch);
+                    } catch (Exception e) {
+                        logger.warn("[DbOps] getAgentInstanceMetrics: parse failed for cluster {}: {}",
+                                cluster.getClusterName(), e.getMessage());
+                    }
+                }
+                return merged;
+            } catch (Exception e) {
+                logger.error("[DbOps] getAgentInstanceMetrics error for {}: {}", accountId, e.getMessage());
+                return List.of();
+            }
+        });
+    }
+
+    // =========================================================================
+    // PUBLIC API — INSTANCE TIMESERIES (for detail drawer charts)
+    // =========================================================================
+
+    /**
+     * Fetch hourly CloudWatch data points for a single RDS instance.
+     * Used by the DbOps detail drawer to render Datadog-style time-series charts.
+     * Period: 1h datapoints over the requested window (default 24h).
+     * API cost: 1 CloudWatch GetMetricData call (not cached — called on demand).
+     */
+    @Async("awsTaskExecutor")
+    public CompletableFuture<DbInstanceTimeseriesDto> getInstanceTimeseries(
+            String accountId, String instanceId, int hours) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                CloudAccount account = getAccount(accountId);
+
+                // Find the region for this instance from the inventory cache
+                List<DbInstanceDto> inventory = getDbInventory(accountId, false).get();
+                String region = inventory.stream()
+                        .filter(i -> i.getInstanceId().equalsIgnoreCase(instanceId))
+                        .map(DbInstanceDto::getRegion)
+                        .findFirst()
+                        .orElse("us-east-1");
+
+                CloudWatchClient cw = awsClientProvider.getCloudWatchClient(account, region);
+                Instant endTime   = Instant.now();
+                Instant startTime = endTime.minusSeconds((long) hours * 3600);
+                int periodSec     = 3600; // 1-hour granularity
+
+                List<MetricDataQuery> queries = List.of(
+                    buildMetricQuery("cpu",   "AWS/RDS", "CPUUtilization",           instanceId, periodSec),
+                    buildMetricQuery("conn",  "AWS/RDS", "DatabaseConnections",       instanceId, periodSec),
+                    buildMetricQuery("riops", "AWS/RDS", "ReadIOPS",                  instanceId, periodSec),
+                    buildMetricQuery("wiops", "AWS/RDS", "WriteIOPS",                 instanceId, periodSec),
+                    buildMetricQuery("rlat",  "AWS/RDS", "ReadLatency",               instanceId, periodSec),
+                    buildMetricQuery("wlat",  "AWS/RDS", "WriteLatency",              instanceId, periodSec),
+                    buildMetricQuery("fs",    "AWS/RDS", "FreeStorageSpace",          instanceId, periodSec),
+                    buildMetricQuery("mem",   "AWS/RDS", "FreeableMemory",            instanceId, periodSec),
+                    buildMetricQuery("nrx",   "AWS/RDS", "NetworkReceiveThroughput",  instanceId, periodSec),
+                    buildMetricQuery("ntx",   "AWS/RDS", "NetworkTransmitThroughput", instanceId, periodSec),
+                    buildMetricQuery("rl",    "AWS/RDS", "ReplicaLag",                instanceId, periodSec)
+                );
+
+                GetMetricDataRequest req = GetMetricDataRequest.builder()
+                        .startTime(startTime).endTime(endTime)
+                        .metricDataQueries(queries)
+                        .build();
+
+                // Collect all pages
+                Map<String, List<Map.Entry<Instant, Double>>> rawMap = new HashMap<>();
+                GetMetricDataResponse resp = cw.getMetricData(req);
+                collectTimeseriesPoints(resp, rawMap);
+                while (resp.nextToken() != null && !resp.nextToken().isEmpty()) {
+                    resp = cw.getMetricData(req.toBuilder().nextToken(resp.nextToken()).build());
+                    collectTimeseriesPoints(resp, rawMap);
+                }
+
+                DbInstanceTimeseriesDto dto = new DbInstanceTimeseriesDto();
+                dto.setInstanceId(instanceId);
+                dto.setRegion(region);
+                dto.setCpu(toPoints(rawMap.get("cpu")));
+                dto.setConnections(toPoints(rawMap.get("conn")));
+                dto.setReadIops(toPoints(rawMap.get("riops")));
+                dto.setWriteIops(toPoints(rawMap.get("wiops")));
+                dto.setReadLatencyMs(toPointsScaled(rawMap.get("rlat"), 1000.0));   // s → ms
+                dto.setWriteLatencyMs(toPointsScaled(rawMap.get("wlat"), 1000.0));  // s → ms
+                dto.setFreeStorageGb(toPointsScaled(rawMap.get("fs"),    1.0 / (1024.0 * 1024.0 * 1024.0)));
+                dto.setFreeableMemoryMb(toPointsScaled(rawMap.get("mem"), 1.0 / (1024.0 * 1024.0)));
+                dto.setNetworkReceiveMbps(toPointsScaled(rawMap.get("nrx"),  1.0 / (1024.0 * 1024.0)));
+                dto.setNetworkTransmitMbps(toPointsScaled(rawMap.get("ntx"), 1.0 / (1024.0 * 1024.0)));
+                dto.setReplicaLagSeconds(toPoints(rawMap.get("rl")));
+
+                logger.info("✅ [DbOps] Timeseries fetched for {} ({}h)", instanceId, hours);
+                return dto;
+            } catch (Exception e) {
+                logger.error("❌ [DbOps] Timeseries error for {}: {}", instanceId, e.getMessage());
+                DbInstanceTimeseriesDto empty = new DbInstanceTimeseriesDto();
+                empty.setInstanceId(instanceId);
+                return empty;
+            }
+        });
+    }
+
+    private void collectTimeseriesPoints(GetMetricDataResponse resp,
+                                          Map<String, List<Map.Entry<Instant, Double>>> out) {
+        for (MetricDataResult result : resp.metricDataResults()) {
+            List<Instant> timestamps = result.timestamps();
+            List<Double>  values     = result.values();
+            if (timestamps == null || values == null) continue;
+            List<Map.Entry<Instant, Double>> points = out.computeIfAbsent(
+                    result.id(), k -> new ArrayList<>());
+            for (int i = 0; i < Math.min(timestamps.size(), values.size()); i++) {
+                points.add(Map.entry(timestamps.get(i), values.get(i)));
+            }
+        }
+    }
+
+    private List<DbInstanceTimeseriesDto.Point> toPoints(List<Map.Entry<Instant, Double>> raw) {
+        if (raw == null) return List.of();
+        return raw.stream()
+                .sorted(Map.Entry.comparingByKey())
+                .map(e -> new DbInstanceTimeseriesDto.Point(e.getKey().toEpochMilli(), round2(e.getValue())))
+                .collect(java.util.stream.Collectors.toList());
+    }
+
+    private List<DbInstanceTimeseriesDto.Point> toPointsScaled(
+            List<Map.Entry<Instant, Double>> raw, double scale) {
+        if (raw == null) return List.of();
+        return raw.stream()
+                .sorted(Map.Entry.comparingByKey())
+                .map(e -> new DbInstanceTimeseriesDto.Point(
+                        e.getKey().toEpochMilli(), round2(e.getValue() * scale)))
+                .collect(java.util.stream.Collectors.toList());
+    }
+
     private String sanitizeId(String instanceId) {
         String s = "i" + instanceId.replaceAll("[^a-zA-Z0-9]", "_").toLowerCase();
         return s.length() > 120 ? s.substring(0, 120) : s;
@@ -994,20 +1185,31 @@ public class DbOpsCostService {
                 }
                 Long internalAccountId = accountOpt.get().getId();
 
-                // 2. Find all cluster configs registered for this cloud account
-                List<KubernetesClusterConfig> clusters = clusterConfigRepository.findByCloudAccountId(internalAccountId);
-                if (clusters.isEmpty()) {
-                    logger.debug("[DbOps] getAgentQueryStats: no cluster configs for account {}", accountId);
-                    return List.of();
+                List<AgentQueryStatDto> merged = new ArrayList<>();
+
+                // 2. Read from db_agent_data_cache (DB-only agents registered via wizard)
+                List<DbAgentConfig> dbAgents = dbAgentConfigRepository.findByCloudAccountId(internalAccountId);
+                for (DbAgentConfig agent : dbAgents) {
+                    Optional<DbAgentDataCache> cacheOpt = dbAgentDataCacheRepository
+                            .findByDbAgentIdAndDataType(agent.getId(), "db-query-stats");
+                    if (cacheOpt.isEmpty()) continue;
+                    try {
+                        List<AgentQueryStatDto> batch = objectMapper.readValue(
+                                cacheOpt.get().getDataJson(),
+                                new TypeReference<List<AgentQueryStatDto>>() {});
+                        merged.addAll(batch);
+                    } catch (Exception e) {
+                        logger.warn("[DbOps] getAgentQueryStats: failed to parse cache for db agent {}: {}",
+                                agent.getAgentName(), e.getMessage());
+                    }
                 }
 
-                // 3. Collect db-query-stats from every cluster's agent cache
-                List<AgentQueryStatDto> merged = new ArrayList<>();
+                // 3. Also read from agent_data_cache (K8s agents that push db-query-stats)
+                List<KubernetesClusterConfig> clusters = clusterConfigRepository.findByCloudAccountId(internalAccountId);
                 for (KubernetesClusterConfig cluster : clusters) {
                     Optional<AgentDataCache> cacheOpt = agentDataCacheRepository
                             .findByClusterConfigIdAndDataType(cluster.getId(), "db-query-stats");
                     if (cacheOpt.isEmpty()) continue;
-
                     try {
                         List<AgentQueryStatDto> batch = objectMapper.readValue(
                                 cacheOpt.get().getDataJson(),
@@ -1026,6 +1228,123 @@ public class DbOpsCostService {
 
             } catch (Exception e) {
                 logger.error("[DbOps] getAgentQueryStats error for {}: {}", accountId, e.getMessage());
+                return List.of();
+            }
+        });
+    }
+
+    // =========================================================================
+    // PUBLIC API — AGENT TIMESERIES (Datadog-style charts from db_agent_metrics_history)
+    // =========================================================================
+
+    /**
+     * Returns time-series snapshots of db-instance-metrics for all DB agents in an account.
+     * Each push from the agent is stored as an append-only row; this reads the last N hours.
+     * Used to render connection count, buffer pool hit %, QPS breakdown charts.
+     */
+    @Async
+    public CompletableFuture<List<AgentTimeseriesDto>> getAgentTimeseries(String accountId, int hours) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                Optional<CloudAccount> accountOpt = cloudAccountRepository
+                        .findByAwsAccountIdOrGcpProjectIdOrAzureSubscriptionId(accountId, accountId, accountId);
+                if (accountOpt.isEmpty()) return List.of();
+                Long internalAccountId = accountOpt.get().getId();
+
+                List<DbAgentConfig> agents = dbAgentConfigRepository.findByCloudAccountId(internalAccountId);
+                if (agents.isEmpty()) return List.of();
+
+                LocalDateTime since = LocalDateTime.now().minusHours(hours);
+                List<AgentTimeseriesDto> result = new ArrayList<>();
+
+                for (DbAgentConfig agent : agents) {
+                    List<DbAgentMetricsHistory> historyRows = dbAgentMetricsHistoryRepository
+                            .findByDbAgentIdAndDataTypeAndCollectedAtAfterOrderByCollectedAtAsc(
+                                    agent.getId(), "db-instance-metrics", since);
+                    if (historyRows.isEmpty()) continue;
+
+                    List<AgentTimeseriesDto.SnapshotPoint> snapshots = new ArrayList<>();
+                    for (DbAgentMetricsHistory row : historyRows) {
+                        try {
+                            List<AgentInstanceMetricsDto> items = objectMapper.readValue(
+                                    row.getDataJson(), new TypeReference<List<AgentInstanceMetricsDto>>() {});
+                            if (items == null || items.isEmpty()) continue;
+                            AgentInstanceMetricsDto m = items.get(0);
+
+                            AgentTimeseriesDto.SnapshotPoint point = new AgentTimeseriesDto.SnapshotPoint();
+                            point.setTs(row.getCollectedAt().toString());
+                            point.setConnections(m.getCurrentConnections());
+                            point.setMaxConnections(m.getMaxConnections());
+                            point.setBufferPoolHitPct(m.getInnodbBufferPoolHitPct());
+                            point.setTotalQueries(m.getTotalQueries());
+                            point.setTotalSlowQueries(m.getTotalSlowQueries());
+                            point.setComSelect(m.getComSelect());
+                            point.setComInsert(m.getComInsert());
+                            point.setComUpdate(m.getComUpdate());
+                            point.setComDelete(m.getComDelete());
+                            point.setInnodbRowLockWaits(m.getInnodbRowLockWaits());
+                            point.setInnodbDeadlocks(m.getInnodbDeadlocks());
+                            point.setThreadsRunning(m.getThreadsRunning());
+                            snapshots.add(point);
+                        } catch (Exception e) {
+                            logger.warn("[DbOps] getAgentTimeseries: parse failed for agent {} row {}: {}",
+                                    agent.getAgentName(), row.getId(), e.getMessage());
+                        }
+                    }
+
+                    if (!snapshots.isEmpty()) {
+                        AgentTimeseriesDto dto = new AgentTimeseriesDto();
+                        dto.setAgentName(agent.getAgentName());
+                        dto.setDbHost(agent.getDbHost());
+                        dto.setSnapshots(snapshots);
+                        result.add(dto);
+                    }
+                }
+
+                logger.info("[DbOps] getAgentTimeseries: {} agents with history for account {}", result.size(), accountId);
+                return result;
+
+            } catch (Exception e) {
+                logger.error("[DbOps] getAgentTimeseries error for {}: {}", accountId, e.getMessage());
+                return List.of();
+            }
+        });
+    }
+
+    /**
+     * Returns the latest "db-table-sizes" batch for all DB agents in the account.
+     * Reads from db_agent_data_cache (upserted — always the freshest push).
+     */
+    public CompletableFuture<List<AgentTableSizeDto>> getAgentTableSizes(String accountId) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                Optional<CloudAccount> accountOpt = cloudAccountRepository
+                        .findByAwsAccountIdOrGcpProjectIdOrAzureSubscriptionId(accountId, accountId, accountId);
+                if (accountOpt.isEmpty()) return List.of();
+                Long internalAccountId = accountOpt.get().getId();
+
+                List<DbAgentConfig> agents = dbAgentConfigRepository.findByCloudAccountId(internalAccountId);
+                List<AgentTableSizeDto> result = new ArrayList<>();
+
+                for (DbAgentConfig agent : agents) {
+                    Optional<DbAgentDataCache> cacheOpt = dbAgentDataCacheRepository
+                            .findByDbAgentIdAndDataType(agent.getId(), "db-table-sizes");
+                    if (cacheOpt.isEmpty()) continue;
+                    try {
+                        List<AgentTableSizeDto> tables = objectMapper.readValue(
+                                cacheOpt.get().getDataJson(),
+                                new TypeReference<List<AgentTableSizeDto>>() {});
+                        if (tables != null) result.addAll(tables);
+                    } catch (Exception e) {
+                        logger.warn("[DbOps] getAgentTableSizes: parse failed for agent {}: {}", agent.getAgentName(), e.getMessage());
+                    }
+                }
+
+                logger.info("[DbOps] getAgentTableSizes: {} tables for account {}", result.size(), accountId);
+                return result;
+
+            } catch (Exception e) {
+                logger.error("[DbOps] getAgentTableSizes error for {}: {}", accountId, e.getMessage());
                 return List.of();
             }
         });
