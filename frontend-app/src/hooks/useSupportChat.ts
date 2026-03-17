@@ -116,7 +116,7 @@ export const useSupportChat = (): UseSupportChatReturn => {
       // Return all messages for the current user — user-based conversations, no accountId filter
       const url = '/api/ai/chat/history';
 
-      const history = await apiClient.get<ChatHistoryItem[]>(url);
+      const history = await apiClient.get<any[]>(url);
 
       if (Array.isArray(history)) {
         const mappedMessages = history.map((msg) => ({
@@ -124,8 +124,9 @@ export const useSupportChat = (): UseSupportChatReturn => {
           text: msg.content,
           isUser: msg.userMessage,
           timestamp: msg.timestamp,
-          isEdited: msg.isEdited,
-          isDeleted: msg.isDeleted,
+          // Normalize: Jackson strips "is" prefix, so backend may return "deleted"/"edited"
+          isEdited: msg.isEdited ?? msg.edited ?? false,
+          isDeleted: msg.isDeleted ?? msg.deleted ?? false,
           status: msg.status,
         }));
 

@@ -66,6 +66,7 @@ import BillOpsSupportDashboardPage from './pages/BillOpsSupportDashboardPage';
 import BillOpsAdminDashboardPage from './pages/BillOpsAdminDashboardPage';
 import AutoSpottingAdminDashboardPage from './pages/AutoSpottingAdminDashboardPage';
 import BillOpsAdminInvoicesPage from './pages/BillOpsAdminInvoicesPage';
+import BillOpsAdminInvoiceDetailPage from './pages/BillOpsAdminInvoiceDetailPage';
 import BillOpsAdminCreditsPage from './pages/BillOpsAdminCreditsPage';
 import BillOpsAdminTicketsPage from './pages/BillOpsAdminTicketsPage';
 import AgreementsPage from './pages/AgreementsPage';
@@ -453,6 +454,7 @@ const AppContent: React.FC = () => {
               <Route path="/billops-admin-dashboard" element={<BillOpsAdminDashboardPage />} />
               <Route path="/autospotting-admin" element={<AutoSpottingAdminDashboardPage />} />
               <Route path="/billops-admin-invoices" element={<BillOpsAdminInvoicesPage />} />
+              <Route path="/billops-admin-invoice-detail" element={<BillOpsAdminInvoiceDetailPage />} />
               <Route path="/billops-admin-credits" element={<BillOpsAdminCreditsPage />} />
               <Route path="/billops-admin-tickets" element={<BillOpsAdminTicketsPage />} />
               <Route path="/billops-agreements" element={<AgreementsPage />} />

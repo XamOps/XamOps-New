@@ -532,6 +532,7 @@ public class OptimizationService {
         return fetchAllRegionalResources(account, activeRegions, regionId -> {
             RdsClient rds = awsClientProvider.getRdsClient(account, regionId);
             return rds.describeDBInstances().dbInstances().stream()
+                    .filter(db -> "available".equalsIgnoreCase(db.dbInstanceStatus()))
                     .filter(db -> isRdsInstanceIdle(account, db, regionId))
                     .map(dbInstance -> {
                         double monthlyCost = pricingService.getRdsInstanceMonthlyPrice(dbInstance, regionId);

@@ -85,6 +85,10 @@ export interface UseBillOpsAdminInvoicesReturn {
   cancelMerge: () => void;
   pendingMerge: boolean;
   mergeSelectedInvoices: () => Promise<void>;
+  requestDelete: (invoiceId: number) => void;
+  cancelDelete: () => void;
+  confirmDelete: () => Promise<void>;
+  pendingDelete: number | null;
   downloadPreview: (invoice: AdminInvoiceItem) => Promise<void>;
   getSelectedAccountName: () => string;
   isCloudFront: (invoice: AdminInvoiceItem) => boolean;

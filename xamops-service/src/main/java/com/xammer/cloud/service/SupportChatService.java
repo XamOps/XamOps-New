@@ -138,6 +138,18 @@ public class SupportChatService {
     }
 
     /**
+     * Admin soft-delete: deletes any message by id (no time restriction).
+     */
+    @Transactional
+    public Optional<SupportMessage> deleteAdminMessage(Long id) {
+        Optional<SupportMessage> opt = messageRepository.findById(id);
+        if (opt.isEmpty()) return Optional.empty();
+        SupportMessage msg = opt.get();
+        msg.setDeleted(true);
+        return Optional.of(messageRepository.save(msg));
+    }
+
+    /**
      * Soft-delete a user's own message within 60 minutes of sending.
      */
     @Transactional

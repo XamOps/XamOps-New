@@ -265,6 +265,12 @@ public class DashboardController {
                 logger.info("Serving Waste data from database cache for account {}", accountIdToUse);
                 return CompletableFuture.completedFuture(cachedWaste);
             }
+        } else {
+            // Invalidate stale DB snapshot before the scan starts.
+            // If the scan fails (exception path), the old stale entry won't be re-served
+            // on the next non-forced load — instead the page triggers a fresh scan.
+            dashboardDataService.deleteSnapshot(cacheKey);
+            logger.info("Deleted stale waste DB snapshot for account {} before force-refresh scan", accountIdToUse);
         }
 
         // Fallback: Fetch fresh data

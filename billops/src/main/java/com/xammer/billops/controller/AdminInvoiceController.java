@@ -91,6 +91,17 @@ public class AdminInvoiceController {
         return ResponseEntity.ok(InvoiceDto.fromEntity(updatedInvoice));
     }
 
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteInvoice(@PathVariable Long id) {
+        try {
+            invoiceManagementService.deleteInvoice(id);
+            return ResponseEntity.noContent().build();
+        } catch (IllegalStateException e) {
+            logger.warn("Cannot delete invoice {}: {}", id, e.getMessage());
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
     /**
      * NEW: Merge two draft invoices into one.
      * Moves items from the 'source' invoice (e.g., CloudFront) into the 'target' invoice (e.g., Standard Bill).

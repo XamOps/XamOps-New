@@ -1,6 +1,7 @@
 package com.xammer.cloud.domain;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import javax.persistence.*;
@@ -49,12 +50,14 @@ public class SupportMessage {
     private String senderUsername;
 
     // Edit / delete (WhatsApp-style)
+    @JsonProperty("isEdited")
     @Column(name = "is_edited", nullable = false)
     private boolean isEdited = false;
 
     @Column(name = "edited_at")
     private LocalDateTime editedAt;
 
+    @JsonProperty("isDeleted")
     @Column(name = "is_deleted", nullable = false)
     private boolean isDeleted = false;
 
