@@ -31,6 +31,7 @@ export interface GenerationParams {
   accountId: string;
   year: number;
   month: number;
+  includeIrn: boolean;
 }
 
 export interface MergeOrder {

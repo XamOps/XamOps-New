@@ -194,10 +194,10 @@ const ClientDetailsPage: React.FC = () => {
         if (search.trim()) {
             const term = search.toLowerCase();
             result = result.filter(c =>
-                c.name.toLowerCase().includes(term) ||
-                c.email.toLowerCase().includes(term) ||
-                c.accounts.some(a => a.name.toLowerCase().includes(term) || a.providerAccountId.toLowerCase().includes(term)) ||
-                c.users.some(u => u.username.toLowerCase().includes(term) || u.email.toLowerCase().includes(term))
+                (c.name ?? '').toLowerCase().includes(term) ||
+                (c.email ?? '').toLowerCase().includes(term) ||
+                c.accounts.some(a => (a.name ?? '').toLowerCase().includes(term) || (a.providerAccountId ?? '').toLowerCase().includes(term)) ||
+                c.users.some(u => (u.username ?? '').toLowerCase().includes(term) || (u.email ?? '').toLowerCase().includes(term))
             );
         }
 

@@ -50,6 +50,10 @@ public class Invoice {
     @Column(precision = 19, scale = 4)
     private BigDecimal amount; // Grand Total (Taxable + Tax)
 
+    // Whether this invoice includes IRN (Tax Invoice) or is a Performa Invoice
+    @Column(name = "include_irn", nullable = false)
+    private boolean includeIrn = false;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "cloud_account_id", nullable = false)
     private CloudAccount cloudAccount;
@@ -93,6 +97,8 @@ public class Invoice {
 
     public BigDecimal getAmount() { return this.amount; }
     public void setAmount(BigDecimal amount) { this.amount = amount; }
+    public boolean isIncludeIrn() { return includeIrn; }
+    public void setIncludeIrn(boolean includeIrn) { this.includeIrn = includeIrn; }
     public CloudAccount getCloudAccount() { return cloudAccount; }
     public void setCloudAccount(CloudAccount cloudAccount) { this.cloudAccount = cloudAccount; }
     public List<InvoiceLineItem> getLineItems() { return lineItems; }

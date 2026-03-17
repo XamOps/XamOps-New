@@ -238,6 +238,37 @@ const BillOpsAdminInvoicesPage: React.FC = () => {
               )}
             </button>
           </div>
+
+          {/* IRN Toggle */}
+          <div className="mt-4 flex items-start gap-3">
+            <label className={`flex items-center gap-3 px-4 py-3 rounded-xl border-2 cursor-pointer transition-all select-none ${
+              generation.includeIrn
+                ? 'border-indigo-400 bg-indigo-50'
+                : 'border-slate-200 bg-slate-50 hover:border-slate-300'
+            }`}>
+              <input
+                type="checkbox"
+                checked={generation.includeIrn}
+                onChange={(e) => setGeneration(prev => ({ ...prev, includeIrn: e.target.checked }))}
+                className="w-4 h-4 accent-indigo-600"
+              />
+              <div>
+                <p className="text-sm font-semibold text-slate-700">
+                  <i className="fas fa-stamp mr-1.5 text-indigo-500" />
+                  Include IRN
+                  {generation.includeIrn
+                    ? <span className="ml-2 text-xs font-medium text-white bg-indigo-500 px-2 py-0.5 rounded-full">Tax Invoice</span>
+                    : <span className="ml-2 text-xs font-medium text-slate-500 bg-slate-200 px-2 py-0.5 rounded-full">Performa Invoice</span>
+                  }
+                </p>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {generation.includeIrn
+                    ? 'PDF will include IRN, Ack No., Ack Date and QR code (e-Invoice)'
+                    : 'PDF will be generated as a Performa Invoice (no IRN)'}
+                </p>
+              </div>
+            </label>
+          </div>
         </div>
 
         {/* Update Error Alert */}
