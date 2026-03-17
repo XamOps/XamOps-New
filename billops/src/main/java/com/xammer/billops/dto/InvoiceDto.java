@@ -31,6 +31,7 @@ public class InvoiceDto {
     private BigDecimal discountAmount;
     private BigDecimal taxAmount;
     private BigDecimal amount;
+    private boolean includeIrn;
     private long lastUpdated;
     private List<LineItemDto> lineItems;
     private List<DiscountDto> discounts;
@@ -71,6 +72,7 @@ public class InvoiceDto {
         dto.setDiscountAmount(invoice.getDiscountAmount());
         dto.setTaxAmount(invoice.getTaxAmount());
         dto.setAmount(invoice.getAmount());
+        dto.setIncludeIrn(invoice.isIncludeIrn());
 
         // Convert line items (only non-hidden items)
         List<LineItemDto> items = Optional.ofNullable(invoice.getLineItems())
@@ -227,6 +229,14 @@ public class InvoiceDto {
 
     public void setAmount(BigDecimal amount) {
         this.amount = amount;
+    }
+
+    public boolean isIncludeIrn() {
+        return includeIrn;
+    }
+
+    public void setIncludeIrn(boolean includeIrn) {
+        this.includeIrn = includeIrn;
     }
 
     public long getLastUpdated() {

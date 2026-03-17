@@ -50,7 +50,8 @@ export const useBillOpsAdminInvoices = (): UseBillOpsAdminInvoicesReturn => {
   const [generation, setGeneration] = useState<GenerationParams>({
     accountId: '',
     year: new Date().getFullYear(),
-    month: new Date().getMonth() + 1
+    month: new Date().getMonth() + 1,
+    includeIrn: false,
   });
   const [generating, setGenerating] = useState(false);
   const [pendingMerge, setPendingMerge] = useState(false);

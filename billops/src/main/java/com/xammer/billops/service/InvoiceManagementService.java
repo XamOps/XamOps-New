@@ -3,6 +3,7 @@ package com.xammer.billops.service;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.itextpdf.barcodes.BarcodeQRCode;
 import com.itextpdf.kernel.colors.ColorConstants;
 import com.itextpdf.kernel.colors.DeviceRgb;
 import com.itextpdf.kernel.geom.PageSize;
@@ -12,6 +13,7 @@ import com.itextpdf.layout.Document;
 import com.itextpdf.layout.borders.Border;
 import com.itextpdf.layout.borders.SolidBorder;
 import com.itextpdf.layout.element.Cell;
+import com.itextpdf.layout.element.Image;
 import com.itextpdf.layout.element.Paragraph;
 import com.itextpdf.layout.element.Table;
 import com.itextpdf.layout.properties.TextAlignment;
@@ -56,10 +58,10 @@ public class InvoiceManagementService {
     private static final String COMPANY_NAME = "XAMMER TECHNOLOGIES PRIVATE LIMITED";
     private static final String COMPANY_ADDRESS = "2nd Floor, H.IN.KH.No 293, Western Marg,\nNear Kher Singh Estate, Saidulajab, New Delhi,\nSouth Delhi, Delhi, 110030";
     private static final String COMPANY_UDYAM = "UDYAM-DL-08-0100428 (Micro)";
-    private static final String COMPANY_GSTIN = "07AAACX3428N1ZO";
+    private static final String COMPANY_GSTIN = "07AAACX3428N1Z0";
     private static final String COMPANY_STATE = "Delhi";
     private static final String COMPANY_STATE_CODE = "07";
-    private static final String COMPANY_CIN = "U72900UP20200PC135808";
+    private static final String COMPANY_CIN = "U72900UP2020OPC135808";
     private static final String BANK_NAME = "HDFC BANK";
     private static final String BANK_ACC_NO = "50200056268509";
     private static final String BANK_IFSC = "HDFC0000329";
@@ -155,6 +157,11 @@ public class InvoiceManagementService {
             // 5. Footer
             addFooter(document, taxableValueInr.add(taxAmountInr));
 
+            // 6. IRN Section (only for Tax Invoices with IRN)
+            if (dto.isIncludeIrn()) {
+                addIrnSection(document, pdf);
+            }
+
         } catch (Exception e) {
             logger.error("Error generating PDF", e);
             throw new RuntimeException("PDF generation failed", e);
@@ -223,9 +230,57 @@ public class InvoiceManagementService {
         return 86.0;
     }
 
+    // --- Hardcoded IRN constants (replace with real API data when available) ---
+    private static final String IRN_VALUE   = "c2116b1c67ae4d5b86d1f9488d34a331d8d1ed085dd2989aacbc55b68af67c14";
+    private static final String IRN_ACK_NO  = "142518927183155";
+    private static final String IRN_ACK_DATE = "2025-12-01 11:59:00";
+
+    private void addIrnSection(Document document, PdfDocument pdf) {
+        Table irnTable = new Table(UnitValue.createPercentArray(new float[]{20, 80})).useAllAvailableWidth();
+        irnTable.setBorder(new SolidBorder(ColorConstants.BLACK, 0.5f));
+
+        // Left cell: QR code generated from the IRN value
+        try {
+            BarcodeQRCode qr = new BarcodeQRCode(IRN_VALUE);
+            Image qrImage = new Image(qr.createFormXObject(pdf));
+            qrImage.setWidth(60).setHeight(60);
+            Cell qrCell = new Cell().add(qrImage)
+                    .setBorder(new SolidBorder(ColorConstants.BLACK, 0.5f))
+                    .setPadding(5)
+                    .setVerticalAlignment(VerticalAlignment.MIDDLE)
+                    .setHorizontalAlignment(com.itextpdf.layout.properties.HorizontalAlignment.CENTER);
+            irnTable.addCell(qrCell);
+        } catch (Exception e) {
+            logger.warn("[InvoiceGen] QR code generation failed: {}", e.getMessage());
+            irnTable.addCell(new Cell().add(new Paragraph("QR").setFontSize(8))
+                    .setBorder(new SolidBorder(ColorConstants.BLACK, 0.5f)).setPadding(5));
+        }
+
+        // Right cell: IRN details
+        Cell detailCell = new Cell().setBorder(new SolidBorder(ColorConstants.BLACK, 0.5f)).setPadding(8);
+        detailCell.add(new Paragraph()
+                .add(new com.itextpdf.layout.element.Text("IRN : ").setBold())
+                .add(new com.itextpdf.layout.element.Text(IRN_VALUE))
+                .setFontSize(7).setMarginBottom(3));
+        detailCell.add(new Paragraph()
+                .add(new com.itextpdf.layout.element.Text("Ack No. : ").setBold())
+                .add(new com.itextpdf.layout.element.Text(IRN_ACK_NO))
+                .setFontSize(8).setMarginBottom(3));
+        detailCell.add(new Paragraph()
+                .add(new com.itextpdf.layout.element.Text("Ack Date : ").setBold())
+                .add(new com.itextpdf.layout.element.Text(IRN_ACK_DATE))
+                .setFontSize(8).setMarginBottom(5));
+        detailCell.add(new Paragraph("e-Invoicing detail(s) generated from the Government's e-Invoicing system.")
+                .setFontSize(7).setItalic());
+        irnTable.addCell(detailCell);
+
+        document.add(irnTable);
+    }
+
     private void addHeaderAndAddressSection(Document document, InvoiceDto dto) {
-        // Main Title
-        Paragraph title = new Paragraph("Tax Invoice")
+        // Title: "Tax Invoice" for IRN invoices, "Performa Invoice" otherwise
+        String titleText = dto.isIncludeIrn() ? "Tax Invoice" : "Performa Invoice";
+        Paragraph title = new Paragraph(titleText)
                 .setBold().setFontSize(14).setTextAlignment(TextAlignment.CENTER).setMarginBottom(5);
         document.add(title);
 
@@ -295,10 +350,6 @@ public class InvoiceManagementService {
         addMetaCell(metaTable, "Mode/Terms of Payment", "");
 
         // Row 3
-        addMetaCell(metaTable, "Reference No. & Date", "");
-        addMetaCell(metaTable, "Other References", "");
-
-        // Row 4
         addMetaCell(metaTable, "Buyer's Order No.", "");
         addMetaCell(metaTable, "Dated", "");
 
@@ -341,27 +392,42 @@ public class InvoiceManagementService {
         mainTable.addCell(rightCell);
 
         document.add(mainTable);
-        document.add(new Paragraph("\n")); // Spacing
+        if (!dto.isIncludeIrn()) {
+            document.add(new Paragraph("\n")); // Spacing (omitted when IRN is included to save height)
+        }
     }
 
     private void addMetaCell(Table table, String label, String value) {
         Cell cell = new Cell().setPadding(2).setBorder(new SolidBorder(ColorConstants.BLACK, 0.5f));
         cell.add(new Paragraph(label).setBold().setFontSize(7));
-        cell.add(new Paragraph(value).setFontSize(8));
+        cell.add(new Paragraph(value).setBold().setFontSize(8));
         table.addCell(cell);
     }
 
     private BigDecimal addMainTable(Document document, InvoiceDto dto, boolean isIntraState, double exchangeRate) {
-        // Columns: SI No, Description, HSN/SAC, Quantity, Rate, Per, Disc %, Amount
-        float[] colWidths = {5, 43, 10, 8, 12, 5, 7, 10};
+        // Columns: SI No, Description, HSN/SAC, Quantity, Rate, Per, Amount
+        float[] colWidths = {5, 43, 10, 8, 12, 5, 17};
         Table table = new Table(UnitValue.createPercentArray(colWidths)).useAllAvailableWidth();
         BigDecimal rate = BigDecimal.valueOf(exchangeRate);
         String rateStr = String.format("%.2f", exchangeRate);
 
-        String[] headers = {"SI No.", "Description of Services", "HSN/SAC", "Quantity", "Rate", "per", "Disc. %",
-            "Amount"};
-        for (String h : headers) {
-            table.addHeaderCell(new Cell().add(new Paragraph(h).setBold().setFontSize(8))
+        // Two-line headers for first two columns to match standard invoice format
+        String[][] headerLines = {
+            {"Sl", "No."},
+            {"Description of", "Services"},
+            {"HSN/SAC", null},
+            {"Quantity", null},
+            {"Rate", null},
+            {"per", null},
+            {"Amount", null}
+        };
+        for (String[] lines : headerLines) {
+            Paragraph hp = new Paragraph()
+                    .add(new com.itextpdf.layout.element.Text(lines[0]).setBold().setFontSize(8));
+            if (lines[1] != null) {
+                hp.add("\n").add(new com.itextpdf.layout.element.Text(lines[1]).setBold().setFontSize(8));
+            }
+            table.addHeaderCell(new Cell().add(hp)
                     .setTextAlignment(TextAlignment.CENTER)
                     .setBackgroundColor(ColorConstants.LIGHT_GRAY)
                     .setBorder(new SolidBorder(ColorConstants.BLACK, 0.5f)));
@@ -437,7 +503,7 @@ public class InvoiceManagementService {
             Paragraph descPara = new Paragraph();
             descPara.add(new com.itextpdf.layout.element.Text(headerText).setBold().setFontSize(8));
             descPara.add(new com.itextpdf.layout.element.Text("\n" + subHeaderText).setItalic().setFontSize(8));
-            descPara.add(new com.itextpdf.layout.element.Text("\nFor the Month of " + monthStr).setItalic().setFontSize(8));
+            descPara.add(new com.itextpdf.layout.element.Text("\nFor the Period of " + monthStr).setItalic().setFontSize(8));
             descPara.add(new com.itextpdf.layout.element.Text("\n" + accountLabel).setItalic().setFontSize(8));
             descPara.add(new com.itextpdf.layout.element.Text(
                     String.format("\n($%.2f @%s)", finalAmountUsd.doubleValue(), rateStr)).setItalic().setFontSize(8));
@@ -460,7 +526,7 @@ public class InvoiceManagementService {
             Paragraph cfDescPara = new Paragraph();
             cfDescPara.add(new com.itextpdf.layout.element.Text("AWS CloudFront Consumption").setBold().setFontSize(8));
             cfDescPara.add(new com.itextpdf.layout.element.Text("\nAmazon CloudFront Charges").setItalic().setFontSize(8));
-            cfDescPara.add(new com.itextpdf.layout.element.Text("\nFor the Month of " + monthStr).setItalic().setFontSize(8));
+            cfDescPara.add(new com.itextpdf.layout.element.Text("\nFor the Period of " + monthStr).setItalic().setFontSize(8));
             cfDescPara.add(new com.itextpdf.layout.element.Text(
                     String.format("\n($%.2f @%s)", cfTotalUsd.doubleValue(), rateStr)).setItalic().setFontSize(8));
 
@@ -468,9 +534,10 @@ public class InvoiceManagementService {
             totalTaxable = totalTaxable.add(cfTotalInr);
         }
 
-        // Filler rows (2 blank rows for spacing)
-        for (int i = 0; i < 2; i++) {
-            for (int j = 0; j < 8; j++) {
+        // Filler rows (removed when IRN is included to keep everything on one page)
+        int fillerRows = dto.isIncludeIrn() ? 0 : 2;
+        for (int i = 0; i < fillerRows; i++) {
+            for (int j = 0; j < 7; j++) {
                 table.addCell(new Cell().setBorder(new SolidBorder(ColorConstants.BLACK, 0.5f)).setHeight(15));
             }
         }
@@ -481,33 +548,33 @@ public class InvoiceManagementService {
         if (isIntraState) {
             // CGST@9%
             table.addCell(createCell("", TextAlignment.CENTER));
-            table.addCell(createCell("CGST@9%", TextAlignment.LEFT).setBold());
+            table.addCell(new Cell().add(new Paragraph().add(new com.itextpdf.layout.element.Text("CGST@9%").setBold().setItalic()).setFontSize(8))
+                    .setTextAlignment(TextAlignment.RIGHT).setBorder(new SolidBorder(ColorConstants.BLACK, 0.5f)).setPadding(3));
             table.addCell(createCell("", TextAlignment.CENTER));
             table.addCell(createCell("", TextAlignment.CENTER));
-            table.addCell(createCell("9 %", TextAlignment.RIGHT));
-            table.addCell(createCell("", TextAlignment.CENTER));
-            table.addCell(createCell("", TextAlignment.CENTER));
+            table.addCell(createCell("9", TextAlignment.RIGHT));
+            table.addCell(createCell("%", TextAlignment.LEFT));
             table.addCell(createCell(formatCurrency(halfTax), TextAlignment.RIGHT));
             // SGST@9%
             table.addCell(createCell("", TextAlignment.CENTER));
-            table.addCell(createCell("SGST@9%", TextAlignment.LEFT).setBold());
+            table.addCell(new Cell().add(new Paragraph().add(new com.itextpdf.layout.element.Text("SGST@9%").setBold().setItalic()).setFontSize(8))
+                    .setTextAlignment(TextAlignment.RIGHT).setBorder(new SolidBorder(ColorConstants.BLACK, 0.5f)).setPadding(3));
             table.addCell(createCell("", TextAlignment.CENTER));
             table.addCell(createCell("", TextAlignment.CENTER));
-            table.addCell(createCell("9 %", TextAlignment.RIGHT));
-            table.addCell(createCell("", TextAlignment.CENTER));
-            table.addCell(createCell("", TextAlignment.CENTER));
+            table.addCell(createCell("9", TextAlignment.RIGHT));
+            table.addCell(createCell("%", TextAlignment.LEFT));
             table.addCell(createCell(formatCurrency(halfTax), TextAlignment.RIGHT));
             igstAmount = halfTax.add(halfTax);
         } else {
             // IGST@18%
             igstAmount = totalTaxable.multiply(IGST_RATE).setScale(2, RoundingMode.HALF_UP);
             table.addCell(createCell("", TextAlignment.CENTER));
-            table.addCell(createCell("IGST@18%", TextAlignment.LEFT).setBold());
+            table.addCell(new Cell().add(new Paragraph().add(new com.itextpdf.layout.element.Text("IGST@18%").setBold().setItalic()).setFontSize(8))
+                    .setTextAlignment(TextAlignment.RIGHT).setBorder(new SolidBorder(ColorConstants.BLACK, 0.5f)).setPadding(3));
             table.addCell(createCell("", TextAlignment.CENTER));
             table.addCell(createCell("", TextAlignment.CENTER));
-            table.addCell(createCell("18 %", TextAlignment.RIGHT));
-            table.addCell(createCell("", TextAlignment.CENTER));
-            table.addCell(createCell("", TextAlignment.CENTER));
+            table.addCell(createCell("18", TextAlignment.RIGHT));
+            table.addCell(createCell("%", TextAlignment.LEFT));
             table.addCell(createCell(formatCurrency(igstAmount), TextAlignment.RIGHT));
         }
 
@@ -516,36 +583,54 @@ public class InvoiceManagementService {
         BigDecimal roundedTotal = grossTotal.setScale(0, RoundingMode.HALF_UP);
         BigDecimal roundOff = roundedTotal.subtract(grossTotal);
         table.addCell(createCell("", TextAlignment.CENTER));
-        table.addCell(createCell("Round Off", TextAlignment.LEFT));
-        table.addCell(createCell("", TextAlignment.CENTER));
+        table.addCell(createCell("Round Off", TextAlignment.RIGHT));
         table.addCell(createCell("", TextAlignment.CENTER));
         table.addCell(createCell("", TextAlignment.CENTER));
         table.addCell(createCell("", TextAlignment.CENTER));
         table.addCell(createCell("", TextAlignment.CENTER));
         table.addCell(createCell(formatCurrency(roundOff.abs()), TextAlignment.RIGHT));
 
-        // Total Row (shows taxable + IGST + roundoff)
-        Cell totalLabel = new Cell(1, 7).add(new Paragraph("Total").setBold().setFontSize(9))
-                .setTextAlignment(TextAlignment.RIGHT).setBorder(new SolidBorder(ColorConstants.BLACK, 0.5f));
-        table.addCell(totalLabel);
+        // Bill Details: — inside table, after Round Off, before Total
+        table.addCell(new Cell(1, 7)
+                .add(new Paragraph("Bill Details:").setBold().setFontSize(8))
+                .setBorder(Border.NO_BORDER)
+                .setBorderLeft(new SolidBorder(ColorConstants.BLACK, 0.5f))
+                .setBorderRight(new SolidBorder(ColorConstants.BLACK, 0.5f))
+                .setBorderTop(new SolidBorder(ColorConstants.BLACK, 0.5f))
+                .setPadding(3).setPaddingLeft(5));
+        table.addCell(new Cell(1, 7)
+                .add(new Paragraph()
+                        .add(new com.itextpdf.layout.element.Text("New Ref " + dto.getInvoiceNumber() + "    " + formatCurrency(roundedTotal) + " ").setFontSize(8))
+                        .add(new com.itextpdf.layout.element.Text("Dr").setFontSize(8).setItalic()))
+                .setBorder(Border.NO_BORDER)
+                .setBorderLeft(new SolidBorder(ColorConstants.BLACK, 0.5f))
+                .setBorderRight(new SolidBorder(ColorConstants.BLACK, 0.5f))
+                .setPadding(3).setPaddingLeft(15));
 
-        Cell totalValue = new Cell().add(new Paragraph("\u20B9 " + formatCurrency(roundedTotal)).setBold().setFontSize(9))
-                .setTextAlignment(TextAlignment.RIGHT).setBorder(new SolidBorder(ColorConstants.BLACK, 0.5f));
-        table.addCell(totalValue);
+        // Total Row — inside table
+        table.addCell(new Cell(1, 6).add(new Paragraph("Total").setBold().setFontSize(9))
+                .setTextAlignment(TextAlignment.RIGHT).setBorder(new SolidBorder(ColorConstants.BLACK, 0.5f)));
+        table.addCell(new Cell().add(new Paragraph("\u20B9 " + formatCurrency(roundedTotal)).setBold().setFontSize(9))
+                .setTextAlignment(TextAlignment.RIGHT).setBorder(new SolidBorder(ColorConstants.BLACK, 0.5f)));
+
+        // Amount Chargeable (in words) | E. & O.E — inside table after Total
+        table.addCell(new Cell(1, 6)
+                .add(new Paragraph("Amount Chargeable (in words)").setFontSize(8))
+                .setBorder(new SolidBorder(ColorConstants.BLACK, 0.5f))
+                .setPadding(3).setPaddingLeft(5));
+        table.addCell(new Cell(1, 1)
+                .add(new Paragraph("E. & O.E").setFontSize(8))
+                .setTextAlignment(TextAlignment.RIGHT)
+                .setBorder(new SolidBorder(ColorConstants.BLACK, 0.5f))
+                .setPadding(3));
+
+        // INR words — last row inside table (bold)
+        table.addCell(new Cell(1, 7)
+                .add(new Paragraph(convertNumberToWords(roundedTotal)).setBold().setFontSize(8))
+                .setBorder(new SolidBorder(ColorConstants.BLACK, 0.5f))
+                .setPadding(3).setPaddingLeft(5));
 
         document.add(table);
-
-        // Bill Details section (standard accounting entry)
-        document.add(new Paragraph("Bill Details:").setBold().setFontSize(8).setMarginLeft(5).setMarginTop(2));
-        document.add(new Paragraph("New Ref " + dto.getInvoiceNumber() + "    " + formatCurrency(roundedTotal) + " Dr")
-                .setFontSize(8).setMarginLeft(15).setMarginBottom(2));
-
-        // Amount Chargeable — use roundedTotal so it matches the Total row
-        document.add(new Paragraph("Amount Chargeable (in words)    E. & O.E")
-                .setFontSize(9).setMarginLeft(5).setMarginTop(3));
-        document.add(new Paragraph(convertNumberToWords(roundedTotal))
-                .setFontSize(9).setBold().setMarginLeft(5).setMarginBottom(3));
-
         return totalTaxable;
     }
 
@@ -556,8 +641,8 @@ public class InvoiceManagementService {
         table.addCell(createCell("", TextAlignment.CENTER));
         table.addCell(createCell("", TextAlignment.RIGHT));
         table.addCell(createCell("", TextAlignment.CENTER));
-        table.addCell(createCell("", TextAlignment.CENTER));
-        table.addCell(createCell(formatCurrency(amt), TextAlignment.RIGHT));
+        table.addCell(new Cell().add(new Paragraph(formatCurrency(amt)).setBold().setFontSize(8))
+                .setTextAlignment(TextAlignment.RIGHT).setBorder(new SolidBorder(ColorConstants.BLACK, 0.5f)).setPadding(3));
     }
 
     private void addTableRow(Table table, int si, Paragraph descPara, String hsn, BigDecimal amt) {
@@ -568,8 +653,8 @@ public class InvoiceManagementService {
         table.addCell(createCell("", TextAlignment.CENTER));
         table.addCell(createCell("", TextAlignment.RIGHT));
         table.addCell(createCell("", TextAlignment.CENTER));
-        table.addCell(createCell("", TextAlignment.CENTER));
-        table.addCell(createCell(formatCurrency(amt), TextAlignment.RIGHT));
+        table.addCell(new Cell().add(new Paragraph(formatCurrency(amt)).setBold().setFontSize(8))
+                .setTextAlignment(TextAlignment.RIGHT).setBorder(new SolidBorder(ColorConstants.BLACK, 0.5f)).setPadding(3));
     }
 
     private Cell createCell(String text, TextAlignment alignment) {
@@ -580,7 +665,6 @@ public class InvoiceManagementService {
     }
 
     private void addTaxSection(Document document, BigDecimal taxable, BigDecimal tax, boolean isIntraState) {
-        document.add(new Paragraph("\n"));
 
         if (isIntraState) {
             // CGST 9% + SGST 9% table (7 columns)
@@ -638,7 +722,6 @@ public class InvoiceManagementService {
     }
 
     private void addFooter(Document document, BigDecimal total) {
-        document.add(new Paragraph("\n"));
 
         Table footerTable = new Table(UnitValue.createPercentArray(new float[]{50, 50})).useAllAvailableWidth();
 
@@ -654,7 +737,7 @@ public class InvoiceManagementService {
                 .setTextAlignment(TextAlignment.RIGHT)
                 .setVerticalAlignment(VerticalAlignment.BOTTOM);
         sigCell.add(new Paragraph("for " + COMPANY_NAME).setBold().setFontSize(8));
-        sigCell.add(new Paragraph("\n\n\n"));
+        sigCell.add(new Paragraph("\n\n"));
         sigCell.add(new Paragraph("Authorised Signatory").setFontSize(8));
 
         footerTable.addCell(bankCell);
@@ -662,7 +745,7 @@ public class InvoiceManagementService {
         document.add(footerTable);
 
         document.add(new Paragraph("Company's PAN: " + COMPANY_PAN).setFontSize(8).setMarginTop(2));
-        document.add(new Paragraph("\nDeclaration").setBold().setUnderline().setFontSize(8));
+        document.add(new Paragraph("Declaration").setBold().setUnderline().setFontSize(8));
         document.add(new Paragraph(
                 "We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.")
                 .setFontSize(8));
@@ -794,8 +877,8 @@ public class InvoiceManagementService {
 
     @Transactional
     @CacheEvict(value = {"invoices", "invoiceDtos"}, allEntries = true)
-    public Invoice generateDraftInvoice(String accountId, int year, int month) {
-        logger.info("[InvoiceGen] generateDraftInvoice called: accountId='{}', year={}, month={}", accountId, year, month);
+    public Invoice generateDraftInvoice(String accountId, int year, int month, boolean includeIrn) {
+        logger.info("[InvoiceGen] generateDraftInvoice called: accountId='{}', year={}, month={}, includeIrn={}", accountId, year, month, includeIrn);
         // ✅ 1. Find Account by ANY Provider ID (AWS, GCP, or Azure)
         CloudAccount cloudAccount = cloudAccountRepository
                 .findByAwsAccountIdOrGcpProjectIdOrAzureSubscriptionId(accountId, accountId, accountId)
@@ -986,9 +1069,10 @@ public class InvoiceManagementService {
             }
         }
         invoice.setLineItems(lineItems);
+        invoice.setIncludeIrn(includeIrn);
         recalculateTotals(invoice);
-        logger.info("[InvoiceGen] Draft invoice computed for account='{}' {}/{}: {} line items, total={}",
-                accountId, year, month, lineItems.size(), invoice.getAmount());
+        logger.info("[InvoiceGen] Draft invoice computed for account='{}' {}/{}: {} line items, total={}, includeIrn={}",
+                accountId, year, month, lineItems.size(), invoice.getAmount(), includeIrn);
         Invoice saved = invoiceRepository.save(invoice);
         evictInvoiceListCache();
         return saved;
@@ -1388,7 +1472,7 @@ public class InvoiceManagementService {
             String[] parts = billingPeriod.split("-");
             int year = Integer.parseInt(parts[0]);
             int month = Integer.parseInt(parts[1]);
-            return java.time.Month.of(month).name() + " " + year;
+            return java.time.Month.of(month).getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.ENGLISH) + " " + year;
         } catch (Exception e) {
             return billingPeriod;
         }

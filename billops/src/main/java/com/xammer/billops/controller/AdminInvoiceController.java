@@ -28,12 +28,11 @@ public class AdminInvoiceController {
     @PostMapping("/generate")
     public ResponseEntity<InvoiceDto> generateDraftInvoice(@RequestBody Map<String, Object> payload) {
         String accountId = (String) payload.get("accountId");
-        
-        // Safely parse integers from the payload
         int year = Integer.parseInt(String.valueOf(payload.get("year")));
         int month = Integer.parseInt(String.valueOf(payload.get("month")));
+        boolean includeIrn = Boolean.TRUE.equals(payload.get("includeIrn"));
 
-        Invoice draftInvoice = invoiceManagementService.generateDraftInvoice(accountId, year, month);
+        Invoice draftInvoice = invoiceManagementService.generateDraftInvoice(accountId, year, month, includeIrn);
         return ResponseEntity.ok(InvoiceDto.fromEntity(draftInvoice));
     }
 
