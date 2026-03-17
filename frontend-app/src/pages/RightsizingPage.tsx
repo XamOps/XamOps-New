@@ -118,22 +118,48 @@ export const RightsizingPage: React.FC = () => {
 
             {/* AWS Recommendations Tab */}
             {activeTab === 'aws' && (
-              <div className="fade-in">
-                <AWSRecommendationsTable
-                  recommendations={filteredAWSRecommendations}
-                  isLoading={isLoadingAWS}
-                />
-              </div>
+              !isLoadingAWS && filteredAWSRecommendations.length === 0 ? (
+                <div className="rounded-3xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-md p-8 text-center">
+                  <div className="w-14 h-14 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <i className="fas fa-inbox text-gray-400 dark:text-gray-500 text-xl"></i>
+                  </div>
+                  <h3 className="text-xl font-bold text-gray-800 dark:text-gray-200 mb-2">No Recommendations</h3>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">No rightsizing recommendations available at this time.</p>
+                  <div className="inline-flex items-start gap-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-xl px-4 py-3 text-left max-w-md mx-auto">
+                    <i className="fas fa-exclamation-triangle text-amber-500 mt-0.5 flex-shrink-0 text-sm"></i>
+                    <p className="text-xs text-amber-700 dark:text-amber-300">
+                      If you expected recommendations, ensure <strong>AWS Cost Optimization Hub</strong> is enabled in your AWS Cost Management console.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="fade-in">
+                  <AWSRecommendationsTable
+                    recommendations={filteredAWSRecommendations}
+                    isLoading={isLoadingAWS}
+                  />
+                </div>
+              )
             )}
 
             {/* XamOps Recommendations Tab */}
             {activeTab === 'xamops' && (
-              <div className="fade-in">
-                <XamOpsRecommendationsTable
-                  recommendations={xamopsRecommendations}
-                  isLoading={isLoadingXamOps}
-                />
-              </div>
+              !isLoadingXamOps && xamopsRecommendations.length === 0 ? (
+                <div className="rounded-3xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-md p-8 text-center">
+                  <div className="w-14 h-14 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <i className="fas fa-lightbulb text-gray-400 dark:text-gray-500 text-xl"></i>
+                  </div>
+                  <h3 className="text-xl font-bold text-gray-800 dark:text-gray-200 mb-2">No XamOps Recommendations</h3>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Could not load custom recommendations at this time.</p>
+                </div>
+              ) : (
+                <div className="fade-in">
+                  <XamOpsRecommendationsTable
+                    recommendations={xamopsRecommendations}
+                    isLoading={isLoadingXamOps}
+                  />
+                </div>
+              )
             )}
           </>
         )}

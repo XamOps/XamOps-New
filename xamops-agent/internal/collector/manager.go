@@ -82,7 +82,39 @@ func (m *Manager) CollectAll() (*AgentPayload, error) {
 		Batches:        []DataBatch{},
 	}
 
+	// ── DB collectors (run even without k8s — just need TCP access to DB) ──
+	if m.cfg.CollectorDB && len(m.cfg.DBDSNs) > 0 {
+		// Query digests from performance_schema / pg_stat_statements
+		if batch, err := collectDBQueryStats(ctx, m.cfg.DBDSNs, m.cfg.DBQueryLimit); err == nil {
+			if batch.Count > 0 {
+				payload.Batches = append(payload.Batches, batch)
+			}
+		} else {
+			log.Printf("WARN: db-query-stats: %v", err)
+		}
+		// Server-level status metrics (connections, QPS, buffer pool, lock waits, etc.)
+		if batch, err := collectDBInstanceMetrics(ctx, m.cfg.DBDSNs); err == nil {
+			if batch.Count > 0 {
+				payload.Batches = append(payload.Batches, batch)
+			}
+		} else {
+			log.Printf("WARN: db-instance-metrics: %v", err)
+		}
+		// Table storage sizes (top 50 tables by size per DSN)
+		if batch, err := collectDBTableSizes(ctx, m.cfg.DBDSNs); err == nil {
+			if batch.Count > 0 {
+				payload.Batches = append(payload.Batches, batch)
+			}
+		} else {
+			log.Printf("WARN: db-table-sizes: %v", err)
+		}
+	}
+
 	if m.k8sClient == nil {
+		if m.cfg.CollectorDB {
+			// Running as a standalone DB agent (no k8s cluster) — DB batch already collected above
+			return payload, nil
+		}
 		log.Println("WARN: no k8s client — skipping all collectors")
 		return payload, nil
 	}
