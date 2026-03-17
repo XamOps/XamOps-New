@@ -140,6 +140,59 @@ type PodsSummary struct {
 	Failed  int `json:"failed"`
 }
 
+// DbInstanceMetrics represents live server-level metrics for one DB instance.
+// Collected alongside query stats — pushed as "db-instance-metrics" batch.
+type DbInstanceMetrics struct {
+	DSNAlias string `json:"dsnAlias"`
+	DBEngine string `json:"dbEngine"`
+	DBHost   string `json:"dbHost"`
+
+	// Connectivity
+	CurrentConnections int64 `json:"currentConnections"`
+	MaxConnections     int64 `json:"maxConnections"`
+	MaxUsedConnections int64 `json:"maxUsedConnections,omitempty"`
+
+	// Throughput (cumulative counters — consumer computes delta QPS)
+	TotalQueries  int64 `json:"totalQueries"`
+	TotalSlowQueries int64 `json:"totalSlowQueries,omitempty"`
+	ComSelect     int64 `json:"comSelect,omitempty"`
+	ComInsert     int64 `json:"comInsert,omitempty"`
+	ComUpdate     int64 `json:"comUpdate,omitempty"`
+	ComDelete     int64 `json:"comDelete,omitempty"`
+
+	// InnoDB buffer pool (MySQL only)
+	InnodbBufferPoolReads   int64   `json:"innodbBufferPoolReads,omitempty"`
+	InnodbBufferPoolHitPct  float64 `json:"innodbBufferPoolHitPct,omitempty"` // 0–100
+
+	// Locking (cumulative counters — consumer computes delta rate)
+	InnodbRowLockWaits int64 `json:"innodbRowLockWaits,omitempty"` // MySQL: Innodb_row_lock_waits / PG: deadlocks proxy
+	InnodbDeadlocks    int64 `json:"innodbDeadlocks,omitempty"`    // MySQL: Innodb_deadlocks / PG: sum(deadlocks)
+	ThreadsRunning     int64 `json:"threadsRunning,omitempty"`     // MySQL: Threads_running / PG: active non-idle connections
+
+	// Network
+	BytesReceived int64 `json:"bytesReceived,omitempty"`
+	BytesSent     int64 `json:"bytesSent,omitempty"`
+
+	// Server info
+	Uptime          int64  `json:"uptime"`          // seconds
+	Version         string `json:"version"`
+	CollectedAt     string `json:"collectedAt"`     // RFC3339
+}
+
+// DbTableSize represents storage usage for a single table — pushed as "db-table-sizes" batch.
+type DbTableSize struct {
+	DSNAlias       string `json:"dsnAlias"`
+	DBEngine       string `json:"dbEngine"`
+	DBHost         string `json:"dbHost"`
+	SchemaName     string `json:"schemaName"`
+	TableName      string `json:"tableName"`
+	DataSizeBytes  int64  `json:"dataSizeBytes"`
+	IndexSizeBytes int64  `json:"indexSizeBytes"`
+	TotalSizeBytes int64  `json:"totalSizeBytes"`
+	Rows           int64  `json:"rows"`
+	CollectedAt    string `json:"collectedAt"`
+}
+
 // DbQueryStat represents a single normalized query from performance_schema or pg_stat_statements
 type DbQueryStat struct {
 	// Connection info

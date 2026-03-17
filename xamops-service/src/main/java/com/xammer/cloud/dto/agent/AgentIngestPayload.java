@@ -25,9 +25,11 @@ public class AgentIngestPayload {
     private String clusterName;
 
     /**
-     * Cloud account ID (required - identifies the account)
+     * Cloud account ID (required - identifies the account).
+     * Accepts the provider account identifier as a string
+     * (e.g. AWS account number "015764906357", GCP project ID, Azure subscription ID).
      */
-    private Long cloudAccountId;
+    private String cloudAccountId;
 
     /**
      * Timestamp when data was collected
@@ -64,11 +66,11 @@ public class AgentIngestPayload {
         this.clusterName = clusterName;
     }
 
-    public Long getCloudAccountId() {
+    public String getCloudAccountId() {
         return cloudAccountId;
     }
 
-    public void setCloudAccountId(Long cloudAccountId) {
+    public void setCloudAccountId(String cloudAccountId) {
         this.cloudAccountId = cloudAccountId;
     }
 

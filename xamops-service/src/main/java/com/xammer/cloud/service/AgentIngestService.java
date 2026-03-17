@@ -23,6 +23,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
@@ -109,21 +110,33 @@ public class AgentIngestService {
      * @param cloudAccountId The cloud account ID from the payload
      * @return The cluster config if found, null otherwise
      */
-    public KubernetesClusterConfig findClusterConfig(String clusterName, Long cloudAccountId) {
-        if (clusterName == null || clusterName.isEmpty() || cloudAccountId == null) {
+    public KubernetesClusterConfig findClusterConfig(String clusterName, String awsAccountId) {
+        if (clusterName == null || clusterName.isEmpty() || awsAccountId == null || awsAccountId.isEmpty()) {
             logger.warn("Cannot find cluster config: missing clusterName or cloudAccountId");
             return null;
         }
 
-        Optional<KubernetesClusterConfig> configOpt = clusterConfigRepository
-                .findByCloudAccountIdAndClusterName(cloudAccountId, clusterName);
-
-        if (configOpt.isEmpty()) {
-            logger.warn("Cluster config not found for cluster: {} accountId: {}", clusterName, cloudAccountId);
-            return null;
+        // Resolve the provider account ID string to the CloudAccount DB primary key
+        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(awsAccountId);
+        if (accounts.isEmpty()) {
+            // Also try GCP / Azure
+            Optional<CloudAccount> byAny = cloudAccountRepository
+                    .findByProviderAccountId(awsAccountId);
+            if (byAny.isEmpty()) {
+                logger.warn("Cannot find cluster config: no cloud account for id {}", awsAccountId);
+                return null;
+            }
+            accounts = List.of(byAny.get());
         }
 
-        return configOpt.get();
+        for (CloudAccount account : accounts) {
+            Optional<KubernetesClusterConfig> configOpt = clusterConfigRepository
+                    .findByCloudAccountIdAndClusterName(account.getId(), clusterName);
+            if (configOpt.isPresent()) return configOpt.get();
+        }
+
+        logger.warn("Cluster config not found for cluster: {} accountId: {}", clusterName, awsAccountId);
+        return null;
     }
 
     /**
@@ -142,28 +155,37 @@ public class AgentIngestService {
      * placeholder with dataSourceMode="db-only" so data can be stored.
      */
     @Transactional
-    public KubernetesClusterConfig findOrCreateDbOnlyClusterConfig(String clusterName, Long cloudAccountId) {
-        // Try normal lookup first
-        Optional<KubernetesClusterConfig> existing = clusterConfigRepository
-                .findByCloudAccountIdAndClusterName(cloudAccountId, clusterName);
-        if (existing.isPresent()) return existing.get();
+    public KubernetesClusterConfig findOrCreateDbOnlyClusterConfig(String clusterName, String awsAccountId) {
+        // Resolve provider account ID string → CloudAccount
+        CloudAccount account = null;
+        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(awsAccountId);
+        if (!accounts.isEmpty()) {
+            account = accounts.get(0);
+        } else {
+            Optional<CloudAccount> byAny = cloudAccountRepository.findByProviderAccountId(awsAccountId);
+            if (byAny.isPresent()) account = byAny.get();
+        }
 
-        // Verify the cloud account exists
-        Optional<CloudAccount> account = cloudAccountRepository.findById(cloudAccountId);
-        if (account.isEmpty()) {
-            logger.warn("findOrCreateDbOnly: cloud account {} not found", cloudAccountId);
+        if (account == null) {
+            logger.warn("findOrCreateDbOnly: cloud account {} not found", awsAccountId);
             return null;
         }
 
+        // Try normal lookup first
+        Optional<KubernetesClusterConfig> existing = clusterConfigRepository
+                .findByCloudAccountIdAndClusterName(account.getId(), clusterName);
+        if (existing.isPresent()) return existing.get();
+
         // Auto-create a db-only placeholder
         KubernetesClusterConfig cfg = new KubernetesClusterConfig();
-        cfg.setCloudAccountId(cloudAccountId);
+        cfg.setCloudAccountId(account.getId());
         cfg.setClusterName(clusterName);
         cfg.setRegion("auto");
+        cfg.setKubeconfigYaml(""); // NOT NULL constraint — empty for db-only agents
         cfg.setDataSourceMode("db-only");
         cfg.setAgentStatus("active");
         cfg.setLastAgentCheckin(LocalDateTime.now());
-        logger.info("Auto-created db-only cluster config for account {} cluster '{}'", cloudAccountId, clusterName);
+        logger.info("Auto-created db-only cluster config for account {} cluster '{}'", awsAccountId, clusterName);
         return clusterConfigRepository.save(cfg);
     }
 

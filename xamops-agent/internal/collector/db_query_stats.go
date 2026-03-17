@@ -13,6 +13,125 @@ import (
 	_ "github.com/lib/pq"
 )
 
+// collectDBInstanceMetrics collects server-level status metrics for all DSNs.
+func collectDBInstanceMetrics(ctx context.Context, dsns []string) (DataBatch, error) {
+	collected := make([]DbInstanceMetrics, 0, len(dsns))
+	for i, dsn := range dsns {
+		alias := fmt.Sprintf("db-%d", i)
+		engine, host, err := parseDSN(dsn)
+		if err != nil {
+			continue
+		}
+		m, err := queryDBMetrics(ctx, dsn, engine, alias, host)
+		if err != nil {
+			log.Printf("WARN: db-instance-metrics: %s (%s): %v", alias, host, err)
+			continue
+		}
+		collected = append(collected, *m)
+		log.Printf("INFO: db-instance-metrics: %s collected metrics from %s (conn=%d)", alias, host, m.CurrentConnections)
+	}
+	return DataBatch{Collector: "db-instance-metrics", Items: collected, Count: len(collected), CollectedAt: time.Now().UTC()}, nil
+}
+
+func queryDBMetrics(ctx context.Context, dsn, engine, alias, host string) (*DbInstanceMetrics, error) {
+	db, err := sql.Open(engine, dsn)
+	if err != nil {
+		return nil, fmt.Errorf("open: %w", err)
+	}
+	defer db.Close()
+	pingCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if err := db.PingContext(pingCtx); err != nil {
+		return nil, fmt.Errorf("ping: %w", err)
+	}
+	switch engine {
+	case "mysql":
+		return queryMySQLMetrics(ctx, db, alias, host)
+	case "postgres":
+		return queryPostgresMetrics(ctx, db, alias, host)
+	default:
+		return nil, fmt.Errorf("unsupported engine: %s", engine)
+	}
+}
+
+func queryMySQLMetrics(ctx context.Context, db *sql.DB, alias, host string) (*DbInstanceMetrics, error) {
+	m := &DbInstanceMetrics{DSNAlias: alias, DBEngine: "mysql", DBHost: host, CollectedAt: time.Now().UTC().Format(time.RFC3339)}
+	statusRows, err := db.QueryContext(ctx, "SHOW GLOBAL STATUS")
+	if err != nil {
+		return nil, fmt.Errorf("SHOW GLOBAL STATUS: %w", err)
+	}
+	defer statusRows.Close()
+	status := map[string]int64{}
+	for statusRows.Next() {
+		var k string
+		var v sql.NullString
+		if err := statusRows.Scan(&k, &v); err != nil {
+			continue
+		}
+		if v.Valid {
+			var n int64
+			fmt.Sscanf(v.String, "%d", &n)
+			status[k] = n
+		}
+	}
+	m.CurrentConnections = status["Threads_connected"]
+	m.MaxUsedConnections = status["Max_used_connections"]
+	m.TotalQueries = status["Questions"]
+	m.TotalSlowQueries = status["Slow_queries"]
+	m.ComSelect = status["Com_select"]
+	m.ComInsert = status["Com_insert"]
+	m.ComUpdate = status["Com_update"]
+	m.ComDelete = status["Com_delete"]
+	m.BytesReceived = status["Bytes_received"]
+	m.BytesSent = status["Bytes_sent"]
+	m.Uptime = status["Uptime"]
+	reads, readReqs := status["Innodb_buffer_pool_reads"], status["Innodb_buffer_pool_read_requests"]
+	m.InnodbBufferPoolReads = reads
+	if readReqs > 0 {
+		m.InnodbBufferPoolHitPct = float64(readReqs-reads) / float64(readReqs) * 100.0
+	}
+	m.InnodbRowLockWaits = status["Innodb_row_lock_waits"]
+	m.InnodbDeadlocks = status["Innodb_deadlocks"]
+	m.ThreadsRunning = status["Threads_running"]
+	varRows, err := db.QueryContext(ctx, "SHOW VARIABLES WHERE Variable_name IN ('max_connections','version')")
+	if err == nil {
+		defer varRows.Close()
+		for varRows.Next() {
+			var k, v string
+			if err2 := varRows.Scan(&k, &v); err2 == nil {
+				switch k {
+				case "max_connections":
+					fmt.Sscanf(v, "%d", &m.MaxConnections)
+				case "version":
+					m.Version = v
+				}
+			}
+		}
+	}
+	return m, nil
+}
+
+func queryPostgresMetrics(ctx context.Context, db *sql.DB, alias, host string) (*DbInstanceMetrics, error) {
+	m := &DbInstanceMetrics{DSNAlias: alias, DBEngine: "postgres", DBHost: host, CollectedAt: time.Now().UTC().Format(time.RFC3339)}
+	_ = db.QueryRowContext(ctx, "SELECT count(*) FROM pg_stat_activity WHERE state = 'active'").Scan(&m.CurrentConnections)
+	_ = db.QueryRowContext(ctx, "SHOW max_connections").Scan(&m.MaxConnections)
+	_ = db.QueryRowContext(ctx, "SELECT EXTRACT(EPOCH FROM (now() - pg_postmaster_start_time()))::bigint").Scan(&m.Uptime)
+	_ = db.QueryRowContext(ctx, "SELECT version()").Scan(&m.Version)
+	if len(m.Version) > 40 {
+		m.Version = m.Version[:40]
+	}
+	var commits, rollbacks int64
+	_ = db.QueryRowContext(ctx, "SELECT sum(xact_commit), sum(xact_rollback) FROM pg_stat_database").Scan(&commits, &rollbacks)
+	m.TotalQueries = commits + rollbacks
+	var deadlocks int64
+	_ = db.QueryRowContext(ctx, "SELECT COALESCE(sum(deadlocks), 0) FROM pg_stat_database").Scan(&deadlocks)
+	m.InnodbDeadlocks = deadlocks
+	var activeConns int64
+	_ = db.QueryRowContext(ctx, "SELECT count(*) FROM pg_stat_activity WHERE state != 'idle' AND state IS NOT NULL").Scan(&activeConns)
+	m.ThreadsRunning = activeConns
+	return m, nil
+}
+
 // collectDBQueryStats queries all configured DSNs and returns a single DataBatch
 // containing DbQueryStat entries from every reachable database instance.
 func collectDBQueryStats(ctx context.Context, dsns []string, queryLimit int) (DataBatch, error) {

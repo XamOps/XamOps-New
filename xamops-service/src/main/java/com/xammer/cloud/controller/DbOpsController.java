@@ -1,6 +1,7 @@
 package com.xammer.cloud.controller;
 
 import com.xammer.cloud.dto.dbops.*;
+import com.xammer.cloud.dto.dbops.AgentTimeseriesDto;
 import com.xammer.cloud.service.DbOpsCostService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -254,6 +255,18 @@ public class DbOpsController {
     // ── Agent Query Stats ─────────────────────────────────────────────────────
 
     /**
+     * GET /api/dbops/aws/{accountId}/agent-instance-metrics
+     * Returns server-level status metrics pushed by the DB agent (connections, QPS, buffer pool, etc.)
+     */
+    @GetMapping("/{accountId}/agent-instance-metrics")
+    public CompletableFuture<ResponseEntity<List<AgentInstanceMetricsDto>>> getAgentInstanceMetrics(
+            @PathVariable String accountId) {
+        return dbOpsCostService.getAgentInstanceMetrics(accountId)
+                .thenApply(ResponseEntity::ok)
+                .exceptionally(ex -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());
+    }
+
+    /**
      * GET /api/dbops/aws/{accountId}/agent-query-stats
      *
      * Returns aggregated per-query stats pushed by the XamOps DB agent.
@@ -272,6 +285,63 @@ public class DbOpsController {
                 })
                 .exceptionally(ex -> {
                     logger.error("❌ [DbOps] Agent query stats error for {}: {}", accountId, ex.getMessage());
+                    return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+                });
+    }
+
+    /**
+     * GET /api/dbops/aws/{accountId}/agent-table-sizes
+     *
+     * Returns latest table storage breakdown pushed by the XamOps DB agent.
+     * Data comes from information_schema.TABLES (MySQL) or pg_stat_user_tables (Postgres).
+     * Returns [] if no agent has pushed data yet.
+     */
+    @GetMapping("/{accountId}/agent-table-sizes")
+    public CompletableFuture<ResponseEntity<List<AgentTableSizeDto>>> getAgentTableSizes(
+            @PathVariable String accountId) {
+
+        return dbOpsCostService.getAgentTableSizes(accountId)
+                .thenApply(ResponseEntity::ok)
+                .exceptionally(ex -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());
+    }
+
+    /**
+     * GET /api/dbops/aws/{accountId}/agent-timeseries?hours=24
+     *
+     * Returns time-series snapshots from db_agent_metrics_history for all DB agents in the account.
+     * Each push is an append-only row — enables Datadog-style connection, QPS, buffer pool charts.
+     */
+    @GetMapping("/{accountId}/agent-timeseries")
+    public CompletableFuture<ResponseEntity<List<AgentTimeseriesDto>>> getAgentTimeseries(
+            @PathVariable String accountId,
+            @RequestParam(defaultValue = "24") int hours) {
+
+        return dbOpsCostService.getAgentTimeseries(accountId, hours)
+                .thenApply(ResponseEntity::ok)
+                .exceptionally(ex -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());
+    }
+
+    /**
+     * GET /api/dbops/aws/{accountId}/instance/{instanceId}/timeseries?hours=24
+     *
+     * Returns hourly CloudWatch data points for a single RDS instance.
+     * Used by the DbOps detail drawer to render time-series charts.
+     * Not cached — called on demand when user opens the detail drawer.
+     */
+    @GetMapping("/{accountId}/instance/{instanceId}/timeseries")
+    public CompletableFuture<ResponseEntity<DbInstanceTimeseriesDto>> getInstanceTimeseries(
+            @PathVariable String accountId,
+            @PathVariable String instanceId,
+            @RequestParam(defaultValue = "24") int hours) {
+
+        logger.info("🔍 [DbOps] Timeseries request — account: {}, instance: {}, hours: {}", accountId, instanceId, hours);
+        return dbOpsCostService.getInstanceTimeseries(accountId, instanceId, hours)
+                .thenApply(data -> {
+                    logger.info("✅ [DbOps] Timeseries returned for {}", instanceId);
+                    return ResponseEntity.ok(data);
+                })
+                .exceptionally(ex -> {
+                    logger.error("❌ [DbOps] Timeseries error for {}: {}", instanceId, ex.getMessage());
                     return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
                 });
     }
