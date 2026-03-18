@@ -50,10 +50,12 @@ export const useBillOpsAdminInvoices = (): UseBillOpsAdminInvoicesReturn => {
   const [generation, setGeneration] = useState<GenerationParams>({
     accountId: '',
     year: new Date().getFullYear(),
-    month: new Date().getMonth() + 1
+    month: new Date().getMonth() + 1,
+    includeIrn: false,
   });
   const [generating, setGenerating] = useState(false);
   const [pendingMerge, setPendingMerge] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<number | null>(null);
 
   const isMountedRef = useRef(true);
 
@@ -395,6 +397,38 @@ export const useBillOpsAdminInvoices = (): UseBillOpsAdminInvoicesReturn => {
   }, [canMergeSelection, determineMergeOrder, formatCurrency, fetchData]);
 
   /**
+   * Delete a DRAFT invoice — opens confirmation dialog
+   */
+  const requestDelete = useCallback((invoiceId: number) => {
+    setPendingDelete(invoiceId);
+  }, []);
+
+  const cancelDelete = useCallback(() => setPendingDelete(null), []);
+
+  const confirmDelete = useCallback(async () => {
+    if (!pendingDelete) return;
+    const id = pendingDelete;
+    setPendingDelete(null);
+    setIsUpdating(true);
+    try {
+      const res = await apiFetch(`/api/admin/invoices/${id}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error('Delete failed');
+      if (isMountedRef.current) {
+        await fetchData(true);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      alert('Delete failed: ' + msg);
+      if (isMountedRef.current) {
+        setIsUpdating(false);
+      }
+    }
+  }, [pendingDelete, fetchData]);
+
+  /**
    * Download invoice preview PDF
    */
   const downloadPreview = useCallback(async (invoice: AdminInvoiceItem) => {
@@ -523,6 +557,10 @@ export const useBillOpsAdminInvoices = (): UseBillOpsAdminInvoicesReturn => {
     cancelMerge,
     pendingMerge,
     mergeSelectedInvoices,
+    requestDelete,
+    cancelDelete,
+    confirmDelete,
+    pendingDelete,
     downloadPreview,
     getSelectedAccountName,
     isCloudFront,

@@ -94,10 +94,7 @@ public class AdminDashboardService {
     }
 
     private String getCacheKey() {
-        String tenantId = com.xammer.billops.config.multitenancy.TenantContext.getCurrentTenant();
-        if (tenantId == null)
-            tenantId = "default";
-        return CACHE_KEY + ":" + tenantId;
+        return CACHE_KEY + ":system";
     }
 
     public AdminDashboardDto getAdminDashboardSummary(boolean forceRefresh) {
@@ -108,8 +105,7 @@ public class AdminDashboardService {
         if (!isSubUser) {
             // Primary admin: 3-layer cache — Redis → DB snapshot → live build
             String tenantCacheKey = getCacheKey();
-            String tenantId = com.xammer.billops.config.multitenancy.TenantContext.getCurrentTenant();
-            String dbKey = DB_CACHE_KEY_PREFIX + (tenantId != null ? tenantId : "default");
+            String dbKey = DB_CACHE_KEY_PREFIX + "system";
 
             if (!forceRefresh) {
                 // 1. Try Redis
