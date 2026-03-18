@@ -182,12 +182,12 @@ function AgentSetupWizard({ engine, instanceId, endpoint }: { engine: string; in
     const applyConfig = (res: { found: boolean; dbEngine?: string; dbHost?: string; dbPort?: string; dbName?: string; dbUser?: string; dbPassword?: string; serverUrl?: string }) => {
       if (!res.found) return false;
       if (res.dbEngine) setSqlEngine(res.dbEngine as 'mysql' | 'postgres');
-      if (res.dbHost)   setHost(res.dbHost!);
-      if (res.dbPort)   setPort(res.dbPort!);
-      if (res.dbName)   setDbName(res.dbName!);
-      if (res.dbUser)   setAgentUser(res.dbUser!);
+      if (res.dbHost) setHost(res.dbHost!);
+      if (res.dbPort) setPort(res.dbPort!);
+      if (res.dbName) setDbName(res.dbName!);
+      if (res.dbUser) setAgentUser(res.dbUser!);
       if (res.dbPassword) setAgentPass(res.dbPassword!);
-      if (res.serverUrl)  setServerUrl(res.serverUrl!);
+      if (res.serverUrl) setServerUrl(res.serverUrl!);
       return true;
     };
 
@@ -212,7 +212,7 @@ function AgentSetupWizard({ engine, instanceId, endpoint }: { engine: string; in
         if (cfg.found) setStep(3); // config saved — skip to run step
       }
     });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Auto-register + poll when in wizard step 3 or disconnected
@@ -221,7 +221,7 @@ function AgentSetupWizard({ engine, instanceId, endpoint }: { engine: string; in
     if (!clusterName || !cloudAccountId) return;
 
     apiClient.post('/api/v1/agent/db/register', { agentName: clusterName, cloudAccountId })
-      .catch(() => {});
+      .catch(() => { });
 
     const poll = () => {
       apiClient.get<{ registered: boolean; isActive: boolean; lastCheckin: string | null; agentIp: string; dataCounts?: Record<string, { itemCount: number; collectedAt: string }> }>(
@@ -231,7 +231,7 @@ function AgentSetupWizard({ engine, instanceId, endpoint }: { engine: string; in
         setAgentIp(res.agentIp ?? '');
         setDataCounts(res.dataCounts ?? {});
         if (res.isActive) setViewMode('connected');
-      }).catch(() => {});
+      }).catch(() => { });
     };
 
     poll();
@@ -250,7 +250,7 @@ function AgentSetupWizard({ engine, instanceId, endpoint }: { engine: string; in
         setAgentIp(res.agentIp ?? '');
         setDataCounts(res.dataCounts ?? {});
         if (!res.isActive) setViewMode('disconnected');
-      }).catch(() => {});
+      }).catch(() => { });
     };
     const interval = setInterval(poll, 30000);
     return () => clearInterval(interval);
@@ -401,13 +401,11 @@ CREATE EXTENSION IF NOT EXISTS pg_stat_statements;`;
             <div key={n} className="flex items-center flex-1 last:flex-none">
               <button
                 onClick={() => setStep(n)}
-                className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
-                  active ? 'bg-indigo-600 text-white' : done ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-200 dark:hover:bg-emerald-900/50' : 'text-gray-400 hover:text-gray-600'
-                }`}
+                className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${active ? 'bg-indigo-600 text-white' : done ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-200 dark:hover:bg-emerald-900/50' : 'text-gray-400 hover:text-gray-600'
+                  }`}
               >
-                <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ${
-                  active ? 'bg-white/20' : done ? 'bg-emerald-500 text-white' : 'bg-gray-200 dark:bg-gray-600 text-gray-500'
-                }`}>
+                <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ${active ? 'bg-white/20' : done ? 'bg-emerald-500 text-white' : 'bg-gray-200 dark:bg-gray-600 text-gray-500'
+                  }`}>
                   {done ? <i className="fas fa-check" /> : n}
                 </span>
                 {label}
@@ -433,11 +431,10 @@ CREATE EXTENSION IF NOT EXISTS pg_stat_statements;`;
               <button
                 key={e}
                 onClick={() => { setSqlEngine(e); setPort(e === 'postgres' ? '5432' : '3306'); }}
-                className={`px-3 py-1 text-xs rounded-md font-medium transition-colors ${
-                  sqlEngine === e
+                className={`px-3 py-1 text-xs rounded-md font-medium transition-colors ${sqlEngine === e
                     ? 'bg-indigo-600 text-white'
                     : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
-                }`}
+                  }`}
               >
                 {e === 'mysql' ? 'MySQL / MariaDB' : 'PostgreSQL'}
               </button>
@@ -608,9 +605,9 @@ CREATE EXTENSION IF NOT EXISTS pg_stat_statements;`;
               className="flex-none px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-lg text-xs font-medium hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
             >
               {saveStatus === 'saving' && <><i className="fas fa-spinner fa-spin mr-1" />Saving…</>}
-              {saveStatus === 'saved'  && <><i className="fas fa-check mr-1 text-emerald-500" />Saved</>}
-              {saveStatus === 'error'  && <><i className="fas fa-times mr-1 text-red-500" />Error</>}
-              {saveStatus === 'idle'   && <><i className="fas fa-save mr-1" />Save Config</>}
+              {saveStatus === 'saved' && <><i className="fas fa-check mr-1 text-emerald-500" />Saved</>}
+              {saveStatus === 'error' && <><i className="fas fa-times mr-1 text-red-500" />Error</>}
+              {saveStatus === 'idle' && <><i className="fas fa-save mr-1" />Save Config</>}
             </button>
             <button onClick={() => setStep(3)} className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-medium transition-colors">
               Next: Run Agent <i className="fas fa-arrow-right ml-1" />
@@ -678,9 +675,9 @@ function StatusBadge({ status }: { status: string }) {
 
 function SeverityBadge({ severity }: { severity: string }) {
   const map: Record<string, string> = {
-    HIGH:   'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+    HIGH: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
     MEDIUM: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
-    INFO:   'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400',
+    INFO: 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400',
   };
   return (
     <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${map[severity] ?? 'bg-gray-100 text-gray-600'}`}>
@@ -791,13 +788,13 @@ export default function DbInstanceDetailDrawer({
   );
 
   const tabs: { id: DetailTab; label: string; badge?: number }[] = [
-    { id: 'overview',    label: 'Overview' },
+    { id: 'overview', label: 'Overview' },
     { id: 'performance', label: 'Performance' },
     { id: 'slowqueries', label: `Slow Queries${instanceSlowQueries.length ? ` (${instanceSlowQueries.length})` : ''}` },
-    { id: 'queries',     label: `Query Stats${instanceAgentStats.length ? ` (${instanceAgentStats.length})` : ''}` },
-    { id: 'cost',        label: 'Cost & Savings' },
-    { id: 'security',    label: `Security${instanceSecurity.filter(c => c.status === 'FAIL').length ? ` (${instanceSecurity.filter(c => c.status === 'FAIL').length})` : ''}` },
-    { id: 'snapshots',   label: `Snapshots${instanceSnapshots.length ? ` (${instanceSnapshots.length})` : ''}` },
+    { id: 'queries', label: `Query Stats${instanceAgentStats.length ? ` (${instanceAgentStats.length})` : ''}` },
+    { id: 'cost', label: 'Cost & Savings' },
+    { id: 'security', label: `Security${instanceSecurity.filter(c => c.status === 'FAIL').length ? ` (${instanceSecurity.filter(c => c.status === 'FAIL').length})` : ''}` },
+    { id: 'snapshots', label: `Snapshots${instanceSnapshots.length ? ` (${instanceSnapshots.length})` : ''}` },
   ];
 
   return (
@@ -809,11 +806,10 @@ export default function DbInstanceDetailDrawer({
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            className={`px-3 py-1.5 text-xs font-medium rounded-t-md transition-colors whitespace-nowrap ${
-              tab === t.id
+            className={`px-3 py-1.5 text-xs font-medium rounded-t-md transition-colors whitespace-nowrap ${tab === t.id
                 ? 'bg-white dark:bg-gray-800 text-indigo-600 dark:text-indigo-400 border border-b-white dark:border-gray-700 dark:border-b-gray-800 border-b-transparent -mb-px'
                 : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
-            }`}
+              }`}
           >{t.label}</button>
         ))}
       </div>
@@ -1257,7 +1253,7 @@ export default function DbInstanceDetailDrawer({
                   {[
                     { label: 'Failures', count: instanceSecurity.filter(c => c.status === 'FAIL').length, color: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400', icon: 'fas fa-times-circle' },
                     { label: 'Warnings', count: instanceSecurity.filter(c => c.status === 'WARN').length, color: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400', icon: 'fas fa-exclamation-triangle' },
-                    { label: 'Passed',   count: instanceSecurity.filter(c => c.status === 'PASS').length, color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400', icon: 'fas fa-check-circle' },
+                    { label: 'Passed', count: instanceSecurity.filter(c => c.status === 'PASS').length, color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400', icon: 'fas fa-check-circle' },
                   ].map(s => (
                     <div key={s.label} className={`flex items-center gap-2 px-4 py-2 rounded-lg ${s.color} text-sm font-semibold`}>
                       <i className={s.icon} /> {s.count} {s.label}
@@ -1275,9 +1271,8 @@ export default function DbInstanceDetailDrawer({
                     </thead>
                     <tbody>
                       {instanceSecurity.map((c, i) => (
-                        <tr key={i} className={`border-b border-gray-50 dark:border-gray-700/50 ${
-                          c.status === 'FAIL' ? 'bg-red-50/40 dark:bg-red-900/10' : c.status === 'WARN' ? 'bg-yellow-50/40 dark:bg-yellow-900/10' : ''
-                        }`}>
+                        <tr key={i} className={`border-b border-gray-50 dark:border-gray-700/50 ${c.status === 'FAIL' ? 'bg-red-50/40 dark:bg-red-900/10' : c.status === 'WARN' ? 'bg-yellow-50/40 dark:bg-yellow-900/10' : ''
+                          }`}>
                           <td className="px-4 py-3 text-gray-700 dark:text-gray-300 font-medium">{c.checkName}</td>
                           <td className="px-4 py-3"><SeverityBadge severity={c.severity} /></td>
                           <td className="px-4 py-3"><StatusBadge status={c.status} /></td>

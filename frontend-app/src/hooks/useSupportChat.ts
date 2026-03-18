@@ -33,15 +33,6 @@ export interface ChatMessage {
   status?: string;  // 'UNREAD' | 'READ' | 'DELIVERED'
 }
 
-interface ChatHistoryItem {
-  id: number;
-  content: string;
-  userMessage: boolean;
-  timestamp: string;
-  isEdited?: boolean;
-  isDeleted?: boolean;
-  status?: string;
-}
 
 interface UseSupportChatReturn {
   isOpen: boolean;
