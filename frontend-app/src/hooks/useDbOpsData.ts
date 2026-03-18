@@ -222,6 +222,7 @@ export interface AgentQueryStat {
   sharedBlksRead: number;
   noIndexUsed: boolean;
   lockTimeSeconds: number;
+  collectedAt?: string;
 }
 
 // ── Hook ─────────────────────────────────────────────────────────────────────

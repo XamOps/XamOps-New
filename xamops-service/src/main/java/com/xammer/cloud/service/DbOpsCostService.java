@@ -1215,6 +1215,9 @@ public class DbOpsCostService {
                         List<AgentQueryStatDto> batch = objectMapper.readValue(
                                 cacheOpt.get().getDataJson(),
                                 new TypeReference<List<AgentQueryStatDto>>() {});
+                        String ts = cacheOpt.get().getCollectedAt() != null
+                                ? cacheOpt.get().getCollectedAt().toString() : null;
+                        batch.forEach(s -> s.setCollectedAt(ts));
                         merged.addAll(batch);
                     } catch (Exception e) {
                         logger.warn("[DbOps] getAgentQueryStats: failed to parse cache for db agent {}: {}",
@@ -1232,6 +1235,9 @@ public class DbOpsCostService {
                         List<AgentQueryStatDto> batch = objectMapper.readValue(
                                 cacheOpt.get().getDataJson(),
                                 new TypeReference<List<AgentQueryStatDto>>() {});
+                        String ts = cacheOpt.get().getCollectedAt() != null
+                                ? cacheOpt.get().getCollectedAt().toString() : null;
+                        batch.forEach(s -> s.setCollectedAt(ts));
                         merged.addAll(batch);
                     } catch (Exception e) {
                         logger.warn("[DbOps] getAgentQueryStats: failed to parse cache for cluster {}: {}",

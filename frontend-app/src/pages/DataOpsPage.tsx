@@ -242,7 +242,7 @@ const DataOpsPage: React.FC = () => {
 
   const accountId = selectedAccountIds[0] ?? null;
   const {
-    summary, inventory, metrics, idle, rightsizing, snapshots, security, slowQueries,
+    summary, inventory, metrics, costs, idle, rightsizing, snapshots, security, slowQueries,
     agentQueryStats, agentInstanceMetrics,
     loading, error, refresh, fetchInstanceTimeseries, fetchAgentTimeseries, fetchAgentTableSizes,
   } = useDbOpsData(accountId);
@@ -358,6 +358,7 @@ const DataOpsPage: React.FC = () => {
             rightsizing={rightsizing}
             security={security}
             allSnapshots={snapshots}
+            costs={costs}
             fetchTimeseries={fetchInstanceTimeseries}
             fetchAgentTimeseries={fetchAgentTimeseries}
             fetchAgentTableSizes={fetchAgentTableSizes}
