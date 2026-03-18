@@ -196,28 +196,113 @@ public class AzureRightsizingService {
                         resourceMeta.path("source").asText(""));
                 rec.setResourceId(resourceId);
 
-                // Prefer impactedField for type (e.g. "Microsoft.Compute/virtualMachines" → "virtualMachines")
-                // More reliable than parsing resourceId which is subscription-level for savings plan recommendations
-                if (!impactedField.isEmpty()) {
+                JsonNode extProps = node.path("properties").path("extendedProperties");
+
+                // Detect subscription-level recommendations (RI / Savings Plan):
+                // their resourceId ends with the subscription GUID, not a real resource name
+                String lastSegment = resourceId.isEmpty() ? ""
+                        : resourceId.substring(resourceId.lastIndexOf('/') + 1);
+                boolean isSubscriptionLevel = lastSegment.matches(
+                        "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
+
+                // Helper: a real Azure VM SKU starts with Standard_, Basic_, or Premium_
+                String rawSku = extProps.path("sku").asText(extProps.path("vmSize").asText(""));
+                boolean isVmSku = rawSku.matches("(?i)(Standard|Basic|Premium)_.*");
+
+                // ── Resource Type ─────────────────────────────────────────────
+                if (!impactedField.isEmpty()
+                        && !impactedField.equalsIgnoreCase("subscriptions")
+                        && !impactedField.equalsIgnoreCase("microsoft.billing/billingAccounts")
+                        && !impactedField.toLowerCase().contains("savingsplan")) {
                     int slash = impactedField.lastIndexOf('/');
                     rec.setResourceType(slash >= 0 ? impactedField.substring(slash + 1) : impactedField);
                 } else {
-                    rec.setResourceType(extractResourceType(resourceId));
+                    // Subscription-level: derive type from extendedProperties, ignoring "subscriptions"
+                    String extResType = extProps.path("resourceType").asText("");
+                    if (!extResType.isEmpty()
+                            && !extResType.equalsIgnoreCase("subscriptions")
+                            && !extResType.equalsIgnoreCase("subscription")) {
+                        int slash = extResType.lastIndexOf('/');
+                        rec.setResourceType(slash >= 0 ? extResType.substring(slash + 1) : extResType);
+                    } else if (isVmSku) {
+                        rec.setResourceType("virtualMachines");
+                    } else if (!rawSku.isEmpty()) {
+                        rec.setResourceType("savingsPlan");
+                    } else {
+                        rec.setResourceType(extractResourceType(resourceId));
+                    }
                 }
 
-                if (!resourceId.isEmpty()) {
-                    rec.setResourceName(resourceId.substring(resourceId.lastIndexOf('/') + 1));
-                    rec.setLocation(extractLocation(resourceId));
-                } else {
-                    rec.setResourceName(impactedValue);
+                // ── Resource Name ─────────────────────────────────────────────
+                if (!isSubscriptionLevel && !lastSegment.isEmpty()) {
+                    // Specific resource: use the last path segment (actual resource name)
+                    rec.setResourceName(lastSegment);
                     rec.setLocation("");
+                } else {
+                    // Subscription-level RI or Savings Plan recommendation
+                    String region = extProps.path("region").asText(extProps.path("location").asText(""));
+                    String scope  = extProps.path("scope").asText("");
+                    String term   = extProps.path("term").asText("");
+                    String termLabel = "P1Y".equals(term) ? "1yr" : "P3Y".equals(term) ? "3yr" : term;
+                    if (isVmSku) {
+                        // Reserved Instance: "Standard_B2s (eastus)"
+                        rec.setResourceName(rawSku + (!region.isEmpty() ? " (" + region + ")" : ""));
+                    } else {
+                        // Savings Plan: "Savings Plan (1yr, Subscription)"
+                        StringBuilder planName = new StringBuilder("Savings Plan");
+                        if (!termLabel.isEmpty() || !scope.isEmpty()) {
+                            planName.append(" (");
+                            if (!termLabel.isEmpty()) planName.append(termLabel);
+                            if (!termLabel.isEmpty() && !scope.isEmpty()) planName.append(", ");
+                            if (!scope.isEmpty()) planName.append(scope);
+                            planName.append(")");
+                        }
+                        rec.setResourceName(planName.toString());
+                    }
+                    rec.setLocation(region);
                 }
 
-                JsonNode extProps = node.path("properties").path("extendedProperties");
-                rec.setCurrentSku(extProps.path("currentSku").asText(
-                        extProps.path("vmSize").asText("")));
-                rec.setTargetSku(extProps.path("targetSku").asText(
-                        extProps.path("recommendedSku").asText("")));
+                // ── Current / Target SKU ──────────────────────────────────────
+                // VM rightsizing:  currentSku / targetSku in extendedProperties
+                // RI:              sku = VM SKU → currentSku; build targetSku from qty + term
+                // Savings Plan:    no current/target SKU — leave both blank
+                String currentSku = extProps.path("currentSku").asText(extProps.path("vmSize").asText(""));
+                if (currentSku.isEmpty() && isVmSku) {
+                    currentSku = rawSku; // RI recommendation: VM SKU being reserved
+                }
+                rec.setCurrentSku(currentSku);
+
+                String targetSku = extProps.path("targetSku").asText(
+                        extProps.path("recommendedSku").asText(""));
+                if (targetSku.isEmpty()) {
+                    String term  = extProps.path("term").asText("");
+                    String scope = extProps.path("scope").asText("");
+                    String termLabel = "P1Y".equals(term) ? "1yr" : "P3Y".equals(term) ? "3yr" : term;
+                    if (!termLabel.isEmpty()) {
+                        // Format quantity: JSON number → integer string (strip trailing .0)
+                        String qtyRaw = extProps.path("recommendedQuantityNormalized").asText(
+                                extProps.path("recommendedQuantity").asText(""));
+                        String qtyLabel = "";
+                        if (!qtyRaw.isEmpty()) {
+                            try {
+                                double qtyNum = Double.parseDouble(qtyRaw);
+                                qtyLabel = " ×" + (qtyNum == Math.floor(qtyNum)
+                                        ? String.valueOf((int) qtyNum)
+                                        : String.valueOf(qtyNum));
+                            } catch (NumberFormatException ignored) {
+                                qtyLabel = " ×" + qtyRaw;
+                            }
+                        }
+                        String scopePart = !scope.isEmpty() ? ", " + scope : "";
+                        if (isVmSku) {
+                            targetSku = "Reserved" + qtyLabel + " (" + termLabel + scopePart + ")";
+                        } else if (!rawSku.isEmpty()) {
+                            // Savings Plan
+                            targetSku = "Savings Plan (" + termLabel + scopePart + ")";
+                        }
+                    }
+                }
+                rec.setTargetSku(targetSku);
 
                 rec.setMonthlySavings(parseDouble(extProps.path("savingsAmount").asText(null)));
                 rec.setAnnualSavings(parseDouble(extProps.path("annualSavingsAmount").asText(null)));
@@ -247,13 +332,6 @@ public class AzureRightsizingService {
                 return parts.length > i + 2 ? parts[i + 2] : "";
             }
         }
-        return "";
-    }
-
-    /**
-     * Location not reliably encoded in resourceId — omit rather than guess.
-     */
-    private String extractLocation(String resourceId) {
         return "";
     }
 

@@ -235,7 +235,6 @@ function AgentSetupWizard({ engine, instanceId, endpoint, onConnected }: { engin
     const applyConfig = (res: { found: boolean; dbEngine?: string; dbHost?: string; dbPort?: string; dbName?: string; dbUser?: string; dbPassword?: string; serverUrl?: string }) => {
       if (!res.found) return false;
       if (res.dbEngine) setSqlEngine(res.dbEngine as 'mysql' | 'postgres');
-<<<<<<< HEAD
       setDsns(prev => {
         const first: DsnEntry = { ...prev[0] };
         if (res.dbEngine) first.engine = res.dbEngine as 'mysql' | 'postgres';
@@ -246,13 +245,6 @@ function AgentSetupWizard({ engine, instanceId, endpoint, onConnected }: { engin
         if (res.dbPassword) first.pass = res.dbPassword!;
         return [first, ...prev.slice(1)];
       });
-=======
-      if (res.dbHost) setHost(res.dbHost!);
-      if (res.dbPort) setPort(res.dbPort!);
-      if (res.dbName) setDbName(res.dbName!);
-      if (res.dbUser) setAgentUser(res.dbUser!);
-      if (res.dbPassword) setAgentPass(res.dbPassword!);
->>>>>>> c6ff0234fe7ffb720775b588706f00effb08729d
       if (res.serverUrl) setServerUrl(res.serverUrl!);
       return true;
     };
@@ -534,14 +526,9 @@ CREATE EXTENSION IF NOT EXISTS pg_stat_statements;`;
             {(['mysql', 'postgres'] as const).map(e => (
               <button
                 key={e}
-<<<<<<< HEAD
                 onClick={() => setSqlEngine(e)}
                 className={`px-3 py-1 text-xs rounded-md font-medium transition-colors ${
                   sqlEngine === e
-=======
-                onClick={() => { setSqlEngine(e); setPort(e === 'postgres' ? '5432' : '3306'); }}
-                className={`px-3 py-1 text-xs rounded-md font-medium transition-colors ${sqlEngine === e
->>>>>>> c6ff0234fe7ffb720775b588706f00effb08729d
                     ? 'bg-indigo-600 text-white'
                     : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
                   }`}
@@ -1039,19 +1026,11 @@ export default function DbInstanceDetailDrawer({
   const tabs: { id: DetailTab; label: string; badge?: number }[] = [
     { id: 'overview', label: 'Overview' },
     { id: 'performance', label: 'Performance' },
-<<<<<<< HEAD
     { id: 'slowqueries', label: `Slow Queries${slowQueriesTabCount ? ` (${slowQueriesTabCount})` : ''}` },
     { id: 'queries',     label: `Query Stats${instanceAgentStats.length ? ` (${instanceAgentStats.length})` : ''}` },
     { id: 'cost',        label: 'Cost & Savings' },
     { id: 'security',    label: `Security${instanceSecurity.filter(c => c.status === 'FAIL').length ? ` (${instanceSecurity.filter(c => c.status === 'FAIL').length})` : ''}` },
     { id: 'snapshots',   label: `Snapshots${instanceSnapshots.length ? ` (${instanceSnapshots.length})` : ''}` },
-=======
-    { id: 'slowqueries', label: `Slow Queries${instanceSlowQueries.length ? ` (${instanceSlowQueries.length})` : ''}` },
-    { id: 'queries', label: `Query Stats${instanceAgentStats.length ? ` (${instanceAgentStats.length})` : ''}` },
-    { id: 'cost', label: 'Cost & Savings' },
-    { id: 'security', label: `Security${instanceSecurity.filter(c => c.status === 'FAIL').length ? ` (${instanceSecurity.filter(c => c.status === 'FAIL').length})` : ''}` },
-    { id: 'snapshots', label: `Snapshots${instanceSnapshots.length ? ` (${instanceSnapshots.length})` : ''}` },
->>>>>>> c6ff0234fe7ffb720775b588706f00effb08729d
   ];
 
   return (

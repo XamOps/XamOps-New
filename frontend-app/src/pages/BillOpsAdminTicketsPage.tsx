@@ -29,6 +29,7 @@ import {
   ADMIN_TICKET_TABS
 } from '../types/billopsAdminTickets';
 import { formatIST, getSlaStatus } from '../utils/timeUtils';
+import { SERVICE_OPTIONS, TicketCategory } from '../types/billopsTickets';
 
 const ALL_STATUSES = ['OPEN', 'IN_PROGRESS', 'CLOSED'];
 const ALL_SEVERITIES = ['Critical', 'Urgent', 'High', 'Normal', 'Medium', 'Low', 'Info'];
@@ -67,6 +68,92 @@ const BillOpsAdminTicketsPage: React.FC = () => {
   // null      = no restrictions (primary admin or tickets-all)
   // array     = specific tabs allowed
   const [allowedTicketTabs, setAllowedTicketTabs] = useState<AdminTicketTab[] | null | undefined>(undefined);
+
+  // ─── Admin Raise Ticket state ──────────────────────────────────────────────
+  interface ClientOption { id: number; name: string; }
+  interface AccountOption { id: number; accountName: string; provider: string; accountIdentifier: string | null; }
+
+  const [showRaiseModal, setShowRaiseModal] = useState(false);
+  const [raiseStep, setRaiseStep] = useState<1 | 2 | 3>(1);
+  const [clients, setClients] = useState<ClientOption[]>([]);
+  const [clientsLoading, setClientsLoading] = useState(false);
+  const [selectedClient, setSelectedClient] = useState<ClientOption | null>(null);
+  const [accounts, setAccounts] = useState<AccountOption[]>([]);
+  const [accountsLoading, setAccountsLoading] = useState(false);
+  const [selectedAccount, setSelectedAccount] = useState<AccountOption | null>(null);
+  const [raiseForm, setRaiseForm] = useState({
+    category: 'Account and Billing' as TicketCategory,
+    service: 'Billing Inquiry',
+    severity: 'Normal',
+    subject: '',
+    description: '',
+  });
+  const [raiseSubmitting, setRaiseSubmitting] = useState(false);
+  const [raiseError, setRaiseError] = useState('');
+
+  const openRaiseModal = useCallback(() => {
+    setRaiseStep(1);
+    setSelectedClient(null);
+    setSelectedAccount(null);
+    setAccounts([]);
+    setRaiseForm({ category: 'Account and Billing', service: 'Billing Inquiry', severity: 'Normal', subject: '', description: '' });
+    setRaiseError('');
+    setShowRaiseModal(true);
+    // Fetch clients
+    setClientsLoading(true);
+    fetch('/api/billops/clients', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : [])
+      .then(data => { setClients(data); setClientsLoading(false); })
+      .catch(() => setClientsLoading(false));
+  }, []);
+
+  const selectClient = useCallback((client: ClientOption) => {
+    setSelectedClient(client);
+    setSelectedAccount(null);
+    setAccounts([]);
+    setAccountsLoading(true);
+    fetch(`/api/billops/clients/${client.id}/accounts`, { credentials: 'include' })
+      .then(r => r.ok ? r.json() : [])
+      .then(data => { setAccounts(data); setAccountsLoading(false); })
+      .catch(() => setAccountsLoading(false));
+    setRaiseStep(2);
+  }, []);
+
+  const selectAccount = useCallback((account: AccountOption) => {
+    setSelectedAccount(account);
+    setRaiseStep(3);
+  }, []);
+
+  const handleRaiseSubmit = useCallback(async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedClient || !selectedAccount) return;
+    setRaiseSubmitting(true);
+    setRaiseError('');
+    try {
+      const res = await fetch('/api/billops/tickets/admin-create', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clientId: selectedClient.id,
+          accountId: selectedAccount.accountIdentifier,
+          category: raiseForm.category,
+          service: raiseForm.service,
+          severity: raiseForm.severity,
+          subject: raiseForm.subject,
+          description: raiseForm.description,
+        }),
+      });
+      if (!res.ok) throw new Error('Failed to create ticket');
+      setShowRaiseModal(false);
+      fetchTickets(true);
+    } catch {
+      setRaiseError('Failed to create ticket. Please try again.');
+    } finally {
+      setRaiseSubmitting(false);
+    }
+  }, [selectedClient, selectedAccount, raiseForm, fetchTickets]);
+  // ──────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
     fetch('/api/billops/team/profile', { credentials: 'include' })
@@ -356,6 +443,13 @@ const BillOpsAdminTicketsPage: React.FC = () => {
             </div>
           )}
           <button
+            onClick={openRaiseModal}
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-md shadow-indigo-500/20 active:scale-95"
+          >
+            <i className="fas fa-plus text-[9px]"></i>
+            Raise Ticket
+          </button>
+          <button
             onClick={() => fetchTickets(true)}
             disabled={loading || isUpdating}
             className="w-10 h-10 flex items-center justify-center text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-xl transition-all border border-transparent hover:border-slate-200/50"
@@ -367,7 +461,7 @@ const BillOpsAdminTicketsPage: React.FC = () => {
       </div>
     );
     return () => clearActions();
-  }, [setActions, clearActions, search, setSearch, lastUpdatedDisplay, loading, isUpdating, fetchTickets]);
+  }, [setActions, clearActions, search, setSearch, lastUpdatedDisplay, loading, isUpdating, fetchTickets, openRaiseModal]);
 
   const renderLoadingSkeleton = () => (
     <div className="bg-white/70 backdrop-blur-xl rounded-[2rem] shadow-xl shadow-slate-200/50 border border-white overflow-hidden">
@@ -995,6 +1089,257 @@ const BillOpsAdminTicketsPage: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* ─── Admin Raise Ticket Modal ─────────────────────────────────────── */}
+      {showRaiseModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          {/* Backdrop */}
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setShowRaiseModal(false)} />
+
+          <div className="relative bg-white rounded-[2rem] shadow-2xl shadow-indigo-900/10 border border-white w-full max-w-lg overflow-hidden">
+            {/* Modal Header */}
+            <div className="bg-gradient-to-br from-indigo-600 to-indigo-700 px-6 py-5 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center">
+                  <i className="fas fa-ticket-alt text-white text-sm"></i>
+                </div>
+                <div>
+                  <h2 className="text-sm font-black text-white leading-none">Raise Ticket</h2>
+                  <p className="text-[10px] text-white/70 mt-0.5 font-medium">
+                    {raiseStep === 1 ? 'Select Client' : raiseStep === 2 ? 'Select Account' : 'Ticket Details'}
+                  </p>
+                </div>
+              </div>
+              <button onClick={() => setShowRaiseModal(false)} className="w-8 h-8 flex items-center justify-center rounded-xl bg-white/10 hover:bg-white/20 text-white transition-all">
+                <i className="fas fa-times text-xs"></i>
+              </button>
+            </div>
+
+            {/* Step Indicator */}
+            <div className="px-6 pt-4 pb-0 flex items-center gap-2">
+              {(['Client', 'Account', 'Details'] as const).map((label, idx) => {
+                const step = idx + 1;
+                const done = raiseStep > step;
+                const active = raiseStep === step;
+                return (
+                  <React.Fragment key={label}>
+                    <div className="flex items-center gap-1.5">
+                      <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black border-2 transition-all ${
+                        done ? 'bg-indigo-600 border-indigo-600 text-white' :
+                        active ? 'border-indigo-600 text-indigo-600 bg-indigo-50' :
+                        'border-slate-200 text-slate-400 bg-white'
+                      }`}>
+                        {done ? <i className="fas fa-check text-[8px]"></i> : step}
+                      </div>
+                      <span className={`text-[10px] font-black uppercase tracking-widest ${active ? 'text-indigo-600' : done ? 'text-slate-500' : 'text-slate-300'}`}>{label}</span>
+                    </div>
+                    {idx < 2 && <div className={`flex-1 h-px ${done ? 'bg-indigo-300' : 'bg-slate-100'}`} />}
+                  </React.Fragment>
+                );
+              })}
+            </div>
+
+            <div className="p-6 pt-4">
+              {/* Step 1: Select Client */}
+              {raiseStep === 1 && (
+                <div>
+                  <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3">Choose client to raise ticket for</p>
+                  {clientsLoading ? (
+                    <div className="space-y-2">
+                      {[1, 2, 3].map(i => <div key={i} className="h-12 bg-slate-100 rounded-xl animate-pulse" />)}
+                    </div>
+                  ) : clients.length === 0 ? (
+                    <p className="text-sm text-slate-400 text-center py-6">No clients found.</p>
+                  ) : (
+                    <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                      {clients.map(c => (
+                        <button
+                          key={c.id}
+                          onClick={() => selectClient(c)}
+                          className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-slate-100 hover:border-indigo-300 hover:bg-indigo-50/50 text-left transition-all group"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center text-indigo-600 text-xs font-black">
+                              {c.name.charAt(0).toUpperCase()}
+                            </div>
+                            <span className="text-sm font-bold text-slate-700 group-hover:text-indigo-700">{c.name}</span>
+                          </div>
+                          <i className="fas fa-chevron-right text-slate-300 group-hover:text-indigo-400 text-xs"></i>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Step 2: Select Account */}
+              {raiseStep === 2 && (
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <button onClick={() => setRaiseStep(1)} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-all">
+                      <i className="fas fa-arrow-left text-xs"></i>
+                    </button>
+                    <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">
+                      Accounts for <span className="text-indigo-600">{selectedClient?.name}</span>
+                    </p>
+                  </div>
+                  {accountsLoading ? (
+                    <div className="space-y-2">
+                      {[1, 2].map(i => <div key={i} className="h-14 bg-slate-100 rounded-xl animate-pulse" />)}
+                    </div>
+                  ) : accounts.length === 0 ? (
+                    <div className="text-center py-8">
+                      <i className="fas fa-server text-slate-200 text-3xl mb-2"></i>
+                      <p className="text-sm text-slate-400">No accounts found for this client.</p>
+                      <p className="text-[10px] text-slate-300 mt-1">You can still continue without an account.</p>
+                      <button
+                        onClick={() => { setSelectedAccount({ id: 0, accountName: 'No Account', provider: '', accountIdentifier: null }); setRaiseStep(3); }}
+                        className="mt-3 text-[10px] font-black text-indigo-600 hover:text-indigo-700 uppercase tracking-widest"
+                      >
+                        Continue without account →
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                      {accounts.map(a => (
+                        <button
+                          key={a.id}
+                          onClick={() => selectAccount(a)}
+                          className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-slate-100 hover:border-indigo-300 hover:bg-indigo-50/50 text-left transition-all group"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-black text-white ${
+                              a.provider === 'AWS' ? 'bg-amber-500' : a.provider === 'GCP' ? 'bg-blue-500' : a.provider === 'Azure' ? 'bg-sky-600' : 'bg-slate-400'
+                            }`}>
+                              {(a.provider || '?').charAt(0)}
+                            </div>
+                            <div>
+                              <p className="text-sm font-bold text-slate-700 group-hover:text-indigo-700 leading-none">{a.accountName}</p>
+                              <p className="text-[10px] text-slate-400 font-mono mt-0.5">{a.accountIdentifier || '—'}</p>
+                            </div>
+                          </div>
+                          <i className="fas fa-chevron-right text-slate-300 group-hover:text-indigo-400 text-xs"></i>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Step 3: Ticket Details */}
+              {raiseStep === 3 && (
+                <form onSubmit={handleRaiseSubmit} className="space-y-4">
+                  <div className="flex items-center gap-2 mb-1">
+                    <button type="button" onClick={() => setRaiseStep(2)} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-all">
+                      <i className="fas fa-arrow-left text-xs"></i>
+                    </button>
+                    <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                      <span className="text-indigo-600">{selectedClient?.name}</span>
+                      <span>/</span>
+                      <span>{selectedAccount?.accountName || 'No Account'}</span>
+                    </div>
+                  </div>
+
+                  {/* Category */}
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Category</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {(['Account and Billing', 'Technical'] as TicketCategory[]).map(cat => (
+                        <button
+                          key={cat}
+                          type="button"
+                          onClick={() => setRaiseForm(f => ({
+                            ...f,
+                            category: cat,
+                            service: SERVICE_OPTIONS[cat][0]
+                          }))}
+                          className={`px-3 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all flex items-center gap-2 ${
+                            raiseForm.category === cat
+                              ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-500/20'
+                              : 'bg-slate-50 text-slate-500 border-slate-200 hover:border-indigo-300'
+                          }`}
+                        >
+                          <i className={`${cat === 'Account and Billing' ? 'fas fa-receipt' : 'fas fa-wrench'} text-[9px]`}></i>
+                          {cat}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Service */}
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Service</label>
+                    <select
+                      value={raiseForm.service}
+                      onChange={e => setRaiseForm(f => ({ ...f, service: e.target.value }))}
+                      className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 outline-none"
+                    >
+                      {SERVICE_OPTIONS[raiseForm.category].map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+
+                  {/* Severity */}
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Severity</label>
+                    <select
+                      value={raiseForm.severity}
+                      onChange={e => setRaiseForm(f => ({ ...f, severity: e.target.value }))}
+                      className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 outline-none"
+                    >
+                      {['Info', 'Low', 'Normal', 'Medium', 'High', 'Urgent', 'Critical'].map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+
+                  {/* Subject */}
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Subject <span className="text-red-400">*</span></label>
+                    <input
+                      type="text"
+                      required
+                      value={raiseForm.subject}
+                      onChange={e => setRaiseForm(f => ({ ...f, subject: e.target.value }))}
+                      placeholder="Brief summary of the issue"
+                      className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 outline-none"
+                    />
+                  </div>
+
+                  {/* Description */}
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Description <span className="text-red-400">*</span></label>
+                    <textarea
+                      required
+                      rows={4}
+                      value={raiseForm.description}
+                      onChange={e => setRaiseForm(f => ({ ...f, description: e.target.value }))}
+                      placeholder="Describe the issue in detail..."
+                      className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 outline-none resize-none"
+                    />
+                  </div>
+
+                  {raiseError && (
+                    <p className="text-[11px] font-bold text-red-600 flex items-center gap-1">
+                      <i className="fas fa-exclamation-circle"></i> {raiseError}
+                    </p>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={raiseSubmitting}
+                    className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-black uppercase tracking-widest rounded-xl transition-all shadow-md shadow-indigo-500/20 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 active:scale-[0.98]"
+                  >
+                    {raiseSubmitting ? (
+                      <><i className="fas fa-spinner animate-spin text-xs"></i> Creating...</>
+                    ) : (
+                      <><i className="fas fa-paper-plane text-xs"></i> Raise Ticket</>
+                    )}
+                  </button>
+                </form>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ──────────────────────────────────────────────────────────────────── */}
     </div>
   );
 };

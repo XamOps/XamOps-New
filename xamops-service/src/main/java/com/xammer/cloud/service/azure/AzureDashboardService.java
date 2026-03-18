@@ -20,9 +20,13 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 @Service
@@ -354,18 +358,87 @@ public class AzureDashboardService {
         }
     }
 
+    // Static coordinate map for all Azure regions
+    private static final Map<String, double[]> AZURE_REGION_COORDINATES = new HashMap<>();
+    static {
+        AZURE_REGION_COORDINATES.put("eastus",             new double[]{37.3719, -79.8164});
+        AZURE_REGION_COORDINATES.put("eastus2",            new double[]{36.6681, -78.3889});
+        AZURE_REGION_COORDINATES.put("eastus3",            new double[]{33.4484, -112.074});
+        AZURE_REGION_COORDINATES.put("westus",             new double[]{37.7833, -122.4167});
+        AZURE_REGION_COORDINATES.put("westus2",            new double[]{47.233,  -119.852});
+        AZURE_REGION_COORDINATES.put("westus3",            new double[]{33.4484, -112.074});
+        AZURE_REGION_COORDINATES.put("centralus",          new double[]{41.5908, -93.6208});
+        AZURE_REGION_COORDINATES.put("northcentralus",     new double[]{41.8819, -87.6278});
+        AZURE_REGION_COORDINATES.put("southcentralus",     new double[]{29.4167, -98.5});
+        AZURE_REGION_COORDINATES.put("westcentralus",      new double[]{40.890,  -110.234});
+        AZURE_REGION_COORDINATES.put("northeurope",        new double[]{53.3478, -6.2597});
+        AZURE_REGION_COORDINATES.put("westeurope",         new double[]{52.3667, 4.9});
+        AZURE_REGION_COORDINATES.put("uksouth",            new double[]{50.941,  -0.799});
+        AZURE_REGION_COORDINATES.put("ukwest",             new double[]{53.427,  -3.084});
+        AZURE_REGION_COORDINATES.put("francecentral",      new double[]{46.3772, 2.3730});
+        AZURE_REGION_COORDINATES.put("francesouth",        new double[]{43.8345, 2.1972});
+        AZURE_REGION_COORDINATES.put("germanywestcentral", new double[]{50.1109, 8.6821});
+        AZURE_REGION_COORDINATES.put("germanynorth",       new double[]{53.0736, 8.8064});
+        AZURE_REGION_COORDINATES.put("switzerlandnorth",   new double[]{47.4515, 8.5646});
+        AZURE_REGION_COORDINATES.put("switzerlandwest",    new double[]{46.2044, 6.1432});
+        AZURE_REGION_COORDINATES.put("norwayeast",         new double[]{59.9139, 10.7522});
+        AZURE_REGION_COORDINATES.put("norwaywest",         new double[]{58.9700, 5.7331});
+        AZURE_REGION_COORDINATES.put("swedencentral",      new double[]{60.6749, 17.1413});
+        AZURE_REGION_COORDINATES.put("eastasia",           new double[]{22.267,  114.188});
+        AZURE_REGION_COORDINATES.put("southeastasia",      new double[]{1.283,   103.833});
+        AZURE_REGION_COORDINATES.put("australiaeast",      new double[]{-33.86,  151.2094});
+        AZURE_REGION_COORDINATES.put("australiasoutheast", new double[]{-37.8136, 144.9631});
+        AZURE_REGION_COORDINATES.put("australiacentral",   new double[]{-35.3075, 149.1244});
+        AZURE_REGION_COORDINATES.put("australiacentral2",  new double[]{-35.3075, 149.1244});
+        AZURE_REGION_COORDINATES.put("japaneast",          new double[]{35.68,   139.77});
+        AZURE_REGION_COORDINATES.put("japanwest",          new double[]{34.6939, 135.5022});
+        AZURE_REGION_COORDINATES.put("koreacentral",       new double[]{37.5665, 126.9780});
+        AZURE_REGION_COORDINATES.put("koreasouth",         new double[]{35.1796, 129.0756});
+        AZURE_REGION_COORDINATES.put("centralindia",       new double[]{18.5822, 73.9197});
+        AZURE_REGION_COORDINATES.put("westindia",          new double[]{19.088,  72.868});
+        AZURE_REGION_COORDINATES.put("southindia",         new double[]{12.9822, 80.1636});
+        AZURE_REGION_COORDINATES.put("jioindiawest",       new double[]{22.4707, 70.0577});
+        AZURE_REGION_COORDINATES.put("jioindiacentral",    new double[]{21.1466, 79.0889});
+        AZURE_REGION_COORDINATES.put("canadacentral",      new double[]{43.653,  -79.383});
+        AZURE_REGION_COORDINATES.put("canadaeast",         new double[]{46.817,  -71.217});
+        AZURE_REGION_COORDINATES.put("brazilsouth",        new double[]{-23.55,  -46.633});
+        AZURE_REGION_COORDINATES.put("brazilsoutheast",    new double[]{-22.9028, -43.1729});
+        AZURE_REGION_COORDINATES.put("southafricanorth",   new double[]{-25.7313, 28.2184});
+        AZURE_REGION_COORDINATES.put("southafricawest",    new double[]{-34.0757, 18.8432});
+        AZURE_REGION_COORDINATES.put("uaenorth",           new double[]{25.2667, 55.3167});
+        AZURE_REGION_COORDINATES.put("uaecentral",         new double[]{24.4667, 54.3667});
+        AZURE_REGION_COORDINATES.put("mexicocentral",      new double[]{20.5,    -99.0});
+        AZURE_REGION_COORDINATES.put("israelcentral",      new double[]{31.5,    34.75});
+        AZURE_REGION_COORDINATES.put("qatarcentral",       new double[]{25.551,  51.423});
+        AZURE_REGION_COORDINATES.put("polandcentral",      new double[]{52.2297, 21.0122});
+        AZURE_REGION_COORDINATES.put("italynorth",         new double[]{45.4654, 9.1865});
+        AZURE_REGION_COORDINATES.put("spaincentral",       new double[]{40.4168, -3.7038});
+        AZURE_REGION_COORDINATES.put("newzealandnorth",    new double[]{-36.8485, 174.7633});
+        AZURE_REGION_COORDINATES.put("taiwannorth",        new double[]{25.0330, 121.5654});
+        AZURE_REGION_COORDINATES.put("taiwannorthwest",    new double[]{24.9936, 121.3010});
+        AZURE_REGION_COORDINATES.put("malaysiawest",       new double[]{3.1390,  101.6869});
+    }
+
     private void getAndSetRegionStatus(AzureResourceManager azure, AzureDashboardData dashboardData) {
         try {
-            // Mock implementation but try to use azure.providers().list() or similar if
-            // possible, or just static list
-            // For now static list of popular regions is fine or we can assume active based
-            // on resources
+            // Collect all unique regions that have actual resources
+            Set<String> activeRegions = azure.genericResources().list().stream()
+                    .map(resource -> resource.region().name())
+                    .filter(region -> region != null && !region.isBlank())
+                    .collect(Collectors.toSet());
+
+            log.info("Found {} active Azure regions with resources: {}", activeRegions.size(), activeRegions);
+
             List<AzureDashboardData.RegionStatus> statuses = new ArrayList<>();
-            // We could iterate resources to find regions, but for now stick to simple mock
-            // or existing logic
-            statuses.add(new AzureDashboardData.RegionStatus("eastus", 38.0, -78.0, "ACTIVE"));
-            statuses.add(new AzureDashboardData.RegionStatus("westus", 37.0, -122.0, "SUSTAINABLE"));
-            statuses.add(new AzureDashboardData.RegionStatus("westeurope", 52.3, 4.8, "ACTIVE"));
+            for (String regionName : activeRegions) {
+                double[] coords = AZURE_REGION_COORDINATES.get(regionName);
+                if (coords != null) {
+                    statuses.add(new AzureDashboardData.RegionStatus(regionName, coords[0], coords[1], "ACTIVE"));
+                } else {
+                    log.warn("No coordinate mapping found for Azure region: {}", regionName);
+                }
+            }
+
             dashboardData.setRegionStatus(statuses);
         } catch (Exception e) {
             log.error("Error fetching region statuses: {}", e.getMessage());
