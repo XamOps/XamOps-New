@@ -925,6 +925,7 @@ interface Props {
   rightsizing: DbRightsizing[];
   security: DbSecurityCheck[];
   allSnapshots: DbSnapshot[];
+  costs: DbCost[];
   fetchTimeseries: (id: string, hours: number) => Promise<DbInstanceTimeseries | null>;
   fetchAgentTimeseries: (hours: number) => Promise<AgentTimeseries[]>;
   fetchAgentTableSizes: () => Promise<AgentTableSize[]>;
@@ -936,7 +937,7 @@ type DetailTab = 'overview' | 'performance' | 'slowqueries' | 'queries' | 'cost'
 // ── Main component ─────────────────────────────────────────────────────────────
 export default function DbInstanceDetailDrawer({
   instance, metrics, agentStats, agentInstanceMetrics, slowQueries,
-  idle, rightsizing, security, allSnapshots,
+  idle, rightsizing, security, allSnapshots, costs,
   fetchTimeseries, fetchAgentTimeseries, fetchAgentTableSizes, onConnected,
 }: Props) {
   const [tab, setTab] = useState<DetailTab>('overview');
@@ -1101,7 +1102,18 @@ export default function DbInstanceDetailDrawer({
                   <StatCard label="Read Latency" value={metrics.avgReadLatencyMs} unit="ms" />
                   <StatCard label="Write Latency" value={metrics.avgWriteLatencyMs} unit="ms" />
                   <StatCard label="Free Storage" value={metrics.freeStorageSpaceGb} unit="GB" />
-                  <StatCard label="Network In" value={metrics.avgNetworkReceiveMbps} unit="MB/s" />
+                  <StatCard label="Network In" value={metrics.avgNetworkReceiveMbps} unit="Mbps" />
+                  <StatCard label="Network Out" value={metrics.avgNetworkTransmitMbps} unit="Mbps" />
+                  {metrics.avgSwapUsageMb > 0 && (
+                    <StatCard label="Swap Usage" value={`${round2(metrics.avgSwapUsageMb)} MB`}
+                      color={metrics.avgSwapUsageMb > 100 ? 'text-orange-600' : 'text-yellow-600'}
+                      tooltip="Swap usage indicates the OS is paging memory to disk. Any swap activity degrades DB performance — increase instance memory or reduce buffer pool size." />
+                  )}
+                  {metrics.burstBalance > 0 && (
+                    <StatCard label="Burst Balance" value={`${Math.round(metrics.burstBalance)}%`}
+                      color={metrics.burstBalance < 20 ? 'text-red-600' : metrics.burstBalance < 50 ? 'text-yellow-600' : 'text-green-600'}
+                      tooltip="EBS burst I/O balance (gp2 volumes). Below 20% means credits are nearly exhausted — DB will be throttled to baseline IOPS. Consider upgrading to gp3 for consistent I/O." />
+                  )}
                 </div>
               </div>
             )}
@@ -1154,6 +1166,10 @@ export default function DbInstanceDetailDrawer({
                     tooltip={agentMetrics.dbEngine === 'postgres'
                       ? "Queries averaging >10ms in pg_stat_statements. These are the same queries shown in the Slow Queries tab — patterns with high average execution time worth optimizing."
                       : "Queries exceeding long_query_time threshold from MySQL Slow_queries counter. Enable slow_query_log to populate this."} />
+                  {agentMetrics.dbSizeBytes != null && agentMetrics.dbSizeBytes > 0 && (
+                    <StatCard label="DB Size" value={fmtBytes(agentMetrics.dbSizeBytes)}
+                      tooltip="Total size of all databases on this server, including data and index files." />
+                  )}
                   {agentMetrics.innodbBufferPoolHitPct > 0 && (
                     <StatCard label="Buffer Pool Hit" value={`${Math.round(agentMetrics.innodbBufferPoolHitPct)}%`}
                       color={agentMetrics.innodbBufferPoolHitPct < 90 ? 'text-orange-600' : 'text-green-600'}
@@ -1195,6 +1211,11 @@ export default function DbInstanceDetailDrawer({
                     {agentMetrics.ec2InstanceType && (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-orange-50 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300">
                         <i className="fab fa-aws text-[9px]" /> {agentMetrics.ec2InstanceType}
+                      </span>
+                    )}
+                    {agentMetrics.ec2InstanceId && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 font-mono">
+                        <i className="fas fa-server text-[9px]" /> {agentMetrics.ec2InstanceId}
                       </span>
                     )}
                     {agentMetrics.ec2HourlyPrice != null && agentMetrics.ec2HourlyPrice > 0 && (
@@ -1272,9 +1293,29 @@ export default function DbInstanceDetailDrawer({
                 <MetricChart title="Write Latency" data={toChartData(timeseries?.writeLatencyMs)} color="#ef4444" unit="ms" />
                 <MetricChart title="Free Storage" data={toChartData(timeseries?.freeStorageGb)} color="#14b8a6" unit="GB" />
                 <MetricChart title="Freeable Memory" data={toChartData(timeseries?.freeableMemoryMb)} color="#f97316" unit="MB" />
+                <MetricChart title="Network In" data={toChartData(timeseries?.networkReceiveMbps)} color="#06b6d4" unit="Mbps" />
+                <MetricChart title="Network Out" data={toChartData(timeseries?.networkTransmitMbps)} color="#8b5cf6" unit="Mbps" />
                 {(timeseries?.replicaLagSeconds?.length ?? 0) > 0 && (
                   <MetricChart title="Replication Lag" data={toChartData(timeseries?.replicaLagSeconds)} color="#a855f7" unit="s" />
                 )}
+              </div>
+            )}
+            {/* 7-day average stats for RDS (no time-series available for these) */}
+            {instance.source === 'rds' && metrics && (metrics.avgDiskQueueDepth > 0 || metrics.avgSwapUsageMb > 0) && (
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">7-day Averages</p>
+                <div className="grid grid-cols-3 gap-2">
+                  {metrics.avgDiskQueueDepth > 0 && (
+                    <StatCard label="Disk Queue Depth" value={round2(metrics.avgDiskQueueDepth)}
+                      color={metrics.avgDiskQueueDepth > 1 ? 'text-orange-600' : 'text-gray-900 dark:text-gray-100'}
+                      tooltip="Average number of pending I/O requests. Above 1 means I/O is a bottleneck — requests are queuing up waiting for disk. Consider upgrading IOPS or moving to gp3/io1." />
+                  )}
+                  {metrics.avgSwapUsageMb > 0 && (
+                    <StatCard label="Swap Usage" value={`${round2(metrics.avgSwapUsageMb)} MB`}
+                      color={metrics.avgSwapUsageMb > 100 ? 'text-orange-600' : 'text-yellow-600'}
+                      tooltip="Average swap space used. Swap activity degrades DB performance significantly. Reduce buffer pool size or upgrade to a larger instance." />
+                  )}
+                </div>
               </div>
             )}
 
@@ -1465,7 +1506,7 @@ export default function DbInstanceDetailDrawer({
                 {/* Query source explanation */}
                 <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-sky-50 dark:bg-sky-900/20 border border-sky-200 dark:border-sky-800/50 text-xs text-sky-700 dark:text-sky-300">
                   <i className="fas fa-info-circle mt-0.5 shrink-0" />
-                  <span>
+                  <span className="flex-1">
                     Showing <strong>{filteredAgentStats.length}</strong> normalized query digests ranked by total execution time,
                     collected from{' '}
                     {(instance.engine ?? '').toLowerCase().includes('postgres')
@@ -1475,20 +1516,37 @@ export default function DbInstanceDetailDrawer({
                     Counters accumulate since the last server restart or manual reset — they are <em>not</em> a real-time window.
                     Queries are deduplicated by digest; literals and parameters are normalized out.
                   </span>
+                  {instanceAgentStats[0]?.collectedAt && (
+                    <span className="shrink-0 whitespace-nowrap text-sky-500 dark:text-sky-400 font-medium">
+                      <i className="fas fa-clock mr-1" />
+                      {new Date(instanceAgentStats[0].collectedAt).toLocaleString()}
+                    </span>
+                  )}
                 </div>
                 <div className="space-y-2">
                   {filteredAgentStats.map((s, i) => (
                     <div key={i} className="bg-gray-50 dark:bg-gray-700/30 rounded-lg p-3">
                       <code className="text-xs text-indigo-700 dark:text-indigo-300 break-all block mb-2">{s.queryDigest}</code>
-                      <div className="grid grid-cols-4 gap-2 text-xs">
+                      <div className="grid grid-cols-5 gap-2 text-xs">
                         <div className="text-center"><div className="text-gray-400">Calls</div><div className="font-semibold text-gray-800 dark:text-gray-200">{s.callCount}</div></div>
                         <div className="text-center"><div className="text-gray-400">Avg</div><div className="font-semibold text-gray-800 dark:text-gray-200">{round2(s.avgTimeSeconds * 1000)}ms</div></div>
                         <div className="text-center"><div className="text-gray-400">Max</div><div className="font-semibold text-orange-600 dark:text-orange-400">{round2(s.maxTimeSeconds * 1000)}ms</div></div>
                         <div className="text-center"><div className="text-gray-400">Total</div><div className="font-semibold text-gray-800 dark:text-gray-200">{round2(s.totalTimeSeconds)}s</div></div>
+                        <div className="text-center">
+                          <div className="text-gray-400">Lock</div>
+                          <div className={`font-semibold ${s.lockTimeSeconds > 0.1 ? 'text-red-500' : s.lockTimeSeconds > 0.01 ? 'text-orange-500' : 'text-gray-800 dark:text-gray-200'}`}>
+                            {s.lockTimeSeconds > 0 ? `${round2(s.lockTimeSeconds * 1000)}ms` : '—'}
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex gap-3 mt-2 text-xs text-gray-400">
+                      <div className="flex flex-wrap gap-3 mt-2 text-xs text-gray-400">
                         <span>Rows examined: {s.rowsExamined}</span>
                         <span>Rows sent: {s.rowsSent}</span>
+                        {(s.sharedBlksHit + s.sharedBlksRead) > 0 && (
+                          <span className={(s.sharedBlksHit / (s.sharedBlksHit + s.sharedBlksRead)) < 0.9 ? 'text-orange-500' : 'text-green-600 dark:text-green-400'}>
+                            Cache hit: {Math.round(s.sharedBlksHit / (s.sharedBlksHit + s.sharedBlksRead) * 100)}%
+                          </span>
+                        )}
                         {s.noIndexUsed && <span className="text-red-500">⚠ No index used</span>}
                       </div>
                     </div>
@@ -1583,6 +1641,41 @@ export default function DbInstanceDetailDrawer({
               <div className="bg-green-50 dark:bg-green-900/10 border border-green-100 dark:border-green-800 rounded-2xl p-4 flex items-center gap-3">
                 <i className="fas fa-check-circle text-green-500" />
                 <p className="text-sm text-green-700 dark:text-green-400">No right-sizing recommendation — instance class looks appropriate.</p>
+              </div>
+            )}
+
+            {/* Account cost breakdown — DbCost data */}
+            {costs.length > 0 && (
+              <div className="bg-white/90 dark:bg-gray-800/80 rounded-2xl border border-gray-100 dark:border-gray-700/50 p-5">
+                <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-4 flex items-center gap-2">
+                  <i className="fas fa-chart-bar text-indigo-500" /> Account Cost Breakdown (MTD)
+                </h3>
+                <div className="space-y-2.5">
+                  {costs.map((c, i) => (
+                    <div key={i} className="space-y-1">
+                      <div className="flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-gray-700 dark:text-gray-300">{c.service}</span>
+                          {c.region && <span className="text-gray-400">{c.region}</span>}
+                        </div>
+                        <div className="flex items-center gap-2 text-right">
+                          <span className="text-gray-500">{round2(c.percentOfTotal)}%</span>
+                          <span className="font-semibold text-gray-800 dark:text-gray-200 w-16 text-right">{fmt$(c.cost)}</span>
+                        </div>
+                      </div>
+                      <div className="h-1.5 rounded-full bg-gray-100 dark:bg-gray-700 overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-sky-500 transition-all duration-500"
+                          style={{ width: `${Math.min(c.percentOfTotal, 100)}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-[11px] text-gray-400 mt-4 border-t border-gray-100 dark:border-gray-700 pt-3">
+                  <i className="fas fa-info-circle mr-1" />
+                  Account-level breakdown from AWS Cost Explorer — includes all DB-related services for this account month-to-date.
+                </p>
               </div>
             )}
 
