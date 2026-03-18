@@ -197,6 +197,11 @@ public class TicketService {
             ticket.setAssignedToUsername(author.getUsername());
         }
 
+        // Track read/unread: admin reply marks as read; user reply marks as unread
+        if (!replyDto.isInternal()) {
+            ticket.setHasNewUserReply(!isAdminReply);
+        }
+
         Ticket updatedTicket = ticketRepository.save(ticket);
 
         try {

@@ -76,9 +76,7 @@ const BillOpsSupportDashboardPage: React.FC = () => {
     loadingClients,
     loadingProfiles,
     searchQuery,
-    providerFilter,
     setSearchQuery,
-    setProviderFilter,
     selectConversation,
     sendReply,
     startConversation,
@@ -96,7 +94,6 @@ const BillOpsSupportDashboardPage: React.FC = () => {
 
   /* ── reply state ── */
   const [replyText, setReplyText] = useState('');
-  const [providerDropdownOpen, setProviderDropdownOpen] = useState(false);
   const chatBoxRef = useRef<HTMLDivElement>(null);
 
   /* ── attachment state ── */
@@ -739,10 +736,37 @@ const BillOpsSupportDashboardPage: React.FC = () => {
       <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mb-4 shadow-inner">
         <i className="fas fa-comments text-3xl text-gray-300"></i>
       </div>
-      <p className="font-medium text-sm text-gray-500 mb-3">Select a conversation to start messaging</p>
-      <button onClick={openNewChatModal} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow transition-all">
-        <i className="fas fa-plus"></i> Start New Conversation
-      </button>
+      <p className="font-medium text-sm text-gray-500 mb-6">Select a conversation or start a new one</p>
+      <div className="flex items-stretch gap-3">
+        {/* In-App Chat */}
+        <button
+          onClick={openNewChatModal}
+          className="flex flex-col items-center gap-2 px-6 py-4 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-md transition-all active:scale-95 min-w-[96px]"
+        >
+          <i className="fas fa-comments text-xl"></i>
+          <span>New Chat</span>
+        </button>
+        {/* Email */}
+        <button
+          onClick={openNewChatModal}
+          className="flex flex-col items-center gap-2 px-6 py-4 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl shadow-md transition-all active:scale-95 min-w-[96px]"
+        >
+          <i className="fas fa-envelope text-xl"></i>
+          <span>Via Email</span>
+        </button>
+        {/* WhatsApp — coming soon */}
+        <div className="relative">
+          <button
+            disabled
+            className="flex flex-col items-center gap-2 px-6 py-4 bg-gray-200 text-gray-400 text-xs font-bold rounded-xl cursor-not-allowed min-w-[96px]"
+            title="Coming soon"
+          >
+            <i className="fab fa-whatsapp text-xl"></i>
+            <span>WhatsApp</span>
+          </button>
+          <span className="absolute -top-2 -right-2 text-[8px] bg-amber-400 text-white px-1.5 py-0.5 rounded-full font-bold leading-none">Soon</span>
+        </div>
+      </div>
     </div>
   );
 
@@ -779,7 +803,7 @@ const BillOpsSupportDashboardPage: React.FC = () => {
                 placeholder="Search by account, user..."
               />
             </div>
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
               <select
                 value={inboxSort}
                 onChange={e => setInboxSort(e.target.value as 'default' | 'unread' | 'name')}
@@ -789,24 +813,6 @@ const BillOpsSupportDashboardPage: React.FC = () => {
                 <option value="unread">Unread first</option>
                 <option value="name">Name A → Z</option>
               </select>
-              <div className="relative">
-                <button onClick={() => setProviderDropdownOpen(!providerDropdownOpen)} className="flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 transition-all shadow-sm min-w-[120px] justify-between text-gray-700">
-                  <span>{providerFilter || 'All Clouds'}</span>
-                  <i className={`fas fa-chevron-down text-[10px] text-gray-400 transition-transform ${providerDropdownOpen ? 'rotate-180' : ''}`}></i>
-                </button>
-                {providerDropdownOpen && (
-                  <>
-                    <div className="fixed inset-0 z-40" onClick={() => setProviderDropdownOpen(false)}></div>
-                    <div className="absolute right-0 mt-2 w-36 bg-white rounded-xl shadow-xl border border-gray-100 py-1 z-50 overflow-hidden">
-                      {([['', 'All Clouds', 'fas fa-globe', 'text-gray-400'], ['AWS', 'AWS', 'fab fa-aws', 'text-[#FF9900]'], ['GCP', 'GCP', 'fab fa-google', 'text-[#34A853]'], ['Azure', 'Azure', 'fab fa-microsoft', 'text-[#0078D4]']] as const).map(([val, label, icon, cls]) => (
-                        <button key={val} onClick={() => { setProviderFilter(val as CloudProvider | ''); setProviderDropdownOpen(false); }} className="w-full text-left px-4 py-2 text-xs text-gray-700 hover:bg-indigo-50 hover:text-indigo-600 transition-colors font-medium">
-                          <i className={`${icon} w-4 text-center mr-1 ${cls}`}></i> {label}
-                        </button>
-                      ))}
-                    </div>
-                  </>
-                )}
-              </div>
             </div>
           </div>
           <div className="flex-1 overflow-y-auto custom-scrollbar bg-white/40">
