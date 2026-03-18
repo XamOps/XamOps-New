@@ -189,10 +189,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           sessionStorage.removeItem('selectedTenantId');
           setSelectedTenant('');
         }
-        // Always clear super-admin-only keys for regular users
-        sessionStorage.removeItem('impersonateUserId');
+        // Clear super-admin-only keys for regular users, EXCEPT during a billops
+        // "Login as" session — impersonateUserId must be kept so the backend
+        // returns only that client's accounts (not all accounts).
+        if (sessionStorage.getItem('billops_impersonation') !== 'true') {
+          sessionStorage.removeItem('impersonateUserId');
+          setImpersonateUser('');
+        }
         sessionStorage.removeItem('superAdminSelectedAccountId');
-        setImpersonateUser('');
         setSelectedAccountId('');
       }
     } catch (err) {
@@ -231,10 +235,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             sessionStorage.removeItem('selectedTenantId');
             setSelectedTenant('');
           }
-          // Always clear super-admin-only keys for regular users
-          sessionStorage.removeItem('impersonateUserId');
+          // Clear super-admin-only keys for regular users, EXCEPT during a billops
+          // "Login as" session — impersonateUserId must be kept so the backend
+          // returns only that client's accounts (not all accounts).
+          if (sessionStorage.getItem('billops_impersonation') !== 'true') {
+            sessionStorage.removeItem('impersonateUserId');
+            setImpersonateUser('');
+          }
           sessionStorage.removeItem('superAdminSelectedAccountId');
-          setImpersonateUser('');
           setSelectedAccountId('');
         }
       } catch (error_) {
@@ -335,6 +343,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     sessionStorage.removeItem('cached_user_roles');
     sessionStorage.removeItem('selectedAccountIds');
     sessionStorage.removeItem('cached_accounts');
+    sessionStorage.removeItem('billops_impersonation');
+    sessionStorage.removeItem('allowedAccountIds');
 
     setSelectedTenant('');
     setImpersonateUser('');
@@ -396,6 +406,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (userId) {
         sessionStorage.removeItem('impersonateUserId');
         sessionStorage.setItem('impersonateUserId', userId);
+        // Mark this as a billops "Login as" session so fetchUserRoles does not
+        // clear impersonateUserId when it sees a non-super-admin profile.
+        sessionStorage.setItem('billops_impersonation', 'true');
         setImpersonateUser(userId);
       }
 

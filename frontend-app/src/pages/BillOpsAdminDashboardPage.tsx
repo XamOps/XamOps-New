@@ -28,6 +28,17 @@ interface CustomerSpotSavings {
   totalSavings: number;
 }
 
+interface ClientsApiAccount {
+  id: number;
+  provider: string;
+  consumption: number;
+}
+
+interface ClientsApiData {
+  id: number;
+  accounts: ClientsApiAccount[];
+}
+
 type ActiveTab = 'overview' | 'clients' | 'invoices' | 'tickets';
 
 const TABS: { id: ActiveTab; label: string; icon: string }[] = [
@@ -51,6 +62,15 @@ const BillOpsAdminDashboardPage: React.FC = () => {
 
   const [customerSavings, setCustomerSavings] = useState<CustomerSpotSavings[]>([]);
   const [customerSavingsLoading, setCustomerSavingsLoading] = useState(true);
+
+  const [clientsData, setClientsData] = useState<ClientsApiData[] | null>(null);
+
+  useEffect(() => {
+    apiFetch('/api/xamops/billops-admin/clients', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then((d: ClientsApiData[]) => setClientsData(d))
+      .catch(err => console.error('Failed to load clients data for spend total', err));
+  }, []);
 
   useEffect(() => {
     apiFetch('/api/admin/autospotting/customer-savings', { credentials: 'include' })
@@ -121,6 +141,24 @@ const BillOpsAdminDashboardPage: React.FC = () => {
     };
   }, [data, convert]);
 
+  // ── Spend totals from clients endpoint (same source as Client Details page) ─
+  const clientsSpend = React.useMemo(() => {
+    if (!clientsData) return null;
+    const byProvider: Record<string, number> = { AWS: 0, GCP: 0, Azure: 0 };
+    let total = 0;
+    for (const client of clientsData) {
+      for (const account of client.accounts) {
+        const raw = account.consumption || 0;
+        const inUsd = (account.provider === 'GCP' || account.provider === 'Azure')
+          ? (convert(raw, 'usd') ?? raw)
+          : raw;
+        byProvider[account.provider] = (byProvider[account.provider] || 0) + inUsd;
+        total += inUsd;
+      }
+    }
+    return { byProvider, total };
+  }, [clientsData, convert]);
+
   // ── Clients grouped from top accounts ─────────────────────────────────────
   const clientGroups = React.useMemo(() => {
     if (!convertedData?.topSpendingAccounts) return [];
@@ -180,16 +218,17 @@ const BillOpsAdminDashboardPage: React.FC = () => {
 
   // ── Charts ─────────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!providerChartRef.current || !convertedData?.spendingByProvider) return;
+    const spendingByProvider = clientsSpend?.byProvider ?? convertedData?.spendingByProvider;
+    if (!providerChartRef.current || !spendingByProvider) return;
     if (providerChartInstance.current) providerChartInstance.current.destroy();
     const ctx = providerChartRef.current.getContext('2d');
     if (!ctx) return;
-    const values = Object.values(convertedData.spendingByProvider);
+    const values = Object.values(spendingByProvider);
     if (values.every(v => v === 0)) return;
     providerChartInstance.current = new Chart(ctx, {
       type: 'doughnut',
       data: {
-        labels: Object.keys(convertedData.spendingByProvider),
+        labels: Object.keys(spendingByProvider),
         datasets: [{ data: values, backgroundColor: ['#FF9900', '#0078D4', '#34A853'], borderWidth: 0, hoverOffset: 4 }],
       },
       options: {
@@ -204,7 +243,7 @@ const BillOpsAdminDashboardPage: React.FC = () => {
       },
     });
     return () => { providerChartInstance.current?.destroy(); };
-  }, [convertedData?.spendingByProvider]);
+  }, [clientsSpend, convertedData?.spendingByProvider]);
 
   useEffect(() => {
     if (!trendChartRef.current || !convertedData?.spendingTrend?.length) return;
@@ -325,7 +364,9 @@ const BillOpsAdminDashboardPage: React.FC = () => {
             </div>
             {!loading ? (
               <div className="admin-fade-in">
-                <span className="text-3xl font-black admin-metric-value">{formatCurrency(convertedData?.totalSpending)}</span>
+                <span className="text-3xl font-black admin-metric-value">
+                  {formatCurrency(clientsSpend?.total ?? convertedData?.totalSpending)}
+                </span>
                 <p className="text-xs text-gray-500 mt-2 font-medium">Aggregated across all clients</p>
               </div>
             ) : <div className="space-y-3"><Shimmer className="h-10 w-36" /><Shimmer className="h-3 w-24" /></div>}
@@ -449,7 +490,7 @@ const BillOpsAdminDashboardPage: React.FC = () => {
                   </h3>
                   <p className="text-xs text-gray-500 mt-1 font-medium">By Cloud Provider</p>
                 </div>
-                {!loading && !Object.values(convertedData?.spendingByProvider || {}).some(v => v > 0) ? (
+                {!loading && !Object.values(clientsSpend?.byProvider ?? convertedData?.spendingByProvider ?? {}).some(v => v > 0) ? (
                   <div className="flex-1 flex items-center justify-center text-gray-400 text-sm font-medium">
                     <div className="text-center"><i className="fas fa-chart-pie text-3xl mb-2 text-gray-200 block" />No spending data available</div>
                   </div>
@@ -708,7 +749,7 @@ const BillOpsAdminDashboardPage: React.FC = () => {
                     </button>
                   ))}
                 </div>
-                <Link to="/billops-invoices" className="text-xs font-bold text-indigo-600 hover:text-indigo-800 hover:underline uppercase tracking-wide">
+                <Link to="/billops-admin-invoices" className="text-xs font-bold text-indigo-600 hover:text-indigo-800 hover:underline uppercase tracking-wide">
                   View All &rarr;
                 </Link>
               </div>
@@ -794,7 +835,7 @@ const BillOpsAdminDashboardPage: React.FC = () => {
                     </button>
                   ))}
                 </div>
-                <Link to="/billops-tickets" className="text-xs font-bold text-indigo-600 hover:text-indigo-800 hover:underline uppercase tracking-wide">
+                <Link to="/billops-admin-tickets" className="text-xs font-bold text-indigo-600 hover:text-indigo-800 hover:underline uppercase tracking-wide">
                   View All &rarr;
                 </Link>
               </div>
