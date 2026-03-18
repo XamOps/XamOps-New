@@ -13,4 +13,6 @@ public interface DbAgentDataCacheRepository extends JpaRepository<DbAgentDataCac
     Optional<DbAgentDataCache> findByDbAgentIdAndDataType(Long dbAgentId, String dataType);
 
     List<DbAgentDataCache> findByDbAgentId(Long dbAgentId);
+
+    void deleteByDbAgentId(Long dbAgentId);
 }

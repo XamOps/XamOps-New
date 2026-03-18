@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"net/url"
 	"strings"
 	"time"
@@ -13,8 +15,57 @@ import (
 	_ "github.com/lib/pq"
 )
 
+// ec2IMDSToken fetches an IMDSv2 session token (required on most EC2 instances).
+// Returns empty string if not on EC2 or IMDSv2 unavailable.
+func ec2IMDSToken() string {
+	c := &http.Client{Timeout: 2 * time.Second}
+	req, err := http.NewRequest("PUT", "http://169.254.169.254/latest/api/token", nil)
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("X-aws-ec2-metadata-token-ttl-seconds", "21600")
+	resp, err := c.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	return strings.TrimSpace(string(b))
+}
+
+// ec2Meta fetches a single EC2 metadata path using the provided IMDSv2 token.
+// Falls back to IMDSv1 (no token) if token is empty.
+func ec2Meta(token, path string) string {
+	c := &http.Client{Timeout: 2 * time.Second}
+	req, err := http.NewRequest("GET", "http://169.254.169.254/latest/meta-data/"+path, nil)
+	if err != nil {
+		return ""
+	}
+	if token != "" {
+		req.Header.Set("X-aws-ec2-metadata-token", token)
+	}
+	resp, err := c.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	return strings.TrimSpace(string(b))
+}
+
+// ec2Info fetches region, instance type, and instance ID from EC2 metadata.
+// Returns empty strings if not running on EC2.
+func ec2Info() (region, instanceType, instanceID string) {
+	token := ec2IMDSToken()
+	region = ec2Meta(token, "placement/region")
+	instanceType = ec2Meta(token, "instance-type")
+	instanceID = ec2Meta(token, "instance-id")
+	return
+}
+
 // collectDBInstanceMetrics collects server-level status metrics for all DSNs.
 func collectDBInstanceMetrics(ctx context.Context, dsns []string) (DataBatch, error) {
+	region, instanceType, instanceID := ec2Info()
 	collected := make([]DbInstanceMetrics, 0, len(dsns))
 	for i, dsn := range dsns {
 		alias := fmt.Sprintf("db-%d", i)
@@ -27,8 +78,11 @@ func collectDBInstanceMetrics(ctx context.Context, dsns []string) (DataBatch, er
 			log.Printf("WARN: db-instance-metrics: %s (%s): %v", alias, host, err)
 			continue
 		}
+		m.Region = region
+		m.EC2InstanceType = instanceType
+		m.EC2InstanceId = instanceID
 		collected = append(collected, *m)
-		log.Printf("INFO: db-instance-metrics: %s collected metrics from %s (conn=%d)", alias, host, m.CurrentConnections)
+		log.Printf("INFO: db-instance-metrics: %s collected metrics from %s (conn=%d, db=%s, region=%s, ec2=%s/%s)", alias, host, m.CurrentConnections, m.DBName, m.Region, instanceType, instanceID)
 	}
 	return DataBatch{Collector: "db-instance-metrics", Items: collected, Count: len(collected), CollectedAt: time.Now().UTC()}, nil
 }
@@ -56,6 +110,8 @@ func queryDBMetrics(ctx context.Context, dsn, engine, alias, host string) (*DbIn
 
 func queryMySQLMetrics(ctx context.Context, db *sql.DB, alias, host string) (*DbInstanceMetrics, error) {
 	m := &DbInstanceMetrics{DSNAlias: alias, DBEngine: "mysql", DBHost: host, CollectedAt: time.Now().UTC().Format(time.RFC3339)}
+	_ = db.QueryRowContext(ctx, "SELECT DATABASE()").Scan(&m.DBName)
+	_ = db.QueryRowContext(ctx, `SELECT SUM(data_length + index_length) FROM information_schema.tables WHERE table_schema = DATABASE()`).Scan(&m.DBSizeBytes)
 	statusRows, err := db.QueryContext(ctx, "SHOW GLOBAL STATUS")
 	if err != nil {
 		return nil, fmt.Errorf("SHOW GLOBAL STATUS: %w", err)
@@ -113,22 +169,44 @@ func queryMySQLMetrics(ctx context.Context, db *sql.DB, alias, host string) (*Db
 
 func queryPostgresMetrics(ctx context.Context, db *sql.DB, alias, host string) (*DbInstanceMetrics, error) {
 	m := &DbInstanceMetrics{DSNAlias: alias, DBEngine: "postgres", DBHost: host, CollectedAt: time.Now().UTC().Format(time.RFC3339)}
+
+	// Connections
 	_ = db.QueryRowContext(ctx, "SELECT count(*) FROM pg_stat_activity WHERE state IS NOT NULL").Scan(&m.CurrentConnections)
 	_ = db.QueryRowContext(ctx, "SELECT current_setting('max_connections')::int").Scan(&m.MaxConnections)
+	// PostgreSQL has no historical peak counter — report current as the observed peak
+	m.MaxUsedConnections = m.CurrentConnections
+
+	// Uptime & version
 	_ = db.QueryRowContext(ctx, "SELECT EXTRACT(EPOCH FROM (now() - pg_postmaster_start_time()))::bigint").Scan(&m.Uptime)
 	_ = db.QueryRowContext(ctx, "SELECT version()").Scan(&m.Version)
 	if len(m.Version) > 40 {
 		m.Version = m.Version[:40]
 	}
-	var commits, rollbacks int64
-	_ = db.QueryRowContext(ctx, "SELECT sum(xact_commit), sum(xact_rollback) FROM pg_stat_database").Scan(&commits, &rollbacks)
-	m.TotalQueries = commits + rollbacks
-	var deadlocks int64
-	_ = db.QueryRowContext(ctx, "SELECT COALESCE(sum(deadlocks), 0) FROM pg_stat_database").Scan(&deadlocks)
-	m.InnodbDeadlocks = deadlocks
-	var activeConns int64
-	_ = db.QueryRowContext(ctx, "SELECT count(*) FROM pg_stat_activity WHERE state != 'idle' AND state IS NOT NULL").Scan(&activeConns)
-	m.ThreadsRunning = activeConns
+
+	// Database name and size
+	_ = db.QueryRowContext(ctx, "SELECT current_database()").Scan(&m.DBName)
+	_ = db.QueryRowContext(ctx, "SELECT pg_database_size(current_database())").Scan(&m.DBSizeBytes)
+
+	// Total queries from pg_stat_statements (sum of all call counts)
+	_ = db.QueryRowContext(ctx, "SELECT COALESCE(sum(calls), 0) FROM pg_stat_statements").Scan(&m.TotalQueries)
+
+	// Slow queries: distinct query patterns averaging > 1 second
+	_ = db.QueryRowContext(ctx, "SELECT COALESCE(count(*), 0) FROM pg_stat_statements WHERE mean_exec_time > 1000").Scan(&m.TotalSlowQueries)
+
+	// Query type breakdown from pg_stat_statements (sum of calls per DML type)
+	_ = db.QueryRowContext(ctx, `
+		SELECT
+			COALESCE(sum(calls) FILTER (WHERE query ILIKE 'SELECT%'), 0),
+			COALESCE(sum(calls) FILTER (WHERE query ILIKE 'INSERT%'), 0),
+			COALESCE(sum(calls) FILTER (WHERE query ILIKE 'UPDATE%'), 0),
+			COALESCE(sum(calls) FILTER (WHERE query ILIKE 'DELETE%'), 0)
+		FROM pg_stat_statements`,
+	).Scan(&m.ComSelect, &m.ComInsert, &m.ComUpdate, &m.ComDelete)
+
+	// Deadlocks & active connections
+	_ = db.QueryRowContext(ctx, "SELECT COALESCE(sum(deadlocks), 0) FROM pg_stat_database").Scan(&m.InnodbDeadlocks)
+	_ = db.QueryRowContext(ctx, "SELECT count(*) FROM pg_stat_activity WHERE state != 'idle' AND state IS NOT NULL").Scan(&m.ThreadsRunning)
+
 	return m, nil
 }
 

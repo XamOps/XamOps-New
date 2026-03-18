@@ -146,6 +146,13 @@ type DbInstanceMetrics struct {
 	DSNAlias string `json:"dsnAlias"`
 	DBEngine string `json:"dbEngine"`
 	DBHost   string `json:"dbHost"`
+	DBName   string `json:"dbName,omitempty"`   // current database name
+	Region   string `json:"region,omitempty"`   // AWS region (from EC2 metadata)
+	DBSizeBytes int64 `json:"dbSizeBytes,omitempty"` // total database size in bytes
+
+	// EC2 host info (populated when DB runs on an EC2 instance)
+	EC2InstanceType string `json:"ec2InstanceType,omitempty"` // e.g. "t3.medium"
+	EC2InstanceId   string `json:"ec2InstanceId,omitempty"`   // e.g. "i-0abc123def456"
 
 	// Connectivity
 	CurrentConnections int64 `json:"currentConnections"`

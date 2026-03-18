@@ -20,6 +20,7 @@ import com.xammer.cloud.repository.KubernetesClusterConfigRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.services.cloudwatch.CloudWatchClient;
@@ -168,6 +169,7 @@ public class DbOpsCostService {
     private final DbAgentConfigRepository dbAgentConfigRepository;
     private final DbAgentDataCacheRepository dbAgentDataCacheRepository;
     private final DbAgentMetricsHistoryRepository dbAgentMetricsHistoryRepository;
+    private final SpotPricingService spotPricingService;
 
     @Autowired
     public DbOpsCostService(
@@ -180,7 +182,8 @@ public class DbOpsCostService {
             KubernetesClusterConfigRepository clusterConfigRepository,
             DbAgentConfigRepository dbAgentConfigRepository,
             DbAgentDataCacheRepository dbAgentDataCacheRepository,
-            DbAgentMetricsHistoryRepository dbAgentMetricsHistoryRepository) {
+            DbAgentMetricsHistoryRepository dbAgentMetricsHistoryRepository,
+            @Lazy SpotPricingService spotPricingService) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
         this.redisCache = redisCache;
@@ -191,6 +194,7 @@ public class DbOpsCostService {
         this.dbAgentConfigRepository = dbAgentConfigRepository;
         this.dbAgentDataCacheRepository = dbAgentDataCacheRepository;
         this.dbAgentMetricsHistoryRepository = dbAgentMetricsHistoryRepository;
+        this.spotPricingService = spotPricingService;
         logger.info("DbOpsCostService initialized");
     }
 
@@ -771,6 +775,20 @@ public class DbOpsCostService {
                         List<AgentInstanceMetricsDto> batch = objectMapper.readValue(
                                 cacheOpt.get().getDataJson(),
                                 new TypeReference<List<AgentInstanceMetricsDto>>() {});
+                        batch.forEach(dto -> {
+                            dto.setAgentName(agent.getAgentName());
+                            if (dto.getEc2InstanceType() != null && !dto.getEc2InstanceType().isEmpty()
+                                    && dto.getRegion() != null && !dto.getRegion().isEmpty()) {
+                                try {
+                                    double price = spotPricingService.getHourlyOnDemandPrice(
+                                            dto.getEc2InstanceType(), dto.getRegion());
+                                    dto.setEc2HourlyPrice(price);
+                                } catch (Exception ex) {
+                                    logger.debug("[DbOps] EC2 price lookup failed for {} in {}: {}",
+                                            dto.getEc2InstanceType(), dto.getRegion(), ex.getMessage());
+                                }
+                            }
+                        });
                         merged.addAll(batch);
                     } catch (Exception e) {
                         logger.warn("[DbOps] getAgentInstanceMetrics: parse failed for db agent {}: {}",
@@ -1264,12 +1282,16 @@ public class DbOpsCostService {
                     if (historyRows.isEmpty()) continue;
 
                     List<AgentTimeseriesDto.SnapshotPoint> snapshots = new ArrayList<>();
+                    String actualDbHost = agent.getDbHost();
                     for (DbAgentMetricsHistory row : historyRows) {
                         try {
                             List<AgentInstanceMetricsDto> items = objectMapper.readValue(
                                     row.getDataJson(), new TypeReference<List<AgentInstanceMetricsDto>>() {});
                             if (items == null || items.isEmpty()) continue;
                             AgentInstanceMetricsDto m = items.get(0);
+                            if (actualDbHost == null && m.getDbHost() != null) {
+                                actualDbHost = m.getDbHost();
+                            }
 
                             AgentTimeseriesDto.SnapshotPoint point = new AgentTimeseriesDto.SnapshotPoint();
                             point.setTs(row.getCollectedAt().toString());
@@ -1295,7 +1317,7 @@ public class DbOpsCostService {
                     if (!snapshots.isEmpty()) {
                         AgentTimeseriesDto dto = new AgentTimeseriesDto();
                         dto.setAgentName(agent.getAgentName());
-                        dto.setDbHost(agent.getDbHost());
+                        dto.setDbHost(actualDbHost);
                         dto.setSnapshots(snapshots);
                         result.add(dto);
                     }

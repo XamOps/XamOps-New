@@ -41,7 +41,7 @@ function fmtBytes(b: number) {
 }
 
 // Agent snapshot → chart data for a scalar field (connections, bufferPoolHitPct)
-function agentChartDirect(snapshots: AgentTimeseries['snapshots'], field: 'connections' | 'bufferPoolHitPct' | 'threadsRunning') {
+function agentChartDirect(snapshots: AgentTimeseries['snapshots'], field: 'connections' | 'bufferPoolHitPct' | 'threadsRunning' | 'totalSlowQueries') {
   return snapshots.map(s => {
     const ms = new Date(s.ts).getTime();
     return { ts: ms, v: round2(Number(s[field])), label: fmtLabel(ms) };
@@ -73,10 +73,21 @@ function agentChartConnUtilPct(snapshots: AgentTimeseries['snapshots']) {
 }
 
 // ── Mini stat card ─────────────────────────────────────────────────────────────
-function StatCard({ label, value, unit, color }: { label: string; value: string | number; unit?: string; color?: string }) {
+function StatCard({ label, value, unit, color, tooltip }: { label: string; value: string | number; unit?: string; color?: string; tooltip?: string }) {
   return (
     <div className="bg-gray-50 dark:bg-gray-700/40 rounded-lg p-3 flex flex-col gap-0.5">
-      <span className="text-xs text-gray-500 dark:text-gray-400">{label}</span>
+      <span className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
+        {label}
+        {tooltip && (
+          <span className="relative group inline-flex items-center">
+            <i className="fas fa-circle-info text-[9px] text-gray-400 dark:text-gray-500 cursor-help" />
+            <span className="pointer-events-none absolute top-full left-0 mt-1.5 w-56 rounded-lg bg-gray-900 dark:bg-gray-700 px-2.5 py-2 text-[11px] text-gray-100 leading-relaxed shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-50 whitespace-normal">
+              {tooltip}
+              <span className="absolute bottom-full left-3 border-4 border-transparent border-b-gray-900 dark:border-b-gray-700" />
+            </span>
+          </span>
+        )}
+      </span>
       <span className={`text-lg font-semibold ${color ?? 'text-gray-900 dark:text-gray-100'}`}>
         {value}<span className="text-xs font-normal ml-1 text-gray-500">{unit}</span>
       </span>
@@ -86,13 +97,14 @@ function StatCard({ label, value, unit, color }: { label: string; value: string 
 
 // ── Metric chart ──────────────────────────────────────────────────────────────
 function MetricChart({
-  title, data, color, unit, dataKey = 'v',
+  title, data, color, unit, dataKey = 'v', domain,
 }: {
   title: string;
   data: { ts: number; v: number; label: string }[];
   color: string;
   unit?: string;
   dataKey?: string;
+  domain?: [number, number];
 }) {
   if (!data.length) {
     return (
@@ -114,7 +126,7 @@ function MetricChart({
             </linearGradient>
           </defs>
           <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" strokeOpacity={0.5} />
-          <XAxis dataKey="ts" scale="time" type="number" domain={['dataMin', 'dataMax']}
+          <XAxis dataKey="ts" scale="time" type="number" domain={domain ?? ['dataMin', 'dataMax']}
             tick={{ fontSize: 9 }} tickFormatter={(ts: number) => fmtTime(ts)} />
           <YAxis tick={{ fontSize: 9 }} />
           <Tooltip
@@ -132,7 +144,26 @@ function MetricChart({
 
 
 // ── Agent Setup Wizard ────────────────────────────────────────────────────────
-function AgentSetupWizard({ engine, instanceId, endpoint }: { engine: string; instanceId: string; endpoint?: string }) {
+
+interface DsnEntry {
+  engine: 'mysql' | 'postgres';
+  host: string;
+  port: string;
+  dbName: string;
+  user: string;
+  pass: string;
+  sslMode: 'disable' | 'require' | 'prefer';
+}
+
+function buildDsn(d: DsnEntry) {
+  if (d.engine === 'postgres') {
+    const ssl = d.sslMode !== 'prefer' ? `?sslmode=${d.sslMode}` : '';
+    return `postgres://${d.user}:${d.pass || '<password>'}@${d.host || '<host>'}:${d.port}/${d.dbName || '<db>'}${ssl}`;
+  }
+  return `${d.user}:${d.pass || '<password>'}@tcp(${d.host || '<host>'}:${d.port})/${d.dbName || '<db>'}`;
+}
+
+function AgentSetupWizard({ engine, instanceId, endpoint, onConnected }: { engine: string; instanceId: string; endpoint?: string; onConnected?: (inst: DrawerInstance) => void }) {
   const { selectedAccountIds } = useAccounts();
   const [step, setStep] = useState(1);
   const [copied, setCopied] = useState('');
@@ -141,12 +172,23 @@ function AgentSetupWizard({ engine, instanceId, endpoint }: { engine: string; in
   const [sqlEngine, setSqlEngine] = useState<'mysql' | 'postgres'>(detectedPostgres ? 'postgres' : 'mysql');
   const isPostgres = sqlEngine === 'postgres';
 
-  const [host, setHost] = useState(endpoint?.split(':')[0] ?? '');
-  const [port, setPort] = useState(detectedPostgres ? '5432' : '3306');
-  const [dbName, setDbName] = useState('');
-  const [agentUser, setAgentUser] = useState('xamops_reader');
-  const [agentPass, setAgentPass] = useState('');
-  const [showPass, setShowPass] = useState(false);
+  const isRds = !!endpoint;
+  const [dsns, setDsns] = useState<DsnEntry[]>([{
+    engine: detectedPostgres ? 'postgres' : 'mysql',
+    host: endpoint?.split(':')[0] ?? '',
+    port: detectedPostgres ? '5432' : '3306',
+    dbName: '',
+    user: 'xamops_reader',
+    pass: '',
+    sslMode: isRds ? 'prefer' : 'disable',
+  }]);
+  const [showPass, setShowPass] = useState<Record<number, boolean>>({});
+
+  const updateDsn = (idx: number, field: keyof DsnEntry, value: string) =>
+    setDsns(prev => prev.map((d, i) => i === idx ? { ...d, [field]: value } : d));
+
+  const addDsn = () => setDsns(prev => [...prev, { engine: 'mysql', host: '', port: '3306', dbName: '', user: 'xamops_reader', pass: '', sslMode: 'disable' }]);
+  const removeDsn = (idx: number) => setDsns(prev => prev.filter((_, i) => i !== idx));
 
   // XamOps server config (auto-populated)
   // Use window.location.origin in production (same domain); in dev the user must set the tunnel URL
@@ -159,6 +201,7 @@ function AgentSetupWizard({ engine, instanceId, endpoint }: { engine: string; in
   const [apiKey, setApiKey] = useState('xamops_SecureAgentKey2024XamOps');
   const [cloudAccountId, setCloudAccountId] = useState(selectedAccountIds[0] ?? '');
   const [clusterName, setClusterName] = useState(instanceId);
+  const [queryLimit, setQueryLimit] = useState(200);
 
   const FALLBACK_KEY = 'xamops_SecureAgentKey2024XamOps';
 
@@ -168,6 +211,16 @@ function AgentSetupWizard({ engine, instanceId, endpoint }: { engine: string; in
   const [agentIp, setAgentIp] = useState<string>('');
   const [dataCounts, setDataCounts] = useState<Record<string, { itemCount: number; collectedAt: string }>>({});
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [disconnecting, setDisconnecting] = useState(false);
+
+  const handleDisconnect = () => {
+    if (!clusterName || !cloudAccountId) return;
+    if (!window.confirm(`Remove agent "${clusterName}" and all its cached data? The Docker container will keep running until you stop it manually.`)) return;
+    setDisconnecting(true);
+    apiClient.delete(`/api/v1/agent/db/register?agentName=${encodeURIComponent(clusterName)}&cloudAccountId=${encodeURIComponent(cloudAccountId)}`)
+      .then(() => { setViewMode('wizard'); setStep(1); })
+      .catch(() => setDisconnecting(false));
+  };
 
   useEffect(() => {
     apiClient.get<{ apiKey: string }>('/api/v1/agent/install-info')
@@ -182,12 +235,17 @@ function AgentSetupWizard({ engine, instanceId, endpoint }: { engine: string; in
     const applyConfig = (res: { found: boolean; dbEngine?: string; dbHost?: string; dbPort?: string; dbName?: string; dbUser?: string; dbPassword?: string; serverUrl?: string }) => {
       if (!res.found) return false;
       if (res.dbEngine) setSqlEngine(res.dbEngine as 'mysql' | 'postgres');
-      if (res.dbHost)   setHost(res.dbHost!);
-      if (res.dbPort)   setPort(res.dbPort!);
-      if (res.dbName)   setDbName(res.dbName!);
-      if (res.dbUser)   setAgentUser(res.dbUser!);
-      if (res.dbPassword) setAgentPass(res.dbPassword!);
-      if (res.serverUrl)  setServerUrl(res.serverUrl!);
+      setDsns(prev => {
+        const first: DsnEntry = { ...prev[0] };
+        if (res.dbEngine) first.engine = res.dbEngine as 'mysql' | 'postgres';
+        if (res.dbHost)   first.host = res.dbHost!;
+        if (res.dbPort)   first.port = res.dbPort!;
+        if (res.dbName)   first.dbName = res.dbName!;
+        if (res.dbUser)   first.user = res.dbUser!;
+        if (res.dbPassword) first.pass = res.dbPassword!;
+        return [first, ...prev.slice(1)];
+      });
+      if (res.serverUrl) setServerUrl(res.serverUrl!);
       return true;
     };
 
@@ -202,7 +260,7 @@ function AgentSetupWizard({ engine, instanceId, endpoint }: { engine: string; in
       applyConfig(cfg);
       setLastCheckin(status.lastCheckin ?? null);
       setAgentIp(status.agentIp ?? '');
-      setDataCounts(status.dataCounts ?? {});
+      setDataCounts((status as { dataCounts?: Record<string, { itemCount: number; collectedAt: string }> }).dataCounts ?? {});
       if (status.isActive) {
         setViewMode('connected');
       } else if (status.registered) {
@@ -274,21 +332,21 @@ GRANT SELECT ON ALL TABLES IN SCHEMA public TO xamops_reader;
 -- Optional: enable slow query analysis
 CREATE EXTENSION IF NOT EXISTS pg_stat_statements;`;
 
-  const dsn = isPostgres
-    ? `postgres://${agentUser}:${agentPass || '<password>'}@${host || '<host>'}:${port}/${dbName || '<db>'}`
-    : `${agentUser}:${agentPass || '<password>'}@tcp(${host || '<host>'}:${port})/${dbName || '<db>'}`;
+  const stopCmd = 'docker stop xamops-agent 2>/dev/null; docker rm xamops-agent 2>/dev/null';
 
   const runCmd = [
     'docker run -d \\',
     '  --name xamops-agent \\',
+    '  --restart unless-stopped \\',
     '  --network host \\',
     `  -e XAMOPS_SERVER_URL="${serverUrl || '<your-xamops-url>'}" \\`,
     `  -e XAMOPS_API_KEY="${apiKey || '<your-api-key>'}" \\`,
-    `  -e CLUSTER_NAME="${clusterName}" \\`,
+    `  -e CLUSTER_NAME="${clusterName || '<agent-name>'}" \\`,
     `  -e CLOUD_ACCOUNT_ID="${cloudAccountId || '<account-id>'}" \\`,
     '  -e COLLECTOR_DB=true \\',
-    `  -e DB_DSN_0='${dsn}' \\`,
-    '  adityamehta3003108/xamops-agent:1',
+    `  -e DB_QUERY_LIMIT=${queryLimit} \\`,
+    ...dsns.map((d, i) => `  -e DB_DSN_${i}='${buildDsn(d)}' \\`),
+    '  adityamehta3003108/xamops-agent:2',
   ].join('\n');
 
   const copy = (text: string, key: string) => {
@@ -319,12 +377,21 @@ CREATE EXTENSION IF NOT EXISTS pg_stat_statements;`;
               Last seen: {lastSeen}
             </p>
           </div>
-          <button
-            onClick={() => { setViewMode('wizard'); setStep(3); }}
-            className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-          >
-            <i className="fas fa-cog mr-1" />Setup
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => { setViewMode('wizard'); setStep(3); }}
+              className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            >
+              <i className="fas fa-cog mr-1" />Setup
+            </button>
+            <button
+              onClick={handleDisconnect}
+              disabled={disconnecting}
+              className="text-xs text-red-400 hover:text-red-600 dark:hover:text-red-300 px-2 py-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-50"
+            >
+              {disconnecting ? <><i className="fas fa-spinner fa-spin mr-1" />Removing…</> : <><i className="fas fa-unlink mr-1" />Disconnect</>}
+            </button>
+          </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div className="bg-gray-50 dark:bg-gray-700/40 rounded-lg p-3">
@@ -338,9 +405,31 @@ CREATE EXTENSION IF NOT EXISTS pg_stat_statements;`;
             <p className="text-[11px] text-gray-400">connections, QPS, buffer pool</p>
           </div>
         </div>
+      {onConnected && dsns.filter(d => d.host).length > 0 ? (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Connected Databases</p>
+          {dsns.filter(d => d.host).map((d, i) => (
+            <button
+              key={i}
+              onClick={() => onConnected({ instanceId: `${d.host}:${d.port}`, source: 'agent', agentHost: `${d.host}:${d.port}`, engine: d.engine })}
+              className="w-full flex items-center gap-3 p-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:border-indigo-400 dark:hover:border-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors text-left"
+            >
+              <i className="fas fa-database text-indigo-500 text-sm" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
+                  {d.host}:{d.port}{d.dbName ? `/${d.dbName}` : ''}
+                </p>
+                <p className="text-xs text-gray-500">{d.engine === 'postgres' ? 'PostgreSQL' : 'MySQL'} · {queryCount} queries tracked</p>
+              </div>
+              <i className="fas fa-arrow-right text-gray-400 text-xs" />
+            </button>
+          ))}
+        </div>
+      ) : (
         <p className="text-xs text-gray-500 dark:text-gray-400 text-center">
           Data is available in the <strong>Query Stats</strong> and <strong>Performance</strong> tabs above.
         </p>
+      )}
       </div>
     );
   }
@@ -375,6 +464,13 @@ CREATE EXTENSION IF NOT EXISTS pg_stat_statements;`;
           className="w-full py-2 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-lg text-xs font-medium hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
         >
           View Setup Steps
+        </button>
+        <button
+          onClick={handleDisconnect}
+          disabled={disconnecting}
+          className="w-full py-2 border border-red-200 dark:border-red-800 text-red-500 dark:text-red-400 rounded-lg text-xs font-medium hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-50"
+        >
+          {disconnecting ? <><i className="fas fa-spinner fa-spin mr-1" />Removing…</> : <><i className="fas fa-trash mr-1" />Remove Agent</>}
         </button>
       </div>
     );
@@ -432,7 +528,7 @@ CREATE EXTENSION IF NOT EXISTS pg_stat_statements;`;
             {(['mysql', 'postgres'] as const).map(e => (
               <button
                 key={e}
-                onClick={() => { setSqlEngine(e); setPort(e === 'postgres' ? '5432' : '3306'); }}
+                onClick={() => setSqlEngine(e)}
                 className={`px-3 py-1 text-xs rounded-md font-medium transition-colors ${
                   sqlEngine === e
                     ? 'bg-indigo-600 text-white'
@@ -444,40 +540,82 @@ CREATE EXTENSION IF NOT EXISTS pg_stat_statements;`;
             ))}
           </div>
 
-          {/* AWS RDS Parameter Group requirements */}
+          {/* Parameter requirements — RDS vs self-hosted */}
           <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/50 rounded-xl p-4 space-y-2">
-            <p className="text-xs font-semibold text-amber-800 dark:text-amber-300 flex items-center gap-2">
-              <i className="fas fa-cogs" /> AWS RDS — Required Parameter Group Settings
-            </p>
-            {isPostgres ? (
-              <div className="space-y-2">
-                <p className="text-xs text-amber-700 dark:text-amber-400">
-                  To enable slow query analysis, add <code className="bg-amber-100 dark:bg-amber-800/40 px-1 rounded font-mono">pg_stat_statements</code> to your RDS parameter group:
+            {endpoint ? (
+              /* ── RDS: use Parameter Group ── */
+              <>
+                <p className="text-xs font-semibold text-amber-800 dark:text-amber-300 flex items-center gap-2">
+                  <i className="fas fa-cogs" /> AWS RDS — Required Parameter Group Settings
                 </p>
-                <ol className="text-xs text-amber-700 dark:text-amber-400 space-y-1 list-decimal pl-4">
-                  <li>AWS Console → RDS → Parameter Groups → create or edit a group</li>
-                  <li>Set <code className="bg-amber-100 dark:bg-amber-800/40 px-1 rounded font-mono">shared_preload_libraries</code> = <code className="bg-amber-100 dark:bg-amber-800/40 px-1 rounded font-mono">pg_stat_statements</code></li>
-                  <li>Assign the parameter group to your instance → <strong>Reboot</strong></li>
-                  <li>Run once on your DB: <code className="bg-amber-100 dark:bg-amber-800/40 px-1 rounded font-mono">CREATE EXTENSION IF NOT EXISTS pg_stat_statements;</code></li>
-                </ol>
-                <p className="text-[11px] text-amber-600 dark:text-amber-500">
-                  Without this, instance metrics (connections, table sizes, deadlocks) still work — only slow query analysis is disabled.
-                </p>
-              </div>
+                {isPostgres ? (
+                  <div className="space-y-2">
+                    <p className="text-xs text-amber-700 dark:text-amber-400">
+                      To enable slow query analysis, add <code className="bg-amber-100 dark:bg-amber-800/40 px-1 rounded font-mono">pg_stat_statements</code> to your RDS parameter group:
+                    </p>
+                    <ol className="text-xs text-amber-700 dark:text-amber-400 space-y-1 list-decimal pl-4">
+                      <li>AWS Console → RDS → Parameter Groups → create or edit a group</li>
+                      <li>Set <code className="bg-amber-100 dark:bg-amber-800/40 px-1 rounded font-mono">shared_preload_libraries</code> = <code className="bg-amber-100 dark:bg-amber-800/40 px-1 rounded font-mono">pg_stat_statements</code></li>
+                      <li>Assign the parameter group to your instance → <strong>Reboot</strong></li>
+                      <li>Run once on your DB: <code className="bg-amber-100 dark:bg-amber-800/40 px-1 rounded font-mono">CREATE EXTENSION IF NOT EXISTS pg_stat_statements;</code></li>
+                    </ol>
+                    <p className="text-[11px] text-amber-600 dark:text-amber-500">
+                      Without this, instance metrics (connections, table sizes, deadlocks) still work — only slow query analysis is disabled.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <p className="text-xs text-amber-700 dark:text-amber-400">
+                      Enable <code className="bg-amber-100 dark:bg-amber-800/40 px-1 rounded font-mono">performance_schema</code> in your RDS parameter group:
+                    </p>
+                    <ol className="text-xs text-amber-700 dark:text-amber-400 space-y-1 list-decimal pl-4">
+                      <li>AWS Console → RDS → Parameter Groups → create or edit a group</li>
+                      <li>Set <code className="bg-amber-100 dark:bg-amber-800/40 px-1 rounded font-mono">performance_schema</code> = <code className="bg-amber-100 dark:bg-amber-800/40 px-1 rounded font-mono">1</code></li>
+                      <li>Assign the parameter group to your instance → <strong>Reboot</strong></li>
+                    </ol>
+                    <p className="text-[11px] text-amber-600 dark:text-amber-500">
+                      Without this, instance metrics (connections, table sizes, lock waits) still work — only slow query analysis is disabled.
+                    </p>
+                  </div>
+                )}
+              </>
             ) : (
-              <div className="space-y-2">
-                <p className="text-xs text-amber-700 dark:text-amber-400">
-                  Enable <code className="bg-amber-100 dark:bg-amber-800/40 px-1 rounded font-mono">performance_schema</code> in your RDS parameter group:
+              /* ── Self-hosted (EC2 / on-prem): edit postgresql.conf or my.cnf ── */
+              <>
+                <p className="text-xs font-semibold text-amber-800 dark:text-amber-300 flex items-center gap-2">
+                  <i className="fas fa-server" /> Self-hosted — Required Config Changes
                 </p>
-                <ol className="text-xs text-amber-700 dark:text-amber-400 space-y-1 list-decimal pl-4">
-                  <li>AWS Console → RDS → Parameter Groups → create or edit a group</li>
-                  <li>Set <code className="bg-amber-100 dark:bg-amber-800/40 px-1 rounded font-mono">performance_schema</code> = <code className="bg-amber-100 dark:bg-amber-800/40 px-1 rounded font-mono">1</code></li>
-                  <li>Assign the parameter group to your instance → <strong>Reboot</strong></li>
-                </ol>
-                <p className="text-[11px] text-amber-600 dark:text-amber-500">
-                  Without this, instance metrics (connections, table sizes, lock waits) still work — only slow query analysis is disabled.
-                </p>
-              </div>
+                {isPostgres ? (
+                  <div className="space-y-2">
+                    <p className="text-xs text-amber-700 dark:text-amber-400">
+                      To enable slow query analysis, add <code className="bg-amber-100 dark:bg-amber-800/40 px-1 rounded font-mono">pg_stat_statements</code> to <code className="bg-amber-100 dark:bg-amber-800/40 px-1 rounded font-mono">postgresql.conf</code>:
+                    </p>
+                    <ol className="text-xs text-amber-700 dark:text-amber-400 space-y-1 list-decimal pl-4">
+                      <li>Edit <code className="bg-amber-100 dark:bg-amber-800/40 px-1 rounded font-mono">/etc/postgresql/*/main/postgresql.conf</code></li>
+                      <li>Add: <code className="bg-amber-100 dark:bg-amber-800/40 px-1 rounded font-mono">shared_preload_libraries = 'pg_stat_statements'</code></li>
+                      <li>Restart: <code className="bg-amber-100 dark:bg-amber-800/40 px-1 rounded font-mono">sudo systemctl restart postgresql</code></li>
+                      <li>Run once in psql: <code className="bg-amber-100 dark:bg-amber-800/40 px-1 rounded font-mono">CREATE EXTENSION IF NOT EXISTS pg_stat_statements;</code></li>
+                    </ol>
+                    <p className="text-[11px] text-amber-600 dark:text-amber-500">
+                      Without this, instance metrics (connections, table sizes, deadlocks) still work — only slow query analysis is disabled.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <p className="text-xs text-amber-700 dark:text-amber-400">
+                      Enable <code className="bg-amber-100 dark:bg-amber-800/40 px-1 rounded font-mono">performance_schema</code> in <code className="bg-amber-100 dark:bg-amber-800/40 px-1 rounded font-mono">my.cnf</code>:
+                    </p>
+                    <ol className="text-xs text-amber-700 dark:text-amber-400 space-y-1 list-decimal pl-4">
+                      <li>Edit <code className="bg-amber-100 dark:bg-amber-800/40 px-1 rounded font-mono">/etc/mysql/my.cnf</code> (or <code className="bg-amber-100 dark:bg-amber-800/40 px-1 rounded font-mono">my.ini</code> on Windows)</li>
+                      <li>Under <code className="bg-amber-100 dark:bg-amber-800/40 px-1 rounded font-mono">[mysqld]</code> add: <code className="bg-amber-100 dark:bg-amber-800/40 px-1 rounded font-mono">performance_schema=ON</code></li>
+                      <li>Restart: <code className="bg-amber-100 dark:bg-amber-800/40 px-1 rounded font-mono">sudo systemctl restart mysql</code></li>
+                    </ol>
+                    <p className="text-[11px] text-amber-600 dark:text-amber-500">
+                      Without this, instance metrics (connections, table sizes, lock waits) still work — only slow query analysis is disabled.
+                    </p>
+                  </div>
+                )}
+              </>
             )}
           </div>
 
@@ -498,98 +636,128 @@ CREATE EXTENSION IF NOT EXISTS pg_stat_statements;`;
         </div>
       )}
 
-      {/* Step 2: Configure connection */}
+      {/* Step 2: Configure connections */}
       {step === 2 && (
         <div className="space-y-3">
           <div className="bg-sky-50 dark:bg-sky-900/20 border border-sky-100 dark:border-sky-800 rounded-xl p-4">
             <p className="text-xs font-semibold text-sky-800 dark:text-sky-300 mb-1 flex items-center gap-2">
-              <i className="fas fa-plug" /> Step 2 — Configure database connection
+              <i className="fas fa-plug" /> Step 2 — Configure database connections
             </p>
-            <p className="text-xs text-sky-600 dark:text-sky-400">Enter your connection details to generate the agent command.</p>
+            <p className="text-xs text-sky-600 dark:text-sky-400">One agent can monitor multiple databases. Add each one below.</p>
           </div>
-          <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Database Connection</p>
-          <div className="grid grid-cols-2 gap-3">
-            {[
-              { label: 'Host / Endpoint', val: host, setter: setHost, placeholder: 'mydb.abc123.us-east-1.rds.amazonaws.com' },
-              { label: 'Port', val: port, setter: setPort, placeholder: isPostgres ? '5432' : '3306' },
-              { label: 'Database Name', val: dbName, setter: setDbName, placeholder: 'mydb' },
-              { label: 'Username', val: agentUser, setter: setAgentUser, placeholder: 'xamops_reader' },
-            ].map(f => (
-              <div key={f.label}>
-                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{f.label}</label>
-                <input
-                  type="text"
-                  value={f.val}
-                  onChange={e => f.setter(e.target.value)}
-                  placeholder={f.placeholder}
-                  className="w-full px-3 py-1.5 text-xs rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500"
-                />
+
+          {/* Per-DSN cards */}
+          {dsns.map((d, idx) => (
+            <div key={idx} className="border border-gray-200 dark:border-gray-600 rounded-xl p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-gray-600 dark:text-gray-400">
+                  Database {idx + 1} <span className="ml-1 text-gray-400 font-mono">DB_DSN_{idx}</span>
+                </span>
+                {idx > 0 && (
+                  <button onClick={() => removeDsn(idx)} className="text-xs text-red-400 hover:text-red-600 transition-colors">
+                    <i className="fas fa-trash-alt mr-1" />Remove
+                  </button>
+                )}
               </div>
-            ))}
-            <div>
-              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Password</label>
-              <div className="relative">
-                <input
-                  type={showPass ? 'text' : 'password'}
-                  value={agentPass}
-                  onChange={e => setAgentPass(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full px-3 py-1.5 text-xs rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500 pr-8"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPass(v => !v)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-                >
-                  {showPass ? (
-                    <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
-                    </svg>
-                  ) : (
-                    <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                    </svg>
-                  )}
-                </button>
+              {/* Engine toggle + SSL mode */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {(['mysql', 'postgres'] as const).map(e => (
+                  <button key={e}
+                    onClick={() => updateDsn(idx, 'engine', e)}
+                    className={`px-2 py-0.5 text-xs rounded font-medium transition-colors ${d.engine === e ? 'bg-indigo-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'}`}>
+                    {e === 'mysql' ? 'MySQL' : 'PostgreSQL'}
+                  </button>
+                ))}
+                {d.engine === 'postgres' && (
+                  <div className="flex items-center gap-1 ml-2 border-l border-gray-200 dark:border-gray-600 pl-2">
+                    <span className="text-[10px] text-gray-400 mr-1">SSL:</span>
+                    {(['disable', 'require', 'prefer'] as const).map(m => (
+                      <button key={m} onClick={() => updateDsn(idx, 'sslMode', m)}
+                        className={`px-1.5 py-0.5 text-[10px] rounded font-mono transition-colors ${d.sslMode === m ? 'bg-indigo-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'}`}>
+                        {m}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {([
+                  { label: 'Host / Endpoint', field: 'host' as const, placeholder: 'mydb.abc.rds.amazonaws.com' },
+                  { label: 'Port',            field: 'port' as const, placeholder: d.engine === 'postgres' ? '5432' : '3306' },
+                  { label: 'Database Name',   field: 'dbName' as const, placeholder: 'mydb' },
+                  { label: 'Username',        field: 'user' as const, placeholder: 'xamops_reader' },
+                ]).map(f => (
+                  <div key={f.field}>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-0.5">{f.label}</label>
+                    <input type="text" value={d[f.field]} onChange={e => updateDsn(idx, f.field, e.target.value)}
+                      placeholder={f.placeholder}
+                      className="w-full px-2 py-1.5 text-xs rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500" />
+                  </div>
+                ))}
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-0.5">Password</label>
+                  <div className="relative">
+                    <input type={showPass[idx] ? 'text' : 'password'} value={d.pass}
+                      onChange={e => updateDsn(idx, 'pass', e.target.value)}
+                      placeholder="••••••••"
+                      className="w-full px-2 py-1.5 text-xs rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500 pr-7" />
+                    <button type="button" onClick={() => setShowPass(p => ({ ...p, [idx]: !p[idx] }))}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        {showPass[idx]
+                          ? <path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                          : <><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></>}
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div className="bg-gray-50 dark:bg-gray-700/30 rounded-lg px-2 py-1.5">
+                <code className="text-[11px] text-indigo-700 dark:text-indigo-300 break-all">{buildDsn(d)}</code>
               </div>
             </div>
-          </div>
+          ))}
+
+          <button onClick={addDsn}
+            className="w-full py-2 border border-dashed border-gray-300 dark:border-gray-600 rounded-xl text-xs text-gray-500 dark:text-gray-400 hover:border-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
+            <i className="fas fa-plus mr-1" /> Add another database
+          </button>
+
           <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider pt-1">XamOps Server Config</p>
           <div className="grid grid-cols-2 gap-3">
             {[
-              { label: 'XamOps Server URL', val: serverUrl, setter: setServerUrl, placeholder: 'https://your-tunnel-or-public-url', disabled: false },
-              { label: 'Cloud Account ID', val: cloudAccountId, setter: setCloudAccountId, placeholder: '015764906357', disabled: false },
-              { label: 'Cluster / Agent Name', val: clusterName, setter: setClusterName, placeholder: instanceId, disabled: false },
+              { label: 'XamOps Server URL', val: serverUrl, setter: setServerUrl, placeholder: 'https://your-tunnel-or-public-url' },
+              { label: 'Cloud Account ID', val: cloudAccountId, setter: setCloudAccountId, placeholder: '015764906357' },
+              { label: 'Cluster / Agent Name', val: clusterName, setter: setClusterName, placeholder: instanceId },
             ].map(f => (
               <div key={f.label}>
                 <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{f.label}</label>
-                <input
-                  type="text"
-                  value={f.val}
-                  onChange={e => f.setter(e.target.value)}
-                  placeholder={f.placeholder}
-                  className="w-full px-3 py-1.5 text-xs rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500"
-                />
+                <input type="text" value={f.val} onChange={e => f.setter(e.target.value)} placeholder={f.placeholder}
+                  className="w-full px-3 py-1.5 text-xs rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500" />
               </div>
             ))}
             <div>
               <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                Query Limit
+                <span className="text-[10px] text-gray-400 ml-1">top N queries by total time</span>
+              </label>
+              <select value={queryLimit} onChange={e => setQueryLimit(Number(e.target.value))}
+                className="w-full px-3 py-1.5 text-xs rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-sky-500">
+                <option value={50}>50 queries</option>
+                <option value={100}>100 queries</option>
+                <option value={200}>200 queries</option>
+                <option value={500}>500 queries</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
                 API Key <span className="text-[10px] text-emerald-600 dark:text-emerald-400 ml-1">auto-filled</span>
               </label>
-              <input
-                type="password"
-                value={apiKey}
-                readOnly
-                disabled
-                className="w-full px-3 py-1.5 text-xs rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 cursor-not-allowed"
-              />
+              <input type="password" value={apiKey} readOnly disabled
+                className="w-full px-3 py-1.5 text-xs rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 cursor-not-allowed" />
             </div>
           </div>
-          <div className="bg-gray-50 dark:bg-gray-700/30 rounded-lg p-3">
-            <p className="text-[10px] text-gray-400 mb-1 uppercase tracking-wider">Preview DSN</p>
-            <code className="text-xs text-indigo-700 dark:text-indigo-300 break-all">{dsn}</code>
-          </div>
+
           <div className="flex gap-2">
             <button onClick={() => setStep(1)} className="flex-none px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-lg text-xs font-medium hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
               <i className="fas fa-arrow-left mr-1" />Back
@@ -597,10 +765,11 @@ CREATE EXTENSION IF NOT EXISTS pg_stat_statements;`;
             <button
               onClick={() => {
                 setSaveStatus('saving');
+                const d0 = dsns[0];
                 apiClient.post('/api/v1/agent/db/config', {
                   agentName: clusterName, cloudAccountId,
-                  dbEngine: sqlEngine, dbHost: host, dbPort: port,
-                  dbName, dbUser: agentUser, dbPassword: agentPass, serverUrl,
+                  dbEngine: d0.engine, dbHost: d0.host, dbPort: d0.port,
+                  dbName: d0.dbName, dbUser: d0.user, dbPassword: d0.pass, serverUrl,
                 })
                   .then(() => { setSaveStatus('saved'); setTimeout(() => setSaveStatus('idle'), 2000); })
                   .catch(() => { setSaveStatus('error'); setTimeout(() => setSaveStatus('idle'), 2000); });
@@ -628,16 +797,39 @@ CREATE EXTENSION IF NOT EXISTS pg_stat_statements;`;
             </p>
             <p className="text-xs text-emerald-600 dark:text-emerald-400">Run this command in the same VPC as your database (e.g. on an EC2 instance or container):</p>
           </div>
-          <div className="relative">
-            <pre className="bg-gray-900 text-gray-100 rounded-xl p-4 text-xs overflow-x-auto leading-relaxed whitespace-pre-wrap break-all">
-              {runCmd}
-            </pre>
-            <button
-              onClick={() => copy(runCmd.replace(/\\\n\s*/g, ' '), 'cmd')}
-              className="absolute top-2 right-2 px-2 py-1 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded text-[10px] transition-colors"
-            >
-              {copied === 'cmd' ? <><i className="fas fa-check mr-1" />Copied</> : <><i className="fas fa-copy mr-1" />Copy</>}
-            </button>
+          {/* Stop existing container first */}
+          <div>
+            <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">
+              1. Remove existing container (if any)
+            </p>
+            <div className="relative">
+              <pre className="bg-gray-900 text-gray-100 rounded-xl p-3 text-xs overflow-x-auto">
+                {stopCmd}
+              </pre>
+              <button
+                onClick={() => copy(stopCmd, 'stop')}
+                className="absolute top-2 right-2 px-2 py-1 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded text-[10px] transition-colors"
+              >
+                {copied === 'stop' ? <><i className="fas fa-check mr-1" />Copied</> : <><i className="fas fa-copy mr-1" />Copy</>}
+              </button>
+            </div>
+          </div>
+          {/* Run command */}
+          <div>
+            <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">
+              2. Start the agent
+            </p>
+            <div className="relative">
+              <pre className="bg-gray-900 text-gray-100 rounded-xl p-4 text-xs overflow-x-auto leading-relaxed whitespace-pre-wrap break-all">
+                {runCmd}
+              </pre>
+              <button
+                onClick={() => copy(runCmd.replace(/\\\n\s*/g, ' '), 'cmd')}
+                className="absolute top-2 right-2 px-2 py-1 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded text-[10px] transition-colors"
+              >
+                {copied === 'cmd' ? <><i className="fas fa-check mr-1" />Copied</> : <><i className="fas fa-copy mr-1" />Copy</>}
+              </button>
+            </div>
           </div>
           {/* Live agent connection status */}
           <div className="flex items-center gap-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800 rounded-lg p-3">
@@ -712,6 +904,7 @@ interface Props {
   fetchTimeseries: (id: string, hours: number) => Promise<DbInstanceTimeseries | null>;
   fetchAgentTimeseries: (hours: number) => Promise<AgentTimeseries[]>;
   fetchAgentTableSizes: () => Promise<AgentTableSize[]>;
+  onConnected?: (inst: DrawerInstance) => void;
 }
 
 type DetailTab = 'overview' | 'performance' | 'slowqueries' | 'queries' | 'cost' | 'security' | 'snapshots';
@@ -720,7 +913,7 @@ type DetailTab = 'overview' | 'performance' | 'slowqueries' | 'queries' | 'cost'
 export default function DbInstanceDetailDrawer({
   instance, metrics, agentStats, agentInstanceMetrics, slowQueries,
   idle, rightsizing, security, allSnapshots,
-  fetchTimeseries, fetchAgentTimeseries, fetchAgentTableSizes,
+  fetchTimeseries, fetchAgentTimeseries, fetchAgentTableSizes, onConnected,
 }: Props) {
   const [tab, setTab] = useState<DetailTab>('overview');
   const [timeseries, setTimeseries] = useState<DbInstanceTimeseries | null>(null);
@@ -755,12 +948,49 @@ export default function DbInstanceDetailDrawer({
 
   if (!instance) return null;
 
+  // "Connect a Database" mode — blank instanceId, show wizard-only layout (no tabs)
+  if (!instance.instanceId && instance.source === 'agent') {
+    return (
+      <div className="flex flex-col flex-1 bg-white dark:bg-gray-900 min-h-0">
+        <div className="flex-1 overflow-y-auto px-6 py-6">
+          <div className="max-w-lg mx-auto">
+            <div className="mb-6">
+              <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-1">
+                <i className="fas fa-plug text-indigo-500 mr-2" />Connect a Database
+              </h2>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Deploy the XamOps DB agent on any EC2 instance or server to monitor MySQL or PostgreSQL databases.
+              </p>
+            </div>
+            <AgentSetupWizard
+              engine={instance.engine ?? 'mysql'}
+              instanceId=""
+              onConnected={onConnected}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const rd = instance.rdsData;
+
+  const { selectedAccountIds } = useAccounts();
+  const [agentDisconnecting, setAgentDisconnecting] = useState(false);
+  const disconnectAgent = (agentName: string) => {
+    const accountId = selectedAccountIds[0] ?? '';
+    if (!agentName || !accountId) return;
+    if (!window.confirm(`Remove agent "${agentName}" and all its cached data?\n\nThe Docker container will keep running until you stop it manually on the EC2.`)) return;
+    setAgentDisconnecting(true);
+    apiClient.delete(`/api/v1/agent/db/register?agentName=${encodeURIComponent(agentName)}&cloudAccountId=${encodeURIComponent(accountId)}`)
+      .then(() => window.location.reload())
+      .catch(() => setAgentDisconnecting(false));
+  };
 
   // Per-instance filtered data
   const instanceAgentStats = agentStats.filter(s => {
     if (s.dbHost === instance.agentHost) return true;
-    if (s.dsnAlias?.includes(instance.instanceId)) return true;
+    if (instance.instanceId && s.dsnAlias?.includes(instance.instanceId)) return true;
     // Match RDS instances by endpoint hostname (agent dbHost includes port, endpoint may not)
     const agentHostname = s.dbHost?.split(':')[0] ?? '';
     if (agentHostname && instance.rdsData?.endpoint?.includes(agentHostname)) return true;
@@ -772,8 +1002,9 @@ export default function DbInstanceDetailDrawer({
     (instance.rdsData?.endpoint && instance.rdsData.endpoint.includes(m.dbHost))
   );
   const instanceAgentTs = agentTs.find(a =>
-    a.agentName === instance.instanceId ||
-    a.dbHost === instance.agentHost ||
+    (agentMetrics && a.agentName === agentMetrics.agentName) ||
+    (instance.instanceId && a.agentName === instance.instanceId) ||
+    (instance.agentHost && a.dbHost === instance.agentHost) ||
     (instance.rdsData?.endpoint && instance.rdsData.endpoint.includes(a.dbHost?.split(':')[0] ?? ''))
   );
   const instanceTableSizes = tableSizes.filter(t =>
@@ -786,6 +1017,10 @@ export default function DbInstanceDetailDrawer({
   const instanceSecurity = security.filter(c => c.instanceId === instance.instanceId);
   const instanceSnapshots = allSnapshots.filter(s => s.instanceId === instance.instanceId);
 
+  // Queries averaging >10ms — used for both the KPI card and the Slow Queries tab count
+  const agentSlowQueriesCount = instanceAgentStats.filter(s => s.avgTimeSeconds > 0.01).length;
+  const slowQueriesTabCount = instanceSlowQueries.length || agentSlowQueriesCount;
+
   const filteredAgentStats = instanceAgentStats.filter(s =>
     !querySearch || s.queryDigest?.toLowerCase().includes(querySearch.toLowerCase())
   );
@@ -793,7 +1028,7 @@ export default function DbInstanceDetailDrawer({
   const tabs: { id: DetailTab; label: string; badge?: number }[] = [
     { id: 'overview',    label: 'Overview' },
     { id: 'performance', label: 'Performance' },
-    { id: 'slowqueries', label: `Slow Queries${instanceSlowQueries.length ? ` (${instanceSlowQueries.length})` : ''}` },
+    { id: 'slowqueries', label: `Slow Queries${slowQueriesTabCount ? ` (${slowQueriesTabCount})` : ''}` },
     { id: 'queries',     label: `Query Stats${instanceAgentStats.length ? ` (${instanceAgentStats.length})` : ''}` },
     { id: 'cost',        label: 'Cost & Savings' },
     { id: 'security',    label: `Security${instanceSecurity.filter(c => c.status === 'FAIL').length ? ` (${instanceSecurity.filter(c => c.status === 'FAIL').length})` : ''}` },
@@ -824,6 +1059,14 @@ export default function DbInstanceDetailDrawer({
         {/* ── OVERVIEW ── */}
         {tab === 'overview' && (
           <div className="space-y-5">
+            {/* New / empty agent instance — show wizard directly */}
+            {instance.source === 'agent' && !agentMetrics && instanceAgentStats.length === 0 && (
+              <AgentSetupWizard
+                engine={instance.engine ?? 'mysql'}
+                instanceId={instance.instanceId}
+                endpoint={instance.rdsData?.endpoint}
+              />
+            )}
             {metrics && (
               <div>
                 <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Live Metrics (7d avg)</p>
@@ -875,18 +1118,30 @@ export default function DbInstanceDetailDrawer({
                 </p>
                 <div className="grid grid-cols-3 gap-2">
                   <StatCard label="Connections" value={`${agentMetrics.currentConnections} / ${agentMetrics.maxConnections}`}
-                    color={agentMetrics.currentConnections / Math.max(agentMetrics.maxConnections, 1) > 0.8 ? 'text-red-600' : 'text-gray-900 dark:text-gray-100'} />
-                  <StatCard label="Peak Connections" value={agentMetrics.maxUsedConnections} />
-                  <StatCard label="Total Queries" value={agentMetrics.totalQueries.toLocaleString()} />
-                  <StatCard label="Slow Queries" value={agentMetrics.totalSlowQueries}
-                    color={agentMetrics.totalSlowQueries > 0 ? 'text-orange-600' : 'text-gray-900 dark:text-gray-100'} />
+                    color={agentMetrics.currentConnections / Math.max(agentMetrics.maxConnections, 1) > 0.8 ? 'text-red-600' : 'text-gray-900 dark:text-gray-100'}
+                    tooltip="Current open connections vs. max_connections limit. Above 80% risks connection exhaustion — your app will start seeing 'too many connections' errors." />
+                  <StatCard label="Peak Connections" value={agentMetrics.maxUsedConnections}
+                    tooltip={agentMetrics.dbEngine === 'postgres'
+                      ? "Current connections at collection time. PostgreSQL has no built-in historical peak counter — use this as a snapshot to right-size your HikariCP / connection pool."
+                      : "Highest simultaneous connections since the server last started (max_used_connections). Use this to right-size your connection pool (e.g. HikariCP maxPoolSize)."} />
+                  <StatCard label="Total Queries" value={agentMetrics.totalQueries.toLocaleString()}
+                    tooltip={agentMetrics.dbEngine === 'postgres'
+                      ? "Sum of all query executions tracked by pg_stat_statements since the extension was last reset. Covers every query pattern the agent monitors."
+                      : "Cumulative queries executed since server startup. Sourced from Com_* status variables (MySQL). Resets on server restart."} />
+                  <StatCard label="Slow Queries" value={agentMetrics.dbEngine === 'postgres' ? agentSlowQueriesCount : agentMetrics.totalSlowQueries}
+                    color={(agentMetrics.dbEngine === 'postgres' ? agentSlowQueriesCount : agentMetrics.totalSlowQueries) > 0 ? 'text-orange-600' : 'text-gray-900 dark:text-gray-100'}
+                    tooltip={agentMetrics.dbEngine === 'postgres'
+                      ? "Queries averaging >10ms in pg_stat_statements. These are the same queries shown in the Slow Queries tab — patterns with high average execution time worth optimizing."
+                      : "Queries exceeding long_query_time threshold from MySQL Slow_queries counter. Enable slow_query_log to populate this."} />
                   {agentMetrics.innodbBufferPoolHitPct > 0 && (
                     <StatCard label="Buffer Pool Hit" value={`${Math.round(agentMetrics.innodbBufferPoolHitPct)}%`}
-                      color={agentMetrics.innodbBufferPoolHitPct < 90 ? 'text-orange-600' : 'text-green-600'} />
+                      color={agentMetrics.innodbBufferPoolHitPct < 90 ? 'text-orange-600' : 'text-green-600'}
+                      tooltip="% of data reads served from RAM (InnoDB buffer pool) vs. disk. Below 90% means frequent disk I/O — increase innodb_buffer_pool_size to fit your working set in memory." />
                   )}
                   <StatCard label="Uptime" value={agentMetrics.uptime > 86400
                     ? `${Math.floor(agentMetrics.uptime / 86400)}d`
-                    : `${Math.floor(agentMetrics.uptime / 3600)}h`} />
+                    : `${Math.floor(agentMetrics.uptime / 3600)}h`}
+                    tooltip="Time since the database server last restarted. Frequent restarts indicate crashes or OOM kills. Note: cumulative counters (Total Queries, Slow Queries) reset on restart." />
                 </div>
                 {agentMetrics.comSelect + agentMetrics.comInsert + agentMetrics.comUpdate + agentMetrics.comDelete > 0 && (
                   <div className="mt-2 bg-gray-50 dark:bg-gray-700/30 rounded-lg p-3">
@@ -909,6 +1164,26 @@ export default function DbInstanceDetailDrawer({
                 {agentMetrics.version && (
                   <p className="text-xs text-gray-400 mt-2">Version: {agentMetrics.version}</p>
                 )}
+                {(agentMetrics.ec2InstanceType || agentMetrics.region) && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {agentMetrics.region && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">
+                        <i className="fas fa-location-dot text-[9px]" /> {agentMetrics.region}
+                      </span>
+                    )}
+                    {agentMetrics.ec2InstanceType && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-orange-50 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300">
+                        <i className="fab fa-aws text-[9px]" /> {agentMetrics.ec2InstanceType}
+                      </span>
+                    )}
+                    {agentMetrics.ec2HourlyPrice != null && agentMetrics.ec2HourlyPrice > 0 && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300">
+                        <i className="fas fa-dollar-sign text-[9px]" />
+                        ${agentMetrics.ec2HourlyPrice.toFixed(4)}/hr · ${(agentMetrics.ec2HourlyPrice * 730).toFixed(0)}/mo
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
@@ -922,6 +1197,28 @@ export default function DbInstanceDetailDrawer({
                     <span>Avg: <strong>{round2(instanceAgentStats[0].avgTimeSeconds * 1000)}ms</strong></span>
                     <span>Max: <strong>{round2(instanceAgentStats[0].maxTimeSeconds * 1000)}ms</strong></span>
                   </div>
+                </div>
+              </div>
+            )}
+
+            {/* Agent management — disconnect */}
+            {instance.source === 'agent' && (agentMetrics || instanceAgentStats.length > 0) && (
+              <div className="border-t border-gray-100 dark:border-gray-700 pt-4">
+                <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Agent Management</p>
+                <div className="flex items-center justify-between bg-gray-50 dark:bg-gray-700/30 rounded-lg px-4 py-3">
+                  <div>
+                    <p className="text-xs font-medium text-gray-700 dark:text-gray-300">{instance.instanceId}</p>
+                    <p className="text-[11px] text-gray-400 mt-0.5">Removes registration and cached data. Docker container keeps running.</p>
+                  </div>
+                  <button
+                    onClick={() => disconnectAgent(agentMetrics?.agentName ?? instanceAgentTs?.agentName ?? instance.instanceId)}
+                    disabled={agentDisconnecting}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-500 dark:text-red-400 border border-red-200 dark:border-red-800 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-50 shrink-0 ml-4"
+                  >
+                    {agentDisconnecting
+                      ? <><i className="fas fa-spinner fa-spin" /> Removing…</>
+                      : <><i className="fas fa-unlink" /> Disconnect</>}
+                  </button>
                 </div>
               </div>
             )}
@@ -966,20 +1263,38 @@ export default function DbInstanceDetailDrawer({
                 <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   Agent Metrics <span className="text-purple-500 ml-1 normal-case font-normal">(from DB agent · {instanceAgentTs.snapshots.length} snapshots)</span>
                 </p>
-                <div className="grid grid-cols-2 gap-3">
-                  <MetricChart title="Active Connections" data={agentChartDirect(instanceAgentTs.snapshots, 'connections')} color="#0ea5e9" />
-                  <MetricChart title="Connection Utilization" data={agentChartConnUtilPct(instanceAgentTs.snapshots)} color="#f43f5e" unit="%" />
-                  <MetricChart title="Buffer Pool Hit %" data={agentChartDirect(instanceAgentTs.snapshots, 'bufferPoolHitPct')} color="#10b981" unit="%" />
-                  <MetricChart title="Query Throughput (QPS)" data={agentChartRate(instanceAgentTs.snapshots, 'totalQueries')} color="#6366f1" unit="/s" />
-                  <MetricChart title="Slow Query Rate" data={agentChartRate(instanceAgentTs.snapshots, 'totalSlowQueries')} color="#ef4444" unit="/s" />
-                  <MetricChart title="SELECT/s" data={agentChartRate(instanceAgentTs.snapshots, 'comSelect')} color="#3b82f6" unit="/s" />
-                  <MetricChart title="INSERT/s" data={agentChartRate(instanceAgentTs.snapshots, 'comInsert')} color="#22c55e" unit="/s" />
-                  <MetricChart title="UPDATE/s" data={agentChartRate(instanceAgentTs.snapshots, 'comUpdate')} color="#f59e0b" unit="/s" />
-                  <MetricChart title="DELETE/s" data={agentChartRate(instanceAgentTs.snapshots, 'comDelete')} color="#f43f5e" unit="/s" />
-                  <MetricChart title="Active Threads" data={agentChartDirect(instanceAgentTs.snapshots, 'threadsRunning')} color="#a78bfa" />
-                  <MetricChart title="Row Lock Waits/s" data={agentChartRate(instanceAgentTs.snapshots, 'innodbRowLockWaits')} color="#fb923c" unit="/s" />
-                  <MetricChart title="Deadlocks/s" data={agentChartRate(instanceAgentTs.snapshots, 'innodbDeadlocks')} color="#ef4444" unit="/s" />
-                </div>
+                {(() => {
+                  const isPostgres = agentMetrics?.dbEngine === 'postgres';
+                  // Shared x-axis domain: start from 2nd snapshot so direct + rate charts align
+                  const snaps = instanceAgentTs.snapshots;
+                  const domainMin = snaps.length >= 2 ? new Date(snaps[1].ts).getTime() : new Date(snaps[0].ts).getTime();
+                  const domainMax = new Date(snaps[snaps.length - 1].ts).getTime();
+                  const sharedDomain: [number, number] = [domainMin, domainMax];
+                  return (
+                    <div className="grid grid-cols-2 gap-3">
+                      <MetricChart title="Active Connections" data={agentChartDirect(snaps, 'connections')} color="#0ea5e9" domain={sharedDomain} />
+                      <MetricChart title="Connection Utilization" data={agentChartConnUtilPct(snaps)} color="#f43f5e" unit="%" domain={sharedDomain} />
+                      {!isPostgres && (
+                        <MetricChart title="Buffer Pool Hit %" data={agentChartDirect(snaps, 'bufferPoolHitPct')} color="#10b981" unit="%" domain={sharedDomain} />
+                      )}
+                      <MetricChart title="Query Throughput (QPS)" data={agentChartRate(snaps, 'totalQueries')} color="#6366f1" unit="/s" domain={sharedDomain} />
+                      {isPostgres ? (
+                        <MetricChart title="Slow Query Patterns" data={agentChartDirect(snaps, 'totalSlowQueries')} color="#ef4444" unit=" patterns" domain={sharedDomain} />
+                      ) : (
+                        <MetricChart title="Slow Query Rate" data={agentChartRate(snaps, 'totalSlowQueries')} color="#ef4444" unit="/s" domain={sharedDomain} />
+                      )}
+                      <MetricChart title="SELECT/s" data={agentChartRate(snaps, 'comSelect')} color="#3b82f6" unit="/s" domain={sharedDomain} />
+                      <MetricChart title="INSERT/s" data={agentChartRate(snaps, 'comInsert')} color="#22c55e" unit="/s" domain={sharedDomain} />
+                      <MetricChart title="UPDATE/s" data={agentChartRate(snaps, 'comUpdate')} color="#f59e0b" unit="/s" domain={sharedDomain} />
+                      <MetricChart title="DELETE/s" data={agentChartRate(snaps, 'comDelete')} color="#f43f5e" unit="/s" domain={sharedDomain} />
+                      <MetricChart title="Active Threads" data={agentChartDirect(snaps, 'threadsRunning')} color="#a78bfa" domain={sharedDomain} />
+                      {!isPostgres && (
+                        <MetricChart title="Row Lock Waits/s" data={agentChartRate(snaps, 'innodbRowLockWaits')} color="#fb923c" unit="/s" domain={sharedDomain} />
+                      )}
+                      <MetricChart title="Deadlocks/s" data={agentChartRate(snaps, 'innodbDeadlocks')} color="#ef4444" unit="/s" domain={sharedDomain} />
+                    </div>
+                  );
+                })()}
               </div>
             )}
 

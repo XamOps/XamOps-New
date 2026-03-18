@@ -51,10 +51,10 @@ public class DbAgentService {
      * to a CloudAccount entity.
      */
     public CloudAccount resolveAccount(String providerAccountId) {
-        List<CloudAccount> byAws = cloudAccountRepository.findByAwsAccountId(providerAccountId);
-        if (!byAws.isEmpty()) return byAws.get(0);
-
-        return cloudAccountRepository.findByProviderAccountId(providerAccountId).orElse(null);
+        return cloudAccountRepository
+                .findByAwsAccountIdOrGcpProjectIdOrAzureSubscriptionId(
+                        providerAccountId, providerAccountId, providerAccountId)
+                .orElse(null);
     }
 
     /**
@@ -214,5 +214,19 @@ public class DbAgentService {
      */
     public DbAgentConfig loadConnectionConfig(String providerAccountId, String agentName) {
         return findDbAgent(providerAccountId, agentName).orElse(null);
+    }
+
+    /**
+     * Delete a DB agent registration and all its cached data.
+     */
+    @Transactional
+    public boolean deleteDbAgent(String providerAccountId, String agentName) {
+        Optional<DbAgentConfig> existing = findDbAgent(providerAccountId, agentName);
+        if (existing.isEmpty()) return false;
+        DbAgentConfig cfg = existing.get();
+        dbAgentDataCacheRepository.deleteByDbAgentId(cfg.getId());
+        dbAgentConfigRepository.delete(cfg);
+        logger.info("Deleted DB agent: account={} name={}", providerAccountId, agentName);
+        return true;
     }
 }

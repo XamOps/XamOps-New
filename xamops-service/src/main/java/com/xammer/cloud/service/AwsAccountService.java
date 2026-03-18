@@ -98,19 +98,23 @@ public class AwsAccountService {
         String roleArn = String.format("arn:aws:iam::%s:role/%s", request.getAwsAccountId(), request.getRoleName());
         account.setRoleArn(roleArn);
 
+        // Evict any cached clients for this account so the new roleArn is used
+        awsClientProvider.evictAccount(request.getAwsAccountId());
+
         try {
             Ec2Client testClient = awsClientProvider.getEc2Client(account, configuredRegion);
             testClient.describeRegions();
 
             account.setStatus("CONNECTED");
             logger.info("Successfully verified and connected to account: {}", account.getAccountName());
+            return cloudAccountRepository.save(account);
         } catch (Exception e) {
             account.setStatus("FAILED");
             logger.error("Failed to verify account {}: {}", account.getAccountName(), e.getMessage());
+            cloudAccountRepository.save(account);
             throw new RuntimeException(
                     "Role assumption failed. Please check the role ARN, trust policy, and external ID.", e);
         }
-        return cloudAccountRepository.save(account);
     }
 
     public void clearAllCaches() {
