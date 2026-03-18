@@ -778,11 +778,11 @@ const BillOpsTicketDetailPage: React.FC = () => {
   const responseSlaLabel = getResponseSlaLabel(ticket.createdAt, ticket.severity, ticket.chatStartedAt);
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden bg-transparent">
+    <div className="flex flex-col overflow-hidden bg-transparent" style={{ height: 'calc(100dvh - 104px)' }}>
       {/* Chat Container */}
       <div
         ref={chatContainerRef}
-        className="flex-1 overflow-y-auto custom-scrollbar bg-slate-50/50 scroll-smooth"
+        className="flex-1 min-h-0 overflow-y-auto custom-scrollbar bg-slate-50/50 scroll-smooth"
         onScroll={handleChatScroll}
       >
         <div className="max-w-4xl mx-auto p-6 lg:p-10 space-y-8">
