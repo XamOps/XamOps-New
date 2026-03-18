@@ -141,9 +141,16 @@ export interface DbInstanceTimeseries {
 }
 
 export interface AgentInstanceMetrics {
+  agentName: string;
   dsnAlias: string;
   dbEngine: string;
   dbHost: string;
+  dbName?: string;
+  region?: string;
+  dbSizeBytes?: number;
+  ec2InstanceType?: string;
+  ec2InstanceId?: string;
+  ec2HourlyPrice?: number;
   currentConnections: number;
   maxConnections: number;
   maxUsedConnections: number;

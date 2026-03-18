@@ -126,9 +126,22 @@ public class AgentController {
 
         String clientIp = getClientIp(request);
 
-        // 3. Check DB agent registry first — DB agents are pre-registered via the wizard
+        // 3. Check DB agent registry — auto-register on first push if payload contains DB batches
         java.util.Optional<DbAgentConfig> dbAgent = dbAgentService.findDbAgent(
                 payload.getCloudAccountId(), payload.getClusterName());
+
+        boolean isDbPush = payload.getBatches() != null && payload.getBatches().stream()
+                .anyMatch(b -> b.getCollector() != null && b.getCollector().startsWith("db-"));
+
+        if (dbAgent.isEmpty() && isDbPush) {
+            // Auto-register DB agent on first push (supports agents deployed without going through wizard)
+            logger.info("Auto-registering DB agent on first push: {} for account {}",
+                    payload.getClusterName(), payload.getCloudAccountId());
+            DbAgentConfig autoRegistered = dbAgentService.registerDbAgent(
+                    payload.getCloudAccountId(), payload.getClusterName());
+            dbAgent = java.util.Optional.of(autoRegistered);
+        }
+
         if (dbAgent.isPresent()) {
             AgentIngestResponse response = dbAgentService.processIngest(dbAgent.get(), payload, clientIp);
             logger.info("DB agent ingest completed for agent: {} (batches={})",
@@ -186,6 +199,23 @@ public class AgentController {
                 "agentName", cfg.getAgentName(),
                 "status", cfg.getStatus()
         ));
+    }
+
+    /**
+     * DELETE /api/v1/agent/db/register?agentName=xxx&cloudAccountId=xxx
+     * Deregisters a DB agent and deletes all its cached data.
+     */
+    @DeleteMapping("/db/register")
+    public ResponseEntity<Map<String, Object>> deleteDbAgent(
+            @RequestParam String agentName,
+            @RequestParam String cloudAccountId) {
+
+        boolean deleted = dbAgentService.deleteDbAgent(cloudAccountId, agentName);
+        if (!deleted) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("error", "Agent not found"));
+        }
+        return ResponseEntity.ok(Map.of("success", true));
     }
 
     /**
