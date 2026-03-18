@@ -462,13 +462,9 @@ const BillOpsAdminTicketsPage: React.FC = () => {
             <span className={`w-1.5 h-1.5 rounded-full bg-white shadow-[0_0_8px_white] ${ticket.status === 'OPEN' ? 'animate-pulse' : ''}`}></span>
             {ticket.status === 'IN_PROGRESS' ? 'IN PROG' : ticket.status}
           </span>
-          {ticket.hasUnreadUserReply ? (
+          {ticket.hasUnreadUserReply && (
             <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wide bg-amber-100 text-amber-700 w-fit">
               Unread
-            </span>
-          ) : (
-            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wide bg-green-100 text-green-700 w-fit">
-              Read
             </span>
           )}
         </div>
