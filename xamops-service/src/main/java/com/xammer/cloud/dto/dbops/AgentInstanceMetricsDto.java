@@ -7,9 +7,18 @@ package com.xammer.cloud.dto.dbops;
  */
 public class AgentInstanceMetricsDto {
 
+    private String agentName;
     private String dsnAlias;
     private String dbEngine;
     private String dbHost;
+    private String dbName;
+    private String region;
+    private long dbSizeBytes;
+
+    // EC2 host info (populated when DB runs on an EC2 instance)
+    private String ec2InstanceType;
+    private String ec2InstanceId;
+    private double ec2HourlyPrice; // on-demand $/hr (0 if unknown)
 
     // Connectivity
     private long currentConnections;
@@ -43,12 +52,20 @@ public class AgentInstanceMetricsDto {
     private String collectedAt;
 
     // Getters and setters
+    public String getAgentName() { return agentName; }
+    public void setAgentName(String agentName) { this.agentName = agentName; }
     public String getDsnAlias() { return dsnAlias; }
     public void setDsnAlias(String dsnAlias) { this.dsnAlias = dsnAlias; }
     public String getDbEngine() { return dbEngine; }
     public void setDbEngine(String dbEngine) { this.dbEngine = dbEngine; }
     public String getDbHost() { return dbHost; }
     public void setDbHost(String dbHost) { this.dbHost = dbHost; }
+    public String getDbName() { return dbName; }
+    public void setDbName(String dbName) { this.dbName = dbName; }
+    public String getRegion() { return region; }
+    public void setRegion(String region) { this.region = region; }
+    public long getDbSizeBytes() { return dbSizeBytes; }
+    public void setDbSizeBytes(long dbSizeBytes) { this.dbSizeBytes = dbSizeBytes; }
     public long getCurrentConnections() { return currentConnections; }
     public void setCurrentConnections(long currentConnections) { this.currentConnections = currentConnections; }
     public long getMaxConnections() { return maxConnections; }
@@ -87,4 +104,10 @@ public class AgentInstanceMetricsDto {
     public void setVersion(String version) { this.version = version; }
     public String getCollectedAt() { return collectedAt; }
     public void setCollectedAt(String collectedAt) { this.collectedAt = collectedAt; }
+    public String getEc2InstanceType() { return ec2InstanceType; }
+    public void setEc2InstanceType(String ec2InstanceType) { this.ec2InstanceType = ec2InstanceType; }
+    public String getEc2InstanceId() { return ec2InstanceId; }
+    public void setEc2InstanceId(String ec2InstanceId) { this.ec2InstanceId = ec2InstanceId; }
+    public double getEc2HourlyPrice() { return ec2HourlyPrice; }
+    public void setEc2HourlyPrice(double ec2HourlyPrice) { this.ec2HourlyPrice = ec2HourlyPrice; }
 }

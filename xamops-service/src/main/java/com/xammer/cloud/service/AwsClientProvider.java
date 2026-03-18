@@ -91,6 +91,11 @@ public class AwsClientProvider {
         logger.info("AwsClientProvider initialized with Client Caching enabled");
     }
 
+    public void evictAccount(String awsAccountId) {
+        clientCache.keySet().removeIf(key -> key.startsWith(awsAccountId + ":"));
+        logger.info("Evicted cached clients for account {}", awsAccountId);
+    }
+
     public AwsCredentialsProvider getCredentialsProvider(CloudAccount account) {
         String roleArn = account.getRoleArn();
         String externalId = account.getExternalId();

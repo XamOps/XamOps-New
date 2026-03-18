@@ -3,7 +3,7 @@ import { useAccounts } from '../contexts/AccountContext';
 import { useTopbar } from '../contexts/TopbarContext';
 import {
   useDbOpsData,
-  DbInstance, DbSavingsSummary, AgentQueryStat,
+  DbInstance, DbSavingsSummary, AgentQueryStat, AgentInstanceMetrics,
 } from '../hooks/useDbOpsData';
 import DbInstanceDetailPage, { DrawerInstance } from '../components/DbOps/DbInstanceDetailDrawer';
 
@@ -50,10 +50,11 @@ function SummaryCards({ s }: { s: DbSavingsSummary }) {
 // ── Inventory Tab ─────────────────────────────────────────────────────────────
 
 function InventoryTab({
-  inventory, agentStats, onSelect,
+  inventory, agentStats, agentInstanceMetrics, onSelect,
 }: {
   inventory: DbInstance[];
   agentStats: AgentQueryStat[];
+  agentInstanceMetrics: AgentInstanceMetrics[];
   onSelect: (inst: DrawerInstance) => void;
 }) {
   const [search, setSearch] = useState('');
@@ -98,6 +99,12 @@ function InventoryTab({
           />
         </div>
         <span className="text-sm text-gray-700 dark:text-gray-400">{filtered.length} instances</span>
+        <button
+          onClick={() => onSelect({ instanceId: '', source: 'agent', engine: 'mysql' })}
+          className="ml-auto flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium transition-colors shadow-sm"
+        >
+          <i className="fas fa-plus text-xs" /> Connect a Database
+        </button>
       </div>
       <div className="bg-white/90 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700/50 overflow-x-auto">
         <table className="w-full text-sm">
@@ -113,21 +120,32 @@ function InventoryTab({
               <tr><td colSpan={11} className="text-center py-12 text-gray-600 dark:text-gray-500">No instances found</td></tr>
             ) : filtered.map(row => {
               const i = row.rdsData;
+              const am = row.source === 'agent'
+                ? agentInstanceMetrics.find(m => m.dbHost === row.agentHost)
+                : undefined;
+              const dbSizeGb = am?.dbSizeBytes ? (am.dbSizeBytes / 1073741824).toFixed(2) : null;
               return (
                 <tr
                   key={row.instanceId}
                   onClick={() => onSelect(row)}
                   className="border-b border-gray-50 dark:border-gray-700/50 hover:bg-indigo-50/40 dark:hover:bg-indigo-900/10 transition-colors cursor-pointer"
                 >
-                  <td className="px-4 py-3 font-medium text-indigo-700 dark:text-indigo-400 whitespace-nowrap hover:underline">{row.instanceId}</td>
+                  <td className="px-4 py-3 font-medium text-indigo-700 dark:text-indigo-400 whitespace-nowrap hover:underline">
+                    {row.instanceId}
+                    {am?.dbName && <span className="ml-1.5 text-[10px] text-gray-400 font-normal">({am.dbName})</span>}
+                  </td>
                   <td className="px-4 py-3">
                     {row.source === 'rds'
                       ? <span className="px-2 py-0.5 text-xs rounded-full bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 font-medium">RDS</span>
                       : <span className="px-2 py-0.5 text-xs rounded-full bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 font-medium">Agent</span>}
                   </td>
                   <td className="px-4 py-3 text-gray-800 dark:text-gray-300">{row.engine}</td>
-                  <td className="px-4 py-3 text-gray-800 dark:text-gray-300 font-mono text-xs">{i?.instanceClass ?? '—'}</td>
-                  <td className="px-4 py-3 text-gray-800 dark:text-gray-300 whitespace-nowrap">{i?.region ?? '—'}</td>
+                  <td className="px-4 py-3 text-gray-800 dark:text-gray-300 font-mono text-xs">
+                    {i?.instanceClass ?? (am?.ec2InstanceType
+                      ? <span title={am.ec2InstanceId ?? undefined}>{am.ec2InstanceType}</span>
+                      : '—')}
+                  </td>
+                  <td className="px-4 py-3 text-gray-800 dark:text-gray-300 whitespace-nowrap">{i?.region ?? am?.region ?? '—'}</td>
                   <td className="px-4 py-3">
                     {i ? (
                       <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${i.status === 'available' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-yellow-100 text-yellow-700'}`}>
@@ -135,7 +153,7 @@ function InventoryTab({
                       </span>
                     ) : <span className="px-2 py-0.5 rounded-full text-xs bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">agent</span>}
                   </td>
-                  <td className="px-4 py-3 text-gray-800 dark:text-gray-300 text-center">{i?.allocatedStorage ?? '—'}</td>
+                  <td className="px-4 py-3 text-gray-800 dark:text-gray-300 text-center">{i?.allocatedStorage ?? (dbSizeGb ? dbSizeGb : '—')}</td>
                   <td className="px-4 py-3">{i ? <EncBadge val={i.storageEncrypted} /> : <span className="text-gray-400">—</span>}</td>
                   <td className="px-4 py-3">
                     {i ? (i.backupEnabled
@@ -144,7 +162,12 @@ function InventoryTab({
                     : <span className="text-gray-400">—</span>}
                   </td>
                   <td className="px-4 py-3 text-gray-800 dark:text-gray-300">{i?.multiAz ?? '—'}</td>
-                  <td className="px-4 py-3 font-semibold text-gray-800 dark:text-gray-200 whitespace-nowrap">{i ? fmt$(i.estimatedMonthlyCost) : '—'}</td>
+                  <td className="px-4 py-3 font-semibold text-gray-800 dark:text-gray-200 whitespace-nowrap">
+                    {i ? fmt$(i.estimatedMonthlyCost)
+                      : (am?.ec2HourlyPrice && am.ec2HourlyPrice > 0
+                          ? <span title="EC2 on-demand monthly cost">{fmt$(am.ec2HourlyPrice * 730)}</span>
+                          : '—')}
+                  </td>
                 </tr>
               );
             })}
@@ -190,7 +213,7 @@ const DataOpsPage: React.FC = () => {
 
   // Title: instance ID when selected, else 'DbOps'
   React.useEffect(() => {
-    setTitle(selectedInstance ? selectedInstance.instanceId : 'DbOps');
+    setTitle(selectedInstance ? (selectedInstance.instanceId || 'Connect Database') : 'DbOps');
     return () => setTitle('');
   }, [setTitle, selectedInstance]);
 
@@ -315,6 +338,7 @@ const DataOpsPage: React.FC = () => {
             fetchTimeseries={fetchInstanceTimeseries}
             fetchAgentTimeseries={fetchAgentTimeseries}
             fetchAgentTableSizes={fetchAgentTableSizes}
+            onConnected={async (inst) => { await refresh(); setSelectedInstance(inst); }}
           />
         )}
 
@@ -322,7 +346,7 @@ const DataOpsPage: React.FC = () => {
         {accountId && !loading && !selectedInstance && (
           <>
             {summary && <SummaryCards s={summary} />}
-            <InventoryTab inventory={inventory} agentStats={agentQueryStats} onSelect={setSelectedInstance} />
+            <InventoryTab inventory={inventory} agentStats={agentQueryStats} agentInstanceMetrics={agentInstanceMetrics} onSelect={setSelectedInstance} />
           </>
         )}
 
