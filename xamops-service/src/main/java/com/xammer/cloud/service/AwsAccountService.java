@@ -32,6 +32,12 @@ public class AwsAccountService {
     @Value("${cloudformation.template.s3.url}")
     private String cloudFormationTemplateUrl;
 
+    @Value("${xamops.cfn.callback.param.name:}")
+    private String cfnCallbackParamName;
+
+    @Value("${xamops.cfn.callback.param.value:}")
+    private String cfnCallbackParamValue;
+
     @Autowired
     public AwsAccountService(
             CloudAccountRepository cloudAccountRepository,
@@ -77,9 +83,12 @@ public class AwsAccountService {
 
         String stackName = "XamOps-Connection-" + accountName.replaceAll("[^a-zA-Z0-9-]", "");
         String xamopsAccountId = this.hostAccountId;
+        String callbackParam = (cfnCallbackParamName != null && !cfnCallbackParamName.isEmpty())
+                ? "&param_" + cfnCallbackParamName + "=" + cfnCallbackParamValue
+                : "";
         String urlString = String.format(
-                "https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?templateURL=%s&stackName=%s&param_XamOpsAccountId=%s&param_ExternalId=%s",
-                cloudFormationTemplateUrl, stackName, xamopsAccountId, externalId);
+                "https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?templateURL=%s&stackName=%s&param_XamOpsAccountId=%s&param_ExternalId=%s%s",
+                cloudFormationTemplateUrl, stackName, xamopsAccountId, externalId, callbackParam);
 
         return Map.of(
                 "url", new URL(urlString),

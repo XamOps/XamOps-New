@@ -17,6 +17,8 @@ import com.xammer.cloud.service.gcp.GcpDataService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
@@ -60,6 +62,40 @@ public class AccountManagerController {
 
     @Autowired
     private MasterDatabaseService masterDatabaseService;
+
+    @Value("${xamops.agent.api-key}")
+    private String agentApiKey;
+
+    @PostMapping("/event-callback")
+    public ResponseEntity<?> handleEventCallback(
+            @RequestBody Map<String, String> payload,
+            @RequestHeader(value = "x-api-key", required = false) String apiKey) {
+        if (!agentApiKey.equals(apiKey)) {
+            logger.warn("Unauthorized event-callback attempt with invalid API key");
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        try {
+            String externalId = payload.get("externalId");
+            String awsAccountId = payload.get("awsAccountId");
+            String roleArn = payload.get("roleArn");
+            if (externalId == null || awsAccountId == null || roleArn == null || !roleArn.contains("/")) {
+                logger.error("EventBridge callback received malformed payload: {}", payload);
+                return ResponseEntity.ok(Map.of("status", "ignored", "reason", "malformed payload"));
+            }
+            String roleName = roleArn.substring(roleArn.lastIndexOf('/') + 1);
+            VerifyAccountRequest request = new VerifyAccountRequest();
+            request.setExternalId(externalId);
+            request.setAwsAccountId(awsAccountId);
+            request.setRoleName(roleName);
+            awsAccountService.verifyAccount(request);
+            logger.info("Account connected via EventBridge callback: externalId={}", externalId);
+            return ResponseEntity.ok(Map.of("status", "connected"));
+        } catch (Exception e) {
+            logger.error("EventBridge callback failed: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", e.getMessage()));
+        }
+    }
 
     @PostMapping("/generate-stack-url")
     public ResponseEntity<Map<String, String>> generateStackUrl(@RequestBody AccountCreationRequestDto request,

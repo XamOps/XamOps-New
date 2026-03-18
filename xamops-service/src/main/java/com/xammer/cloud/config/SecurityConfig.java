@@ -67,6 +67,11 @@ public class SecurityConfig {
                                                                 "/api/xamops/cloudguard/grafana-ingest", "POST"))
                                                 .permitAll()
 
+                                                // Onboarding auto-callback — secured by x-api-key header, not session
+                                                .requestMatchers(new AntPathRequestMatcher(
+                                                                "/api/xamops/account-manager/event-callback", "POST"))
+                                                .permitAll()
+
                                                 // Docker/K8s health checks — must be public so health probes don't 401
                                                 .requestMatchers(new AntPathRequestMatcher("/actuator/health")).permitAll()
 

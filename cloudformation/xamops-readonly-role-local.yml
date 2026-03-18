@@ -47,7 +47,7 @@ Resources:
   XamOpsReadOnlyRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub 'XamOpsReadOnlyRole-${AWS::AccountId}'
+      RoleName: 'XamOpsReadOnlyRole'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
