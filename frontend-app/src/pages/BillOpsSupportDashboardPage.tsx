@@ -581,8 +581,7 @@ const BillOpsSupportDashboardPage: React.FC = () => {
     (Date.now() - new Date(msg.timestamp).getTime()) < 15 * 60 * 1000;
 
   const canDeleteMsg = (msg: ChatMessage) =>
-    !msg.userMessage && !msg.isDeleted &&
-    (Date.now() - new Date(msg.timestamp).getTime()) < 60 * 60 * 1000;
+    !msg.isDeleted;
 
   const handleEditSave = async (msg: ChatMessage) => {
     if (!editContent.trim()) return;
@@ -667,9 +666,9 @@ const BillOpsSupportDashboardPage: React.FC = () => {
                 <button
                   onClick={() => handleDeleteMsg(msg)}
                   className="p-1 rounded"
-                  title="Delete (within 60 min)"
+                  title="Delete message"
                 >
-                  <i className="fas fa-trash text-[10px] text-white/50 hover:text-red-300"></i>
+                  <i className={`fas fa-trash text-[10px] hover:text-red-400 ${msg.userMessage ? 'text-gray-300' : 'text-white/50'}`}></i>
                 </button>
               )}
             </div>

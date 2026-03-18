@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 @Service
@@ -136,27 +137,29 @@ public class ProactiveCacheRefreshService {
             }
         }
 
-        // 2. Refresh BillingService (Client Aggregations)
+        // 2. Refresh BillingService (Client Aggregations — all providers)
+        // Group accounts by client, using the correct identifier per provider
         Map<Long, List<CloudAccount>> accountsByClientId = allAccounts.stream()
-                .filter(a -> a.getClient() != null && a.getAwsAccountId() != null)
+                .filter(a -> a.getClient() != null && getAccountIdentifier(a) != null)
                 .collect(Collectors.groupingBy(a -> a.getClient().getId()));
 
         for (Map.Entry<Long, List<CloudAccount>> entry : accountsByClientId.entrySet()) {
             Long clientId = entry.getKey();
             List<String> accountIds = entry.getValue().stream()
-                    .map(CloudAccount::getAwsAccountId)
+                    .map(this::getAccountIdentifier)
+                    .filter(Objects::nonNull)
                     .collect(Collectors.toList());
 
             if (accountIds.isEmpty())
                 continue;
 
-            logger.info("Refreshing aggregated billing for Client ID: {}", clientId);
+            logger.info("Refreshing aggregated billing for Client ID: {} ({} accounts)", clientId, accountIds.size());
             try {
-                // Refresh Aggregate View
+                // Refresh aggregate view — saves to Redis + DB snapshot
                 billingService.getBillingData(accountIds, currentYear, currentMonth, true);
                 billingService.getDetailedBillingReport(accountIds, currentYear, currentMonth, true);
 
-                // Refresh Individual Account Views within Billing Service
+                // Refresh per-account views
                 for (String accountId : accountIds) {
                     billingService.getBillingData(List.of(accountId), currentYear, currentMonth, true);
                     billingService.getDetailedBillingReport(List.of(accountId), currentYear, currentMonth, true);
@@ -210,5 +213,19 @@ public class ProactiveCacheRefreshService {
         } catch (Exception e) {
             logger.error("Failed to refresh tickets cache", e);
         }
+    }
+
+    /**
+     * Returns the primary account identifier for billing cache keys,
+     * regardless of provider (AWS account ID, GCP project ID, or Azure subscription ID).
+     */
+    private String getAccountIdentifier(CloudAccount account) {
+        if (account.getAwsAccountId() != null && !account.getAwsAccountId().isBlank())
+            return account.getAwsAccountId();
+        if (account.getGcpProjectId() != null && !account.getGcpProjectId().isBlank())
+            return account.getGcpProjectId();
+        if (account.getAzureSubscriptionId() != null && !account.getAzureSubscriptionId().isBlank())
+            return account.getAzureSubscriptionId();
+        return null;
     }
 }

@@ -37,13 +37,13 @@ public class BillopsCacheRefreshService {
     }
 
     /**
-     * On startup, seeds Redis from existing cached data (forceRefresh=false).
-     * If Redis is warm, returns immediately. If cold, rebuilds from DB aggregation.
+     * On startup, seeds Redis from existing DB snapshot (forceRefresh=false).
+     * If Redis is warm, returns immediately. If cold, rebuilds from DB snapshot.
      * Runs asynchronously so it does not delay application startup.
      */
     @EventListener(ApplicationReadyEvent.class)
     public void warmUpCacheOnStartup() {
-        logger.info("[BillOps CacheWarmUp] Application ready — seeding admin dashboard Redis cache...");
+        logger.info("[BillOps CacheWarmUp] Application ready — warming admin dashboard cache from DB snapshot...");
         CompletableFuture.runAsync(() -> {
             try {
                 adminDashboardService.getAdminDashboardSummary(false);

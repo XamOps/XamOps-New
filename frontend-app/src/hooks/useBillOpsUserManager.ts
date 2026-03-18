@@ -130,7 +130,7 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
             role: user.role,
             contact: user.contact || '',
             designation: user.designation || '',
-            parentId: user.parentId || '',
+            parentId: user.parentId != null ? String(user.parentId) : '',
         });
         setIsEditing(true);
     }, []);

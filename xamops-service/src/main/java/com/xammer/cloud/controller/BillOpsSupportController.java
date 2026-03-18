@@ -3,15 +3,23 @@ package com.xammer.cloud.controller;
 import com.xammer.cloud.domain.SupportMessage;
 import com.xammer.cloud.domain.User;
 import com.xammer.cloud.repository.SupportMessageRepository;
+import com.xammer.cloud.repository.UserRepository;
+import com.xammer.cloud.service.SupportChatService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -31,9 +39,15 @@ public class BillOpsSupportController {
     private static final Logger log = LoggerFactory.getLogger(BillOpsSupportController.class);
 
     private final SupportMessageRepository messageRepository;
+    private final SupportChatService supportChatService;
+    private final UserRepository userRepository;
 
-    public BillOpsSupportController(SupportMessageRepository messageRepository) {
+    public BillOpsSupportController(SupportMessageRepository messageRepository,
+                                     SupportChatService supportChatService,
+                                     UserRepository userRepository) {
         this.messageRepository = messageRepository;
+        this.supportChatService = supportChatService;
+        this.userRepository = userRepository;
     }
 
     /**
@@ -84,5 +98,50 @@ public class BillOpsSupportController {
 
         log.debug("Admin inbox: {} conversations", result.size());
         return ResponseEntity.ok(result);
+    }
+
+    /**
+     * GET /api/billops/support/chat/user/{userId}
+     *
+     * Returns full chat history for a specific user (all messages, both directions),
+     * ordered by timestamp ascending.
+     */
+    @GetMapping("/chat/user/{userId}")
+    @Transactional(readOnly = true)
+    public ResponseEntity<List<SupportMessage>> getChatForUser(@PathVariable Long userId) {
+        return userRepository.findById(userId)
+                .map(user -> ResponseEntity.ok(messageRepository.findBySenderOrderByTimestampAsc(user)))
+                .orElse(ResponseEntity.notFound().build());
+    }
+
+    /**
+     * PATCH /api/billops/support/messages/{id}
+     *
+     * Admin edit: updates message content (no time restriction).
+     */
+    @PatchMapping("/messages/{id}")
+    @Transactional
+    public ResponseEntity<SupportMessage> editMessage(@PathVariable Long id,
+                                                       @RequestBody Map<String, String> payload) {
+        return messageRepository.findById(id).map(msg -> {
+            String content = payload.getOrDefault("content", "");
+            if (content.isBlank()) return ResponseEntity.badRequest().<SupportMessage>build();
+            msg.setContent(content);
+            msg.setEdited(true);
+            msg.setEditedAt(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
+            return ResponseEntity.ok(messageRepository.save(msg));
+        }).orElse(ResponseEntity.notFound().build());
+    }
+
+    /**
+     * DELETE /api/billops/support/messages/{id}
+     *
+     * Admin soft-delete: marks any message as deleted (no time restriction).
+     */
+    @DeleteMapping("/messages/{id}")
+    public ResponseEntity<SupportMessage> deleteMessage(@PathVariable Long id) {
+        return supportChatService.deleteAdminMessage(id)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
     }
 }

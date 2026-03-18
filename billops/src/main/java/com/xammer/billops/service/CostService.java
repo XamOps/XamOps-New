@@ -72,10 +72,18 @@ public class CostService {
                     : LocalDate.now();
             LocalDate start = end.minusMonths(5).withDayOfMonth(1);
 
+            Expression accountFilter = Expression.builder()
+                    .dimensions(DimensionValues.builder()
+                            .key(Dimension.LINKED_ACCOUNT)
+                            .values(account.getAwsAccountId())
+                            .build())
+                    .build();
+
             GetCostAndUsageRequest request = GetCostAndUsageRequest.builder()
                     .timePeriod(DateInterval.builder().start(start.toString()).end(end.plusDays(1).toString()).build())
                     .granularity(Granularity.MONTHLY)
                     .metrics("UnblendedCost")
+                    .filter(accountFilter)
                     .build();
 
             List<ResultByTime> results = client.getCostAndUsage(request).resultsByTime();
@@ -100,6 +108,9 @@ public class CostService {
             return costMockService.getMockCostByDimension(account, dimension, year, month);
         }
 
+        logger.info("[CostService] getCostByDimension called: account='{}' (awsId='{}'), dimension={}, year={}, month={}",
+                account.getAccountName(), account.getAwsAccountId(), dimension, year, month);
+
         try {
             CostExplorerClient client = awsClientProvider.getCostExplorerClient(account);
             LocalDate startDate;
@@ -119,6 +130,10 @@ public class CostService {
                     .end(endDate.plusDays(1).toString())
                     .build();
 
+            // No LINKED_ACCOUNT filter here — getCostByDimension returns org-wide service totals,
+            // which correctly reflect the account's billed costs (including all linked accounts under
+            // this payer). Filtering by LINKED_ACCOUNT here would only return direct management-account
+            // charges (~$15) instead of the real consolidated total (~$2,072).
             GetCostAndUsageRequest request = GetCostAndUsageRequest.builder()
                     .timePeriod(dateInterval)
                     .granularity(Granularity.MONTHLY)
@@ -132,7 +147,7 @@ public class CostService {
                 return Collections.emptyList();
             }
 
-            return response.resultsByTime().get(0).groups().stream()
+            List<Map<String, Object>> result = response.resultsByTime().get(0).groups().stream()
                     .map(group -> {
                         Map<String, Object> map = new HashMap<>();
                         map.put("name", group.keys().get(0));
@@ -141,6 +156,12 @@ public class CostService {
                     })
                     .filter(map -> (double) map.get("cost") > 0.01)
                     .collect(Collectors.toList());
+
+            double totalCost = result.stream().mapToDouble(m -> (double) m.get("cost")).sum();
+            logger.info("[CostService] getCostByDimension result for '{}': {} service(s), total cost = ${}",
+                    account.getAwsAccountId(), result.size(), String.format("%.2f", totalCost));
+
+            return result;
         } catch (CostExplorerException e) {
             logger.warn("Could not fetch cost by dimension for account {}. Error: {}", account.getAccountName(),
                     e.getMessage());
@@ -174,9 +195,16 @@ public class CostService {
                     .end(endDate.plusDays(1).toString())
                     .build();
 
-            Expression filter = Expression.builder()
+            Expression serviceFilter = Expression.builder()
                     .dimensions(DimensionValues.builder().key(Dimension.SERVICE).values(serviceName).build())
                     .build();
+            Expression accountFilter = Expression.builder()
+                    .dimensions(DimensionValues.builder()
+                            .key(Dimension.LINKED_ACCOUNT)
+                            .values(account.getAwsAccountId())
+                            .build())
+                    .build();
+            Expression filter = Expression.builder().and(serviceFilter, accountFilter).build();
 
             GetCostAndUsageRequest request = GetCostAndUsageRequest.builder()
                     .timePeriod(dateInterval)
@@ -234,12 +262,18 @@ public class CostService {
             Expression serviceFilter = Expression.builder()
                     .dimensions(DimensionValues.builder().key(Dimension.SERVICE).values(serviceName).build())
                     .build();
+            Expression accountFilter = Expression.builder()
+                    .dimensions(DimensionValues.builder()
+                            .key(Dimension.LINKED_ACCOUNT)
+                            .values(account.getAwsAccountId())
+                            .build())
+                    .build();
 
             GetCostAndUsageRequest.Builder requestBuilder = GetCostAndUsageRequest.builder()
                     .timePeriod(DateInterval.builder().start(startDate.toString()).end(endDate.plusDays(1).toString())
                             .build())
                     .granularity(Granularity.MONTHLY)
-                    .metrics("UnblendedCost", "UsageQuantity") // MODIFIED: Added UsageQuantity
+                    .metrics("UnblendedCost", "UsageQuantity")
                     .groupBy(GroupDefinition.builder().type(GroupDefinitionType.DIMENSION).key("USAGE_TYPE").build());
 
             if (region != null && !region.isEmpty() && !"Global".equalsIgnoreCase(region)) {
@@ -247,10 +281,10 @@ public class CostService {
                 Expression regionFilter = Expression.builder()
                         .dimensions(DimensionValues.builder().key(Dimension.REGION).values(region).build())
                         .build();
-                requestBuilder.filter(Expression.builder().and(serviceFilter, regionFilter).build());
+                requestBuilder.filter(Expression.builder().and(serviceFilter, regionFilter, accountFilter).build());
             } else {
                 logger.info("Applying GLOBAL (service-only) filter.");
-                requestBuilder.filter(serviceFilter);
+                requestBuilder.filter(Expression.builder().and(serviceFilter, accountFilter).build());
             }
 
             GetCostAndUsageRequest request = requestBuilder.build();
