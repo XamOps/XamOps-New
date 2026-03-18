@@ -387,6 +387,153 @@ html.dark .dataops-page .text-blue-700 {
   background: rgba(14, 165, 233, 0.4);
 }
 
+/* ── Shimmer Skeleton ─────────────────────────────────────────────────── */
+.dataops-shimmer {
+  position: relative;
+  overflow: hidden;
+  background: rgba(14, 165, 233, 0.04);
+}
+
+.dataops-shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(14, 165, 233, 0.08) 40%,
+    rgba(14, 165, 233, 0.15) 50%,
+    rgba(14, 165, 233, 0.08) 60%,
+    transparent 100%
+  );
+  animation: dataops-shimmer-sweep 1.6s ease-in-out infinite;
+}
+
+@keyframes dataops-shimmer-sweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* ── Entrance Animations ──────────────────────────────────────────────── */
+.dataops-fade-in-up {
+  animation: dataops-fade-in-up 0.5s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+@keyframes dataops-fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── Summary / Stats Cards (enhanced) ────────────────────────────────── */
+.dataops-summary-card {
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: default;
+}
+
+.dataops-summary-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.08) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.dataops-summary-card:hover {
+  transform: translateY(-4px);
+}
+
+.dataops-summary-card:hover::after {
+  opacity: 1;
+}
+
+/* ── Table Row Hover Accent ───────────────────────────────────────────── */
+/* ::before on <tr> creates phantom table cells in Chrome — use border-left
+   on the first <td> (.dataops-table-first-cell) instead. */
+.dataops-table-row {
+  transition: background 0.15s ease;
+}
+
+.dataops-table-first-cell {
+  border-left: 3px solid transparent;
+  transition: border-left-color 0.18s ease;
+}
+
+.dataops-table-row:hover .dataops-table-first-cell {
+  border-left-color: #0ea5e9;
+}
+
+/* ── Connect Button ───────────────────────────────────────────────────── */
+.dataops-connect-btn {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 14px rgba(14, 165, 233, 0.35);
+}
+
+.dataops-connect-btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.2),
+    transparent
+  );
+  transition: left 0.5s ease;
+}
+
+.dataops-connect-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(14, 165, 233, 0.45);
+}
+
+.dataops-connect-btn:hover::before {
+  left: 100%;
+}
+
+.dataops-connect-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 8px rgba(14, 165, 233, 0.3);
+}
+
+/* ── Search Input ─────────────────────────────────────────────────────── */
+.dataops-search-input {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  border-color: rgba(14, 165, 233, 0.2) !important;
+}
+
+.dataops-search-input:focus {
+  border-color: #0ea5e9 !important;
+  box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.15) !important;
+  outline: none !important;
+}
+
+/* ── Empty State Icon ─────────────────────────────────────────────────── */
+.dataops-empty-icon {
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.15) 0%, rgba(37, 99, 235, 0.15) 100%);
+  box-shadow: 0 8px 25px rgba(14, 165, 233, 0.2);
+  animation: dataops-float 6s ease-in-out infinite;
+}
+
 /* Print Styles */
 @media print {
   .dataops-page {
@@ -397,6 +544,7 @@ html.dark .dataops-page .text-blue-700 {
     animation: none;
   }
 
+  .dataops-summary-card:hover,
   .dataops-feature-card:hover {
     transform: none;
     box-shadow: none;

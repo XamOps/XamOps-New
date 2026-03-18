@@ -235,7 +235,6 @@ function AgentSetupWizard({ engine, instanceId, endpoint, onConnected }: { engin
     const applyConfig = (res: { found: boolean; dbEngine?: string; dbHost?: string; dbPort?: string; dbName?: string; dbUser?: string; dbPassword?: string; serverUrl?: string }) => {
       if (!res.found) return false;
       if (res.dbEngine) setSqlEngine(res.dbEngine as 'mysql' | 'postgres');
-<<<<<<< HEAD
       setDsns(prev => {
         const first: DsnEntry = { ...prev[0] };
         if (res.dbEngine) first.engine = res.dbEngine as 'mysql' | 'postgres';
@@ -246,13 +245,6 @@ function AgentSetupWizard({ engine, instanceId, endpoint, onConnected }: { engin
         if (res.dbPassword) first.pass = res.dbPassword!;
         return [first, ...prev.slice(1)];
       });
-=======
-      if (res.dbHost) setHost(res.dbHost!);
-      if (res.dbPort) setPort(res.dbPort!);
-      if (res.dbName) setDbName(res.dbName!);
-      if (res.dbUser) setAgentUser(res.dbUser!);
-      if (res.dbPassword) setAgentPass(res.dbPassword!);
->>>>>>> c6ff0234fe7ffb720775b588706f00effb08729d
       if (res.serverUrl) setServerUrl(res.serverUrl!);
       return true;
     };
@@ -534,14 +526,9 @@ CREATE EXTENSION IF NOT EXISTS pg_stat_statements;`;
             {(['mysql', 'postgres'] as const).map(e => (
               <button
                 key={e}
-<<<<<<< HEAD
                 onClick={() => setSqlEngine(e)}
                 className={`px-3 py-1 text-xs rounded-md font-medium transition-colors ${
                   sqlEngine === e
-=======
-                onClick={() => { setSqlEngine(e); setPort(e === 'postgres' ? '5432' : '3306'); }}
-                className={`px-3 py-1 text-xs rounded-md font-medium transition-colors ${sqlEngine === e
->>>>>>> c6ff0234fe7ffb720775b588706f00effb08729d
                     ? 'bg-indigo-600 text-white'
                     : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
                   }`}
@@ -549,6 +536,32 @@ CREATE EXTENSION IF NOT EXISTS pg_stat_statements;`;
                 {e === 'mysql' ? 'MySQL / MariaDB' : 'PostgreSQL'}
               </button>
             ))}
+          </div>
+
+          {/* Permissions explanation */}
+          <div className="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/50 rounded-xl p-4 space-y-2">
+            <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
+              <i className="fas fa-shield-alt text-slate-500" /> What access does this user get?
+            </p>
+            {isPostgres ? (
+              <ul className="space-y-1.5 text-xs text-slate-600 dark:text-slate-400">
+                <li className="flex gap-2"><span className="font-mono bg-slate-200 dark:bg-slate-700 px-1 rounded shrink-0">CONNECT</span><span>Allows the agent to open a connection to the database. No data access on its own.</span></li>
+                <li className="flex gap-2"><span className="font-mono bg-slate-200 dark:bg-slate-700 px-1 rounded shrink-0">USAGE ON SCHEMA public</span><span>Lets the agent see the list of schema objects (tables, views). Does <strong>not</strong> grant access to row data.</span></li>
+                <li className="flex gap-2"><span className="font-mono bg-slate-200 dark:bg-slate-700 px-1 rounded shrink-0">SELECT ON ALL TABLES</span><span>Reads system catalog views like <code className="bg-slate-200 dark:bg-slate-700 px-0.5 rounded">pg_stat_user_tables</code> and <code className="bg-slate-200 dark:bg-slate-700 px-0.5 rounded">pg_stats</code> for table sizes, index usage, and row counts. We <strong>never</strong> read your business data rows.</span></li>
+                <li className="flex gap-2"><span className="font-mono bg-slate-200 dark:bg-slate-700 px-1 rounded shrink-0">pg_stat_statements</span><span>Extension that exposes aggregated query statistics (call counts, avg/max time, rows). Query text is normalized — literals and parameter values are <strong>stripped out</strong>.</span></li>
+              </ul>
+            ) : (
+              <ul className="space-y-1.5 text-xs text-slate-600 dark:text-slate-400">
+                <li className="flex gap-2"><span className="font-mono bg-slate-200 dark:bg-slate-700 px-1 rounded shrink-0">PROCESS</span><span>Allows the agent to see active query threads via <code className="bg-slate-200 dark:bg-slate-700 px-0.5 rounded">SHOW PROCESSLIST</code>. Does <strong>not</strong> access table data.</span></li>
+                <li className="flex gap-2"><span className="font-mono bg-slate-200 dark:bg-slate-700 px-1 rounded shrink-0">REPLICATION CLIENT</span><span>Allows reading binary log position via <code className="bg-slate-200 dark:bg-slate-700 px-0.5 rounded">SHOW MASTER/REPLICA STATUS</code>. Used to detect replication lag. Read-only metadata only.</span></li>
+                <li className="flex gap-2"><span className="font-mono bg-slate-200 dark:bg-slate-700 px-1 rounded shrink-0">SELECT ON performance_schema</span><span>Reads query digest statistics (<code className="bg-slate-200 dark:bg-slate-700 px-0.5 rounded">events_statements_summary_by_digest</code>) — call counts, avg/max time, rows examined. Literals are normalized; <strong>no actual query values</strong> are captured.</span></li>
+                <li className="flex gap-2"><span className="font-mono bg-slate-200 dark:bg-slate-700 px-1 rounded shrink-0">SELECT ON sys</span><span>Reads I/O and table usage summaries from the sys schema helper views (e.g., <code className="bg-slate-200 dark:bg-slate-700 px-0.5 rounded">sys.schema_table_statistics</code>). No row data.</span></li>
+                <li className="flex gap-2"><span className="font-mono bg-slate-200 dark:bg-slate-700 px-1 rounded shrink-0">SELECT ON &lt;your_database&gt;</span><span>Reads table and column metadata from <code className="bg-slate-200 dark:bg-slate-700 px-0.5 rounded">information_schema</code> for schema analysis (table names, column types, index definitions). We <strong>never</strong> select from your application tables.</span></li>
+              </ul>
+            )}
+            <p className="text-[11px] text-slate-500 dark:text-slate-500 pt-1 border-t border-slate-200 dark:border-slate-700">
+              <i className="fas fa-lock mr-1" /> This user is read-only. XamOps cannot modify, insert, or delete any data in your database.
+            </p>
           </div>
 
           {/* Parameter requirements — RDS vs self-hosted */}
@@ -964,21 +977,19 @@ export default function DbInstanceDetailDrawer({
     return (
       <div className="flex flex-col flex-1 bg-white dark:bg-gray-900 min-h-0">
         <div className="flex-1 overflow-y-auto px-6 py-6">
-          <div className="max-w-lg mx-auto">
-            <div className="mb-6">
-              <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-1">
-                <i className="fas fa-plug text-indigo-500 mr-2" />Connect a Database
-              </h2>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                Deploy the XamOps DB agent on any EC2 instance or server to monitor MySQL or PostgreSQL databases.
-              </p>
-            </div>
-            <AgentSetupWizard
-              engine={instance.engine ?? 'mysql'}
-              instanceId=""
-              onConnected={onConnected}
-            />
+          <div className="mb-6">
+            <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-1">
+              <i className="fas fa-plug text-indigo-500 mr-2" />Connect a Database
+            </h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Deploy the XamOps DB agent on any EC2 instance or server to monitor MySQL or PostgreSQL databases.
+            </p>
           </div>
+          <AgentSetupWizard
+            engine={instance.engine ?? 'mysql'}
+            instanceId=""
+            onConnected={onConnected}
+          />
         </div>
       </div>
     );
@@ -1039,19 +1050,11 @@ export default function DbInstanceDetailDrawer({
   const tabs: { id: DetailTab; label: string; badge?: number }[] = [
     { id: 'overview', label: 'Overview' },
     { id: 'performance', label: 'Performance' },
-<<<<<<< HEAD
     { id: 'slowqueries', label: `Slow Queries${slowQueriesTabCount ? ` (${slowQueriesTabCount})` : ''}` },
     { id: 'queries',     label: `Query Stats${instanceAgentStats.length ? ` (${instanceAgentStats.length})` : ''}` },
     { id: 'cost',        label: 'Cost & Savings' },
     { id: 'security',    label: `Security${instanceSecurity.filter(c => c.status === 'FAIL').length ? ` (${instanceSecurity.filter(c => c.status === 'FAIL').length})` : ''}` },
     { id: 'snapshots',   label: `Snapshots${instanceSnapshots.length ? ` (${instanceSnapshots.length})` : ''}` },
-=======
-    { id: 'slowqueries', label: `Slow Queries${instanceSlowQueries.length ? ` (${instanceSlowQueries.length})` : ''}` },
-    { id: 'queries', label: `Query Stats${instanceAgentStats.length ? ` (${instanceAgentStats.length})` : ''}` },
-    { id: 'cost', label: 'Cost & Savings' },
-    { id: 'security', label: `Security${instanceSecurity.filter(c => c.status === 'FAIL').length ? ` (${instanceSecurity.filter(c => c.status === 'FAIL').length})` : ''}` },
-    { id: 'snapshots', label: `Snapshots${instanceSnapshots.length ? ` (${instanceSnapshots.length})` : ''}` },
->>>>>>> c6ff0234fe7ffb720775b588706f00effb08729d
   ];
 
   return (
@@ -1459,7 +1462,20 @@ export default function DbInstanceDetailDrawer({
                   onChange={e => setQuerySearch(e.target.value)}
                   className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400"
                 />
-                <div className="text-xs text-gray-400">{filteredAgentStats.length} queries from performance_schema</div>
+                {/* Query source explanation */}
+                <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-sky-50 dark:bg-sky-900/20 border border-sky-200 dark:border-sky-800/50 text-xs text-sky-700 dark:text-sky-300">
+                  <i className="fas fa-info-circle mt-0.5 shrink-0" />
+                  <span>
+                    Showing <strong>{filteredAgentStats.length}</strong> normalized query digests ranked by total execution time,
+                    collected from{' '}
+                    {(instance.engine ?? '').toLowerCase().includes('postgres')
+                      ? <><strong>pg_stat_statements</strong> (PostgreSQL extension)</>
+                      : <><strong>performance_schema.events_statements_summary_by_digest</strong> (MySQL)</>
+                    }.{' '}
+                    Counters accumulate since the last server restart or manual reset — they are <em>not</em> a real-time window.
+                    Queries are deduplicated by digest; literals and parameters are normalized out.
+                  </span>
+                </div>
                 <div className="space-y-2">
                   {filteredAgentStats.map((s, i) => (
                     <div key={i} className="bg-gray-50 dark:bg-gray-700/30 rounded-lg p-3">
