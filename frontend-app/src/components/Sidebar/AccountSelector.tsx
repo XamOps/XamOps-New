@@ -233,11 +233,21 @@ const AccountSelector: React.FC<AccountSelectorProps> = ({ isOpen, onToggle, onC
                 value={searchTerm}
                 onChange={e => setSearchTerm(e.target.value)}
                 className={clsx(
-                  'w-full pl-9 pr-4 py-2 border rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all',
+                  'w-full pl-9 pr-10 py-2 border rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all',
                   theme === 'dark' ? 'bg-slate-800 border-slate-700 text-slate-200 placeholder-slate-600 focus:border-indigo-500/50' : 'bg-slate-50 border-gray-100 text-slate-700 placeholder-slate-400 focus:border-indigo-300'
                 )}
                 autoFocus
               />
+              {searchTerm && (
+                <button
+                  type="button"
+                  onClick={() => setSearchTerm('')}
+                  aria-label="Clear account search"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-indigo-500 transition-colors p-1"
+                >
+                  <i className="fas fa-times-circle text-[10px]"></i>
+                </button>
+              )}
             </div>
           </div>
 
@@ -264,6 +274,16 @@ const AccountSelector: React.FC<AccountSelectorProps> = ({ isOpen, onToggle, onC
               <div className="py-12 flex flex-col items-center justify-center gap-2">
                 <i className="fas fa-search text-slate-200 dark:text-slate-800 text-2xl"></i>
                 <p className="text-xs text-slate-400">No accounts found</p>
+                {searchTerm && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchTerm('')}
+                    aria-label="Clear search and show all accounts"
+                    className="mt-2 px-3 py-1.5 text-[10px] font-bold text-indigo-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 rounded-lg transition-all"
+                  >
+                    Clear search
+                  </button>
+                )}
               </div>
             ) : (
               <>
