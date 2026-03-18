@@ -538,6 +538,32 @@ CREATE EXTENSION IF NOT EXISTS pg_stat_statements;`;
             ))}
           </div>
 
+          {/* Permissions explanation */}
+          <div className="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/50 rounded-xl p-4 space-y-2">
+            <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
+              <i className="fas fa-shield-alt text-slate-500" /> What access does this user get?
+            </p>
+            {isPostgres ? (
+              <ul className="space-y-1.5 text-xs text-slate-600 dark:text-slate-400">
+                <li className="flex gap-2"><span className="font-mono bg-slate-200 dark:bg-slate-700 px-1 rounded shrink-0">CONNECT</span><span>Allows the agent to open a connection to the database. No data access on its own.</span></li>
+                <li className="flex gap-2"><span className="font-mono bg-slate-200 dark:bg-slate-700 px-1 rounded shrink-0">USAGE ON SCHEMA public</span><span>Lets the agent see the list of schema objects (tables, views). Does <strong>not</strong> grant access to row data.</span></li>
+                <li className="flex gap-2"><span className="font-mono bg-slate-200 dark:bg-slate-700 px-1 rounded shrink-0">SELECT ON ALL TABLES</span><span>Reads system catalog views like <code className="bg-slate-200 dark:bg-slate-700 px-0.5 rounded">pg_stat_user_tables</code> and <code className="bg-slate-200 dark:bg-slate-700 px-0.5 rounded">pg_stats</code> for table sizes, index usage, and row counts. We <strong>never</strong> read your business data rows.</span></li>
+                <li className="flex gap-2"><span className="font-mono bg-slate-200 dark:bg-slate-700 px-1 rounded shrink-0">pg_stat_statements</span><span>Extension that exposes aggregated query statistics (call counts, avg/max time, rows). Query text is normalized — literals and parameter values are <strong>stripped out</strong>.</span></li>
+              </ul>
+            ) : (
+              <ul className="space-y-1.5 text-xs text-slate-600 dark:text-slate-400">
+                <li className="flex gap-2"><span className="font-mono bg-slate-200 dark:bg-slate-700 px-1 rounded shrink-0">PROCESS</span><span>Allows the agent to see active query threads via <code className="bg-slate-200 dark:bg-slate-700 px-0.5 rounded">SHOW PROCESSLIST</code>. Does <strong>not</strong> access table data.</span></li>
+                <li className="flex gap-2"><span className="font-mono bg-slate-200 dark:bg-slate-700 px-1 rounded shrink-0">REPLICATION CLIENT</span><span>Allows reading binary log position via <code className="bg-slate-200 dark:bg-slate-700 px-0.5 rounded">SHOW MASTER/REPLICA STATUS</code>. Used to detect replication lag. Read-only metadata only.</span></li>
+                <li className="flex gap-2"><span className="font-mono bg-slate-200 dark:bg-slate-700 px-1 rounded shrink-0">SELECT ON performance_schema</span><span>Reads query digest statistics (<code className="bg-slate-200 dark:bg-slate-700 px-0.5 rounded">events_statements_summary_by_digest</code>) — call counts, avg/max time, rows examined. Literals are normalized; <strong>no actual query values</strong> are captured.</span></li>
+                <li className="flex gap-2"><span className="font-mono bg-slate-200 dark:bg-slate-700 px-1 rounded shrink-0">SELECT ON sys</span><span>Reads I/O and table usage summaries from the sys schema helper views (e.g., <code className="bg-slate-200 dark:bg-slate-700 px-0.5 rounded">sys.schema_table_statistics</code>). No row data.</span></li>
+                <li className="flex gap-2"><span className="font-mono bg-slate-200 dark:bg-slate-700 px-1 rounded shrink-0">SELECT ON &lt;your_database&gt;</span><span>Reads table and column metadata from <code className="bg-slate-200 dark:bg-slate-700 px-0.5 rounded">information_schema</code> for schema analysis (table names, column types, index definitions). We <strong>never</strong> select from your application tables.</span></li>
+              </ul>
+            )}
+            <p className="text-[11px] text-slate-500 dark:text-slate-500 pt-1 border-t border-slate-200 dark:border-slate-700">
+              <i className="fas fa-lock mr-1" /> This user is read-only. XamOps cannot modify, insert, or delete any data in your database.
+            </p>
+          </div>
+
           {/* Parameter requirements — RDS vs self-hosted */}
           <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/50 rounded-xl p-4 space-y-2">
             {endpoint ? (
@@ -899,6 +925,7 @@ interface Props {
   rightsizing: DbRightsizing[];
   security: DbSecurityCheck[];
   allSnapshots: DbSnapshot[];
+  costs: DbCost[];
   fetchTimeseries: (id: string, hours: number) => Promise<DbInstanceTimeseries | null>;
   fetchAgentTimeseries: (hours: number) => Promise<AgentTimeseries[]>;
   fetchAgentTableSizes: () => Promise<AgentTableSize[]>;
@@ -910,7 +937,7 @@ type DetailTab = 'overview' | 'performance' | 'slowqueries' | 'queries' | 'cost'
 // ── Main component ─────────────────────────────────────────────────────────────
 export default function DbInstanceDetailDrawer({
   instance, metrics, agentStats, agentInstanceMetrics, slowQueries,
-  idle, rightsizing, security, allSnapshots,
+  idle, rightsizing, security, allSnapshots, costs,
   fetchTimeseries, fetchAgentTimeseries, fetchAgentTableSizes, onConnected,
 }: Props) {
   const [tab, setTab] = useState<DetailTab>('overview');
@@ -951,21 +978,19 @@ export default function DbInstanceDetailDrawer({
     return (
       <div className="flex flex-col flex-1 bg-white dark:bg-gray-900 min-h-0">
         <div className="flex-1 overflow-y-auto px-6 py-6">
-          <div className="max-w-lg mx-auto">
-            <div className="mb-6">
-              <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-1">
-                <i className="fas fa-plug text-indigo-500 mr-2" />Connect a Database
-              </h2>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                Deploy the XamOps DB agent on any EC2 instance or server to monitor MySQL or PostgreSQL databases.
-              </p>
-            </div>
-            <AgentSetupWizard
-              engine={instance.engine ?? 'mysql'}
-              instanceId=""
-              onConnected={onConnected}
-            />
+          <div className="mb-6">
+            <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-1">
+              <i className="fas fa-plug text-indigo-500 mr-2" />Connect a Database
+            </h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Deploy the XamOps DB agent on any EC2 instance or server to monitor MySQL or PostgreSQL databases.
+            </p>
           </div>
+          <AgentSetupWizard
+            engine={instance.engine ?? 'mysql'}
+            instanceId=""
+            onConnected={onConnected}
+          />
         </div>
       </div>
     );
@@ -1077,7 +1102,23 @@ export default function DbInstanceDetailDrawer({
                   <StatCard label="Read Latency" value={metrics.avgReadLatencyMs} unit="ms" />
                   <StatCard label="Write Latency" value={metrics.avgWriteLatencyMs} unit="ms" />
                   <StatCard label="Free Storage" value={metrics.freeStorageSpaceGb} unit="GB" />
-                  <StatCard label="Network In" value={metrics.avgNetworkReceiveMbps} unit="MB/s" />
+                  <StatCard label="Network In" value={metrics.avgNetworkReceiveMbps} unit="Mbps" />
+                  <StatCard label="Network Out" value={metrics.avgNetworkTransmitMbps} unit="Mbps" />
+                  {metrics.avgSwapUsageMb > 0 && (
+                    <StatCard label="Swap Usage" value={`${round2(metrics.avgSwapUsageMb)} MB`}
+                      color={metrics.avgSwapUsageMb > 100 ? 'text-orange-600' : 'text-yellow-600'}
+                      tooltip="Swap usage indicates the OS is paging memory to disk. Any swap activity degrades DB performance — increase instance memory or reduce buffer pool size." />
+                  )}
+                  {metrics.replicaLagSeconds > 0 && (
+                    <StatCard label="Replica Lag" value={`${round2(metrics.replicaLagSeconds)}s`}
+                      color={metrics.replicaLagSeconds > 30 ? 'text-red-600' : metrics.replicaLagSeconds > 5 ? 'text-orange-600' : 'text-yellow-600'}
+                      tooltip="Average replication lag over the last 7 days (CloudWatch ReplicaLag). High lag means read replicas are falling behind — queries hitting replicas may return stale data." />
+                  )}
+                  {metrics.burstBalance > 0 && (
+                    <StatCard label="Burst Balance" value={`${Math.round(metrics.burstBalance)}%`}
+                      color={metrics.burstBalance < 20 ? 'text-red-600' : metrics.burstBalance < 50 ? 'text-yellow-600' : 'text-green-600'}
+                      tooltip="EBS burst I/O balance (gp2 volumes). Below 20% means credits are nearly exhausted — DB will be throttled to baseline IOPS. Consider upgrading to gp3 for consistent I/O." />
+                  )}
                 </div>
               </div>
             )}
@@ -1130,16 +1171,45 @@ export default function DbInstanceDetailDrawer({
                     tooltip={agentMetrics.dbEngine === 'postgres'
                       ? "Queries averaging >10ms in pg_stat_statements. These are the same queries shown in the Slow Queries tab — patterns with high average execution time worth optimizing."
                       : "Queries exceeding long_query_time threshold from MySQL Slow_queries counter. Enable slow_query_log to populate this."} />
+                  {agentMetrics.dbSizeBytes != null && agentMetrics.dbSizeBytes > 0 && (
+                    <StatCard label="DB Size" value={fmtBytes(agentMetrics.dbSizeBytes)}
+                      tooltip="Total size of all databases on this server, including data and index files." />
+                  )}
                   {agentMetrics.innodbBufferPoolHitPct > 0 && (
                     <StatCard label="Buffer Pool Hit" value={`${Math.round(agentMetrics.innodbBufferPoolHitPct)}%`}
                       color={agentMetrics.innodbBufferPoolHitPct < 90 ? 'text-orange-600' : 'text-green-600'}
                       tooltip="% of data reads served from RAM (InnoDB buffer pool) vs. disk. Below 90% means frequent disk I/O — increase innodb_buffer_pool_size to fit your working set in memory." />
+                  )}
+                  {agentMetrics.innodbBufferPoolReads > 0 && agentMetrics.dbEngine !== 'postgres' && (
+                    <StatCard label="Pool Disk Reads" value={agentMetrics.innodbBufferPoolReads.toLocaleString()}
+                      color={agentMetrics.innodbBufferPoolReads > 10000 ? 'text-orange-600' : 'text-gray-900 dark:text-gray-100'}
+                      tooltip="Cumulative InnoDB reads that had to fetch from disk (buffer pool misses). High values mean your working set doesn't fit in innodb_buffer_pool_size — a primary cause of DB slowness." />
                   )}
                   <StatCard label="Uptime" value={agentMetrics.uptime > 86400
                     ? `${Math.floor(agentMetrics.uptime / 86400)}d`
                     : `${Math.floor(agentMetrics.uptime / 3600)}h`}
                     tooltip="Time since the database server last restarted. Frequent restarts indicate crashes or OOM kills. Note: cumulative counters (Total Queries, Slow Queries) reset on restart." />
                 </div>
+                {agentMetrics.maxConnections > 0 && (
+                  <div className="mt-2 bg-gray-50 dark:bg-gray-700/30 rounded-lg p-3">
+                    <div className="flex items-center justify-between text-xs mb-1.5">
+                      <span className="text-gray-500">Connection Pool Usage</span>
+                      <span className={`font-semibold ${agentMetrics.currentConnections / agentMetrics.maxConnections > 0.8 ? 'text-red-600' : agentMetrics.currentConnections / agentMetrics.maxConnections > 0.6 ? 'text-orange-600' : 'text-gray-700 dark:text-gray-300'}`}>
+                        {agentMetrics.currentConnections} / {agentMetrics.maxConnections} ({Math.round(agentMetrics.currentConnections / agentMetrics.maxConnections * 100)}%)
+                      </span>
+                    </div>
+                    <div className="h-2 rounded-full bg-gray-200 dark:bg-gray-600 overflow-hidden">
+                      {(() => {
+                        const pct = Math.min(agentMetrics.currentConnections / agentMetrics.maxConnections * 100, 100);
+                        const barColor = pct > 80 ? 'bg-red-500' : pct > 60 ? 'bg-orange-400' : 'bg-emerald-500';
+                        return <div className={`h-full rounded-full ${barColor} transition-all duration-500`} style={{ width: `${pct}%` }} />;
+                      })()}
+                    </div>
+                    {agentMetrics.maxUsedConnections > agentMetrics.currentConnections && (
+                      <p className="text-[11px] text-gray-400 mt-1">Peak: {agentMetrics.maxUsedConnections} connections</p>
+                    )}
+                  </div>
+                )}
                 {agentMetrics.comSelect + agentMetrics.comInsert + agentMetrics.comUpdate + agentMetrics.comDelete > 0 && (
                   <div className="mt-2 bg-gray-50 dark:bg-gray-700/30 rounded-lg p-3">
                     <p className="text-xs text-gray-500 mb-2">Query Type Breakdown</p>
@@ -1158,6 +1228,21 @@ export default function DbInstanceDetailDrawer({
                     </div>
                   </div>
                 )}
+                {(agentMetrics.bytesReceived > 0 || agentMetrics.bytesSent > 0) && (
+                  <div className="mt-2 bg-gray-50 dark:bg-gray-700/30 rounded-lg p-3">
+                    <p className="text-xs text-gray-500 mb-2">Network I/O <span className="text-gray-400 font-normal">(cumulative since restart)</span></p>
+                    <div className="grid grid-cols-2 gap-2 text-xs text-center">
+                      <div>
+                        <div className="text-gray-400">Received</div>
+                        <div className="font-semibold text-cyan-600 dark:text-cyan-400">{fmtBytes(agentMetrics.bytesReceived)}</div>
+                      </div>
+                      <div>
+                        <div className="text-gray-400">Sent</div>
+                        <div className="font-semibold text-violet-600 dark:text-violet-400">{fmtBytes(agentMetrics.bytesSent)}</div>
+                      </div>
+                    </div>
+                  </div>
+                )}
                 {agentMetrics.version && (
                   <p className="text-xs text-gray-400 mt-2">Version: {agentMetrics.version}</p>
                 )}
@@ -1171,6 +1256,11 @@ export default function DbInstanceDetailDrawer({
                     {agentMetrics.ec2InstanceType && (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-orange-50 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300">
                         <i className="fab fa-aws text-[9px]" /> {agentMetrics.ec2InstanceType}
+                      </span>
+                    )}
+                    {agentMetrics.ec2InstanceId && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 font-mono">
+                        <i className="fas fa-server text-[9px]" /> {agentMetrics.ec2InstanceId}
                       </span>
                     )}
                     {agentMetrics.ec2HourlyPrice != null && agentMetrics.ec2HourlyPrice > 0 && (
@@ -1248,9 +1338,29 @@ export default function DbInstanceDetailDrawer({
                 <MetricChart title="Write Latency" data={toChartData(timeseries?.writeLatencyMs)} color="#ef4444" unit="ms" />
                 <MetricChart title="Free Storage" data={toChartData(timeseries?.freeStorageGb)} color="#14b8a6" unit="GB" />
                 <MetricChart title="Freeable Memory" data={toChartData(timeseries?.freeableMemoryMb)} color="#f97316" unit="MB" />
+                <MetricChart title="Network In" data={toChartData(timeseries?.networkReceiveMbps)} color="#06b6d4" unit="Mbps" />
+                <MetricChart title="Network Out" data={toChartData(timeseries?.networkTransmitMbps)} color="#8b5cf6" unit="Mbps" />
                 {(timeseries?.replicaLagSeconds?.length ?? 0) > 0 && (
                   <MetricChart title="Replication Lag" data={toChartData(timeseries?.replicaLagSeconds)} color="#a855f7" unit="s" />
                 )}
+              </div>
+            )}
+            {/* 7-day average stats for RDS (no time-series available for these) */}
+            {instance.source === 'rds' && metrics && (metrics.avgDiskQueueDepth > 0 || metrics.avgSwapUsageMb > 0) && (
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">7-day Averages</p>
+                <div className="grid grid-cols-3 gap-2">
+                  {metrics.avgDiskQueueDepth > 0 && (
+                    <StatCard label="Disk Queue Depth" value={round2(metrics.avgDiskQueueDepth)}
+                      color={metrics.avgDiskQueueDepth > 1 ? 'text-orange-600' : 'text-gray-900 dark:text-gray-100'}
+                      tooltip="Average number of pending I/O requests. Above 1 means I/O is a bottleneck — requests are queuing up waiting for disk. Consider upgrading IOPS or moving to gp3/io1." />
+                  )}
+                  {metrics.avgSwapUsageMb > 0 && (
+                    <StatCard label="Swap Usage" value={`${round2(metrics.avgSwapUsageMb)} MB`}
+                      color={metrics.avgSwapUsageMb > 100 ? 'text-orange-600' : 'text-yellow-600'}
+                      tooltip="Average swap space used. Swap activity degrades DB performance significantly. Reduce buffer pool size or upgrade to a larger instance." />
+                  )}
+                </div>
               </div>
             )}
 
@@ -1438,20 +1548,50 @@ export default function DbInstanceDetailDrawer({
                   onChange={e => setQuerySearch(e.target.value)}
                   className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400"
                 />
-                <div className="text-xs text-gray-400">{filteredAgentStats.length} queries from performance_schema</div>
+                {/* Query source explanation */}
+                <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-sky-50 dark:bg-sky-900/20 border border-sky-200 dark:border-sky-800/50 text-xs text-sky-700 dark:text-sky-300">
+                  <i className="fas fa-info-circle mt-0.5 shrink-0" />
+                  <span className="flex-1">
+                    Showing <strong>{filteredAgentStats.length}</strong> normalized query digests ranked by total execution time,
+                    collected from{' '}
+                    {(instance.engine ?? '').toLowerCase().includes('postgres')
+                      ? <><strong>pg_stat_statements</strong> (PostgreSQL extension)</>
+                      : <><strong>performance_schema.events_statements_summary_by_digest</strong> (MySQL)</>
+                    }.{' '}
+                    Counters accumulate since the last server restart or manual reset — they are <em>not</em> a real-time window.
+                    Queries are deduplicated by digest; literals and parameters are normalized out.
+                  </span>
+                  {instanceAgentStats[0]?.collectedAt && (
+                    <span className="shrink-0 whitespace-nowrap text-sky-500 dark:text-sky-400 font-medium">
+                      <i className="fas fa-clock mr-1" />
+                      {new Date(instanceAgentStats[0].collectedAt).toLocaleString()}
+                    </span>
+                  )}
+                </div>
                 <div className="space-y-2">
                   {filteredAgentStats.map((s, i) => (
                     <div key={i} className="bg-gray-50 dark:bg-gray-700/30 rounded-lg p-3">
                       <code className="text-xs text-indigo-700 dark:text-indigo-300 break-all block mb-2">{s.queryDigest}</code>
-                      <div className="grid grid-cols-4 gap-2 text-xs">
+                      <div className="grid grid-cols-5 gap-2 text-xs">
                         <div className="text-center"><div className="text-gray-400">Calls</div><div className="font-semibold text-gray-800 dark:text-gray-200">{s.callCount}</div></div>
                         <div className="text-center"><div className="text-gray-400">Avg</div><div className="font-semibold text-gray-800 dark:text-gray-200">{round2(s.avgTimeSeconds * 1000)}ms</div></div>
                         <div className="text-center"><div className="text-gray-400">Max</div><div className="font-semibold text-orange-600 dark:text-orange-400">{round2(s.maxTimeSeconds * 1000)}ms</div></div>
                         <div className="text-center"><div className="text-gray-400">Total</div><div className="font-semibold text-gray-800 dark:text-gray-200">{round2(s.totalTimeSeconds)}s</div></div>
+                        <div className="text-center">
+                          <div className="text-gray-400">Lock</div>
+                          <div className={`font-semibold ${s.lockTimeSeconds > 0.1 ? 'text-red-500' : s.lockTimeSeconds > 0.01 ? 'text-orange-500' : 'text-gray-800 dark:text-gray-200'}`}>
+                            {s.lockTimeSeconds > 0 ? `${round2(s.lockTimeSeconds * 1000)}ms` : '—'}
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex gap-3 mt-2 text-xs text-gray-400">
+                      <div className="flex flex-wrap gap-3 mt-2 text-xs text-gray-400">
                         <span>Rows examined: {s.rowsExamined}</span>
                         <span>Rows sent: {s.rowsSent}</span>
+                        {(s.sharedBlksHit + s.sharedBlksRead) > 0 && (
+                          <span className={(s.sharedBlksHit / (s.sharedBlksHit + s.sharedBlksRead)) < 0.9 ? 'text-orange-500' : 'text-green-600 dark:text-green-400'}>
+                            Cache hit: {Math.round(s.sharedBlksHit / (s.sharedBlksHit + s.sharedBlksRead) * 100)}%
+                          </span>
+                        )}
                         {s.noIndexUsed && <span className="text-red-500">⚠ No index used</span>}
                       </div>
                     </div>
@@ -1546,6 +1686,41 @@ export default function DbInstanceDetailDrawer({
               <div className="bg-green-50 dark:bg-green-900/10 border border-green-100 dark:border-green-800 rounded-2xl p-4 flex items-center gap-3">
                 <i className="fas fa-check-circle text-green-500" />
                 <p className="text-sm text-green-700 dark:text-green-400">No right-sizing recommendation — instance class looks appropriate.</p>
+              </div>
+            )}
+
+            {/* Account cost breakdown — DbCost data */}
+            {costs.length > 0 && (
+              <div className="bg-white/90 dark:bg-gray-800/80 rounded-2xl border border-gray-100 dark:border-gray-700/50 p-5">
+                <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-4 flex items-center gap-2">
+                  <i className="fas fa-chart-bar text-indigo-500" /> Account Cost Breakdown (MTD)
+                </h3>
+                <div className="space-y-2.5">
+                  {costs.map((c, i) => (
+                    <div key={i} className="space-y-1">
+                      <div className="flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-gray-700 dark:text-gray-300">{c.service}</span>
+                          {c.region && <span className="text-gray-400">{c.region}</span>}
+                        </div>
+                        <div className="flex items-center gap-2 text-right">
+                          <span className="text-gray-500">{round2(c.percentOfTotal)}%</span>
+                          <span className="font-semibold text-gray-800 dark:text-gray-200 w-16 text-right">{fmt$(c.cost)}</span>
+                        </div>
+                      </div>
+                      <div className="h-1.5 rounded-full bg-gray-100 dark:bg-gray-700 overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-sky-500 transition-all duration-500"
+                          style={{ width: `${Math.min(c.percentOfTotal, 100)}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-[11px] text-gray-400 mt-4 border-t border-gray-100 dark:border-gray-700 pt-3">
+                  <i className="fas fa-info-circle mr-1" />
+                  Account-level breakdown from AWS Cost Explorer — includes all DB-related services for this account month-to-date.
+                </p>
               </div>
             )}
 

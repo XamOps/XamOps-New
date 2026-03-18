@@ -90,8 +90,8 @@ public class AwsAccountService {
         CloudAccount account = cloudAccountRepository.findByExternalId(request.getExternalId())
                 .orElseThrow(() -> new RuntimeException("No pending account found for the given external ID."));
 
-        if (!"PENDING".equals(account.getStatus())) {
-            throw new RuntimeException("Account is not in a PENDING state.");
+        if (!"PENDING".equals(account.getStatus()) && !"FAILED".equals(account.getStatus())) {
+            throw new RuntimeException("Account is not in a PENDING or FAILED state.");
         }
 
         account.setAwsAccountId(request.getAwsAccountId());
@@ -112,6 +112,7 @@ public class AwsAccountService {
             account.setStatus("FAILED");
             logger.error("Failed to verify account {}: {}", account.getAccountName(), e.getMessage());
             cloudAccountRepository.save(account);
+            awsClientProvider.evictAccount(request.getAwsAccountId());
             throw new RuntimeException(
                     "Role assumption failed. Please check the role ARN, trust policy, and external ID.", e);
         }

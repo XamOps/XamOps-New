@@ -16,11 +16,6 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const saved = localStorage.getItem('xamops_theme') as Theme;
         if (saved) return saved;
 
-        // Then check system preference
-        if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
-            return 'dark';
-        }
-
         return 'light';
     });
 
