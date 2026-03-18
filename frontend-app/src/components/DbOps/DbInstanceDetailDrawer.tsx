@@ -1109,6 +1109,11 @@ export default function DbInstanceDetailDrawer({
                       color={metrics.avgSwapUsageMb > 100 ? 'text-orange-600' : 'text-yellow-600'}
                       tooltip="Swap usage indicates the OS is paging memory to disk. Any swap activity degrades DB performance — increase instance memory or reduce buffer pool size." />
                   )}
+                  {metrics.replicaLagSeconds > 0 && (
+                    <StatCard label="Replica Lag" value={`${round2(metrics.replicaLagSeconds)}s`}
+                      color={metrics.replicaLagSeconds > 30 ? 'text-red-600' : metrics.replicaLagSeconds > 5 ? 'text-orange-600' : 'text-yellow-600'}
+                      tooltip="Average replication lag over the last 7 days (CloudWatch ReplicaLag). High lag means read replicas are falling behind — queries hitting replicas may return stale data." />
+                  )}
                   {metrics.burstBalance > 0 && (
                     <StatCard label="Burst Balance" value={`${Math.round(metrics.burstBalance)}%`}
                       color={metrics.burstBalance < 20 ? 'text-red-600' : metrics.burstBalance < 50 ? 'text-yellow-600' : 'text-green-600'}
@@ -1175,11 +1180,36 @@ export default function DbInstanceDetailDrawer({
                       color={agentMetrics.innodbBufferPoolHitPct < 90 ? 'text-orange-600' : 'text-green-600'}
                       tooltip="% of data reads served from RAM (InnoDB buffer pool) vs. disk. Below 90% means frequent disk I/O — increase innodb_buffer_pool_size to fit your working set in memory." />
                   )}
+                  {agentMetrics.innodbBufferPoolReads > 0 && agentMetrics.dbEngine !== 'postgres' && (
+                    <StatCard label="Pool Disk Reads" value={agentMetrics.innodbBufferPoolReads.toLocaleString()}
+                      color={agentMetrics.innodbBufferPoolReads > 10000 ? 'text-orange-600' : 'text-gray-900 dark:text-gray-100'}
+                      tooltip="Cumulative InnoDB reads that had to fetch from disk (buffer pool misses). High values mean your working set doesn't fit in innodb_buffer_pool_size — a primary cause of DB slowness." />
+                  )}
                   <StatCard label="Uptime" value={agentMetrics.uptime > 86400
                     ? `${Math.floor(agentMetrics.uptime / 86400)}d`
                     : `${Math.floor(agentMetrics.uptime / 3600)}h`}
                     tooltip="Time since the database server last restarted. Frequent restarts indicate crashes or OOM kills. Note: cumulative counters (Total Queries, Slow Queries) reset on restart." />
                 </div>
+                {agentMetrics.maxConnections > 0 && (
+                  <div className="mt-2 bg-gray-50 dark:bg-gray-700/30 rounded-lg p-3">
+                    <div className="flex items-center justify-between text-xs mb-1.5">
+                      <span className="text-gray-500">Connection Pool Usage</span>
+                      <span className={`font-semibold ${agentMetrics.currentConnections / agentMetrics.maxConnections > 0.8 ? 'text-red-600' : agentMetrics.currentConnections / agentMetrics.maxConnections > 0.6 ? 'text-orange-600' : 'text-gray-700 dark:text-gray-300'}`}>
+                        {agentMetrics.currentConnections} / {agentMetrics.maxConnections} ({Math.round(agentMetrics.currentConnections / agentMetrics.maxConnections * 100)}%)
+                      </span>
+                    </div>
+                    <div className="h-2 rounded-full bg-gray-200 dark:bg-gray-600 overflow-hidden">
+                      {(() => {
+                        const pct = Math.min(agentMetrics.currentConnections / agentMetrics.maxConnections * 100, 100);
+                        const barColor = pct > 80 ? 'bg-red-500' : pct > 60 ? 'bg-orange-400' : 'bg-emerald-500';
+                        return <div className={`h-full rounded-full ${barColor} transition-all duration-500`} style={{ width: `${pct}%` }} />;
+                      })()}
+                    </div>
+                    {agentMetrics.maxUsedConnections > agentMetrics.currentConnections && (
+                      <p className="text-[11px] text-gray-400 mt-1">Peak: {agentMetrics.maxUsedConnections} connections</p>
+                    )}
+                  </div>
+                )}
                 {agentMetrics.comSelect + agentMetrics.comInsert + agentMetrics.comUpdate + agentMetrics.comDelete > 0 && (
                   <div className="mt-2 bg-gray-50 dark:bg-gray-700/30 rounded-lg p-3">
                     <p className="text-xs text-gray-500 mb-2">Query Type Breakdown</p>
@@ -1195,6 +1225,21 @@ export default function DbInstanceDetailDrawer({
                           <div className={`font-semibold ${color}`}>{val.toLocaleString()}</div>
                         </div>
                       ))}
+                    </div>
+                  </div>
+                )}
+                {(agentMetrics.bytesReceived > 0 || agentMetrics.bytesSent > 0) && (
+                  <div className="mt-2 bg-gray-50 dark:bg-gray-700/30 rounded-lg p-3">
+                    <p className="text-xs text-gray-500 mb-2">Network I/O <span className="text-gray-400 font-normal">(cumulative since restart)</span></p>
+                    <div className="grid grid-cols-2 gap-2 text-xs text-center">
+                      <div>
+                        <div className="text-gray-400">Received</div>
+                        <div className="font-semibold text-cyan-600 dark:text-cyan-400">{fmtBytes(agentMetrics.bytesReceived)}</div>
+                      </div>
+                      <div>
+                        <div className="text-gray-400">Sent</div>
+                        <div className="font-semibold text-violet-600 dark:text-violet-400">{fmtBytes(agentMetrics.bytesSent)}</div>
+                      </div>
                     </div>
                   </div>
                 )}
