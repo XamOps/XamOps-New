@@ -35,6 +35,9 @@ public class AgentQueryStatDto {
     private boolean noIndexUsed;
     private double  lockTimeSeconds;
 
+    // When the agent collected this batch (stamped by the server from the cache row)
+    private String collectedAt;
+
     // ── Getters / Setters ────────────────────────────────────────────────────
 
     public String getDsnAlias() { return dsnAlias; }
@@ -78,4 +81,7 @@ public class AgentQueryStatDto {
 
     public double getLockTimeSeconds() { return lockTimeSeconds; }
     public void setLockTimeSeconds(double lockTimeSeconds) { this.lockTimeSeconds = lockTimeSeconds; }
+
+    public String getCollectedAt() { return collectedAt; }
+    public void setCollectedAt(String collectedAt) { this.collectedAt = collectedAt; }
 }
