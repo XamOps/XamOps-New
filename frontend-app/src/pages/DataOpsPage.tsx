@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useTopbar } from '../contexts/TopbarContext';
 import {
@@ -239,6 +239,13 @@ const DataOpsPage: React.FC = () => {
   const { selectedAccountIds } = useAccounts();
   const { setTitle, setActions, clearActions } = useTopbar();
   const [selectedInstance, setSelectedInstance] = useState<DrawerInstance | null>(null);
+  const [copiedEndpoint, setCopiedEndpoint] = useState(false);
+  const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
+  const [instanceHealth, setInstanceHealth] = useState<{ score: number; status: 'healthy' | 'warning' | 'critical'; issues: string[] } | null>(null);
+
+  const handleHealthChange = useCallback((h: { score: number; status: 'healthy' | 'warning' | 'critical'; issues: string[] }) => {
+    setInstanceHealth(h);
+  }, []);
 
   const accountId = selectedAccountIds[0] ?? null;
   const {
@@ -260,42 +267,213 @@ const DataOpsPage: React.FC = () => {
       const rd = selectedInstance.rdsData;
       const engine = rd?.engine ?? selectedInstance.engine ?? 'unknown';
       const instanceIdle = idle.find(i => i.instanceId === selectedInstance.instanceId);
+      const endpoint = rd?.endpoint ?? selectedInstance.agentHost ?? '';
+      const h = instanceHealth;
+
+      // Accent colour derived from health status
+      const accentRgb = !h ? '99,102,241'
+        : h.status === 'healthy'  ? '16,185,129'
+        : h.status === 'warning'  ? '245,158,11'
+        : '239,68,68';
 
       setActions(
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2">
+
+          {/* ── Back ── */}
           <button
-            onClick={() => setSelectedInstance(null)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-600 transition-colors"
+            onClick={() => { setSelectedInstance(null); setInstanceHealth(null); }}
+            className="group flex items-center gap-1.5 h-8 px-3 rounded-lg text-[11px] font-medium
+              bg-white/60 dark:bg-white/5
+              border border-gray-200/80 dark:border-white/10
+              text-gray-500 dark:text-slate-400
+              hover:text-indigo-600 dark:hover:text-indigo-400
+              hover:border-indigo-300/60 dark:hover:border-indigo-500/40
+              hover:bg-indigo-50/60 dark:hover:bg-indigo-500/10
+              transition-all duration-200 backdrop-blur-sm"
           >
-            <i className="fas fa-arrow-left text-[10px]" />
+            <i className="fas fa-chevron-left text-[9px] transition-transform duration-200 group-hover:-translate-x-0.5" />
             Back
           </button>
-          {selectedInstance.source === 'rds'
-            ? <span className="px-2 py-0.5 text-xs rounded-full bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 font-medium">RDS</span>
-            : <span className="px-2 py-0.5 text-xs rounded-full bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 font-medium">EC2 / Agent</span>}
-          {rd?.status && (
-            <span className={`px-2 py-0.5 text-xs rounded-full font-medium ${rd.status === 'available' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-yellow-100 text-yellow-700'}`}>
-              {rd.status}
-            </span>
+
+          {/* ── Instance identity card ── */}
+          <div
+            className="flex items-center gap-2 h-9 px-3 rounded-xl backdrop-blur-sm
+              bg-white/70 dark:bg-slate-900/60
+              border border-gray-200/60 dark:border-white/10"
+            style={{ boxShadow: `0 0 0 1px rgba(${accentRgb},0.12), 0 0 14px rgba(${accentRgb},0.07)` }}
+          >
+            {/* Engine icon badge */}
+            <div className={`w-5 h-5 rounded-md flex items-center justify-center text-white text-[9px] font-bold shrink-0 shadow-sm
+              ${selectedInstance.source === 'rds'
+                ? 'bg-gradient-to-br from-orange-500 to-amber-600'
+                : 'bg-gradient-to-br from-indigo-500 to-purple-600'}`}>
+              <i className={`fas ${selectedInstance.source === 'rds' ? 'fa-database' : 'fa-server'} text-[8px]`} />
+            </div>
+
+            {/* Engine text */}
+            <span className="text-[10px] text-gray-500 dark:text-slate-400 font-medium">{engine}</span>
+
+            {/* Source pill */}
+            {selectedInstance.source === 'rds'
+              ? <span className="px-1.5 py-px text-[9px] rounded font-bold bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 tracking-wide">RDS</span>
+              : <span className="px-1.5 py-px text-[9px] rounded font-bold bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 tracking-wide">Agent</span>}
+
+            {/* Live status dot */}
+            {rd?.status && (
+              <span className="flex items-center gap-1 text-[9px] font-medium text-emerald-600 dark:text-emerald-400">
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60" />
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
+                </span>
+                {rd.status}
+              </span>
+            )}
+
+            {/* Idle */}
+            {instanceIdle && (
+              <span className="px-1.5 py-px text-[9px] rounded font-semibold bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                <i className="fas fa-moon mr-0.5 text-[8px]" />Idle
+              </span>
+            )}
+          </div>
+
+          {/* ── Health gauge card ── */}
+          {h && (
+            <div
+              className={`flex items-center gap-2 h-9 px-3 rounded-xl backdrop-blur-sm
+                ${h.status === 'healthy'
+                  ? 'bg-emerald-50/80 dark:bg-emerald-900/20 border border-emerald-200/70 dark:border-emerald-500/25'
+                  : h.status === 'warning'
+                  ? 'bg-amber-50/80 dark:bg-amber-900/20 border border-amber-200/70 dark:border-amber-500/25'
+                  : 'bg-red-50/80 dark:bg-red-900/20 border border-red-200/70 dark:border-red-500/25'}`}
+              style={{ boxShadow: `0 0 16px rgba(${accentRgb},0.13)` }}
+              title={h.issues.length > 0 ? h.issues.join(' · ') : 'No issues detected'}
+            >
+              {/* SVG ring */}
+              <div className="relative w-7 h-7 shrink-0">
+                <svg className="w-7 h-7 -rotate-90" viewBox="0 0 28 28">
+                  <circle cx="14" cy="14" r="10" fill="none" strokeWidth="2.5" stroke="currentColor"
+                    className={h.status === 'healthy' ? 'text-emerald-200 dark:text-emerald-900/60'
+                      : h.status === 'warning' ? 'text-amber-200 dark:text-amber-900/60'
+                      : 'text-red-200 dark:text-red-900/60'} />
+                  <circle cx="14" cy="14" r="10" fill="none" strokeWidth="2.5" stroke="currentColor"
+                    strokeDasharray={`${2 * Math.PI * 10}`}
+                    strokeDashoffset={`${2 * Math.PI * 10 * (1 - h.score / 100)}`}
+                    strokeLinecap="round"
+                    className={h.status === 'healthy' ? 'text-emerald-500' : h.status === 'warning' ? 'text-amber-500' : 'text-red-500'}
+                    style={{ transition: 'stroke-dashoffset 1s ease' }}
+                  />
+                </svg>
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <span className={`text-[9px] font-black leading-none tabular-nums
+                    ${h.status === 'healthy' ? 'text-emerald-700 dark:text-emerald-300'
+                      : h.status === 'warning' ? 'text-amber-700 dark:text-amber-300'
+                      : 'text-red-700 dark:text-red-300'}`}>{h.score}</span>
+                </div>
+              </div>
+
+              {/* Label */}
+              <div className="flex flex-col leading-none">
+                <span className={`text-[10px] font-bold
+                  ${h.status === 'healthy' ? 'text-emerald-700 dark:text-emerald-300'
+                    : h.status === 'warning' ? 'text-amber-700 dark:text-amber-300'
+                    : 'text-red-700 dark:text-red-300'}`}>
+                  {h.status === 'healthy' ? 'Healthy' : h.status === 'warning' ? 'Warning' : 'Critical'}
+                </span>
+                <span className="text-[8px] text-gray-400 dark:text-slate-500 mt-0.5">Health Score</span>
+              </div>
+            </div>
           )}
-          {instanceIdle && (
-            <span className="px-2 py-0.5 text-xs rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 font-medium">
-              <i className="fas fa-moon mr-1" />Idle
-            </span>
+
+          {/* ── Issue chips ── */}
+          {h && h.issues.length > 0 && (
+            <div className="hidden md:flex items-center gap-1.5">
+              {h.issues.slice(0, 2).map((issue, i) => (
+                <span key={i} className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[9px] font-semibold backdrop-blur-sm
+                  ${h.status === 'critical'
+                    ? 'bg-red-50 dark:bg-red-900/25 border border-red-200/70 dark:border-red-500/25 text-red-600 dark:text-red-400'
+                    : 'bg-amber-50 dark:bg-amber-900/25 border border-amber-200/70 dark:border-amber-500/25 text-amber-600 dark:text-amber-400'}`}>
+                  <i className="fas fa-circle-dot text-[7px]" />
+                  {issue}
+                </span>
+              ))}
+              {h.issues.length > 2 && (
+                <span className="text-[9px] text-gray-400 dark:text-slate-500 font-medium">
+                  +{h.issues.length - 2}
+                </span>
+              )}
+            </div>
           )}
-          <span className="hidden sm:flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-            <span><i className="fas fa-database mr-1" />{engine}</span>
-            {rd?.instanceClass && <span><i className="fas fa-server mr-1" />{rd.instanceClass}</span>}
-            {rd?.region && <span><i className="fas fa-map-marker-alt mr-1" />{rd.region}</span>}
-          </span>
-          {rd?.estimatedMonthlyCost !== undefined && (
-            <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-              {fmt$(rd.estimatedMonthlyCost)}/mo
-            </span>
+
+          {/* ── Meta strip (class · region · cost) ── */}
+          <div className="hidden lg:flex items-center gap-1.5 text-[10px] text-gray-400 dark:text-slate-500 font-medium">
+            {rd?.instanceClass && (
+              <span className="flex items-center gap-1">
+                <i className="fas fa-microchip text-[8px] text-gray-300 dark:text-slate-600" />{rd.instanceClass}
+              </span>
+            )}
+            {rd?.region && (
+              <>
+                <span className="text-gray-200 dark:text-slate-700">·</span>
+                <span className="flex items-center gap-1">
+                  <i className="fas fa-location-dot text-[8px] text-gray-300 dark:text-slate-600" />{rd.region}
+                </span>
+              </>
+            )}
+            {rd?.estimatedMonthlyCost !== undefined && (
+              <>
+                <span className="text-gray-200 dark:text-slate-700">·</span>
+                <span className="font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">
+                  {fmt$(rd.estimatedMonthlyCost)}/mo
+                </span>
+              </>
+            )}
+          </div>
+
+          {/* ── Vertical separator ── */}
+          <span className="w-px h-5 bg-gray-200 dark:bg-slate-700/80 mx-0.5" />
+
+          {/* ── Copy endpoint ── */}
+          {endpoint && (
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(endpoint);
+                setCopiedEndpoint(true);
+                setTimeout(() => setCopiedEndpoint(false), 2000);
+              }}
+              className={`group flex items-center gap-1.5 h-8 px-3 rounded-lg text-[11px] font-medium
+                backdrop-blur-sm transition-all duration-200
+                ${copiedEndpoint
+                  ? 'bg-emerald-50 dark:bg-emerald-900/25 border border-emerald-300/70 dark:border-emerald-500/35 text-emerald-600 dark:text-emerald-400'
+                  : 'bg-white/60 dark:bg-slate-800/60 border border-gray-200/70 dark:border-white/10 text-gray-600 dark:text-slate-300 hover:bg-indigo-50/60 dark:hover:bg-indigo-500/10 hover:border-indigo-300/60 dark:hover:border-indigo-500/40 hover:text-indigo-600 dark:hover:text-indigo-400'}`}
+              title={`Copy: ${endpoint}`}
+            >
+              <i className={`fas ${copiedEndpoint ? 'fa-check' : 'fa-copy'} text-[10px]`} />
+              <span>{copiedEndpoint ? 'Copied!' : 'Copy'}</span>
+            </button>
           )}
+
+          {/* ── Last-updated + Refresh ── */}
+          <button
+            onClick={() => { refresh(); setLastRefreshed(new Date()); }}
+            disabled={loading}
+            className="group flex items-center justify-center w-8 h-8 rounded-lg backdrop-blur-sm
+              bg-white/60 dark:bg-slate-800/60
+              border border-gray-200/70 dark:border-white/10
+              text-gray-500 dark:text-slate-400
+              hover:text-indigo-600 dark:hover:text-indigo-400
+              hover:bg-indigo-50/60 dark:hover:bg-indigo-500/10
+              hover:border-indigo-300/60 dark:hover:border-indigo-500/40
+              transition-all duration-200 disabled:opacity-40"
+            title={`Last updated: ${lastRefreshed.toLocaleTimeString()}`}
+          >
+            <i className={`fas fa-rotate-right text-[11px] ${loading ? 'animate-spin' : 'group-hover:rotate-180'} transition-transform duration-500`} />
+          </button>
+
         </div>
       );
     } else {
+      setInstanceHealth(null);
       setActions(
         <div className="flex items-center gap-2">
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700/50 text-amber-700 dark:text-amber-400 text-xs font-semibold">
@@ -314,7 +492,7 @@ const DataOpsPage: React.FC = () => {
       );
     }
     return () => clearActions();
-  }, [setActions, clearActions, selectedInstance, accountId, summary, loading, refresh, idle]);
+  }, [setActions, clearActions, selectedInstance, accountId, summary, loading, refresh, idle, instanceHealth, copiedEndpoint, lastRefreshed]);
 
   return (
     <main className="dataops-page flex-1 flex flex-col min-h-screen bg-transparent">
@@ -368,6 +546,7 @@ const DataOpsPage: React.FC = () => {
             fetchAgentIndexUsage={fetchAgentIndexUsage}
             fetchAgentTableActivity={fetchAgentTableActivity}
             onConnected={async (inst) => { await refresh(); setSelectedInstance(inst); }}
+            onHealthChange={handleHealthChange}
           />
         )}
 
