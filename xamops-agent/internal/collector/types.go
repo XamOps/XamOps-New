@@ -200,6 +200,79 @@ type DbTableSize struct {
 	CollectedAt    string `json:"collectedAt"`
 }
 
+// DbIndexUsage represents per-index scan statistics for a single index.
+// Pushed as "db-index-usage" batch.
+// Postgres: pg_stat_user_indexes. MySQL: performance_schema.table_io_waits_summary_by_index_usage.
+type DbIndexUsage struct {
+	DSNAlias       string `json:"dsnAlias"`
+	DBEngine       string `json:"dbEngine"`
+	DBHost         string `json:"dbHost"`
+	SchemaName     string `json:"schemaName"`
+	TableName      string `json:"tableName"`
+	IndexName      string `json:"indexName"`
+	IdxScan        int64  `json:"idxScan"`              // number of index scans initiated
+	IdxTupRead     int64  `json:"idxTupRead,omitempty"` // tuples read via index (Postgres)
+	IdxTupFetch    int64  `json:"idxTupFetch,omitempty"`// live tuples fetched (Postgres)
+	IsUnused       bool   `json:"isUnused"`             // idxScan == 0 since last reset
+	IndexSizeBytes int64  `json:"indexSizeBytes,omitempty"`
+	CollectedAt    string `json:"collectedAt"`
+}
+
+// DbTableActivity represents read/write activity counters for a single table.
+// Pushed as "db-table-activity" batch.
+// Postgres: pg_stat_user_tables. MySQL: performance_schema.table_io_waits_summary_by_table.
+type DbTableActivity struct {
+	DSNAlias    string `json:"dsnAlias"`
+	DBEngine    string `json:"dbEngine"`
+	DBHost      string `json:"dbHost"`
+	SchemaName  string `json:"schemaName"`
+	TableName   string `json:"tableName"`
+	SeqScan     int64  `json:"seqScan"`              // full-table sequential scans
+	SeqTupRead  int64  `json:"seqTupRead,omitempty"` // rows read by seq scans (Postgres)
+	IdxScan     int64  `json:"idxScan"`              // index scans
+	IdxTupFetch int64  `json:"idxTupFetch,omitempty"`// rows fetched via index (Postgres)
+	NTupIns     int64  `json:"nTupIns"`
+	NTupUpd     int64  `json:"nTupUpd"`
+	NTupDel     int64  `json:"nTupDel"`
+	NTupHotUpd  int64  `json:"nTupHotUpd,omitempty"` // HOT updates — no index churn (Postgres)
+	CollectedAt string `json:"collectedAt"`
+}
+
+// DbVacuumStat represents vacuum/analyze status and table bloat for a single table.
+// PostgreSQL only — collected from pg_stat_user_tables.
+// Pushed as "db-vacuum-stats" batch.
+type DbVacuumStat struct {
+	DSNAlias        string  `json:"dsnAlias"`
+	DBEngine        string  `json:"dbEngine"`
+	DBHost          string  `json:"dbHost"`
+	SchemaName      string  `json:"schemaName"`
+	TableName       string  `json:"tableName"`
+	NLiveTup        int64   `json:"nLiveTup"`
+	NDeadTup        int64   `json:"nDeadTup"`
+	DeadTupRatio    float64 `json:"deadTupRatio"` // nDeadTup / (nLiveTup + nDeadTup)
+	LastVacuum      string  `json:"lastVacuum,omitempty"`
+	LastAutoVacuum  string  `json:"lastAutoVacuum,omitempty"`
+	LastAnalyze     string  `json:"lastAnalyze,omitempty"`
+	LastAutoAnalyze string  `json:"lastAutoAnalyze,omitempty"`
+	CollectedAt     string  `json:"collectedAt"`
+}
+
+// DbUserActivity represents connection and query activity for a single database user.
+// Collected from pg_stat_activity (Postgres) or information_schema.PROCESSLIST (MySQL).
+// Pushed as "db-user-activity" batch.
+type DbUserActivity struct {
+	DSNAlias          string  `json:"dsnAlias"`
+	DBEngine          string  `json:"dbEngine"`
+	DBHost            string  `json:"dbHost"`
+	Username          string  `json:"username"`
+	ActiveConnections int64   `json:"activeConnections"`
+	IdleConnections   int64   `json:"idleConnections"`
+	TotalConnections  int64   `json:"totalConnections"`
+	CallCount         int64   `json:"callCount,omitempty"`        // cumulative queries by this user
+	TotalTimeSeconds  float64 `json:"totalTimeSeconds,omitempty"` // cumulative exec time in seconds
+	CollectedAt       string  `json:"collectedAt"`
+}
+
 // DbQueryStat represents a single normalized query from performance_schema or pg_stat_statements
 type DbQueryStat struct {
 	// Connection info

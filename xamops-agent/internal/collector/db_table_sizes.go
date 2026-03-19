@@ -92,11 +92,11 @@ func queryPostgresTableSizes(ctx context.Context, db *sql.DB, alias, host string
 	const q = `
 SELECT
     schemaname,
-    tablename,
-    pg_table_size(schemaname || '.' || tablename)         AS data_bytes,
-    pg_indexes_size(schemaname || '.' || tablename)       AS index_bytes,
-    pg_total_relation_size(schemaname || '.' || tablename) AS total_bytes,
-    COALESCE(n_live_tup, 0)                               AS row_count
+    relname,
+    pg_table_size(schemaname || '.' || relname)          AS data_bytes,
+    pg_indexes_size(schemaname || '.' || relname)        AS index_bytes,
+    pg_total_relation_size(schemaname || '.' || relname) AS total_bytes,
+    COALESCE(n_live_tup, 0)                              AS row_count
 FROM pg_stat_user_tables
 ORDER BY total_bytes DESC
 LIMIT $1`

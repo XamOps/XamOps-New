@@ -245,6 +245,7 @@ const DataOpsPage: React.FC = () => {
     summary, inventory, metrics, costs, idle, rightsizing, snapshots, security, slowQueries,
     agentQueryStats, agentInstanceMetrics,
     loading, error, refresh, fetchInstanceTimeseries, fetchAgentTimeseries, fetchAgentTableSizes,
+    fetchAgentVacuumStats, fetchAgentUserActivity, fetchAgentIndexUsage, fetchAgentTableActivity,
   } = useDbOpsData(accountId);
 
   // Title: instance ID when selected, else 'DbOps'
@@ -362,6 +363,10 @@ const DataOpsPage: React.FC = () => {
             fetchTimeseries={fetchInstanceTimeseries}
             fetchAgentTimeseries={fetchAgentTimeseries}
             fetchAgentTableSizes={fetchAgentTableSizes}
+            fetchAgentVacuumStats={fetchAgentVacuumStats}
+            fetchAgentUserActivity={fetchAgentUserActivity}
+            fetchAgentIndexUsage={fetchAgentIndexUsage}
+            fetchAgentTableActivity={fetchAgentTableActivity}
             onConnected={async (inst) => { await refresh(); setSelectedInstance(inst); }}
           />
         )}
@@ -369,7 +374,25 @@ const DataOpsPage: React.FC = () => {
         {/* Inventory */}
         {accountId && !loading && !selectedInstance && (
           <>
-            {summary && <SummaryCards s={summary} />}
+            {(() => {
+              // Augment backend summary with agent-only instances not in RDS inventory
+              const agentOnlyHosts = new Set<string>();
+              agentQueryStats.forEach(s => {
+                if (!s.dbHost) return;
+                const matchesRds = inventory.some(i => i.endpoint && s.dbHost.startsWith(i.endpoint));
+                if (!matchesRds) agentOnlyHosts.add(s.dbHost);
+              });
+              const agentOnlyCost = Array.from(agentOnlyHosts).reduce((sum, host) => {
+                const am = agentInstanceMetrics.find(m => m.dbHost === host);
+                return sum + (am?.ec2HourlyPrice ? am.ec2HourlyPrice * 730 : 0);
+              }, 0);
+              const combinedSummary = summary
+                ? { ...summary, totalInstances: summary.totalInstances + agentOnlyHosts.size, totalDbMonthlyCost: summary.totalDbMonthlyCost + agentOnlyCost }
+                : agentOnlyHosts.size > 0
+                  ? { totalDbMonthlyCost: agentOnlyCost, totalPotentialSavings: 0, totalInstances: agentOnlyHosts.size, idleInstances: 0, idleSavingsPotential: 0, rightsizingCandidates: 0, rightsizingSavingsPotential: 0, snapshotWasteCost: 0, savingsPercentage: 0 }
+                  : null;
+              return combinedSummary && <SummaryCards s={combinedSummary} />;
+            })()}
             <InventoryTab inventory={inventory} agentStats={agentQueryStats} agentInstanceMetrics={agentInstanceMetrics} onSelect={setSelectedInstance} />
           </>
         )}

@@ -225,6 +225,67 @@ export interface AgentQueryStat {
   collectedAt?: string;
 }
 
+export interface AgentIndexUsage {
+  dsnAlias: string;
+  dbEngine: string;
+  dbHost: string;
+  schemaName: string;
+  tableName: string;
+  indexName: string;
+  idxScan: number;
+  idxTupRead: number;
+  idxTupFetch: number;
+  isUnused: boolean;
+  indexSizeBytes: number;
+  collectedAt?: string;
+}
+
+export interface AgentTableActivity {
+  dsnAlias: string;
+  dbEngine: string;
+  dbHost: string;
+  schemaName: string;
+  tableName: string;
+  seqScan: number;
+  seqTupRead: number;
+  idxScan: number;
+  idxTupFetch: number;
+  nTupIns: number;
+  nTupUpd: number;
+  nTupDel: number;
+  nTupHotUpd: number;
+  collectedAt?: string;
+}
+
+export interface AgentVacuumStat {
+  dsnAlias: string;
+  dbEngine: string;
+  dbHost: string;
+  schemaName: string;
+  tableName: string;
+  nLiveTup: number;
+  nDeadTup: number;
+  deadTupRatio: number;       // fraction 0–1
+  lastVacuum?: string;
+  lastAutoVacuum?: string;
+  lastAnalyze?: string;
+  lastAutoAnalyze?: string;
+  collectedAt?: string;
+}
+
+export interface AgentUserActivity {
+  dsnAlias: string;
+  dbEngine: string;
+  dbHost: string;
+  username: string;
+  activeConnections: number;
+  idleConnections: number;
+  totalConnections: number;
+  callCount: number;
+  totalTimeSeconds: number;
+  collectedAt?: string;
+}
+
 // ── Hook ─────────────────────────────────────────────────────────────────────
 
 const CACHE_TTL = 12 * 60 * 60 * 1000; // 12 hours
@@ -419,6 +480,34 @@ export function useDbOpsData(accountId: string | null) {
     ).then(r => r ?? []);
   }, [accountId]);
 
+  const fetchAgentIndexUsage = useCallback(async (): Promise<AgentIndexUsage[]> => {
+    if (!accountId) return [];
+    return fetchJson<AgentIndexUsage[]>(
+      `/api/dbops/aws/${accountId}/agent-index-usage`
+    ).then(r => r ?? []);
+  }, [accountId]);
+
+  const fetchAgentTableActivity = useCallback(async (): Promise<AgentTableActivity[]> => {
+    if (!accountId) return [];
+    return fetchJson<AgentTableActivity[]>(
+      `/api/dbops/aws/${accountId}/agent-table-activity`
+    ).then(r => r ?? []);
+  }, [accountId]);
+
+  const fetchAgentVacuumStats = useCallback(async (): Promise<AgentVacuumStat[]> => {
+    if (!accountId) return [];
+    return fetchJson<AgentVacuumStat[]>(
+      `/api/dbops/aws/${accountId}/agent-vacuum-stats`
+    ).then(r => r ?? []);
+  }, [accountId]);
+
+  const fetchAgentUserActivity = useCallback(async (): Promise<AgentUserActivity[]> => {
+    if (!accountId) return [];
+    return fetchJson<AgentUserActivity[]>(
+      `/api/dbops/aws/${accountId}/agent-user-activity`
+    ).then(r => r ?? []);
+  }, [accountId]);
+
   return {
     summary, inventory, metrics, costs, idle, rightsizing, snapshots, security, slowQueries,
     agentQueryStats, agentInstanceMetrics,
@@ -427,5 +516,9 @@ export function useDbOpsData(accountId: string | null) {
     fetchInstanceTimeseries,
     fetchAgentTimeseries,
     fetchAgentTableSizes,
+    fetchAgentVacuumStats,
+    fetchAgentUserActivity,
+    fetchAgentIndexUsage,
+    fetchAgentTableActivity,
   };
 }
