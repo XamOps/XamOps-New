@@ -322,6 +322,58 @@ public class DbOpsController {
     }
 
     /**
+     * GET /api/dbops/aws/{accountId}/agent-index-usage
+     */
+    @GetMapping("/{accountId}/agent-index-usage")
+    public CompletableFuture<ResponseEntity<List<AgentIndexUsageDto>>> getAgentIndexUsage(
+            @PathVariable String accountId) {
+        return dbOpsCostService.getAgentIndexUsage(accountId)
+                .thenApply(ResponseEntity::ok)
+                .exceptionally(ex -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());
+    }
+
+    /**
+     * GET /api/dbops/aws/{accountId}/agent-table-activity
+     */
+    @GetMapping("/{accountId}/agent-table-activity")
+    public CompletableFuture<ResponseEntity<List<AgentTableActivityDto>>> getAgentTableActivity(
+            @PathVariable String accountId) {
+        return dbOpsCostService.getAgentTableActivity(accountId)
+                .thenApply(ResponseEntity::ok)
+                .exceptionally(ex -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());
+    }
+
+    /**
+     * GET /api/dbops/aws/{accountId}/agent-vacuum-stats
+     *
+     * Returns latest vacuum/analyze history and dead tuple ratios from pg_stat_user_tables.
+     * PostgreSQL only — returns [] for MySQL-only accounts.
+     */
+    @GetMapping("/{accountId}/agent-vacuum-stats")
+    public CompletableFuture<ResponseEntity<List<AgentVacuumStatDto>>> getAgentVacuumStats(
+            @PathVariable String accountId) {
+
+        return dbOpsCostService.getAgentVacuumStats(accountId)
+                .thenApply(ResponseEntity::ok)
+                .exceptionally(ex -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());
+    }
+
+    /**
+     * GET /api/dbops/aws/{accountId}/agent-user-activity
+     *
+     * Returns per-user connection counts and cumulative query stats.
+     * Sourced from pg_stat_activity + pg_stat_statements (Postgres) or PROCESSLIST (MySQL).
+     */
+    @GetMapping("/{accountId}/agent-user-activity")
+    public CompletableFuture<ResponseEntity<List<AgentUserActivityDto>>> getAgentUserActivity(
+            @PathVariable String accountId) {
+
+        return dbOpsCostService.getAgentUserActivity(accountId)
+                .thenApply(ResponseEntity::ok)
+                .exceptionally(ex -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());
+    }
+
+    /**
      * GET /api/dbops/aws/{accountId}/instance/{instanceId}/timeseries?hours=24
      *
      * Returns hourly CloudWatch data points for a single RDS instance.

@@ -198,6 +198,8 @@ export function useAccountManager(): UseAccountManagerReturn {
 
       // Refresh accounts after verification
       await fetchAccounts();
+      // Notify AccountContext (sidebar) to refresh its account list
+      globalThis.dispatchEvent(new CustomEvent('account-changed'));
       return { success: true };
     } catch (err) {
       return { success: false, error: err instanceof Error ? err.message : 'Unknown error' };

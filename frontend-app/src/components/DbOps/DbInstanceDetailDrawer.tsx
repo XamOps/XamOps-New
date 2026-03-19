@@ -6,10 +6,11 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import {
-  DbInstance, DbMetrics, DbInstanceTimeseries, TimeseriesPoint,
+  DbInstance, DbMetrics, DbInstanceTimeseries, TimeseriesPoint, DbCost,
   AgentQueryStat, SlowQuery, AgentInstanceMetrics,
   DbIdleInstance, DbRightsizing, DbSecurityCheck, DbSnapshot,
-  AgentTimeseries, AgentTableSize,
+  AgentTimeseries, AgentTableSize, AgentVacuumStat, AgentUserActivity,
+  AgentIndexUsage, AgentTableActivity,
 } from '../../hooks/useDbOpsData';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -38,6 +39,19 @@ function fmtBytes(b: number) {
   if (b >= 1024 * 1024) return `${round2(b / (1024 * 1024))} MB`;
   if (b >= 1024) return `${round2(b / 1024)} KB`;
   return `${b} B`;
+}
+
+// ── Instant tooltip (no browser delay) ────────────────────────────────────────
+function Tip({ text, children, wide }: { text: string; children: React.ReactNode; wide?: boolean }) {
+  return (
+    <span className="relative group inline-flex items-center cursor-help">
+      {children}
+      <span className={`pointer-events-none absolute z-[9999] bottom-full left-1/2 -translate-x-1/2 mb-2 ${wide ? 'w-72' : 'w-56'} rounded-lg bg-gray-900 dark:bg-gray-700 text-white text-[10px] leading-snug px-2.5 py-2 opacity-0 group-hover:opacity-100 shadow-lg whitespace-normal`}>
+        {text}
+        <span className="absolute top-full left-1/2 -translate-x-1/2 border-[5px] border-transparent border-t-gray-900 dark:border-t-gray-700" />
+      </span>
+    </span>
+  );
 }
 
 // Agent snapshot → chart data for a scalar field (connections, bufferPoolHitPct)
@@ -346,7 +360,7 @@ CREATE EXTENSION IF NOT EXISTS pg_stat_statements;`;
     '  -e COLLECTOR_DB=true \\',
     `  -e DB_QUERY_LIMIT=${queryLimit} \\`,
     ...dsns.map((d, i) => `  -e DB_DSN_${i}='${buildDsn(d)}' \\`),
-    '  adityamehta3003108/xamops-agent:2',
+    '  xamops/agent:latest',
   ].join('\n');
 
   const copy = (text: string, key: string) => {
@@ -929,24 +943,36 @@ interface Props {
   fetchTimeseries: (id: string, hours: number) => Promise<DbInstanceTimeseries | null>;
   fetchAgentTimeseries: (hours: number) => Promise<AgentTimeseries[]>;
   fetchAgentTableSizes: () => Promise<AgentTableSize[]>;
+  fetchAgentVacuumStats: () => Promise<AgentVacuumStat[]>;
+  fetchAgentUserActivity: () => Promise<AgentUserActivity[]>;
+  fetchAgentIndexUsage: () => Promise<AgentIndexUsage[]>;
+  fetchAgentTableActivity: () => Promise<AgentTableActivity[]>;
   onConnected?: (inst: DrawerInstance) => void;
 }
 
-type DetailTab = 'overview' | 'performance' | 'slowqueries' | 'queries' | 'cost' | 'security' | 'snapshots';
+type DetailTab = 'overview' | 'performance' | 'slowqueries' | 'queries' | 'maintenance' | 'users' | 'cost' | 'security' | 'snapshots';
 
 // ── Main component ─────────────────────────────────────────────────────────────
 export default function DbInstanceDetailDrawer({
   instance, metrics, agentStats, agentInstanceMetrics, slowQueries,
   idle, rightsizing, security, allSnapshots, costs,
-  fetchTimeseries, fetchAgentTimeseries, fetchAgentTableSizes, onConnected,
+  fetchTimeseries, fetchAgentTimeseries, fetchAgentTableSizes,
+  fetchAgentVacuumStats, fetchAgentUserActivity,
+  fetchAgentIndexUsage, fetchAgentTableActivity, onConnected,
 }: Props) {
   const [tab, setTab] = useState<DetailTab>('overview');
   const [timeseries, setTimeseries] = useState<DbInstanceTimeseries | null>(null);
   const [agentTs, setAgentTs] = useState<AgentTimeseries[]>([]);
   const [tableSizes, setTableSizes] = useState<AgentTableSize[]>([]);
+  const [vacuumStats, setVacuumStats] = useState<AgentVacuumStat[]>([]);
+  const [userActivity, setUserActivity] = useState<AgentUserActivity[]>([]);
+  const [indexUsage, setIndexUsage] = useState<AgentIndexUsage[]>([]);
+  const [tableActivity, setTableActivity] = useState<AgentTableActivity[]>([]);
   const [tsLoading, setTsLoading] = useState(false);
   const [tsHours, setTsHours] = useState(24);
   const [querySearch, setQuerySearch] = useState('');
+  const { selectedAccountIds } = useAccounts();
+  const [agentDisconnecting, setAgentDisconnecting] = useState(false);
 
   useEffect(() => {
     if (!instance || instance.source !== 'rds') return;
@@ -962,6 +988,18 @@ export default function DbInstanceDetailDrawer({
     fetchAgentTimeseries(tsHours).then(data => setAgentTs(data));
     fetchAgentTableSizes().then(data => setTableSizes(data));
   }, [tab, tsHours, fetchAgentTimeseries, fetchAgentTableSizes]);
+
+  useEffect(() => {
+    if (tab !== 'maintenance') return;
+    fetchAgentVacuumStats().then(data => setVacuumStats(data));
+    fetchAgentIndexUsage().then(data => setIndexUsage(data));
+    fetchAgentTableActivity().then(data => setTableActivity(data));
+  }, [tab, fetchAgentVacuumStats, fetchAgentIndexUsage, fetchAgentTableActivity]);
+
+  useEffect(() => {
+    if (tab !== 'users') return;
+    fetchAgentUserActivity().then(data => setUserActivity(data));
+  }, [tab, fetchAgentUserActivity]);
 
   useEffect(() => {
     setTab('overview');
@@ -998,8 +1036,6 @@ export default function DbInstanceDetailDrawer({
 
   const rd = instance.rdsData;
 
-  const { selectedAccountIds } = useAccounts();
-  const [agentDisconnecting, setAgentDisconnecting] = useState(false);
   const disconnectAgent = (agentName: string) => {
     const accountId = selectedAccountIds[0] ?? '';
     if (!agentName || !accountId) return;
@@ -1053,6 +1089,8 @@ export default function DbInstanceDetailDrawer({
     { id: 'performance', label: 'Performance' },
     { id: 'slowqueries', label: `Slow Queries${slowQueriesTabCount ? ` (${slowQueriesTabCount})` : ''}` },
     { id: 'queries',     label: `Query Stats${instanceAgentStats.length ? ` (${instanceAgentStats.length})` : ''}` },
+    { id: 'maintenance', label: 'Maintenance' },
+    { id: 'users',       label: 'Users' },
     { id: 'cost',        label: 'Cost & Savings' },
     { id: 'security',    label: `Security${instanceSecurity.filter(c => c.status === 'FAIL').length ? ` (${instanceSecurity.filter(c => c.status === 'FAIL').length})` : ''}` },
     { id: 'snapshots',   label: `Snapshots${instanceSnapshots.length ? ` (${instanceSnapshots.length})` : ''}` },
@@ -1598,6 +1636,245 @@ export default function DbInstanceDetailDrawer({
                   ))}
                 </div>
               </>
+            )}
+          </div>
+        )}
+
+        {/* ── MAINTENANCE (Vacuum / Table Bloat) ── */}
+        {tab === 'maintenance' && (
+          <div className="space-y-3">
+            <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-sky-50 dark:bg-sky-900/20 border border-sky-200 dark:border-sky-800/50 text-xs text-sky-700 dark:text-sky-300">
+              <i className="fas fa-info-circle mt-0.5 shrink-0" />
+              <span>
+                PostgreSQL only. Sourced from <strong>pg_stat_user_tables</strong>.
+                Dead tuple ratio above 20% means autovacuum may not be keeping up — consider running <code>VACUUM ANALYZE</code> manually or tuning autovacuum settings.
+              </span>
+            </div>
+
+            {vacuumStats.length === 0 ? (
+              <div className="text-center py-12">
+                <i className="fas fa-broom text-3xl text-gray-300 dark:text-gray-600 mb-3 block" />
+                <p className="text-sm text-gray-500 dark:text-gray-400">No vacuum data yet.</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                  Deploy or upgrade the XamOps DB agent — vacuum stats require agent v1.1+.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {vacuumStats
+                  .filter(v => v.dbHost === instance.agentHost || instance.source === 'agent')
+                  .map((v, i) => {
+                    const bloatPct = Math.round((v.deadTupRatio ?? 0) * 100);
+                    const bloatColor = bloatPct >= 30 ? 'text-red-600 dark:text-red-400'
+                      : bloatPct >= 10 ? 'text-yellow-600 dark:text-yellow-400'
+                      : 'text-green-600 dark:text-green-400';
+                    const barColor = bloatPct >= 30 ? 'bg-red-500' : bloatPct >= 10 ? 'bg-yellow-400' : 'bg-green-500';
+                    const lastMaint = v.lastAutoVacuum || v.lastVacuum || '';
+                    const lastAnalyze = v.lastAutoAnalyze || v.lastAnalyze || '';
+                    return (
+                      <div key={i} className="bg-gray-50 dark:bg-gray-700/30 rounded-lg p-3">
+                        <div className="flex items-center justify-between mb-1.5">
+                          <code className="text-xs text-indigo-700 dark:text-indigo-300">{v.schemaName}.{v.tableName}</code>
+                          <Tip text="Dead tuple ratio — percentage of rows deleted/updated but not yet reclaimed by VACUUM. Above 20% means autovacuum may not be keeping up. Run VACUUM ANALYZE to reclaim space." wide>
+                            <span className={`text-xs font-semibold ${bloatColor}`}>{bloatPct}% dead</span>
+                          </Tip>
+                        </div>
+                        {/* Bloat bar */}
+                        <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-1.5 mb-2">
+                          <div className={`h-1.5 rounded-full ${barColor}`} style={{ width: `${Math.min(bloatPct, 100)}%` }} />
+                        </div>
+                        <div className="grid grid-cols-3 gap-2 text-xs">
+                          <div className="text-center">
+                            <Tip text="Estimated live (accessible) rows from pg_stat_user_tables.n_live_tup. Updated by autovacuum or ANALYZE. Shows 0 if ANALYZE has never run on this table."><div className="text-gray-400">Live rows</div></Tip>
+                            <div className="font-semibold text-gray-800 dark:text-gray-200">{(v.nLiveTup ?? 0).toLocaleString()}</div>
+                          </div>
+                          <div className="text-center">
+                            <Tip text="Estimated dead rows (deleted/updated tuples awaiting VACUUM) from n_dead_tup. High values indicate bloat — VACUUM reclaims this space." wide><div className="text-gray-400">Dead rows</div></Tip>
+                            <div className={`font-semibold ${bloatColor}`}>{(v.nDeadTup ?? 0).toLocaleString()}</div>
+                          </div>
+                          <div className="text-center">
+                            <Tip text="Most recent VACUUM run (manual or autovacuum). VACUUM reclaims space from dead rows. Tables not vacuumed regularly suffer bloat and slower queries." wide><div className="text-gray-400">Last vacuum</div></Tip>
+                            <div className="font-semibold text-gray-800 dark:text-gray-200 text-[10px]">
+                              {lastMaint ? new Date(lastMaint).toLocaleDateString() : '—'}
+                            </div>
+                          </div>
+                        </div>
+                        {lastAnalyze && (
+                          <Tip text="Most recent ANALYZE run. ANALYZE updates statistics used by the query planner to choose efficient execution plans. Run manually if query plans seem suboptimal." wide>
+                            <div className="mt-1 text-[10px] text-gray-400">Last analyze: {new Date(lastAnalyze).toLocaleDateString()}</div>
+                          </Tip>
+                        )}
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
+
+          {/* Index Usage */}
+          {indexUsage.length > 0 && (
+            <div>
+              <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-2 flex items-center gap-2">
+                <i className="fas fa-sitemap text-indigo-500 text-xs" /> Index Usage
+                {indexUsage.filter(x => x.isUnused).length > 0 && (
+                  <Tip text="Indexes with 0 scans since the last stats reset. They waste storage and slow every INSERT/UPDATE/DELETE without helping reads. Consider DROP INDEX CONCURRENTLY after confirming they are unused." wide>
+                    <span className="text-[10px] bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-1.5 py-0.5 rounded font-medium">
+                      {indexUsage.filter(x => x.isUnused).length} unused
+                    </span>
+                  </Tip>
+                )}
+              </h3>
+              <div className="space-y-1.5">
+                {indexUsage.slice(0, 50).map((idx, i) => (
+                  <div key={i} className={`rounded-lg px-3 py-2 flex items-center justify-between gap-2 text-xs ${idx.isUnused ? 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/40' : 'bg-gray-50 dark:bg-gray-700/30'}`}>
+                    <div className="min-w-0">
+                      <code className={`break-all ${idx.isUnused ? 'text-red-700 dark:text-red-400' : 'text-indigo-700 dark:text-indigo-300'}`}>{idx.indexName}</code>
+                      <div className="text-gray-400 mt-0.5">{idx.schemaName}.{idx.tableName}</div>
+                    </div>
+                    <div className="shrink-0 flex items-center gap-3 text-right">
+                      {idx.isUnused
+                        ? <Tip text="This index has 0 scans since the last stats reset. It still adds write overhead on every INSERT/UPDATE/DELETE. Verify it is not needed, then consider: DROP INDEX CONCURRENTLY." wide><span className="text-red-500 font-semibold">0 scans — unused</span></Tip>
+                        : <Tip text="Number of times this index was used to answer a query. Higher is better — it means the index is actively helping query performance."><span className="text-gray-600 dark:text-gray-300 font-semibold">{(idx.idxScan ?? 0).toLocaleString()} scans</span></Tip>
+                      }
+                      {idx.indexSizeBytes > 0 && (
+                        <Tip text="Disk space consumed by this index. Unused indexes of this size can be reclaimed by dropping them.">
+                          <span className="text-gray-400">{fmtBytes(idx.indexSizeBytes)}</span>
+                        </Tip>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Table Activity */}
+          {tableActivity.length > 0 && (
+            <div>
+              <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-2 flex items-center gap-2">
+                <i className="fas fa-table text-sky-500 text-xs" /> Table Activity
+              </h3>
+              <div className="space-y-1.5">
+                {tableActivity.slice(0, 30).map((t, i) => {
+                  const totalScans = (t.seqScan ?? 0) + (t.idxScan ?? 0);
+                  const seqPct = totalScans > 0 ? Math.round(((t.seqScan ?? 0) / totalScans) * 100) : 0;
+                  const writes = (t.nTupIns ?? 0) + (t.nTupUpd ?? 0) + (t.nTupDel ?? 0);
+                  return (
+                    <div key={i} className="bg-gray-50 dark:bg-gray-700/30 rounded-lg px-3 py-2 text-xs">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <code className="text-indigo-700 dark:text-indigo-300">{t.schemaName}.{t.tableName}</code>
+                        <span className="text-gray-500 dark:text-gray-400">{t.dbEngine}</span>
+                      </div>
+                      <div className="grid grid-cols-4 gap-2">
+                        <div className="text-center">
+                          <Tip text="Full sequential table scans — the DB reads every row. High seq scans on large tables usually mean a missing index." wide><div className="text-gray-400">Seq Scans</div></Tip>
+                          <div className={`font-semibold ${seqPct > 50 ? 'text-orange-600 dark:text-orange-400' : 'text-gray-700 dark:text-gray-300'}`}>{(t.seqScan ?? 0).toLocaleString()}</div>
+                        </div>
+                        <div className="text-center">
+                          <Tip text="Index scans — the DB used an index to efficiently find specific rows. More index scans vs seq scans means your indexes are effective."><div className="text-gray-400">Idx Scans</div></Tip>
+                          <div className="font-semibold text-green-600 dark:text-green-400">{(t.idxScan ?? 0).toLocaleString()}</div>
+                        </div>
+                        <div className="text-center">
+                          <Tip text="Total write ops: INSERTs + UPDATEs + DELETEs. Tables with many indexes and high write counts may suffer write overhead."><div className="text-gray-400">Writes</div></Tip>
+                          <div className="font-semibold text-gray-700 dark:text-gray-300">{writes.toLocaleString()}</div>
+                        </div>
+                        <div className="text-center">
+                          <Tip text="% of all scans that are sequential (no index). Above 50% on a busy table often means a missing index. Above 80% is a concern — add an index for common query patterns." wide><div className="text-gray-400">Seq %</div></Tip>
+                          <div className={`font-semibold ${seqPct > 80 ? 'text-red-600 dark:text-red-400' : seqPct > 50 ? 'text-orange-500' : 'text-gray-500'}`}>{seqPct}%</div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+        )}
+
+        {/* ── USERS ── */}
+        {tab === 'users' && (
+          <div className="space-y-3">
+            <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-sky-50 dark:bg-sky-900/20 border border-sky-200 dark:border-sky-800/50 text-xs text-sky-700 dark:text-sky-300">
+              <i className="fas fa-info-circle mt-0.5 shrink-0" />
+              <span>
+                Per-user connection and query activity. Postgres: sourced from <strong>pg_stat_activity</strong> + <strong>pg_stat_statements</strong>.
+                MySQL: sourced from <strong>information_schema.PROCESSLIST</strong> + <strong>performance_schema.accounts</strong>.
+                Snapshot taken at collection time — not real-time.
+              </span>
+            </div>
+
+            {userActivity.length === 0 ? (
+              <div className="text-center py-12">
+                <i className="fas fa-users text-3xl text-gray-300 dark:text-gray-600 mb-3 block" />
+                <p className="text-sm text-gray-500 dark:text-gray-400">No user activity data yet.</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                  Deploy or upgrade the XamOps DB agent to collect user activity.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {userActivity
+                  .filter(u => u.dbHost === instance.agentHost || instance.source === 'agent')
+                  .map((u, i) => {
+                    const totalConns = userActivity
+                      .filter(x => x.dbHost === u.dbHost)
+                      .reduce((s, x) => s + x.totalConnections, 0);
+                    const connPct = totalConns > 0 ? Math.round((u.totalConnections / totalConns) * 100) : 0;
+                    return (
+                      <div key={i} className="bg-gray-50 dark:bg-gray-700/30 rounded-lg p-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-sm font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
+                            <i className="fas fa-user text-gray-400 text-xs" />
+                            {u.username}
+                          </span>
+                          <span className="text-xs text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-600 px-2 py-0.5 rounded-full">
+                            {u.dbEngine}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-4 gap-2 text-xs mb-2">
+                          <div className="text-center">
+                            <Tip text="Total open connections from this user (active + idle). Each connection consumes ~5–10 MB of server memory in PostgreSQL."><div className="text-gray-400">Total Conn</div></Tip>
+                            <div className="font-semibold text-gray-800 dark:text-gray-200">{u.totalConnections}</div>
+                          </div>
+                          <div className="text-center">
+                            <Tip text="Connections currently executing a query. Many active connections running slow queries can saturate the DB and cause latency for everyone."><div className="text-gray-400">Active</div></Tip>
+                            <div className={`font-semibold ${u.activeConnections > 0 ? 'text-green-600 dark:text-green-400' : 'text-gray-500'}`}>{u.activeConnections}</div>
+                          </div>
+                          <div className="text-center">
+                            <Tip text="Open connections doing nothing. Idle connections still consume server memory. High idle count? Consider a connection pooler like PgBouncer." wide><div className="text-gray-400">Idle</div></Tip>
+                            <div className="font-semibold text-gray-500">{u.idleConnections}</div>
+                          </div>
+                          <div className="text-center">
+                            <Tip text="This user's share of all connections on this DB host. Helps identify which app or user is holding the most connections."><div className="text-gray-400">Share</div></Tip>
+                            <div className="font-semibold text-sky-600 dark:text-sky-400">{connPct}%</div>
+                          </div>
+                        </div>
+                        {/* Connection share bar */}
+                        <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-1.5 mb-2">
+                          <div className="h-1.5 rounded-full bg-sky-500" style={{ width: `${connPct}%` }} />
+                        </div>
+                        {(u.callCount > 0 || u.totalTimeSeconds > 0) && (
+                          <div className="grid grid-cols-2 gap-2 text-xs mt-1 pt-2 border-t border-gray-200 dark:border-gray-600">
+                            <div className="text-center">
+                              <Tip text="Cumulative queries executed by this user since the last pg_stat_statements reset (Postgres) or server start (MySQL)."><div className="text-gray-400">Total Queries</div></Tip>
+                              <div className="font-semibold text-gray-800 dark:text-gray-200">{(u.callCount ?? 0).toLocaleString()}</div>
+                            </div>
+                            <div className="text-center">
+                              <Tip text="Total CPU + I/O time spent on all queries by this user (cumulative). High relative to others = this user's workload consumes the most DB resources." wide><div className="text-gray-400">Cumul. Time</div></Tip>
+                              <div className="font-semibold text-gray-800 dark:text-gray-200">
+                                {u.totalTimeSeconds >= 3600
+                                  ? `${round2(u.totalTimeSeconds / 3600)}h`
+                                  : u.totalTimeSeconds >= 60
+                                  ? `${round2(u.totalTimeSeconds / 60)}m`
+                                  : `${round2(u.totalTimeSeconds)}s`}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+              </div>
             )}
           </div>
         )}

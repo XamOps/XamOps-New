@@ -108,6 +108,38 @@ func (m *Manager) CollectAll() (*AgentPayload, error) {
 		} else {
 			log.Printf("WARN: db-table-sizes: %v", err)
 		}
+		// Vacuum/analyze history and dead tuple ratios (PostgreSQL only)
+		if batch, err := collectDBVacuumStats(ctx, m.cfg.DBDSNs); err == nil {
+			if batch.Count > 0 {
+				payload.Batches = append(payload.Batches, batch)
+			}
+		} else {
+			log.Printf("WARN: db-vacuum-stats: %v", err)
+		}
+		// Per-user connection and query activity
+		if batch, err := collectDBUserActivity(ctx, m.cfg.DBDSNs); err == nil {
+			if batch.Count > 0 {
+				payload.Batches = append(payload.Batches, batch)
+			}
+		} else {
+			log.Printf("WARN: db-user-activity: %v", err)
+		}
+		// Per-index scan stats (unused index detection)
+		if batch, err := collectDBIndexUsage(ctx, m.cfg.DBDSNs); err == nil {
+			if batch.Count > 0 {
+				payload.Batches = append(payload.Batches, batch)
+			}
+		} else {
+			log.Printf("WARN: db-index-usage: %v", err)
+		}
+		// Per-table read/write activity counters
+		if batch, err := collectDBTableActivity(ctx, m.cfg.DBDSNs); err == nil {
+			if batch.Count > 0 {
+				payload.Batches = append(payload.Batches, batch)
+			}
+		} else {
+			log.Printf("WARN: db-table-activity: %v", err)
+		}
 	}
 
 	if m.k8sClient == nil {

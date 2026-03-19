@@ -1216,7 +1216,7 @@ public class DbOpsCostService {
                                 cacheOpt.get().getDataJson(),
                                 new TypeReference<List<AgentQueryStatDto>>() {});
                         String ts = cacheOpt.get().getCollectedAt() != null
-                                ? cacheOpt.get().getCollectedAt().toString() : null;
+                                ? cacheOpt.get().getCollectedAt().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss")) : null;
                         batch.forEach(s -> s.setCollectedAt(ts));
                         merged.addAll(batch);
                     } catch (Exception e) {
@@ -1236,7 +1236,7 @@ public class DbOpsCostService {
                                 cacheOpt.get().getDataJson(),
                                 new TypeReference<List<AgentQueryStatDto>>() {});
                         String ts = cacheOpt.get().getCollectedAt() != null
-                                ? cacheOpt.get().getCollectedAt().toString() : null;
+                                ? cacheOpt.get().getCollectedAt().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss")) : null;
                         batch.forEach(s -> s.setCollectedAt(ts));
                         merged.addAll(batch);
                     } catch (Exception e) {
@@ -1373,6 +1373,148 @@ public class DbOpsCostService {
 
             } catch (Exception e) {
                 logger.error("[DbOps] getAgentTableSizes error for {}: {}", accountId, e.getMessage());
+                return List.of();
+            }
+        });
+    }
+
+    /**
+     * Returns the latest "db-index-usage" batch for all DB agents in the account.
+     */
+    public CompletableFuture<List<AgentIndexUsageDto>> getAgentIndexUsage(String accountId) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                Optional<CloudAccount> accountOpt = cloudAccountRepository
+                        .findByAwsAccountIdOrGcpProjectIdOrAzureSubscriptionId(accountId, accountId, accountId);
+                if (accountOpt.isEmpty()) return List.of();
+                Long internalAccountId = accountOpt.get().getId();
+                List<DbAgentConfig> agents = dbAgentConfigRepository.findByCloudAccountId(internalAccountId);
+                List<AgentIndexUsageDto> result = new ArrayList<>();
+                for (DbAgentConfig agent : agents) {
+                    Optional<DbAgentDataCache> cacheOpt = dbAgentDataCacheRepository
+                            .findByDbAgentIdAndDataType(agent.getId(), "db-index-usage");
+                    if (cacheOpt.isEmpty()) continue;
+                    try {
+                        List<AgentIndexUsageDto> rows = objectMapper.readValue(
+                                cacheOpt.get().getDataJson(), new TypeReference<List<AgentIndexUsageDto>>() {});
+                        if (rows != null) result.addAll(rows);
+                    } catch (Exception e) {
+                        logger.warn("[DbOps] getAgentIndexUsage: parse failed for agent {}: {}", agent.getAgentName(), e.getMessage());
+                    }
+                }
+                return result;
+            } catch (Exception e) {
+                logger.error("[DbOps] getAgentIndexUsage error for {}: {}", accountId, e.getMessage());
+                return List.of();
+            }
+        });
+    }
+
+    /**
+     * Returns the latest "db-table-activity" batch for all DB agents in the account.
+     */
+    public CompletableFuture<List<AgentTableActivityDto>> getAgentTableActivity(String accountId) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                Optional<CloudAccount> accountOpt = cloudAccountRepository
+                        .findByAwsAccountIdOrGcpProjectIdOrAzureSubscriptionId(accountId, accountId, accountId);
+                if (accountOpt.isEmpty()) return List.of();
+                Long internalAccountId = accountOpt.get().getId();
+                List<DbAgentConfig> agents = dbAgentConfigRepository.findByCloudAccountId(internalAccountId);
+                List<AgentTableActivityDto> result = new ArrayList<>();
+                for (DbAgentConfig agent : agents) {
+                    Optional<DbAgentDataCache> cacheOpt = dbAgentDataCacheRepository
+                            .findByDbAgentIdAndDataType(agent.getId(), "db-table-activity");
+                    if (cacheOpt.isEmpty()) continue;
+                    try {
+                        List<AgentTableActivityDto> rows = objectMapper.readValue(
+                                cacheOpt.get().getDataJson(), new TypeReference<List<AgentTableActivityDto>>() {});
+                        if (rows != null) result.addAll(rows);
+                    } catch (Exception e) {
+                        logger.warn("[DbOps] getAgentTableActivity: parse failed for agent {}: {}", agent.getAgentName(), e.getMessage());
+                    }
+                }
+                return result;
+            } catch (Exception e) {
+                logger.error("[DbOps] getAgentTableActivity error for {}: {}", accountId, e.getMessage());
+                return List.of();
+            }
+        });
+    }
+
+    /**
+     * Returns the latest "db-vacuum-stats" batch for all DB agents in the account.
+     * PostgreSQL only — contains pg_stat_user_tables vacuum/analyze history and dead tuple ratios.
+     */
+    public CompletableFuture<List<AgentVacuumStatDto>> getAgentVacuumStats(String accountId) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                Optional<CloudAccount> accountOpt = cloudAccountRepository
+                        .findByAwsAccountIdOrGcpProjectIdOrAzureSubscriptionId(accountId, accountId, accountId);
+                if (accountOpt.isEmpty()) return List.of();
+                Long internalAccountId = accountOpt.get().getId();
+
+                List<DbAgentConfig> agents = dbAgentConfigRepository.findByCloudAccountId(internalAccountId);
+                List<AgentVacuumStatDto> result = new ArrayList<>();
+
+                for (DbAgentConfig agent : agents) {
+                    Optional<DbAgentDataCache> cacheOpt = dbAgentDataCacheRepository
+                            .findByDbAgentIdAndDataType(agent.getId(), "db-vacuum-stats");
+                    if (cacheOpt.isEmpty()) continue;
+                    try {
+                        List<AgentVacuumStatDto> rows = objectMapper.readValue(
+                                cacheOpt.get().getDataJson(),
+                                new TypeReference<List<AgentVacuumStatDto>>() {});
+                        if (rows != null) result.addAll(rows);
+                    } catch (Exception e) {
+                        logger.warn("[DbOps] getAgentVacuumStats: parse failed for agent {}: {}", agent.getAgentName(), e.getMessage());
+                    }
+                }
+
+                logger.info("[DbOps] getAgentVacuumStats: {} rows for account {}", result.size(), accountId);
+                return result;
+
+            } catch (Exception e) {
+                logger.error("[DbOps] getAgentVacuumStats error for {}: {}", accountId, e.getMessage());
+                return List.of();
+            }
+        });
+    }
+
+    /**
+     * Returns the latest "db-user-activity" batch for all DB agents in the account.
+     * Contains per-user connection counts and cumulative query stats.
+     */
+    public CompletableFuture<List<AgentUserActivityDto>> getAgentUserActivity(String accountId) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                Optional<CloudAccount> accountOpt = cloudAccountRepository
+                        .findByAwsAccountIdOrGcpProjectIdOrAzureSubscriptionId(accountId, accountId, accountId);
+                if (accountOpt.isEmpty()) return List.of();
+                Long internalAccountId = accountOpt.get().getId();
+
+                List<DbAgentConfig> agents = dbAgentConfigRepository.findByCloudAccountId(internalAccountId);
+                List<AgentUserActivityDto> result = new ArrayList<>();
+
+                for (DbAgentConfig agent : agents) {
+                    Optional<DbAgentDataCache> cacheOpt = dbAgentDataCacheRepository
+                            .findByDbAgentIdAndDataType(agent.getId(), "db-user-activity");
+                    if (cacheOpt.isEmpty()) continue;
+                    try {
+                        List<AgentUserActivityDto> rows = objectMapper.readValue(
+                                cacheOpt.get().getDataJson(),
+                                new TypeReference<List<AgentUserActivityDto>>() {});
+                        if (rows != null) result.addAll(rows);
+                    } catch (Exception e) {
+                        logger.warn("[DbOps] getAgentUserActivity: parse failed for agent {}: {}", agent.getAgentName(), e.getMessage());
+                    }
+                }
+
+                logger.info("[DbOps] getAgentUserActivity: {} users for account {}", result.size(), accountId);
+                return result;
+
+            } catch (Exception e) {
+                logger.error("[DbOps] getAgentUserActivity error for {}: {}", accountId, e.getMessage());
                 return List.of();
             }
         });
