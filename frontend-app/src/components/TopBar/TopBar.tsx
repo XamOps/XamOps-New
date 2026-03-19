@@ -10,6 +10,7 @@ import { useAccounts } from '../../contexts/AccountContext';
 import { useNotifications } from '../../hooks/useNotifications';
 import SuperAdminTopBar from '../Shared/SuperAdminTopBar';
 import NotificationDropdown from '../Shared/NotificationDropdown';
+import { TooltipWrapper } from '../ui/Tooltip';
 
 const TopBar: React.FC = () => {
     const { hasAnyRole, userProfile, logout } = useAuth();
@@ -61,15 +62,18 @@ const TopBar: React.FC = () => {
             <div className="flex items-center space-x-4">
                 {/* Notifications */}
                 <div className="relative" ref={notificationRef}>
-                    <button
-                        onClick={toggleNotifications}
-                        className="relative p-2.5 text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"
-                    >
-                        <i className="far fa-bell text-xl" />
-                        {counts.total > 0 && (
-                            <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 border-2 border-white rounded-full"></span>
-                        )}
-                    </button>
+                    <TooltipWrapper tip="Notifications">
+                        <button
+                            onClick={toggleNotifications}
+                            aria-label="View notifications"
+                            className="relative p-2.5 text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"
+                        >
+                            <i className="far fa-bell text-xl" />
+                            {counts.total > 0 && (
+                                <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 border-2 border-white rounded-full"></span>
+                            )}
+                        </button>
+                    </TooltipWrapper>
 
                     {isNotificationOpen && (
                         <NotificationDropdown
@@ -82,9 +86,14 @@ const TopBar: React.FC = () => {
                 </div>
 
                 {/* Support */}
-                <button className="p-2.5 text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all">
-                    <i className="far fa-question-circle text-xl" />
-                </button>
+                <TooltipWrapper tip="Support">
+                    <button
+                        aria-label="Get support"
+                        className="p-2.5 text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"
+                    >
+                        <i className="far fa-question-circle text-xl" />
+                    </button>
+                </TooltipWrapper>
 
                 {/* Profile Dropdown (Simplified) */}
                 <div className="flex items-center space-x-3 pl-4 border-l border-gray-200">
@@ -94,6 +103,7 @@ const TopBar: React.FC = () => {
                     </div>
                     <button
                         onClick={logout}
+                        aria-label="Logout"
                         className="w-10 h-10 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold shadow-lg shadow-indigo-200 hover:scale-105 active:scale-95 transition-all"
                     >
                         {userProfile?.username?.[0]?.toUpperCase() || 'U'}
