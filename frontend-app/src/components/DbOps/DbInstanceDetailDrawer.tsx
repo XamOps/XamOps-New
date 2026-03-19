@@ -9,7 +9,7 @@ import {
   DbInstance, DbMetrics, DbInstanceTimeseries, TimeseriesPoint,
   AgentQueryStat, SlowQuery, AgentInstanceMetrics,
   DbIdleInstance, DbRightsizing, DbSecurityCheck, DbSnapshot,
-  AgentTimeseries, AgentTableSize,
+  AgentTimeseries, AgentTableSize, DbCost,
 } from '../../hooks/useDbOpsData';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
