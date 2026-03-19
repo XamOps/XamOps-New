@@ -4200,6 +4200,14 @@ const { selectedAccountIds } = useAccounts();
     (instance.rdsData?.endpoint && instance.rdsData.endpoint.includes(t.dbHost?.split(':')[0] ?? ''))
   ).sort((a, b) => b.totalSizeBytes - a.totalSizeBytes).slice(0, 20);
   const instanceSlowQueries = slowQueries.filter(q => q.instanceId === instance.instanceId);
+
+  // Host matcher — works for both agent-only (agentHost) and RDS (endpoint match)
+  const matchesInstance = (dbHost: string | undefined) => {
+    if (!dbHost) return false;
+    if (dbHost === instance.agentHost) return true;
+    const h = dbHost.split(':')[0];
+    return !!(h && instance.rdsData?.endpoint?.includes(h));
+  };
   const instanceIdle = idle.find(i => i.instanceId === instance.instanceId);
   const instanceRightsizing = rightsizing.find(r => r.instanceId === instance.instanceId);
   const instanceSecurity = security.filter(c => c.instanceId === instance.instanceId);
