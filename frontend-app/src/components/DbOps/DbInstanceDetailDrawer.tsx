@@ -1071,6 +1071,14 @@ export default function DbInstanceDetailDrawer({
     (instance.rdsData?.endpoint && instance.rdsData.endpoint.includes(t.dbHost?.split(':')[0] ?? ''))
   ).sort((a, b) => b.totalSizeBytes - a.totalSizeBytes).slice(0, 20);
   const instanceSlowQueries = slowQueries.filter(q => q.instanceId === instance.instanceId);
+
+  // Host matcher — works for both agent-only (agentHost) and RDS (endpoint match)
+  const matchesInstance = (dbHost: string | undefined) => {
+    if (!dbHost) return false;
+    if (dbHost === instance.agentHost) return true;
+    const h = dbHost.split(':')[0];
+    return !!(h && instance.rdsData?.endpoint?.includes(h));
+  };
   const instanceIdle = idle.find(i => i.instanceId === instance.instanceId);
   const instanceRightsizing = rightsizing.find(r => r.instanceId === instance.instanceId);
   const instanceSecurity = security.filter(c => c.instanceId === instance.instanceId);
@@ -1662,7 +1670,7 @@ export default function DbInstanceDetailDrawer({
             ) : (
               <div className="space-y-2">
                 {vacuumStats
-                  .filter(v => v.dbHost === instance.agentHost || instance.source === 'agent')
+                  .filter(v => matchesInstance(v.dbHost))
                   .map((v, i) => {
                     const bloatPct = Math.round((v.deadTupRatio ?? 0) * 100);
                     const bloatColor = bloatPct >= 30 ? 'text-red-600 dark:text-red-400'
@@ -1711,20 +1719,20 @@ export default function DbInstanceDetailDrawer({
             )}
 
           {/* Index Usage */}
-          {indexUsage.length > 0 && (
+          {indexUsage.filter(x => matchesInstance(x.dbHost)).length > 0 && (
             <div>
               <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-2 flex items-center gap-2">
                 <i className="fas fa-sitemap text-indigo-500 text-xs" /> Index Usage
-                {indexUsage.filter(x => x.isUnused).length > 0 && (
+                {indexUsage.filter(x => matchesInstance(x.dbHost) && x.isUnused).length > 0 && (
                   <Tip text="Indexes with 0 scans since the last stats reset. They waste storage and slow every INSERT/UPDATE/DELETE without helping reads. Consider DROP INDEX CONCURRENTLY after confirming they are unused." wide>
                     <span className="text-[10px] bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-1.5 py-0.5 rounded font-medium">
-                      {indexUsage.filter(x => x.isUnused).length} unused
+                      {indexUsage.filter(x => matchesInstance(x.dbHost) && x.isUnused).length} unused
                     </span>
                   </Tip>
                 )}
               </h3>
               <div className="space-y-1.5">
-                {indexUsage.slice(0, 50).map((idx, i) => (
+                {indexUsage.filter(x => matchesInstance(x.dbHost)).slice(0, 50).map((idx, i) => (
                   <div key={i} className={`rounded-lg px-3 py-2 flex items-center justify-between gap-2 text-xs ${idx.isUnused ? 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/40' : 'bg-gray-50 dark:bg-gray-700/30'}`}>
                     <div className="min-w-0">
                       <code className={`break-all ${idx.isUnused ? 'text-red-700 dark:text-red-400' : 'text-indigo-700 dark:text-indigo-300'}`}>{idx.indexName}</code>
@@ -1748,13 +1756,13 @@ export default function DbInstanceDetailDrawer({
           )}
 
           {/* Table Activity */}
-          {tableActivity.length > 0 && (
+          {tableActivity.filter(t => matchesInstance(t.dbHost)).length > 0 && (
             <div>
               <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-2 flex items-center gap-2">
                 <i className="fas fa-table text-sky-500 text-xs" /> Table Activity
               </h3>
               <div className="space-y-1.5">
-                {tableActivity.slice(0, 30).map((t, i) => {
+                {tableActivity.filter(t => matchesInstance(t.dbHost)).slice(0, 30).map((t, i) => {
                   const totalScans = (t.seqScan ?? 0) + (t.idxScan ?? 0);
                   const seqPct = totalScans > 0 ? Math.round(((t.seqScan ?? 0) / totalScans) * 100) : 0;
                   const writes = (t.nTupIns ?? 0) + (t.nTupUpd ?? 0) + (t.nTupDel ?? 0);
@@ -1814,7 +1822,7 @@ export default function DbInstanceDetailDrawer({
             ) : (
               <div className="space-y-2">
                 {userActivity
-                  .filter(u => u.dbHost === instance.agentHost || instance.source === 'agent')
+                  .filter(u => matchesInstance(u.dbHost))
                   .map((u, i) => {
                     const totalConns = userActivity
                       .filter(x => x.dbHost === u.dbHost)
