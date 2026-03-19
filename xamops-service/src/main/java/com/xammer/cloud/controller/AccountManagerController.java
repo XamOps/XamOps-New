@@ -5,6 +5,7 @@ import com.xammer.cloud.config.multitenancy.TenantContext;
 import com.xammer.cloud.domain.Client;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.User;
+import com.xammer.cloud.domain.UserCloudAccountAccess;
 import com.xammer.cloud.dto.*;
 import com.xammer.cloud.repository.ClientRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
@@ -79,9 +80,13 @@ public class AccountManagerController {
     }
 
     @PostMapping("/verify-account")
-    public ResponseEntity<?> verifyAccount(@RequestBody VerifyAccountRequest request) {
+    public ResponseEntity<?> verifyAccount(@RequestBody VerifyAccountRequest request,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
         try {
             CloudAccount verifiedAccount = awsAccountService.verifyAccount(request);
+            if (userDetails != null) {
+                grantSubUserAccess(userDetails, verifiedAccount);
+            }
             return ResponseEntity
                     .ok(Map.of("message", "Account " + verifiedAccount.getAccountName() + " connected successfully!"));
         } catch (Exception e) {
@@ -217,7 +222,8 @@ public class AccountManagerController {
             @AuthenticationPrincipal ClientUserDetails userDetails) {
         Long clientId = userDetails.getClientId();
         Client client = clientRepository.findById(clientId).orElse(null);
-        gcpDataService.createGcpAccount(gcpAccountRequestDto, client);
+        CloudAccount savedAccount = gcpDataService.createGcpAccount(gcpAccountRequestDto, client);
+        grantSubUserAccess(userDetails, savedAccount);
         return ResponseEntity.ok(Map.of("message", "GCP Account added successfully."));
     }
 
@@ -277,6 +283,7 @@ public class AccountManagerController {
             Optional<CloudAccount> existingAccountOpt = cloudAccountRepository
                     .findByAzureSubscriptionId(request.getSubscriptionId());
 
+            boolean isNewAccount = existingAccountOpt.isEmpty();
             CloudAccount account;
             if (existingAccountOpt.isPresent()) {
                 // UPDATE existing account
@@ -310,6 +317,9 @@ public class AccountManagerController {
 
             // Save to DB (Insert or Update)
             CloudAccount savedAccount = cloudAccountRepository.save(account);
+            if (isNewAccount) {
+                grantSubUserAccess(userDetails, savedAccount);
+            }
 
             // Logic to skip export setup based on account type is REMOVED.
             // We now rely on try-catch fallback below.
@@ -354,6 +364,18 @@ public class AccountManagerController {
             logger.error("Failed to update billing table for account {}: {}", accountId, e.getMessage());
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body(Map.of("message", e.getMessage()));
+        }
+    }
+
+    /**
+     * If the requesting user is a sub-user (createdBy != null), create an explicit
+     * UserCloudAccountAccess mapping so the newly added account is visible to them.
+     */
+    private void grantSubUserAccess(ClientUserDetails userDetails, CloudAccount savedAccount) {
+        Optional<User> userOpt = userRepository.findById(userDetails.getId());
+        if (userOpt.isPresent() && userOpt.get().getCreatedBy() != null) {
+            userCloudAccountAccessRepository.save(new UserCloudAccountAccess(userOpt.get(), savedAccount));
+            logger.info("Granted sub-user {} access to account {}", userDetails.getId(), savedAccount.getId());
         }
     }
 

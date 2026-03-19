@@ -316,12 +316,6 @@ const BillOpsTicketsPage: React.FC = () => {
 
         {/* Metadata Badges */}
         <div className="flex flex-wrap gap-2.5 mb-6">
-          {ticket.accountId && (
-            <span className="flex items-center gap-2 px-3 py-1.5 bg-slate-100/80 text-slate-600 rounded-xl text-[10px] font-bold tracking-tight border border-slate-200/50">
-              <i className="fas fa-cloud text-[8px] text-slate-400"></i>
-              {ticket.accountId}
-            </span>
-          )}
           <span className="flex items-center gap-2 px-3 py-1.5 bg-purple-50/80 text-purple-600 rounded-xl text-[10px] font-bold tracking-tight border border-purple-100/50">
             <i className="fas fa-file-invoice text-[8px] text-purple-400"></i>
             {ticket.service}
@@ -501,48 +495,32 @@ const BillOpsTicketsPage: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Severity and Region */}
-                  <div className="grid grid-cols-2 gap-5">
-                    <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-2">
-                        Severity <span className="text-red-500">*</span>
-                      </label>
-                      <div className="relative">
-                        <select
-                          value={form.severity}
-                          onChange={e =>
-                            setForm({
-                              ...form,
-                              severity: e.target.value as TicketSeverity
-                            })
-                          }
-                          required
-                          className="w-full rounded-xl border-gray-200 py-2.5 pl-4 pr-10 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 appearance-none bg-white hover:bg-gray-50 transition-colors"
-                        >
-                          <option value="">Select...</option>
-                          <option value="Low">Low</option>
-                          <option value="Medium">Medium</option>
-                          <option value="High">High</option>
-                          <option value="Critical">Critical</option>
-                        </select>
-                        <div className="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-gray-500">
-                          <i className="fas fa-chevron-down text-xs"></i>
-                        </div>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-2">
-                        Region <span className="text-gray-400 font-normal">(Optional)</span>
-                      </label>
-                      <input
-                        type="text"
-                        value={form.region}
+                  {/* Severity */}
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                      Severity <span className="text-red-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <select
+                        value={form.severity}
                         onChange={e =>
-                          setForm({ ...form, region: e.target.value })
+                          setForm({
+                            ...form,
+                            severity: e.target.value as TicketSeverity
+                          })
                         }
-                        placeholder="e.g., us-east-1"
-                        className="w-full rounded-xl border-gray-200 py-2.5 px-4 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 placeholder-gray-400"
-                      />
+                        required
+                        className="w-full rounded-xl border-gray-200 py-2.5 pl-4 pr-10 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 appearance-none bg-white hover:bg-gray-50 transition-colors"
+                      >
+                        <option value="">Select...</option>
+                        <option value="Low">Low</option>
+                        <option value="Medium">Medium</option>
+                        <option value="High">High</option>
+                        <option value="Critical">Critical</option>
+                      </select>
+                      <div className="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-gray-500">
+                        <i className="fas fa-chevron-down text-xs"></i>
+                      </div>
                     </div>
                   </div>
 
