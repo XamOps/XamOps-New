@@ -12,47 +12,47 @@ import { AzureServiceGroup, AzureResource } from '../types/azureCloudList';
 import { useTopbar } from '../contexts/TopbarContext';
 import '../styles/azureCloudList.css';
 
-// Color classes per detail key
+// Color classes per detail key (light + dark mode)
 const DETAIL_CHIP_CLASSES: Record<string, string> = {
-  size: 'bg-blue-50 text-blue-700 border-blue-100',
-  sku: 'bg-blue-50 text-blue-700 border-blue-100',
-  skuTier: 'bg-blue-50 text-blue-700 border-blue-100',
-  skuName: 'bg-blue-50 text-blue-700 border-blue-100',
-  diskType: 'bg-blue-50 text-blue-700 border-blue-100',
-  snapshotType: 'bg-blue-50 text-blue-700 border-blue-100',
-  edition: 'bg-blue-50 text-blue-700 border-blue-100',
-  routingMethod: 'bg-blue-50 text-blue-700 border-blue-100',
-  gatewayType: 'bg-blue-50 text-blue-700 border-blue-100',
-  instanceCount: 'bg-purple-50 text-purple-700 border-purple-100',
-  nodeCount: 'bg-purple-50 text-purple-700 border-purple-100',
-  containerCount: 'bg-purple-50 text-purple-700 border-purple-100',
-  subnetCount: 'bg-purple-50 text-purple-700 border-purple-100',
-  frontendCount: 'bg-purple-50 text-purple-700 border-purple-100',
-  replicaCount: 'bg-purple-50 text-purple-700 border-purple-100',
-  partitionCount: 'bg-purple-50 text-purple-700 border-purple-100',
-  throughputUnits: 'bg-purple-50 text-purple-700 border-purple-100',
-  ruleCount: 'bg-purple-50 text-purple-700 border-purple-100',
-  capacity: 'bg-purple-50 text-purple-700 border-purple-100',
-  osType: 'bg-teal-50 text-teal-700 border-teal-100',
-  kind: 'bg-teal-50 text-teal-700 border-teal-100',
-  apiType: 'bg-teal-50 text-teal-700 border-teal-100',
-  k8sVersion: 'bg-green-50 text-green-700 border-green-100',
-  version: 'bg-green-50 text-green-700 border-green-100',
-  consistency: 'bg-green-50 text-green-700 border-green-100',
-  allocationMethod: 'bg-green-50 text-green-700 border-green-100',
-  sizeGb: 'bg-amber-50 text-amber-700 border-amber-100',
-  bandwidthMbps: 'bg-amber-50 text-amber-700 border-amber-100',
-  provider: 'bg-gray-50 text-gray-600 border-gray-200',
-  serverName: 'bg-gray-50 text-gray-600 border-gray-200',
-  appServicePlan: 'bg-gray-50 text-gray-600 border-gray-200',
-  resourceGroup: 'bg-gray-50 text-gray-600 border-gray-200',
-  faultDomains: 'bg-gray-50 text-gray-600 border-gray-200',
-  updateDomains: 'bg-gray-50 text-gray-600 border-gray-200',
-  loginServer: 'bg-gray-50 text-gray-600 border-gray-200',
-  hostName: 'bg-gray-50 text-gray-600 border-gray-200',
-  ipAddress: 'bg-gray-50 text-gray-600 border-gray-200',
-  privateIp: 'bg-gray-50 text-gray-600 border-gray-200',
-  addressSpace: 'bg-gray-50 text-gray-600 border-gray-200',
+  size: 'bg-blue-50 text-blue-700 border-blue-100 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800',
+  sku: 'bg-blue-50 text-blue-700 border-blue-100 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800',
+  skuTier: 'bg-blue-50 text-blue-700 border-blue-100 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800',
+  skuName: 'bg-blue-50 text-blue-700 border-blue-100 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800',
+  diskType: 'bg-blue-50 text-blue-700 border-blue-100 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800',
+  snapshotType: 'bg-blue-50 text-blue-700 border-blue-100 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800',
+  edition: 'bg-blue-50 text-blue-700 border-blue-100 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800',
+  routingMethod: 'bg-blue-50 text-blue-700 border-blue-100 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800',
+  gatewayType: 'bg-blue-50 text-blue-700 border-blue-100 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800',
+  instanceCount: 'bg-purple-50 text-purple-700 border-purple-100 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-800',
+  nodeCount: 'bg-purple-50 text-purple-700 border-purple-100 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-800',
+  containerCount: 'bg-purple-50 text-purple-700 border-purple-100 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-800',
+  subnetCount: 'bg-purple-50 text-purple-700 border-purple-100 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-800',
+  frontendCount: 'bg-purple-50 text-purple-700 border-purple-100 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-800',
+  replicaCount: 'bg-purple-50 text-purple-700 border-purple-100 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-800',
+  partitionCount: 'bg-purple-50 text-purple-700 border-purple-100 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-800',
+  throughputUnits: 'bg-purple-50 text-purple-700 border-purple-100 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-800',
+  ruleCount: 'bg-purple-50 text-purple-700 border-purple-100 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-800',
+  capacity: 'bg-purple-50 text-purple-700 border-purple-100 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-800',
+  osType: 'bg-teal-50 text-teal-700 border-teal-100 dark:bg-teal-900/30 dark:text-teal-300 dark:border-teal-800',
+  kind: 'bg-teal-50 text-teal-700 border-teal-100 dark:bg-teal-900/30 dark:text-teal-300 dark:border-teal-800',
+  apiType: 'bg-teal-50 text-teal-700 border-teal-100 dark:bg-teal-900/30 dark:text-teal-300 dark:border-teal-800',
+  k8sVersion: 'bg-green-50 text-green-700 border-green-100 dark:bg-green-900/30 dark:text-green-300 dark:border-green-800',
+  version: 'bg-green-50 text-green-700 border-green-100 dark:bg-green-900/30 dark:text-green-300 dark:border-green-800',
+  consistency: 'bg-green-50 text-green-700 border-green-100 dark:bg-green-900/30 dark:text-green-300 dark:border-green-800',
+  allocationMethod: 'bg-green-50 text-green-700 border-green-100 dark:bg-green-900/30 dark:text-green-300 dark:border-green-800',
+  sizeGb: 'bg-amber-50 text-amber-700 border-amber-100 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800',
+  bandwidthMbps: 'bg-amber-50 text-amber-700 border-amber-100 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800',
+  provider: 'bg-gray-50 text-gray-600 border-gray-200 dark:bg-gray-700/50 dark:text-gray-300 dark:border-gray-600',
+  serverName: 'bg-gray-50 text-gray-600 border-gray-200 dark:bg-gray-700/50 dark:text-gray-300 dark:border-gray-600',
+  appServicePlan: 'bg-gray-50 text-gray-600 border-gray-200 dark:bg-gray-700/50 dark:text-gray-300 dark:border-gray-600',
+  resourceGroup: 'bg-gray-50 text-gray-600 border-gray-200 dark:bg-gray-700/50 dark:text-gray-300 dark:border-gray-600',
+  faultDomains: 'bg-gray-50 text-gray-600 border-gray-200 dark:bg-gray-700/50 dark:text-gray-300 dark:border-gray-600',
+  updateDomains: 'bg-gray-50 text-gray-600 border-gray-200 dark:bg-gray-700/50 dark:text-gray-300 dark:border-gray-600',
+  loginServer: 'bg-gray-50 text-gray-600 border-gray-200 dark:bg-gray-700/50 dark:text-gray-300 dark:border-gray-600',
+  hostName: 'bg-gray-50 text-gray-600 border-gray-200 dark:bg-gray-700/50 dark:text-gray-300 dark:border-gray-600',
+  ipAddress: 'bg-gray-50 text-gray-600 border-gray-200 dark:bg-gray-700/50 dark:text-gray-300 dark:border-gray-600',
+  privateIp: 'bg-gray-50 text-gray-600 border-gray-200 dark:bg-gray-700/50 dark:text-gray-300 dark:border-gray-600',
+  addressSpace: 'bg-gray-50 text-gray-600 border-gray-200 dark:bg-gray-700/50 dark:text-gray-300 dark:border-gray-600',
 };
 
 // Human-readable labels for detail keys
@@ -237,9 +237,9 @@ const AzureCloudList: React.FC = () => {
   const renderResourceRow = useCallback((resource: AzureResource) => (
     <div
       key={resource.id}
-      className="resource-row grid grid-cols-12 items-center p-4 pl-20 text-sm border-b border-gray-200/60 last:border-b-0"
+      className="resource-row grid grid-cols-12 items-center p-4 pl-20 text-sm border-b border-gray-200/60 dark:border-gray-700/60 last:border-b-0"
     >
-      <div className="col-span-4 font-semibold text-gray-700 flex flex-col justify-center">
+      <div className="col-span-4 font-semibold text-gray-700 dark:text-gray-200 flex flex-col justify-center">
         <div className="flex items-center">
           <i className="fas fa-circle text-blue-400 text-xs mr-3 flex-shrink-0"></i>
           {resource.name || 'N/A'}
@@ -252,8 +252,8 @@ const AzureCloudList: React.FC = () => {
               .map(([key, value]) => {
                 const chipClass = DETAIL_CHIP_CLASSES[key] ??
                   (key === 'priority' && value.toLowerCase() === 'spot'
-                    ? 'bg-orange-50 text-orange-700 border-orange-100'
-                    : 'bg-gray-50 text-gray-500 border-gray-200');
+                    ? 'bg-orange-50 text-orange-700 border-orange-100 dark:bg-orange-900/30 dark:text-orange-300 dark:border-orange-800'
+                    : 'bg-gray-50 text-gray-500 border-gray-200 dark:bg-gray-700/50 dark:text-gray-400 dark:border-gray-600');
                 const label = DETAIL_LABELS[key] ? `${DETAIL_LABELS[key]}: ${value}` : value;
                 return (
                   <span key={key} className={`px-2 py-0.5 text-xs rounded border font-normal ${chipClass}`}>
@@ -264,11 +264,11 @@ const AzureCloudList: React.FC = () => {
           </div>
         )}
       </div>
-      <div className="col-span-4 text-gray-600 text-xs truncate font-mono" title={resource.id || 'N/A'}>
+      <div className="col-span-4 text-gray-600 dark:text-gray-400 text-xs truncate font-mono" title={resource.id || 'N/A'}>
         {resource.id || 'N/A'}
       </div>
-      <div className="col-span-2 text-gray-600 flex items-center">
-        <i className="fas fa-map-marker-alt text-gray-400 text-xs mr-2"></i>
+      <div className="col-span-2 text-gray-600 dark:text-gray-400 flex items-center">
+        <i className="fas fa-map-marker-alt text-gray-400 dark:text-gray-500 text-xs mr-2"></i>
         {resource.region || 'Global'}
       </div>
       <div className="col-span-2 flex justify-end">
@@ -294,7 +294,7 @@ const AzureCloudList: React.FC = () => {
           aria-expanded={isExpanded}
         >
           <div className="flex items-center space-x-4">
-            <i className={`fas fa-chevron-right chevron-icon text-gray-400 text-sm transition-transform ${isExpanded ? 'rotate-90' : ''}`}></i>
+            <i className={`fas fa-chevron-right chevron-icon text-gray-400 dark:text-gray-500 text-sm transition-transform ${isExpanded ? 'rotate-90' : ''}`}></i>
             <div className="service-icon bg-gradient-to-br from-blue-500 to-cyan-400 shadow-md">
               <img
                 src={`/icons/${iconPath}`}
@@ -304,8 +304,8 @@ const AzureCloudList: React.FC = () => {
               />
             </div>
             <div>
-              <h3 className="font-bold text-gray-800 text-lg">{group.serviceType}</h3>
-              <p className="text-sm text-gray-500">
+              <h3 className="font-bold text-gray-800 dark:text-gray-100 text-lg">{group.serviceType}</h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
                 {group.resources.length} resource{group.resources.length !== 1 ? 's' : ''}
               </p>
             </div>
@@ -317,7 +317,7 @@ const AzureCloudList: React.FC = () => {
           className={`resources-container transition-all duration-400 overflow-hidden ${isExpanded ? 'expanded' : ''}`}
           style={{ maxHeight: isExpanded ? '2000px' : '0' }}
         >
-          <div className="bg-gray-50/50 border-t">
+          <div className="bg-gray-50/50 dark:bg-gray-800/50 border-t dark:border-gray-700">
             {group.resources.map((resource) => renderResourceRow(resource))}
           </div>
         </div>
@@ -327,13 +327,13 @@ const AzureCloudList: React.FC = () => {
 
   if (selectedAccountIds.length === 0) {
     return (
-      <main className="flex-1 flex items-center justify-center p-8 bg-white/95">
+      <main className="flex-1 flex items-center justify-center p-8 bg-white/95 dark:bg-gray-900/95">
         <div className="text-center py-20">
           <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-cyan-400 rounded-xl flex items-center justify-center mx-auto mb-6">
             <i className="fab fa-windows text-white text-3xl"></i>
           </div>
-          <h2 className="text-2xl font-bold text-gray-800 mb-2">No Azure Account Selected</h2>
-          <p className="text-gray-600 mb-8">
+          <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-2">No Azure Account Selected</h2>
+          <p className="text-gray-600 dark:text-gray-400 mb-8">
             Please select an Azure subscription from the account selector to view your resources.
           </p>
           <button
@@ -350,11 +350,11 @@ const AzureCloudList: React.FC = () => {
   // Handle error state
   if (error && data.length === 0) {
     return (
-      <main className="flex-1 flex items-center justify-center p-8 bg-white/95">
+      <main className="flex-1 flex items-center justify-center p-8 bg-white/95 dark:bg-gray-900/95">
         <div className="text-center py-20">
           <i className="fas fa-exclamation-triangle text-red-600 text-5xl mb-4"></i>
           <p className="text-red-600 text-lg font-semibold mb-2">Error loading resources</p>
-          <p className="text-gray-600 mb-6">{error.message}</p>
+          <p className="text-gray-600 dark:text-gray-400 mb-6">{error.message}</p>
           <button
             onClick={handleRefresh}
             className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg transition-colors"
@@ -367,11 +367,11 @@ const AzureCloudList: React.FC = () => {
   }
 
   return (
-    <main className="flex-1 flex flex-col h-full overflow-hidden bg-gradient-to-br from-slate-50 via-blue-50/30 to-slate-50">
+    <main className="flex-1 flex flex-col h-full overflow-hidden bg-gradient-to-br from-slate-50 via-blue-50/30 to-slate-50 dark:from-gray-900 dark:via-gray-900 dark:to-gray-900">
       <div className="flex-1 overflow-y-auto p-8">
         {/* Resource count summary */}
         {!loading && data.length > 0 && (
-          <p className="text-xs text-gray-500 font-medium mb-4">
+          <p className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-4">
             {totalResources} resource{totalResources !== 1 ? 's' : ''} across{' '}
             {filteredData.length} service{filteredData.length !== 1 ? 's' : ''}
           </p>
@@ -382,20 +382,20 @@ const AzureCloudList: React.FC = () => {
           {loading && filteredData.length === 0 && (
             <>
               {[...Array(6)].map((_, i) => (
-                <div key={i} className="rounded-xl shadow-md border bg-white overflow-hidden animate-pulse">
+                <div key={i} className="rounded-xl shadow-md border bg-white dark:bg-gray-800 dark:border-gray-700 overflow-hidden animate-pulse">
                   <div className="p-5 flex items-center justify-between">
                     <div className="flex items-center space-x-4">
                       {/* chevron placeholder */}
-                      <div className="w-3 h-3 bg-gray-200 rounded" />
+                      <div className="w-3 h-3 bg-gray-200 dark:bg-gray-700 rounded" />
                       {/* icon placeholder */}
-                      <div className="w-10 h-10 bg-gray-200 rounded-xl flex-shrink-0" />
+                      <div className="w-10 h-10 bg-gray-200 dark:bg-gray-700 rounded-xl flex-shrink-0" />
                       <div className="space-y-2">
-                        <div className={`h-4 bg-gray-200 rounded ${i % 3 === 0 ? 'w-36' : i % 3 === 1 ? 'w-28' : 'w-44'}`} />
-                        <div className="h-3 bg-gray-100 rounded w-20" />
+                        <div className={`h-4 bg-gray-200 dark:bg-gray-700 rounded ${i % 3 === 0 ? 'w-36' : i % 3 === 1 ? 'w-28' : 'w-44'}`} />
+                        <div className="h-3 bg-gray-100 dark:bg-gray-700/60 rounded w-20" />
                       </div>
                     </div>
                     {/* badge placeholder */}
-                    <div className="w-8 h-8 bg-gray-200 rounded-full" />
+                    <div className="w-8 h-8 bg-gray-200 dark:bg-gray-700 rounded-full" />
                   </div>
                 </div>
               ))}
@@ -405,8 +405,8 @@ const AzureCloudList: React.FC = () => {
           {/* Empty State */}
           {!loading && filteredData.length === 0 && (
             <div className="text-center py-20">
-              <i className="fas fa-inbox text-gray-400 text-5xl mb-4"></i>
-              <p className="text-gray-600 text-lg">
+              <i className="fas fa-inbox text-gray-400 dark:text-gray-600 text-5xl mb-4"></i>
+              <p className="text-gray-600 dark:text-gray-400 text-lg">
                 {searchTerm
                   ? 'No resources match your search criteria.'
                   : 'No resources found for the selected account.'}
@@ -414,7 +414,7 @@ const AzureCloudList: React.FC = () => {
               {searchTerm && (
                 <button
                   onClick={() => setSearchTerm('')}
-                  className="mt-4 text-blue-600 hover:text-blue-700 font-semibold"
+                  className="mt-4 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-semibold"
                 >
                   Clear Search
                 </button>

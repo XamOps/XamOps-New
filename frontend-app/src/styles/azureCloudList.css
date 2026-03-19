@@ -1,14 +1,16 @@
 /**
  * Azure CloudList Styles
  *
- * Styles for Azure CloudList page
- * Converted from inline styles in azure_cloudlist.html
+ * Styles for Azure CloudList page — light + dark mode
  */
 
 /* Main container styles */
 #main-content {
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(10px);
+}
+.dark #main-content {
+  background: rgba(17, 24, 39, 0.95);
 }
 
 /* Service Group Card */
@@ -20,11 +22,19 @@
   position: relative;
   overflow: hidden;
 }
+.dark .service-group {
+  background: rgba(31, 41, 55, 0.98);
+  border-color: rgba(55, 65, 81, 0.7);
+}
 
 .service-group:hover {
   border-color: rgba(59, 130, 246, 0.4);
   box-shadow: 0 4px 12px rgba(59, 130, 246, 0.1);
   transform: translateY(-2px);
+}
+.dark .service-group:hover {
+  border-color: rgba(59, 130, 246, 0.5);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
 }
 
 /* Service Header */
@@ -37,6 +47,9 @@
 .service-header:hover {
   background: rgba(249, 250, 251, 0.8);
 }
+.dark .service-header:hover {
+  background: rgba(55, 65, 81, 0.5);
+}
 
 .service-header:active {
   transform: scale(0.995);
@@ -46,7 +59,6 @@
 .chevron-icon {
   transition: transform 0.3s ease;
 }
-
 .chevron-icon.rotated {
   transform: rotate(90deg);
 }
@@ -57,7 +69,6 @@
   overflow: hidden;
   transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
-
 .resources-container.expanded {
   max-height: 2000px;
 }
@@ -66,9 +77,13 @@
 .resource-row {
   transition: all 0.2s ease;
 }
-
 .resource-row:hover {
   background: rgba(245, 247, 250, 0.8);
+  border-left: 3px solid #3b82f6;
+  padding-left: calc(5rem - 3px);
+}
+.dark .resource-row:hover {
+  background: rgba(55, 65, 81, 0.5);
   border-left: 3px solid #3b82f6;
   padding-left: calc(5rem - 3px);
 }
@@ -79,6 +94,9 @@
   overflow: hidden;
   backdrop-filter: blur(10px);
   border: 1px solid rgba(255, 255, 255, 0.3);
+}
+.dark .state-badge {
+  border-color: rgba(255, 255, 255, 0.1);
 }
 
 /* Resource Count Badge */
@@ -101,7 +119,6 @@
   justify-content: center;
   border-radius: 12px;
 }
-
 .service-icon img {
   width: 100%;
   height: 100%;
@@ -113,19 +130,25 @@
 ::-webkit-scrollbar {
   width: 8px;
 }
-
 ::-webkit-scrollbar-track {
   background: #f1f5f9;
   border-radius: 4px;
 }
-
 ::-webkit-scrollbar-thumb {
   background: #cbd5e1;
   border-radius: 4px;
 }
-
 ::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
+}
+.dark ::-webkit-scrollbar-track {
+  background: #1f2937;
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: #4b5563;
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #6b7280;
 }
 
 /* Button Styles */
@@ -134,7 +157,6 @@
   border: none;
   transition: all 0.3s ease;
 }
-
 .btn-primary:hover {
   transform: translateY(-2px);
   box-shadow: 0 10px 15px -3px rgba(0, 120, 212, 0.4);
@@ -142,16 +164,9 @@
 
 /* Animations */
 @keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
-
 .service-group {
   animation: fadeIn 0.3s ease-out;
 }
@@ -162,35 +177,32 @@
     grid-template-columns: 1fr;
     gap: 0.5rem;
   }
-
   .resource-row > div {
     grid-column: span 1;
   }
-
   .service-header {
     padding: 1rem;
   }
-
   .resource-row {
     padding: 1rem;
     padding-left: 3rem;
   }
 }
 
-/* Loading State */
+/* Loading Skeleton */
 .skeleton {
   background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
   background-size: 200% 100%;
-  animation: loading 1.5s ease-in-out infinite;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+.dark .skeleton {
+  background: linear-gradient(90deg, #1f2937 25%, #374151 50%, #1f2937 75%);
+  background-size: 200% 100%;
 }
 
-@keyframes loading {
-  0% {
-    background-position: 200% 0;
-  }
-  100% {
-    background-position: -200% 0;
-  }
+@keyframes shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 
 /* Empty State */
@@ -202,21 +214,27 @@
   padding: 4rem 2rem;
   text-align: center;
 }
-
 .empty-state i {
   font-size: 4rem;
   color: #cbd5e1;
   margin-bottom: 1rem;
 }
-
+.dark .empty-state i {
+  color: #4b5563;
+}
 .empty-state h3 {
   font-size: 1.5rem;
   font-weight: 600;
   color: #374151;
   margin-bottom: 0.5rem;
 }
-
+.dark .empty-state h3 {
+  color: #f3f4f6;
+}
 .empty-state p {
   font-size: 1rem;
   color: #6b7280;
+}
+.dark .empty-state p {
+  color: #9ca3af;
 }

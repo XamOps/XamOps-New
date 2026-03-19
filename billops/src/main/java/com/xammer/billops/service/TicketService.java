@@ -131,6 +131,55 @@ public class TicketService {
     }
 
     /**
+     * Admin-initiated ticket creation on behalf of a client.
+     * Bypasses creator→client resolution — uses clientId directly.
+     * The admin user becomes the ticket creator for audit purposes.
+     */
+    @Transactional
+    public TicketDto adminCreateTicket(TicketDto ticketDto, org.springframework.security.core.Authentication authentication) {
+        if (ticketDto.getClientId() == null) {
+            throw new RuntimeException("clientId is required for admin ticket creation");
+        }
+
+        Client client = clientRepository.findById(ticketDto.getClientId())
+                .orElseThrow(() -> new RuntimeException("Client not found: " + ticketDto.getClientId()));
+
+        // Use the admin as the creator (audit trail)
+        User creator = null;
+        if (authentication != null && authentication.getPrincipal() instanceof com.xammer.cloud.security.ClientUserDetails) {
+            Long adminId = ((com.xammer.cloud.security.ClientUserDetails) authentication.getPrincipal()).getId();
+            creator = userRepository.findById(adminId).orElse(null);
+        }
+
+        Ticket ticket = new Ticket();
+        ticket.setSubject(ticketDto.getSubject());
+        ticket.setDescription(ticketDto.getDescription());
+        ticket.setStatus("OPEN");
+        ticket.setClient(client);
+        ticket.setCategory(ticketDto.getCategory());
+        ticket.setService(ticketDto.getService());
+        ticket.setSeverity(ticketDto.getSeverity());
+        ticket.setAccountId(ticketDto.getAccountId());
+        ticket.setRegion(ticketDto.getRegion());
+        ticket.setCreator(creator);
+
+        Ticket savedTicket = ticketRepository.save(ticket);
+
+        try {
+            String adminEmail = "Account and Billing".equalsIgnoreCase(savedTicket.getCategory())
+                    ? ADMIN_BILLING_EMAIL : ADMIN_TECHNICAL_EMAIL;
+            String subject = String.format("[Admin] New Ticket [ID: %d]: %s", savedTicket.getId(), savedTicket.getSubject());
+            String htmlBody = buildTicketEmailTemplate(savedTicket, creator, client);
+            emailService.sendHtmlEmail(adminEmail, subject, htmlBody);
+        } catch (Exception e) {
+            logger.error("Failed to send email for admin-created ticket {}", savedTicket.getId(), e);
+        }
+
+        evictTicketCaches(savedTicket.getCategory());
+        return convertToDto(savedTicket, true);
+    }
+
+    /**
      * Helper to generate tenant-aware cache key
      */
     private String getTenantCacheKey(String key) {

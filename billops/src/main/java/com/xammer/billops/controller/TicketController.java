@@ -5,11 +5,14 @@ import com.xammer.billops.dto.AssignTicketRequest;
 import com.xammer.billops.dto.RcaRequestDto;
 import com.xammer.billops.dto.TicketDto;
 import com.xammer.billops.dto.TicketReplyDto;
+import com.xammer.billops.repository.ClientRepository;
+import com.xammer.billops.repository.CloudAccountRepository;
 import com.xammer.billops.service.RcaService;
 import com.xammer.billops.service.TicketService;
 import com.xammer.cloud.security.ClientUserDetails;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -18,6 +21,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -28,9 +32,14 @@ public class TicketController {
 
     private static final Logger logger = LoggerFactory.getLogger(TicketController.class);
     private final TicketService ticketService;
-    private final RcaService rcaService; // --- ADDED ---
+    private final RcaService rcaService;
 
-    // --- UPDATED CONSTRUCTOR ---
+    @Autowired
+    private ClientRepository clientRepository;
+
+    @Autowired
+    private CloudAccountRepository cloudAccountRepository;
+
     public TicketController(TicketService ticketService, RcaService rcaService) {
         this.ticketService = ticketService;
         this.rcaService = rcaService;
@@ -228,6 +237,65 @@ public class TicketController {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         }
     }
+
+    // ─── ADMIN TICKET INITIATION ─────────────────────────────────────────────
+
+    /**
+     * Returns all clients (id + name) — for admin ticket initiation flow.
+     */
+    @GetMapping("/clients")
+    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
+    public ResponseEntity<List<Map<String, Object>>> getAllClients() {
+        List<Map<String, Object>> clients = clientRepository.findAll().stream()
+                .map(c -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("id", c.getId());
+                    m.put("name", c.getName());
+                    return m;
+                })
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(clients);
+    }
+
+    /**
+     * Returns cloud accounts for a specific client — for admin ticket initiation flow.
+     */
+    @GetMapping("/clients/{clientId}/accounts")
+    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
+    public ResponseEntity<List<Map<String, Object>>> getAccountsForClient(@PathVariable Long clientId) {
+        List<Map<String, Object>> accounts = cloudAccountRepository.findByClientId(clientId).stream()
+                .map(ca -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("id", ca.getId());
+                    m.put("accountName", ca.getAccountName());
+                    m.put("provider", ca.getProvider());
+                    String providerId = null;
+                    if ("AWS".equalsIgnoreCase(ca.getProvider())) providerId = ca.getAwsAccountId();
+                    else if ("GCP".equalsIgnoreCase(ca.getProvider())) providerId = ca.getGcpProjectId();
+                    else if ("Azure".equalsIgnoreCase(ca.getProvider())) providerId = ca.getAzureSubscriptionId();
+                    m.put("accountIdentifier", providerId);
+                    return m;
+                })
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(accounts);
+    }
+
+    /**
+     * Admin initiates a ticket on behalf of a client.
+     * The target client is set via clientId in the request body.
+     */
+    @PostMapping("/tickets/admin-create")
+    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
+    public ResponseEntity<TicketDto> adminCreateTicket(@RequestBody TicketDto ticketDto, Authentication authentication) {
+        try {
+            return ResponseEntity.ok(ticketService.adminCreateTicket(ticketDto, authentication));
+        } catch (RuntimeException e) {
+            logger.error("Error in admin ticket creation: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
 
     @GetMapping("/tickets/category/{category}/cached")
     public ResponseEntity<List<TicketDto>> getCachedTicketsByCategory(@PathVariable String category) {

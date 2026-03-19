@@ -45,7 +45,7 @@ interface TicketForm {
 
 const SERVICE_OPTIONS: Record<string, string[]> = {
   'Account and Billing': ['Billing', 'Pricing', 'Reserved Instances', 'Detailed Billing Report (DBR)'],
-  'Technical': ['EC2', 'S3', 'RDS', 'Lambda', 'Other Technical']
+  'Technical': ['Compute / VMs', 'Storage', 'Networking', 'Database', 'Security & IAM', 'Monitoring & Logs', 'Serverless', 'Other']
 };
 
 const SEVERITY_OPTIONS = ['Info', 'Low', 'Normal', 'High', 'Urgent'];
@@ -114,15 +114,23 @@ const TicketsPage: React.FC = () => {
     }
 
     try {
-      const response = await fetch('/api/xamops/tickets/category/Technical', {
-        credentials: 'include'
-      });
+      // Fetch from both xamops and billops Technical endpoints in parallel
+      const [xamopsRes, billopsRes] = await Promise.allSettled([
+        fetch('/api/xamops/tickets/category/Technical', { credentials: 'include' }),
+        fetch('/api/billops/tickets/category/Technical', { credentials: 'include' }),
+      ]);
 
-      if (!response.ok) {
-        throw new Error('Failed to fetch tickets');
-      }
+      const xamopsData: Ticket[] = xamopsRes.status === 'fulfilled' && xamopsRes.value.ok
+        ? await xamopsRes.value.json()
+        : [];
 
-      let data = await response.json();
+      const billopsData: Ticket[] = billopsRes.status === 'fulfilled' && billopsRes.value.ok
+        ? (await billopsRes.value.json()).map((t: Ticket) => ({ ...t, _source: 'billops' }))
+        : [];
+
+      // Merge: billops tickets that are not already in xamops (by id collision is unlikely across systems)
+      // Use a compound key to avoid confusion; keep both sets
+      let data: Ticket[] = [...xamopsData, ...billopsData];
 
       // Save unfiltered data to cache
       localStorage.setItem(CACHE_KEY, JSON.stringify(data));
@@ -134,8 +142,12 @@ const TicketsPage: React.FC = () => {
         );
       }
 
-      // Sort by ID descending (newest first)
-      setTickets(data.sort((a: Ticket, b: Ticket) => b.id - a.id));
+      // Sort by createdAt descending (newest first)
+      setTickets(data.sort((a: Ticket, b: Ticket) => {
+        const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return bTime - aTime;
+      }));
     } catch (err) {
       console.error('Fetch error:', err);
       if (tickets.length === 0) {
@@ -435,12 +447,6 @@ const TicketsPage: React.FC = () => {
 
                     {/* Metadata Badges */}
                     <div className="flex flex-wrap gap-2 mb-4">
-                      {ticket.accountId && (
-                        <span className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-100/80 text-slate-600 rounded-lg text-[10px] font-bold tracking-tight">
-                          <i className="fas fa-cloud text-[8px] text-slate-400"></i>
-                          {ticket.accountId}
-                        </span>
-                      )}
                       <span className="flex items-center gap-1.5 px-2.5 py-1 bg-indigo-50/80 text-indigo-600 rounded-lg text-[10px] font-bold tracking-tight">
                         <i className="fas fa-cube text-[8px] text-indigo-400"></i>
                         {ticket.service}
@@ -647,34 +653,6 @@ const TicketsPage: React.FC = () => {
                     />
                   </div>
 
-                  {/* Account ID and Region */}
-                  <div className="grid grid-cols-2 gap-5">
-                    <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-2">
-                        AWS Account ID
-                      </label>
-                      <input
-                        type="text"
-                        value={form.accountId}
-                        onChange={(e) => handleFormChange('accountId', e.target.value)}
-                        className="w-full rounded-xl border-gray-200 py-2.5 px-4 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 placeholder-gray-400"
-                        placeholder="e.g. 1234-5678-9012"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-2">
-                        Region
-                      </label>
-                      <input
-                        type="text"
-                        value={form.region}
-                        onChange={(e) => handleFormChange('region', e.target.value)}
-                        className="w-full rounded-xl border-gray-200 py-2.5 px-4 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 placeholder-gray-400"
-                        placeholder="e.g. us-east-1"
-                      />
-                    </div>
-                  </div>
                 </div>
           </form>
         </DialogPanel>
