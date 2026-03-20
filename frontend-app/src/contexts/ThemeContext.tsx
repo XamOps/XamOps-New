@@ -11,42 +11,17 @@ interface ThemeContextType {
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const [theme, setThemeState] = useState<Theme>(() => {
-        // Check localStorage first
-        const saved = localStorage.getItem('xamops_theme') as Theme;
-        if (saved) return saved;
+    // Dark mode disabled — always force light theme
+    const [theme] = useState<Theme>('light');
 
-        return 'light';
-    });
-
-    const updateTheme = useCallback((newTheme: Theme) => {
-        setThemeState(newTheme);
-        localStorage.setItem('xamops_theme', newTheme);
-
-        if (newTheme === 'dark') {
-            document.documentElement.classList.add('dark');
-        } else {
-            document.documentElement.classList.remove('dark');
-        }
+    // Clear any previously saved dark preference
+    useEffect(() => {
+        localStorage.removeItem('xamops_theme');
+        document.documentElement.classList.remove('dark');
     }, []);
 
-    const toggleTheme = useCallback(() => {
-        const nextTheme = theme === 'light' ? 'dark' : 'light';
-        updateTheme(nextTheme);
-    }, [theme, updateTheme]);
-
-    const setTheme = useCallback((newTheme: Theme) => {
-        updateTheme(newTheme);
-    }, [updateTheme]);
-
-    // Keep the dark class on HTML element in sync with theme state
-    useEffect(() => {
-        if (theme === 'dark') {
-            document.documentElement.classList.add('dark');
-        } else {
-            document.documentElement.classList.remove('dark');
-        }
-    }, [theme]);
+    const toggleTheme = useCallback(() => { /* dark mode disabled */ }, []);
+    const setTheme = useCallback((_newTheme: Theme) => { /* dark mode disabled */ }, []);
 
     const value = useMemo(() => ({
         theme,
