@@ -1089,6 +1089,7 @@ interface Props {
   security: DbSecurityCheck[];
   allSnapshots: DbSnapshot[];
   costs: DbCost[];
+  cloudProvider?: 'aws' | 'gcp';
   fetchTimeseries: (id: string, hours: number) => Promise<DbInstanceTimeseries | null>;
   fetchAgentTimeseries: (hours: number) => Promise<AgentTimeseries[]>;
   fetchAgentTableSizes: () => Promise<AgentTableSize[]>;
@@ -2477,10 +2478,11 @@ function MaintenanceTab({ vacuumStats, indexUsage, tableActivity, agentHost, rds
 }
 
 // ── Snapshots Tab ─────────────────────────────────────────────────────────────
-function SnapshotsTab({ snapshots, rd, instanceId }: {
-  snapshots:  DbSnapshot[];
-  rd:         DbInstance | undefined;
-  instanceId: string;
+function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
+  snapshots:      DbSnapshot[];
+  rd:             DbInstance | undefined;
+  instanceId:     string;
+  cloudProvider?: 'aws' | 'gcp';
 }) {
   const [sortKey,     setSortKey]     = useState<'age'|'size'|'cost'>('age');
   const [sortDir,     setSortDir]     = useState<'desc'|'asc'>('desc');
@@ -2574,7 +2576,9 @@ function SnapshotsTab({ snapshots, rd, instanceId }: {
               <p className="text-sm font-bold text-gray-800 dark:text-gray-100 mb-1">No old manual snapshots</p>
               <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed mb-4">
                 This view shows <strong>manual snapshots older than 30 days</strong> that may be accumulating storage costs.
-                Automated daily backups (configured via RDS) are separate and managed by AWS.
+                {cloudProvider === 'gcp'
+                  ? 'Automated backups (configured via Cloud SQL) are separate and managed by GCP.'
+                  : 'Automated daily backups (configured via RDS) are separate and managed by AWS.'}
               </p>
               <div className="flex items-center gap-2 flex-wrap">
                 <button
@@ -2600,7 +2604,7 @@ function SnapshotsTab({ snapshots, rd, instanceId }: {
           {[
             { icon: 'fa-database',        color: 'text-indigo-500',  bg: 'bg-indigo-50 dark:bg-indigo-900/20',  title: 'Full DB state',       desc: 'All tables, indexes, stored procedures, and data at the moment of capture.' },
             { icon: 'fa-clock-rotate-left',color: 'text-sky-500',    bg: 'bg-sky-50 dark:bg-sky-900/20',        title: 'Point-in-time restore',desc: 'Restore to any second within your retention window (5 min granularity).' },
-            { icon: 'fa-copy',            color: 'text-violet-500',  bg: 'bg-violet-50 dark:bg-violet-900/20',  title: 'Cross-region copy',    desc: 'Copy a snapshot to another region for DR. Share with another AWS account.' },
+            { icon: 'fa-copy',            color: 'text-violet-500',  bg: 'bg-violet-50 dark:bg-violet-900/20',  title: 'Cross-region copy',    desc: cloudProvider === 'gcp' ? 'Copy a snapshot to another region for DR. Share with another GCP project.' : 'Copy a snapshot to another region for DR. Share with another AWS account.' },
             { icon: 'fa-shield-halved',   color: 'text-emerald-500', bg: 'bg-emerald-50 dark:bg-emerald-900/20',title: 'Encrypted by default',  desc: 'Snapshots inherit the instance encryption key. Cannot be disabled after creation.' },
           ].map(c => (
             <div key={c.title} className={`flex items-start gap-2.5 p-3 rounded-xl border border-gray-200/50 dark:border-gray-700/30 ${c.bg}`}>
@@ -2953,7 +2957,7 @@ function SnapshotsTab({ snapshots, rd, instanceId }: {
 }
 
 // ── Security Tab ──────────────────────────────────────────────────────────────
-const SECURITY_CATALOGUE = [
+const SECURITY_CATALOGUE_AWS = [
   {
     category: 'Access Control',
     icon: 'fa-key',
@@ -2998,7 +3002,54 @@ const SECURITY_CATALOGUE = [
       { name: 'CloudWatch Alarms',      desc: 'Alerts on CPU, connections, and storage.' },
     ],
   },
-] as const;
+];
+
+const SECURITY_CATALOGUE_GCP = [
+  {
+    category: 'Access Control',
+    icon: 'fa-key',
+    color: 'text-rose-500',
+    bg: 'bg-rose-50 dark:bg-rose-900/20',
+    checks: [
+      { name: 'Public Accessibility',           desc: 'DB reachable from the public internet.' },
+      { name: 'Cloud IAM Authentication',        desc: 'Password-free login via GCP Cloud IAM.' },
+      { name: 'Default Port Usage',              desc: 'Using default port increases attack surface.' },
+    ],
+  },
+  {
+    category: 'Encryption',
+    icon: 'fa-lock',
+    color: 'text-violet-500',
+    bg: 'bg-violet-50 dark:bg-violet-900/20',
+    checks: [
+      { name: 'Encryption at Rest',   desc: 'Storage encrypted with Google-managed keys (CMEK optional).' },
+      { name: 'SSL/TLS in Transit',   desc: 'Connections require SSL/TLS.' },
+      { name: 'Certificate Rotation', desc: 'SSL certificate is current and unexpired.' },
+    ],
+  },
+  {
+    category: 'Availability',
+    icon: 'fa-shield-halved',
+    color: 'text-sky-500',
+    bg: 'bg-sky-50 dark:bg-sky-900/20',
+    checks: [
+      { name: 'Automated Backups',      desc: 'Daily snapshots retained ≥7 days.' },
+      { name: 'High Availability (HA)', desc: 'Standby replica in another zone for failover.' },
+      { name: 'Deletion Protection',    desc: 'Guards against accidental instance deletion.' },
+    ],
+  },
+  {
+    category: 'Monitoring',
+    icon: 'fa-binoculars',
+    color: 'text-emerald-500',
+    bg: 'bg-emerald-50 dark:bg-emerald-900/20',
+    checks: [
+      { name: 'Cloud Monitoring',         desc: 'OS-level metrics via GCP Cloud Monitoring.' },
+      { name: 'Query Insights',           desc: 'Query-level performance profiling.' },
+      { name: 'Cloud Monitoring Alerts',  desc: 'Alerts on CPU, connections, and storage.' },
+    ],
+  },
+];
 
 // Remediation hints keyed by lowercase keyword patterns in checkName
 const REMEDIATION: { pattern: RegExp; fix: string }[] = [
@@ -3021,10 +3072,12 @@ function getRemediation(checkName: string): string | null {
   return hit?.fix ?? null;
 }
 
-function SecurityTab({ checks, instanceSource }: {
-  checks:         DbSecurityCheck[];
-  instanceSource: 'rds' | 'agent';
+function SecurityTab({ checks, instanceSource, cloudProvider = 'aws' }: {
+  checks:          DbSecurityCheck[];
+  instanceSource:  'rds' | 'agent';
+  cloudProvider?:  'aws' | 'gcp';
 }) {
+  const SECURITY_CATALOGUE = cloudProvider === 'gcp' ? SECURITY_CATALOGUE_GCP : SECURITY_CATALOGUE_AWS;
   const [statusFilter, setStatusFilter] = useState<'ALL'|'FAIL'|'WARN'|'PASS'>('ALL');
   const [expandedIdx,  setExpandedIdx]  = useState<Set<number>>(new Set());
 
@@ -3084,10 +3137,15 @@ function SecurityTab({ checks, instanceSource }: {
                 No security checks available
               </p>
               <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed mb-3">
-                Security checks run automatically for <strong>RDS instances</strong> connected to your AWS account.
-                {instanceSource === 'agent'
-                  ? ' This is an agent-monitored instance — AWS-level security checks (IAM auth, encryption, public access) are not available for it.'
-                  : ' Checks may take a few minutes to populate after initial connection.'}
+                {cloudProvider === 'gcp' ? (
+                  instanceSource === 'agent'
+                    ? <>Security checks run automatically for <strong>Cloud SQL instances</strong> connected to your GCP project. This is an agent-monitored VM instance — GCP-level security checks (IAM auth, encryption, public access) are not available for it.</>
+                    : <>Security checks run automatically for <strong>Cloud SQL instances</strong> connected to your GCP project. Checks may take a few minutes to populate after initial connection.</>
+                ) : (
+                  instanceSource === 'agent'
+                    ? <>Security checks run automatically for <strong>RDS instances</strong> connected to your AWS account. This is an agent-monitored instance — AWS-level security checks (IAM auth, encryption, public access) are not available for it.</>
+                    : <>Security checks run automatically for <strong>RDS instances</strong> connected to your AWS account. Checks may take a few minutes to populate after initial connection.</>
+                )}
               </p>
               <button className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-colors shadow-sm shadow-indigo-200 dark:shadow-indigo-900/30">
                 <i className="fas fa-gear text-[10px]" />
@@ -3331,13 +3389,14 @@ function SecurityTab({ checks, instanceSource }: {
 }
 
 // ── Cost Tab ──────────────────────────────────────────────────────────────────
-function CostTab({ rd, instanceIdle, instanceRightsizing, costs, agentMetrics, instanceSource }: {
+function CostTab({ rd, instanceIdle, instanceRightsizing, costs, agentMetrics, instanceSource, cloudProvider = 'aws' }: {
   rd:                  DbInstance | undefined;
   instanceIdle:        DbIdleInstance | undefined;
   instanceRightsizing: DbRightsizing | undefined;
   costs:               DbCost[];
   agentMetrics:        AgentInstanceMetrics | undefined;
   instanceSource:      'rds' | 'agent';
+  cloudProvider?:      'aws' | 'gcp';
 }) {
   const [riYears, setRiYears] = useState<1|3>(1);
 
@@ -3458,17 +3517,27 @@ function CostTab({ rd, instanceIdle, instanceRightsizing, costs, agentMetrics, i
             </div>
             <div>
               <p className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-1">Why is cost data unavailable?</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
-                This is an <strong>agent-monitored</strong> instance. Cost estimates come from the AWS RDS Pricing API and require an active RDS connection in XamOps.
-                Agent-monitored databases (EC2, on-prem, Aurora Serverless) do not have an RDS cost stream.
-              </p>
+              {cloudProvider === 'gcp' ? (
+                <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+                  This is an <strong>agent-monitored</strong> GCP VM instance. Cost estimates require the agent to report the VM instance type and pricing.
+                  Ensure the agent is running with GCP metadata access so it can detect the Compute Engine machine type and hourly price.
+                </p>
+              ) : (
+                <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+                  This is an <strong>agent-monitored</strong> instance. Cost estimates come from the AWS RDS Pricing API and require an active RDS connection in XamOps.
+                  Agent-monitored databases (EC2, on-prem, Aurora Serverless) do not have an RDS cost stream.
+                </p>
+              )}
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2">
-            {[
+            {(cloudProvider === 'gcp' ? [
+              { icon: 'fa-cloud',          label: 'Connect GCP Billing', desc: 'Link a GCP project with Billing Export enabled to pull Compute Engine pricing automatically.' },
+              { icon: 'fa-tag',            label: 'Tag your resources',  desc: 'Add GCP labels to your VM instances so XamOps can attribute costs per service.' },
+            ] : [
               { icon: 'fa-cloud',          label: 'Connect AWS account', desc: 'Link an AWS account with Cost Explorer enabled to pull RDS pricing automatically.' },
               { icon: 'fa-tag',            label: 'Tag your resources',  desc: 'Add aws:cost-center tags to your instances so XamOps can attribute costs per service.' },
-            ].map(c => (
+            ]).map(c => (
               <div key={c.label} className="flex items-start gap-2.5 px-3 py-2.5 rounded-xl bg-white/70 dark:bg-gray-700/30 border border-gray-200/50 dark:border-gray-600/30">
                 <i className={`fas ${c.icon} text-indigo-400 text-[11px] mt-0.5 shrink-0`} />
                 <div>
@@ -3726,7 +3795,9 @@ function CostTab({ rd, instanceIdle, instanceRightsizing, costs, agentMetrics, i
         <div className="rounded-xl border border-gray-200/50 dark:border-gray-700/30 bg-gray-50/60 dark:bg-gray-800/30 px-4 py-3 flex items-center gap-3">
           <i className="fas fa-circle-info text-gray-400 text-xs" />
           <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
-            No cost estimate available. Connect an AWS account or ensure the DB agent reports EC2 pricing to surface cost data here.
+            {cloudProvider === 'gcp'
+              ? 'No cost estimate available. Ensure the DB agent reports the GCP VM machine type and pricing to surface cost data here.'
+              : 'No cost estimate available. Connect an AWS account or ensure the DB agent reports EC2 pricing to surface cost data here.'}
           </p>
         </div>
       )}
@@ -4100,7 +4171,7 @@ function UsersTab({ userActivity, agentHost, rdsEndpoint }: {
 // ── Main component ─────────────────────────────────────────────────────────────
 export default function DbInstanceDetailDrawer({
   instance, metrics, agentStats, agentInstanceMetrics, slowQueries,
-  idle, rightsizing, security, allSnapshots, costs,
+  idle, rightsizing, security, allSnapshots, costs, cloudProvider = 'aws',
   fetchTimeseries, fetchAgentTimeseries, fetchAgentTableSizes,
   fetchAgentVacuumStats, fetchAgentUserActivity,
   fetchAgentIndexUsage, fetchAgentTableActivity, onConnected, onHealthChange,
@@ -5102,6 +5173,7 @@ const { selectedAccountIds } = useAccounts();
             costs={costs}
             agentMetrics={agentMetrics}
             instanceSource={instance.source}
+            cloudProvider={cloudProvider}
           />
         )}
 
@@ -5110,6 +5182,7 @@ const { selectedAccountIds } = useAccounts();
           <SecurityTab
             checks={instanceSecurity}
             instanceSource={instance.source}
+            cloudProvider={cloudProvider}
           />
         )}
 
@@ -5119,6 +5192,7 @@ const { selectedAccountIds } = useAccounts();
             snapshots={instanceSnapshots}
             rd={rd}
             instanceId={instance.instanceId}
+            cloudProvider={cloudProvider}
           />
         )}
 
