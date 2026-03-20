@@ -64,6 +64,23 @@ const Sidebar: React.FC = () => {
     setOpenDropdown(prev => (prev === dropdownId ? null : dropdownId));
   }, []);
 
+  // Auto-open the section that owns the current route
+  useEffect(() => {
+    const path = location.pathname;
+    const finopsRoutes = ['/cost', '/gcp-cost', '/azure-cost', '/reservation', '/gcp-reservations', '/azure-reservations',
+      '/finops', '/gcp-finops', '/azure-finops', '/waste', '/gcp-waste', '/azure-waste',
+      '/rightsizing', '/gcp-rightsizing', '/azure-rightsizing',
+      '/cloudsitter', '/flex-compute', '/autospotting', '/gcp-autospotting', '/azure-autospotting'];
+    const cloudopsRoutes = ['/tickets', '/cloudk8s', '/gcp-cloudk8s', '/azure-cloudk8s',
+      '/sonarqube', '/cicd-pipelines', '/devops-in-the-box', '/grafana-dashboard', '/aiops', '/dataops', '/ebs-rightsizing'];
+    const secopsRoutes = ['/security', '/gcp-security', '/azure-security', '/complianceops',
+      '/performance', '/gcp-performance', '/azure-performance', '/alerts', '/gcp-alerts', '/azure-alerts'];
+
+    if (finopsRoutes.some(r => path.startsWith(r))) setOpenDropdown('finops');
+    else if (cloudopsRoutes.some(r => path.startsWith(r))) setOpenDropdown('cloudops');
+    else if (secopsRoutes.some(r => path.startsWith(r))) setOpenDropdown('security');
+  }, [location.pathname]);
+
   /**
    * Close account selector
    */
@@ -278,6 +295,9 @@ const Sidebar: React.FC = () => {
                 <NavItem href="/grafana-dashboard" icon="fas fa-chart-line" label="Grafana" isActive={isActive('/grafana-dashboard')} />
                 <NavItem href="/aiops" icon="fas fa-brain" label="AIOps" isActive={isActive('/aiops')} />
                 <NavItem href="/dataops" icon="fas fa-database" label="DbOps" isActive={isActive('/dataops')} />
+                {selectedAccountDisplay.provider === 'AWS' && (
+                  <NavItem href="/ebs-rightsizing" icon="fas fa-hdd" label="Disk Rightsizing" isActive={isActive('/ebs-rightsizing')} />
+                )}
               </NavSection>
 
               <NavSection
