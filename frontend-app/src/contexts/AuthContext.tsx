@@ -143,7 +143,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
    */
   const fetchUserRoles = useCallback(async () => {
     const path = globalThis.location.pathname;
-    const isBillopsPage = path.includes('/billops/');
+    // Match both legacy "/billops/" HTML routes AND React "/billops-*" routes (e.g. /billops-client-details)
+    const isBillopsPage = path.includes('/billops');
     const primaryEndpoint = isBillopsPage ? '/api/billops/profile' : '/api/xamops/user/profile';
     const fallbackEndpoint = isBillopsPage ? '/api/xamops/user/profile' : '/api/billops/profile';
 
