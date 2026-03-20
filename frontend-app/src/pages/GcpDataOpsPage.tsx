@@ -538,6 +538,7 @@ const GcpDataOpsPage: React.FC = () => {
             security={security}
             allSnapshots={snapshots}
             costs={costs}
+            cloudProvider="gcp"
             fetchTimeseries={fetchInstanceTimeseries}
             fetchAgentTimeseries={fetchAgentTimeseries}
             fetchAgentTableSizes={fetchAgentTableSizes}
