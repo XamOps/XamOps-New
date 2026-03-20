@@ -298,6 +298,7 @@ const Sidebar: React.FC = () => {
                 {selectedAccountDisplay.provider === 'AWS' && (
                   <NavItem href="/ebs-rightsizing" icon="fas fa-hdd" label="Disk Rightsizing" isActive={isActive('/ebs-rightsizing')} />
                 )}
+                <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-dataops' : '/dataops'} icon="fas fa-database" label="DbOps" isActive={isActive('/dataops') || isActive('/gcp-dataops')} />
               </NavSection>
 
               <NavSection
