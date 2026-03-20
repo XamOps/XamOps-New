@@ -1968,12 +1968,12 @@ function QueryStatsTab({ stats, engine, instanceId, endpoint }: {
 }
 
 // ── Maintenance Tab ───────────────────────────────────────────────────────────
-function MaintenanceTab({ vacuumStats, indexUsage, tableActivity, agentHost, instanceSource }: {
+function MaintenanceTab({ vacuumStats, indexUsage, tableActivity, agentHost, rdsEndpoint }: {
   vacuumStats:   AgentVacuumStat[];
   indexUsage:    AgentIndexUsage[];
   tableActivity: AgentTableActivity[];
   agentHost:     string | undefined;
-  instanceSource: string;
+  rdsEndpoint?:  string;
 }) {
   const [sevFilter,    setSevFilter]    = useState<'all'|'critical'|'warning'|'healthy'>('all');
   const [sortKey,      setSortKey]      = useState<'bloat'|'live'|'dead'|'vacuum'|'analyze'>('bloat');
@@ -1984,8 +1984,15 @@ function MaintenanceTab({ vacuumStats, indexUsage, tableActivity, agentHost, ins
   const [idxPage,      setIdxPage]      = useState(0);
   const [actPage,      setActPage]      = useState(0);
 
+  const matchHost = (dbHost: string | undefined) => {
+    if (!dbHost) return false;
+    if (dbHost === agentHost) return true;
+    const h = dbHost.split(':')[0];
+    return !!(h && rdsEndpoint?.includes(h));
+  };
+
   // Filter to current instance
-  const stats = vacuumStats.filter(v => v.dbHost === agentHost || instanceSource === 'agent');
+  const stats = vacuumStats.filter(v => matchHost(v.dbHost));
 
   // Severity thresholds: critical >50%, warning 20–50%, healthy <20%
   const sev = (ratio: number) => ratio > 0.50 ? 'critical' : ratio >= 0.20 ? 'warning' : 'healthy';
@@ -2052,13 +2059,15 @@ function MaintenanceTab({ vacuumStats, indexUsage, tableActivity, agentHost, ins
   const vacPg         = Math.min(vacPage, vacTotalPages - 1);
   const vacRows       = filtered.slice(vacPg * VAC_PAGE_SIZE, (vacPg + 1) * VAC_PAGE_SIZE);
 
-  const idxTotalPages = Math.max(1, Math.ceil(indexUsage.length / IDX_PAGE_SIZE));
+  const filteredIdx   = indexUsage.filter(x => matchHost(x.dbHost));
+  const idxTotalPages = Math.max(1, Math.ceil(filteredIdx.length / IDX_PAGE_SIZE));
   const idxPg         = Math.min(idxPage, idxTotalPages - 1);
-  const idxRows       = indexUsage.slice(idxPg * IDX_PAGE_SIZE, (idxPg + 1) * IDX_PAGE_SIZE);
+  const idxRows       = filteredIdx.slice(idxPg * IDX_PAGE_SIZE, (idxPg + 1) * IDX_PAGE_SIZE);
 
-  const actTotalPages = Math.max(1, Math.ceil(tableActivity.length / ACT_PAGE_SIZE));
+  const filteredAct   = tableActivity.filter(t => matchHost(t.dbHost));
+  const actTotalPages = Math.max(1, Math.ceil(filteredAct.length / ACT_PAGE_SIZE));
   const actPg         = Math.min(actPage, actTotalPages - 1);
-  const actRows       = tableActivity.slice(actPg * ACT_PAGE_SIZE, (actPg + 1) * ACT_PAGE_SIZE);
+  const actRows       = filteredAct.slice(actPg * ACT_PAGE_SIZE, (actPg + 1) * ACT_PAGE_SIZE);
 
   const paginator = (pg: number, total: number, pageSize: number, onPage: (p: number) => void) => {
     const pages = Math.max(1, Math.ceil(total / pageSize));
@@ -2330,17 +2339,17 @@ function MaintenanceTab({ vacuumStats, indexUsage, tableActivity, agentHost, ins
       {paginator(vacPg, filtered.length, VAC_PAGE_SIZE, setVacPage)}
 
       {/* ── Index Usage (enhanced) ── */}
-      {indexUsage.length > 0 && (
+      {filteredIdx.length > 0 && (
         <div className="space-y-2">
           <div className="flex items-center gap-2">
             <h3 className="text-[11px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider flex-1 flex items-center gap-1.5">
               <i className="fas fa-sitemap text-indigo-500 text-[10px]" /> Index Usage
             </h3>
-            {indexUsage.filter(x => x.isUnused).length > 0 && (
+            {filteredIdx.filter(x => x.isUnused).length > 0 && (
               <Tip text="Indexes with 0 scans waste storage and slow writes. Consider DROP INDEX CONCURRENTLY after confirming they are not needed." wide>
                 <span className="px-2 py-0.5 rounded-full text-[10px] bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 border border-red-200/60 dark:border-red-700/40 font-medium">
                   <i className="fas fa-triangle-exclamation text-[8px] mr-1" />
-                  {indexUsage.filter(x => x.isUnused).length} unused
+                  {filteredIdx.filter(x => x.isUnused).length} unused
                 </span>
               </Tip>
             )}
@@ -2394,7 +2403,7 @@ function MaintenanceTab({ vacuumStats, indexUsage, tableActivity, agentHost, ins
       )}
 
       {/* ── Table Activity (enhanced) ── */}
-      {tableActivity.length > 0 && (
+      {filteredAct.length > 0 && (
         <div className="space-y-2">
           <h3 className="text-[11px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
             <i className="fas fa-table text-sky-500 text-[10px]" /> Table Activity
@@ -2460,7 +2469,7 @@ function MaintenanceTab({ vacuumStats, indexUsage, tableActivity, agentHost, ins
               </tbody>
             </table>
           </div>
-          {paginator(actPg, tableActivity.length, ACT_PAGE_SIZE, setActPage)}
+          {paginator(actPg, filteredAct.length, ACT_PAGE_SIZE, setActPage)}
         </div>
       )}
     </div>
@@ -3726,10 +3735,10 @@ function CostTab({ rd, instanceIdle, instanceRightsizing, costs, agentMetrics, i
 }
 
 // ── Users Tab ─────────────────────────────────────────────────────────────────
-function UsersTab({ userActivity, agentHost, instanceSource }: {
+function UsersTab({ userActivity, agentHost, rdsEndpoint }: {
   userActivity:   AgentUserActivity[];
   agentHost:      string | undefined;
-  instanceSource: string;
+  rdsEndpoint?:  string;
 }) {
   const [search,   setSearch]   = useState('');
   const [sortKey,  setSortKey]  = useState<'username'|'total'|'active'|'idle'|'share'|'queries'|'time'>('total');
@@ -3739,8 +3748,15 @@ function UsersTab({ userActivity, agentHost, instanceSource }: {
 
   const PAGE_SIZE = 15;
 
+  const matchHost = (dbHost: string | undefined) => {
+    if (!dbHost) return false;
+    if (dbHost === agentHost) return true;
+    const h = dbHost.split(':')[0];
+    return !!(h && rdsEndpoint?.includes(h));
+  };
+
   // Filter to current instance
-  const all = userActivity.filter(u => u.dbHost === agentHost || instanceSource === 'agent');
+  const all = userActivity.filter(u => matchHost(u.dbHost));
 
   // Total connections across all users (for share %)
   const totalConnsAll = all.reduce((s, u) => s + u.totalConnections, 0);
@@ -4201,13 +4217,6 @@ const { selectedAccountIds } = useAccounts();
   ).sort((a, b) => b.totalSizeBytes - a.totalSizeBytes).slice(0, 20);
   const instanceSlowQueries = slowQueries.filter(q => q.instanceId === instance.instanceId);
 
-  // Host matcher — works for both agent-only (agentHost) and RDS (endpoint match)
-  const matchesInstance = (dbHost: string | undefined) => {
-    if (!dbHost) return false;
-    if (dbHost === instance.agentHost) return true;
-    const h = dbHost.split(':')[0];
-    return !!(h && instance.rdsData?.endpoint?.includes(h));
-  };
   const instanceIdle = idle.find(i => i.instanceId === instance.instanceId);
   const instanceRightsizing = rightsizing.find(r => r.instanceId === instance.instanceId);
   const instanceSecurity = security.filter(c => c.instanceId === instance.instanceId);
@@ -4232,7 +4241,13 @@ const { selectedAccountIds } = useAccounts();
   }, [healthScore.score, healthScore.status, healthScore.issues.join(',')]);
 
   const securityFailCount = instanceSecurity.filter(c => c.status === 'FAIL').length;
-  const maintenanceAlertCount = vacuumStats.filter(v => (v.deadTupRatio ?? 0) > 0.10).length;
+  const instanceMatchesHost = (dbHost: string | undefined) => {
+    if (!dbHost) return false;
+    if (dbHost === instance.agentHost) return true;
+    const h = dbHost.split(':')[0];
+    return !!(h && instance.rdsData?.endpoint?.includes(h));
+  };
+  const maintenanceAlertCount = vacuumStats.filter(v => instanceMatchesHost(v.dbHost) && (v.deadTupRatio ?? 0) > 0.10).length;
 
   const tabs: { id: DetailTab; label: string; icon: string; badgeCount?: number; badgeColor?: string; dot?: string }[] = [
     { id: 'overview',    label: 'Overview',      icon: 'fa-gauge-high' },
@@ -4796,24 +4811,110 @@ const { selectedAccountIds } = useAccounts();
               );
             })()}
 
-            {/* 7-day averages (RDS) */}
-            {instance.source === 'rds' && metrics && (metrics.avgDiskQueueDepth > 0 || metrics.avgSwapUsageMb > 0) && (
-              <div className="space-y-2">
-                <p className="text-[11px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">7-day Averages</p>
-                <div className="grid grid-cols-3 gap-2">
-                  {metrics.avgDiskQueueDepth > 0 && (
-                    <StatCard label="Disk Queue Depth" value={round2(metrics.avgDiskQueueDepth)}
-                      color={metrics.avgDiskQueueDepth > 1 ? 'text-orange-600' : 'text-gray-900 dark:text-gray-100'}
-                      tooltip="Average number of pending I/O requests. Above 1 means I/O is a bottleneck — requests are queuing up waiting for disk. Consider upgrading IOPS or moving to gp3/io1." />
-                  )}
-                  {metrics.avgSwapUsageMb > 0 && (
-                    <StatCard label="Swap Usage" value={`${round2(metrics.avgSwapUsageMb)} MB`}
-                      color={metrics.avgSwapUsageMb > 100 ? 'text-orange-600' : 'text-yellow-600'}
-                      tooltip="Average swap space used. Swap activity degrades DB performance significantly. Reduce buffer pool size or upgrade to a larger instance." />
-                  )}
+            {/* ── IOPS Analysis (RDS) ── */}
+            {instance.source === 'rds' && rd && metrics && (() => {
+              const storType = (rd.storageType ?? '').toLowerCase();
+              const allocGb  = rd.allocatedStorage ?? 0;
+              const isGp2    = storType === 'gp2';
+              const isGp3    = storType === 'gp3';
+
+              // Baseline IOPS quota (sustained, guaranteed)
+              const baselineIops = isGp2
+                ? Math.max(100, Math.min(allocGb * 3, 3000))
+                : isGp3 ? 3000 : 0;
+
+              const totalIops    = (metrics.avgReadIops ?? 0) + (metrics.avgWriteIops ?? 0);
+              const iopsUsagePct = baselineIops > 0 ? Math.min(Math.round(totalIops / baselineIops * 100), 200) : 0;
+
+              const storBadgeClass = isGp2
+                ? 'bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-900/20 dark:text-yellow-400 dark:border-yellow-700/40'
+                : isGp3
+                  ? 'bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-400 dark:border-green-700/40'
+                  : 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/20 dark:text-blue-400 dark:border-blue-700/40';
+
+              return (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <p className="text-[11px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider flex-1">IOPS Analysis</p>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${storBadgeClass}`}>
+                      {rd.storageType?.toUpperCase() ?? 'Unknown'}
+                    </span>
+                  </div>
+
+                  <div className="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden divide-y divide-gray-100 dark:divide-gray-700">
+                    {/* Current IOPS vs Baseline Quota */}
+                    {baselineIops > 0 && (
+                      <div className="px-3 py-2.5">
+                        <div className="flex items-center justify-between text-[11px] mb-1.5">
+                          <Tip text={`Baseline (quota) is the guaranteed sustained IOPS for your storage type. gp2: 3 IOPS/GB (min 100, max 3,000). gp3: flat 3,000. Your DB is using ${totalIops} combined read+write IOPS on average. Exceeding baseline on gp2 drains burst credits.`} wide>
+                            <span className="text-gray-600 dark:text-gray-300 underline decoration-dotted cursor-help">IOPS Usage vs Baseline Quota</span>
+                          </Tip>
+                          <span className={`font-semibold tabular-nums ${iopsUsagePct > 100 ? 'text-red-600' : iopsUsagePct > 80 ? 'text-orange-600' : 'text-gray-700 dark:text-gray-200'}`}>
+                            {totalIops} / {baselineIops} IOPS
+                          </span>
+                        </div>
+                        <div className="h-2 rounded-full bg-gray-100 dark:bg-gray-700 overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${iopsUsagePct > 100 ? 'bg-red-500' : iopsUsagePct > 80 ? 'bg-orange-500' : 'bg-emerald-500'}`}
+                            style={{ width: `${Math.min(iopsUsagePct, 100)}%` }}
+                          />
+                        </div>
+                        {iopsUsagePct > 100 && isGp2 && (
+                          <p className="text-[10px] text-red-600 dark:text-red-400 mt-1">⚠ Avg IOPS exceeds baseline — burst credits are draining. Upgrade to gp3 for guaranteed IOPS.</p>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Burst Credit Balance (gp2 only) */}
+                    {isGp2 && (metrics.burstBalance ?? 0) > 0 && (
+                      <div className="px-3 py-2.5">
+                        <div className="flex items-center justify-between text-[11px] mb-1.5">
+                          <Tip text="gp2 burst credit bucket. Earns 3 credits/GB/s when IOPS is below baseline; spends credits above baseline (up to 3,000 IOPS). At 0% you are throttled to baseline IOPS with no burst. gp3 has no credit system — baseline is always guaranteed." wide>
+                            <span className="text-gray-600 dark:text-gray-300 underline decoration-dotted cursor-help">Burst Credit Balance</span>
+                          </Tip>
+                          <span className={`font-semibold ${(metrics.burstBalance ?? 0) < 20 ? 'text-red-600' : (metrics.burstBalance ?? 0) < 50 ? 'text-orange-500' : 'text-green-600'}`}>
+                            {Math.round(metrics.burstBalance ?? 0)}%
+                          </span>
+                        </div>
+                        <div className="h-2 rounded-full bg-gray-100 dark:bg-gray-700 overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${(metrics.burstBalance ?? 0) < 20 ? 'bg-red-500' : (metrics.burstBalance ?? 0) < 50 ? 'bg-orange-500' : 'bg-emerald-500'}`}
+                            style={{ width: `${Math.round(metrics.burstBalance ?? 0)}%` }}
+                          />
+                        </div>
+                        {(metrics.burstBalance ?? 0) < 20 && (
+                          <p className="text-[10px] text-red-600 dark:text-red-400 mt-1">⚠ Critical — upgrade to gp3 storage for consistent IOPS without burst limits.</p>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Disk Queue Depth */}
+                    {(metrics.avgDiskQueueDepth ?? 0) > 0 && (
+                      <div className="px-3 py-2.5 flex items-center justify-between text-[11px]">
+                        <Tip text="Average pending I/O requests waiting for disk. Above 1 means the disk cannot keep up — requests are queuing. This causes latency spikes regardless of IOPS quota. Consider provisioned IOPS (io1/io2) or increasing gp3 IOPS allocation." wide>
+                          <span className="text-gray-600 dark:text-gray-300 underline decoration-dotted cursor-help">Disk Queue Depth (avg 7d)</span>
+                        </Tip>
+                        <span className={`font-semibold tabular-nums ${(metrics.avgDiskQueueDepth ?? 0) > 1 ? 'text-orange-600' : 'text-gray-700 dark:text-gray-200'}`}>
+                          {round2(metrics.avgDiskQueueDepth ?? 0)}{(metrics.avgDiskQueueDepth ?? 0) > 1 && ' ⚠'}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Swap Usage */}
+                    {(metrics.avgSwapUsageMb ?? 0) > 0 && (
+                      <div className="px-3 py-2.5 flex items-center justify-between text-[11px]">
+                        <Tip text="Average swap memory used. Any swap activity degrades DB performance — the OS is spilling data from RAM to disk. Increase instance memory or reduce buffer pool size." wide>
+                          <span className="text-gray-600 dark:text-gray-300 underline decoration-dotted cursor-help">Swap Usage (avg 7d)</span>
+                        </Tip>
+                        <span className={`font-semibold tabular-nums ${(metrics.avgSwapUsageMb ?? 0) > 100 ? 'text-orange-600' : 'text-yellow-600'}`}>
+                          {round2(metrics.avgSwapUsageMb ?? 0)} MB
+                        </span>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* ── Agent timeseries charts ── */}
             {instanceAgentTs && instanceAgentTs.snapshots.length >= 2 && (() => {
@@ -4979,7 +5080,7 @@ const { selectedAccountIds } = useAccounts();
             indexUsage={indexUsage}
             tableActivity={tableActivity}
             agentHost={instance.agentHost}
-            instanceSource={instance.source}
+            rdsEndpoint={instance.rdsData?.endpoint}
           />
         )}
 
@@ -4988,7 +5089,7 @@ const { selectedAccountIds } = useAccounts();
           <UsersTab
             userActivity={userActivity}
             agentHost={instance.agentHost}
-            instanceSource={instance.source}
+            rdsEndpoint={instance.rdsData?.endpoint}
           />
         )}
 
