@@ -4710,8 +4710,8 @@ const { selectedAccountIds } = useAccounts();
               <div>
                 <p className="text-sm font-semibold text-gray-800 dark:text-gray-100 leading-tight">Performance Metrics</p>
                 <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">
-                  {instance.source === 'rds' ? 'CloudWatch' : 'DB Agent'} telemetry
-                  {instanceAgentTs ? ' · agent overlay' : ''}
+                  {instance.source === 'rds' && timeseries !== null ? 'CloudWatch' : 'DB Agent'} telemetry
+                  {instance.source === 'rds' && timeseries !== null && instanceAgentTs ? ' · agent overlay' : ''}
                 </p>
               </div>
               <div className="flex items-center gap-1 bg-gray-100/80 dark:bg-gray-800/60 rounded-xl p-0.5 border border-gray-200/50 dark:border-gray-700/40 shrink-0">
@@ -4729,8 +4729,8 @@ const { selectedAccountIds } = useAccounts();
               </div>
             </div>
 
-            {/* ── CloudWatch charts (RDS only) ── */}
-            {instance.source === 'rds' && (() => {
+            {/* ── CloudWatch charts (RDS only, when CloudWatch data is actually available) ── */}
+            {instance.source === 'rds' && timeseries !== null && (() => {
               const cpuData   = toChartData(timeseries?.cpu);
               const connData  = toChartData(timeseries?.connections);
               const rIopsData = toChartData(timeseries?.readIops);
@@ -4927,7 +4927,7 @@ const { selectedAccountIds } = useAccounts();
             )}
 
             {/* Empty state — futuristic illustration */}
-            {instance.source !== 'rds' && !instanceAgentTs && (
+            {(instance.source !== 'rds' || timeseries === null) && !instanceAgentTs && (
               <div className="flex flex-col items-center justify-center py-14 gap-3">
                 <svg width="96" height="60" viewBox="0 0 96 60" fill="none" className="text-gray-300 dark:text-gray-600">
                   <rect x="0" y="58" width="96" height="1" stroke="currentColor" strokeDasharray="4 3" />
