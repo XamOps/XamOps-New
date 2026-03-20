@@ -56,6 +56,7 @@ import CICDPipelinesPage from './pages/CICDPipelinesPage';
 import SonarQubePage from './pages/SonarQubePage';
 import AIOpsPage from './pages/AIOpsPage';
 import DataOpsPage from './pages/DataOpsPage';
+import GcpDataOpsPage from './pages/GcpDataOpsPage';
 import BillOpsUserDashboardPage from './pages/BillOpsUserDashboardPage';
 import BillingPage from './pages/BillingPage';
 import InvoicesPage from './pages/InvoicesPage';
@@ -440,6 +441,7 @@ const AppContent: React.FC = () => {
               <Route path="/sonarqube" element={<SonarQubePage />} />
               <Route path="/aiops" element={<AIOpsPage />} />
               <Route path="/dataops" element={<DataOpsPage />} />
+              <Route path="/gcp-dataops" element={<GcpDataOpsPage />} />
 
               {/* BillOps Routes */}
               <Route path="/billops-dashboard" element={<BillOpsUserDashboardPage />} />
