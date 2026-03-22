@@ -4,6 +4,8 @@ import com.xammer.cloud.config.AwsConfig;
 import com.xammer.cloud.config.multitenancy.TenantContext;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.security.ClientUserDetails;
+import com.xammer.cloud.util.SecurityUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -63,7 +65,6 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
         Map<String, String> queryParams = parseQueryParams(session.getUri().getQuery());
         String accountId = queryParams.get("accountId");
-        String tenantId = queryParams.get("tenantId");
 
         // Initialize session lock for thread-safe message sending
         sessionLocks.put(session.getId(), new Object());
@@ -74,12 +75,20 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
             return;
         }
 
-        if (tenantId != null && !tenantId.equals("null")) {
-            TenantContext.setCurrentTenant(tenantId);
+        // Security Hardening: Enforce authentication and multi-tenancy validation
+        ClientUserDetails currentUser;
+        try {
+            currentUser = SecurityUtils.getPrincipal();
+            TenantContext.setCurrentTenant(currentUser.getTenantId());
+        } catch (Exception e) {
+            log.error("Authentication required for terminal access", e);
+            sendMessageSafe(session, "Error: Authentication required.\r\n");
+            session.close();
+            return;
         }
 
         try {
-            log.info("WS Connecting: Session={}, Account={}", session.getId(), accountId);
+            log.info("WS Connecting: Session={}, Account={}, User={}", session.getId(), accountId, currentUser.getUsername());
 
             // Track session start time
             sessionStartTimes.put(session.getId(), System.currentTimeMillis());
@@ -87,6 +96,18 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
             CloudAccount account = findAccount(accountId);
             if (account == null) {
                 sendMessageSafe(session, "Error: Account not found.\r\n");
+                session.close();
+                return;
+            }
+
+            // Security Hardening: Verify account ownership (Tenant Isolation)
+            boolean isSuperAdmin = SecurityUtils.isSuperAdmin();
+            boolean isOwner = account.getClient().getId().equals(currentUser.getClientId());
+
+            if (!isOwner && !isSuperAdmin) {
+                log.warn("Access Denied: User {} (Client {}) attempted to access account {} (Client {})",
+                        currentUser.getUsername(), currentUser.getClientId(), accountId, account.getClient().getId());
+                sendMessageSafe(session, "Error: Access denied. You do not have permission to access this account.\r\n");
                 session.close();
                 return;
             }

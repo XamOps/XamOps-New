@@ -1,0 +1,4 @@
+## 2026-03-22 - [CRITICAL] Broken Access Control in Cloud Shell WebSocket
+**Vulnerability:** The `/terminal` WebSocket endpoint for cloud shell access was publicly accessible (`permitAll()`) and relied on a client-provided `tenantId` query parameter to set the multi-tenancy context, without verifying account ownership.
+**Learning:** WebSocket endpoints in Spring Security must be explicitly secured in the `SecurityFilterChain`. Relying on client-provided parameters for tenant context in a multi-tenant application is a major IDOR risk.
+**Prevention:** Always derive tenant context from the authenticated principal (`SecurityContextHolder`) and enforce ownership checks (`account.getClientId() == user.getClientId() || isSuperAdmin`) at the start of any sensitive lifecycle (like `afterConnectionEstablished`).
