@@ -107,6 +107,7 @@ import AzureCloudList from './pages/AzureCloudList';
 import AzureFinOpsPage from './pages/AzureFinOpsPage';
 import AzureCostPage from './pages/AzureCostPage';
 import FlexComputePage from './pages/FlexComputePage';
+import EbsRightsizingPage from './pages/EbsRightsizingPage';
 import AzureCloudK8sPage from './pages/AzureCloudK8sPage';
 import { SupportChatWidget } from './components/SupportChat';
 import AdminSupportNotificationListener from './components/Shared/AdminSupportNotificationListener';
@@ -410,6 +411,7 @@ const AppContent: React.FC = () => {
               <Route path="/asg-detail" element={<ASGDetailPage />} />
               <Route path="/asg-config" element={<ASGConfigPage />} />
               <Route path="/flex-compute" element={<FlexComputePage />} />
+              <Route path="/ebs-rightsizing" element={<EbsRightsizingPage />} />
               <Route path="/grafana-dashboard" element={<GrafanaDashboardPage />} />
               <Route path="/cloudk8s" element={<CloudK8sPage />} />
               <Route path="/gcp-cloudk8s" element={<GcpCloudK8sPage />} />
