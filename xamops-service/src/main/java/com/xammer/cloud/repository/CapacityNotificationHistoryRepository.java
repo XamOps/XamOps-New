@@ -23,9 +23,7 @@ public interface CapacityNotificationHistoryRepository extends JpaRepository<Cap
     /**
      * Get the most recent notification for a capacity and threshold
      */
-    @Query("SELECT n FROM CapacityNotificationHistory n WHERE n.cidrId = :cidrId AND n.thresholdPercent = :threshold ORDER BY n.notifiedAt DESC")
-    Optional<CapacityNotificationHistory> findMostRecentNotification(@Param("cidrId") String cidrId,
-                                                                      @Param("threshold") Integer threshold);
+    Optional<CapacityNotificationHistory> findFirstByCidrIdAndThresholdPercentOrderByNotifiedAtDesc(String cidrId, Integer threshold);
 
     /**
      * Find all notifications for a specific user
