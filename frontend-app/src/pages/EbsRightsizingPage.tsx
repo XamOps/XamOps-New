@@ -5,12 +5,16 @@ import { AriaTabGroup } from '../components/ui';
 import { useTopbarActions } from '../contexts/TopbarContext';
 import { EbsVolumeMonitoringDrawer } from '../components/EbsRightsizing/EbsVolumeMonitoringDrawer';
 
-interface ShrinkTarget {
+interface GuideTarget {
   volumeId: string;
   region: string;
-  instanceId: string;
+  instanceId?: string;
   currentSizeGb: number;
+  recommendedSizeGb?: number;
+  recommendation: 'SHRINK' | 'EXPAND';
   isRootVolume?: boolean;
+  availabilityZone?: string;
+  volumeType?: string;
 }
 
 type Tab = 'overview' | 'recommendations' | 'policies' | 'actions' | 'roi';
@@ -21,17 +25,32 @@ const EbsRightsizingPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [applyingId, setApplyingId] = useState<string | null>(null);
   const [actionMsg, setActionMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [shrinkTarget, setShrinkTarget] = useState<ShrinkTarget | null>(null);
+  const [guideTarget, setGuideTarget] = useState<GuideTarget | null>(null);
   const [monitoringVolume, setMonitoringVolume] = useState<EbsVolume | null>(null);
+  const [filterSearch, setFilterSearch] = useState('');
+  const [filterRegion, setFilterRegion] = useState('');
+  const [filterType, setFilterType] = useState('');
+  const [filterRecommendation, setFilterRecommendation] = useState('');
   const { setTitle, setActions, clearActions } = useTopbarActions();
 
   const {
     volumes, recommendations, policies, actionHistory, pendingDeletion,
     isLoading, isDiskUsageLoading, isRefreshing, ssmUnavailableInstances, totalWastedMonthly,
     unattachedCount, shrinkCount, expandCount,
-    applyAction, initiateDownsize, createPolicy, updatePolicy, deletePolicy,
+    applyAction, createPolicy, updatePolicy, deletePolicy,
     calculateRoi, refreshAll, deletePendingVolume, keepVolume,
   } = useEbsRightsizingData({ selectedAccountId });
+
+  const uniqueRegions = Array.from(new Set(volumes.map(v => v.region))).sort();
+  const uniqueTypes = Array.from(new Set(volumes.map(v => v.volumeType))).sort();
+
+  const filteredVolumes = volumes.filter(v => {
+    if (filterSearch && !v.volumeId.includes(filterSearch) && !(v.volumeName ?? '').toLowerCase().includes(filterSearch.toLowerCase())) return false;
+    if (filterRegion && v.region !== filterRegion) return false;
+    if (filterType && v.volumeType !== filterType) return false;
+    if (filterRecommendation && v.recommendation !== filterRecommendation) return false;
+    return true;
+  });
 
   useEffect(() => {
     setTitle('Disk Rightsizing');
@@ -63,8 +82,6 @@ const EbsRightsizingPage: React.FC = () => {
   const tabs = [
     { id: 'overview',        label: 'Overview',        icon: 'fas fa-chart-pie' },
     { id: 'recommendations', label: 'Recommendations',  icon: 'fas fa-lightbulb' },
-    { id: 'policies',        label: 'Policies',         icon: 'fas fa-shield-alt' },
-    { id: 'actions',         label: 'Actions History',  icon: 'fas fa-history' },
     { id: 'roi',             label: 'ROI Calculator',   icon: 'fas fa-calculator' },
   ];
 
@@ -134,42 +151,6 @@ const EbsRightsizingPage: React.FC = () => {
                   />
                 </div>
 
-                {/* Breakdown by recommendation type */}
-                <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm p-6">
-                  <h3 className="text-base font-semibold text-gray-800 dark:text-gray-200 mb-4">Savings Breakdown</h3>
-                  {isLoading ? (
-                    <div className="space-y-3">
-                      {[1,2,3].map(i => <div key={i} className="h-8 bg-gray-100 dark:bg-gray-700 rounded animate-pulse" />)}
-                    </div>
-                  ) : recommendations.length === 0 ? (
-                    <p className="text-gray-500 dark:text-gray-400 text-sm">No recommendations available. Try refreshing.</p>
-                  ) : (
-                    <div className="space-y-3">
-                      {[
-                        { label: 'Delete Unattached Volumes', type: 'DELETE_UNATTACHED', color: 'bg-red-500' },
-                        { label: 'Volume Type Upgrades (gp2→gp3)', type: 'UPGRADE_TYPE', color: 'bg-blue-500' },
-                        { label: 'Underutilized — Shrink Candidates', type: 'SHRINK', color: 'bg-orange-500' },
-                        { label: 'Near Full — Expand Needed', type: 'EXPAND', color: 'bg-amber-500' },
-                      ].map(({ label, type, color }) => {
-                        const items = recommendations.filter(r => r.recommendation === type);
-                        const savings = items.reduce((s, r) => s + r.estimatedSavings, 0);
-                        if (items.length === 0) return null;
-                        return (
-                          <div key={type} className="flex items-center gap-4">
-                            <div className={`w-2 h-8 rounded-full ${color}`} />
-                            <div className="flex-1">
-                              <div className="text-sm font-medium text-gray-800 dark:text-gray-200">{label}</div>
-                              <div className="text-xs text-gray-500 dark:text-gray-400">{items.length} volumes</div>
-                            </div>
-                            <div className="text-sm font-semibold text-green-600 dark:text-green-400">
-                              ${savings.toFixed(2)}/mo
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
 
                 {/* Pending Deletion Section */}
                 {pendingDeletion.length > 0 && (
@@ -198,8 +179,46 @@ const EbsRightsizingPage: React.FC = () => {
                   <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
                     <h3 className="text-base font-semibold text-gray-800 dark:text-gray-200">All Volumes</h3>
                     <span className="text-xs text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded-full">
-                      {volumes.length} total · {volumes.reduce((s, v) => s + v.sizeGb, 0)} GB provisioned
+                      {filteredVolumes.length}{filteredVolumes.length !== volumes.length ? ` of ${volumes.length}` : ''} total · {filteredVolumes.reduce((s, v) => s + v.sizeGb, 0)} GB provisioned
                     </span>
+                  </div>
+                  {/* Filters */}
+                  <div className="px-6 py-3 border-b border-gray-100 dark:border-gray-700/60 flex flex-wrap gap-2">
+                    <div className="relative flex-1 min-w-[160px]">
+                      <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs" />
+                      <input
+                        type="text"
+                        placeholder="Search volume ID or name..."
+                        value={filterSearch}
+                        onChange={e => setFilterSearch(e.target.value)}
+                        className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50 text-xs text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                      />
+                    </div>
+                    <select value={filterRegion} onChange={e => setFilterRegion(e.target.value)}
+                      className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50 text-xs text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-indigo-400">
+                      <option value="">All Regions</option>
+                      {uniqueRegions.map(r => <option key={r} value={r}>{r}</option>)}
+                    </select>
+                    <select value={filterType} onChange={e => setFilterType(e.target.value)}
+                      className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50 text-xs text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-indigo-400">
+                      <option value="">All Types</option>
+                      {uniqueTypes.map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                    <select value={filterRecommendation} onChange={e => setFilterRecommendation(e.target.value)}
+                      className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50 text-xs text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-indigo-400">
+                      <option value="">All Recommendations</option>
+                      <option value="SHRINK">Shrink</option>
+                      <option value="EXPAND">Expand</option>
+                      <option value="DELETE_UNATTACHED">Delete Unattached</option>
+                      <option value="UPGRADE_TYPE">Upgrade Type</option>
+                      <option value="NONE">None</option>
+                    </select>
+                    {(filterSearch || filterRegion || filterType || filterRecommendation) && (
+                      <button onClick={() => { setFilterSearch(''); setFilterRegion(''); setFilterType(''); setFilterRecommendation(''); }}
+                        className="px-3 py-1.5 rounded-lg text-xs text-gray-500 dark:text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-colors">
+                        <i className="fas fa-times mr-1" />Clear
+                      </button>
+                    )}
                   </div>
                   {isLoading ? (
                     <div className="p-6 space-y-3">
@@ -229,7 +248,7 @@ const EbsRightsizingPage: React.FC = () => {
                           </tr>
                         </thead>
                         <tbody>
-                          {volumes.map((vol) => (
+                          {filteredVolumes.map((vol) => (
                             <tr
                               key={vol.volumeId}
                               className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-indigo-50/40 dark:hover:bg-indigo-900/10 transition-colors cursor-pointer"
@@ -334,19 +353,21 @@ const EbsRightsizingPage: React.FC = () => {
                                 </div>
                               </td>
                               <td className="px-5 py-3 text-center">
-                                {vol.attached && vol.instanceId ? (
+                                {vol.recommendation !== 'NONE' && vol.recommendation !== 'DELETE_UNATTACHED' ? (
                                   <button
-                                    onClick={() => setShrinkTarget({
+                                    onClick={() => setGuideTarget({
                                       volumeId: vol.volumeId,
                                       region: vol.region,
-                                      instanceId: vol.instanceId!,
+                                      instanceId: vol.instanceId ?? undefined,
                                       currentSizeGb: vol.sizeGb,
+                                      recommendedSizeGb: vol.recommendedSizeGb,
+                                      recommendation: vol.recommendation as 'SHRINK' | 'EXPAND',
                                       isRootVolume: vol.isRootVolume,
+                                      volumeType: vol.volumeType,
                                     })}
-                                    className="px-2.5 py-1 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-xs font-medium transition-colors"
-                                    title={vol.isRootVolume ? 'Migrate root volume to a smaller EBS (requires instance stop)' : 'Shrink volume size'}
+                                    className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium transition-colors"
                                   >
-                                    {vol.isRootVolume ? <><i className="fas fa-exchange-alt mr-1" />Migrate</> : 'Shrink'}
+                                    <i className="fas fa-book-open mr-1" />How to fix
                                   </button>
                                 ) : (
                                   <span className="text-xs text-gray-300 dark:text-gray-600">—</span>
@@ -359,18 +380,18 @@ const EbsRightsizingPage: React.FC = () => {
                           <tr className="bg-gray-50 dark:bg-gray-800/80 border-t border-gray-200 dark:border-gray-700">
                             <td colSpan={3} className="px-5 py-3 text-sm font-semibold text-gray-600 dark:text-gray-400">Total</td>
                             <td className="px-5 py-3 text-right text-sm font-bold text-gray-800 dark:text-gray-200">
-                              {volumes.reduce((s, v) => s + v.sizeGb, 0)} GB
-                              {volumes.some(v => v.usedGb !== undefined) && (
+                              {filteredVolumes.reduce((s, v) => s + v.sizeGb, 0)} GB
+                              {filteredVolumes.some(v => v.usedGb !== undefined) && (
                                 <div className="text-xs font-normal text-gray-400 mt-0.5">
-                                  {volumes.reduce((s, v) => s + (v.usedGb ?? 0), 0).toFixed(1)} GB used
+                                  {filteredVolumes.reduce((s, v) => s + (v.usedGb ?? 0), 0).toFixed(1)} GB used
                                 </div>
                               )}
                             </td>
                             <td colSpan={2} className="px-5 py-3 text-xs text-gray-500 dark:text-gray-400">
-                              {volumes.filter(v => v.attached).length} attached · {volumes.filter(v => !v.attached).length} unattached
+                              {filteredVolumes.filter(v => v.attached).length} attached · {filteredVolumes.filter(v => !v.attached).length} unattached
                             </td>
                             <td className="px-5 py-3 text-right text-sm font-bold text-gray-800 dark:text-gray-200">
-                              ${volumes.reduce((s, v) => s + v.monthlyCost, 0).toFixed(2)}/mo
+                              ${filteredVolumes.reduce((s, v) => s + v.monthlyCost, 0).toFixed(2)}/mo
                             </td>
                             <td /><td />
                           </tr>
@@ -443,36 +464,40 @@ const EbsRightsizingPage: React.FC = () => {
                               )}
                             </td>
                             <td className="px-5 py-3 text-center">
-                              {vol.recommendation === 'SHRINK' ? (
-                                vol.instanceId ? (
-                                  <button
-                                    onClick={() => setShrinkTarget({
-                                      volumeId: vol.volumeId,
-                                      region: vol.region,
-                                      instanceId: vol.instanceId!,
-                                      currentSizeGb: vol.sizeGb,
-                                      isRootVolume: vol.isRootVolume,
-                                    })}
-                                    className="px-3 py-1.5 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-xs font-medium transition-colors"
-                                  >
-                                    <i className={`fas ${vol.isRootVolume ? 'fa-exchange-alt' : 'fa-compress-arrows-alt'} mr-1`} />
-                                    {vol.isRootVolume ? 'Migrate' : 'Shrink'}
-                                  </button>
-                                ) : <span className="text-xs text-gray-400">No instance</span>
+                              {vol.recommendation === 'DELETE_UNATTACHED' ? (
+                                <button
+                                  onClick={() => handleApply(vol)}
+                                  disabled={applyingId === vol.volumeId}
+                                  className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-medium transition-colors disabled:opacity-50"
+                                >
+                                  {applyingId === vol.volumeId
+                                    ? <><i className="fas fa-spinner fa-spin mr-1" />Deleting…</>
+                                    : <><i className="fas fa-trash-alt mr-1" />Delete</>}
+                                </button>
+                              ) : (vol.recommendation === 'SHRINK' || vol.recommendation === 'EXPAND') ? (
+                                <button
+                                  onClick={() => setGuideTarget({
+                                    volumeId: vol.volumeId,
+                                    region: vol.region,
+                                    instanceId: vol.instanceId ?? undefined,
+                                    currentSizeGb: vol.sizeGb,
+                                    recommendedSizeGb: vol.recommendedSizeGb,
+                                    recommendation: vol.recommendation as 'SHRINK' | 'EXPAND',
+                                    isRootVolume: vol.isRootVolume,
+                                    volumeType: vol.volumeType,
+                                  })}
+                                  className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium transition-colors"
+                                >
+                                  <i className="fas fa-book-open mr-1" />How to fix
+                                </button>
                               ) : (
                                 <button
                                   onClick={() => handleApply(vol)}
                                   disabled={applyingId === vol.volumeId}
-                                  className={`px-3 py-1.5 rounded-lg text-white text-xs font-medium transition-colors disabled:opacity-50 ${
-                                    vol.recommendation === 'DELETE_UNATTACHED' ? 'bg-red-600 hover:bg-red-700' :
-                                    vol.recommendation === 'EXPAND'            ? 'bg-amber-600 hover:bg-amber-700' :
-                                    'bg-indigo-600 hover:bg-indigo-700'
-                                  }`}
+                                  className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium transition-colors disabled:opacity-50"
                                 >
                                   {applyingId === vol.volumeId
                                     ? <><i className="fas fa-spinner fa-spin mr-1" />Applying…</>
-                                    : vol.recommendation === 'DELETE_UNATTACHED' ? <><i className="fas fa-trash-alt mr-1" />Delete</>
-                                    : vol.recommendation === 'EXPAND'            ? <><i className="fas fa-expand-arrows-alt mr-1" />Expand</>
                                     : <><i className="fas fa-arrow-up mr-1" />Apply</>}
                                 </button>
                               )}
@@ -560,26 +585,14 @@ const EbsRightsizingPage: React.FC = () => {
         )}
       </div>
 
-      {/* Shrink Modal */}
-      {shrinkTarget && (
-        <ShrinkModal
-          target={shrinkTarget}
-          onClose={() => setShrinkTarget(null)}
-          onSubmit={async (mountPoint, targetSizeGb) => {
-            const result = await initiateDownsize(
-              shrinkTarget.volumeId, shrinkTarget.region,
-              shrinkTarget.instanceId, mountPoint, targetSizeGb
-            );
-            setShrinkTarget(null);
-            if (result.success) {
-              setActionMsg({ type: 'success', text: result.message });
-              setActiveTab('actions');
-            } else {
-              setActionMsg({ type: 'error', text: result.error });
-            }
-          }}
+      {/* Guide Modal */}
+      {guideTarget && (
+        <GuideModal
+          target={guideTarget}
+          onClose={() => setGuideTarget(null)}
         />
       )}
+
       {/* Volume Monitoring Drawer */}
       {selectedAccountId && (
         <EbsVolumeMonitoringDrawer
@@ -886,7 +899,7 @@ const RoiCalculator: React.FC<{
 
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Data Growth Rate: <span className="font-bold text-indigo-600">{growthRatePct}%</span>
+            Data Growth Rate (per year): <span className="font-bold text-indigo-600">{growthRatePct}%</span>
           </label>
           <input type="range" min={0} max={100} value={growthRatePct}
             onChange={e => setGrowthRatePct(+e.target.value)}
@@ -937,22 +950,36 @@ const RoiCalculator: React.FC<{
               </div>
             </div>
 
-            <div className="rounded-xl bg-indigo-50 dark:bg-indigo-900/20 p-4 text-center">
-              <div className="text-xs text-indigo-600 dark:text-indigo-400 font-medium">Monthly Savings</div>
-              <div className="text-3xl font-bold text-indigo-700 dark:text-indigo-300 mt-1">
-                ${result.monthlySavings.toFixed(2)}
+            {result.monthlySavings >= 0 ? (
+              <div className="rounded-xl bg-indigo-50 dark:bg-indigo-900/20 p-4 text-center">
+                <div className="text-xs text-indigo-600 dark:text-indigo-400 font-medium">Monthly Savings</div>
+                <div className="text-3xl font-bold text-indigo-700 dark:text-indigo-300 mt-1">
+                  ${result.monthlySavings.toFixed(2)}
+                </div>
+                <div className="text-sm text-indigo-600 dark:text-indigo-400 mt-0.5">{result.savingsPct.toFixed(1)}% reduction</div>
               </div>
-              <div className="text-sm text-indigo-600 dark:text-indigo-400 mt-0.5">{result.savingsPct.toFixed(1)}% reduction</div>
-            </div>
+            ) : (
+              <div className="rounded-xl bg-amber-50 dark:bg-amber-900/20 p-4 text-center">
+                <div className="text-xs text-amber-600 dark:text-amber-400 font-medium">Monthly Cost Increase</div>
+                <div className="text-3xl font-bold text-amber-700 dark:text-amber-300 mt-1">
+                  +${Math.abs(result.monthlySavings).toFixed(2)}
+                </div>
+                <div className="text-sm text-amber-600 dark:text-amber-400 mt-0.5">Volume needs to grow due to high growth rate</div>
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-3">
               <div className="rounded-xl border border-gray-200 dark:border-gray-700 p-3 text-center">
-                <div className="text-xs text-gray-500 dark:text-gray-400">1 Year Savings</div>
-                <div className="text-xl font-bold text-gray-800 dark:text-gray-200">${result.firstYearSavings.toFixed(2)}</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400">{result.monthlySavings >= 0 ? '1 Year Savings' : '1 Year Cost Increase'}</div>
+                <div className={`text-xl font-bold ${result.firstYearSavings >= 0 ? 'text-gray-800 dark:text-gray-200' : 'text-amber-600 dark:text-amber-400'}`}>
+                  {result.firstYearSavings >= 0 ? '$' : '+$'}{Math.abs(result.firstYearSavings).toFixed(2)}
+                </div>
               </div>
               <div className="rounded-xl border border-gray-200 dark:border-gray-700 p-3 text-center">
-                <div className="text-xs text-gray-500 dark:text-gray-400">5 Year Savings</div>
-                <div className="text-xl font-bold text-gray-800 dark:text-gray-200">${result.fiveYearSavings.toFixed(2)}</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400">{result.monthlySavings >= 0 ? '5 Year Savings' : '5 Year Cost Increase'}</div>
+                <div className={`text-xl font-bold ${result.fiveYearSavings >= 0 ? 'text-gray-800 dark:text-gray-200' : 'text-amber-600 dark:text-amber-400'}`}>
+                  {result.fiveYearSavings >= 0 ? '$' : '+$'}{Math.abs(result.fiveYearSavings).toFixed(2)}
+                </div>
               </div>
             </div>
 
@@ -966,132 +993,144 @@ const RoiCalculator: React.FC<{
   );
 };
 
-const ShrinkModal: React.FC<{
-  target: ShrinkTarget;
+const GuideModal: React.FC<{
+  target: GuideTarget;
   onClose: () => void;
-  onSubmit: (mountPoint: string, targetSizeGb: number) => Promise<void>;
-}> = ({ target, onClose, onSubmit }) => {
-  const [mountPoint, setMountPoint] = useState(target.isRootVolume ? '/' : '/data');
-  const [targetSizeGb, setTargetSizeGb] = useState(Math.ceil(target.currentSizeGb * 0.4));
-  const [submitting, setSubmitting] = useState(false);
+}> = ({ target, onClose }) => {
+  const [copiedStep, setCopiedStep] = React.useState<number | null>(null);
+  const targetSize = target.recommendedSizeGb ?? Math.ceil(target.currentSizeGb * 0.6);
 
-  const handleSubmit = async () => {
-    setSubmitting(true);
-    await onSubmit(mountPoint, targetSizeGb);
-    setSubmitting(false);
+  const copy = (text: string, step: number) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedStep(step);
+      setTimeout(() => setCopiedStep(null), 2000);
+    });
   };
 
+  const isShrink = target.recommendation === 'SHRINK';
+
+  const shrinkSteps = [
+    {
+      label: 'Create a snapshot (safety backup)',
+      cmd: `aws ec2 create-snapshot --volume-id ${target.volumeId} --description "pre-shrink-backup" --region ${target.region}`,
+    },
+    {
+      label: `Create a new ${targetSize}GB volume in the same Availability Zone`,
+      cmd: `aws ec2 create-volume --size ${targetSize} --availability-zone <your-az> --volume-type ${target.volumeType ?? 'gp3'} --region ${target.region}`,
+    },
+    {
+      label: 'Attach the new volume to your instance',
+      cmd: `aws ec2 attach-volume --volume-id <new-vol-id> --instance-id ${target.instanceId ?? '<instance-id>'} --device /dev/xvdz --region ${target.region}`,
+    },
+    {
+      label: 'SSH into the instance — format, mount, and copy data',
+      cmd: [
+        'sudo mkfs.ext4 /dev/xvdz',
+        'sudo mkdir -p /mnt/new_vol',
+        'sudo mount /dev/xvdz /mnt/new_vol',
+        'sudo rsync -axHAX <mount-point>/ /mnt/new_vol/',
+      ].join('\n'),
+    },
+    {
+      label: 'Swap mounts and update /etc/fstab',
+      cmd: [
+        'NEW_UUID=$(sudo blkid -s UUID -o value /dev/xvdz)',
+        'sudo umount <mount-point>',
+        'sudo umount /mnt/new_vol',
+        'sudo mount /dev/xvdz <mount-point>',
+        `sudo sed -i '/<mount-point>/d' /etc/fstab`,
+        'echo "UUID=$NEW_UUID <mount-point> ext4 defaults,nofail 0 2" | sudo tee -a /etc/fstab',
+      ].join('\n'),
+    },
+    {
+      label: 'Detach the old volume',
+      cmd: `aws ec2 detach-volume --volume-id ${target.volumeId} --region ${target.region}`,
+    },
+  ];
+
+  const expandSteps = [
+    {
+      label: `Modify volume size to ${targetSize}GB`,
+      cmd: `aws ec2 modify-volume --volume-id ${target.volumeId} --size ${targetSize} --region ${target.region}`,
+    },
+    {
+      label: 'Wait for modification to complete (~1–2 min)',
+      cmd: `aws ec2 describe-volumes-modifications --volume-ids ${target.volumeId} --region ${target.region} --query 'VolumesModifications[0].ModificationState'`,
+    },
+    {
+      label: 'SSH into the instance — grow partition and resize filesystem',
+      cmd: [
+        '# For xvda root volume:',
+        'sudo growpart /dev/xvda 1',
+        'sudo resize2fs /dev/xvda1    # ext4',
+        '# OR: sudo xfs_growfs /      # xfs (Amazon Linux 2)',
+      ].join('\n'),
+    },
+  ];
+
+  const steps = isShrink ? shrinkSteps : expandSteps;
+
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-lg p-6">
-        <div className="flex items-center justify-between mb-5">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
           <div>
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white">
-              {target.isRootVolume ? 'Migrate Root Volume' : 'Shrink Data Volume'}
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
+              <i className={`fas ${isShrink ? 'fa-compress-arrows-alt text-orange-500' : 'fa-expand-arrows-alt text-amber-500'}`} />
+              {isShrink ? 'How to Shrink This Volume' : 'How to Expand This Volume'}
             </h3>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 font-mono">{target.volumeId}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 font-mono">{target.volumeId} · {target.currentSizeGb}GB → {targetSize}GB · {target.region}</p>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-1">
             <i className="fas fa-times text-lg" />
           </button>
         </div>
 
-        {/* Root volume extra warning */}
-        {target.isRootVolume && (
-          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-3 mb-3 flex gap-3">
-            <i className="fas fa-server text-red-500 mt-0.5 flex-shrink-0" />
-            <div className="text-xs text-red-700 dark:text-red-300 space-y-1">
-              <p><strong>Root Volume Migration:</strong> A new smaller EBS volume will be created, data will be copied via rsync, then the instance will be stopped and root device swapped. The instance <strong>must be stoppable</strong>.</p>
-              <p>Set mount point to <code className="bg-red-100 dark:bg-red-900/40 px-1 rounded">/</code> for the root filesystem.</p>
+        <div className="p-6 space-y-4">
+          {/* Warning banner */}
+          {isShrink && (
+            <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-3 flex gap-2 text-xs text-amber-800 dark:text-amber-300">
+              <i className="fas fa-exclamation-triangle mt-0.5 flex-shrink-0" />
+              <span>AWS does not support shrinking volumes in-place. You must create a new volume, copy data, then swap. Take a snapshot first — data loss is possible if interrupted.</span>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Warning */}
-        <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-xl p-3 mb-5 flex gap-3">
-          <i className="fas fa-exclamation-triangle text-orange-500 mt-0.5 flex-shrink-0" />
-          <div className="text-xs text-orange-700 dark:text-orange-300 space-y-1">
-            <p><strong>Prerequisites:</strong></p>
-            <ul className="list-disc list-inside space-y-0.5">
-              <li>SSM Agent must be running on the instance</li>
-              <li>Target size must exceed actual used disk space</li>
-              <li>{target.isRootVolume ? 'Instance will be stopped during root device swap' : '~5 seconds of app downtime during final swap'}</li>
-              <li>A snapshot will be created for rollback before any changes</li>
-            </ul>
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4 p-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl text-sm">
-            <div>
-              <div className="text-xs text-gray-500 dark:text-gray-400">Current Size</div>
-              <div className="font-bold text-gray-800 dark:text-gray-200">{target.currentSizeGb} GB</div>
-            </div>
-            <div>
-              <div className="text-xs text-gray-500 dark:text-gray-400">Instance</div>
-              <div className="font-mono text-xs text-gray-800 dark:text-gray-200">{target.instanceId}</div>
-            </div>
+          {/* Steps */}
+          <div className="space-y-3">
+            {steps.map((step, i) => (
+              <div key={i} className="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+                <div className="flex items-center gap-2 px-4 py-2 bg-gray-50 dark:bg-gray-700/50">
+                  <span className="w-5 h-5 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">{i + 1}</span>
+                  <span className="text-xs font-medium text-gray-700 dark:text-gray-300">{step.label}</span>
+                </div>
+                <div className="relative bg-gray-900 px-4 py-3">
+                  <pre className="text-xs text-green-300 font-mono whitespace-pre-wrap break-all pr-16">{step.cmd}</pre>
+                  <button
+                    onClick={() => copy(step.cmd, i)}
+                    className="absolute top-2 right-2 px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-gray-300 text-xs transition-colors"
+                  >
+                    {copiedStep === i ? <><i className="fas fa-check mr-1 text-green-400" />Copied</> : <><i className="fas fa-copy mr-1" />Copy</>}
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Mount Point
-            </label>
-            <input
-              type="text"
-              value={mountPoint}
-              onChange={e => setMountPoint(e.target.value)}
-              placeholder="/data"
-              className="w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm font-mono focus:outline-none focus:ring-2 focus:ring-orange-500"
-            />
-            <p className="text-xs text-gray-400 mt-1">Where is this volume mounted on the instance?</p>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Target Size: <span className="font-bold text-orange-600">{targetSizeGb} GB</span>
-              <span className="text-xs text-gray-400 ml-2">
-                (saving {target.currentSizeGb - targetSizeGb} GB)
-              </span>
-            </label>
-            <input
-              type="range"
-              min={10}
-              max={target.currentSizeGb - 1}
-              value={targetSizeGb}
-              onChange={e => setTargetSizeGb(+e.target.value)}
-              className="w-full accent-orange-500"
-            />
-            <div className="flex justify-between text-xs text-gray-400 mt-1">
-              <span>10 GB (min)</span>
-              <span>{target.currentSizeGb - 1} GB (max)</span>
-            </div>
-          </div>
-
-          <div className="bg-green-50 dark:bg-green-900/20 rounded-xl p-3 text-sm">
-            <div className="flex justify-between">
-              <span className="text-gray-600 dark:text-gray-400">Estimated monthly savings:</span>
+          {/* Savings note */}
+          {isShrink && (
+            <div className="flex items-center justify-between bg-green-50 dark:bg-green-900/20 rounded-xl px-4 py-3 text-sm">
+              <span className="text-gray-600 dark:text-gray-400">Estimated savings after shrink:</span>
               <span className="font-bold text-green-600 dark:text-green-400">
-                ${((target.currentSizeGb - targetSizeGb) * 0.08).toFixed(2)}/mo
+                ~${((target.currentSizeGb - targetSize) * 0.08).toFixed(2)}/mo
               </span>
             </div>
-            <div className="flex justify-between mt-1">
-              <span className="text-gray-600 dark:text-gray-400">Expected downtime:</span>
-              <span className="font-medium text-gray-700 dark:text-gray-300">~5 seconds</span>
-            </div>
-          </div>
+          )}
         </div>
 
-        <div className="flex gap-3 mt-6">
-          <button onClick={onClose}
-            className="flex-1 px-4 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-            Cancel
-          </button>
-          <button onClick={handleSubmit} disabled={submitting}
-            className="flex-1 px-4 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium transition-colors disabled:opacity-60">
-            {submitting
-              ? <><i className="fas fa-spinner fa-spin mr-2" />Initiating...</>
-              : <>Confirm Shrink ({target.currentSizeGb}GB → {targetSizeGb}GB)</>}
+        <div className="px-6 pb-6">
+          <button onClick={onClose} className="w-full px-4 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+            Close
           </button>
         </div>
       </div>

@@ -313,8 +313,8 @@ public class EbsDiskRightsizingService {
         double targetUtilization = 0.75;
         double targetGb = Math.max(10, usedGb / targetUtilization * (1 + growthRatePct / 100.0));
 
-        // Always recommend gp3 if not already
-        String recommendedType = diskType.equals("gp3") ? "gp3" : "gp3";
+        // Always recommend gp3 (cheapest general-purpose type)
+        String recommendedType = "gp3";
         double newCostPerMonth = calcMonthlyCost(recommendedType, (int) targetGb);
 
         double monthlySavings = currentCostPerMonth - newCostPerMonth;
@@ -919,7 +919,11 @@ public class EbsDiskRightsizingService {
                                              Set<String> instanceIds) {
         Set<String> noAgentData = new HashSet<>(instanceIds);
         String awsAccountId = account.getAwsAccountId();
-        if (awsAccountId == null) return noAgentData;
+        logger.info("[disk-agent-debug] enrichFromDiskAgent called, awsAccountId={}, instanceIds={}", awsAccountId, instanceIds);
+        if (awsAccountId == null) {
+            logger.warn("[disk-agent-debug] awsAccountId is null — skipping agent enrichment");
+            return noAgentData;
+        }
 
         for (Map<String, Object> vol : volumes) {
             String instanceId = (String) vol.get("instanceId");
@@ -929,24 +933,50 @@ public class EbsDiskRightsizingService {
             String cacheKey = "ebs-disk-agent:" + awsAccountId + ":" + instanceId;
             Optional<List<Map<String, Object>>> agentData = redisCacheService.get(
                     cacheKey, new TypeReference<List<Map<String, Object>>>() {});
+            logger.info("[disk-agent-debug] key={} found={}", cacheKey, agentData.isPresent());
             if (agentData.isEmpty()) continue;
 
+            String volVolumeId = (String) vol.get("volumeId");
             String baseDevice = device.replaceAll("^/dev/", "");
+            boolean isRootVol = Boolean.TRUE.equals(vol.get("isRootVolume"));
+
+            // Find best matching mount from agent data
+            Map<String, Object> bestMount = null;
             for (Map<String, Object> mount : agentData.get()) {
-                String mountDevice = (String) mount.get("device");
-                if (mountDevice == null) continue;
-                String baseMountDevice = mountDevice.replaceAll("^/dev/", "");
-                if (baseMountDevice.startsWith(baseDevice) || baseDevice.startsWith(baseMountDevice)) {
-                    Number usedPct = (Number) mount.get("usedPercent");
-                    if (usedPct != null) {
-                        int sizeGb = ((Number) vol.get("sizeGb")).intValue();
-                        double up = usedPct.doubleValue();
-                        vol.put("usedPercent", Math.round(up * 10.0) / 10.0);
-                        vol.put("usedGb",  Math.round(sizeGb * up / 100.0 * 100.0) / 100.0);
-                        vol.put("freeGb",  Math.round(sizeGb * (1 - up / 100.0) * 100.0) / 100.0);
-                        noAgentData.remove(instanceId);
-                    }
+                // 1. volumeId match (most reliable when NVMe serial is readable)
+                String mountVolumeId = (String) mount.get("volumeId");
+                if (volVolumeId != null && !volVolumeId.isEmpty()
+                        && mountVolumeId != null && volVolumeId.equals(mountVolumeId)) {
+                    bestMount = mount;
                     break;
+                }
+                // 2. Device prefix match (Xen/xvd* devices)
+                String mountDevice = (String) mount.get("device");
+                String baseMountDevice = mountDevice != null ? mountDevice.replaceAll("^/dev/", "") : "";
+                if (!baseMountDevice.isEmpty() && !baseMountDevice.equals("root") &&
+                        (baseMountDevice.startsWith(baseDevice) || baseDevice.startsWith(baseMountDevice))) {
+                    bestMount = mount;
+                    break;
+                }
+                // 3. Root volume fallback: use the "/" mount point
+                // (handles Ubuntu where root is /dev/root symlink, or NVMe where serial is unreadable)
+                String mountPoint = (String) mount.get("mountPoint");
+                if (isRootVol && "/".equals(mountPoint) && bestMount == null) {
+                    bestMount = mount;
+                    // don't break — keep looking for a better volumeId/device match
+                }
+            }
+
+            if (bestMount != null) {
+                Number usedPct = (Number) bestMount.get("usedPercent");
+                if (usedPct != null) {
+                    int sizeGb = ((Number) vol.get("sizeGb")).intValue();
+                    double up = usedPct.doubleValue();
+                    vol.put("usedPercent", Math.round(up * 10.0) / 10.0);
+                    vol.put("usedGb",  Math.round(sizeGb * up / 100.0 * 100.0) / 100.0);
+                    vol.put("freeGb",  Math.round(sizeGb * (1 - up / 100.0) * 100.0) / 100.0);
+                    noAgentData.remove(instanceId);
+                    logger.info("[disk-agent-debug] matched vol={} instance={} usedPct={}", vol.get("volumeId"), instanceId, up);
                 }
             }
         }

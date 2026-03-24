@@ -604,6 +604,7 @@ public class AgentController {
             for (Map.Entry<String, List<Map<String, Object>>> entry : byInstance.entrySet()) {
                 String cacheKey = DISK_AGENT_KEY_PREFIX + cloudAccountId + ":" + entry.getKey();
                 redisCacheService.put(cacheKey, entry.getValue(), DISK_AGENT_TTL_MINUTES);
+                logger.info("[disk-agent] STORED key={} mounts={}", cacheKey, entry.getValue().size());
                 logger.debug("[disk-agent] cached {} mounts for instance {} account {}",
                         entry.getValue().size(), entry.getKey(), cloudAccountId);
             }
