@@ -67,6 +67,11 @@ public class SecurityConfig {
                                                                 "/api/xamops/cloudguard/grafana-ingest", "POST"))
                                                 .permitAll()
 
+                                                // EventBridge auto-connect callback — called by Lambda, no session
+                                                .requestMatchers(new AntPathRequestMatcher(
+                                                                "/api/xamops/account-manager/eventbridge-callback", "POST"))
+                                                .permitAll()
+
                                                 // Disk agent install script and binary downloads — public so EC2 instances can download without auth
                                                 .requestMatchers(new AntPathRequestMatcher("/agentinstall/agent_install.sh")).permitAll()
                                                 .requestMatchers(new AntPathRequestMatcher("/agent/download/**")).permitAll()
@@ -163,6 +168,8 @@ public class SecurityConfig {
                                                                 new AntPathRequestMatcher("/api/karpenter/**"),
 
                                                                 new AntPathRequestMatcher("/api/autospotting/**"),
+                                                                new AntPathRequestMatcher("/api/azure/autospotting/**"),
+                                                                new AntPathRequestMatcher("/api/gcp/autospotting/**"),
                                                                 new AntPathRequestMatcher("/api/flexcompute/**"),
                                                                 new AntPathRequestMatcher("/api/dev_ops_script/**"),
                                                                 // ✅ TEAM CODE: Preserved AWS Calculator API

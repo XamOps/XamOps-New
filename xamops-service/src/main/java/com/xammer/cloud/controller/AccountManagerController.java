@@ -71,11 +71,31 @@ public class AccountManagerController {
                     request.getAwsAccountId(), request.getAccessType(), clientId);
             Map<String, String> stackDetails = Map.of(
                     "url", result.get("url").toString(),
-                    "externalId", result.get("externalId").toString());
+                    "externalId", result.get("externalId").toString(),
+                    "eventBridgeEnabled", result.get("eventBridgeEnabled").toString());
             return ResponseEntity.ok(stackDetails);
         } catch (Exception e) {
             return ResponseEntity.badRequest()
                     .body(Map.of("error", "Could not generate CloudFormation URL", "message", e.getMessage()));
+        }
+    }
+
+    @PostMapping("/eventbridge-callback")
+    public ResponseEntity<?> eventBridgeCallback(@RequestBody Map<String, String> payload) {
+        String externalId = payload.get("externalId");
+        String awsAccountId = payload.get("awsAccountId");
+        String roleArn = payload.get("roleArn");
+        if (externalId == null || awsAccountId == null || roleArn == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Missing required fields: externalId, awsAccountId, roleArn"));
+        }
+        try {
+            awsAccountService.connectViaCallback(externalId, awsAccountId, roleArn);
+            logger.info("EventBridge callback succeeded for externalId={}", externalId);
+            return ResponseEntity.ok(Map.of("message", "Account connected successfully"));
+        } catch (Exception e) {
+            logger.error("EventBridge callback failed for externalId={}: {}", externalId, e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", e.getMessage()));
         }
     }
 

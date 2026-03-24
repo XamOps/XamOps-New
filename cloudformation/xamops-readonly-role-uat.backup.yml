@@ -1,0 +1,430 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  XamOps Read-Only Access Stack: Creates a secure, read-only IAM Role for the XamOps platform
+  to monitor this AWS account. Automatically notifies XamOps via EventBridge when setup is complete.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "XamOps Platform Configuration"
+        Parameters:
+          - XamOpsAccountId
+          - ExternalId
+          - XamOpsEventBusArn
+      - Label:
+          default: "Amazon EKS Configuration"
+        Parameters:
+          - EKSClusterNames
+    ParameterLabels:
+      XamOpsAccountId:
+        default: "XamOps AWS Account ID"
+      ExternalId:
+        default: "Unique External ID"
+      XamOpsEventBusArn:
+        default: "XamOps EventBridge Bus ARN"
+      EKSClusterNames:
+        default: "EKS Cluster Names (Optional)"
+
+Parameters:
+  XamOpsAccountId:
+    Type: String
+    Description: The 12-digit AWS Account ID for the XamOps platform. Provided by XamOps.
+    AllowedPattern: '^\d{12}$'
+    ConstraintDescription: Must be a 12-digit AWS Account ID.
+
+  ExternalId:
+    Type: String
+    Description: A unique secret value provided by XamOps to secure the connection.
+    MinLength: 10
+
+  XamOpsEventBusArn:
+    Type: String
+    Description: ARN of the XamOps EventBridge custom bus that receives the connection confirmation.
+    Default: 'arn:aws:events:ap-south-1:605134457560:event-bus/xamops-onboarding-events'
+
+  EKSClusterNames:
+    Type: CommaDelimitedList
+    Description: (Optional) Comma-separated list of EKS cluster names.
+    Default: ""
+
+Resources:
+  # =================================================================
+  # 1. IAM Role for XamOps Platform to Assume
+  # =================================================================
+  XamOpsReadOnlyRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'XamOpsReadOnlyRole-${AWS::AccountId}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${XamOpsAccountId}:role/XamOps-App-EC2-Role'
+            Action: 'sts:AssumeRole'
+            Condition:
+              StringEquals:
+                'sts:ExternalId': !Ref ExternalId
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/ReadOnlyAccess
+      Policies:
+        - PolicyName: XamOpsComprehensiveReadOnlyPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: 'XamOpsApplicationPermissions'
+                Effect: Allow
+                Action:
+                  - 'acm:ListCertificates'
+                  - 'access-analyzer:ListAnalyzers'
+                  - 'access-analyzer:ListFindings'
+                  - 'autoscaling:DescribeAutoScalingGroups'
+                  - 'budgets:ViewBudget'
+                  - 'budgets:ModifyBudget'
+                  - 'ce:GetAnomalies'
+                  - 'ce:GetCostAndUsage'
+                  - 'ce:GetDimensionValues'
+                  - 'ce:GetReservationCoverage'
+                  - 'ce:GetReservationPurchaseRecommendation'
+                  - 'ce:GetReservationUtilization'
+                  - 'cloudtrail:DescribeTrails'
+                  - 'cloudtrail:GetTrailStatus'
+                  - 'cloudtrail:LookupEvents'
+                  - 'cloudwatch:DescribeAlarms'
+                  - 'cloudwatch:GetMetricData'
+                  - 'cloudwatch:GetMetricStatistics'
+                  - 'compute-optimizer:GetEBSVolumeRecommendations'
+                  - 'compute-optimizer:GetEc2InstanceRecommendations'
+                  - 'compute-optimizer:GetLambdaFunctionRecommendations'
+                  - 'dynamodb:DescribeTable'
+                  - 'dynamodb:ListTables'
+                  - 'ec2:Describe*'
+                  - 'ecr:DescribeRepositories'
+                  - 'ecs:DescribeClusters'
+                  - 'ecs:ListClusters'
+                  - 'eks:DescribeCluster'
+                  - 'eks:ListClusters'
+                  - 'elasticache:DescribeCacheClusters'
+                  - 'elasticloadbalancing:DescribeLoadBalancers'
+                  - 'elasticloadbalancing:DescribeTargetGroups'
+                  - 'elasticloadbalancing:DescribeTargetHealth'
+                  - 'iam:GetAccountPasswordPolicy'
+                  - 'iam:GetLoginProfile'
+                  - 'iam:GetPolicyVersion'
+                  - 'iam:GetRole'
+                  - 'iam:ListAccessKeys'
+                  - 'iam:ListAccountAliases'
+                  - 'iam:ListGroups'
+                  - 'iam:ListMFADevices'
+                  - 'iam:ListPolicies'
+                  - 'iam:ListRoles'
+                  - 'iam:ListUsers'
+                  - 'kms:DescribeKey'
+                  - 'kms:GetKeyRotationStatus'
+                  - 'kms:ListKeys'
+                  - 'lambda:ListFunctions'
+                  - 'lambda:ListProvisionedConcurrencyConfigs'
+                  - 'lambda:ListVersionsByFunction'
+                  - 'logs:DescribeLogGroups'
+                  - 'logs:DescribeLogStreams'
+                  - 'logs:GetQueryResults'
+                  - 'logs:StartQuery'
+                  - 'organizations:DescribeAccount'
+                  - 'organizations:ListAccounts'
+                  - 'pricing:DescribeServices'
+                  - 'pricing:GetProducts'
+                  - 'pricing:ListPriceLists'
+                  - 'rds:DescribeDBInstances'
+                  - 'rds:DescribeDBSnapshots'
+                  - 'rds:ListTagsForResource'
+                  - 'route53:ListHostedZones'
+                  - 's3:GetBucketAcl'
+                  - 's3:GetBucketLocation'
+                  - 's3:GetBucketPublicAccessBlock'
+                  - 's3:GetLifecycleConfiguration'
+                  - 's3:ListAccessGrantsInstances'
+                  - 's3:ListAccessGrantsLocations'
+                  - 's3:ListAllMyBuckets'
+                  - 's3:ListBucket'
+                  - 's3:ListBucketVersions'
+                  - 's3:ListMultiRegionAccessPoints'
+                  - 'servicequotas:ListServiceQuotas'
+                  - 'sns:ListTopics'
+                  - 'sqs:GetQueueAttributes'
+                  - 'sqs:ListQueues'
+                  - 'sts:GetCallerIdentity'
+                Resource: '*'
+
+  # =================================================================
+  # 2. IAM Role for the EKS Automation Lambda
+  # =================================================================
+  ConfigMapLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: EKSDescribeAndModifyAuthConfigMapPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: 'eks:DescribeCluster'
+                Resource: !Sub 'arn:aws:eks:${AWS::Region}:${AWS::AccountId}:cluster/*'
+              - Effect: Allow
+                Action: 'sts:GetCallerIdentity'
+                Resource: '*'
+
+  # =================================================================
+  # 3. Lambda to Update EKS aws-auth ConfigMap
+  # =================================================================
+  EKSAuthMapUpdaterFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.handler
+      Role: !GetAtt ConfigMapLambdaExecutionRole.Arn
+      Runtime: python3.12
+      Timeout: 300
+      Code:
+        ZipFile: |
+          import json
+          import logging
+          import cfnresponse
+          import boto3
+          import base64
+          import urllib3
+          import os
+          import time
+          from botocore.signers import RequestSigner
+
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
+          def get_bearer_token(cluster_name, region):
+              sts_client = boto3.client('sts', region_name=region)
+              service_id = sts_client.meta.service_model.service_id
+              signer = RequestSigner(
+                  service_id, region, 'sts', 'v4',
+                  boto3.Session().get_credentials(),
+                  boto3.Session().events
+              )
+              params = {
+                  'method': 'GET',
+                  'url': f'https://sts.{region}.amazonaws.com/?Action=GetCallerIdentity&Version=2011-06-15',
+                  'body': {},
+                  'headers': { 'x-k8s-aws-id': cluster_name },
+                  'context': {}
+              }
+              signed_url = signer.generate_presigned_url(
+                  params, region_name=region, expires_in=60, operation_name=''
+              )
+              base64_url = base64.urlsafe_b64encode(signed_url.encode('utf-8')).rstrip(b'=').decode('utf-8')
+              return 'k8s-aws-v1.' + base64_url
+
+          def handler(event, context):
+              request_type = event['RequestType']
+              props = event['ResourceProperties']
+              role_arn = props['RoleArn']
+              cluster_names = props['ClusterNames']
+              physical_resource_id = f"eks-auth-updater-{props.get('StackId', 'default')}"
+
+              try:
+                  if request_type == 'Delete':
+                      logger.info("Stack deletion triggered. No action taken on aws-auth ConfigMap.")
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, physical_resource_id)
+                      return
+
+                  if not cluster_names or not cluster_names[0]:
+                      logger.info("No EKS cluster names provided. Skipping ConfigMap update.")
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, physical_resource_id)
+                      return
+
+                  eks_client = boto3.client('eks')
+                  for cluster_name in cluster_names:
+                      cluster_name = cluster_name.strip()
+                      if not cluster_name: continue
+
+                      logger.info(f"Processing cluster: {cluster_name}")
+                      cluster_info = eks_client.describe_cluster(name=cluster_name)['cluster']
+                      endpoint = cluster_info['endpoint']
+                      ca_data_b64 = cluster_info['certificateAuthority']['data']
+                      region = cluster_info['arn'].split(':')[3]
+
+                      ca_cert_file = '/tmp/ca.crt'
+                      with open(ca_cert_file, 'wb') as f:
+                          f.write(base64.b64decode(ca_data_b64))
+
+                      token = get_bearer_token(cluster_name, region)
+                      http = urllib3.PoolManager(ca_certs=ca_cert_file)
+
+                      headers = {'Authorization': f'Bearer {token}'}
+                      get_url = f"{endpoint}/api/v1/namespaces/kube-system/configmaps/aws-auth"
+
+                      resp = http.request('GET', get_url, headers=headers)
+                      if resp.status != 200:
+                          raise Exception(f"Failed to get aws-auth ConfigMap for {cluster_name}: Status {resp.status} - {resp.data.decode('utf-8')}")
+
+                      cm = json.loads(resp.data.decode('utf-8'))
+                      map_roles_str = cm['data'].get('mapRoles', '[]')
+                      map_roles = json.loads(map_roles_str) if map_roles_str else []
+
+                      role_exists = any(entry.get('rolearn') == role_arn for entry in map_roles)
+
+                      if not role_exists:
+                          logger.info(f"Role ARN not found. Adding '{role_arn}' to ConfigMap for cluster '{cluster_name}'.")
+                          map_roles.append({
+                              'rolearn': role_arn,
+                              'username': 'xamops-monitoring-role:{{SessionName}}',
+                              'groups': ['system:viewers']
+                          })
+                          cm['data']['mapRoles'] = json.dumps(map_roles, indent=2)
+
+                          patch_headers = headers.copy()
+                          patch_headers['Content-Type'] = 'application/strategic-merge-patch+json'
+
+                          patch_payload = json.dumps({'data': cm['data']})
+                          patch_resp = http.request('PATCH', get_url, headers=patch_headers, body=patch_payload.encode('utf-8'))
+
+                          if patch_resp.status != 200:
+                              raise Exception(f"Failed to update aws-auth ConfigMap for {cluster_name}: Status {patch_resp.status} - {patch_resp.data.decode('utf-8')}")
+
+                          logger.info(f"Successfully added role to aws-auth ConfigMap for cluster {cluster_name}")
+                      else:
+                          logger.info(f"Role {role_arn} already exists in aws-auth ConfigMap for cluster {cluster_name}. No changes made.")
+
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, physical_resource_id)
+
+              except Exception as e:
+                  logger.error(f"Error processing EKS auth config: {e}", exc_info=True)
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {"Error": str(e)}, physical_resource_id)
+
+  # =================================================================
+  # 4. Custom Resource to Trigger EKS Lambda
+  # =================================================================
+  EKSAuthConfig:
+    Type: AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken: !GetAtt EKSAuthMapUpdaterFunction.Arn
+      RoleArn: !GetAtt XamOpsReadOnlyRole.Arn
+      ClusterNames: !Ref EKSClusterNames
+      StackId: !Ref AWS::StackId
+
+  # =================================================================
+  # 5. IAM Role for Auto-Callback Lambda (EventBridge PutEvents)
+  # =================================================================
+  AutoCallbackLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: XamOpsEventBridgePutEventsPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: 'events:PutEvents'
+                Resource: !Ref XamOpsEventBusArn
+
+  # =================================================================
+  # 6. Auto-Callback Lambda — sends EventBridge event when stack is ready
+  # =================================================================
+  AutoCallbackFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.handler
+      Role: !GetAtt AutoCallbackLambdaRole.Arn
+      Runtime: python3.12
+      Timeout: 60
+      Code:
+        ZipFile: |
+          import json
+          import logging
+          import cfnresponse
+          import boto3
+
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
+          def handler(event, context):
+              request_type = event['RequestType']
+              props = event['ResourceProperties']
+              physical_resource_id = 'xamops-auto-callback'
+
+              if request_type == 'Delete':
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, physical_resource_id)
+                  return
+
+              event_bus_arn = props['EventBusArn']
+              external_id = props['ExternalId']
+              aws_account_id = props['AwsAccountId']
+              role_arn = props['RoleArn']
+
+              detail = json.dumps({
+                  'externalId': external_id,
+                  'awsAccountId': aws_account_id,
+                  'roleArn': role_arn
+              })
+
+              try:
+                  # Extract region from bus ARN: arn:aws:events:<region>:<account>:event-bus/<name>
+                  bus_region = event_bus_arn.split(':')[3]
+                  eb = boto3.client('events', region_name=bus_region)
+                  response = eb.put_events(Entries=[{
+                      'Source': 'com.xamops.onboarding',
+                      'DetailType': 'AccountOnboardingComplete',
+                      'Detail': detail,
+                      'EventBusName': event_bus_arn
+                  }])
+
+                  failed = response.get('FailedEntryCount', 0)
+                  if failed > 0:
+                      logger.error(f"EventBridge PutEvents had {failed} failed entries: {response['Entries']}")
+                      # Still SUCCESS so stack doesn't roll back
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {
+                          'Error': f'{failed} entries failed'
+                      }, physical_resource_id)
+                  else:
+                      logger.info(f"EventBridge event sent for externalId={external_id}")
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {
+                          'EventId': response['Entries'][0].get('EventId', '')
+                      }, physical_resource_id)
+
+              except Exception as e:
+                  logger.error(f"EventBridge PutEvents failed: {str(e)}")
+                  # Still SUCCESS so stack doesn't roll back
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {
+                      'Error': str(e)
+                  }, physical_resource_id)
+
+  # =================================================================
+  # 7. Custom Resource to Trigger Auto-Callback
+  #    Runs AFTER EKSAuthConfig so role is fully ready
+  # =================================================================
+  XamOpsAutoCallback:
+    Type: AWS::CloudFormation::CustomResource
+    DependsOn: EKSAuthConfig
+    Properties:
+      ServiceToken: !GetAtt AutoCallbackFunction.Arn
+      EventBusArn: !Ref XamOpsEventBusArn
+      ExternalId: !Ref ExternalId
+      AwsAccountId: !Ref AWS::AccountId
+      RoleArn: !GetAtt XamOpsReadOnlyRole.Arn
+
+Outputs:
+  XamOpsRoleArn:
+    Description: The ARN of the IAM role created for the XamOps platform.
+    Value: !GetAtt XamOpsReadOnlyRole.Arn

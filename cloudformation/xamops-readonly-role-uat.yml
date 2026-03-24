@@ -48,6 +48,11 @@ Parameters:
     Description: (Optional) Comma-separated list of EKS cluster names.
     Default: ""
 
+  XamOpsCallbackUrl:
+    Type: String
+    Description: XamOps backend endpoint that receives the direct auto-connect callback.
+    Default: 'https://uat.xamops.com/api/xamops/account-manager/eventbridge-callback'
+
 Resources:
   # =================================================================
   # 1. IAM Role for XamOps Platform to Assume
@@ -55,7 +60,7 @@ Resources:
   XamOpsReadOnlyRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub 'XamOpsReadOnlyRole-${AWS::AccountId}'
+      RoleName: 'XamOpsReadOnlyRole-uat'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -355,6 +360,7 @@ Resources:
           import logging
           import cfnresponse
           import boto3
+          import urllib3
 
           logger = logging.getLogger()
           logger.setLevel(logging.INFO)
@@ -372,6 +378,7 @@ Resources:
               external_id = props['ExternalId']
               aws_account_id = props['AwsAccountId']
               role_arn = props['RoleArn']
+              callback_url = props.get('CallbackUrl', '')
 
               detail = json.dumps({
                   'externalId': external_id,
@@ -379,8 +386,8 @@ Resources:
                   'roleArn': role_arn
               })
 
+              # 1. Send EventBridge event (for audit/logging)
               try:
-                  # Extract region from bus ARN: arn:aws:events:<region>:<account>:event-bus/<name>
                   bus_region = event_bus_arn.split(':')[3]
                   eb = boto3.client('events', region_name=bus_region)
                   response = eb.put_events(Entries=[{
@@ -389,26 +396,30 @@ Resources:
                       'Detail': detail,
                       'EventBusName': event_bus_arn
                   }])
-
                   failed = response.get('FailedEntryCount', 0)
                   if failed > 0:
                       logger.error(f"EventBridge PutEvents had {failed} failed entries: {response['Entries']}")
-                      # Still SUCCESS so stack doesn't roll back
-                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {
-                          'Error': f'{failed} entries failed'
-                      }, physical_resource_id)
                   else:
                       logger.info(f"EventBridge event sent for externalId={external_id}")
-                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {
-                          'EventId': response['Entries'][0].get('EventId', '')
-                      }, physical_resource_id)
-
               except Exception as e:
-                  logger.error(f"EventBridge PutEvents failed: {str(e)}")
-                  # Still SUCCESS so stack doesn't roll back
-                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {
-                      'Error': str(e)
-                  }, physical_resource_id)
+                  logger.warning(f"EventBridge PutEvents failed (non-fatal): {str(e)}")
+
+              # 2. Call XamOps backend directly so account status updates immediately
+              if callback_url:
+                  try:
+                      http = urllib3.PoolManager()
+                      payload_bytes = detail.encode('utf-8')
+                      cb_resp = http.request(
+                          'POST', callback_url,
+                          body=payload_bytes,
+                          headers={'Content-Type': 'application/json'},
+                          timeout=urllib3.Timeout(connect=5.0, read=15.0)
+                      )
+                      logger.info(f"Direct callback to {callback_url} returned HTTP {cb_resp.status}")
+                  except Exception as cb_err:
+                      logger.warning(f"Direct callback failed (non-fatal): {str(cb_err)}")
+
+              cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, physical_resource_id)
 
   # =================================================================
   # 7. Custom Resource to Trigger Auto-Callback
@@ -420,6 +431,7 @@ Resources:
     Properties:
       ServiceToken: !GetAtt AutoCallbackFunction.Arn
       EventBusArn: !Ref XamOpsEventBusArn
+      CallbackUrl: !Ref XamOpsCallbackUrl
       ExternalId: !Ref ExternalId
       AwsAccountId: !Ref AWS::AccountId
       RoleArn: !GetAtt XamOpsReadOnlyRole.Arn

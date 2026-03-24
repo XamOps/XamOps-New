@@ -13,4 +13,6 @@ public interface VmssSpotConfigRepository extends JpaRepository<VmssSpotConfig, 
             Long accountId, String resourceGroup, String vmssName);
 
     List<VmssSpotConfig> findByAccountId(Long accountId);
+
+    List<VmssSpotConfig> findByEnabledTrue();
 }
