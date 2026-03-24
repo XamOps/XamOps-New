@@ -798,6 +798,25 @@ public class EbsDiskRightsizingService {
         return result;
     }
 
+    /**
+     * Returns the sum of estimatedSavings for all actionable EBS recommendations
+     * for the given AWS account ID. Reads only from cache — never triggers a live scan.
+     */
+    public double getTotalPotentialSavings(String awsAccountId) {
+        if (awsAccountId == null || awsAccountId.isBlank()) return 0.0;
+        Optional<List<Map<String, Object>>> cached = redisCacheService.get(
+                CACHE_KEY_VOLUMES + awsAccountId,
+                new TypeReference<List<Map<String, Object>>>() {});
+        if (cached.isEmpty()) return 0.0;
+        return cached.get().stream()
+                .filter(v -> !"NONE".equals(v.get("recommendation")))
+                .mapToDouble(v -> {
+                    Object s = v.get("estimatedSavings");
+                    return s instanceof Number ? ((Number) s).doubleValue() : 0.0;
+                })
+                .sum();
+    }
+
     private CloudAccount resolveAccount(String providerAccountId) {
         return cloudAccountRepository.findByProviderAccountId(providerAccountId)
                 .orElseThrow(() -> new RuntimeException("Account not found: " + providerAccountId));
