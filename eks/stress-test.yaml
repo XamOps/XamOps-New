@@ -1,0 +1,70 @@
+# ─────────────────────────────────────────────────────────
+# Stress-test app + HPA  (for testing HPA & Cluster Autoscaler)
+# Usage:
+#   kubectl apply -f stress-test.yaml
+#   # Trigger CPU load:
+#   kubectl run -it --rm load-gen --image=busybox --restart=Never -- \
+#     /bin/sh -c "while true; do wget -q -O- http://php-apache; done"
+# ─────────────────────────────────────────────────────────
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: php-apache
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      run: php-apache
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        run: php-apache
+    spec:
+      containers:
+        - name: php-apache
+          image: registry.k8s.io/hpa-example
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: 200m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: php-apache
+  namespace: default
+  labels:
+    run: php-apache
+spec:
+  ports:
+    - port: 80
+  selector:
+    run: php-apache
+---
+# HPA: scale from 1 → 5 replicas when CPU > 50%
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: php-apache
+  namespace: default
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: php-apache
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 50
