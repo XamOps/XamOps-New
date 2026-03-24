@@ -55,6 +55,8 @@ const AddAccountPage: React.FC = () => {
     accessType,
     isLoading,
     isVerifying,
+    isAutoConnecting,
+    autoConnected,
     isPolicyModalOpen,
     verificationError,
     verificationDetails,
@@ -130,6 +132,8 @@ const AddAccountPage: React.FC = () => {
             accessType={accessType}
             isLoading={isLoading}
             isVerifying={isVerifying}
+            isAutoConnecting={isAutoConnecting}
+            autoConnected={autoConnected}
             verificationDetails={verificationDetails}
             verificationError={verificationError}
             onAccountNameChange={setAccountName}

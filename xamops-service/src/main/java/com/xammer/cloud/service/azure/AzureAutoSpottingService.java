@@ -7,6 +7,7 @@ import com.azure.resourcemanager.compute.models.VirtualMachineEvictionPolicyType
 import com.azure.resourcemanager.compute.models.VirtualMachinePriorityTypes;
 import com.azure.resourcemanager.compute.models.VirtualMachineScaleSet;
 import com.azure.resourcemanager.compute.models.VirtualMachineScaleSetVM;
+import com.azure.resourcemanager.compute.models.VirtualMachineSizeTypes;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.xammer.cloud.domain.AutoSpottingSettings;
 import com.xammer.cloud.domain.CloudAccount;
@@ -46,7 +47,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
@@ -101,6 +104,34 @@ public class AzureAutoSpottingService {
     }
     // Azure Spot is typically 60-80% cheaper; use 70% savings as estimate
     private static final double SPOT_SAVINGS_RATIO = 0.70;
+
+    // Drain window: wait after new Spot VM reaches PowerState.RUNNING before deleting old Regular VM.
+    // This covers: (1) application startup time on the new VM, (2) Azure LB health-probe cycle to
+    // mark the new VM healthy, (3) in-flight requests on the old VM to complete.
+    // Azure LB default probe: 15s interval × 2 consecutive successes ≈ 30s to mark healthy.
+    // Typical app boot: 30-90s. Total safe window: 120s minimum.
+    // For workloads with long-lived connections (WebSockets, DB) increase to 300s.
+    private static final long DRAIN_WINDOW_MS = 120_000L;
+
+    /**
+     * SKU fallback chain: when Azure reports SkuNotAvailable for a Spot VM size,
+     * try these alternatives in order (ascending cost / resource profile).
+     * This prevents AutoSpotting from silently failing when the preferred size
+     * has no Spot capacity in the target region/zone.
+     */
+    private static final List<String> SPOT_SKU_FALLBACKS = List.of(
+            "Standard_B2s",
+            "Standard_B2ms",
+            "Standard_D2s_v3",
+            "Standard_D2s_v4",
+            "Standard_D2s_v5",
+            "Standard_D2_v3",
+            "Standard_F2s_v2"
+    );
+
+    // In-flight guard: VMSS keys currently being processed by enable/disable loop.
+    // Prevents the eviction watcher from triggering concurrent operations on the same VMSS.
+    static final Set<String> ACTIVE_OPERATIONS = ConcurrentHashMap.newKeySet();
 
     public AzureAutoSpottingService(
             AzureClientProvider azureClientProvider,
@@ -219,7 +250,7 @@ public class AzureAutoSpottingService {
                 try {
                     for (VirtualMachineScaleSet vmss : azure.virtualMachineScaleSets().list()) {
                         try {
-                            AzureAutoSpottingGroupDto dto = mapToDto(vmss, finalDbEnabledMap);
+                            AzureAutoSpottingGroupDto dto = mapToDto(vmss, finalDbEnabledMap, azure);
                             enrichCostData(dto);
                             allVmss.add(dto);
                         } catch (Exception ex) {
@@ -254,7 +285,7 @@ public class AzureAutoSpottingService {
         return allVmss;
     }
 
-    private AzureAutoSpottingGroupDto mapToDto(VirtualMachineScaleSet vmss, Map<String, Boolean> dbEnabledMap) {
+    private AzureAutoSpottingGroupDto mapToDto(VirtualMachineScaleSet vmss, Map<String, Boolean> dbEnabledMap, AzureResourceManager azure) {
         // Detect spot priority from Azure VMSS profile
         boolean azureSpotPriority = false;
         String vmSku = vmss.sku() != null ? vmss.sku().toString() : "Unknown";
@@ -294,6 +325,23 @@ public class AzureAutoSpottingService {
         boolean isSpotEnabled = azureSpotPriority || dbEnabled;
 
         int instanceCount = vmss.capacity();
+        if (instanceCount == 0) {
+            // Flexible VMSS: VMs are individual resources, capacity() may return 0.
+            // Count actual VMs in the resource group that belong to this VMSS.
+            try {
+                instanceCount = (int) azure.virtualMachines()
+                        .listByResourceGroup(vmss.resourceGroupName()).stream()
+                        .filter(vm -> {
+                            var ref = vm.innerModel().virtualMachineScaleSet();
+                            return ref != null && vmss.id().equalsIgnoreCase(ref.id());
+                        }).count();
+                if (instanceCount > 0) {
+                    log.debug("Flexible VMSS {} has {} VMs (capacity() returned 0)", vmss.name(), instanceCount);
+                }
+            } catch (Exception e) {
+                log.debug("Could not count VMs for Flexible VMSS {}: {}", vmss.name(), e.getMessage());
+            }
+        }
 
         return AzureAutoSpottingGroupDto.builder()
                 .name(vmss.name())
@@ -367,6 +415,13 @@ public class AzureAutoSpottingService {
             return;
         }
 
+        // Concurrency guard: block duplicate triggers (e.g. eviction watcher firing while enable still runs)
+        String operationKey = resourceGroup + "/" + vmssName;
+        if (!ACTIVE_OPERATIONS.add(operationKey)) {
+            log.warn("⚠️ [Azure AutoSpotting] Operation already in progress for VMSS {}. Skipping.", vmssName);
+            return;
+        }
+
         CloudAccount account = resolveAccount(subscriptionId);
 
         // Persist enabled=true immediately so reloads show correct state
@@ -396,6 +451,28 @@ public class AzureAutoSpottingService {
 
             // Step 1 — Validate candidacy
             int currentCapacity = vmss.capacity();
+            // For Flexible VMSS, capacity() may return 0 because VMs are individual resources.
+            // Detect Flexible mode early and count actual VMs to avoid a false-abort.
+            if (currentCapacity < 1) {
+                try {
+                    boolean flexCheck = false;
+                    var oc = vmss.innerModel().orchestrationMode();
+                    if (oc != null && oc.toString().equalsIgnoreCase("Flexible")) flexCheck = true;
+                    if (!flexCheck && vmss.innerModel().virtualMachineProfile() == null) flexCheck = true;
+                    if (flexCheck) {
+                        final String vmssId = vmss.id();
+                        currentCapacity = (int) azure.virtualMachines()
+                                .listByResourceGroup(resourceGroup).stream()
+                                .filter(vm -> {
+                                    var ref = vm.innerModel().virtualMachineScaleSet();
+                                    return ref != null && vmssId.equalsIgnoreCase(ref.id());
+                                }).count();
+                        log.debug("Flexible VMSS {} — capacity() was 0, actual VM count: {}", vmssName, currentCapacity);
+                    }
+                } catch (Exception ce) {
+                    log.debug("Could not count Flexible VMs for candidacy check on {}: {}", vmssName, ce.getMessage());
+                }
+            }
             if (currentCapacity < 1) {
                 log.warn("VMSS {} has 0 instances. Skipping — nothing to replace.", vmssName);
                 recordEvent(account, vmssName, vmss.regionName(), "FAILED",
@@ -448,16 +525,21 @@ public class AzureAutoSpottingService {
                 vmProfile.withPriority(VirtualMachinePriorityTypes.SPOT)
                          .withEvictionPolicy(VirtualMachineEvictionPolicyTypes.DEALLOCATE);
                 vmss.update().apply();
-                // Re-fetch to get updated profile state
+                // Re-fetch and verify Azure actually accepted the Spot priority — Azure may silently
+                // ignore the change (policy-restricted, AKS-managed, or API quirk)
                 vmss = azure.virtualMachineScaleSets().getByResourceGroup(resourceGroup, vmssName);
+                if (!isSpotEnabled(vmss)) {
+                    throw new IllegalStateException(
+                        "Azure accepted the PUT but VMSS " + vmssName + " profile priority is still Regular. " +
+                        "The VMSS may not support in-place priority changes (AKS-managed, policy-restricted).");
+                }
                 priorityChanged = true;
-                log.info("Step 2: VMSS {} profile updated to Spot priority successfully.", vmssName);
+                log.info("Step 2: VMSS {} profile priority verified as Spot in Azure.", vmssName);
             } catch (Exception e) {
-                log.warn("Step 2: Could not update VMSS {} priority to Spot (may be AKS-managed or policy-restricted): {}. " +
-                        "AutoSpotting is tracked in DB — staged replacement skipped.", vmssName, e.getMessage());
-                recordEvent(account, vmssName, vmss.regionName(), "ENABLED",
-                        "AutoSpotting enabled. Note: VMSS priority could not be updated to Spot in-place " +
-                        "(likely AKS-managed). Cost tracking is active.", 0.0);
+                log.warn("Step 2: Priority update to Spot failed for VMSS {}: {}", vmssName, e.getMessage());
+                recordEvent(account, vmssName, vmss.regionName(), "FAILED",
+                        "Priority update to Spot failed — VMSS may be AKS-managed or policy-restricted: " +
+                        e.getMessage(), 0.0);
                 invalidateCaches(subscriptionId);
                 return;
             }
@@ -499,9 +581,11 @@ public class AzureAutoSpottingService {
 
         } catch (Exception e) {
             log.error("❌ [Azure AutoSpotting] Failed to enable Spot for VMSS {}: {}", vmssName, e.getMessage(), e);
-            CloudAccount account2 = resolveAccount(subscriptionId);
-            recordEvent(account2, vmssName, resourceGroup, "FAILED",
+            recordEvent(account, vmssName, resourceGroup, "FAILED",
                     "AutoSpotting enablement failed: " + e.getMessage(), 0.0);
+        } finally {
+            // Always release the in-flight guard so future triggers (eviction watcher, retries) can proceed
+            ACTIVE_OPERATIONS.remove(operationKey);
         }
     }
 
@@ -534,7 +618,18 @@ public class AzureAutoSpottingService {
             return 0;
         }
 
-        // c) Delete the old Regular VM
+        // c) For Uniform VMSS, Azure's VMSS VM API does not expose runCommand() on the fluent interface.
+        //    The drain window (step d) provides equivalent safety: the LB detects the VM is gone
+        //    within seconds of deletion and stops routing. In-flight requests are given 120s to complete.
+        //    (Spot.io uses the same mechanism for Uniform VMSS — iptables drain is Flexible-only.)
+
+        // d) Drain window: covers in-flight requests still being processed by the old instance
+        //    after the LB has stopped routing new connections to it.
+        log.info("✅ New Spot VM healthy in VMSS {}. Waiting {}s drain window before removing Regular VM {}...",
+                vmssName, DRAIN_WINDOW_MS / 1000, instanceId);
+        try { Thread.sleep(DRAIN_WINDOW_MS); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+
+        // e) Delete the old Regular VM
         log.info("Deleting Regular VM {} from VMSS {}", instanceId, vmssName);
         azure.virtualMachineScaleSets().getByResourceGroup(vmss.resourceGroupName(), vmssName)
                 .virtualMachines()
@@ -632,12 +727,50 @@ public class AzureAutoSpottingService {
             return;
         }
 
+        // ── On-demand buffer: respect onDemandCount / spotPercentage from VmssSpotConfig ──
+        // Industry standard: never convert 100% of a VMSS to Spot unless explicitly configured.
+        // Keeping N on-demand VMs provides a stable baseline if a regional Spot capacity event
+        // reclaims all Spot VMs simultaneously.
+        int onDemandBuffer = 0;
+        try {
+            Optional<VmssSpotConfig> cfgOpt = vmssSpotConfigRepository
+                    .findByAccountIdAndResourceGroupAndVmssName(account.getId(), resourceGroup, vmss.name());
+            if (cfgOpt.isPresent()) {
+                VmssSpotConfig cfg = cfgOpt.get();
+                if (cfg.getOnDemandCount() != null && cfg.getOnDemandCount() > 0) {
+                    onDemandBuffer = cfg.getOnDemandCount();
+                    log.info("VMSS {} on-demand buffer set to {} (from onDemandCount config)", vmss.name(), onDemandBuffer);
+                } else if (cfg.getSpotPercentage() != null && cfg.getSpotPercentage() < 100) {
+                    onDemandBuffer = (int) Math.ceil(regularVms.size() * (100.0 - cfg.getSpotPercentage()) / 100.0);
+                    log.info("VMSS {} on-demand buffer set to {} (from spotPercentage={}%)",
+                            vmss.name(), onDemandBuffer, cfg.getSpotPercentage());
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Could not load VmssSpotConfig for on-demand buffer (defaulting to 0): {}", e.getMessage());
+        }
+
+        int toReplace = regularVms.size() - onDemandBuffer;
+        if (toReplace <= 0) {
+            log.info("VMSS {} on-demand buffer ({}) covers all {} Regular VMs. Skipping Spot conversion.",
+                    vmss.name(), onDemandBuffer, regularVms.size());
+            recordEvent(account, vmss.name(), region, "ENABLED",
+                    "AutoSpotting enabled. On-demand buffer (" + onDemandBuffer +
+                    ") maintains all instances as Regular per configuration.", 0.0);
+            return;
+        }
+        List<VirtualMachine> vmsToReplace = regularVms.subList(0, toReplace);
+        if (onDemandBuffer > 0) {
+            log.info("VMSS {} replacing {}/{} Regular VMs with Spot (keeping {} on-demand as buffer)",
+                    vmss.name(), toReplace, regularVms.size(), onDemandBuffer);
+        }
+
         double onDemandPrice = VM_ONDEMAND_PRICES.getOrDefault(
                 vmss.sku() != null ? vmss.sku().toString() : "", 0.10);
         double spotPrice = onDemandPrice * (1.0 - SPOT_SAVINGS_RATIO);
 
         int replaced = 0;
-        for (VirtualMachine regularVm : regularVms) {
+        for (VirtualMachine regularVm : vmsToReplace) {
             try {
                 replaced += replaceFlexibleVmWithSpot(azure, vmss, regularVm, account, onDemandPrice, spotPrice);
             } catch (Exception e) {
@@ -715,32 +848,79 @@ public class AzureAutoSpottingService {
         String sshKey    = linuxConfig.ssh().publicKeys().get(0).keyData();
 
         // b) Create new Spot VM attached to the Flexible VMSS
-        log.info("Creating Spot VM {} (image: {}/{}, size: {})",
-                newVmName, imageRef.publisher(), imageRef.offer(), regularVm.size());
-        VirtualMachine newVm;
+        // Build the candidate size list:
+        //   1. Preferred: current VM size
+        //   2. Customer-configured allowedVmSkus from VmssSpotConfig (diversification list)
+        //   3. Static SPOT_SKU_FALLBACKS as last resort
+        List<String> sizeCandidates = new ArrayList<>();
+        String preferredSize = regularVm.size() != null ? regularVm.size().toString() : null;
+        if (preferredSize != null) sizeCandidates.add(preferredSize);
+
         try {
-            newVm = azure.virtualMachines()
-                    .define(newVmName)
-                    .withRegion(region)
-                    .withExistingResourceGroup(resourceGroup)
-                    .withExistingPrimaryNetwork(network)
-                    .withSubnet(subnetName)
-                    .withPrimaryPrivateIPAddressDynamic()
-                    .withoutPrimaryPublicIPAddress()
-                    .withSpecificLinuxImageVersion(imageRef)
-                    .withRootUsername(adminUser)
-                    .withSsh(sshKey)
-                    .withSize(regularVm.size())
-                    .withSpotPriority()   // eviction policy defaults to DEALLOCATE for individual Spot VMs
-                    .withExistingVirtualMachineScaleSet(vmss)
-                    .create();
+            Optional<VmssSpotConfig> cfgOpt = vmssSpotConfigRepository
+                    .findByAccountIdAndResourceGroupAndVmssName(account.getId(), resourceGroup, vmss.name());
+            if (cfgOpt.isPresent() && cfgOpt.get().getAllowedVmSkus() != null
+                    && !cfgOpt.get().getAllowedVmSkus().isBlank()) {
+                for (String sku : cfgOpt.get().getAllowedVmSkus().split(",")) {
+                    String trimmed = sku.trim();
+                    if (!trimmed.isEmpty() && !sizeCandidates.contains(trimmed)) {
+                        sizeCandidates.add(trimmed);
+                    }
+                }
+            }
         } catch (Exception e) {
-            log.error("Failed to create Spot VM {} for Flexible VMSS {}: {}",
-                    newVmName, vmss.name(), e.getMessage());
+            log.debug("Could not load allowedVmSkus config for VMSS {}: {}", vmss.name(), e.getMessage());
+        }
+        SPOT_SKU_FALLBACKS.stream()
+                .filter(s -> !sizeCandidates.contains(s))
+                .forEach(sizeCandidates::add);
+
+        VirtualMachine newVm = null;
+        String usedSize = null;
+        for (String candidateSize : sizeCandidates) {
+            log.info("Creating Spot VM {} (image: {}/{}, size: {})",
+                    newVmName, imageRef.publisher(), imageRef.offer(), candidateSize);
+            try {
+                newVm = azure.virtualMachines()
+                        .define(newVmName)
+                        .withRegion(region)
+                        .withExistingResourceGroup(resourceGroup)
+                        .withExistingPrimaryNetwork(network)
+                        .withSubnet(subnetName)
+                        .withPrimaryPrivateIPAddressDynamic()
+                        .withoutPrimaryPublicIPAddress()
+                        .withSpecificLinuxImageVersion(imageRef)
+                        .withRootUsername(adminUser)
+                        .withSsh(sshKey)
+                        .withSize(VirtualMachineSizeTypes.fromString(candidateSize))
+                        .withSpotPriority(VirtualMachineEvictionPolicyTypes.DEALLOCATE)
+                        .withExistingVirtualMachineScaleSet(vmss)
+                        .create();
+                usedSize = candidateSize;
+                log.info("Successfully created Spot VM {} with size {}", newVmName, candidateSize);
+                break;
+            } catch (Exception e) {
+                String msg = e.getMessage() != null ? e.getMessage() : "";
+                if (msg.contains("SkuNotAvailable") || msg.contains("Capacity Restrictions")) {
+                    log.warn("Spot size {} not available in {} for VMSS {}. Trying next fallback...",
+                            candidateSize, region, vmss.name());
+                    // Clean up any partial NIC/disk resources before retrying with new name
+                    newVmName = "spot-" + vmss.name().substring(0, Math.min(6, vmss.name().length()))
+                            + "-" + Long.toHexString(System.currentTimeMillis()).substring(4);
+                } else {
+                    log.error("Failed to create Spot VM {} for Flexible VMSS {}: {}",
+                            newVmName, vmss.name(), msg);
+                    return 0;
+                }
+            }
+        }
+        if (newVm == null) {
+            log.error("All Spot size candidates exhausted for VMSS {} in {}. No Spot capacity available. Sizes tried: {}",
+                    vmss.name(), region, sizeCandidates);
             return 0;
         }
 
-        // c) Wait for new VM to reach Running state (timeout: 10 min)
+        // c) Wait for new Spot VM to reach Running state (timeout: 10 min)
         boolean healthy = waitForVmRunning(azure, resourceGroup, newVmName, 600_000L, 30_000L);
         if (!healthy) {
             log.warn("Spot VM {} did not reach Running state. Rolling back — deleting it.", newVmName);
@@ -749,9 +929,26 @@ public class AzureAutoSpottingService {
             return 0;
         }
 
-        // d) Delete old Regular VM
+        // d) Drain window: give the LB time to route traffic away from old Regular VM.
+        log.info("Spot VM {} is running. Waiting {}s drain window before deleting Regular VM {}...",
+                newVmName, DRAIN_WINDOW_MS / 1000, regularVm.name());
+        Thread.sleep(DRAIN_WINDOW_MS);
+
+        // e) Delete old Regular VM
         log.info("Deleting Regular VM {} from Flexible VMSS {}", regularVm.name(), vmss.name());
-        azure.virtualMachines().deleteByResourceGroup(resourceGroup, regularVm.name(), true);
+        try {
+            azure.virtualMachines().deleteByResourceGroup(resourceGroup, regularVm.name(), true);
+        } catch (Exception deleteEx) {
+            // Spot VM is already running — workload is safe — but the old Regular VM is still alive.
+            // This causes a temporary +1 VM cost until manually resolved.
+            log.error("⚠️ [COST WARNING] Failed to delete Regular VM {} after Spot replacement. " +
+                    "Spot VM {} is running but old VM still exists — EXTRA COST until deleted manually. " +
+                    "Delete via: az vm delete -g {} -n {} --yes",
+                    regularVm.name(), newVmName, resourceGroup, regularVm.name(), deleteEx.getMessage());
+            recordEvictionEventForCostWarning(account, vmss.name(), region, regularVm.name(), deleteEx.getMessage());
+            // Return 1: Spot VM was created successfully. Old Regular VM cleanup is a separate concern.
+            return 1;
+        }
 
         // Record replacement event
         SpotOptimizationEvent evt = new SpotOptimizationEvent();
@@ -761,10 +958,12 @@ public class AzureAutoSpottingService {
         evt.setOldInstanceId(regularVm.id());
         evt.setOldInstanceType(regularVm.size() != null ? regularVm.size().toString() : "unknown");
         evt.setNewInstanceId(newVm.id());
-        evt.setNewInstanceType(newVm.size() != null ? newVm.size().toString() : "unknown");
+        evt.setNewInstanceType(usedSize != null ? usedSize : "unknown");
         evt.setHourlySavings(onDemandPrice - spotPrice);
         evt.setStatus("SUCCESS");
-        evt.setDetails("Regular VM replaced with Spot VM in Flexible VMSS (per-VM replacement).");
+        String sizeNote = (regularVm.size() != null && !regularVm.size().toString().equalsIgnoreCase(usedSize))
+                ? " (preferred size unavailable as Spot; used fallback " + usedSize + ")" : "";
+        evt.setDetails("Regular VM replaced with Spot VM in Flexible VMSS (per-VM replacement)." + sizeNote);
         eventRepository.save(evt);
 
         log.info("✅ Replaced Regular VM {} → Spot VM {} in Flexible VMSS {}",
@@ -876,22 +1075,53 @@ public class AzureAutoSpottingService {
                 boolean vmssIsSpot = isSpotEnabled(vmss);
                 String vmSku = vmss.sku() != null ? vmss.sku().toString() : "unknown";
 
+                // Detect Flexible vs Uniform orchestration
+                boolean isFlexibleVmss = false;
                 try {
-                    for (VirtualMachineScaleSetVM vm : vmss.virtualMachines().list()) {
-                        String powerState = vm.powerState() != null ? vm.powerState().toString() : "unknown";
-                        String lifecycle = vmssIsSpot ? "spot" : "on-demand";
-                        List<String> zones = vm.innerModel().zones();
-                        String zone = (zones != null && !zones.isEmpty()) ? zones.get(0) : vmss.regionName();
+                    var oc = vmss.innerModel().orchestrationMode();
+                    if (oc != null && oc.toString().equalsIgnoreCase("Flexible")) isFlexibleVmss = true;
+                    if (!isFlexibleVmss && vmss.innerModel().virtualMachineProfile() == null) isFlexibleVmss = true;
+                } catch (Exception ignored) { }
 
-                        instances.add(SpotInstanceDto.builder()
-                                .instanceId(vm.instanceId())
-                                .instanceType(vmSku)
-                                .availabilityZone(zone)
-                                .lifecycle(lifecycle)
-                                .state(powerState.contains("/") ? powerState.substring(powerState.lastIndexOf('/') + 1) : powerState)
-                                .asgName(vmss.name())
-                                .region(vmss.regionName())
-                                .build());
+                try {
+                    if (isFlexibleVmss) {
+                        // Flexible VMSS: VMs are individual resources, not enumerable via vmss.virtualMachines()
+                        for (VirtualMachine vm : azure.virtualMachines().listByResourceGroup(vmss.resourceGroupName())) {
+                            var vmssRef = vm.innerModel().virtualMachineScaleSet();
+                            if (vmssRef == null || !vmss.id().equalsIgnoreCase(vmssRef.id())) continue;
+                            String powerState = vm.powerState() != null ? vm.powerState().toString() : "unknown";
+                            boolean isSpotVm = VirtualMachinePriorityTypes.SPOT.equals(vm.innerModel().priority());
+                            String lifecycle = isSpotVm ? "spot" : "on-demand";
+                            String instanceSku = vm.size() != null ? vm.size().toString() : vmSku;
+                            List<String> zones = vm.innerModel().zones();
+                            String zone = (zones != null && !zones.isEmpty()) ? zones.get(0) : vmss.regionName();
+                            instances.add(SpotInstanceDto.builder()
+                                    .instanceId(vm.id())
+                                    .instanceType(instanceSku)
+                                    .availabilityZone(zone)
+                                    .lifecycle(lifecycle)
+                                    .state(powerState.contains("/") ? powerState.substring(powerState.lastIndexOf('/') + 1) : powerState)
+                                    .asgName(vmss.name())
+                                    .region(vmss.regionName())
+                                    .build());
+                        }
+                    } else {
+                        // Uniform VMSS: enumerate via VMSS VMs API
+                        for (VirtualMachineScaleSetVM vm : vmss.virtualMachines().list()) {
+                            String powerState = vm.powerState() != null ? vm.powerState().toString() : "unknown";
+                            String lifecycle = vmssIsSpot ? "spot" : "on-demand";
+                            List<String> zones = vm.innerModel().zones();
+                            String zone = (zones != null && !zones.isEmpty()) ? zones.get(0) : vmss.regionName();
+                            instances.add(SpotInstanceDto.builder()
+                                    .instanceId(vm.instanceId())
+                                    .instanceType(vmSku)
+                                    .availabilityZone(zone)
+                                    .lifecycle(lifecycle)
+                                    .state(powerState.contains("/") ? powerState.substring(powerState.lastIndexOf('/') + 1) : powerState)
+                                    .asgName(vmss.name())
+                                    .region(vmss.regionName())
+                                    .build());
+                        }
                     }
                 } catch (Exception e) {
                     log.warn("Failed to list VMs for VMSS {}: {}", vmss.name(), e.getMessage());
@@ -1155,6 +1385,9 @@ public class AzureAutoSpottingService {
         String sku = vmss.sku() != null ? vmss.sku().toString() : "";
         double onDemandPrice = VM_ONDEMAND_PRICES.getOrDefault(sku, 0.10);
         int capacity = vmss.capacity();
+        // capacity() returns 0 for Flexible VMSS — use instanceCount from DTO enrichment
+        // if it's still 0, just use 1 as a minimum for the savings estimate
+        if (capacity <= 0) capacity = 1;
         return capacity * onDemandPrice * SPOT_SAVINGS_RATIO;
     }
 
@@ -1171,6 +1404,218 @@ public class AzureAutoSpottingService {
             eventRepository.save(event);
         } catch (Exception e) {
             log.error("Failed to record event for VMSS {}: {}", vmssName, e.getMessage());
+        }
+    }
+
+    /**
+     * Eviction recovery for Flexible VMSS.
+     * Called by AzureSpotEvictionWatcher when a Spot VM transitions to Deallocated.
+     *
+     * Strategy (industry standard — mirrors Spot.io Elastigroup recovery):
+     *   1. Try to START the deallocated VM — Azure re-tries Spot allocation, cheapest recovery.
+     *   2. If start fails (no Spot capacity available), delete the dead VM and create a fresh Spot VM.
+     *
+     * This replaces the old approach of calling enableAutoSpotting() which only replaces Regular→Spot
+     * and therefore never actually recovered an evicted Spot VM.
+     */
+    @Async
+    public void recoverEvictedSpotVm(String subscriptionId, String resourceGroup,
+                                      String vmssName, String evictedVmName) {
+        String operationKey = resourceGroup + "/" + vmssName;
+        if (!ACTIVE_OPERATIONS.add(operationKey)) {
+            log.info("[EvictionRecovery] VMSS {} is already being processed. Eviction recovery for {} will retry next cycle.",
+                    vmssName, evictedVmName);
+            return;
+        }
+        try {
+            CloudAccount account = resolveAccount(subscriptionId);
+            AzureResourceManager azure = azureClientProvider.getAzureClient(account.getAzureSubscriptionId());
+
+            VirtualMachineScaleSet vmss = azure.virtualMachineScaleSets()
+                    .getByResourceGroup(resourceGroup, vmssName);
+            if (vmss == null) {
+                log.warn("[EvictionRecovery] VMSS {} not found. Cannot recover {}.", vmssName, evictedVmName);
+                return;
+            }
+
+            VirtualMachine evictedVm = azure.virtualMachines().getByResourceGroup(resourceGroup, evictedVmName);
+            if (evictedVm == null) {
+                log.info("[EvictionRecovery] Evicted VM {} no longer exists in Azure. Creating fresh Spot VM for VMSS {}.",
+                        evictedVmName, vmssName);
+                createFreshSpotVmInFlexibleVmss(azure, vmss, account, subscriptionId);
+                return;
+            }
+
+            // Step 1: Try to restart (cheapest — Azure re-allocates Spot on same VM)
+            log.info("[EvictionRecovery] Attempting to restart evicted Spot VM {} in VMSS {}", evictedVmName, vmssName);
+            try {
+                azure.virtualMachines().start(resourceGroup, evictedVmName);
+                boolean healthy = waitForVmRunning(azure, resourceGroup, evictedVmName, 300_000L, 30_000L);
+                if (healthy) {
+                    log.info("[EvictionRecovery] ✅ Restarted evicted Spot VM {} in VMSS {}", evictedVmName, vmssName);
+                    return;
+                }
+                log.warn("[EvictionRecovery] VM {} started but did not reach Running in 5 min. Falling back to replacement.",
+                        evictedVmName);
+            } catch (Exception restartEx) {
+                log.warn("[EvictionRecovery] Cannot restart evicted VM {}: {}. Falling back to new Spot VM creation.",
+                        evictedVmName, restartEx.getMessage());
+            }
+
+            // Step 2: Restart failed — delete the dead VM and create a fresh Spot replacement
+            log.info("[EvictionRecovery] Deleting unrecoverable Spot VM {} and creating replacement.", evictedVmName);
+            try {
+                azure.virtualMachines().deleteByResourceGroup(resourceGroup, evictedVmName, true);
+            } catch (Exception deleteEx) {
+                log.warn("[EvictionRecovery] Could not delete evicted VM {} (proceeding anyway): {}", evictedVmName, deleteEx.getMessage());
+            }
+            createFreshSpotVmInFlexibleVmss(azure, vmss, account, subscriptionId);
+
+        } catch (Exception e) {
+            log.error("[EvictionRecovery] Failed recovery for VMSS {} evicted VM {}: {}", vmssName, evictedVmName, e.getMessage());
+        } finally {
+            ACTIVE_OPERATIONS.remove(operationKey);
+        }
+    }
+
+    /**
+     * Creates a new Spot VM in a Flexible VMSS using any currently Running VM as image/network template.
+     * Used for eviction recovery when restart is not possible.
+     */
+    private void createFreshSpotVmInFlexibleVmss(AzureResourceManager azure, VirtualMachineScaleSet vmss,
+                                                   CloudAccount account, String subscriptionId) {
+        // Find any Running VM in the VMSS to use as config template
+        VirtualMachine templateVm = null;
+        try {
+            for (VirtualMachine vm : azure.virtualMachines().listByResourceGroup(vmss.resourceGroupName())) {
+                var vmssRef = vm.innerModel().virtualMachineScaleSet();
+                if (vmssRef == null || !vmss.id().equalsIgnoreCase(vmssRef.id())) continue;
+                if (PowerState.RUNNING.equals(vm.powerState())) {
+                    templateVm = vm;
+                    break;
+                }
+            }
+        } catch (Exception e) {
+            log.error("[EvictionRecovery] Cannot list VMs for template in VMSS {}: {}", vmss.name(), e.getMessage());
+            return;
+        }
+
+        if (templateVm == null) {
+            log.warn("[EvictionRecovery] No running VM found to use as template in VMSS {}. Cannot create replacement.",
+                    vmss.name());
+            return;
+        }
+
+        double onDemandPrice = VM_ONDEMAND_PRICES.getOrDefault(
+                templateVm.size() != null ? templateVm.size().toString() : "", 0.10);
+        double spotPrice = onDemandPrice * (1.0 - SPOT_SAVINGS_RATIO);
+
+        try {
+            // createOnly=true: create Spot VM but do NOT delete the template VM
+            int result = createSpotVmFromTemplate(azure, vmss, templateVm, account, onDemandPrice, spotPrice);
+            if (result > 0) {
+                log.info("[EvictionRecovery] ✅ Created replacement Spot VM in VMSS {} after eviction.", vmss.name());
+                invalidateCaches(subscriptionId);
+            }
+        } catch (Exception e) {
+            log.error("[EvictionRecovery] Failed to create replacement Spot VM in VMSS {}: {}", vmss.name(), e.getMessage());
+        }
+    }
+
+    /**
+     * Creates a Spot VM using templateVm as config source, without deleting templateVm.
+     * Used for eviction recovery (gap-fill, not replacement).
+     */
+    private int createSpotVmFromTemplate(AzureResourceManager azure, VirtualMachineScaleSet vmss,
+                                          VirtualMachine templateVm, CloudAccount account,
+                                          double onDemandPrice, double spotPrice) throws InterruptedException {
+        String resourceGroup = vmss.resourceGroupName();
+        String region = vmss.regionName();
+        String newVmName = "spot-" + vmss.name().substring(0, Math.min(6, vmss.name().length()))
+                + "-" + Long.toHexString(System.currentTimeMillis()).substring(4);
+
+        var primaryNic = templateVm.getPrimaryNetworkInterface();
+        if (primaryNic == null) return 0;
+        var ipConfig = primaryNic.primaryIPConfiguration();
+        var network = ipConfig.getNetwork();
+        var subnetName = ipConfig.subnetName();
+        var imageRef = templateVm.storageProfile().imageReference();
+        if (imageRef == null || imageRef.publisher() == null) return 0;
+        var osProfile = templateVm.innerModel().osProfile();
+        if (osProfile == null) return 0;
+        var linuxConfig = osProfile.linuxConfiguration();
+        if (linuxConfig == null || linuxConfig.ssh() == null
+                || linuxConfig.ssh().publicKeys() == null
+                || linuxConfig.ssh().publicKeys().isEmpty()) return 0;
+
+        String adminUser = osProfile.adminUsername();
+        String sshKey = linuxConfig.ssh().publicKeys().get(0).keyData();
+
+        List<String> sizeCandidates = new ArrayList<>();
+        if (templateVm.size() != null) sizeCandidates.add(templateVm.size().toString());
+        SPOT_SKU_FALLBACKS.stream()
+                .filter(s -> !s.equalsIgnoreCase(templateVm.size() != null ? templateVm.size().toString() : ""))
+                .forEach(sizeCandidates::add);
+
+        for (String candidateSize : sizeCandidates) {
+            try {
+                azure.virtualMachines()
+                        .define(newVmName)
+                        .withRegion(region)
+                        .withExistingResourceGroup(resourceGroup)
+                        .withExistingPrimaryNetwork(network)
+                        .withSubnet(subnetName)
+                        .withPrimaryPrivateIPAddressDynamic()
+                        .withoutPrimaryPublicIPAddress()
+                        .withSpecificLinuxImageVersion(imageRef)
+                        .withRootUsername(adminUser)
+                        .withSsh(sshKey)
+                        .withSize(VirtualMachineSizeTypes.fromString(candidateSize))
+                        .withSpotPriority(VirtualMachineEvictionPolicyTypes.DEALLOCATE)
+                        .withExistingVirtualMachineScaleSet(vmss)
+                        .create();
+                log.info("[EvictionRecovery] Created gap-fill Spot VM {} (size: {}) in VMSS {}", newVmName, candidateSize, vmss.name());
+
+                SpotOptimizationEvent evt = new SpotOptimizationEvent();
+                evt.setAccount(account);
+                evt.setAsgName(vmss.name());
+                evt.setRegion(region);
+                evt.setNewInstanceId(newVmName);
+                evt.setNewInstanceType(candidateSize);
+                evt.setHourlySavings(onDemandPrice - spotPrice);
+                evt.setStatus("SUCCESS");
+                evt.setDetails("Spot VM created to fill gap after eviction recovery (restart failed).");
+                eventRepository.save(evt);
+                return 1;
+            } catch (Exception e) {
+                String msg = e.getMessage() != null ? e.getMessage() : "";
+                if (msg.contains("SkuNotAvailable") || msg.contains("Capacity Restrictions")) {
+                    newVmName = "spot-" + vmss.name().substring(0, Math.min(6, vmss.name().length()))
+                            + "-" + Long.toHexString(System.currentTimeMillis()).substring(4);
+                } else {
+                    log.error("[EvictionRecovery] Failed to create gap-fill Spot VM in VMSS {}: {}", vmss.name(), msg);
+                    return 0;
+                }
+            }
+        }
+        return 0;
+    }
+
+    private void recordEvictionEventForCostWarning(CloudAccount account, String vmssName,
+                                                    String region, String regularVmName, String errorMsg) {
+        try {
+            SpotOptimizationEvent event = new SpotOptimizationEvent();
+            event.setAccount(account);
+            event.setAsgName(vmssName);
+            event.setRegion(region);
+            event.setOldInstanceId(regularVmName);
+            event.setStatus("FAILED");
+            event.setDetails("Spot VM created successfully but old Regular VM " + regularVmName +
+                    " could not be deleted — extra VM cost until removed. Error: " + errorMsg);
+            event.setHourlySavings(0.0);
+            eventRepository.save(event);
+        } catch (Exception e) {
+            log.error("Failed to record cost-warning event for VMSS {}: {}", vmssName, e.getMessage());
         }
     }
 
