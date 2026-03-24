@@ -104,17 +104,17 @@ const Topbar: React.FC = () => {
                 theme === 'dark' ? 'bg-[#0a0f1a] border-slate-800 text-slate-100' : 'bg-white/90 backdrop-blur-md border-gray-200/50 text-slate-800'
             )}>
                 <div className="flex items-center gap-4">
-                    <div className="flex flex-col">
+                    <div className="flex flex-col min-w-0 overflow-hidden">
                         <h1 className={clsx(
-                            'text-xl font-bold tracking-tight',
+                            'text-xl font-bold tracking-tight truncate',
                             theme === 'dark' ? 'text-slate-100' : 'text-slate-800'
                         )}>
                             {pageTitle}
                         </h1>
-                        <div className="flex items-center text-xs font-medium text-slate-400 gap-2">
-                            <span>XamOps</span>
-                            <i className="fas fa-chevron-right text-[10px]"></i>
-                            <span className="text-indigo-500/80">{pageTitle}</span>
+                        <div className="flex items-center text-xs font-medium text-slate-400 gap-2 whitespace-nowrap overflow-hidden">
+                            <span className="flex-shrink-0">XamOps</span>
+                            <i className="fas fa-chevron-right text-[10px] flex-shrink-0"></i>
+                            <span className="text-indigo-500/80 truncate">{pageTitle}</span>
                         </div>
                     </div>
                 </div>
@@ -126,7 +126,7 @@ const Topbar: React.FC = () => {
 
                 <div className="flex items-center gap-6">
                     {/* Dynamic Actions */}
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-4 min-w-0">
                         {actions}
                     </div>
 

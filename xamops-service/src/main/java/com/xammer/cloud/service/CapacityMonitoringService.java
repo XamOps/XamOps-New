@@ -233,7 +233,7 @@ public class CapacityMonitoringService {
      */
     private boolean shouldSendNotification(String cidrId, Integer threshold) {
         Optional<CapacityNotificationHistory> lastNotification =
-                notificationHistoryRepository.findMostRecentNotification(cidrId, threshold);
+                notificationHistoryRepository.findFirstByCidrIdAndThresholdPercentOrderByNotifiedAtDesc(cidrId, threshold);
 
         if (!lastNotification.isPresent()) {
             return true; // Never notified before
