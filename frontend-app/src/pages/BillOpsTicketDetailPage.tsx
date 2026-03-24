@@ -362,22 +362,22 @@ const BillOpsTicketDetailPage: React.FC = () => {
         <div className="flex items-center gap-4 pr-6 border-r border-slate-200/50">
           <button
             onClick={goBackToTickets}
-            className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-100 text-slate-500 hover:text-indigo-600 hover:bg-slate-200 transition-all font-bold"
+            className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-100 text-slate-500 hover:text-indigo-600 hover:bg-slate-200 transition-all font-bold flex-shrink-0"
             title="Back to List"
           >
             <i className="fas fa-arrow-left"></i>
           </button>
-          <div>
-            <h1 className="text-sm font-bold text-slate-900 leading-none truncate max-w-[200px] lg:max-w-[400px]">
+          <div className="min-w-0">
+            <h1 className="text-sm font-bold text-slate-900 leading-none truncate max-w-[180px] lg:max-w-[360px]">
               {ticket.subject}
             </h1>
-            <p className="text-[10px] text-slate-500 font-medium mt-1">
+            <p className="text-[10px] text-slate-500 font-medium mt-1 truncate max-w-[180px] lg:max-w-[360px]">
               Case #{ticket.id} • {ticket.service}
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center flex-wrap gap-2">
           <span className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider shadow-sm transition-all ${getStatusBadgeClasses(ticket.status)}`}>
             <span className={`w-1.5 h-1.5 rounded-full bg-white shadow-[0_0_8px_white] ${ticket.status === 'OPEN' ? 'animate-pulse' : ''}`}></span>
             {ticket.status}
@@ -397,13 +397,13 @@ const BillOpsTicketDetailPage: React.FC = () => {
               >
                 {ticket.assignedToUsername ? (
                   <>
-                    <div className="w-4 h-4 rounded-full bg-indigo-600 flex items-center justify-center text-white text-[7px] font-black">
+                    <div className="w-4 h-4 rounded-full bg-indigo-600 flex items-center justify-center text-white text-[7px] font-black flex-shrink-0">
                       {ticket.assignedToUsername.charAt(0).toUpperCase()}
                     </div>
-                    {ticket.assignedToUsername}
+                    <span className="hidden xl:inline truncate max-w-[80px]">{ticket.assignedToUsername}</span>
                   </>
                 ) : (
-                  <><i className="fas fa-user-plus text-[10px]"></i> Assign</>
+                  <><i className="fas fa-user-plus text-[10px]"></i><span className="hidden xl:inline"> Assign</span></>
                 )}
                 {!isAssigning && ticket.status !== 'CLOSED' && <i className="fas fa-chevron-down text-[8px] opacity-50 ml-1"></i>}
                 {isAssigning && <i className="fas fa-circle-notch fa-spin text-[8px] ml-1"></i>}
@@ -444,30 +444,33 @@ const BillOpsTicketDetailPage: React.FC = () => {
           {isAdmin && ticket.status !== 'CLOSED' && (
             <button
               onClick={() => setShowRcaModal(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-xl text-xs font-bold shadow-lg shadow-purple-500/20 hover:bg-purple-700 transition-all hover:-translate-y-0.5"
+              title="Generate RCA"
+              className="flex items-center gap-2 px-3 py-2 lg:px-4 bg-purple-600 text-white rounded-xl text-xs font-bold shadow-lg shadow-purple-500/20 hover:bg-purple-700 transition-all hover:-translate-y-0.5"
             >
               <i className="fas fa-file-medical-alt"></i>
-              <span>Generate RCA</span>
+              <span className="hidden lg:inline">Generate RCA</span>
             </button>
           )}
 
           {isAdmin && (ticket.replies?.length ?? 0) > 0 && (
             <button
               onClick={() => setShowEmailModal(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-sky-50 text-sky-700 rounded-xl text-xs font-bold border border-sky-200 hover:bg-sky-100 transition-all active:scale-95"
+              title="Email Thread"
+              className="flex items-center gap-2 px-3 py-2 lg:px-4 bg-sky-50 text-sky-700 rounded-xl text-xs font-bold border border-sky-200 hover:bg-sky-100 transition-all active:scale-95"
             >
               <i className="fas fa-envelope"></i>
-              <span>Email Thread</span>
+              <span className="hidden lg:inline">Email Thread</span>
             </button>
           )}
 
           {ticket.status !== 'CLOSED' && (
             <button
               onClick={handleCloseTicket}
-              className="flex items-center gap-2 px-4 py-2 bg-rose-50 text-rose-600 rounded-xl text-xs font-bold border border-rose-100 hover:bg-rose-100 transition-all active:scale-95"
+              title="Close Ticket"
+              className="flex items-center gap-2 px-3 py-2 lg:px-4 bg-rose-50 text-rose-600 rounded-xl text-xs font-bold border border-rose-100 hover:bg-rose-100 transition-all active:scale-95"
             >
               <i className="far fa-times-circle"></i>
-              <span>Close Ticket</span>
+              <span className="hidden lg:inline">Close Ticket</span>
             </button>
           )}
         </div>
@@ -797,12 +800,14 @@ const BillOpsTicketDetailPage: React.FC = () => {
                   <i className="fas fa-ticket-alt text-lg"></i>
                 </div>
               </div>
-              <div className="flex-1 space-y-4">
-                <div className="flex justify-between items-center">
-                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">Original Issue Description</span>
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Request #{ticket.id}</span>
+              <div className="flex-1 min-w-0 space-y-4">
+                <div className="flex justify-between items-center gap-2">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none truncate min-w-0">Original Issue Description</span>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter flex-shrink-0">Request #{ticket.id}</span>
                 </div>
-                <div className="text-base text-slate-700 font-medium leading-relaxed whitespace-pre-wrap">{ticket.description}</div>
+                <div className="text-base text-slate-700 font-medium leading-relaxed whitespace-pre-wrap break-words">
+                  {ticket.description || <span className="text-slate-400 italic text-sm">No description provided.</span>}
+                </div>
 
                 <div className="flex flex-wrap gap-4 pt-4 border-t border-slate-100">
                   {ticket.accountId && (
@@ -900,19 +905,19 @@ const BillOpsTicketDetailPage: React.FC = () => {
                   return (
                     <React.Fragment key={reply.id}>
                       <div className="flex w-full justify-end">
-                        <div className="flex max-w-[85%] md:max-w-[70%] gap-4 flex-row-reverse">
+                        <div className="flex max-w-[85%] md:max-w-[70%] gap-4 flex-row-reverse min-w-0">
                           <div className="flex-shrink-0 mt-auto">
                             <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-sm font-black shadow-sm bg-amber-500 text-white">
                               <i className="fas fa-lock text-xs"></i>
                             </div>
                           </div>
-                          <div className="space-y-2 text-right">
+                          <div className="space-y-2 text-right min-w-0">
                             <div className="flex items-center justify-end gap-2 px-1">
-                              <span className="px-2 py-0.5 text-[8px] font-black bg-amber-100 text-amber-600 border border-amber-200 rounded-full uppercase tracking-widest">Internal Note</span>
-                              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">{formatIST(reply.createdAt)}</span>
+                              <span className="px-2 py-0.5 text-[8px] font-black bg-amber-100 text-amber-600 border border-amber-200 rounded-full uppercase tracking-widest flex-shrink-0">Internal Note</span>
+                              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter flex-shrink-0">{formatIST(reply.createdAt)}</span>
                             </div>
-                            <div className="p-4 rounded-[1.5rem] rounded-tr-none shadow-sm text-sm font-medium leading-relaxed bg-amber-50 text-amber-900 border border-amber-200">
-                              <div dangerouslySetInnerHTML={{ __html: reply.message }} className="prose-chat" />
+                            <div className="p-4 rounded-[1.5rem] rounded-tr-none shadow-sm text-sm font-medium leading-relaxed overflow-hidden bg-amber-50 text-amber-900 border border-amber-200">
+                              <div dangerouslySetInnerHTML={{ __html: reply.message }} className="prose-chat break-words" />
                             </div>
                           </div>
                         </div>
@@ -936,14 +941,14 @@ const BillOpsTicketDetailPage: React.FC = () => {
                     )}
 
                   <div className={`flex w-full ${isMine ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`flex max-w-[85%] md:max-w-[70%] gap-4 ${isMine ? 'flex-row-reverse' : ''}`}>
+                    <div className={`flex max-w-[85%] md:max-w-[70%] gap-4 min-w-0 ${isMine ? 'flex-row-reverse' : ''}`}>
                       <div className="flex-shrink-0 mt-auto">
                         <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-sm font-black shadow-sm ${reply.admin ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-600'}`}>
                           {reply.admin ? <i className="fas fa-shield-alt"></i> : <span>{getInitials(reply.authorUsername)}</span>}
                         </div>
                       </div>
 
-                      <div className={`space-y-2 ${isMine ? 'text-right' : 'text-left'}`}>
+                      <div className={`space-y-2 min-w-0 ${isMine ? 'text-right' : 'text-left'}`}>
                         <div className={`flex items-center gap-1.5 px-1 ${isMine ? 'justify-end' : 'justify-start'}`}>
                           {!isMine && <span className="text-[10px] font-black text-slate-800 uppercase tracking-widest">{reply.authorUsername}</span>}
                           <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">{formatIST(reply.createdAt)}</span>
@@ -967,8 +972,8 @@ const BillOpsTicketDetailPage: React.FC = () => {
                           )}
                         </div>
 
-                        <div className={`p-4 rounded-[1.5rem] shadow-sm text-sm font-medium leading-relaxed ${isMine ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white text-slate-700 border border-slate-100 rounded-tl-none'}`}>
-                          <div dangerouslySetInnerHTML={{ __html: reply.message }} className="prose-chat !p-0" />
+                        <div className={`p-4 rounded-[1.5rem] shadow-sm text-sm font-medium leading-relaxed overflow-hidden ${isMine ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white text-slate-700 border border-slate-100 rounded-tl-none'}`}>
+                          <div dangerouslySetInnerHTML={{ __html: reply.message }} className="prose-chat !p-0 break-words" />
 
                           {/* Attachments */}
                           {(reply.attachmentUrl || reply.attachmentName) && (
