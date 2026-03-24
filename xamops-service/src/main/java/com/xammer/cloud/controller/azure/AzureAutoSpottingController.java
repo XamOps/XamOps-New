@@ -38,11 +38,12 @@ public class AzureAutoSpottingController {
      * GET /api/azure/autospotting/vmss/all-regions/{subscriptionId}
      */
     @GetMapping("/vmss/all-regions/{subscriptionId}")
-    public ResponseEntity<?> listVmssAllRegions(@PathVariable String subscriptionId) {
-        log.info("🚀 [Azure AutoSpotting] listVmssAllRegions called for subscriptionId: {}", subscriptionId);
+    public ResponseEntity<?> listVmssAllRegions(@PathVariable String subscriptionId,
+            @RequestParam(defaultValue = "false") boolean refresh) {
+        log.info("🚀 [Azure AutoSpotting] listVmssAllRegions called for subscriptionId: {}, refresh={}", subscriptionId, refresh);
         try {
             List<AzureAutoSpottingService.AzureAutoSpottingGroupDto> vmssList =
-                    azureAutoSpottingService.listVmssAllRegionsWithCosts(subscriptionId);
+                    azureAutoSpottingService.listVmssAllRegionsWithCosts(subscriptionId, refresh);
             log.info("✅ [Azure AutoSpotting] Found {} VMSS for subscriptionId: {}", vmssList.size(), subscriptionId);
             return ResponseEntity.ok(vmssList);
         } catch (Exception e) {
