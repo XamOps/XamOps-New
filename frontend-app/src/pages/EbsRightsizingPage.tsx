@@ -23,7 +23,6 @@ const EbsRightsizingPage: React.FC = () => {
   const [actionMsg, setActionMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [shrinkTarget, setShrinkTarget] = useState<ShrinkTarget | null>(null);
   const [monitoringVolume, setMonitoringVolume] = useState<EbsVolume | null>(null);
-  const [fixingSsm, setFixingSsm] = useState(false);
   const { setTitle, setActions, clearActions } = useTopbarActions();
 
   const {
@@ -31,7 +30,7 @@ const EbsRightsizingPage: React.FC = () => {
     isLoading, isDiskUsageLoading, isRefreshing, ssmUnavailableInstances, totalWastedMonthly,
     unattachedCount, shrinkCount, expandCount,
     applyAction, initiateDownsize, createPolicy, updatePolicy, deletePolicy,
-    calculateRoi, refreshAll, fixSsmPermissions, deletePendingVolume, keepVolume,
+    calculateRoi, refreshAll, deletePendingVolume, keepVolume,
   } = useEbsRightsizingData({ selectedAccountId });
 
   useEffect(() => {
@@ -191,49 +190,7 @@ const EbsRightsizingPage: React.FC = () => {
 
                 {/* SSM unavailable banner */}
                 {!isDiskUsageLoading && ssmUnavailableInstances.length > 0 && (
-                  <div className="rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-4 py-3 flex items-start gap-3">
-                    <i className="fas fa-exclamation-triangle text-amber-500 mt-0.5 flex-shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
-                        Disk usage unavailable for {ssmUnavailableInstances.length} instance{ssmUnavailableInstances.length > 1 ? 's' : ''}
-                      </p>
-                      <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
-                        SSM agent is not registered. XamOps can automatically attach
-                        <code className="mx-1 px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/50 font-mono">AmazonSSMManagedInstanceCore</code>
-                        to each instance's IAM role — SSM agent will register within ~1 minute.
-                      </p>
-                    </div>
-                    <button
-                      disabled={fixingSsm}
-                      onClick={async () => {
-                        setFixingSsm(true);
-                        // Group unavailable instances by region
-                        const byRegion: Record<string, string[]> = {};
-                        volumes.forEach(v => {
-                          if (v.instanceId && ssmUnavailableInstances.includes(v.instanceId)) {
-                            (byRegion[v.region] ??= []).push(v.instanceId);
-                          }
-                        });
-                        const results = await Promise.all(
-                          Object.entries(byRegion).map(([region, ids]) =>
-                            fixSsmPermissions(region, [...new Set(ids)])
-                          )
-                        );
-                        const totalFixed = results.reduce((s, r) => s + (r?.fixed?.length ?? 0), 0);
-                        setFixingSsm(false);
-                        if (totalFixed > 0) {
-                          setActionMsg({ type: 'success', text: `SSM policy attached to ${totalFixed} instance role(s). Refresh in ~1 minute to see disk usage.` });
-                        } else {
-                          setActionMsg({ type: 'error', text: 'Could not attach SSM policy — instances may have no IAM role attached, or XamOps role lacks iam:AttachRolePolicy permission.' });
-                        }
-                      }}
-                      className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold transition-colors disabled:opacity-60"
-                    >
-                      {fixingSsm
-                        ? <><i className="fas fa-circle-notch fa-spin" /> Fixing…</>
-                        : <><i className="fas fa-magic" /> Fix SSM</>}
-                    </button>
-                  </div>
+                  <SsmSetupGuide count={ssmUnavailableInstances.length} awsAccountId={selectedAccountId} />
                 )}
 
                 {/* All Volumes Table */}
@@ -1246,6 +1203,104 @@ const PendingDeletionPanel: React.FC<{
           </tbody>
         </table>
       </div>
+    </div>
+  );
+};
+
+// ── Disk Agent Setup Guide ─────────────────────────────────────────────────────
+
+const SsmSetupGuide: React.FC<{ count: number; awsAccountId: string | null }> = ({ count, awsAccountId }) => {
+  const [expanded, setExpanded] = React.useState(false);
+  const [copied, setCopied] = React.useState(false);
+
+  // In dev the frontend runs on :5173 but the backend is on :8080.
+  // In production both are served from the same host/port so no replacement needed.
+  const detectedBase = window.location.origin.replace(':5173', ':8080');
+  const isLocalhost = detectedBase.includes('localhost') || detectedBase.includes('127.0.0.1');
+
+  const [serverUrl, setServerUrl] = React.useState(detectedBase);
+
+  const accountArg = awsAccountId ?? '<aws-account-id>';
+  const isNgrok = serverUrl.includes('ngrok');
+  const curlHeaders = isNgrok ? ' -H "ngrok-skip-browser-warning: true"' : '';
+  const AGENT_CMD = `curl -fsSL${curlHeaders} ${serverUrl}/agentinstall/agent_install.sh | sudo bash -s -- -b ${serverUrl} -t ${accountArg}`;
+
+  const copy = () => {
+    navigator.clipboard.writeText(AGENT_CMD).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  return (
+    <div className="rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 overflow-hidden">
+      <div className="px-4 py-3 flex items-start gap-3">
+        <i className="fas fa-exclamation-triangle text-amber-500 mt-0.5 flex-shrink-0" />
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+            Disk usage unavailable for {count} instance{count > 1 ? 's' : ''}
+          </p>
+          <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+            Install the XamOps disk agent on each instance to enable SHRINK/EXPAND recommendations — no IAM changes needed.
+          </p>
+        </div>
+        <button
+          onClick={() => setExpanded(e => !e)}
+          className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold transition-colors"
+        >
+          <i className={`fas ${expanded ? 'fa-chevron-up' : 'fa-robot'}`} />
+          {expanded ? 'Hide' : 'Setup Agent'}
+        </button>
+      </div>
+
+      {expanded && (
+        <div className="border-t border-amber-200 dark:border-amber-800 px-4 py-4 space-y-4 bg-white dark:bg-gray-800/60">
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            A lightweight systemd service that runs <code className="px-1 rounded bg-gray-100 dark:bg-gray-700 font-mono">df</code> every 5 minutes and pushes disk usage to XamOps — no IAM changes needed.
+          </p>
+
+          {/* Server URL override — shown when localhost is detected */}
+          {isLocalhost && (
+            <div className="rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 px-3 py-2.5 space-y-2">
+              <p className="text-xs font-medium text-yellow-800 dark:text-yellow-300 flex items-center gap-1.5">
+                <i className="fas fa-exclamation-circle" />
+                EC2 instances can't reach <code className="font-mono">localhost</code> — enter the public IP or hostname of this XamOps server:
+              </p>
+              <input
+                type="text"
+                value={serverUrl}
+                onChange={e => setServerUrl(e.target.value.replace(/\/$/, ''))}
+                placeholder="http://1.2.3.4:8080"
+                className="w-full px-3 py-1.5 rounded-lg border border-yellow-300 dark:border-yellow-700 bg-white dark:bg-gray-800 text-sm font-mono text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-yellow-400"
+              />
+            </div>
+          )}
+
+          {/* Install command */}
+          <div className="flex gap-3">
+            <div className="w-6 h-6 rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">1</div>
+            <div className="flex-1">
+              <p className="text-sm font-medium text-gray-800 dark:text-gray-200 mb-2">
+                SSH into each EC2 instance and run
+              </p>
+              <div className="relative rounded-lg bg-gray-900 p-3 font-mono text-xs text-green-300 overflow-x-auto">
+                <pre className="whitespace-pre-wrap break-all">{AGENT_CMD}</pre>
+                <button
+                  onClick={copy}
+                  className="absolute top-2 right-2 px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-gray-300 text-xs transition-colors"
+                >
+                  {copied ? <><i className="fas fa-check mr-1" />Copied</> : <><i className="fas fa-copy mr-1" />Copy</>}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 px-3 py-2 text-xs text-green-700 dark:text-green-300 flex items-start gap-2">
+            <i className="fas fa-check-circle mt-0.5 flex-shrink-0" />
+            <span>Disk usage appears within 1–2 minutes. Click <strong>Refresh</strong> to see SHRINK/EXPAND recommendations.</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

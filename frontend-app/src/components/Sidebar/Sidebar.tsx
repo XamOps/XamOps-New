@@ -294,7 +294,6 @@ const Sidebar: React.FC = () => {
                 <NavItem href="/devops-in-the-box" icon="fas fa-toolbox" label="DevOps-in-the-Box" isActive={isActive('/devops-in-the-box')} />
                 <NavItem href="/grafana-dashboard" icon="fas fa-chart-line" label="Grafana" isActive={isActive('/grafana-dashboard')} />
                 <NavItem href="/aiops" icon="fas fa-brain" label="AIOps" isActive={isActive('/aiops')} />
-                <NavItem href="/dataops" icon="fas fa-database" label="DbOps" isActive={isActive('/dataops')} />
                 {selectedAccountDisplay.provider === 'AWS' && (
                   <NavItem href="/ebs-rightsizing" icon="fas fa-hdd" label="Disk Rightsizing" isActive={isActive('/ebs-rightsizing')} />
                 )}

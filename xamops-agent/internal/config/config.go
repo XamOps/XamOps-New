@@ -30,6 +30,7 @@ type Config struct {
 	CollectorMetrics      bool
 	CollectorAutoscaling  bool // NEW: push autoscaling-metrics + autoscaling-events
 	CollectorDB           bool // DB query stats collector (opt-in)
+	CollectorDisk         bool // EC2 disk usage collector (opt-in, for EBS rightsizing)
 
 	// DB collector settings
 	// DB_DSN_0, DB_DSN_1, ... — one DSN per database instance
@@ -75,6 +76,7 @@ func Load() (*Config, error) {
 		CollectorMetrics:     getEnvBool("COLLECTOR_METRICS", true),
 		CollectorAutoscaling: getEnvBool("COLLECTOR_AUTOSCALING", false), // opt-in
 		CollectorDB:          getEnvBool("COLLECTOR_DB", false),          // opt-in
+		CollectorDisk:        getEnvBool("COLLECTOR_DISK", false),        // opt-in
 
 		// DB settings
 		DBDSNs:            getEnvDSNs(),

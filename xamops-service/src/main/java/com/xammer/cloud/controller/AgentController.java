@@ -12,6 +12,7 @@ import com.xammer.cloud.repository.KubernetesClusterConfigRepository;
 import com.xammer.cloud.service.AgentIngestService;
 import com.xammer.cloud.service.DbAgentService;
 import com.xammer.cloud.service.EksAutoscalingService;
+import com.xammer.cloud.service.RedisCacheService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
@@ -21,6 +22,7 @@ import org.springframework.web.bind.annotation.*;
 
 import javax.servlet.http.HttpServletRequest;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -40,23 +42,31 @@ public class AgentController {
 
     private static final Logger logger = LoggerFactory.getLogger(AgentController.class);
 
+    /** Redis TTL for agent-reported disk data (6 hours — agent collects every 5 min). */
+    private static final int DISK_AGENT_TTL_MINUTES = 360;
+    /** Redis key prefix: ebs-disk-agent:{cloudAccountId}:{instanceId} */
+    static final String DISK_AGENT_KEY_PREFIX = "ebs-disk-agent:";
+
     private final AgentIngestService agentIngestService;
     private final DbAgentService dbAgentService;
     private final KubernetesClusterConfigRepository clusterConfigRepository;
     private final AgentDataCacheRepository agentDataCacheRepository;
     private final AgentEventRepository agentEventRepository;
+    private final RedisCacheService redisCacheService;
 
     public AgentController(
             AgentIngestService agentIngestService,
             DbAgentService dbAgentService,
             KubernetesClusterConfigRepository clusterConfigRepository,
             AgentDataCacheRepository agentDataCacheRepository,
-            AgentEventRepository agentEventRepository) {
+            AgentEventRepository agentEventRepository,
+            RedisCacheService redisCacheService) {
         this.agentIngestService = agentIngestService;
         this.dbAgentService = dbAgentService;
         this.clusterConfigRepository = clusterConfigRepository;
         this.agentDataCacheRepository = agentDataCacheRepository;
         this.agentEventRepository = agentEventRepository;
+        this.redisCacheService = redisCacheService;
     }
 
     /**
@@ -126,7 +136,15 @@ public class AgentController {
 
         String clientIp = getClientIp(request);
 
-        // 3. Check DB agent registry — auto-register on first push if payload contains DB batches
+        // 3a. Handle disk-usage batches — store in Redis keyed by instanceId, no cluster config needed
+        boolean isDiskPush = payload.getBatches() != null && payload.getBatches().stream()
+                .anyMatch(b -> "disk-usage".equals(b.getCollector()));
+        if (isDiskPush) {
+            handleDiskAgentPush(payload);
+            return ResponseEntity.ok(AgentIngestResponse.success());
+        }
+
+        // 3b. Check DB agent registry — auto-register on first push if payload contains DB batches
         java.util.Optional<DbAgentConfig> dbAgent = dbAgentService.findDbAgent(
                 payload.getCloudAccountId(), payload.getClusterName());
 
@@ -550,4 +568,48 @@ public class AgentController {
                 .header("Content-Type", "application/json")
                 .body(policyCache.get().getDataJson());
     }
+
+    // =========================================================================
+    // DISK AGENT ENDPOINTS
+    // =========================================================================
+
+    /**
+     * Handles disk-usage batches pushed by the XamOps disk agent.
+     * Groups mounts by instanceId and stores each group in Redis so that
+     * EbsDiskRightsizingService can look up actual disk utilisation without SSM.
+     *
+     * Redis key: ebs-disk-agent:{cloudAccountId}:{instanceId}
+     * TTL: 6 hours (agent collects every 5 min — stale after 6h = agent died)
+     */
+    @SuppressWarnings("unchecked")
+    private void handleDiskAgentPush(AgentIngestPayload payload) {
+        String cloudAccountId = payload.getCloudAccountId();
+        if (cloudAccountId == null) return;
+
+        for (AgentIngestPayload.DataBatch batch : payload.getBatches()) {
+            if (!"disk-usage".equals(batch.getCollector())) continue;
+            if (batch.getItems() == null || batch.getItems().isEmpty()) continue;
+
+            // Group mount entries by instanceId
+            Map<String, List<Map<String, Object>>> byInstance = new HashMap<>();
+            for (Object raw : batch.getItems()) {
+                if (!(raw instanceof Map)) continue;
+                Map<String, Object> mount = (Map<String, Object>) raw;
+                String instanceId = (String) mount.get("instanceId");
+                if (instanceId == null || instanceId.isEmpty()) continue;
+                byInstance.computeIfAbsent(instanceId, k -> new ArrayList<>()).add(mount);
+            }
+
+            // Cache each instance's disk data in Redis
+            for (Map.Entry<String, List<Map<String, Object>>> entry : byInstance.entrySet()) {
+                String cacheKey = DISK_AGENT_KEY_PREFIX + cloudAccountId + ":" + entry.getKey();
+                redisCacheService.put(cacheKey, entry.getValue(), DISK_AGENT_TTL_MINUTES);
+                logger.debug("[disk-agent] cached {} mounts for instance {} account {}",
+                        entry.getValue().size(), entry.getKey(), cloudAccountId);
+            }
+            logger.info("[disk-agent] stored disk data for {} instances (account {})",
+                    byInstance.size(), cloudAccountId);
+        }
+    }
+
 }

@@ -67,6 +67,10 @@ public class SecurityConfig {
                                                                 "/api/xamops/cloudguard/grafana-ingest", "POST"))
                                                 .permitAll()
 
+                                                // Disk agent install script and binary downloads — public so EC2 instances can download without auth
+                                                .requestMatchers(new AntPathRequestMatcher("/agentinstall/agent_install.sh")).permitAll()
+                                                .requestMatchers(new AntPathRequestMatcher("/agent/download/**")).permitAll()
+
                                                 // Docker/K8s health checks — must be public so health probes don't 401
                                                 .requestMatchers(new AntPathRequestMatcher("/actuator/health")).permitAll()
 
