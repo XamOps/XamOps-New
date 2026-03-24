@@ -134,8 +134,7 @@ EnvironmentFile=/etc/xamops/disk-agent.env
 ExecStart=/usr/local/bin/xamops-agent
 Restart=always
 RestartSec=30
-User=nobody
-NoNewPrivileges=true
+User=root
 
 [Install]
 WantedBy=multi-user.target
