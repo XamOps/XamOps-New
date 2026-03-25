@@ -217,7 +217,7 @@ public class ResourceLabelService {
         labelRepo.findByIdAndClientId(labelId, clientId)
                 .orElseThrow(() -> new IllegalArgumentException("Label not found: " + labelId));
 
-        List<ResourceLabelAssignment> assignments = assignmentRepo.findAllAssignmentsByLabelId(labelId);
+        List<ResourceLabelAssignment> assignments = assignmentRepo.findAllAssignmentsByLabelIdAndAwsAccountId(labelId, accountId);
         List<String> resourceIds = assignments.stream()
                 .map(ResourceLabelAssignment::getResourceId)
                 .collect(Collectors.toList());

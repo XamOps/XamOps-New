@@ -48,4 +48,9 @@ public interface ResourceLabelAssignmentRepository extends JpaRepository<Resourc
     // All assignment details for a label (used to include resource names in cost response)
     @Query("SELECT a FROM ResourceLabelAssignment a WHERE a.label.id = :labelId")
     List<ResourceLabelAssignment> findAllAssignmentsByLabelId(@Param("labelId") Long labelId);
+
+    // Account-scoped: only resources assigned to a label within a specific AWS account
+    @Query("SELECT a FROM ResourceLabelAssignment a WHERE a.label.id = :labelId AND a.cloudAccount.awsAccountId = :awsAccountId")
+    List<ResourceLabelAssignment> findAllAssignmentsByLabelIdAndAwsAccountId(
+            @Param("labelId") Long labelId, @Param("awsAccountId") String awsAccountId);
 }
