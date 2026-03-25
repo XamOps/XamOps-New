@@ -14,10 +14,12 @@
  * - Session storage caching for better performance
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useWasteData } from '../hooks/useWasteData';
-import type { ServiceGroup } from '../types/waste';
+import type { ServiceGroup, WastedResource } from '../types/waste';
+import { AlertDialog } from '../components/ui/AlertDialog';
+import apiClient from '../utils/apiClient';
 
 // Component imports
 import WasteHeader from '../components/Waste/WasteHeader';
@@ -25,16 +27,24 @@ import WasteKPICards from '../components/Waste/WasteKPICards';
 import WasteResourceGroup from '../components/Waste/WasteResourceGroup';
 
 export const WastePage: React.FC = () => {
-  const { selectedAccountIds } = useAccounts();
+  const { selectedAccountIds, accounts } = useAccounts();
   const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds.join(',') : null;
 
+  // Determine if the active account has read-write access
+  const selectedAccount = accounts.find(a => a.id === selectedAccountIds[0]);
+  const canDelete = selectedAccount?.access === 'read-write';
+
   // Get waste data
-  const { wastedResources, isLoading, isRefreshing, error, loadWastedResources } = useWasteData({
+  const { wastedResources, isLoading, isRefreshing, error, loadWastedResources, removeResource } = useWasteData({
     selectedAccountId,
   });
 
   // Track which groups are expanded
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+
+  // Delete confirmation state
+  const [deleteTarget, setDeleteTarget] = useState<WastedResource | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Group resources by service type
   const groupedResources = useMemo(() => {
@@ -73,6 +83,29 @@ export const WastePage: React.FC = () => {
   const handleRefresh = () => {
     loadWastedResources(true);
   };
+
+  // Delete handler — opens the confirmation dialog
+  const handleDeleteRequest = useCallback((resource: WastedResource) => {
+    setDeleteTarget(resource);
+  }, []);
+
+  // Confirmed delete — calls API and removes resource from local list
+  const handleDeleteConfirm = useCallback(async () => {
+    if (!deleteTarget || !selectedAccountId) return;
+    setIsDeleting(true);
+    try {
+      await apiClient.delete(
+        `/api/xamops/waste/delete?accountId=${selectedAccountId}&resourceId=${encodeURIComponent(deleteTarget.resourceId)}&resourceType=${encodeURIComponent(deleteTarget.resourceType)}&region=${encodeURIComponent(deleteTarget.region)}`
+      );
+      // Immediately remove from the displayed list and cache
+      removeResource(deleteTarget.resourceId);
+    } catch (err) {
+      console.error('Failed to delete waste resource:', err);
+    } finally {
+      setIsDeleting(false);
+      setDeleteTarget(null);
+    }
+  }, [deleteTarget, selectedAccountId, removeResource]);
 
   // Show error state
   if (error) {
@@ -170,12 +203,34 @@ export const WastePage: React.FC = () => {
                   resources={group.resources}
                   isOpen={expandedGroups.has(group.serviceType)}
                   onToggle={() => toggleGroup(group.serviceType)}
+                  canDelete={canDelete}
+                  onDelete={handleDeleteRequest}
                 />
               ))}
             </div>
           </>
         )}
       </div>
+
+      {/* Delete confirmation dialog */}
+      <AlertDialog
+        isOpen={deleteTarget !== null}
+        variant="danger"
+        title="Delete resource?"
+        description={
+          deleteTarget && (
+            <>
+              <strong>{deleteTarget.resourceName || deleteTarget.resourceId}</strong> (
+              {deleteTarget.resourceType} · {deleteTarget.region}) will be permanently deleted from
+              AWS. This action cannot be undone.
+            </>
+          )
+        }
+        confirmLabel={isDeleting ? 'Deleting…' : 'Yes, Delete'}
+        cancelLabel="Cancel"
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </main>
   );
 };

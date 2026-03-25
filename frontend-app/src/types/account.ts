@@ -11,6 +11,7 @@ export interface Account {
   name: string;
   provider: CloudProvider;
   status: 'CONNECTED' | 'DISCONNECTED' | 'ERROR';
+  access?: string;
   azureSubscriptionId?: string;
   // Grafana monitoring configuration
   grafanaIp?: string;

@@ -10,6 +10,7 @@ import com.xammer.cloud.service.AwsAccountService;
 import com.xammer.cloud.service.CloudListService;
 import com.xammer.cloud.service.DashboardDataService;
 import com.xammer.cloud.service.OptimizationService;
+import com.xammer.cloud.service.WasteDeleteService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -42,19 +43,22 @@ public class DashboardController {
     private final AwsAccountService awsAccountService;
     private final CloudAccountRepository cloudAccountRepository;
     private final DashboardLayoutRepository dashboardLayoutRepository;
+    private final WasteDeleteService wasteDeleteService;
 
     public DashboardController(DashboardDataService dashboardDataService,
             OptimizationService optimizationService,
             CloudListService cloudListService,
             AwsAccountService awsAccountService,
             CloudAccountRepository cloudAccountRepository,
-            DashboardLayoutRepository dashboardLayoutRepository) {
+            DashboardLayoutRepository dashboardLayoutRepository,
+            WasteDeleteService wasteDeleteService) {
         this.dashboardDataService = dashboardDataService;
         this.optimizationService = optimizationService;
         this.cloudListService = cloudListService;
         this.awsAccountService = awsAccountService;
         this.cloudAccountRepository = cloudAccountRepository;
         this.dashboardLayoutRepository = dashboardLayoutRepository;
+        this.wasteDeleteService = wasteDeleteService;
     }
 
     // ============================================================================================
@@ -295,6 +299,26 @@ public class DashboardController {
                     logger.error("Error fetching wasted resources for account {}", accountIdToUse, ex);
                     return Collections.emptyList();
                 });
+    }
+
+    @DeleteMapping("/waste/delete")
+    public ResponseEntity<?> deleteWasteResource(
+            @RequestParam String accountId,
+            @RequestParam String resourceId,
+            @RequestParam String resourceType,
+            @RequestParam String region) {
+        try {
+            wasteDeleteService.deleteResource(accountId, resourceId, resourceType, region);
+            logger.info("[WasteDelete] Successfully deleted {} '{}' for account {}", resourceType, resourceId, accountId);
+            return ResponseEntity.ok(Map.of("message", "Resource deleted successfully"));
+        } catch (IllegalArgumentException e) {
+            logger.warn("[WasteDelete] Bad request: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", e.getMessage()));
+        } catch (Exception e) {
+            logger.error("[WasteDelete] Error deleting {} '{}': {}", resourceType, resourceId, e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to delete resource", "message", e.getMessage()));
+        }
     }
 
     @GetMapping("/dashboard/layout")
