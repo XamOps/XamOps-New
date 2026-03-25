@@ -89,6 +89,9 @@ public class ProactiveCacheRefreshService {
     private final AutoSpottingService autoSpottingService;
     private final XamOpsRightsizingService xamOpsRightsizingService;
 
+    // ADDED: DbOps cost caching
+    private final DbOpsCostService dbOpsCostService;
+
     @Autowired
     public ProactiveCacheRefreshService(
             CloudAccountRepository cloudAccountRepository,
@@ -121,7 +124,8 @@ public class ProactiveCacheRefreshService {
             @Qualifier("masterDataSource") DataSource masterDataSource,
             com.xammer.cloud.config.SchedulingEnvironmentConfig envConfig,
             AutoSpottingService autoSpottingService,
-            XamOpsRightsizingService xamOpsRightsizingService) {
+            XamOpsRightsizingService xamOpsRightsizingService,
+            DbOpsCostService dbOpsCostService) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.cacheManager = cacheManager;
         this.cloudListService = cloudListService;
@@ -153,6 +157,7 @@ public class ProactiveCacheRefreshService {
         this.envConfig = envConfig;
         this.autoSpottingService = autoSpottingService;
         this.xamOpsRightsizingService = xamOpsRightsizingService;
+        this.dbOpsCostService = dbOpsCostService;
 
         // Log configuration on startup
         envConfig.logConfiguration();
@@ -506,6 +511,12 @@ public class ProactiveCacheRefreshService {
                         continue;
                     try {
                         costService.getCostBreakdown(accountId, "SERVICE", null, true, startDate, endDate).join();
+                        costService.getTotalMonthToDateCost(accountId, true).join();
+                        costService.getLastMonthSpend(accountId, true).join();
+                        costService.getCostBreakdownByServiceAndRegion(
+                                accountId, LocalDate.parse(startDate), LocalDate.parse(endDate), true).join();
+                        costService.getHistoricalCost(accountId, null, null, 30, true).join();
+                        dbOpsCostService.getDbCosts(accountId, true).join();
                         count++;
                     } catch (Exception e) {
                         logger.error("Failed Cost refresh for {}", accountId, e);
@@ -1545,6 +1556,7 @@ public class ProactiveCacheRefreshService {
                         autoSpottingService.listAsgsAllRegions(account.getId(), true);
                         autoSpottingService.getCostData(account.getId(), true);
                         autoSpottingService.getSpotInstances(account.getId(), true);
+                        autoSpottingService.getRiSpCoverage(account.getId(), true);
                         logger.info("✓ SpotAutomation cached for account {} (cloudAccountId={})",
                                 account.getAwsAccountId(), account.getId());
                         count++;

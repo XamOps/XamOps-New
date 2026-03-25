@@ -1,7 +1,11 @@
 package com.xammer.billops.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xammer.billops.domain.CloudAccount;
+import com.xammer.billops.repository.BillOpsCachedDataRepository;
 import com.xammer.billops.repository.CloudAccountRepository;
+import com.xammer.cloud.domain.CachedData;
 import com.opencsv.CSVReader;
 import com.opencsv.CSVReaderBuilder;
 import com.opencsv.CSVParser;
@@ -26,6 +30,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -34,18 +39,49 @@ public class CloudFrontUsageService {
 
     private final AwsClientProvider awsClientProvider;
     private final CloudAccountRepository cloudAccountRepository;
+    private final RedisCacheService redisCacheService;
+    private final BillOpsCachedDataRepository cachedDataRepository;
+    private final ObjectMapper objectMapper;
     private static final Logger logger = LoggerFactory.getLogger(CloudFrontUsageService.class);
 
     public CloudFrontUsageService(AwsClientProvider awsClientProvider,
-            CloudAccountRepository cloudAccountRepository) {
+            CloudAccountRepository cloudAccountRepository,
+            RedisCacheService redisCacheService,
+            BillOpsCachedDataRepository cachedDataRepository,
+            ObjectMapper objectMapper) {
         this.awsClientProvider = awsClientProvider;
         this.cloudAccountRepository = cloudAccountRepository;
+        this.redisCacheService = redisCacheService;
+        this.cachedDataRepository = cachedDataRepository;
+        this.objectMapper = objectMapper;
     }
 
     /**
      * Method 1: Fetches CloudFront usage directly from AWS Cost Explorer.
+     * 3-layer cache: Redis (360 min) → DB snapshot → AWS CE API.
      */
     public List<CloudFrontUsageDto> getUsageFromAws(String accountId, YearMonth period) {
+        String cacheKey = "BILLOPS_CF_USAGE::" + accountId + "::" + period;
+
+        Optional<List<CloudFrontUsageDto>> cached = redisCacheService.get(cacheKey, new TypeReference<>() {});
+        if (cached.isPresent()) {
+            logger.info("CloudFront usage loaded from Redis for account={} period={}", accountId, period);
+            return cached.get();
+        }
+        try {
+            Optional<CachedData> dbCached = cachedDataRepository.findById(cacheKey);
+            if (dbCached.isPresent()) {
+                List<CloudFrontUsageDto> dbData = objectMapper.readValue(dbCached.get().getJsonData(), new TypeReference<>() {});
+                if (dbData != null) {
+                    redisCacheService.put(cacheKey, dbData, 360);
+                    logger.info("✅ DB snapshot hit — re-warmed Redis: {}", cacheKey);
+                    return dbData;
+                }
+            }
+        } catch (Exception dbEx) {
+            logger.warn("DB cache miss for {}: {}", cacheKey, dbEx.getMessage());
+        }
+
         logger.info("Fetching CloudFront usage from AWS Cost Explorer for account: {}, period: {}", accountId, period);
 
         CloudAccount cloudAccount = cloudAccountRepository.findByAwsAccountId(accountId)
@@ -93,6 +129,17 @@ public class CloudFrontUsageService {
         }
 
         logger.info("Retrieved {} CloudFront usage records from AWS", usageList.size());
+
+        redisCacheService.put(cacheKey, usageList, 360);
+        try {
+            CachedData snapshot = cachedDataRepository.findById(cacheKey).orElse(new CachedData());
+            snapshot.setCacheKey(cacheKey);
+            snapshot.setJsonData(objectMapper.writeValueAsString(usageList));
+            snapshot.setLastUpdated(java.time.LocalDateTime.now());
+            cachedDataRepository.save(snapshot);
+        } catch (Exception dbEx) {
+            logger.warn("Failed to save DB snapshot {}: {}", cacheKey, dbEx.getMessage());
+        }
         return usageList;
     }
 

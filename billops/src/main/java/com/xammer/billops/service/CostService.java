@@ -1,13 +1,15 @@
 package com.xammer.billops.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xammer.billops.domain.CloudAccount;
 import com.xammer.billops.dto.AwsCreditDto;
-import com.xammer.billops.dto.CreditDetailDto;
+import com.xammer.billops.repository.BillOpsCachedDataRepository;
 import com.xammer.billops.repository.CloudAccountRepository;
+import com.xammer.cloud.domain.CachedData;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.PostConstruct;
@@ -27,6 +29,9 @@ public class CostService {
     private final AwsClientProvider awsClientProvider;
     private final CloudAccountRepository cloudAccountRepository;
     private final CostMockService costMockService;
+    private final RedisCacheService redisCacheService;
+    private final BillOpsCachedDataRepository cachedDataRepository;
+    private final ObjectMapper objectMapper;
     private static final Logger logger = LoggerFactory.getLogger(CostService.class);
 
     @Value("${aws.costexplorer.mock:false}")
@@ -37,10 +42,18 @@ public class CostService {
         logger.info("✅ CostService initialized (Mock Mode: {})", useMockData);
     }
 
-    public CostService(AwsClientProvider awsClientProvider, CloudAccountRepository cloudAccountRepository, CostMockService costMockService) {
+    public CostService(AwsClientProvider awsClientProvider,
+            CloudAccountRepository cloudAccountRepository,
+            CostMockService costMockService,
+            RedisCacheService redisCacheService,
+            BillOpsCachedDataRepository cachedDataRepository,
+            ObjectMapper objectMapper) {
         this.awsClientProvider = awsClientProvider;
         this.cloudAccountRepository = cloudAccountRepository;
         this.costMockService = costMockService;
+        this.redisCacheService = redisCacheService;
+        this.cachedDataRepository = cachedDataRepository;
+        this.objectMapper = objectMapper;
     }
 
     /**
@@ -60,10 +73,36 @@ public class CostService {
         return costMockService.getMockAwsCredits(account);
     }
 
-    @Cacheable(value = "costHistory", key = "#account.id + '-' + #year + '-' + #month")
     public List<Map<String, Object>> getCostHistory(CloudAccount account, Integer year, Integer month) {
+        return getCostHistory(account, year, month, false);
+    }
+
+    public List<Map<String, Object>> getCostHistory(CloudAccount account, Integer year, Integer month, boolean forceRefresh) {
         if (useMockData) {
             return costMockService.getMockCostHistory(account, year, month);
+        }
+
+        String cacheKey = String.format("BILLOPS_COST_HISTORY::%s::%s::%s",
+                account.getAwsAccountId(), year, month);
+
+        if (!forceRefresh) {
+            Optional<List<Map<String, Object>>> cached = redisCacheService.get(cacheKey, new TypeReference<>() {});
+            if (cached.isPresent()) {
+                return cached.get();
+            }
+            try {
+                Optional<CachedData> dbCached = cachedDataRepository.findById(cacheKey);
+                if (dbCached.isPresent()) {
+                    List<Map<String, Object>> dbData = objectMapper.readValue(dbCached.get().getJsonData(), new TypeReference<>() {});
+                    if (dbData != null) {
+                        redisCacheService.put(cacheKey, dbData, 60);
+                        logger.info("✅ DB snapshot hit — re-warmed Redis: {}", cacheKey);
+                        return dbData;
+                    }
+                }
+            } catch (Exception dbEx) {
+                logger.warn("DB cache miss for {}: {}", cacheKey, dbEx.getMessage());
+            }
         }
 
         try {
@@ -88,12 +127,24 @@ public class CostService {
 
             List<ResultByTime> results = client.getCostAndUsage(request).resultsByTime();
 
-            return results.stream().map(result -> {
+            List<Map<String, Object>> result = results.stream().map(r -> {
                 Map<String, Object> dataPoint = new HashMap<>();
-                dataPoint.put("date", result.timePeriod().start());
-                dataPoint.put("cost", Double.parseDouble(result.total().get("UnblendedCost").amount()));
+                dataPoint.put("date", r.timePeriod().start());
+                dataPoint.put("cost", Double.parseDouble(r.total().get("UnblendedCost").amount()));
                 return dataPoint;
             }).collect(Collectors.toList());
+
+            redisCacheService.put(cacheKey, result, 60);
+            try {
+                CachedData snapshot = cachedDataRepository.findById(cacheKey).orElse(new CachedData());
+                snapshot.setCacheKey(cacheKey);
+                snapshot.setJsonData(objectMapper.writeValueAsString(result));
+                snapshot.setLastUpdated(java.time.LocalDateTime.now());
+                cachedDataRepository.save(snapshot);
+            } catch (Exception dbEx) {
+                logger.warn("Failed to save DB snapshot {}: {}", cacheKey, dbEx.getMessage());
+            }
+            return result;
         } catch (CostExplorerException e) {
             logger.warn("Could not fetch cost history for account {}. Error: {}", account.getAccountName(),
                     e.getMessage());
@@ -101,15 +152,42 @@ public class CostService {
         }
     }
 
-    @Cacheable(value = "costByDimension", key = "#account.id + '-' + #dimension + '-' + #year + '-' + #month")
     public List<Map<String, Object>> getCostByDimension(CloudAccount account, String dimension, Integer year,
             Integer month) {
+        return getCostByDimension(account, dimension, year, month, false);
+    }
+
+    public List<Map<String, Object>> getCostByDimension(CloudAccount account, String dimension, Integer year,
+            Integer month, boolean forceRefresh) {
         if (useMockData) {
             return costMockService.getMockCostByDimension(account, dimension, year, month);
         }
 
         logger.info("[CostService] getCostByDimension called: account='{}' (awsId='{}'), dimension={}, year={}, month={}",
                 account.getAccountName(), account.getAwsAccountId(), dimension, year, month);
+
+        String cacheKey = String.format("BILLOPS_COST_DIMENSION::%s::%s::%s::%s",
+                account.getAwsAccountId(), dimension, year, month);
+
+        if (!forceRefresh) {
+            Optional<List<Map<String, Object>>> cached = redisCacheService.get(cacheKey, new TypeReference<>() {});
+            if (cached.isPresent()) {
+                return cached.get();
+            }
+            try {
+                Optional<CachedData> dbCached = cachedDataRepository.findById(cacheKey);
+                if (dbCached.isPresent()) {
+                    List<Map<String, Object>> dbData = objectMapper.readValue(dbCached.get().getJsonData(), new TypeReference<>() {});
+                    if (dbData != null) {
+                        redisCacheService.put(cacheKey, dbData, 60);
+                        logger.info("✅ DB snapshot hit — re-warmed Redis: {}", cacheKey);
+                        return dbData;
+                    }
+                }
+            } catch (Exception dbEx) {
+                logger.warn("DB cache miss for {}: {}", cacheKey, dbEx.getMessage());
+            }
+        }
 
         try {
             CostExplorerClient client = awsClientProvider.getCostExplorerClient(account);
@@ -161,6 +239,16 @@ public class CostService {
             logger.info("[CostService] getCostByDimension result for '{}': {} service(s), total cost = ${}",
                     account.getAwsAccountId(), result.size(), String.format("%.2f", totalCost));
 
+            redisCacheService.put(cacheKey, result, 60);
+            try {
+                CachedData snapshot = cachedDataRepository.findById(cacheKey).orElse(new CachedData());
+                snapshot.setCacheKey(cacheKey);
+                snapshot.setJsonData(objectMapper.writeValueAsString(result));
+                snapshot.setLastUpdated(java.time.LocalDateTime.now());
+                cachedDataRepository.save(snapshot);
+            } catch (Exception dbEx) {
+                logger.warn("Failed to save DB snapshot {}: {}", cacheKey, dbEx.getMessage());
+            }
             return result;
         } catch (CostExplorerException e) {
             logger.warn("Could not fetch cost by dimension for account {}. Error: {}", account.getAccountName(),
@@ -169,11 +257,38 @@ public class CostService {
         }
     }
 
-    @Cacheable(value = "costForServiceInRegion", key = "#account.id + '-' + #serviceName + '-' + #year + '-' + #month")
     public List<Map<String, Object>> getCostForServiceInRegion(CloudAccount account, String serviceName, Integer year,
             Integer month) {
+        return getCostForServiceInRegion(account, serviceName, year, month, false);
+    }
+
+    public List<Map<String, Object>> getCostForServiceInRegion(CloudAccount account, String serviceName, Integer year,
+            Integer month, boolean forceRefresh) {
         if (useMockData) {
             return costMockService.getMockCostForServiceInRegion(account, serviceName, year, month);
+        }
+
+        String cacheKey = String.format("BILLOPS_COST_SVC_REGION::%s::%s::%s::%s",
+                account.getAwsAccountId(), serviceName, year, month);
+
+        if (!forceRefresh) {
+            Optional<List<Map<String, Object>>> cached = redisCacheService.get(cacheKey, new TypeReference<>() {});
+            if (cached.isPresent()) {
+                return cached.get();
+            }
+            try {
+                Optional<CachedData> dbCached = cachedDataRepository.findById(cacheKey);
+                if (dbCached.isPresent()) {
+                    List<Map<String, Object>> dbData = objectMapper.readValue(dbCached.get().getJsonData(), new TypeReference<>() {});
+                    if (dbData != null) {
+                        redisCacheService.put(cacheKey, dbData, 60);
+                        logger.info("✅ DB snapshot hit — re-warmed Redis: {}", cacheKey);
+                        return dbData;
+                    }
+                }
+            } catch (Exception dbEx) {
+                logger.warn("DB cache miss for {}: {}", cacheKey, dbEx.getMessage());
+            }
         }
 
         try {
@@ -220,7 +335,7 @@ public class CostService {
                 return Collections.emptyList();
             }
 
-            return response.resultsByTime().get(0).groups().stream()
+            List<Map<String, Object>> result = response.resultsByTime().get(0).groups().stream()
                     .map(group -> {
                         Map<String, Object> map = new HashMap<>();
                         map.put("name", group.keys().get(0));
@@ -230,6 +345,18 @@ public class CostService {
                     .filter(map -> (double) map.get("cost") > 0.01)
                     .collect(Collectors.toList());
 
+            redisCacheService.put(cacheKey, result, 60);
+            try {
+                CachedData snapshot = cachedDataRepository.findById(cacheKey).orElse(new CachedData());
+                snapshot.setCacheKey(cacheKey);
+                snapshot.setJsonData(objectMapper.writeValueAsString(result));
+                snapshot.setLastUpdated(java.time.LocalDateTime.now());
+                cachedDataRepository.save(snapshot);
+            } catch (Exception dbEx) {
+                logger.warn("Failed to save DB snapshot {}: {}", cacheKey, dbEx.getMessage());
+            }
+            return result;
+
         } catch (CostExplorerException e) {
             logger.warn("Could not fetch cost for service '{}' in account {}. Error: {}", serviceName,
                     account.getAccountName(), e.getMessage());
@@ -237,14 +364,42 @@ public class CostService {
         }
     }
 
-    @Cacheable(value = "costByResource", key = "#account.id + '-' + #serviceName + '-' + #region + '-' + #year + '-' + #month")
     public List<Map<String, Object>> getCostByResource(CloudAccount account, String serviceName, String region,
             Integer year, Integer month) {
+        return getCostByResource(account, serviceName, region, year, month, false);
+    }
+
+    public List<Map<String, Object>> getCostByResource(CloudAccount account, String serviceName, String region,
+            Integer year, Integer month, boolean forceRefresh) {
         if (useMockData) {
             return costMockService.getMockCostByResource(account, serviceName, region, year, month);
         }
 
         logger.info("Fetching resource costs for service '{}' in region '{}'", serviceName, region);
+
+        String cacheKey = String.format("BILLOPS_COST_RESOURCE::%s::%s::%s::%s::%s",
+                account.getAwsAccountId(), serviceName, region, year, month);
+
+        if (!forceRefresh) {
+            Optional<List<Map<String, Object>>> cached = redisCacheService.get(cacheKey, new TypeReference<>() {});
+            if (cached.isPresent()) {
+                return cached.get();
+            }
+            try {
+                Optional<CachedData> dbCached = cachedDataRepository.findById(cacheKey);
+                if (dbCached.isPresent()) {
+                    List<Map<String, Object>> dbData = objectMapper.readValue(dbCached.get().getJsonData(), new TypeReference<>() {});
+                    if (dbData != null) {
+                        redisCacheService.put(cacheKey, dbData, 60);
+                        logger.info("✅ DB snapshot hit — re-warmed Redis: {}", cacheKey);
+                        return dbData;
+                    }
+                }
+            } catch (Exception dbEx) {
+                logger.warn("DB cache miss for {}: {}", cacheKey, dbEx.getMessage());
+            }
+        }
+
         try {
             CostExplorerClient client = awsClientProvider.getCostExplorerClient(account);
             LocalDate startDate;
@@ -294,7 +449,7 @@ public class CostService {
                 return Collections.emptyList();
             }
 
-            return response.resultsByTime().get(0).groups().stream()
+            List<Map<String, Object>> result = response.resultsByTime().get(0).groups().stream()
                     .map(group -> {
                         Map<String, Object> map = new HashMap<>();
                         String usageType = group.keys().get(0);
@@ -311,6 +466,18 @@ public class CostService {
                     })
                     .filter(map -> (double) map.get("cost") > 0)
                     .collect(Collectors.toList());
+
+            redisCacheService.put(cacheKey, result, 60);
+            try {
+                CachedData snapshot = cachedDataRepository.findById(cacheKey).orElse(new CachedData());
+                snapshot.setCacheKey(cacheKey);
+                snapshot.setJsonData(objectMapper.writeValueAsString(result));
+                snapshot.setLastUpdated(java.time.LocalDateTime.now());
+                cachedDataRepository.save(snapshot);
+            } catch (Exception dbEx) {
+                logger.warn("Failed to save DB snapshot {}: {}", cacheKey, dbEx.getMessage());
+            }
+            return result;
 
         } catch (CostExplorerException e) {
             logger.warn("Could not fetch resource costs for service '{}' in region '{}'. Error: {}", serviceName,

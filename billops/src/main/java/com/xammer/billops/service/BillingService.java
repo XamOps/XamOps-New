@@ -35,7 +35,7 @@ public class BillingService {
     private final CacheManager cacheManager;
 
     private static final List<String> COST_SPRING_CACHES =
-            List.of("costByDimension", "costForServiceInRegion", "costByResource", "costHistory");
+            List.of("costByDimension", "costForServiceInRegion", "costByResource", "costHistory"); // kept for legacy eviction compatibility
 
     // Redis cache prefixes
     private static final String BILLING_DASHBOARD_CACHE_PREFIX = "billing:dashboard:";
@@ -117,10 +117,6 @@ public class BillingService {
                     logger.warn("Failed to deserialize DB billing snapshot for {}: {}", dbKey, e.getMessage());
                 }
             }
-        } else {
-            // forceRefresh=true: also clear Spring @Cacheable cost caches so getCostByDimension
-            // fetches live data from AWS (not a stale Spring-cached value).
-            evictSpringCostCaches();
         }
 
         // Layer 3: Fetch fresh from cloud APIs (parallel)
@@ -132,7 +128,7 @@ public class BillingService {
         }
 
         List<CompletableFuture<BillingDashboardDto>> futures = accounts.stream()
-                .map(account -> CompletableFuture.supplyAsync(() -> getAccountBillingSummary(account, year, month)))
+                .map(account -> CompletableFuture.supplyAsync(() -> getAccountBillingSummary(account, year, month, forceRefresh)))
                 .collect(Collectors.toList());
 
         BillingDashboardDto aggregatedData = futures.stream()
@@ -179,10 +175,6 @@ public class BillingService {
                     logger.warn("Failed to deserialize DB billing detailed snapshot for {}: {}", dbKey, e.getMessage());
                 }
             }
-        } else {
-            // forceRefresh=true: clear Spring @Cacheable cost caches so all cost methods
-            // fetch live data from AWS instead of returning stale Spring-cached values.
-            evictSpringCostCaches();
         }
 
         // Layer 3: Fetch fresh from cloud APIs (parallel)
@@ -194,7 +186,7 @@ public class BillingService {
         }
 
         List<CompletableFuture<List<ServiceCostDetailDto>>> futures = accounts.stream()
-                .map(account -> CompletableFuture.supplyAsync(() -> fetchSingleAccountDetails(account, year, month)))
+                .map(account -> CompletableFuture.supplyAsync(() -> fetchSingleAccountDetails(account, year, month, forceRefresh)))
                 .collect(Collectors.toList());
 
         List<ServiceCostDetailDto> aggregatedReport = futures.stream()
@@ -216,6 +208,10 @@ public class BillingService {
     // --- Private Helper Methods ---
 
     public BillingDashboardDto getAccountBillingSummary(CloudAccount account, Integer year, Integer month) {
+        return getAccountBillingSummary(account, year, month, false);
+    }
+
+    public BillingDashboardDto getAccountBillingSummary(CloudAccount account, Integer year, Integer month, boolean forceRefresh) {
         try {
             String provider = account.getProvider();
             if ("GCP".equalsIgnoreCase(provider)) {
@@ -224,7 +220,7 @@ public class BillingService {
                 return fetchAzureBillingSummary(account, year, month);
             } else {
                 // Default: AWS
-                return fetchAwsBillingSummary(account, year, month);
+                return fetchAwsBillingSummary(account, year, month, forceRefresh);
             }
         } catch (Exception e) {
             logger.error("Error fetching summary for account {}: {}",
@@ -234,11 +230,11 @@ public class BillingService {
         }
     }
 
-    private BillingDashboardDto fetchAwsBillingSummary(CloudAccount account, Integer year, Integer month) {
+    private BillingDashboardDto fetchAwsBillingSummary(CloudAccount account, Integer year, Integer month, boolean forceRefresh) {
         BillingDashboardDto dto = new BillingDashboardDto();
 
         // Fetch Cost History
-        List<Map<String, Object>> costHistoryRaw = costService.getCostHistory(account, year, month);
+        List<Map<String, Object>> costHistoryRaw = costService.getCostHistory(account, year, month, forceRefresh);
         List<BillingDashboardDto.CostHistory> costHistory = costHistoryRaw.stream()
                 .map(item -> new BillingDashboardDto.CostHistory(
                         (String) item.get("date"),
@@ -248,7 +244,7 @@ public class BillingService {
 
         // Fetch Service Breakdown
         List<Map<String, Object>> serviceBreakdownRaw = costService.getCostByDimension(account, "SERVICE", year,
-                month);
+                month, forceRefresh);
         List<BillingDashboardDto.ServiceBreakdown> serviceBreakdown = serviceBreakdownRaw.stream()
                 .map(item -> new BillingDashboardDto.ServiceBreakdown(
                         (String) item.get("name"),
@@ -431,9 +427,13 @@ public class BillingService {
     }
 
     private List<ServiceCostDetailDto> fetchSingleAccountDetails(CloudAccount account, Integer year, Integer month) {
+        return fetchSingleAccountDetails(account, year, month, false);
+    }
+
+    private List<ServiceCostDetailDto> fetchSingleAccountDetails(CloudAccount account, Integer year, Integer month, boolean forceRefresh) {
         List<ServiceCostDetailDto> accountDetails = new ArrayList<>();
         try {
-            List<Map<String, Object>> services = costService.getCostByDimension(account, "SERVICE", year, month);
+            List<Map<String, Object>> services = costService.getCostByDimension(account, "SERVICE", year, month, forceRefresh);
 
             for (Map<String, Object> serviceMap : services) {
                 String serviceName = (String) serviceMap.get("name");
@@ -445,12 +445,12 @@ public class BillingService {
 
                 List<RegionCostDto> regionsDto = new ArrayList<>();
                 List<Map<String, Object>> regions = costService.getCostForServiceInRegion(account, serviceName, year,
-                        month);
+                        month, forceRefresh);
 
                 if (regions.isEmpty()) {
                     // Assume Global or fetch without region constraint
                     List<Map<String, Object>> resources = costService.getCostByResource(account, serviceName, "Global",
-                            year, month);
+                            year, month, forceRefresh);
                     List<ResourceCostDto> resourceCosts = mapResourcesToDto(resources);
                     if (!resourceCosts.isEmpty()) {
                         regionsDto.add(new RegionCostDto("Global", totalServiceCost, resourceCosts));
@@ -464,7 +464,7 @@ public class BillingService {
                             continue;
 
                         List<Map<String, Object>> resources = costService.getCostByResource(account, serviceName,
-                                regionName, year, month);
+                                regionName, year, month, forceRefresh);
                         regionsDto.add(new RegionCostDto(regionName, regionCost, mapResourcesToDto(resources)));
                     }
                 }

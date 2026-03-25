@@ -81,11 +81,54 @@ public class CostService {
         @Async("awsTaskExecutor")
         public CompletableFuture<Double> getTotalMonthToDateCost(String accountId, boolean forceRefresh) {
                 String cacheKey = "totalMtdCost-" + accountId;
+                String dbKey = "AWS_MTD_COST::" + accountId;
                 if (!forceRefresh) {
                         Optional<Double> cached = redisCache.get(cacheKey, Double.class);
                         if (cached.isPresent()) {
                                 logger.info("✅ Cache hit for MTD cost: {}", cacheKey);
                                 return CompletableFuture.completedFuture(cached.get());
+                        }
+                        try {
+                                Optional<CachedData> dbCached = cachedDataRepository.findById(dbKey);
+                                if (dbCached.isPresent()) {
+                                        Double dbData = objectMapper.readValue(dbCached.get().getJsonData(), Double.class);
+                                        if (dbData != null) {
+                                                redisCache.put(cacheKey, dbData, 60);
+                                                logger.info("✅ DB snapshot hit for MTD cost — re-warmed Redis: {}", dbKey);
+                                                return CompletableFuture.completedFuture(dbData);
+                                        }
+                                }
+                        } catch (Exception e) {
+                                logger.warn("DB cache miss for {}: {}", dbKey, e.getMessage());
+                        }
+
+                        // Derive from getCostBreakdown(SERVICE) Redis cache — avoids a redundant CE call
+                        // when cost.html has already populated the breakdown cache.
+                        LocalDate cbNow = LocalDate.now();
+                        String cbStart = cbNow.withDayOfMonth(1).toString();
+                        String cbEnd = cbNow.toString();
+                        String breakdownCacheKey = "costBreakdown-" + accountId + "-SERVICE--" + cbStart + "-" + cbEnd;
+                        try {
+                                Optional<List<CostDto>> breakdownOpt = redisCache.get(breakdownCacheKey,
+                                                new TypeReference<List<CostDto>>() {});
+                                if (breakdownOpt.isPresent()) {
+                                        double total = breakdownOpt.get().stream()
+                                                        .mapToDouble(CostDto::getAmount).sum();
+                                        redisCache.put(cacheKey, total, 60);
+                                        try {
+                                                CachedData snap = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+                                                snap.setCacheKey(dbKey);
+                                                snap.setJsonData(objectMapper.writeValueAsString(total));
+                                                snap.setLastUpdated(java.time.LocalDateTime.now());
+                                                cachedDataRepository.save(snap);
+                                        } catch (Exception dbEx) {
+                                                logger.warn("Failed to save MTD cost DB snapshot {}: {}", dbKey, dbEx.getMessage());
+                                        }
+                                        logger.info("✅ MTD cost derived from getCostBreakdown Redis cache for {}", accountId);
+                                        return CompletableFuture.completedFuture(total);
+                                }
+                        } catch (Exception e) {
+                                logger.warn("Could not derive MTD cost from breakdown cache for {}: {}", accountId, e.getMessage());
                         }
                 }
 
@@ -124,6 +167,15 @@ public class CostService {
                                                 .sum();
 
                                 redisCache.put(cacheKey, total, 60); // Cache for 1 hour
+                                try {
+                                        CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+                                        snapshot.setCacheKey(dbKey);
+                                        snapshot.setJsonData(objectMapper.writeValueAsString(total));
+                                        snapshot.setLastUpdated(java.time.LocalDateTime.now());
+                                        cachedDataRepository.save(snapshot);
+                                } catch (Exception dbEx) {
+                                        logger.warn("Failed to save MTD cost DB snapshot {}: {}", dbKey, dbEx.getMessage());
+                                }
                                 return total;
                         } catch (Exception e) {
                                 logger.error("❌ Error fetching MTD cost for account {}: {}", accountId, e.getMessage());
@@ -138,11 +190,25 @@ public class CostService {
         @Async("awsTaskExecutor")
         public CompletableFuture<Double> getLastMonthSpend(String accountId, boolean forceRefresh) {
                 String cacheKey = "lastMonthCost-" + accountId;
+                String dbKey = "AWS_LAST_MONTH_COST::" + accountId;
                 if (!forceRefresh) {
                         Optional<Double> cached = redisCache.get(cacheKey, Double.class);
                         if (cached.isPresent()) {
                                 logger.info("✅ Cache hit for Last Month cost: {}", cacheKey);
                                 return CompletableFuture.completedFuture(cached.get());
+                        }
+                        try {
+                                Optional<CachedData> dbCached = cachedDataRepository.findById(dbKey);
+                                if (dbCached.isPresent()) {
+                                        Double dbData = objectMapper.readValue(dbCached.get().getJsonData(), Double.class);
+                                        if (dbData != null) {
+                                                redisCache.put(cacheKey, dbData, 60 * 24);
+                                                logger.info("✅ DB snapshot hit for last month cost — re-warmed Redis: {}", dbKey);
+                                                return CompletableFuture.completedFuture(dbData);
+                                        }
+                                }
+                        } catch (Exception e) {
+                                logger.warn("DB cache miss for {}: {}", dbKey, e.getMessage());
                         }
                 }
 
@@ -181,6 +247,15 @@ public class CostService {
                                                 .sum();
 
                                 redisCache.put(cacheKey, total, 60 * 24); // Cache for 24 hours
+                                try {
+                                        CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+                                        snapshot.setCacheKey(dbKey);
+                                        snapshot.setJsonData(objectMapper.writeValueAsString(total));
+                                        snapshot.setLastUpdated(java.time.LocalDateTime.now());
+                                        cachedDataRepository.save(snapshot);
+                                } catch (Exception dbEx) {
+                                        logger.warn("Failed to save last month cost DB snapshot {}: {}", dbKey, dbEx.getMessage());
+                                }
                                 return total;
                         } catch (Exception e) {
                                 logger.error("❌ Error fetching Last Month cost for account {}: {}", accountId,
@@ -197,6 +272,7 @@ public class CostService {
                         String accountId, LocalDate startDate, LocalDate endDate, boolean forceRefresh) {
 
                 String cacheKey = "costBreakdownServiceRegion-" + accountId + "-" + startDate + "-" + endDate;
+                String dbKey = "AWS_COST_BREAKDOWN_SVC_REGION::" + accountId + "::" + startDate + "::" + endDate;
 
                 if (!forceRefresh) {
                         Optional<List<DetailedCostDto>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {
@@ -204,6 +280,20 @@ public class CostService {
                         if (cachedData.isPresent()) {
                                 logger.info("✅ Cache hit for detailed cost breakdown: {}", cacheKey);
                                 return CompletableFuture.completedFuture(cachedData.get());
+                        }
+                        try {
+                                Optional<CachedData> dbCached = cachedDataRepository.findById(dbKey);
+                                if (dbCached.isPresent()) {
+                                        List<DetailedCostDto> dbData = objectMapper.readValue(
+                                                        dbCached.get().getJsonData(), new TypeReference<List<DetailedCostDto>>() {});
+                                        if (dbData != null) {
+                                                redisCache.put(cacheKey, dbData, 60 * 6);
+                                                logger.info("✅ DB snapshot hit for cost breakdown svc/region — re-warmed Redis: {}", dbKey);
+                                                return CompletableFuture.completedFuture(dbData);
+                                        }
+                                }
+                        } catch (Exception e) {
+                                logger.warn("DB cache miss for {}: {}", dbKey, e.getMessage());
                         }
                 }
 
@@ -252,6 +342,15 @@ public class CostService {
                                                 .collect(Collectors.toList());
 
                                 redisCache.put(cacheKey, costs, 60 * 6); // Cache for 6 hours
+                                try {
+                                        CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+                                        snapshot.setCacheKey(dbKey);
+                                        snapshot.setJsonData(objectMapper.writeValueAsString(costs));
+                                        snapshot.setLastUpdated(java.time.LocalDateTime.now());
+                                        cachedDataRepository.save(snapshot);
+                                } catch (Exception dbEx) {
+                                        logger.warn("Failed to save cost svc/region DB snapshot {}: {}", dbKey, dbEx.getMessage());
+                                }
                                 logger.info("✅ Detailed cost breakdown fetched: {} items for account {}", costs.size(),
                                                 accountId);
                                 return costs;
@@ -522,12 +621,28 @@ public class CostService {
 
                 String cacheKey = "historicalCostDim-" + accountId + "-" + groupBy + "-" + dimensionValue + "-" +
                                 (tagKey != null ? tagKey : "");
+                String dbKey = "AWS_HIST_COST_DIM::" + accountId + "::" + groupBy + "::" + dimensionValue + "::"
+                                + (tagKey != null ? tagKey : "");
 
                 if (!forceRefresh) {
                         Optional<HistoricalCostDto> cachedData = redisCache.get(cacheKey, HistoricalCostDto.class);
                         if (cachedData.isPresent()) {
                                 logger.info("✅ Cache hit for historical cost dimension: {}", cacheKey);
                                 return CompletableFuture.completedFuture(cachedData.get());
+                        }
+                        try {
+                                Optional<CachedData> dbCached = cachedDataRepository.findById(dbKey);
+                                if (dbCached.isPresent()) {
+                                        HistoricalCostDto dbData = objectMapper.readValue(
+                                                        dbCached.get().getJsonData(), HistoricalCostDto.class);
+                                        if (dbData != null) {
+                                                redisCache.put(cacheKey, dbData, 60);
+                                                logger.info("✅ DB snapshot hit — re-warmed Redis: {}", dbKey);
+                                                return CompletableFuture.completedFuture(dbData);
+                                        }
+                                }
+                        } catch (Exception dbEx) {
+                                logger.warn("DB cache miss for {}: {}", dbKey, dbEx.getMessage());
                         }
                 }
 
@@ -582,6 +697,16 @@ public class CostService {
 
                                 HistoricalCostDto historicalCost = new HistoricalCostDto(labels, costs);
                                 redisCache.put(cacheKey, historicalCost, 60);
+                                try {
+                                        CachedData snapshot = cachedDataRepository.findById(dbKey)
+                                                        .orElse(new CachedData());
+                                        snapshot.setCacheKey(dbKey);
+                                        snapshot.setJsonData(objectMapper.writeValueAsString(historicalCost));
+                                        snapshot.setLastUpdated(java.time.LocalDateTime.now());
+                                        cachedDataRepository.save(snapshot);
+                                } catch (Exception dbEx) {
+                                        logger.warn("Failed to save DB snapshot {}: {}", dbKey, dbEx.getMessage());
+                                }
 
                                 logger.info("✅ Historical cost for dimension fetched: 6 months for {}", dimensionValue);
                                 return historicalCost;
@@ -701,6 +826,34 @@ public class CostService {
                         String startDate,
                         String endDate) {
 
+                // Build a deterministic cache key from sorted resource IDs
+                String sortedIds = (resourceIds != null)
+                        ? resourceIds.stream().sorted().collect(Collectors.joining(","))
+                        : "empty";
+                int idsHash = sortedIds.hashCode();
+                String cacheKey = "costLabelResources-" + accountId + "-" + idsHash + "-" + startDate + "-" + endDate;
+                String dbKey = "AWS_COST_LABEL_RESOURCES::" + accountId + "::" + idsHash + "::" + startDate + "::" + endDate;
+
+                Optional<Map<String, Object>> cached = redisCache.get(cacheKey, new TypeReference<>() {});
+                if (cached.isPresent()) {
+                        logger.info("✅ Redis cache hit for label resources cost: {}", cacheKey);
+                        return CompletableFuture.completedFuture(cached.get());
+                }
+                try {
+                        Optional<CachedData> dbCached = cachedDataRepository.findById(dbKey);
+                        if (dbCached.isPresent()) {
+                                Map<String, Object> dbData = objectMapper.readValue(
+                                        dbCached.get().getJsonData(), new TypeReference<Map<String, Object>>() {});
+                                if (dbData != null) {
+                                        redisCache.put(cacheKey, dbData, 60);
+                                        logger.info("✅ DB snapshot hit for label resources cost — re-warmed Redis: {}", dbKey);
+                                        return CompletableFuture.completedFuture(dbData);
+                                }
+                        }
+                } catch (Exception e) {
+                        logger.warn("DB cache miss for {}: {}", dbKey, e.getMessage());
+                }
+
                 if (useMockData) {
                         // In mock mode, return the full service breakdown as-is
                         return getCostBreakdown(accountId, "SERVICE", null, false, startDate, endDate)
@@ -771,6 +924,16 @@ public class CostService {
                                 result.put("resourceLevel", true);
                                 logger.info("✅ Resource-level label cost fetched: {} items for {} resources",
                                                 costs.size(), resourceIds.size());
+                                redisCache.put(cacheKey, result, 60);
+                                try {
+                                        CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+                                        snapshot.setCacheKey(dbKey);
+                                        snapshot.setJsonData(objectMapper.writeValueAsString(result));
+                                        snapshot.setLastUpdated(java.time.LocalDateTime.now());
+                                        cachedDataRepository.save(snapshot);
+                                } catch (Exception dbEx) {
+                                        logger.warn("Failed to save label resources cost DB snapshot {}: {}", dbKey, dbEx.getMessage());
+                                }
                                 return result;
 
                         } catch (Exception resourceEx) {
@@ -917,6 +1080,16 @@ public class CostService {
                                 : "Approximate — showing all costs for services used by labeled resources. Enable 'Hourly and Resource Level Data' in Cost Explorer for per-resource accuracy.");
                         logger.info("✅ Label cost fallback: {} items ({} EC2 per-instance estimates)",
                                 finalCosts.size(), hasEc2Estimates ? "with" : "no");
+                        redisCache.put(cacheKey, fallbackResult, 60);
+                        try {
+                                CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+                                snapshot.setCacheKey(dbKey);
+                                snapshot.setJsonData(objectMapper.writeValueAsString(fallbackResult));
+                                snapshot.setLastUpdated(java.time.LocalDateTime.now());
+                                cachedDataRepository.save(snapshot);
+                        } catch (Exception dbEx) {
+                                logger.warn("Failed to save label resources fallback DB snapshot {}: {}", dbKey, dbEx.getMessage());
+                        }
                         return fallbackResult;
                 });
         }

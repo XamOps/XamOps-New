@@ -24,7 +24,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xammer.cloud.domain.AutoSpottingSettings;
+import com.xammer.cloud.domain.CachedData;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.DailySpotSavings;
 import com.xammer.cloud.domain.SpotOptimizationEvent;
@@ -40,6 +42,7 @@ import com.xammer.cloud.dto.autospotting.HistoryResponse;
 import com.xammer.cloud.dto.autospotting.LaunchAnalyticsResponse;
 import com.xammer.cloud.dto.autospotting.RiSpCoverageResponse;
 import com.xammer.cloud.dto.autospotting.SpotInstanceDto;
+import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.DailySpotSavingsRepository;
 import com.xammer.cloud.repository.SpotOptimizationEventRepository;
@@ -71,6 +74,8 @@ public class AutoSpottingService {
     private final com.xammer.cloud.repository.AutoSpottingSettingsRepository settingsRepository;
     private final com.xammer.cloud.repository.AsgSpotConfigRepository asgSpotConfigRepository;
     private final RedisCacheService redisCacheService;
+    private final CachedDataRepository cachedDataRepository;
+    private final ObjectMapper objectMapper;
 
     // Redis cache key prefixes for SpotAutomation page data
     private static final String CACHE_KEY_ASG_LIST          = "autospotting-asgs-";
@@ -105,7 +110,9 @@ public class AutoSpottingService {
             DailySpotSavingsRepository savingsRepository,
             com.xammer.cloud.repository.AutoSpottingSettingsRepository settingsRepository,
             com.xammer.cloud.repository.AsgSpotConfigRepository asgSpotConfigRepository,
-            RedisCacheService redisCacheService) {
+            RedisCacheService redisCacheService,
+            CachedDataRepository cachedDataRepository,
+            ObjectMapper objectMapper) {
         this.awsClientProvider = awsClientProvider;
         this.cloudAccountRepository = cloudAccountRepository;
         this.spotPricingService = spotPricingService;
@@ -114,6 +121,8 @@ public class AutoSpottingService {
         this.settingsRepository = settingsRepository;
         this.asgSpotConfigRepository = asgSpotConfigRepository;
         this.redisCacheService = redisCacheService;
+        this.cachedDataRepository = cachedDataRepository;
+        this.objectMapper = objectMapper;
         logger.info("AutoSpottingService initialized with table={} tagKey={} tagValue={} namespace={}",
                 tableName, tagKey, tagValue, metricNamespace);
     }
@@ -223,12 +232,26 @@ public class AutoSpottingService {
      */
     public CostResponse getCostData(Long cloudAccountId, boolean forceRefresh) {
         String cacheKey = CACHE_KEY_COST + cloudAccountId;
+        String dbKey = "AUTOSPOTTING_COST::" + cloudAccountId;
 
         if (!forceRefresh) {
             Optional<CostResponse> cached = redisCacheService.get(cacheKey, CostResponse.class);
             if (cached.isPresent()) {
                 logger.info("--- AUTOSPOTTING COST: loaded from Redis for cloudAccountId={} ---", cloudAccountId);
                 return cached.get();
+            }
+            try {
+                Optional<CachedData> dbCached = cachedDataRepository.findById(dbKey);
+                if (dbCached.isPresent()) {
+                    CostResponse dbData = objectMapper.readValue(dbCached.get().getJsonData(), CostResponse.class);
+                    if (dbData != null) {
+                        redisCacheService.put(cacheKey, dbData, CACHE_TTL_MINUTES);
+                        logger.info("✅ DB snapshot hit — re-warmed Redis: {}", dbKey);
+                        return dbData;
+                    }
+                }
+            } catch (Exception dbEx) {
+                logger.warn("DB cache miss for {}: {}", dbKey, dbEx.getMessage());
             }
         }
 
@@ -275,12 +298,30 @@ public class AutoSpottingService {
                     String.format("%.4f", totalActualSavings));
 
             redisCacheService.put(CACHE_KEY_COST + cloudAccountId, response, CACHE_TTL_MINUTES);
+            try {
+                CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+                snapshot.setCacheKey(dbKey);
+                snapshot.setJsonData(objectMapper.writeValueAsString(response));
+                snapshot.setLastUpdated(java.time.LocalDateTime.now());
+                cachedDataRepository.save(snapshot);
+            } catch (Exception dbEx) {
+                logger.warn("Failed to save DB snapshot {}: {}", dbKey, dbEx.getMessage());
+            }
             return response;
         } catch (Exception e) {
             logger.error("Failed to build cost data from SDK: {}", e.getMessage(), e);
             CostResponse fallback = buildCostResponseFromAwsSdk(account);
             if (fallback != null) {
                 redisCacheService.put(CACHE_KEY_COST + cloudAccountId, fallback, CACHE_TTL_MINUTES);
+                try {
+                    CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+                    snapshot.setCacheKey(dbKey);
+                    snapshot.setJsonData(objectMapper.writeValueAsString(fallback));
+                    snapshot.setLastUpdated(java.time.LocalDateTime.now());
+                    cachedDataRepository.save(snapshot);
+                } catch (Exception dbEx) {
+                    logger.warn("Failed to save DB snapshot {}: {}", dbKey, dbEx.getMessage());
+                }
             }
             return fallback;
         }
@@ -979,7 +1020,7 @@ public class AutoSpottingService {
             logger.info("RI/SP Respect is ENABLED for account {} - checking utilization before enabling Spot", cloudAccountId);
             
             try {
-                RiSpCoverageResponse rispCoverage = getRiSpCoverage(cloudAccountId);
+                RiSpCoverageResponse rispCoverage = getRiSpCoverage(cloudAccountId, false);
                 double riUtilization = rispCoverage.getTotalRiUtilizationPercent() != null 
                     ? rispCoverage.getTotalRiUtilizationPercent() : 0.0;
                 double spUtilization = rispCoverage.getTotalSpUtilizationPercent() != null 
@@ -2228,7 +2269,33 @@ public class AutoSpottingService {
     /**
      * Get RI/SP Coverage via AWS Cost Explorer (in-house)
      */
-    public RiSpCoverageResponse getRiSpCoverage(Long cloudAccountId) {
+    public RiSpCoverageResponse getRiSpCoverage(Long cloudAccountId, boolean forceRefresh) {
+        String cacheKey = "AUTOSPOTTING_RISP::" + cloudAccountId;
+        String dbKey = "AUTOSPOTTING_RISP::" + cloudAccountId;
+        final int RISP_CACHE_TTL = 240;
+
+        if (!forceRefresh) {
+            Optional<RiSpCoverageResponse> cached = redisCacheService.get(cacheKey, RiSpCoverageResponse.class);
+            if (cached.isPresent()) {
+                logger.info("✅ Cache hit for RI/SP coverage: {}", cacheKey);
+                return cached.get();
+            }
+            try {
+                Optional<CachedData> dbCached = cachedDataRepository.findById(dbKey);
+                if (dbCached.isPresent()) {
+                    RiSpCoverageResponse dbData = objectMapper.readValue(
+                            dbCached.get().getJsonData(), RiSpCoverageResponse.class);
+                    if (dbData != null) {
+                        redisCacheService.put(cacheKey, dbData, RISP_CACHE_TTL);
+                        logger.info("✅ DB snapshot hit — re-warmed Redis: {}", dbKey);
+                        return dbData;
+                    }
+                }
+            } catch (Exception dbEx) {
+                logger.warn("DB cache miss for {}: {}", dbKey, dbEx.getMessage());
+            }
+        }
+
         logger.info("Fetching RI/SP coverage via AWS Cost Explorer for cloudAccountId={}", cloudAccountId);
         CloudAccount account = getByAwsAccountId(cloudAccountId);
 
@@ -2291,6 +2358,17 @@ public class AutoSpottingService {
             logger.info("RI/SP coverage retrieved: RI={}%, SP={}%",
                     response.getTotalRiUtilizationPercent(),
                     response.getTotalSpUtilizationPercent());
+
+            redisCacheService.put(cacheKey, response, RISP_CACHE_TTL);
+            try {
+                CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+                snapshot.setCacheKey(dbKey);
+                snapshot.setJsonData(objectMapper.writeValueAsString(response));
+                snapshot.setLastUpdated(java.time.LocalDateTime.now());
+                cachedDataRepository.save(snapshot);
+            } catch (Exception dbEx) {
+                logger.warn("Failed to save DB snapshot {}: {}", dbKey, dbEx.getMessage());
+            }
 
             return response;
 
