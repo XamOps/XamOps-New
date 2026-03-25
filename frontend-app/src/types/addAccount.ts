@@ -6,7 +6,7 @@
 
 export type Provider = 'aws' | 'gcp' | 'azure' | 'jenkins';
 
-export type AccessType = 'read-only';
+export type AccessType = 'read-only' | 'read-write';
 
 export interface VerificationDetails {
   awsAccountId: string;

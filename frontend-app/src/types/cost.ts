@@ -31,6 +31,7 @@ export interface CostFilters {
   endDate: string;
   groupBy: GroupByType;
   tagKey: string;
+  labelId?: number | null;
 }
 
 export interface HistoricalState {

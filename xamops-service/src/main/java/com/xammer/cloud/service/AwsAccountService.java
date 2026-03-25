@@ -32,6 +32,9 @@ public class AwsAccountService {
     @Value("${cloudformation.template.s3.url}")
     private String cloudFormationTemplateUrl;
 
+    @Value("${cloudformation.template.s3.readwrite.url}")
+    private String cloudFormationReadWriteTemplateUrl;
+
     @Autowired
     public AwsAccountService(
             CloudAccountRepository cloudAccountRepository,
@@ -77,9 +80,10 @@ public class AwsAccountService {
 
         String stackName = "XamOps-Connection-" + accountName.replaceAll("[^a-zA-Z0-9-]", "");
         String xamopsAccountId = this.hostAccountId;
+        String templateUrl = "read-write".equals(accessType) ? cloudFormationReadWriteTemplateUrl : cloudFormationTemplateUrl;
         String urlString = String.format(
                 "https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?templateURL=%s&stackName=%s&param_XamOpsAccountId=%s&param_ExternalId=%s",
-                cloudFormationTemplateUrl, stackName, xamopsAccountId, externalId);
+                templateUrl, stackName, xamopsAccountId, externalId);
 
         return Map.of(
                 "url", new URL(urlString),

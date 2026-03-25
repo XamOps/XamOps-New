@@ -194,6 +194,7 @@ const AddAccountPage: React.FC = () => {
       <PolicyModal
         isOpen={isPolicyModalOpen}
         onClose={() => setIsPolicyModalOpen(false)}
+        accessType={accessType}
       />
     </main>
   );

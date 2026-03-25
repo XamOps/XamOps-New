@@ -46,7 +46,7 @@ export function DialogRoot({ isOpen, onClose, children, maxWidth = 'max-w-lg' }:
     <ModalOverlay
       isOpen={isOpen}
       onOpenChange={(open) => { if (!open) onClose(); }}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto py-4 bg-black/40 backdrop-blur-sm"
     >
       <Modal
         className={`w-full ${maxWidth} mx-4 outline-none`}
@@ -62,11 +62,11 @@ export function DialogRoot({ isOpen, onClose, children, maxWidth = 'max-w-lg' }:
 
 export function DialogPanel({ title, children, footer, hideCloseButton, onClose }: DialogPanelProps) {
   return (
-    <Dialog className="bg-white rounded-2xl shadow-2xl overflow-hidden outline-none">
+    <Dialog className="bg-white rounded-2xl shadow-2xl outline-none flex flex-col max-h-[90vh]">
       {({ close }) => (
         <>
           {title && (
-            <div className="px-6 py-5 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
+            <div className="px-6 py-5 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between flex-shrink-0">
               <Heading slot="title" className="text-base font-bold text-slate-900">
                 {title}
               </Heading>
@@ -81,9 +81,9 @@ export function DialogPanel({ title, children, footer, hideCloseButton, onClose 
               )}
             </div>
           )}
-          <div className="px-6 py-5">{children}</div>
+          <div className="px-6 py-5 overflow-y-auto flex-1">{children}</div>
           {footer && (
-            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/30 flex justify-end gap-3">
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/30 flex justify-end gap-3 flex-shrink-0">
               {footer}
             </div>
           )}
