@@ -36,6 +36,13 @@ import software.amazon.awssdk.services.cloudwatch.model.MetricDataQuery;
 import software.amazon.awssdk.services.cloudwatch.model.MetricDataResult;
 import software.amazon.awssdk.services.cloudwatch.model.MetricStat;
 import software.amazon.awssdk.services.cloudwatch.model.ScanBy;
+import software.amazon.awssdk.services.computeoptimizer.ComputeOptimizerClient;
+import software.amazon.awssdk.services.computeoptimizer.model.EBSFinding;
+import software.amazon.awssdk.services.computeoptimizer.model.GetEbsVolumeRecommendationsRequest;
+import software.amazon.awssdk.services.computeoptimizer.model.GetEbsVolumeRecommendationsResponse;
+import software.amazon.awssdk.services.computeoptimizer.model.VolumeConfiguration;
+import software.amazon.awssdk.services.computeoptimizer.model.VolumeRecommendation;
+import software.amazon.awssdk.services.computeoptimizer.model.VolumeRecommendationOption;
 import software.amazon.awssdk.services.ssm.SsmClient;
 import software.amazon.awssdk.services.ssm.model.CommandInvocationStatus;
 import software.amazon.awssdk.services.ssm.model.DescribeInstanceInformationRequest;
@@ -306,8 +313,8 @@ public class EbsDiskRightsizingService {
         double targetUtilization = 0.75;
         double targetGb = Math.max(10, usedGb / targetUtilization * (1 + growthRatePct / 100.0));
 
-        // Always recommend gp3 if not already
-        String recommendedType = diskType.equals("gp3") ? "gp3" : "gp3";
+        // Always recommend gp3 (cheapest general-purpose type)
+        String recommendedType = "gp3";
         double newCostPerMonth = calcMonthlyCost(recommendedType, (int) targetGb);
 
         double monthlySavings = currentCostPerMonth - newCostPerMonth;
@@ -791,6 +798,25 @@ public class EbsDiskRightsizingService {
         return result;
     }
 
+    /**
+     * Returns the sum of estimatedSavings for all actionable EBS recommendations
+     * for the given AWS account ID. Reads only from cache — never triggers a live scan.
+     */
+    public double getTotalPotentialSavings(String awsAccountId) {
+        if (awsAccountId == null || awsAccountId.isBlank()) return 0.0;
+        Optional<List<Map<String, Object>>> cached = redisCacheService.get(
+                CACHE_KEY_VOLUMES + awsAccountId,
+                new TypeReference<List<Map<String, Object>>>() {});
+        if (cached.isEmpty()) return 0.0;
+        return cached.get().stream()
+                .filter(v -> !"NONE".equals(v.get("recommendation")))
+                .mapToDouble(v -> {
+                    Object s = v.get("estimatedSavings");
+                    return s instanceof Number ? ((Number) s).doubleValue() : 0.0;
+                })
+                .sum();
+    }
+
     private CloudAccount resolveAccount(String providerAccountId) {
         return cloudAccountRepository.findByProviderAccountId(providerAccountId)
                 .orElseThrow(() -> new RuntimeException("Account not found: " + providerAccountId));
@@ -829,6 +855,7 @@ public class EbsDiskRightsizingService {
 
         enrichWithDiskMetrics(account, region, result);
         updateRecommendationsWithUsage(result);
+        enrichWithComputeOptimizerRecommendations(account, region, result);
         return result;
     }
 
@@ -881,9 +908,10 @@ public class EbsDiskRightsizingService {
     }
 
     /**
-     * For attached volumes, fetches disk_used_percent from CloudWatch agent metrics
-     * and adds usedPercent, usedGb, freeGb to each volume DTO.
-     * Silently skips if CloudWatch agent is not installed on the instance.
+     * For attached volumes, resolves disk_used_percent from (in priority order):
+     *  1. XamOps disk agent data cached in Redis (no SSM/IAM required)
+     *  2. CloudWatch agent metrics (CWAgent namespace)
+     * Silently skips if neither source has data for an instance.
      */
     private void enrichWithDiskMetrics(CloudAccount account, String region, List<Map<String, Object>> volumes) {
         Set<String> instanceIds = new HashSet<>();
@@ -892,18 +920,101 @@ public class EbsDiskRightsizingService {
         }
         if (instanceIds.isEmpty()) return;
 
-        Map<String, Map<String, Double>> diskMetrics = fetchDiskMetrics(account, region, instanceIds);
-        if (diskMetrics.isEmpty()) return;
+        // 1. Try agent-reported data first (no SSM/IAM needed)
+        Set<String> instancesWithoutData = enrichFromDiskAgent(account, volumes, instanceIds);
+
+        // 2. Fall back to CloudWatch for any instances the agent hasn't reported yet
+        if (!instancesWithoutData.isEmpty()) {
+            Map<String, Map<String, Double>> cwMetrics = fetchDiskMetrics(account, region, instancesWithoutData);
+            applyDiskMetrics(volumes, cwMetrics, instancesWithoutData);
+        }
+    }
+
+    /**
+     * Checks Redis for disk agent data for each instance and applies it to the volume DTOs.
+     * Returns the set of instanceIds that had NO agent data (so CloudWatch fallback can run for them).
+     */
+    private Set<String> enrichFromDiskAgent(CloudAccount account, List<Map<String, Object>> volumes,
+                                             Set<String> instanceIds) {
+        Set<String> noAgentData = new HashSet<>(instanceIds);
+        String awsAccountId = account.getAwsAccountId();
+        logger.info("[disk-agent-debug] enrichFromDiskAgent called, awsAccountId={}, instanceIds={}", awsAccountId, instanceIds);
+        if (awsAccountId == null) {
+            logger.warn("[disk-agent-debug] awsAccountId is null — skipping agent enrichment");
+            return noAgentData;
+        }
 
         for (Map<String, Object> vol : volumes) {
             String instanceId = (String) vol.get("instanceId");
             String device = (String) vol.get("device");
             if (instanceId == null || device == null) continue;
 
+            String cacheKey = "ebs-disk-agent:" + awsAccountId + ":" + instanceId;
+            Optional<List<Map<String, Object>>> agentData = redisCacheService.get(
+                    cacheKey, new TypeReference<List<Map<String, Object>>>() {});
+            logger.info("[disk-agent-debug] key={} found={}", cacheKey, agentData.isPresent());
+            if (agentData.isEmpty()) continue;
+
+            String volVolumeId = (String) vol.get("volumeId");
+            String baseDevice = device.replaceAll("^/dev/", "");
+            boolean isRootVol = Boolean.TRUE.equals(vol.get("isRootVolume"));
+
+            // Find best matching mount from agent data
+            Map<String, Object> bestMount = null;
+            for (Map<String, Object> mount : agentData.get()) {
+                // 1. volumeId match (most reliable when NVMe serial is readable)
+                String mountVolumeId = (String) mount.get("volumeId");
+                if (volVolumeId != null && !volVolumeId.isEmpty()
+                        && mountVolumeId != null && volVolumeId.equals(mountVolumeId)) {
+                    bestMount = mount;
+                    break;
+                }
+                // 2. Device prefix match (Xen/xvd* devices)
+                String mountDevice = (String) mount.get("device");
+                String baseMountDevice = mountDevice != null ? mountDevice.replaceAll("^/dev/", "") : "";
+                if (!baseMountDevice.isEmpty() && !baseMountDevice.equals("root") &&
+                        (baseMountDevice.startsWith(baseDevice) || baseDevice.startsWith(baseMountDevice))) {
+                    bestMount = mount;
+                    break;
+                }
+                // 3. Root volume fallback: use the "/" mount point
+                // (handles Ubuntu where root is /dev/root symlink, or NVMe where serial is unreadable)
+                String mountPoint = (String) mount.get("mountPoint");
+                if (isRootVol && "/".equals(mountPoint) && bestMount == null) {
+                    bestMount = mount;
+                    // don't break — keep looking for a better volumeId/device match
+                }
+            }
+
+            if (bestMount != null) {
+                Number usedPct = (Number) bestMount.get("usedPercent");
+                if (usedPct != null) {
+                    int sizeGb = ((Number) vol.get("sizeGb")).intValue();
+                    double up = usedPct.doubleValue();
+                    vol.put("usedPercent", Math.round(up * 10.0) / 10.0);
+                    vol.put("usedGb",  Math.round(sizeGb * up / 100.0 * 100.0) / 100.0);
+                    vol.put("freeGb",  Math.round(sizeGb * (1 - up / 100.0) * 100.0) / 100.0);
+                    noAgentData.remove(instanceId);
+                    logger.info("[disk-agent-debug] matched vol={} instance={} usedPct={}", vol.get("volumeId"), instanceId, up);
+                }
+            }
+        }
+        return noAgentData;
+    }
+
+    /** Applies a CloudWatch metrics map to volumes whose instanceIds are in {@code targetInstances}. */
+    private void applyDiskMetrics(List<Map<String, Object>> volumes,
+                                   Map<String, Map<String, Double>> diskMetrics,
+                                   Set<String> targetInstances) {
+        if (diskMetrics.isEmpty()) return;
+        for (Map<String, Object> vol : volumes) {
+            String instanceId = (String) vol.get("instanceId");
+            String device = (String) vol.get("device");
+            if (instanceId == null || device == null || !targetInstances.contains(instanceId)) continue;
+
             Map<String, Double> instanceMetrics = diskMetrics.get(instanceId);
             if (instanceMetrics == null) continue;
 
-            // Match EBS device ("/dev/xvda") to CW device ("xvda1" or "xvda")
             String baseDevice = device.replaceAll("^/dev/", "");
             Double usedPct = null;
             for (Map.Entry<String, Double> entry : instanceMetrics.entrySet()) {
@@ -913,14 +1024,13 @@ public class EbsDiskRightsizingService {
                     break;
                 }
             }
-
             if (usedPct != null) {
                 int sizeGb = ((Number) vol.get("sizeGb")).intValue();
                 double usedGb = sizeGb * usedPct / 100.0;
                 double freeGb = sizeGb - usedGb;
                 vol.put("usedPercent", Math.round(usedPct * 10.0) / 10.0);
-                vol.put("usedGb", Math.round(usedGb * 100.0) / 100.0);
-                vol.put("freeGb", Math.round(freeGb * 100.0) / 100.0);
+                vol.put("usedGb",  Math.round(usedGb * 100.0) / 100.0);
+                vol.put("freeGb",  Math.round(freeGb * 100.0) / 100.0);
             }
         }
     }
@@ -1092,6 +1202,92 @@ public class EbsDiskRightsizingService {
         dto.put("estimatedSavings", 0.0);
         dto.put("recommendedType", volumeType);
         dto.put("recommendedSizeGb", sizeGb);
+    }
+
+    /**
+     * Calls AWS Compute Optimizer GetEBSVolumeRecommendations as a fallback to fill in
+     * SHRINK/UPGRADE_TYPE recommendations for volumes that don't have CWAgent or SSM disk usage.
+     * Only overwrites recommendation=NONE — won't override SSM/CWAgent-derived SHRINK/EXPAND.
+     */
+    private void enrichWithComputeOptimizerRecommendations(CloudAccount account, String region,
+                                                            List<Map<String, Object>> volumes) {
+        // Collect volume ARNs for volumes that still have recommendation=NONE (no SSM/CWAgent data)
+        List<String> volumeArns = volumes.stream()
+                .filter(v -> "NONE".equals(v.get("recommendation")))
+                .map(v -> String.format("arn:aws:ec2:%s:%s:volume/%s",
+                        region, account.getAwsAccountId(), v.get("volumeId")))
+                .collect(Collectors.toList());
+
+        if (volumeArns.isEmpty()) return;
+
+        try {
+            ComputeOptimizerClient co = awsClientProvider.getComputeOptimizerClient(account, region);
+
+            // Build a volumeId → dto lookup map
+            Map<String, Map<String, Object>> volById = new HashMap<>();
+            for (Map<String, Object> v : volumes) {
+                volById.put((String) v.get("volumeId"), v);
+            }
+
+            // Paginate — CO allows up to 1000 ARNs per call
+            int pageSize = 1000;
+            for (int i = 0; i < volumeArns.size(); i += pageSize) {
+                List<String> batch = volumeArns.subList(i, Math.min(i + pageSize, volumeArns.size()));
+
+                GetEbsVolumeRecommendationsRequest req = GetEbsVolumeRecommendationsRequest.builder()
+                        .volumeArns(batch)
+                        .build();
+                GetEbsVolumeRecommendationsResponse resp = co.getEBSVolumeRecommendations(req);
+
+                for (VolumeRecommendation rec : resp.volumeRecommendations()) {
+                    // Extract volumeId from ARN (last segment)
+                    String arn = rec.volumeArn();
+                    String volId = arn.substring(arn.lastIndexOf('/') + 1);
+                    Map<String, Object> dto = volById.get(volId);
+                    if (dto == null) continue;
+
+                    EBSFinding finding = rec.finding();
+                    if (finding == null || finding == EBSFinding.OPTIMIZED) continue;
+
+                    if (!rec.volumeRecommendationOptions().isEmpty()) {
+                        VolumeRecommendationOption opt = rec.volumeRecommendationOptions().get(0);
+                        VolumeConfiguration cfg = opt.configuration();
+                        if (cfg == null) continue;
+
+                        int currentSizeGb = ((Number) dto.get("sizeGb")).intValue();
+                        String currentType = (String) dto.get("volumeType");
+                        int recommendedSizeGb  = cfg.volumeSize() != null ? cfg.volumeSize() : currentSizeGb;
+                        String recommendedType = cfg.volumeType() != null ? cfg.volumeType() : currentType;
+
+                        double currentCost  = calcMonthlyCost(currentType, currentSizeGb);
+                        double recommendedCost = calcMonthlyCost(recommendedType, recommendedSizeGb);
+                        double savings = currentCost - recommendedCost;
+
+                        if (recommendedSizeGb < currentSizeGb && savings > 0) {
+                            boolean isRoot = Boolean.TRUE.equals(dto.get("isRootVolume"));
+                            String reason = isRoot
+                                ? String.format("Compute Optimizer: root volume is over-provisioned — migrate to %dGB %s to save $%.2f/mo (requires instance stop)", recommendedSizeGb, recommendedType, savings)
+                                : String.format("Compute Optimizer: volume is over-provisioned — shrink from %dGB to %dGB %s to save $%.2f/mo", currentSizeGb, recommendedSizeGb, recommendedType, savings);
+                            dto.put("recommendation",      "SHRINK");
+                            dto.put("recommendationReason", reason);
+                            dto.put("recommendedSizeGb",   recommendedSizeGb);
+                            dto.put("recommendedType",     recommendedType);
+                            dto.put("estimatedSavings",    Math.round(savings * 100.0) / 100.0);
+                        } else if (!recommendedType.equals(currentType) && savings > 0) {
+                            String reason = String.format("Compute Optimizer: switch from %s to %s to save $%.2f/mo", currentType, recommendedType, savings);
+                            dto.put("recommendation",      "UPGRADE_TYPE");
+                            dto.put("recommendationReason", reason);
+                            dto.put("recommendedSizeGb",   recommendedSizeGb);
+                            dto.put("recommendedType",     recommendedType);
+                            dto.put("estimatedSavings",    Math.round(savings * 100.0) / 100.0);
+                        }
+                    }
+                }
+            }
+            logger.info("[EBS] Compute Optimizer enrichment complete for {} volumes in {}", volumeArns.size(), region);
+        } catch (Exception e) {
+            logger.warn("[EBS] Compute Optimizer unavailable for region {}: {}", region, e.getMessage());
+        }
     }
 
     private double calcMonthlyCost(String volumeType, int sizeGb) {

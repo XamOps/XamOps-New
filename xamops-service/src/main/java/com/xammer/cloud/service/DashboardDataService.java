@@ -92,6 +92,7 @@ public class DashboardDataService {
     private final SonarQubeService sonarQubeService;
     private final UserRepository userRepository;
     private final AutoSpottingService autoSpottingService;
+    private final EbsDiskRightsizingService ebsDiskRightsizingService;
 
     // Phase 2: Master Data Access for Tenant Iteration
     private final JdbcTemplate masterJdbcTemplate;
@@ -127,6 +128,7 @@ public class DashboardDataService {
             @Qualifier("masterDataSource") DataSource masterDataSource,
             com.xammer.cloud.config.SchedulingEnvironmentConfig envConfig,
             @Lazy AutoSpottingService autoSpottingService,
+            @Lazy EbsDiskRightsizingService ebsDiskRightsizingService,
             @Qualifier("backgroundTaskExecutor") TaskExecutor backgroundTaskExecutor) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
@@ -148,6 +150,7 @@ public class DashboardDataService {
         this.masterJdbcTemplate = new JdbcTemplate(masterDataSource);
         this.envConfig = envConfig;
         this.autoSpottingService = autoSpottingService;
+        this.ebsDiskRightsizingService = ebsDiskRightsizingService;
         this.backgroundTaskExecutor = backgroundTaskExecutor;
     }
 
@@ -2348,6 +2351,19 @@ public class DashboardDataService {
                         }
                     }
 
+                    // EBS Disk Rightsizing savings — cache-only, no live scan
+                    double ebsDiskSavings = 0.0;
+                    if (cloudAccountId != null) {
+                        try {
+                            String awsAccId = cloudAccountRepository.findById(cloudAccountId)
+                                    .map(com.xammer.cloud.domain.CloudAccount::getAwsAccountId)
+                                    .orElse(null);
+                            ebsDiskSavings = ebsDiskRightsizingService.getTotalPotentialSavings(awsAccId);
+                        } catch (Exception e) {
+                            logger.warn("Could not fetch EBS disk rightsizing savings for dashboard: {}", e.getMessage());
+                        }
+                    }
+
                     List<DashboardData.SavingsSuggestion> suggestions = new ArrayList<>();
                     if (rightsizingSavings > 0) {
                         suggestions.add(new DashboardData.SavingsSuggestion("Rightsizing", rightsizingSavings));
@@ -2358,8 +2374,11 @@ public class DashboardDataService {
                     if (spotPotentialSavings > 0) {
                         suggestions.add(new DashboardData.SavingsSuggestion("Spot Automation", spotPotentialSavings));
                     }
+                    if (ebsDiskSavings > 0) {
+                        suggestions.add(new DashboardData.SavingsSuggestion("EBS Disk Rightsizing", ebsDiskSavings));
+                    }
 
-                    double totalPotential = wasteSavings + rightsizingSavings + spotPotentialSavings;
+                    double totalPotential = wasteSavings + rightsizingSavings + spotPotentialSavings + ebsDiskSavings;
 
                     return new DashboardData.SavingsSummary(totalPotential, suggestions);
                 });

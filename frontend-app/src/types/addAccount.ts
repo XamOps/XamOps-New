@@ -63,6 +63,7 @@ export interface GcpAccountState {
 export interface StackUrlResponse {
   url: string;
   externalId: string;
+  eventBridgeEnabled: string; // "true" or "false" from backend
 }
 
 export interface AddAccountState {

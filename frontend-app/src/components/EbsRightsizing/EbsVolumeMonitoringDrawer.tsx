@@ -344,6 +344,16 @@ export function EbsVolumeMonitoringDrawer({ volume, accountId, onClose }: Props)
     return () => document.removeEventListener('keydown', handler);
   }, [onClose]);
 
+  // Lock scroll on the main content container while drawer is open
+  useEffect(() => {
+    if (!volume) return;
+    const el = document.getElementById('main-content');
+    if (!el) return;
+    const prev = el.style.overflowY;
+    el.style.overflowY = 'hidden';
+    return () => { el.style.overflowY = prev; };
+  }, [volume]);
+
   if (!volume) return null;
 
   const metrics = monData?.metrics ?? {};

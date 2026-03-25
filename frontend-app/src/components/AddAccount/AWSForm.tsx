@@ -13,6 +13,8 @@ interface AWSFormProps {
   accessType: AccessType;
   isLoading: boolean;
   isVerifying: boolean;
+  isAutoConnecting: boolean;
+  autoConnected: boolean;
   verificationDetails: VerificationDetails;
   verificationError: string;
   onAccountNameChange: (name: string) => void;
@@ -28,6 +30,8 @@ const AWSForm: React.FC<AWSFormProps> = ({
   accessType,
   isLoading,
   isVerifying,
+  isAutoConnecting,
+  autoConnected,
   verificationDetails,
   verificationError,
   onAccountNameChange,
@@ -46,97 +50,161 @@ const AWSForm: React.FC<AWSFormProps> = ({
     }
   };
 
+  // ── Success celebration screen ────────────────────────────────────────────
+  if (autoConnected) {
+    return (
+      <div className="form-card fade-in eb-success-card">
+        {/* Floating decorative dots */}
+        <div className="eb-confetti-dot" style={{ top: '12%', left: '8%', width: 10, height: 10, background: '#10b981', animationDelay: '0s' }} />
+        <div className="eb-confetti-dot" style={{ top: '20%', right: '12%', width: 7, height: 7, background: '#818cf8', animationDelay: '0.6s' }} />
+        <div className="eb-confetti-dot" style={{ bottom: '18%', left: '15%', width: 9, height: 9, background: '#a855f7', animationDelay: '1.1s' }} />
+        <div className="eb-confetti-dot" style={{ bottom: '25%', right: '8%', width: 6, height: 6, background: '#10b981', animationDelay: '1.7s' }} />
+        <div className="eb-confetti-dot" style={{ top: '50%', left: '4%', width: 5, height: 5, background: '#f59e0b', animationDelay: '0.9s' }} />
+
+        <div className="eb-success-check">
+          <i className="fas fa-check" />
+        </div>
+
+        <h2 className="eb-success-title">Account Connected!</h2>
+
+        <div className="eb-account-pill">
+          <i className="fab fa-aws" />
+          <span>{accountName}</span>
+        </div>
+
+        <p className="eb-success-desc">
+          Your AWS account has been automatically verified and connected to XamOps
+          via EventBridge. You can now start monitoring your cloud resources.
+        </p>
+
+        <button
+          className="btn-primary"
+          onClick={() => { window.location.href = '/account-manager'; }}
+        >
+          <i className="fas fa-th-large" />
+          <span>Go to Account Manager</span>
+        </button>
+      </div>
+    );
+  }
+
+  // ── Waiting / manual verification screen ─────────────────────────────────
   if (isVerifying) {
     return (
       <div className="form-card fade-in">
         <div className="form-card-header">
           <div className="step-number large">4</div>
           <div>
-            <h2 className="form-card-title">Verify Connection</h2>
+            <h2 className="form-card-title">
+              {isAutoConnecting ? 'Connecting Your Account' : 'Verify Connection'}
+            </h2>
             <p className="form-card-subtitle">
-              Enter the details from your CloudFormation stack outputs
+              {isAutoConnecting
+                ? 'EventBridge will auto-verify once your stack completes'
+                : 'Enter the details from your CloudFormation stack outputs'}
             </p>
           </div>
         </div>
+
+        {/* Auto-connecting pulsing banner */}
+        {isAutoConnecting && (
+          <div className="eb-auto-banner">
+            <div className="eb-pulse-ring">
+              <i className="fas fa-sync-alt" />
+            </div>
+            <div className="eb-auto-text">
+              <h4>Connecting automatically via EventBridge</h4>
+              <p>Waiting for your CloudFormation stack to complete — usually 1–3 minutes. No action needed.</p>
+            </div>
+          </div>
+        )}
 
         <div className="success-message">
           <i className="fas fa-check-circle" />
           <div>
             <strong>Stack Launched Successfully!</strong>
-            <span>Enter the AWS Account ID and Role Name from the stack outputs below.</span>
+            <span>
+              {isAutoConnecting
+                ? 'Your account will connect here automatically once the stack finishes.'
+                : 'Enter the AWS Account ID and Role Name from the stack outputs below.'}
+            </span>
           </div>
         </div>
 
-        <form onSubmit={handleSubmit}>
-          <div className="form-group">
-            <label htmlFor="awsAccountId" className="form-label">
-              <i className="fas fa-id-card" />
-              AWS Account ID
-            </label>
-            <input
-              type="text"
-              id="awsAccountId"
-              className="form-input"
-              placeholder="123456789012"
-              value={verificationDetails.awsAccountId}
-              onChange={(e) =>
-                onVerificationDetailsChange({ awsAccountId: e.target.value })
-              }
-              required
-            />
-            <p className="form-hint">12-digit AWS account identifier</p>
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="roleName" className="form-label">
-              <i className="fas fa-user-shield" />
-              IAM Role Name
-            </label>
-            <input
-              type="text"
-              id="roleName"
-              className="form-input"
-              placeholder="XamOps-ReadOnly-Role"
-              value={verificationDetails.roleName}
-              onChange={(e) =>
-                onVerificationDetailsChange({ roleName: e.target.value })
-              }
-              required
-            />
-            <p className="form-hint">Name of the IAM role created by the stack</p>
-          </div>
-
-          {verificationError && (
-            <div className="error-message">
-              <i className="fas fa-exclamation-circle" />
-              <span>{verificationError}</span>
+        {/* Manual verification form — shown only when not auto-connecting */}
+        {!isAutoConnecting && (
+          <form onSubmit={handleSubmit}>
+            <div className="form-group">
+              <label htmlFor="awsAccountId" className="form-label">
+                <i className="fas fa-id-card" />
+                AWS Account ID
+              </label>
+              <input
+                type="text"
+                id="awsAccountId"
+                className="form-input"
+                placeholder="123456789012"
+                value={verificationDetails.awsAccountId}
+                onChange={(e) =>
+                  onVerificationDetailsChange({ awsAccountId: e.target.value })
+                }
+                required
+              />
+              <p className="form-hint">12-digit AWS account identifier</p>
             </div>
-          )}
 
-          <div className="form-actions">
-            <button
-              type="submit"
-              className="btn-primary"
-              disabled={isLoading}
-            >
-              {isLoading ? (
-                <>
-                  <span className="loading-spinner" />
-                  Verifying...
-                </>
-              ) : (
-                <>
-                  <i className="fas fa-check" />
-                  <span>Verify & Connect</span>
-                </>
-              )}
-            </button>
-          </div>
-        </form>
+            <div className="form-group">
+              <label htmlFor="roleName" className="form-label">
+                <i className="fas fa-user-shield" />
+                IAM Role Name
+              </label>
+              <input
+                type="text"
+                id="roleName"
+                className="form-input"
+                placeholder="XamOps-ReadOnly-Role"
+                value={verificationDetails.roleName}
+                onChange={(e) =>
+                  onVerificationDetailsChange({ roleName: e.target.value })
+                }
+                required
+              />
+              <p className="form-hint">Name of the IAM role created by the stack</p>
+            </div>
+
+            {verificationError && (
+              <div className="error-message">
+                <i className="fas fa-exclamation-circle" />
+                <span>{verificationError}</span>
+              </div>
+            )}
+
+            <div className="form-actions">
+              <button
+                type="submit"
+                className="btn-primary"
+                disabled={isLoading}
+              >
+                {isLoading ? (
+                  <>
+                    <span className="loading-spinner" />
+                    Verifying...
+                  </>
+                ) : (
+                  <>
+                    <i className="fas fa-check" />
+                    <span>Verify & Connect</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
+        )}
       </div>
     );
   }
 
+  // ── Initial form ──────────────────────────────────────────────────────────
   return (
     <div className="form-card fade-in">
       <div className="form-card-header">
