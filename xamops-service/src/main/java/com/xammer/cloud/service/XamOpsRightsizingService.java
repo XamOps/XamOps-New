@@ -31,7 +31,7 @@ public class XamOpsRightsizingService {
 
     private static final Logger logger = LoggerFactory.getLogger(XamOpsRightsizingService.class);
     private static final String CSV_FILE_PATH = "/RightSizing-XamOps - Instances.csv";
-    private static final String CACHE_KEY_PREFIX = "xamops-rightsizing-";
+    private static final String CACHE_KEY_PREFIX = "xamops-rightsizing-v2-";
 
     private final CloudListService cloudListService;
     private final MetricsService metricsService;
@@ -143,8 +143,13 @@ public class XamOpsRightsizingService {
                     instanceId, instanceType, String.format("%.2f", utilization));
 
             // ✅ Find matching recommendation and VALIDATE AVAILABILITY
+            String instanceName = instanceDto.getName();
             findMatchingRecommendation(instanceType, utilization, instanceId, region)
                     .ifPresent(rec -> {
+                        // Set the human-readable instance name
+                        if (instanceName != null && !instanceName.isBlank()) {
+                            rec.setInstanceName(instanceName);
+                        }
                         // Validate if the recommended types exist in this region
                         validateRecommendationAvailability(account, region, rec);
 
@@ -304,6 +309,7 @@ public class XamOpsRightsizingService {
                                 .projectedMaxUtil(rec.getProjectedMaxUtil())
                                 .approxCostSavings(rec.getApproxCostSavings())
                                 .reason(rec.getReason())
+                                .region(region)
                                 .build());
                     }
                 } catch (NumberFormatException e) {

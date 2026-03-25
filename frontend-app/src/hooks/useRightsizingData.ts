@@ -18,6 +18,7 @@ export interface AWSRecommendation {
   recommendedMonthlyCost: number;
   estimatedMonthlySavings: number;
   recommendationReason: string;
+  region?: string;
 }
 
 // XamOps Recommendation type
@@ -32,6 +33,7 @@ export interface XamOpsRecommendation {
   projectedMaxUtil: string;
   approxCostSavings: string;
   reason: string;
+  region?: string;
 }
 
 interface UseRightsizingDataOptions {

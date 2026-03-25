@@ -10,11 +10,15 @@ import type { AWSRecommendation } from '../../hooks/useRightsizingData';
 interface AWSRecommendationsTableProps {
   recommendations: AWSRecommendation[];
   isLoading: boolean;
+  canApply?: boolean;
+  onApply?: (instanceId: string, targetType: string, region: string) => void;
 }
 
 const AWSRecommendationsTable: React.FC<AWSRecommendationsTableProps> = ({
   recommendations,
   isLoading,
+  canApply = false,
+  onApply,
 }) => {
   // Get service icon based on service type
   const getServiceIcon = (serviceType: string): string => {
@@ -61,16 +65,18 @@ const AWSRecommendationsTable: React.FC<AWSRecommendationsTableProps> = ({
           <table className="w-full text-sm" style={{ tableLayout: 'fixed' }}>
             <colgroup>
               <col style={{ width: '22%' }} />
-              <col style={{ width: '25%' }} />
-              <col style={{ width: '15%' }} />
-              <col style={{ width: '38%' }} />
+              <col style={{ width: '23%' }} />
+              <col style={{ width: '13%' }} />
+              <col style={{ width: '30%' }} />
+              <col style={{ width: '12%' }} />
             </colgroup>
             <thead className="text-xs !text-gray-700 dark:!text-gray-300 uppercase !bg-gradient-to-r !from-gray-50 !to-gray-100 dark:!from-gray-800 dark:!to-gray-900 sticky top-0 z-10">
               <tr>
-                <th className="px-6 py-4 text-left font-bold">Resource ID</th>
+                <th className="px-6 py-4 text-left font-bold">Instance</th>
                 <th className="px-6 py-4 text-left font-bold">Cost Comparison</th>
                 <th className="px-6 py-4 text-left font-bold">Savings</th>
                 <th className="px-6 py-4 text-left font-bold">Reason</th>
+                <th className="px-6 py-4 text-left font-bold">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
@@ -85,10 +91,12 @@ const AWSRecommendationsTable: React.FC<AWSRecommendationsTableProps> = ({
                           className="w-full h-full rounded-lg object-cover"
                         />
                       </div>
-                      <div className="flex flex-col">
-                        <span className="font-mono text-gray-800 dark:text-gray-200 font-medium">{rec.resourceId}</span>
+                      <div className="flex flex-col min-w-0">
+                        <span className="font-semibold text-gray-800 dark:text-gray-200 truncate">
+                          {rec.instanceName || rec.resourceId}
+                        </span>
                         {rec.instanceName && (
-                          <span className="text-xs text-gray-500 dark:text-gray-400">{rec.instanceName}</span>
+                          <span className="font-mono text-xs text-gray-400 dark:text-gray-500 truncate">{rec.resourceId}</span>
                         )}
                       </div>
                     </div>
@@ -120,6 +128,25 @@ const AWSRecommendationsTable: React.FC<AWSRecommendationsTableProps> = ({
                   </td>
                   <td className="px-6 py-4">
                     <p className="text-sm text-gray-900 dark:text-gray-100 reason-text">{rec.recommendationReason}</p>
+                  </td>
+                  <td className="px-6 py-4">
+                    {rec.service === 'EC2' ? (
+                      <button
+                        onClick={() => onApply && rec.region && onApply(rec.resourceId, rec.recommendedType, rec.region)}
+                        disabled={!canApply || !rec.region || !onApply}
+                        title={!canApply ? 'Read-write access required' : !rec.region ? 'Region not available' : `Apply: change to ${rec.recommendedType}`}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                          canApply && rec.region
+                            ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm cursor-pointer'
+                            : 'bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'
+                        }`}
+                      >
+                        <i className="fas fa-magic text-xs"></i>
+                        Apply
+                      </button>
+                    ) : (
+                      <span className="text-xs text-gray-400 dark:text-gray-500 italic">N/A</span>
+                    )}
                   </td>
                 </tr>
               ))}
