@@ -150,7 +150,7 @@ public class CloudFormationController {
                         "message", "AWS account ID must be exactly 12 digits"));
             }
 
-            String customerRoleArn = String.format("arn:aws:iam::%s:role/AutoSpotting-Execution-Role",
+            String customerRoleArn = String.format("arn:aws:iam::%s:role/XamOpsReadWriteRole",
                     customerAccountId);
 
             updateDynamoDb(customerAccountId, accountName, regions, customerRoleArn);

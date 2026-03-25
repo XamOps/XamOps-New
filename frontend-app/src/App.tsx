@@ -46,6 +46,7 @@ import AlertsPage from './pages/AlertsPage';
 import TicketsPage from './pages/TicketsPage';
 import TicketDetailPage from './pages/TicketDetailPage';
 import CloudListPage from './pages/CloudListPage';
+import ResourceLabelsPage from './pages/ResourceLabelsPage';
 import CloudShellPage from './pages/CloudShellPage';
 import AccountManagerPage from './pages/AccountManagerPage';
 import AddAccountPage from './pages/AddAccountPage';
@@ -431,6 +432,7 @@ const AppContent: React.FC = () => {
               <Route path="/tickets" element={<TicketsPage />} />
               <Route path="/ticket-detail" element={<TicketDetailPage />} />
               <Route path="/cloudlist" element={<CloudListPage />} />
+              <Route path="/resource-labels" element={<ResourceLabelsPage />} />
               <Route path="/cloudshell" element={<CloudShellPage />} />
               <Route path="/account-manager" element={<AccountManagerPage />} />
               <Route path="/cloudmap" element={<CloudMapPage />} />

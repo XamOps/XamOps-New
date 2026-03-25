@@ -23,7 +23,10 @@ import software.amazon.awssdk.services.costexplorer.model.*;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
+import software.amazon.awssdk.services.ec2.Ec2Client;
+import software.amazon.awssdk.services.ec2.model.DescribeInstancesRequest;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
@@ -39,6 +42,7 @@ public class CostService {
         private final CostMockService costMockService;
         private final CachedDataRepository cachedDataRepository;
         private final ObjectMapper objectMapper;
+        private final AwsPricingService awsPricingService;
 
         @Value("${aws.costexplorer.mock:false}")
         private boolean useMockData;
@@ -50,7 +54,8 @@ public class CostService {
                         @Lazy ForecastingService forecastingService,
                         CostMockService costMockService,
                         CachedDataRepository cachedDataRepository,
-                        ObjectMapper objectMapper) {
+                        ObjectMapper objectMapper,
+                        AwsPricingService awsPricingService) {
                 this.cloudAccountRepository = cloudAccountRepository;
                 this.awsClientProvider = awsClientProvider;
                 this.redisCache = redisCache;
@@ -58,6 +63,7 @@ public class CostService {
                 this.costMockService = costMockService;
                 this.cachedDataRepository = cachedDataRepository;
                 this.objectMapper = objectMapper;
+                this.awsPricingService = awsPricingService;
 
                 logger.info("CostService initialized (Mock Mode: {})", useMockData);
         }
@@ -641,6 +647,278 @@ public class CostService {
                                                         Collections.emptyList(),
                                                         Collections.emptyList());
                                 });
+        }
+
+        // -----------------------------------------------------------------------
+        // Per-label resource cost (used by ResourceLabelController)
+        // -----------------------------------------------------------------------
+
+        /**
+         * Maps XamOps resource type strings to the corresponding AWS service names
+         * as they appear in Cost Explorer results.
+         */
+        private static final Map<String, List<String>> RESOURCE_TYPE_TO_SERVICE_NAMES = Map.ofEntries(
+                Map.entry("EC2 Instance",          List.of("Amazon Elastic Compute Cloud - Compute", "EC2 - Other")),
+                Map.entry("EBS Volume",             List.of("EC2 - Other")),
+                Map.entry("Auto Scaling Group",     List.of("Amazon Elastic Compute Cloud - Compute")),
+                Map.entry("Load Balancer",          List.of("Amazon Elastic Load Balancing", "EC2 - Other")),
+                Map.entry("RDS Instance",           List.of("Amazon Relational Database Service")),
+                Map.entry("Lambda Function",        List.of("AWS Lambda")),
+                Map.entry("S3 Bucket",              List.of("Amazon Simple Storage Service")),
+                Map.entry("EKS Cluster",            List.of("Amazon Elastic Kubernetes Service")),
+                Map.entry("ECS Cluster",            List.of("Amazon Elastic Container Service")),
+                Map.entry("CloudWatch Log Group",   List.of("Amazon CloudWatch")),
+                Map.entry("Route 53 Zone",          List.of("Amazon Route 53")),
+                Map.entry("DynamoDB Table",         List.of("Amazon DynamoDB")),
+                Map.entry("SNS Topic",              List.of("Amazon Simple Notification Service")),
+                Map.entry("SQS Queue",              List.of("Amazon Simple Queue Service")),
+                Map.entry("ElastiCache Cluster",    List.of("Amazon ElastiCache")),
+                Map.entry("API Gateway",            List.of("Amazon API Gateway")),
+                Map.entry("CloudFront",             List.of("Amazon CloudFront")),
+                Map.entry("KMS",                    List.of("AWS Key Management Service")),
+                Map.entry("NAT Gateway",            List.of("Amazon Virtual Private Cloud"))
+        );
+
+        /**
+         * Fetches cost breakdown for a specific set of resource IDs.
+         *
+         * Attempts AWS Cost Explorer RESOURCE_ID dimension filtering first (requires
+         * "Hourly and Resource Level Data" to be enabled in Cost Explorer Settings).
+         * Falls back to SERVICE-level filtering grouped by the resource types if
+         * resource-level data is not available.
+         *
+         * Returns a Map with:
+         *   "costs"         → List<CostDto>
+         *   "resourceLevel" → Boolean (true = resource-level, false = service-level approximation)
+         *   "message"       → String (optional note about approximation)
+         */
+        @Async("awsTaskExecutor")
+        public CompletableFuture<Map<String, Object>> getCostForLabelResources(
+                        String accountId,
+                        List<String> resourceIds,
+                        List<String> resourceTypes,
+                        List<Map<String, String>> resourceDetails,
+                        String startDate,
+                        String endDate) {
+
+                if (useMockData) {
+                        // In mock mode, return the full service breakdown as-is
+                        return getCostBreakdown(accountId, "SERVICE", null, false, startDate, endDate)
+                                        .thenApply(costs -> {
+                                                Map<String, Object> result = new HashMap<>();
+                                                result.put("costs", costs);
+                                                result.put("resourceLevel", false);
+                                                result.put("message", "Mock data — showing all service costs");
+                                                return result;
+                                        });
+                }
+
+                if (resourceIds == null || resourceIds.isEmpty()) {
+                        Map<String, Object> empty = new HashMap<>();
+                        empty.put("costs", Collections.emptyList());
+                        empty.put("resourceLevel", false);
+                        empty.put("message", "No resources assigned to this label");
+                        return CompletableFuture.completedFuture(empty);
+                }
+
+                CloudAccount account = getAccount(accountId);
+                CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
+
+                return CompletableFuture.supplyAsync(() -> {
+                        LocalDate parsedEnd = LocalDate.parse(endDate);
+                        DateInterval interval = DateInterval.builder()
+                                        .start(startDate)
+                                        .end(parsedEnd.plusDays(1).toString())
+                                        .build();
+
+                        // --- Attempt 1: RESOURCE_ID dimension filter ---
+                        try {
+                                Expression resourceFilter = Expression.builder()
+                                                .dimensions(DimensionValues.builder()
+                                                                .key(Dimension.RESOURCE_ID)
+                                                                .values(resourceIds)
+                                                                .build())
+                                                .build();
+
+                                GetCostAndUsageRequest req = GetCostAndUsageRequest.builder()
+                                                .timePeriod(interval)
+                                                .granularity(Granularity.MONTHLY)
+                                                .metrics("UnblendedCost")
+                                                .groupBy(GroupDefinition.builder()
+                                                                .type(GroupDefinitionType.DIMENSION)
+                                                                .key("SERVICE")
+                                                                .build())
+                                                .filter(resourceFilter)
+                                                .build();
+
+                                Map<String, Double> costMap = new HashMap<>();
+                                ce.getCostAndUsage(req).resultsByTime().forEach(t ->
+                                        t.groups().forEach(g -> {
+                                                String name = g.keys().get(0);
+                                                double cost = Double.parseDouble(g.metrics().get("UnblendedCost").amount());
+                                                costMap.merge(name, cost, Double::sum);
+                                        })
+                                );
+
+                                List<CostDto> costs = costMap.entrySet().stream()
+                                                .map(e -> new CostDto(e.getKey(), e.getValue()))
+                                                .filter(c -> c.getAmount() > 0.01)
+                                                .sorted((a, b) -> Double.compare(b.getAmount(), a.getAmount()))
+                                                .collect(Collectors.toList());
+
+                                Map<String, Object> result = new HashMap<>();
+                                result.put("costs", costs);
+                                result.put("resourceLevel", true);
+                                logger.info("✅ Resource-level label cost fetched: {} items for {} resources",
+                                                costs.size(), resourceIds.size());
+                                return result;
+
+                        } catch (Exception resourceEx) {
+                                logger.warn("⚠️ RESOURCE_ID filter unavailable — falling back to SERVICE filter. " +
+                                                "Enable 'Hourly and Resource Level Data' in Cost Explorer Settings. Error: {}",
+                                                resourceEx.getMessage());
+                        }
+
+                        // --- Fallback: EC2 per-instance estimate + SERVICE filter for other types ---
+
+                        // Separate EC2 instances from other resource types using resourceDetails
+                        List<Map<String, String>> ec2Details = (resourceDetails == null) ? Collections.emptyList() :
+                                resourceDetails.stream()
+                                        .filter(r -> "EC2 Instance".equalsIgnoreCase(r.get("type")) ||
+                                                     (r.get("id") != null && r.get("id").startsWith("i-")))
+                                        .collect(Collectors.toList());
+
+                        // Mutable list — may have "EC2 Instance" added if DescribeInstances fails
+                        List<String> nonEc2Types = new ArrayList<>((resourceDetails == null
+                                ? (resourceTypes == null ? Collections.<String>emptyList() : resourceTypes)
+                                : resourceDetails.stream().map(r -> r.get("type")).filter(Objects::nonNull).collect(Collectors.toList()))
+                                .stream()
+                                .filter(t -> !"EC2 Instance".equalsIgnoreCase(t))
+                                .distinct()
+                                .collect(Collectors.toList()));
+
+                        List<CostDto> combinedCosts = new ArrayList<>();
+                        boolean hasEc2Estimates = false;
+
+                        // --- EC2 per-instance cost estimation ---
+                        if (!ec2Details.isEmpty()) {
+                                long daysBetween = ChronoUnit.DAYS.between(LocalDate.parse(startDate), LocalDate.parse(endDate)) + 1;
+                                double totalHours = daysBetween * 24.0;
+
+                                // Group by region to batch DescribeInstances calls
+                                Map<String, List<Map<String, String>>> ec2ByRegion = ec2Details.stream()
+                                        .collect(Collectors.groupingBy(r -> {
+                                                String rgn = r.getOrDefault("region", "");
+                                                return (rgn != null && !rgn.isEmpty()) ? rgn : "us-east-1";
+                                        }));
+
+                                for (Map.Entry<String, List<Map<String, String>>> entry : ec2ByRegion.entrySet()) {
+                                        String region = entry.getKey();
+                                        List<Map<String, String>> regionInstances = entry.getValue();
+                                        List<String> instanceIds = regionInstances.stream()
+                                                .map(r -> r.get("id")).filter(Objects::nonNull)
+                                                .collect(Collectors.toList());
+                                        try {
+                                                Ec2Client ec2 = awsClientProvider.getEc2Client(account, region);
+                                                Map<String, String> instanceTypeById = new HashMap<>();
+
+                                                for (int i = 0; i < instanceIds.size(); i += 50) {
+                                                        List<String> chunk = instanceIds.subList(i, Math.min(i + 50, instanceIds.size()));
+                                                        try {
+                                                                ec2.describeInstances(DescribeInstancesRequest.builder()
+                                                                                .instanceIds(chunk).build())
+                                                                        .reservations()
+                                                                        .forEach(r -> r.instances()
+                                                                                .forEach(inst -> instanceTypeById.put(
+                                                                                        inst.instanceId(), inst.instanceTypeAsString())));
+                                                        } catch (Exception chunkEx) {
+                                                                logger.warn("⚠️ DescribeInstances chunk failed in {}: {}", region, chunkEx.getMessage());
+                                                        }
+                                                }
+
+                                                for (Map<String, String> resource : regionInstances) {
+                                                        String id = resource.get("id");
+                                                        String name = resource.getOrDefault("name", id);
+                                                        String instanceType = instanceTypeById.get(id);
+                                                        double hourlyRate = awsPricingService.getHourlyCost(instanceType, region);
+                                                        if (hourlyRate > 0) {
+                                                                double estimatedCost = hourlyRate * totalHours;
+                                                                String label = name + (instanceType != null ? " (" + instanceType + ")" : "");
+                                                                combinedCosts.add(new CostDto(label, estimatedCost));
+                                                                hasEc2Estimates = true;
+                                                                logger.info("💡 EC2 estimate: {} [{}] in {} @ ${}/hr × {}hrs = ${}",
+                                                                        name, instanceType, region, hourlyRate, totalHours,
+                                                                        String.format("%.2f", estimatedCost));
+                                                        } else {
+                                                                logger.warn("⚠️ No pricing data for {} instanceType={} in {}", id, instanceType, region);
+                                                        }
+                                                }
+                                        } catch (Exception ex) {
+                                                logger.warn("⚠️ Could not get EC2 pricing for region {} — using service-level fallback: {}", region, ex.getMessage());
+                                                if (!nonEc2Types.contains("EC2 Instance")) nonEc2Types.add("EC2 Instance");
+                                        }
+                                }
+                        }
+
+                        // --- Service-level Cost Explorer for non-EC2 types (or EC2 fallback) ---
+                        if (!nonEc2Types.isEmpty()) {
+                                List<String> serviceNames = nonEc2Types.stream()
+                                        .flatMap(t -> RESOURCE_TYPE_TO_SERVICE_NAMES
+                                                .getOrDefault(t, List.of(t.split(" ")[0]))
+                                                .stream())
+                                        .distinct()
+                                        .collect(Collectors.toList());
+
+                                if (!serviceNames.isEmpty()) {
+                                        try {
+                                                Expression serviceFilter = Expression.builder()
+                                                        .dimensions(DimensionValues.builder()
+                                                                .key(Dimension.SERVICE)
+                                                                .values(serviceNames)
+                                                                .build())
+                                                        .build();
+
+                                                GetCostAndUsageRequest req = GetCostAndUsageRequest.builder()
+                                                        .timePeriod(interval)
+                                                        .granularity(Granularity.MONTHLY)
+                                                        .metrics("UnblendedCost")
+                                                        .groupBy(GroupDefinition.builder()
+                                                                .type(GroupDefinitionType.DIMENSION)
+                                                                .key("SERVICE")
+                                                                .build())
+                                                        .filter(serviceFilter)
+                                                        .build();
+
+                                                Map<String, Double> svcCostMap = new HashMap<>();
+                                                ce.getCostAndUsage(req).resultsByTime().forEach(t ->
+                                                        t.groups().forEach(g -> {
+                                                                String name = g.keys().get(0);
+                                                                double cost = Double.parseDouble(g.metrics().get("UnblendedCost").amount());
+                                                                svcCostMap.merge(name, cost, Double::sum);
+                                                        })
+                                                );
+                                                svcCostMap.forEach((name, cost) -> combinedCosts.add(new CostDto(name, cost)));
+                                        } catch (Exception svcEx) {
+                                                logger.error("❌ Error fetching service-level label cost: {}", svcEx.getMessage(), svcEx);
+                                        }
+                                }
+                        }
+
+                        List<CostDto> finalCosts = combinedCosts.stream()
+                                .filter(c -> c.getAmount() > 0.01)
+                                .sorted((a, b) -> Double.compare(b.getAmount(), a.getAmount()))
+                                .collect(Collectors.toList());
+
+                        Map<String, Object> fallbackResult = new HashMap<>();
+                        fallbackResult.put("costs", finalCosts);
+                        fallbackResult.put("resourceLevel", false);
+                        fallbackResult.put("message", hasEc2Estimates
+                                ? "Per-instance cost estimate based on on-demand pricing for the selected date range."
+                                : "Approximate — showing all costs for services used by labeled resources. Enable 'Hourly and Resource Level Data' in Cost Explorer for per-resource accuracy.");
+                        logger.info("✅ Label cost fallback: {} items ({} EC2 per-instance estimates)",
+                                finalCosts.size(), hasEc2Estimates ? "with" : "no");
+                        return fallbackResult;
+                });
         }
 
         @Async("awsTaskExecutor")

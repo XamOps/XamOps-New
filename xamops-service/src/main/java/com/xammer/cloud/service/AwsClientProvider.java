@@ -173,7 +173,7 @@ public class AwsClientProvider {
         logger.info("Creating AutoSpotting ASG client for customerAccountId={} region={}",
                 customerAccountId, region);
 
-        String roleArn = String.format("arn:aws:iam::%s:role/AutoSpotting-Execution-Role", customerAccountId);
+        String roleArn = String.format("arn:aws:iam::%s:role/XamOpsReadWriteRole", customerAccountId);
         logger.debug("Assuming role: {}", roleArn);
 
         try {

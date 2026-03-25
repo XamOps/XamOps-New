@@ -14,10 +14,13 @@
  * - Real-time data fetching
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useCostData } from '../hooks/useCostData';
-import type { CostFilters, HistoricalData, ForecastData } from '../types/cost';
+import type { CostFilters, HistoricalData, ForecastData, CostDataItem } from '../types/cost';
+import type { ResourceLabel } from '../types/resourceLabels';
+import { fetchLabels, fetchLabelCost } from '../services/resourceLabelsApi';
+import type { LabelCostResponse } from '../services/resourceLabelsApi';
 
 // Component imports
 import CostHeader from '../components/Cost/CostHeader';
@@ -26,9 +29,16 @@ import CostBreakdownSection from '../components/Cost/CostBreakdownSection';
 import HistoricalTrendChart from '../components/Cost/HistoricalTrendChart';
 import CostForecastChart from '../components/Cost/CostForecastChart';
 
+
 const CostPage: React.FC = () => {
   const { selectedAccountIds } = useAccounts();
   const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds.join(',') : null;
+
+  // Labels for the label cost filter
+  const [allLabels, setAllLabels] = useState<ResourceLabel[]>([]);
+  const [labelFilterId, setLabelFilterId] = useState<number | null>(null);
+  const [labelCostData, setLabelCostData] = useState<LabelCostResponse | null>(null);
+  const [labelFilterLoading, setLabelFilterLoading] = useState(false);
 
   // Initialize date range (start of month to today)
   const getInitialDates = () => {
@@ -92,8 +102,52 @@ const CostPage: React.FC = () => {
     filters,
   });
 
-  // Available services for forecast dropdown
-  const availableServices = costData.map(item => item.name).sort();
+  // Load labels once
+  useEffect(() => {
+    fetchLabels().then(setAllLabels).catch(() => {});
+  }, []);
+
+  // When label filter changes, call the backend endpoint for per-label cost
+  const handleLabelFilterChange = useCallback(async (labelId: number | null) => {
+    setLabelFilterId(labelId);
+    if (!labelId || !selectedAccountId) {
+      setLabelCostData(null);
+      return;
+    }
+    setLabelFilterLoading(true);
+    try {
+      const accountKey = selectedAccountId.split(',')[0];
+      const data = await fetchLabelCost(labelId, accountKey, filters.startDate, filters.endDate);
+      setLabelCostData(data);
+    } catch {
+      setLabelCostData(null);
+    } finally {
+      setLabelFilterLoading(false);
+    }
+  }, [selectedAccountId, filters.startDate, filters.endDate]);
+
+  // When date filters change while a label is active, re-fetch label cost
+  useEffect(() => {
+    if (labelFilterId && selectedAccountId) {
+      const accountKey = selectedAccountId.split(',')[0];
+      setLabelFilterLoading(true);
+      fetchLabelCost(labelFilterId, accountKey, filters.startDate, filters.endDate)
+        .then(setLabelCostData)
+        .catch(() => setLabelCostData(null))
+        .finally(() => setLabelFilterLoading(false));
+    }
+  }, [labelFilterId, selectedAccountId, filters.startDate, filters.endDate]);
+
+  // Use backend label cost data when available, otherwise fall back to full costData
+  const filteredCostData = useMemo((): CostDataItem[] => {
+    if (labelFilterId && labelCostData) {
+      return labelCostData.costs;
+    }
+    return costData;
+  }, [costData, labelFilterId, labelCostData]);
+
+  // Available services for forecast dropdown (respects label filter)
+  const availableServices = filteredCostData.map(item => item.name).sort();
 
   // Update filters
   const handleFiltersChange = useCallback((updates: Partial<CostFilters>) => {
@@ -192,18 +246,26 @@ const CostPage: React.FC = () => {
           <>
             {/* KPI Cards */}
             <CostKPICards
-              costData={costData}
+              costData={filteredCostData}
               filters={filters}
               isLoading={isLoading}
+              labelFilterActive={!!labelFilterId}
             />
 
             {/* Cost Breakdown Section */}
             <CostBreakdownSection
-              costData={costData}
+              costData={filteredCostData}
               filters={filters}
-              isLoading={isLoading}
+              isLoading={isLoading || labelFilterLoading}
               onFiltersChange={handleFiltersChange}
               onHistoricalClick={handleHistoricalClick}
+              labels={allLabels}
+              labelFilterId={labelFilterId}
+              onLabelFilterChange={handleLabelFilterChange}
+              labelFilterLoading={labelFilterLoading}
+              labelResourceLevel={labelCostData?.resourceLevel}
+              labelMessage={labelCostData?.message}
+              labelTrackedResources={labelCostData?.trackedResources}
             />
 
             {/* Historical Trend Chart */}
