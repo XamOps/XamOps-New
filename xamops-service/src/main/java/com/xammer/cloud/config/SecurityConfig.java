@@ -89,91 +89,16 @@ public class SecurityConfig {
                                                                 new AntPathRequestMatcher("/images/**"),
                                                                 new AntPathRequestMatcher("/icons/**"),
                                                                 new AntPathRequestMatcher("/webjars/**"),
-                                                                new AntPathRequestMatcher("/gcp_*.html"),
-                                                                new AntPathRequestMatcher("/azure_dashboard.html"),
-                                                                new AntPathRequestMatcher("/azure_*.html"),
-                                                                new AntPathRequestMatcher("/cloudlist.html"),
-                                                                new AntPathRequestMatcher("/cloudk8s.html"),
-                                                                new AntPathRequestMatcher("/eks-details.html"),
-                                                                new AntPathRequestMatcher("/sonarqube.html"),
-                                                                new AntPathRequestMatcher("/user-manager.html"),
-                                                                new AntPathRequestMatcher("/spot-automation.html"),
-                                                                new AntPathRequestMatcher("/superadmin_customer.html"),
-                                                                new AntPathRequestMatcher("actions-history.html"),
-                                                                new AntPathRequestMatcher("/my-profile.html"),
-                                                                // ✅ YOUR CODE: Preserved missing pages
-                                                                new AntPathRequestMatcher("/cloudsitter.html"),
-                                                                new AntPathRequestMatcher("/integration-guide.html"),
-                                                                new AntPathRequestMatcher(
-                                                                                "billops/dashboard_user.html"),
-                                                                new AntPathRequestMatcher(
-                                                                                "billops/dashboard_admin.html"),
-                                                                // new
-                                                                // AntPathRequestMatcher("billops/support-dashboard.html"),
 
                                                                 // Connectivity
                                                                 new AntPathRequestMatcher("/ws/**"),
                                                                 new AntPathRequestMatcher("/xamops-ws/**"),
-                                                                new AntPathRequestMatcher("/unified-dashboard"),
-                                                                new AntPathRequestMatcher("/dashboard"),
-                                                                new AntPathRequestMatcher("/sonarqube"),
-                                                                new AntPathRequestMatcher("/cloudlist"),
-                                                                new AntPathRequestMatcher("/finops"),
-                                                                new AntPathRequestMatcher("/cost"),
-                                                                new AntPathRequestMatcher("/waste"),
-                                                                new AntPathRequestMatcher("/rightsizing"),
-                                                                new AntPathRequestMatcher("/reservation"),
-                                                                new AntPathRequestMatcher("/cloudsitter"),
-                                                                new AntPathRequestMatcher("/spot-automation"),
-                                                                new AntPathRequestMatcher("/flex-compute"),
-                                                                new AntPathRequestMatcher("/account-manager"),
-                                                                new AntPathRequestMatcher("/security"),
-                                                                new AntPathRequestMatcher("/performance"),
-                                                                new AntPathRequestMatcher("/alerts"),
-                                                                new AntPathRequestMatcher("/tickets"),
-                                                                new AntPathRequestMatcher("/ticket-detail"),
-                                                                new AntPathRequestMatcher("/cloudshell"),
-                                                                new AntPathRequestMatcher("/add-account"),
-                                                                new AntPathRequestMatcher("/add-gcp-account"),
-                                                                new AntPathRequestMatcher("/add-github-config"),
-                                                                new AntPathRequestMatcher("/devops-in-the-box"),
-                                                                new AntPathRequestMatcher("/cicd-pipelines"),
-                                                                new AntPathRequestMatcher("/grafana-dashboard"),
-                                                                new AntPathRequestMatcher("/cloudk8s"),
-                                                                new AntPathRequestMatcher("/eks-details"),
-                                                                new AntPathRequestMatcher("/terminal/**"),
-                                                                new AntPathRequestMatcher("/gcp-dashboard"),
-                                                                new AntPathRequestMatcher("/gcp-finops"),
-                                                                new AntPathRequestMatcher("/gcp-cost"),
-                                                                new AntPathRequestMatcher("/gcp-waste"),
-                                                                new AntPathRequestMatcher("/gcp-rightsizing"),
-                                                                new AntPathRequestMatcher("/gcp-reservations"),
-                                                                new AntPathRequestMatcher("/gcp-cloudk8s"),
-                                                                new AntPathRequestMatcher("/gcp-security"),
-                                                                new AntPathRequestMatcher("/gcp-performance"),
-                                                                new AntPathRequestMatcher("/gcp-alerts"),
-                                                                new AntPathRequestMatcher("/terminal"),
 
                                                                 // XamOps Agent API (authenticates via API key, not session)
                                                                 new AntPathRequestMatcher("/api/v1/agent/**"),
 
                                                                 // Public APIs
-                                                                // new AntPathRequestMatcher("/api/ai/**"),
-                                                                new AntPathRequestMatcher("/api/cicd/github/runs"),
-                                                                new AntPathRequestMatcher("/api/cicd/config/**"),
-                                                                new AntPathRequestMatcher("/api/cicd/**"),
-                                                                new AntPathRequestMatcher("/api/xamops/k8s/**"),
-                                                                // ✅ YOUR CODE: Preserved missing APIs
-                                                                new AntPathRequestMatcher("/api/xamops/eks/**"),
-                                                                new AntPathRequestMatcher("/api/karpenter/**"),
-
-                                                                new AntPathRequestMatcher("/api/autospotting/**"),
-                                                                new AntPathRequestMatcher("/api/azure/autospotting/**"),
-                                                                new AntPathRequestMatcher("/api/gcp/autospotting/**"),
-                                                                new AntPathRequestMatcher("/api/flexcompute/**"),
-                                                                new AntPathRequestMatcher("/api/dev_ops_script/**"),
-                                                                // ✅ TEAM CODE: Preserved AWS Calculator API
-                                                                new AntPathRequestMatcher("/api/aws/**"))
+                                                                new AntPathRequestMatcher("/api/cicd/github/runs"))
                                                 .permitAll()
                                                 .anyRequest().authenticated())
                                 .formLogin((form) -> form
