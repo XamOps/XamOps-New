@@ -613,7 +613,7 @@ public class AutoSpottingController {
         log.info("AutoSpottingController.getRiSpCoverage called with accountId={}", accountId);
 
         try {
-            RiSpCoverageResponse coverage = autoSpottingService.getRiSpCoverage(accountId);
+            RiSpCoverageResponse coverage = autoSpottingService.getRiSpCoverage(accountId, false);
             return ResponseEntity.ok(coverage);
 
         } catch (Exception e) {

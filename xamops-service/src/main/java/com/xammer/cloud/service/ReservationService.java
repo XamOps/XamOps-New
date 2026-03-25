@@ -1,8 +1,11 @@
 package com.xammer.cloud.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.xammer.cloud.domain.CachedData;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.*;
+import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -46,6 +49,8 @@ public class ReservationService {
     private final RedisCacheService redisCache;
     private final CostMockService costMockService;
     private final java.util.concurrent.Executor awsTaskExecutor;
+    private final CachedDataRepository cachedDataRepository;
+    private final ObjectMapper objectMapper;
 
     @Value("${aws.costexplorer.mock:false}")
     private boolean useMockData;
@@ -58,7 +63,9 @@ public class ReservationService {
             @Value("${rightsizing.instance-size-order}") List<String> instanceSizeOrder,
             RedisCacheService redisCache,
             CostMockService costMockService,
-            @Qualifier("awsTaskExecutor") java.util.concurrent.Executor awsTaskExecutor) {
+            @Qualifier("awsTaskExecutor") java.util.concurrent.Executor awsTaskExecutor,
+            CachedDataRepository cachedDataRepository,
+            ObjectMapper objectMapper) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
         this.cloudListService = cloudListService;
@@ -67,6 +74,8 @@ public class ReservationService {
         this.costMockService = costMockService;
         this.awsTaskExecutor = awsTaskExecutor;
         this.configuredRegion = System.getenv().getOrDefault("AWS_REGION", "us-east-1");
+        this.cachedDataRepository = cachedDataRepository;
+        this.objectMapper = objectMapper;
     }
 
     private CloudAccount getAccount(String accountId) {
@@ -174,11 +183,25 @@ public class ReservationService {
         }
 
         String cacheKey = "reservationAnalysis-" + account.getAwsAccountId();
+        String dbKey = "RESERVATION_ANALYSIS::" + account.getAwsAccountId();
         if (!forceRefresh) {
             Optional<DashboardData.ReservationAnalysis> cachedData = redisCache.get(cacheKey,
                     DashboardData.ReservationAnalysis.class);
             if (cachedData.isPresent()) {
                 return CompletableFuture.completedFuture(cachedData.get());
+            }
+            try {
+                Optional<CachedData> dbCached = cachedDataRepository.findById(dbKey);
+                if (dbCached.isPresent()) {
+                    DashboardData.ReservationAnalysis dbData = objectMapper.readValue(dbCached.get().getJsonData(), DashboardData.ReservationAnalysis.class);
+                    if (dbData != null) {
+                        redisCache.put(cacheKey, dbData, 60);
+                        logger.info("✅ DB snapshot hit — re-warmed Redis: {}", dbKey);
+                        return CompletableFuture.completedFuture(dbData);
+                    }
+                }
+            } catch (Exception dbEx) {
+                logger.warn("DB cache miss for {}: {}", dbKey, dbEx.getMessage());
             }
         }
 
@@ -227,6 +250,15 @@ public class ReservationService {
 
                 DashboardData.ReservationAnalysis result = new DashboardData.ReservationAnalysis(finalUtil, finalCov);
                 redisCache.put(cacheKey, result, 60);
+                try {
+                    CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+                    snapshot.setCacheKey(dbKey);
+                    snapshot.setJsonData(objectMapper.writeValueAsString(result));
+                    snapshot.setLastUpdated(java.time.LocalDateTime.now());
+                    cachedDataRepository.save(snapshot);
+                } catch (Exception dbEx) {
+                    logger.warn("Failed to save DB snapshot {}: {}", dbKey, dbEx.getMessage());
+                }
                 return result;
             } catch (Exception e) {
                 logger.error("Error fetching analysis for account {}", account.getAwsAccountId(), e);
@@ -245,11 +277,25 @@ public class ReservationService {
         }
 
         String cacheKey = "historicalReservationData-" + account.getAwsAccountId();
+        String dbKey = "RESERVATION_HISTORICAL::" + account.getAwsAccountId();
         if (!forceRefresh) {
             Optional<HistoricalReservationDataDto> cachedData = redisCache.get(cacheKey,
                     HistoricalReservationDataDto.class);
             if (cachedData.isPresent()) {
                 return CompletableFuture.completedFuture(cachedData.get());
+            }
+            try {
+                Optional<CachedData> dbCached = cachedDataRepository.findById(dbKey);
+                if (dbCached.isPresent()) {
+                    HistoricalReservationDataDto dbData = objectMapper.readValue(dbCached.get().getJsonData(), HistoricalReservationDataDto.class);
+                    if (dbData != null) {
+                        redisCache.put(cacheKey, dbData, 60);
+                        logger.info("✅ DB snapshot hit — re-warmed Redis: {}", dbKey);
+                        return CompletableFuture.completedFuture(dbData);
+                    }
+                }
+            } catch (Exception dbEx) {
+                logger.warn("DB cache miss for {}: {}", dbKey, dbEx.getMessage());
             }
         }
 
@@ -347,6 +393,15 @@ public class ReservationService {
                 HistoricalReservationDataDto result = new HistoricalReservationDataDto(labels, utilPercentages,
                         covPercentages);
                 redisCache.put(cacheKey, result, 60);
+                try {
+                    CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+                    snapshot.setCacheKey(dbKey);
+                    snapshot.setJsonData(objectMapper.writeValueAsString(result));
+                    snapshot.setLastUpdated(java.time.LocalDateTime.now());
+                    cachedDataRepository.save(snapshot);
+                } catch (Exception dbEx) {
+                    logger.warn("Failed to save DB snapshot {}: {}", dbKey, dbEx.getMessage());
+                }
                 return result;
             } catch (Exception e) {
                 logger.error("Error fetching historical data for account {}", account.getAwsAccountId(), e);
@@ -368,12 +423,27 @@ public class ReservationService {
 
         String cacheKey = String.format("reservationPurchaseRecs-%s-%s-%s-%s-%s", account.getAwsAccountId(), term,
                 paymentOption, lookback, offeringClass);
+        String dbKey = String.format("RESERVATION_PURCHASE_RECS::%s::%s::%s::%s::%s", account.getAwsAccountId(), term,
+                paymentOption, lookback, offeringClass);
         if (!forceRefresh) {
             Optional<List<DashboardData.ReservationPurchaseRecommendation>> cachedData = redisCache.get(cacheKey,
                     new TypeReference<>() {
                     });
             if (cachedData.isPresent()) {
                 return CompletableFuture.completedFuture(cachedData.get());
+            }
+            try {
+                Optional<CachedData> dbCached = cachedDataRepository.findById(dbKey);
+                if (dbCached.isPresent()) {
+                    List<DashboardData.ReservationPurchaseRecommendation> dbData = objectMapper.readValue(dbCached.get().getJsonData(), new TypeReference<>() {});
+                    if (dbData != null) {
+                        redisCache.put(cacheKey, dbData, 60);
+                        logger.info("✅ DB snapshot hit — re-warmed Redis: {}", dbKey);
+                        return CompletableFuture.completedFuture(dbData);
+                    }
+                }
+            } catch (Exception dbEx) {
+                logger.warn("DB cache miss for {}: {}", dbKey, dbEx.getMessage());
             }
         }
 
@@ -420,6 +490,15 @@ public class ReservationService {
                     .filter(Objects::nonNull)
                     .collect(Collectors.toList());
             redisCache.put(cacheKey, result, 60);
+            try {
+                CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+                snapshot.setCacheKey(dbKey);
+                snapshot.setJsonData(objectMapper.writeValueAsString(result));
+                snapshot.setLastUpdated(java.time.LocalDateTime.now());
+                cachedDataRepository.save(snapshot);
+            } catch (Exception dbEx) {
+                logger.warn("Failed to save DB snapshot {}: {}", dbKey, dbEx.getMessage());
+            }
             return CompletableFuture.completedFuture(result);
         } catch (Exception e) {
             logger.error("Could not fetch reservation purchase recommendations.", e);
@@ -474,11 +553,25 @@ public class ReservationService {
         }
 
         String cacheKey = "reservationInventory-" + account.getAwsAccountId();
+        String dbKey = "RESERVATION_INVENTORY::" + account.getAwsAccountId();
         if (!forceRefresh) {
             Optional<List<ReservationInventoryDto>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {
             });
             if (cachedData.isPresent()) {
                 return CompletableFuture.completedFuture(cachedData.get());
+            }
+            try {
+                Optional<CachedData> dbCached = cachedDataRepository.findById(dbKey);
+                if (dbCached.isPresent()) {
+                    List<ReservationInventoryDto> dbData = objectMapper.readValue(dbCached.get().getJsonData(), new TypeReference<>() {});
+                    if (dbData != null) {
+                        redisCache.put(cacheKey, dbData, 60);
+                        logger.info("✅ DB snapshot hit — re-warmed Redis: {}", dbKey);
+                        return CompletableFuture.completedFuture(dbData);
+                    }
+                }
+            } catch (Exception dbEx) {
+                logger.warn("DB cache miss for {}: {}", dbKey, dbEx.getMessage());
             }
         }
 
@@ -541,6 +634,15 @@ public class ReservationService {
                                 .collect(Collectors.toList());
 
                         redisCache.put(cacheKey, updatedInventory, 60);
+                        try {
+                            CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+                            snapshot.setCacheKey(dbKey);
+                            snapshot.setJsonData(objectMapper.writeValueAsString(updatedInventory));
+                            snapshot.setLastUpdated(java.time.LocalDateTime.now());
+                            cachedDataRepository.save(snapshot);
+                        } catch (Exception dbEx) {
+                            logger.warn("Failed to save DB snapshot {}: {}", dbKey, dbEx.getMessage());
+                        }
                         return updatedInventory;
                     });
         });
@@ -557,12 +659,26 @@ public class ReservationService {
         }
 
         String cacheKey = "reservationModificationRecs-" + account.getAwsAccountId();
+        String dbKey = "RESERVATION_MOD_RECS::" + account.getAwsAccountId();
         if (!forceRefresh) {
             Optional<List<ReservationModificationRecommendationDto>> cachedData = redisCache.get(cacheKey,
                     new TypeReference<>() {
                     });
             if (cachedData.isPresent()) {
                 return CompletableFuture.completedFuture(cachedData.get());
+            }
+            try {
+                Optional<CachedData> dbCached = cachedDataRepository.findById(dbKey);
+                if (dbCached.isPresent()) {
+                    List<ReservationModificationRecommendationDto> dbData = objectMapper.readValue(dbCached.get().getJsonData(), new TypeReference<>() {});
+                    if (dbData != null) {
+                        redisCache.put(cacheKey, dbData, 60);
+                        logger.info("✅ DB snapshot hit — re-warmed Redis: {}", dbKey);
+                        return CompletableFuture.completedFuture(dbData);
+                    }
+                }
+            } catch (Exception dbEx) {
+                logger.warn("DB cache miss for {}: {}", dbKey, dbEx.getMessage());
             }
         }
 
@@ -588,6 +704,15 @@ public class ReservationService {
                     }
                 }
                 redisCache.put(cacheKey, recommendations, 60);
+                try {
+                    CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+                    snapshot.setCacheKey(dbKey);
+                    snapshot.setJsonData(objectMapper.writeValueAsString(recommendations));
+                    snapshot.setLastUpdated(java.time.LocalDateTime.now());
+                    cachedDataRepository.save(snapshot);
+                } catch (Exception dbEx) {
+                    logger.warn("Failed to save DB snapshot {}: {}", dbKey, dbEx.getMessage());
+                }
                 return CompletableFuture.completedFuture(recommendations);
             } catch (Exception e) {
                 logger.error("Could not generate reservation modification recommendations for account {}",
@@ -656,11 +781,25 @@ public class ReservationService {
         }
 
         String cacheKey = "reservationCostByTag-" + accountId + "-" + tagKey;
+        String dbKey = "RESERVATION_COST_TAG::" + accountId + "::" + tagKey;
         if (!forceRefresh) {
             Optional<List<CostByTagDto>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {
             });
             if (cachedData.isPresent()) {
                 return CompletableFuture.completedFuture(cachedData.get());
+            }
+            try {
+                Optional<CachedData> dbCached = cachedDataRepository.findById(dbKey);
+                if (dbCached.isPresent()) {
+                    List<CostByTagDto> dbData = objectMapper.readValue(dbCached.get().getJsonData(), new TypeReference<>() {});
+                    if (dbData != null) {
+                        redisCache.put(cacheKey, dbData, 60);
+                        logger.info("✅ DB snapshot hit — re-warmed Redis: {}", dbKey);
+                        return CompletableFuture.completedFuture(dbData);
+                    }
+                }
+            } catch (Exception dbEx) {
+                logger.warn("DB cache miss for {}: {}", dbKey, dbEx.getMessage());
             }
         }
 
@@ -693,6 +832,15 @@ public class ReservationService {
                     .filter(dto -> dto.getCost() > 0.01)
                     .collect(Collectors.toList());
             redisCache.put(cacheKey, resultList, 60);
+            try {
+                CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+                snapshot.setCacheKey(dbKey);
+                snapshot.setJsonData(objectMapper.writeValueAsString(resultList));
+                snapshot.setLastUpdated(java.time.LocalDateTime.now());
+                cachedDataRepository.save(snapshot);
+            } catch (Exception dbEx) {
+                logger.warn("Failed to save DB snapshot {}: {}", dbKey, dbEx.getMessage());
+            }
             return CompletableFuture.completedFuture(resultList);
         } catch (Exception e) {
             logger.error("Could not fetch reservation cost by tag key '{}' for account {}.", tagKey, e);
