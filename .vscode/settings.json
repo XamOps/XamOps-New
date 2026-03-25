@@ -3,6 +3,7 @@
   "java.compile.nullAnalysis.mode": "automatic",
 
   "java.jdt.ls.vmargs": "-XX:+UseParallelGC -XX:GCTimeRatio=4 -XX:AdaptiveSizePolicyWeight=90 -Dsun.zip.disableMemoryMapping=true -Xmx4G -Xms100m",
+  "jdk.serverVmOptions": "-javaagent:/Users/apple/.m2/repository/org/projectlombok/lombok/1.18.36/lombok-1.18.36.jar",
   "java.debug.settings.onBuildFailureProceed": true,
 
   "java.import.exclusions": [

@@ -15,7 +15,7 @@
  * - Same validation and error handling
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { apiFetch } from '../utils/apiClient';
 import type {
   Provider,
@@ -34,6 +34,8 @@ interface UseAddAccountReturn {
   accessType: AccessType;
   isLoading: boolean;
   isVerifying: boolean;
+  isAutoConnecting: boolean;
+  autoConnected: boolean;
   isPolicyModalOpen: boolean;
   verificationError: string;
   verificationDetails: VerificationDetails;
@@ -68,6 +70,8 @@ export function useAddAccount(): UseAddAccountReturn {
   const [accessType, setAccessType] = useState<AccessType>('read-only');
   const [isLoading, setIsLoading] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
+  const [isAutoConnecting, setIsAutoConnecting] = useState(false);
+  const [autoConnected, setAutoConnected] = useState(false);
   const [isPolicyModalOpen, setIsPolicyModalOpen] = useState(false);
   const [verificationError, setVerificationError] = useState('');
   const [verificationDetails, setVerificationDetailsState] = useState<VerificationDetails>({
@@ -84,6 +88,16 @@ export function useAddAccount(): UseAddAccountReturn {
     username: '',
     token: '',
   });
+
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pendingExternalIdRef = useRef<string>('');
+
+  // Clean up polling interval on unmount
+  useEffect(() => {
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current);
+    };
+  }, []);
 
   /**
    * Update verification details partially
@@ -158,6 +172,32 @@ export function useAddAccount(): UseAddAccountReturn {
       // Store externalId and switch to verification mode
       setVerificationDetails({ externalId: data.externalId });
       setIsVerifying(true);
+
+      // Only poll for auto-connect if EventBridge is configured on this environment
+      if (data.eventBridgeEnabled !== 'true') return;
+
+      pendingExternalIdRef.current = data.externalId;
+      setIsAutoConnecting(true);
+      if (pollingRef.current) clearInterval(pollingRef.current);
+      pollingRef.current = setInterval(async () => {
+        try {
+          const accountsRes = await apiFetch('/api/xamops/account-manager/accounts');
+          if (accountsRes.ok) {
+            const accounts: Array<{ externalId?: string; status: string }> = await accountsRes.json();
+            const connected = accounts.find(
+              (a) => a.externalId === pendingExternalIdRef.current && a.status === 'CONNECTED'
+            );
+            if (connected) {
+              clearInterval(pollingRef.current!);
+              pollingRef.current = null;
+              setIsAutoConnecting(false);
+              setAutoConnected(true);
+            }
+          }
+        } catch {
+          // network blip — will retry next tick
+        }
+      }, 5000);
     } catch (err) {
       alert(`Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
@@ -307,6 +347,12 @@ export function useAddAccount(): UseAddAccountReturn {
     setAccountName('');
     setAccessType('read-only');
     setIsVerifying(false);
+    setIsAutoConnecting(false);
+    setAutoConnected(false);
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
     setVerificationError('');
     setVerificationDetailsState({
       awsAccountId: '',
@@ -331,6 +377,8 @@ export function useAddAccount(): UseAddAccountReturn {
     accessType,
     isLoading,
     isVerifying,
+    isAutoConnecting,
+    autoConnected,
     isPolicyModalOpen,
     verificationError,
     verificationDetails,

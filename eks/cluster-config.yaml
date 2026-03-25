@@ -1,0 +1,47 @@
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: xamops-test
+  region: ap-south-1
+  version: "1.29"
+
+# Use existing default VPC
+vpc:
+  id: vpc-02cc2a725bffc71f4
+  subnets:
+    public:
+      ap-south-1a:
+        id: subnet-00c487f134f3df1a5
+      ap-south-1b:
+        id: subnet-0f818646050964d7b
+      ap-south-1c:
+        id: subnet-086bb3e825464563a
+
+# Enable OIDC for IRSA (needed for Cluster Autoscaler)
+iam:
+  withOIDC: true
+
+# Node group
+managedNodeGroups:
+  - name: ng-public-1
+    instanceType: t2.small
+    minSize: 1
+    maxSize: 2
+    desiredCapacity: 1
+    amiFamily: AmazonLinux2
+    labels:
+      role: worker
+    tags:
+      k8s.io/cluster-autoscaler/enabled: "true"
+      k8s.io/cluster-autoscaler/xamops-test: "owned"
+    iam:
+      attachPolicyARNs:
+        - arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
+        - arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+      withAddonPolicies:
+        autoScaler: true   # Adds CA IAM permissions to node role
+    privateNetworking: false  # Public node group
+    ssh:
+      allow: false

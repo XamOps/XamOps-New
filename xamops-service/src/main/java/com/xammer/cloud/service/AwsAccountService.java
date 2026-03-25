@@ -35,6 +35,12 @@ public class AwsAccountService {
     @Value("${cloudformation.template.s3.readwrite.url}")
     private String cloudFormationReadWriteTemplateUrl;
 
+    @Value("${xamops.cfn.callback.param.name:}")
+    private String cfnCallbackParamName;
+
+    @Value("${xamops.cfn.callback.param.value:}")
+    private String cfnCallbackParamValue;
+
     @Autowired
     public AwsAccountService(
             CloudAccountRepository cloudAccountRepository,
@@ -81,13 +87,20 @@ public class AwsAccountService {
         String stackName = "XamOps-Connection-" + accountName.replaceAll("[^a-zA-Z0-9-]", "");
         String xamopsAccountId = this.hostAccountId;
         String templateUrl = "read-write".equals(accessType) ? cloudFormationReadWriteTemplateUrl : cloudFormationTemplateUrl;
+
+        boolean eventBridgeEnabled = cfnCallbackParamName != null && !cfnCallbackParamName.isEmpty();
+        String callbackParam = eventBridgeEnabled
+                ? "&param_" + cfnCallbackParamName + "=" + cfnCallbackParamValue
+                : "";
+
         String urlString = String.format(
-                "https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?templateURL=%s&stackName=%s&param_XamOpsAccountId=%s&param_ExternalId=%s",
-                templateUrl, stackName, xamopsAccountId, externalId);
+                "https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?templateURL=%s&stackName=%s&param_XamOpsAccountId=%s&param_ExternalId=%s%s",
+                templateUrl, stackName, xamopsAccountId, externalId, callbackParam);
 
         return Map.of(
                 "url", new URL(urlString),
-                "externalId", externalId);
+                "externalId", externalId,
+                "eventBridgeEnabled", eventBridgeEnabled);
     }
 
     public CloudAccount verifyAccount(VerifyAccountRequest request) {
@@ -119,6 +132,36 @@ public class AwsAccountService {
             awsClientProvider.evictAccount(request.getAwsAccountId());
             throw new RuntimeException(
                     "Role assumption failed. Please check the role ARN, trust policy, and external ID.", e);
+        }
+    }
+
+    public CloudAccount connectViaCallback(String externalId, String awsAccountId, String roleArn) {
+        CloudAccount account = cloudAccountRepository.findByExternalId(externalId)
+                .orElseThrow(() -> new RuntimeException("No account found for externalId: " + externalId));
+
+        if (!"PENDING".equals(account.getStatus()) && !"FAILED".equals(account.getStatus())) {
+            logger.info("EventBridge callback: account {} already in status {}. Skipping.", externalId,
+                    account.getStatus());
+            return account;
+        }
+
+        account.setAwsAccountId(awsAccountId);
+        account.setRoleArn(roleArn);
+        awsClientProvider.evictAccount(awsAccountId);
+
+        try {
+            Ec2Client testClient = awsClientProvider.getEc2Client(account, configuredRegion);
+            testClient.describeRegions();
+            account.setStatus("CONNECTED");
+            logger.info("EventBridge callback: successfully connected account externalId={}", externalId);
+            return cloudAccountRepository.save(account);
+        } catch (Exception e) {
+            account.setStatus("FAILED");
+            logger.error("EventBridge callback: role assumption failed for externalId={}: {}", externalId,
+                    e.getMessage());
+            cloudAccountRepository.save(account);
+            awsClientProvider.evictAccount(awsAccountId);
+            throw new RuntimeException("Role assumption failed during EventBridge callback.", e);
         }
     }
 

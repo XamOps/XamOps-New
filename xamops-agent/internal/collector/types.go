@@ -273,6 +273,21 @@ type DbUserActivity struct {
 	CollectedAt       string  `json:"collectedAt"`
 }
 
+// DiskUsage represents disk mount point usage for an EC2 instance.
+// Collected by the disk collector using df -BG + EC2 instance metadata.
+// Pushed as "disk-usage" batch.
+type DiskUsage struct {
+	InstanceID  string  `json:"instanceId"`  // e.g. "i-0abc123def456"
+	VolumeID    string  `json:"volumeId"`    // e.g. "vol-0abc123def456" (NVMe only; empty for Xen)
+	Device      string  `json:"device"`      // e.g. "/dev/nvme0n1p1" or "/dev/xvda1"
+	MountPoint  string  `json:"mountPoint"`  // e.g. "/"
+	TotalGB     float64 `json:"totalGb"`
+	UsedGB      float64 `json:"usedGb"`
+	FreeGB      float64 `json:"freeGb"`
+	UsedPercent float64 `json:"usedPercent"` // 0-100
+	CollectedAt string  `json:"collectedAt"` // RFC3339
+}
+
 // DbQueryStat represents a single normalized query from performance_schema or pg_stat_statements
 type DbQueryStat struct {
 	// Connection info

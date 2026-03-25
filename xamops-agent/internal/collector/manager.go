@@ -142,9 +142,20 @@ func (m *Manager) CollectAll() (*AgentPayload, error) {
 		}
 	}
 
+	// ── Disk usage collector (runs standalone — no k8s needed) ──────────────
+	if m.cfg.CollectorDisk {
+		if batch, err := collectDiskUsage(ctx); err == nil {
+			if batch.Count > 0 {
+				payload.Batches = append(payload.Batches, batch)
+			}
+		} else {
+			log.Printf("WARN: disk-usage: %v", err)
+		}
+	}
+
 	if m.k8sClient == nil {
-		if m.cfg.CollectorDB {
-			// Running as a standalone DB agent (no k8s cluster) — DB batch already collected above
+		if m.cfg.CollectorDB || m.cfg.CollectorDisk {
+			// Running as a standalone agent (no k8s cluster) — batches already collected above
 			return payload, nil
 		}
 		log.Println("WARN: no k8s client — skipping all collectors")
