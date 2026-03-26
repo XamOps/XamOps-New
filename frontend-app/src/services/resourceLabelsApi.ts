@@ -85,8 +85,9 @@ export interface TrackedResource {
 
 export interface LabelCostResponse {
   costs: Array<{ name: string; amount: number }>;
-  resourceLevel: boolean;   // true = filtered by specific resource IDs; false = service-level approximation
+  resourceLevel: boolean;         // true = filtered by specific resource IDs; false = service-level approximation
   message?: string;
+  approximationWarning?: string;  // present when some costs are full account-level (not per-resource)
   trackedResources?: TrackedResource[];
 }
 
