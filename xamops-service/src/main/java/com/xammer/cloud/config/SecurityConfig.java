@@ -155,7 +155,10 @@ public class SecurityConfig {
                                                                 new AntPathRequestMatcher("/terminal"),
 
                                                                 // XamOps Agent API (authenticates via API key, not session)
-                                                                new AntPathRequestMatcher("/api/v1/agent/**"),
+                                                                // Restricted to only ingest, heartbeat and policy poll endpoints
+                                                                new AntPathRequestMatcher("/api/v1/agent/ingest"),
+                                                                new AntPathRequestMatcher("/api/v1/agent/heartbeat"),
+                                                                new AntPathRequestMatcher("/api/v1/agent/autoscaling-policy"),
 
                                                                 // Public APIs
                                                                 // new AntPathRequestMatcher("/api/ai/**"),
@@ -219,9 +222,9 @@ public class SecurityConfig {
         public CommonsRequestLoggingFilter requestLoggingFilter() {
                 CommonsRequestLoggingFilter loggingFilter = new CommonsRequestLoggingFilter();
                 loggingFilter.setIncludeQueryString(true);
-                loggingFilter.setIncludePayload(true);
+                loggingFilter.setIncludePayload(false); // Security: Don't log passwords or sensitive data
                 loggingFilter.setMaxPayloadLength(10000);
-                loggingFilter.setIncludeHeaders(true);
+                loggingFilter.setIncludeHeaders(false); // Security: Don't log authorization headers
                 loggingFilter.setIncludeClientInfo(true);
                 return loggingFilter;
         }
