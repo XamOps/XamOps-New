@@ -111,6 +111,40 @@ public class AwsPricingService {
         US_EAST_1_PRICING.put("r5.24xlarge", 6.048);
     }
 
+    // RDS MySQL/PostgreSQL on-demand, single-AZ pricing for us-east-1 (2024)
+    private static final Map<String, Double> RDS_US_EAST_1_PRICING = new HashMap<>();
+
+    static {
+        RDS_US_EAST_1_PRICING.put("db.t3.micro",    0.017);
+        RDS_US_EAST_1_PRICING.put("db.t3.small",    0.034);
+        RDS_US_EAST_1_PRICING.put("db.t3.medium",   0.068);
+        RDS_US_EAST_1_PRICING.put("db.t3.large",    0.136);
+        RDS_US_EAST_1_PRICING.put("db.t3.xlarge",   0.272);
+        RDS_US_EAST_1_PRICING.put("db.t3.2xlarge",  0.544);
+        RDS_US_EAST_1_PRICING.put("db.t4g.micro",   0.016);
+        RDS_US_EAST_1_PRICING.put("db.t4g.small",   0.032);
+        RDS_US_EAST_1_PRICING.put("db.t4g.medium",  0.065);
+        RDS_US_EAST_1_PRICING.put("db.t4g.large",   0.130);
+        RDS_US_EAST_1_PRICING.put("db.m5.large",    0.171);
+        RDS_US_EAST_1_PRICING.put("db.m5.xlarge",   0.342);
+        RDS_US_EAST_1_PRICING.put("db.m5.2xlarge",  0.684);
+        RDS_US_EAST_1_PRICING.put("db.m5.4xlarge",  1.368);
+        RDS_US_EAST_1_PRICING.put("db.m5.8xlarge",  2.736);
+        RDS_US_EAST_1_PRICING.put("db.m6g.large",   0.162);
+        RDS_US_EAST_1_PRICING.put("db.m6g.xlarge",  0.325);
+        RDS_US_EAST_1_PRICING.put("db.m6g.2xlarge", 0.650);
+        RDS_US_EAST_1_PRICING.put("db.m6g.4xlarge", 1.300);
+        RDS_US_EAST_1_PRICING.put("db.r5.large",    0.240);
+        RDS_US_EAST_1_PRICING.put("db.r5.xlarge",   0.480);
+        RDS_US_EAST_1_PRICING.put("db.r5.2xlarge",  0.960);
+        RDS_US_EAST_1_PRICING.put("db.r5.4xlarge",  1.920);
+        RDS_US_EAST_1_PRICING.put("db.r5.8xlarge",  3.840);
+        RDS_US_EAST_1_PRICING.put("db.r6g.large",   0.228);
+        RDS_US_EAST_1_PRICING.put("db.r6g.xlarge",  0.456);
+        RDS_US_EAST_1_PRICING.put("db.r6g.2xlarge", 0.912);
+        RDS_US_EAST_1_PRICING.put("db.r6g.4xlarge", 1.824);
+    }
+
     // Regional pricing multipliers (relative to us-east-1)
     private static final Map<String, Double> REGIONAL_MULTIPLIERS = new HashMap<>();
 
@@ -216,6 +250,41 @@ public class AwsPricingService {
 
         logger.warn("Using fallback estimate for unknown instance type: {}", instanceType);
         return 0.10; // Default fallback
+    }
+
+    /**
+     * Get the hourly cost for an RDS DB instance class in a specific region.
+     * Uses MySQL/PostgreSQL single-AZ on-demand pricing as the baseline.
+     *
+     * @param dbInstanceClass The RDS DB instance class (e.g., "db.t3.medium")
+     * @param region          The AWS region (e.g., "us-east-1")
+     * @return The hourly cost in USD, or 0.0 if pricing is not available
+     */
+    public double getRdsHourlyCost(String dbInstanceClass, String region) {
+        if (dbInstanceClass == null || region == null) {
+            logger.warn("Cannot calculate RDS pricing: dbInstanceClass={}, region={}", dbInstanceClass, region);
+            return 0.0;
+        }
+        Double basePrice = RDS_US_EAST_1_PRICING.get(dbInstanceClass.toLowerCase());
+        if (basePrice == null) {
+            logger.warn("No RDS pricing data for instance class: {} — using size-based estimate", dbInstanceClass);
+            return estimateRdsPricing(dbInstanceClass);
+        }
+        double multiplier = REGIONAL_MULTIPLIERS.getOrDefault(region, 1.0);
+        return basePrice * multiplier;
+    }
+
+    private double estimateRdsPricing(String dbInstanceClass) {
+        String lower = dbInstanceClass.toLowerCase();
+        if (lower.contains("micro"))   return 0.02;
+        if (lower.contains("small"))   return 0.04;
+        if (lower.contains("medium"))  return 0.08;
+        if (lower.contains("8xlarge")) return 2.80;
+        if (lower.contains("4xlarge")) return 1.40;
+        if (lower.contains("2xlarge")) return 0.70;
+        if (lower.contains("xlarge"))  return 0.35;
+        if (lower.contains("large"))   return 0.18;
+        return 0.20;
     }
 
     /**

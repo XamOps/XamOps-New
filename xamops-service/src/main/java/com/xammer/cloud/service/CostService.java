@@ -27,6 +27,9 @@ import java.time.temporal.ChronoUnit;
 import java.util.*;
 import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.ec2.model.DescribeInstancesRequest;
+import software.amazon.awssdk.services.rds.RdsClient;
+import software.amazon.awssdk.services.rds.model.DescribeDbInstancesRequest;
+import software.amazon.awssdk.services.rds.model.DescribeDbInstancesResponse;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
@@ -942,33 +945,40 @@ public class CostService {
                                                 resourceEx.getMessage());
                         }
 
-                        // --- Fallback: EC2 per-instance estimate + SERVICE filter for other types ---
+                        // --- Fallback: per-instance estimate for EC2 + RDS, service-level for everything else ---
 
-                        // Separate EC2 instances from other resource types using resourceDetails
+                        long daysBetween = ChronoUnit.DAYS.between(LocalDate.parse(startDate), LocalDate.parse(endDate)) + 1;
+                        double totalHours = daysBetween * 24.0;
+
+                        // Separate EC2 instances
                         List<Map<String, String>> ec2Details = (resourceDetails == null) ? Collections.emptyList() :
                                 resourceDetails.stream()
                                         .filter(r -> "EC2 Instance".equalsIgnoreCase(r.get("type")) ||
                                                      (r.get("id") != null && r.get("id").startsWith("i-")))
                                         .collect(Collectors.toList());
 
-                        // Mutable list — may have "EC2 Instance" added if DescribeInstances fails
-                        List<String> nonEc2Types = new ArrayList<>((resourceDetails == null
+                        // Separate RDS instances
+                        List<Map<String, String>> rdsDetails = (resourceDetails == null) ? Collections.emptyList() :
+                                resourceDetails.stream()
+                                        .filter(r -> "RDS Instance".equalsIgnoreCase(r.get("type")))
+                                        .collect(Collectors.toList());
+
+                        // Remaining types fall through to service-level Cost Explorer (inaccurate for multi-resource accounts)
+                        // Mutable — EC2/RDS are added back here if their per-instance API calls fail
+                        List<String> serviceOnlyTypes = new ArrayList<>((resourceDetails == null
                                 ? (resourceTypes == null ? Collections.<String>emptyList() : resourceTypes)
                                 : resourceDetails.stream().map(r -> r.get("type")).filter(Objects::nonNull).collect(Collectors.toList()))
                                 .stream()
-                                .filter(t -> !"EC2 Instance".equalsIgnoreCase(t))
+                                .filter(t -> !"EC2 Instance".equalsIgnoreCase(t) && !"RDS Instance".equalsIgnoreCase(t))
                                 .distinct()
                                 .collect(Collectors.toList()));
 
                         List<CostDto> combinedCosts = new ArrayList<>();
                         boolean hasEc2Estimates = false;
+                        boolean hasRdsEstimates = false;
 
                         // --- EC2 per-instance cost estimation ---
                         if (!ec2Details.isEmpty()) {
-                                long daysBetween = ChronoUnit.DAYS.between(LocalDate.parse(startDate), LocalDate.parse(endDate)) + 1;
-                                double totalHours = daysBetween * 24.0;
-
-                                // Group by region to batch DescribeInstances calls
                                 Map<String, List<Map<String, String>>> ec2ByRegion = ec2Details.stream()
                                         .collect(Collectors.groupingBy(r -> {
                                                 String rgn = r.getOrDefault("region", "");
@@ -1013,24 +1023,83 @@ public class CostService {
                                                                         name, instanceType, region, hourlyRate, totalHours,
                                                                         String.format("%.2f", estimatedCost));
                                                         } else {
-                                                                logger.warn("⚠️ No pricing data for {} instanceType={} in {}", id, instanceType, region);
+                                                                logger.warn("⚠️ No EC2 pricing for {} type={} in {}", id, instanceType, region);
                                                         }
                                                 }
                                         } catch (Exception ex) {
-                                                logger.warn("⚠️ Could not get EC2 pricing for region {} — using service-level fallback: {}", region, ex.getMessage());
-                                                if (!nonEc2Types.contains("EC2 Instance")) nonEc2Types.add("EC2 Instance");
+                                                logger.warn("⚠️ Could not get EC2 pricing for region {} — falling back to service-level: {}", region, ex.getMessage());
+                                                if (!serviceOnlyTypes.contains("EC2 Instance")) serviceOnlyTypes.add("EC2 Instance");
                                         }
                                 }
                         }
 
-                        // --- Service-level Cost Explorer for non-EC2 types (or EC2 fallback) ---
-                        if (!nonEc2Types.isEmpty()) {
-                                List<String> serviceNames = nonEc2Types.stream()
+                        // --- RDS per-instance cost estimation ---
+                        if (!rdsDetails.isEmpty()) {
+                                Map<String, List<Map<String, String>>> rdsByRegion = rdsDetails.stream()
+                                        .collect(Collectors.groupingBy(r -> {
+                                                String rgn = r.getOrDefault("region", "");
+                                                return (rgn != null && !rgn.isEmpty()) ? rgn : "us-east-1";
+                                        }));
+
+                                for (Map.Entry<String, List<Map<String, String>>> entry : rdsByRegion.entrySet()) {
+                                        String region = entry.getKey();
+                                        List<Map<String, String>> regionInstances = entry.getValue();
+                                        try {
+                                                RdsClient rdsClient = awsClientProvider.getRdsClient(account, region);
+
+                                                // Fetch all DB instances in this region; filter locally by identifier
+                                                Map<String, String> instanceClassById = new HashMap<>();
+                                                String marker = null;
+                                                do {
+                                                        DescribeDbInstancesRequest.Builder reqBuilder =
+                                                                DescribeDbInstancesRequest.builder().maxRecords(100);
+                                                        if (marker != null) reqBuilder.marker(marker);
+                                                        DescribeDbInstancesResponse resp = rdsClient.describeDBInstances(reqBuilder.build());
+                                                        resp.dbInstances().forEach(db ->
+                                                                instanceClassById.put(db.dbInstanceIdentifier(), db.dbInstanceClass()));
+                                                        marker = resp.marker();
+                                                } while (marker != null);
+
+                                                for (Map<String, String> resource : regionInstances) {
+                                                        String id = resource.get("id");
+                                                        String name = resource.getOrDefault("name", id);
+                                                        // Strip ARN prefix if stored as ARN (arn:aws:rds:...:db:identifier)
+                                                        String identifier = (id != null && id.contains(":"))
+                                                                ? id.substring(id.lastIndexOf(':') + 1) : id;
+                                                        String dbClass = instanceClassById.get(identifier);
+                                                        double hourlyRate = awsPricingService.getRdsHourlyCost(dbClass, region);
+                                                        if (hourlyRate > 0) {
+                                                                double estimatedCost = hourlyRate * totalHours;
+                                                                String label = name + (dbClass != null ? " (" + dbClass + ")" : "");
+                                                                combinedCosts.add(new CostDto(label, estimatedCost));
+                                                                hasRdsEstimates = true;
+                                                                logger.info("💡 RDS estimate: {} [{}] in {} @ ${}/hr × {}hrs = ${}",
+                                                                        name, dbClass, region, hourlyRate, totalHours,
+                                                                        String.format("%.2f", estimatedCost));
+                                                        } else {
+                                                                logger.warn("⚠️ No RDS pricing for {} class={} in {}", id, dbClass, region);
+                                                        }
+                                                }
+                                        } catch (Exception ex) {
+                                                logger.warn("⚠️ Could not get RDS pricing for region {} — falling back to service-level: {}", region, ex.getMessage());
+                                                if (!serviceOnlyTypes.contains("RDS Instance")) serviceOnlyTypes.add("RDS Instance");
+                                        }
+                                }
+                        }
+
+                        // --- Service-level Cost Explorer for remaining types ---
+                        // NOTE: This returns the full account bill for each AWS service, NOT just tagged resources.
+                        // It is fundamentally inaccurate when the account has more resources of the same type.
+                        List<String> approximationWarnings = new ArrayList<>();
+                        if (!serviceOnlyTypes.isEmpty()) {
+                                List<String> serviceNames = serviceOnlyTypes.stream()
                                         .flatMap(t -> RESOURCE_TYPE_TO_SERVICE_NAMES
                                                 .getOrDefault(t, List.of(t.split(" ")[0]))
                                                 .stream())
                                         .distinct()
                                         .collect(Collectors.toList());
+
+                                approximationWarnings.addAll(serviceOnlyTypes);
 
                                 if (!serviceNames.isEmpty()) {
                                         try {
@@ -1055,12 +1124,12 @@ public class CostService {
                                                 Map<String, Double> svcCostMap = new HashMap<>();
                                                 ce.getCostAndUsage(req).resultsByTime().forEach(t ->
                                                         t.groups().forEach(g -> {
-                                                                String name = g.keys().get(0);
+                                                                String svcName = g.keys().get(0);
                                                                 double cost = Double.parseDouble(g.metrics().get("UnblendedCost").amount());
-                                                                svcCostMap.merge(name, cost, Double::sum);
+                                                                svcCostMap.merge(svcName, cost, Double::sum);
                                                         })
                                                 );
-                                                svcCostMap.forEach((name, cost) -> combinedCosts.add(new CostDto(name, cost)));
+                                                svcCostMap.forEach((svcName, cost) -> combinedCosts.add(new CostDto(svcName, cost)));
                                         } catch (Exception svcEx) {
                                                 logger.error("❌ Error fetching service-level label cost: {}", svcEx.getMessage(), svcEx);
                                         }
@@ -1072,14 +1141,34 @@ public class CostService {
                                 .sorted((a, b) -> Double.compare(b.getAmount(), a.getAmount()))
                                 .collect(Collectors.toList());
 
+                        // Build message parts
+                        List<String> messageParts = new ArrayList<>();
+                        if (hasEc2Estimates || hasRdsEstimates) {
+                                messageParts.add("Per-instance cost estimate based on on-demand pricing for the selected date range.");
+                        }
+                        if (!approximationWarnings.isEmpty()) {
+                                messageParts.add("Service-level cost (full account bill) shown for: " +
+                                        String.join(", ", approximationWarnings) +
+                                        " — not per-resource. Enable 'Hourly and Resource Level Data' in Cost Explorer for accuracy.");
+                        }
+                        if (messageParts.isEmpty()) {
+                                messageParts.add("Approximate — Enable 'Hourly and Resource Level Data' in Cost Explorer for per-resource accuracy.");
+                        }
+
                         Map<String, Object> fallbackResult = new HashMap<>();
                         fallbackResult.put("costs", finalCosts);
                         fallbackResult.put("resourceLevel", false);
-                        fallbackResult.put("message", hasEc2Estimates
-                                ? "Per-instance cost estimate based on on-demand pricing for the selected date range."
-                                : "Approximate — showing all costs for services used by labeled resources. Enable 'Hourly and Resource Level Data' in Cost Explorer for per-resource accuracy.");
-                        logger.info("✅ Label cost fallback: {} items ({} EC2 per-instance estimates)",
-                                finalCosts.size(), hasEc2Estimates ? "with" : "no");
+                        fallbackResult.put("message", String.join(" ", messageParts));
+                        if (!approximationWarnings.isEmpty()) {
+                                fallbackResult.put("approximationWarning",
+                                        "Service-level cost shown for: " + String.join(", ", approximationWarnings) +
+                                        ". This is the total account cost for these services, not just tagged resources.");
+                        }
+                        logger.info("✅ Label cost fallback: {} items (EC2={}, RDS={}, service-level={})",
+                                finalCosts.size(),
+                                hasEc2Estimates ? "estimated" : "none",
+                                hasRdsEstimates ? "estimated" : "none",
+                                approximationWarnings.isEmpty() ? "none" : approximationWarnings);
                         redisCache.put(cacheKey, fallbackResult, 60);
                         try {
                                 CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
