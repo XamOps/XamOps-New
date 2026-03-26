@@ -34,6 +34,8 @@ import NotificationModal from '../components/Shared/NotificationModal';
 import { AlertDialog } from '../components/ui';
 import '../styles/billopsAdminUserManager.css';
 
+const PAGE_SIZE = 10;
+
 const BillOpsAdminUserManagerPage: React.FC = () => {
     const {
         users,
@@ -59,6 +61,7 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
     const [filterRole, setFilterRole] = useState<BillOpsRole | ''>('');
     const [sortBy, setSortBy] = useState<'name-asc' | 'name-desc' | 'count-desc'>('name-asc');
     const [expandedClients, setExpandedClients] = useState<Set<string>>(new Set());
+    const [currentPage, setCurrentPage] = useState(1);
 
     /**
      * Get initials for avatar
@@ -167,6 +170,15 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
 
         return entries;
     }, [users, searchQuery, filterRole, sortBy]);
+
+    // Reset to page 1 whenever filters/sort change
+    useEffect(() => { setCurrentPage(1); }, [searchQuery, filterRole, sortBy]);
+
+    const totalPages = Math.ceil(clientGroups.length / PAGE_SIZE);
+    const paginatedGroups = useMemo(() => {
+        const start = (currentPage - 1) * PAGE_SIZE;
+        return clientGroups.slice(start, start + PAGE_SIZE);
+    }, [clientGroups, currentPage]);
 
     const totalFilteredCount = useMemo(() =>
         clientGroups.reduce((sum, g) =>
@@ -491,6 +503,7 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
                                 {totalFilteredCount === users.length
                                     ? `${clientGroups.length} client${clientGroups.length !== 1 ? 's' : ''} · ${users.length} users`
                                     : `${totalFilteredCount} of ${users.length} users`}
+                                {totalPages > 1 && ` (page ${currentPage}/${totalPages})`}
                             </span>
                         </div>
 
@@ -516,7 +529,7 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {clientGroups.map(({ clientName, primaries, subUserMap }) => {
+                                        {paginatedGroups.map(({ clientName, primaries, subUserMap }) => {
                                             const clientExpanded = isClientExpanded(clientName);
                                             const totalInClient = primaries.reduce((s, p) => s + 1 + (subUserMap.get(String(p.id))?.length ?? 0), 0);
                                             return (
@@ -656,6 +669,54 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
                     </>
                 )}
             </div>
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+                <div className="flex items-center justify-center gap-2 py-2">
+                    <button
+                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                        disabled={currentPage === 1}
+                        className="flex items-center gap-1.5 px-4 py-2 bg-white border border-slate-200 rounded-lg shadow-sm text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                    >
+                        <i className="fas fa-chevron-left text-xs"></i>
+                        Prev
+                    </button>
+
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => {
+                        const isActive = page === currentPage;
+                        const isEdge = page === 1 || page === totalPages;
+                        const isNearCurrent = Math.abs(page - currentPage) <= 1;
+                        if (!isEdge && !isNearCurrent) {
+                            if (page === 2 || page === totalPages - 1) {
+                                return <span key={page} className="px-1 text-slate-400 text-sm select-none">…</span>;
+                            }
+                            return null;
+                        }
+                        return (
+                            <button
+                                key={page}
+                                onClick={() => setCurrentPage(page)}
+                                className={`w-9 h-9 rounded-lg text-sm font-bold transition-all ${
+                                    isActive
+                                        ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200'
+                                        : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 shadow-sm'
+                                }`}
+                            >
+                                {page}
+                            </button>
+                        );
+                    })}
+
+                    <button
+                        onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                        disabled={currentPage === totalPages}
+                        className="flex items-center gap-1.5 px-4 py-2 bg-white border border-slate-200 rounded-lg shadow-sm text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                    >
+                        Next
+                        <i className="fas fa-chevron-right text-xs"></i>
+                    </button>
+                </div>
+            )}
 
             {/* Notification Modal */}
             {notification && (
