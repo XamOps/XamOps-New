@@ -89,16 +89,13 @@ public class SecurityConfig {
                                                                 new AntPathRequestMatcher("/images/**"),
                                                                 new AntPathRequestMatcher("/icons/**"),
                                                                 new AntPathRequestMatcher("/webjars/**"),
-                                                                new AntPathRequestMatcher("/gcp_*.html"),
                                                                 new AntPathRequestMatcher("/azure_dashboard.html"),
                                                                 new AntPathRequestMatcher("/azure_*.html"),
                                                                 new AntPathRequestMatcher("/cloudlist.html"),
                                                                 new AntPathRequestMatcher("/cloudk8s.html"),
                                                                 new AntPathRequestMatcher("/eks-details.html"),
                                                                 new AntPathRequestMatcher("/sonarqube.html"),
-                                                                new AntPathRequestMatcher("/user-manager.html"),
                                                                 new AntPathRequestMatcher("/spot-automation.html"),
-                                                                new AntPathRequestMatcher("/superadmin_customer.html"),
                                                                 new AntPathRequestMatcher("actions-history.html"),
                                                                 new AntPathRequestMatcher("/my-profile.html"),
                                                                 // ✅ YOUR CODE: Preserved missing pages
@@ -155,23 +152,22 @@ public class SecurityConfig {
                                                                 new AntPathRequestMatcher("/terminal"),
 
                                                                 // XamOps Agent API (authenticates via API key, not session)
-                                                                new AntPathRequestMatcher("/api/v1/agent/**"),
+                                                                new AntPathRequestMatcher("/api/v1/agent/ingest", "POST"),
+                                                                new AntPathRequestMatcher("/api/v1/agent/heartbeat", "POST"),
+                                                                new AntPathRequestMatcher("/api/v1/agent/autoscaling-policy", "GET"),
 
                                                                 // Public APIs
                                                                 // new AntPathRequestMatcher("/api/ai/**"),
                                                                 new AntPathRequestMatcher("/api/cicd/github/runs"),
                                                                 new AntPathRequestMatcher("/api/cicd/config/**"),
-                                                                new AntPathRequestMatcher("/api/cicd/**"),
                                                                 new AntPathRequestMatcher("/api/xamops/k8s/**"),
                                                                 // ✅ YOUR CODE: Preserved missing APIs
                                                                 new AntPathRequestMatcher("/api/xamops/eks/**"),
                                                                 new AntPathRequestMatcher("/api/karpenter/**"),
 
-                                                                new AntPathRequestMatcher("/api/autospotting/**"),
                                                                 new AntPathRequestMatcher("/api/azure/autospotting/**"),
                                                                 new AntPathRequestMatcher("/api/gcp/autospotting/**"),
                                                                 new AntPathRequestMatcher("/api/flexcompute/**"),
-                                                                new AntPathRequestMatcher("/api/dev_ops_script/**"),
                                                                 // ✅ TEAM CODE: Preserved AWS Calculator API
                                                                 new AntPathRequestMatcher("/api/aws/**"))
                                                 .permitAll()
@@ -219,9 +215,9 @@ public class SecurityConfig {
         public CommonsRequestLoggingFilter requestLoggingFilter() {
                 CommonsRequestLoggingFilter loggingFilter = new CommonsRequestLoggingFilter();
                 loggingFilter.setIncludeQueryString(true);
-                loggingFilter.setIncludePayload(true);
+                loggingFilter.setIncludePayload(false); // ✅ SENTINEL: Disable payload logging to prevent credential leakage
                 loggingFilter.setMaxPayloadLength(10000);
-                loggingFilter.setIncludeHeaders(true);
+                loggingFilter.setIncludeHeaders(false); // ✅ SENTINEL: Disable header logging to prevent token leakage
                 loggingFilter.setIncludeClientInfo(true);
                 return loggingFilter;
         }
