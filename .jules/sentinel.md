@@ -1,0 +1,4 @@
+## 2026-03-28 - Hardening Security Whitelists
+**Vulnerability:** Overly permissive `permitAll()` whitelists in `SecurityConfig.java` including broad wildcards like `/api/v1/agent/**` and many internal HTML/dashboard routes.
+**Learning:** Removing broad UI/HTML routes from `permitAll()` can break Single Page Application (SPA) routing if the backend is expected to serve those paths to unauthenticated users (e.g., to redirect to login). Additionally, narrowing API wildcards must use trailing wildcards (e.g., `/path/**`) to maintain functional RESTful communication for agents using sub-resources.
+**Prevention:** Harden whitelists incrementally. Prioritize narrowing API wildcards for specific service endpoints while maintaining functional sub-path wildcards. Avoid removing UI routes without verifying SPA routing requirements.
