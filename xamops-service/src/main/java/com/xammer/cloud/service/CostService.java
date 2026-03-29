@@ -27,9 +27,13 @@ import java.time.temporal.ChronoUnit;
 import java.util.*;
 import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.ec2.model.DescribeInstancesRequest;
+import software.amazon.awssdk.services.ec2.model.DescribeVolumesRequest;
+import software.amazon.awssdk.services.ec2.model.DescribeAddressesRequest;
 import software.amazon.awssdk.services.rds.RdsClient;
 import software.amazon.awssdk.services.rds.model.DescribeDbInstancesRequest;
 import software.amazon.awssdk.services.rds.model.DescribeDbInstancesResponse;
+import software.amazon.awssdk.services.elasticloadbalancingv2.ElasticLoadBalancingV2Client;
+import software.amazon.awssdk.services.elasticloadbalancingv2.model.DescribeLoadBalancersRequest;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
@@ -963,19 +967,45 @@ public class CostService {
                                         .filter(r -> "RDS Instance".equalsIgnoreCase(r.get("type")))
                                         .collect(Collectors.toList());
 
+                        // Separate EBS volumes
+                        List<Map<String, String>> ebsDetails = (resourceDetails == null) ? Collections.emptyList() :
+                                resourceDetails.stream()
+                                        .filter(r -> "EBS Volume".equalsIgnoreCase(r.get("type")) ||
+                                                     (r.get("id") != null && r.get("id").startsWith("vol-")))
+                                        .collect(Collectors.toList());
+
+                        // Separate Load Balancers
+                        List<Map<String, String>> lbDetails = (resourceDetails == null) ? Collections.emptyList() :
+                                resourceDetails.stream()
+                                        .filter(r -> "Load Balancer".equalsIgnoreCase(r.get("type")))
+                                        .collect(Collectors.toList());
+
+                        // Separate Elastic IPs
+                        List<Map<String, String>> eipDetails = (resourceDetails == null) ? Collections.emptyList() :
+                                resourceDetails.stream()
+                                        .filter(r -> "Elastic IP".equalsIgnoreCase(r.get("type")))
+                                        .collect(Collectors.toList());
+
                         // Remaining types fall through to service-level Cost Explorer (inaccurate for multi-resource accounts)
-                        // Mutable — EC2/RDS are added back here if their per-instance API calls fail
+                        // Mutable — EC2/RDS/EBS/LB/EIP are added back here if their per-resource API calls fail
+                        // Security Groups are always free in AWS — excluded permanently, never queried
                         List<String> serviceOnlyTypes = new ArrayList<>((resourceDetails == null
                                 ? (resourceTypes == null ? Collections.<String>emptyList() : resourceTypes)
                                 : resourceDetails.stream().map(r -> r.get("type")).filter(Objects::nonNull).collect(Collectors.toList()))
                                 .stream()
-                                .filter(t -> !"EC2 Instance".equalsIgnoreCase(t) && !"RDS Instance".equalsIgnoreCase(t))
+                                .filter(t -> !"EC2 Instance".equalsIgnoreCase(t)
+                                          && !"RDS Instance".equalsIgnoreCase(t)
+                                          && !"EBS Volume".equalsIgnoreCase(t)
+                                          && !"Load Balancer".equalsIgnoreCase(t)
+                                          && !"Elastic IP".equalsIgnoreCase(t)
+                                          && !"Security Group".equalsIgnoreCase(t))
                                 .distinct()
                                 .collect(Collectors.toList()));
 
                         List<CostDto> combinedCosts = new ArrayList<>();
                         boolean hasEc2Estimates = false;
                         boolean hasRdsEstimates = false;
+                        List<String> approximationWarnings = new ArrayList<>();
 
                         // --- EC2 per-instance cost estimation ---
                         if (!ec2Details.isEmpty()) {
@@ -984,6 +1014,10 @@ public class CostService {
                                                 String rgn = r.getOrDefault("region", "");
                                                 return (rgn != null && !rgn.isEmpty()) ? rgn : "us-east-1";
                                         }));
+
+                                // Collect stopped/terminated instance IDs across all regions.
+                                // These need actual billing data from Cost Explorer — full-period estimate would be wrong.
+                                List<String> nonRunningIds = new ArrayList<>();
 
                                 for (Map.Entry<String, List<Map<String, String>>> entry : ec2ByRegion.entrySet()) {
                                         String region = entry.getKey();
@@ -994,6 +1028,7 @@ public class CostService {
                                         try {
                                                 Ec2Client ec2 = awsClientProvider.getEc2Client(account, region);
                                                 Map<String, String> instanceTypeById = new HashMap<>();
+                                                Map<String, String> instanceStateById = new HashMap<>();
 
                                                 for (int i = 0; i < instanceIds.size(); i += 50) {
                                                         List<String> chunk = instanceIds.subList(i, Math.min(i + 50, instanceIds.size()));
@@ -1002,8 +1037,10 @@ public class CostService {
                                                                                 .instanceIds(chunk).build())
                                                                         .reservations()
                                                                         .forEach(r -> r.instances()
-                                                                                .forEach(inst -> instanceTypeById.put(
-                                                                                        inst.instanceId(), inst.instanceTypeAsString())));
+                                                                                .forEach(inst -> {
+                                                                                        instanceTypeById.put(inst.instanceId(), inst.instanceTypeAsString());
+                                                                                        instanceStateById.put(inst.instanceId(), inst.state().nameAsString());
+                                                                                }));
                                                         } catch (Exception chunkEx) {
                                                                 logger.warn("⚠️ DescribeInstances chunk failed in {}: {}", region, chunkEx.getMessage());
                                                         }
@@ -1013,22 +1050,90 @@ public class CostService {
                                                         String id = resource.get("id");
                                                         String name = resource.getOrDefault("name", id);
                                                         String instanceType = instanceTypeById.get(id);
+                                                        String state = instanceStateById.getOrDefault(id, "unknown");
+
+                                                        if ("terminated".equalsIgnoreCase(state)) {
+                                                                // Terminated: ran for an unknown fraction of the period.
+                                                                // hourlyRate × fullPeriod would wildly overestimate. Use actual CE data.
+                                                                nonRunningIds.add(id);
+                                                                logger.info("⏹️ EC2 {} is terminated — queuing for actual CE cost", id);
+                                                                continue;
+                                                        }
+
+                                                        if ("stopped".equalsIgnoreCase(state)) {
+                                                                // Stopped: may have been stopped partway through the period.
+                                                                // hourlyRate × fullPeriod would overestimate. Use actual CE data.
+                                                                nonRunningIds.add(id);
+                                                                logger.info("⏸️ EC2 {} is stopped — queuing for actual CE cost (avoid overestimate)", id);
+                                                                continue;
+                                                        }
+
+                                                        // Running: full-period on-demand estimate is reasonable
                                                         double hourlyRate = awsPricingService.getHourlyCost(instanceType, region);
                                                         if (hourlyRate > 0) {
                                                                 double estimatedCost = hourlyRate * totalHours;
                                                                 String label = name + (instanceType != null ? " (" + instanceType + ")" : "");
                                                                 combinedCosts.add(new CostDto(label, estimatedCost));
                                                                 hasEc2Estimates = true;
-                                                                logger.info("💡 EC2 estimate: {} [{}] in {} @ ${}/hr × {}hrs = ${}",
-                                                                        name, instanceType, region, hourlyRate, totalHours,
+                                                                logger.info("💡 EC2 estimate: {} [{}] {} @ ${}/hr × {}hrs = ${}",
+                                                                        name, instanceType, state, hourlyRate, totalHours,
                                                                         String.format("%.2f", estimatedCost));
                                                         } else {
                                                                 logger.warn("⚠️ No EC2 pricing for {} type={} in {}", id, instanceType, region);
                                                         }
                                                 }
                                         } catch (Exception ex) {
-                                                logger.warn("⚠️ Could not get EC2 pricing for region {} — falling back to service-level: {}", region, ex.getMessage());
+                                                logger.warn("⚠️ Could not get EC2 info for region {} — falling back to service-level: {}", region, ex.getMessage());
                                                 if (!serviceOnlyTypes.contains("EC2 Instance")) serviceOnlyTypes.add("EC2 Instance");
+                                        }
+                                }
+
+                                // --- Actual Cost Explorer query for stopped / terminated instances ---
+                                // A single RESOURCE_ID-filtered query for all non-running IDs across all regions.
+                                if (!nonRunningIds.isEmpty()) {
+                                        try {
+                                                Expression nonRunningFilter = Expression.builder()
+                                                        .dimensions(DimensionValues.builder()
+                                                                .key(Dimension.RESOURCE_ID)
+                                                                .values(nonRunningIds)
+                                                                .build())
+                                                        .build();
+
+                                                GetCostAndUsageRequest ceReq = GetCostAndUsageRequest.builder()
+                                                        .timePeriod(interval)
+                                                        .granularity(Granularity.MONTHLY)
+                                                        .metrics("UnblendedCost")
+                                                        .groupBy(GroupDefinition.builder()
+                                                                .type(GroupDefinitionType.DIMENSION)
+                                                                .key("RESOURCE_ID")
+                                                                .build())
+                                                        .filter(nonRunningFilter)
+                                                        .build();
+
+                                                Map<String, Double> actualCostMap = new HashMap<>();
+                                                ce.getCostAndUsage(ceReq).resultsByTime().forEach(t ->
+                                                        t.groups().forEach(g -> {
+                                                                String resId = g.keys().get(0);
+                                                                double cost = Double.parseDouble(g.metrics().get("UnblendedCost").amount());
+                                                                actualCostMap.merge(resId, cost, Double::sum);
+                                                        })
+                                                );
+                                                actualCostMap.forEach((resId, cost) ->
+                                                        combinedCosts.add(new CostDto(resId + " (actual)", cost))
+                                                );
+                                                if (!actualCostMap.isEmpty()) {
+                                                        hasEc2Estimates = true;
+                                                }
+                                                logger.info("✅ Actual CE cost fetched for {}/{} stopped/terminated EC2 instances",
+                                                        actualCostMap.size(), nonRunningIds.size());
+                                        } catch (Exception ceEx) {
+                                                // Resource-level CE not enabled — cannot determine actual cost for partial-period instances.
+                                                // Do NOT fall back to full-period estimate (that would overestimate).
+                                                // Report $0 and surface the warning to the caller.
+                                                approximationWarnings.add("stopped/terminated EC2 instances (enable 'Hourly and Resource Level Data' in Cost Explorer to see their actual cost)");
+                                                logger.warn("⚠️ Could not fetch actual CE cost for stopped/terminated EC2 {} — " +
+                                                        "reporting $0 to avoid overestimate. Enable 'Hourly and Resource Level Data'. Error: {}",
+                                                        nonRunningIds, ceEx.getMessage());
                                         }
                                 }
                         }
@@ -1087,10 +1192,167 @@ public class CostService {
                                 }
                         }
 
+                        // --- EBS per-volume cost estimation ---
+                        // pricePerGbMonth × sizeGb × (days/30) — exact per-volume cost, no account-level bleed
+                        if (!ebsDetails.isEmpty()) {
+                                Map<String, List<Map<String, String>>> ebsByRegion = ebsDetails.stream()
+                                        .collect(Collectors.groupingBy(r -> {
+                                                String rgn = r.getOrDefault("region", "");
+                                                return (rgn != null && !rgn.isEmpty()) ? rgn : "us-east-1";
+                                        }));
+
+                                for (Map.Entry<String, List<Map<String, String>>> entry : ebsByRegion.entrySet()) {
+                                        String region = entry.getKey();
+                                        List<Map<String, String>> regionVolumes = entry.getValue();
+                                        List<String> volumeIds = regionVolumes.stream()
+                                                .map(r -> r.get("id")).filter(Objects::nonNull)
+                                                .collect(Collectors.toList());
+                                        try {
+                                                Ec2Client ec2 = awsClientProvider.getEc2Client(account, region);
+                                                Map<String, Integer> sizeById = new HashMap<>();
+                                                Map<String, String> typeById  = new HashMap<>();
+
+                                                for (int i = 0; i < volumeIds.size(); i += 200) {
+                                                        List<String> chunk = volumeIds.subList(i, Math.min(i + 200, volumeIds.size()));
+                                                        ec2.describeVolumes(DescribeVolumesRequest.builder().volumeIds(chunk).build())
+                                                                .volumes()
+                                                                .forEach(vol -> {
+                                                                        sizeById.put(vol.volumeId(), vol.size());
+                                                                        typeById.put(vol.volumeId(), vol.volumeTypeAsString());
+                                                                });
+                                                }
+
+                                                for (Map<String, String> resource : regionVolumes) {
+                                                        String id   = resource.get("id");
+                                                        String name = resource.getOrDefault("name", id);
+                                                        Integer sizeGb   = sizeById.get(id);
+                                                        String  volType  = typeById.get(id);
+                                                        if (sizeGb != null && sizeGb > 0) {
+                                                                double cost = awsPricingService.getEbsCostForPeriod(volType, sizeGb, region, daysBetween);
+                                                                combinedCosts.add(new CostDto(name + " (" + sizeGb + "GiB " + volType + ")", cost));
+                                                                logger.info("💡 EBS estimate: {} {} GiB {} in {} = ${}", name, sizeGb, volType, region,
+                                                                        String.format("%.2f", cost));
+                                                        } else {
+                                                                logger.warn("⚠️ EBS size unknown for {} — skipping", id);
+                                                        }
+                                                }
+                                        } catch (Exception ex) {
+                                                logger.warn("⚠️ Could not get EBS info for region {} — falling back to service-level: {}", region, ex.getMessage());
+                                                if (!serviceOnlyTypes.contains("EBS Volume")) serviceOnlyTypes.add("EBS Volume");
+                                        }
+                                }
+                        }
+
+                        // --- Load Balancer base cost estimation ---
+                        // Hourly fixed rate × hours (does not include LCU charges — requires traffic metrics)
+                        if (!lbDetails.isEmpty()) {
+                                Map<String, List<Map<String, String>>> lbByRegion = lbDetails.stream()
+                                        .collect(Collectors.groupingBy(r -> {
+                                                String rgn = r.getOrDefault("region", "");
+                                                return (rgn != null && !rgn.isEmpty()) ? rgn : "us-east-1";
+                                        }));
+
+                                for (Map.Entry<String, List<Map<String, String>>> entry : lbByRegion.entrySet()) {
+                                        String region = entry.getKey();
+                                        List<Map<String, String>> regionLbs = entry.getValue();
+                                        List<String> lbArns = regionLbs.stream()
+                                                .map(r -> r.get("id")).filter(Objects::nonNull)
+                                                .collect(Collectors.toList());
+                                        try {
+                                                ElasticLoadBalancingV2Client elbv2 = awsClientProvider.getElbv2Client(account, region);
+                                                Map<String, String> lbTypeByArn = new HashMap<>();
+
+                                                elbv2.describeLoadBalancers(DescribeLoadBalancersRequest.builder()
+                                                        .loadBalancerArns(lbArns).build())
+                                                        .loadBalancers()
+                                                        .forEach(lb -> lbTypeByArn.put(lb.loadBalancerArn(), lb.typeAsString()));
+
+                                                for (Map<String, String> resource : regionLbs) {
+                                                        String id   = resource.get("id");
+                                                        String name = resource.getOrDefault("name", id);
+                                                        String lbType = lbTypeByArn.getOrDefault(id, "application");
+                                                        double hourlyRate = awsPricingService.getElbHourlyRate(lbType);
+                                                        double cost = hourlyRate * totalHours;
+                                                        combinedCosts.add(new CostDto(name + " (" + lbType + " LB, base only)", cost));
+                                                        logger.info("💡 LB estimate: {} [{}] @ ${}/hr × {}hrs = ${}",
+                                                                name, lbType, hourlyRate, totalHours, String.format("%.2f", cost));
+                                                }
+                                        } catch (Exception ex) {
+                                                logger.warn("⚠️ Could not get LB info for region {} — falling back to service-level: {}", region, ex.getMessage());
+                                                if (!serviceOnlyTypes.contains("Load Balancer")) serviceOnlyTypes.add("Load Balancer");
+                                        }
+                                }
+                        }
+
+                        // --- Elastic IP cost estimation ---
+                        // $0.005/hr when not associated; $0 when associated with a running instance
+                        if (!eipDetails.isEmpty()) {
+                                Map<String, List<Map<String, String>>> eipByRegion = eipDetails.stream()
+                                        .collect(Collectors.groupingBy(r -> {
+                                                String rgn = r.getOrDefault("region", "");
+                                                return (rgn != null && !rgn.isEmpty()) ? rgn : "us-east-1";
+                                        }));
+
+                                for (Map.Entry<String, List<Map<String, String>>> entry : eipByRegion.entrySet()) {
+                                        String region = entry.getKey();
+                                        List<Map<String, String>> regionEips = entry.getValue();
+                                        try {
+                                                Ec2Client ec2 = awsClientProvider.getEc2Client(account, region);
+
+                                                List<String> allocationIds = regionEips.stream()
+                                                        .map(r -> r.get("id")).filter(id -> id != null && id.startsWith("eipalloc-"))
+                                                        .collect(Collectors.toList());
+                                                List<String> publicIps = regionEips.stream()
+                                                        .map(r -> r.get("id")).filter(id -> id != null && !id.startsWith("eipalloc-"))
+                                                        .collect(Collectors.toList());
+
+                                                // associationId is null when the EIP is not associated (billable)
+                                                Map<String, String> associationByAllocationId = new HashMap<>();
+                                                Map<String, String> associationByPublicIp     = new HashMap<>();
+
+                                                if (!allocationIds.isEmpty()) {
+                                                        ec2.describeAddresses(DescribeAddressesRequest.builder()
+                                                                .allocationIds(allocationIds).build())
+                                                                .addresses()
+                                                                .forEach(a -> associationByAllocationId.put(
+                                                                        a.allocationId(), a.associationId()));
+                                                }
+                                                if (!publicIps.isEmpty()) {
+                                                        ec2.describeAddresses(DescribeAddressesRequest.builder()
+                                                                .publicIps(publicIps).build())
+                                                                .addresses()
+                                                                .forEach(a -> associationByPublicIp.put(
+                                                                        a.publicIp(), a.associationId()));
+                                                }
+
+                                                for (Map<String, String> resource : regionEips) {
+                                                        String id   = resource.get("id");
+                                                        String name = resource.getOrDefault("name", id);
+                                                        String assoc = id != null && id.startsWith("eipalloc-")
+                                                                ? associationByAllocationId.get(id)
+                                                                : associationByPublicIp.get(id);
+
+                                                        if (assoc != null) {
+                                                                // Associated with a running instance — no charge
+                                                                combinedCosts.add(new CostDto(name + " (EIP, associated)", 0.0));
+                                                                logger.info("💡 EIP {} is associated — $0 cost", id);
+                                                        } else {
+                                                                // Unassociated — $0.005/hr
+                                                                double cost = 0.005 * totalHours;
+                                                                combinedCosts.add(new CostDto(name + " (EIP, unassociated)", cost));
+                                                                logger.info("💡 EIP {} is unassociated @ $0.005/hr × {}hrs = ${}", id, totalHours,
+                                                                        String.format("%.2f", cost));
+                                                        }
+                                                }
+                                        } catch (Exception ex) {
+                                                logger.warn("⚠️ Could not get EIP info for region {} — skipping (EIPs are low-cost): {}", region, ex.getMessage());
+                                        }
+                                }
+                        }
+
                         // --- Service-level Cost Explorer for remaining types ---
                         // NOTE: This returns the full account bill for each AWS service, NOT just tagged resources.
                         // It is fundamentally inaccurate when the account has more resources of the same type.
-                        List<String> approximationWarnings = new ArrayList<>();
                         if (!serviceOnlyTypes.isEmpty()) {
                                 List<String> serviceNames = serviceOnlyTypes.stream()
                                         .flatMap(t -> RESOURCE_TYPE_TO_SERVICE_NAMES

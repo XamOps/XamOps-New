@@ -66,6 +66,7 @@ import BillOpsTicketsPage from './pages/BillOpsTicketsPage';
 import BillOpsTicketDetailPage from './pages/BillOpsTicketDetailPage';
 import BillOpsSupportDashboardPage from './pages/BillOpsSupportDashboardPage';
 import BillOpsAdminDashboardPage from './pages/BillOpsAdminDashboardPage';
+import BillOpsAdminMarketplaceBillingPage from './pages/BillOpsAdminMarketplaceBillingPage';
 import AutoSpottingAdminDashboardPage from './pages/AutoSpottingAdminDashboardPage';
 import BillOpsAdminInvoicesPage from './pages/BillOpsAdminInvoicesPage';
 import BillOpsAdminInvoiceDetailPage from './pages/BillOpsAdminInvoiceDetailPage';
@@ -252,7 +253,8 @@ const BILLOPS_ADMIN_TAB_ROUTES: Record<string, string> = {
   'credit-requests':   '/billops-admin-credits',
   'agreement-admin':   '/billops-admin-agreements',
   'client-details':    '/billops-client-details',
-  'autospotting-admin':'/autospotting-admin',
+  'autospotting-admin':    '/autospotting-admin',
+  'historical-billing':    '/billops-admin-historical-billing',
 };
 const BILLOPS_ADMIN_TAB_ORDER = Object.keys(BILLOPS_ADMIN_TAB_ROUTES);
 
@@ -465,6 +467,7 @@ const AppContent: React.FC = () => {
               <Route path="/billops-admin-tickets" element={<BillOpsAdminTicketsPage />} />
               <Route path="/billops-agreements" element={<AgreementsPage />} />
               <Route path="/billops-admin-agreements" element={<BillOpsAdminAgreementsPage />} />
+              <Route path="/billops-admin-historical-billing" element={<BillOpsAdminMarketplaceBillingPage />} />
               <Route path="/marketplace-purchases" element={<MarketplacePurchasesPage />} />
               <Route path="/workspace-licenses" element={<WorkspaceLicensesPage />} />
               <Route path="/user-management" element={<UserManagementPage />} />
