@@ -25,6 +25,7 @@ interface CostBreakdownSectionProps {
   labelResourceLevel?: boolean;
   labelMessage?: string;
   labelTrackedResources?: TrackedResource[];
+  labelApproximationWarning?: string;
 }
 
 const CostBreakdownSection: React.FC<CostBreakdownSectionProps> = ({
@@ -40,6 +41,7 @@ const CostBreakdownSection: React.FC<CostBreakdownSectionProps> = ({
   labelResourceLevel,
   labelMessage,
   labelTrackedResources,
+  labelApproximationWarning,
 }) => {
   const chartRef = useRef<HTMLCanvasElement>(null);
   const chartInstanceRef = useRef<Chart<'doughnut'> | null>(null);
@@ -156,7 +158,8 @@ const CostBreakdownSection: React.FC<CostBreakdownSectionProps> = ({
                     )}
                     {labelResourceLevel === false && (
                       <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700 border border-amber-200">
-                        <i className="fas fa-info-circle" style={{ fontSize: '9px' }} /> service-level approx.
+                        <i className="fas fa-info-circle" style={{ fontSize: '9px' }} />
+                        {labelApproximationWarning ? 'service-level approx.' : 'estimated (on-demand)'}
                       </span>
                     )}
                   </>
@@ -252,7 +255,7 @@ const CostBreakdownSection: React.FC<CostBreakdownSectionProps> = ({
             <p className={`text-xs font-semibold mb-1.5 ${labelResourceLevel ? 'text-green-700' : 'text-amber-700'}`}>
               {labelResourceLevel
                 ? `Showing costs for ${labelTrackedResources.length} tagged resource${labelTrackedResources.length !== 1 ? 's' : ''}`
-                : `Showing estimated service-level costs for ${labelTrackedResources.length} tagged resource${labelTrackedResources.length !== 1 ? 's' : ''}`}
+                : `Showing per-resource cost estimates for ${labelTrackedResources.length} tagged resource${labelTrackedResources.length !== 1 ? 's' : ''}`}
             </p>
             <div className="flex flex-wrap gap-1.5 mb-1.5">
               {labelTrackedResources.map(r => (
@@ -274,6 +277,12 @@ const CostBreakdownSection: React.FC<CostBreakdownSectionProps> = ({
             </div>
             {!labelResourceLevel && labelMessage && (
               <p className="text-xs text-amber-600 italic">{labelMessage}</p>
+            )}
+            {labelApproximationWarning && (
+              <p className="text-xs text-amber-700 mt-1">
+                <i className="fas fa-exclamation-circle mr-1" />
+                {labelApproximationWarning}
+              </p>
             )}
           </div>
         </div>

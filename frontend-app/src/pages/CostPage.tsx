@@ -266,6 +266,7 @@ const CostPage: React.FC = () => {
               labelResourceLevel={labelCostData?.resourceLevel}
               labelMessage={labelCostData?.message}
               labelTrackedResources={labelCostData?.trackedResources}
+              labelApproximationWarning={labelCostData?.approximationWarning}
             />
 
             {/* Historical Trend Chart */}

@@ -287,6 +287,41 @@ public class AwsPricingService {
         return 0.20;
     }
 
+    // EBS storage pricing per GB-month (us-east-1, 2024)
+    private static final Map<String, Double> EBS_PRICING_PER_GB = Map.of(
+            "gp3",      0.08,
+            "gp2",      0.10,
+            "io1",      0.125,
+            "io2",      0.125,
+            "st1",      0.045,
+            "sc1",      0.015,
+            "standard", 0.05
+    );
+
+    /**
+     * Estimates the cost for an EBS volume over a given number of days.
+     * Formula: pricePerGbMonth × sizeGb × (days / 30.0) × regionalMultiplier
+     */
+    public double getEbsCostForPeriod(String volumeType, int sizeGb, String region, long days) {
+        if (volumeType == null || sizeGb <= 0 || region == null || days <= 0) return 0.0;
+        double pricePerGb = EBS_PRICING_PER_GB.getOrDefault(volumeType.toLowerCase(), 0.08);
+        double multiplier = REGIONAL_MULTIPLIERS.getOrDefault(region, 1.0);
+        return pricePerGb * sizeGb * (days / 30.0) * multiplier;
+    }
+
+    /**
+     * Returns the base hourly rate for a load balancer by type.
+     * Does not include LCU/NLCU because that requires live traffic metrics.
+     */
+    public double getElbHourlyRate(String lbType) {
+        if (lbType == null) return 0.0225;
+        switch (lbType.toLowerCase()) {
+            case "gateway": return 0.0125;
+            case "classic": return 0.025;
+            default:        return 0.0225; // application / network
+        }
+    }
+
     /**
      * Calculate monthly savings based on hours the instance will be stopped.
      *

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { ResourceLabel, ResourceRef } from '../../types/resourceLabels';
 import type { ConnectedResource } from '../../services/resourceLabelsApi';
-import { fetchConnectedResources, assignLabel } from '../../services/resourceLabelsApi';
+import { fetchConnectedResources, assignLabel, removeLabel } from '../../services/resourceLabelsApi';
 import type { CloudResource } from '../../types/cloudlist';
 import LabelBadge from './LabelBadge';
 import LabelAssignPopover from './LabelAssignPopover';
@@ -78,27 +78,42 @@ const ConnectedResourcesModal: React.FC<Props> = ({
 
   const sourceLabels = labelMap[sourceResource.id] ?? [];
 
-  /** Apply all of the source resource's labels to every connected resource that's missing them */
-  const applyParentLabels = async () => {
-    if (sourceLabels.length === 0) return;
+  /**
+   * Sync parent labels to every connected resource:
+   *   - ADD labels the parent has that the child is missing
+   *   - REMOVE labels the child has that are no longer on the parent
+   * Result: each connected resource ends up with exactly the parent's label set.
+   */
+  const syncParentLabels = async () => {
     setApplyingAll(true);
+    const parentIds = new Set(sourceLabels.map(l => l.id));
     try {
       for (const connected of resources) {
-        const currentIds = new Set((localLabelMap[connected.id] ?? []).map(l => l.id));
-        const missing = sourceLabels.filter(l => !currentIds.has(l.id));
-        for (const label of missing) {
-          const ref: ResourceRef = {
-            resourceId: connected.id,
-            resourceType: connected.type,
-            resourceName: connected.name ?? undefined,
-            region: connected.region,
-          };
+        const currentLabels = localLabelMap[connected.id] ?? [];
+        const currentIds = new Set(currentLabels.map(l => l.id));
+        const ref: ResourceRef = {
+          resourceId: connected.id,
+          resourceType: connected.type,
+          resourceName: connected.name ?? undefined,
+          region: connected.region,
+        };
+
+        // Add labels present on parent but missing from child
+        const toAdd = sourceLabels.filter(l => !currentIds.has(l.id));
+        for (const label of toAdd) {
           await assignLabel({ accountId, labelId: label.id, resources: [ref] });
-          setLocalLabelMap(prev => ({
-            ...prev,
-            [connected.id]: [...(prev[connected.id] ?? []), label],
-          }));
-          onLabelMapChange(connected.id, [...(localLabelMap[connected.id] ?? []), label]);
+        }
+
+        // Remove labels present on child but no longer on parent
+        const toRemove = currentLabels.filter(l => !parentIds.has(l.id));
+        for (const label of toRemove) {
+          await removeLabel({ accountId, labelId: label.id, resources: [ref] });
+        }
+
+        if (toAdd.length > 0 || toRemove.length > 0) {
+          const synced = sourceLabels.slice();
+          setLocalLabelMap(prev => ({ ...prev, [connected.id]: synced }));
+          onLabelMapChange(connected.id, synced);
         }
       }
       setApplyDone(true);
@@ -108,7 +123,14 @@ const ConnectedResourcesModal: React.FC<Props> = ({
     }
   };
 
-  const untaggedCount = resources.filter(r => (localLabelMap[r.id] ?? []).length === 0).length;
+  // Count connected resources that don't exactly match the parent's label set
+  const outOfSyncCount = resources.filter(r => {
+    const childIds = new Set((localLabelMap[r.id] ?? []).map(l => l.id));
+    const parentIds = new Set(sourceLabels.map(l => l.id));
+    return childIds.size !== parentIds.size ||
+      sourceLabels.some(l => !childIds.has(l.id)) ||
+      (localLabelMap[r.id] ?? []).some(l => !parentIds.has(l.id));
+  }).length;
 
   // Lock body scroll while modal is open
   useEffect(() => {
@@ -181,8 +203,8 @@ const ConnectedResourcesModal: React.FC<Props> = ({
               <div className="flex items-center justify-between text-xs text-gray-500 pb-1 border-b border-gray-100">
                 <span>
                   <span className="font-semibold text-gray-700">{resources.length}</span> connected resource{resources.length !== 1 ? 's' : ''} found
-                  {untaggedCount > 0 && (
-                    <span className="ml-2 text-amber-600 font-medium">· {untaggedCount} untagged</span>
+                  {outOfSyncCount > 0 && (
+                    <span className="ml-2 text-amber-600 font-medium">· {outOfSyncCount} out of sync</span>
                   )}
                 </span>
               </div>
@@ -280,33 +302,35 @@ const ConnectedResourcesModal: React.FC<Props> = ({
         </div>
 
         {/* Footer */}
-        {!loading && !error && resources.length > 0 && sourceLabels.length > 0 && (
+        {!loading && !error && resources.length > 0 && (
           <div className="px-6 py-4 border-t border-gray-100 bg-gray-50/60 rounded-b-2xl">
             <div className="flex items-center justify-between gap-4">
               <div className="text-xs text-gray-500">
                 <span className="font-medium text-gray-700">Parent labels: </span>
-                {sourceLabels.map(l => (
-                  <span
-                    key={l.id}
-                    className="inline-flex items-center gap-1 mr-1.5 px-2 py-0.5 rounded-full text-white text-xs font-medium"
-                    style={{ backgroundColor: l.color }}
-                  >
-                    {l.name}
-                  </span>
-                ))}
+                {sourceLabels.length === 0
+                  ? <span className="italic text-gray-400">none</span>
+                  : sourceLabels.map(l => (
+                    <span
+                      key={l.id}
+                      className="inline-flex items-center gap-1 mr-1.5 px-2 py-0.5 rounded-full text-white text-xs font-medium"
+                      style={{ backgroundColor: l.color }}
+                    >
+                      {l.name}
+                    </span>
+                  ))}
               </div>
               <button
                 type="button"
-                onClick={applyParentLabels}
-                disabled={applyingAll || untaggedCount === 0}
+                onClick={syncParentLabels}
+                disabled={applyingAll || outOfSyncCount === 0}
                 className="flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
               >
                 {applyingAll ? (
-                  <><i className="fas fa-spinner fa-spin" /> Applying…</>
+                  <><i className="fas fa-spinner fa-spin" /> Syncing…</>
                 ) : applyDone ? (
-                  <><i className="fas fa-check" /> Done!</>
+                  <><i className="fas fa-check" /> Synced!</>
                 ) : (
-                  <><i className="fas fa-tags" /> Apply parent labels to all untagged</>
+                  <><i className="fas fa-sync-alt" /> Sync parent labels to all</>
                 )}
               </button>
             </div>
