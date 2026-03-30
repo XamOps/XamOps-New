@@ -14,7 +14,6 @@ export interface GcpMIG {
     currentCost: number;
     savings: number;
     potentialSavings: number;
-    gkeManagedPool: boolean;
     updating?: boolean;
 }
 
@@ -92,17 +91,13 @@ export const useGcpSpotAutomationData = ({ selectedAccountId }: UseGcpSpotAutoma
                 currentCost: mig.currentHourlyCost,
                 savings: mig.actualHourlySavings,
                 potentialSavings: mig.potentialHourlySavings,
-                gkeManagedPool: mig.gkeManagedPool ?? (typeof mig.name === 'string' && mig.name.startsWith('gke-')),
             }));
 
             setMigs(migData);
 
             const totalCurrent = migData.reduce((sum, item) => sum + item.currentCost, 0);
             const totalSavings = migData.reduce((sum, item) => sum + item.savings, 0);
-            // GKE-managed pools cannot be converted to Spot — exclude from potential savings
-            const totalPotential = migData
-                .filter(item => !item.gkeManagedPool)
-                .reduce((sum, item) => sum + item.potentialSavings, 0);
+            const totalPotential = migData.reduce((sum, item) => sum + item.potentialSavings, 0);
 
             setCosts({
                 currentHourly: totalCurrent,
@@ -116,7 +111,8 @@ export const useGcpSpotAutomationData = ({ selectedAccountId }: UseGcpSpotAutoma
                 potentialMonthlySavings: totalPotential * 730,
             });
 
-            setEnabledLocationsCount(new Set(migData.map(m => m.region)).size);
+            // Count distinct regions that have at least one spot-enabled MIG
+            setEnabledLocationsCount(new Set(migData.filter(m => m.isEnabled).map(m => m.region)).size);
             setTotalInstances(migData.reduce((sum, m) => sum + m.instanceCount, 0));
         } catch (err) {
             console.error('[GcpSpotAutomation] Fetch error:', err);
@@ -132,7 +128,14 @@ export const useGcpSpotAutomationData = ({ selectedAccountId }: UseGcpSpotAutoma
         try {
             const data = await apiClient.get(`/api/gcp/autospotting/history/${selectedAccountId}?range=${range}`);
             setHistoryData(data.data_points || []);
-            setHistorySummary(data.summary || { total_savings: 0, average_hourly_savings: 0, peak_savings: 0 });
+            // Backend serialises HistorySummary with @JsonProperty keys:
+            // total_savings, average_hourly_savings, peak_savings
+            const s = data.summary || {};
+            setHistorySummary({
+                total_savings: s.total_savings ?? 0,
+                average_hourly_savings: s.average_hourly_savings ?? 0,
+                peak_savings: s.peak_savings ?? 0,
+            });
         } catch (err) {
             console.error('[GcpSpotAutomation] History fetch error:', err);
         } finally {

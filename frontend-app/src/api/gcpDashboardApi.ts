@@ -368,6 +368,30 @@ export const disableGcpAutoSpotting = async (accountId: number, region: string, 
   }
 };
 
+export const fetchGcpMigConfig = async (accountId: string, region: string, migName: string): Promise<any> => {
+  try {
+    const response = await axios.get(`/api/gcp/autospotting/migs/${accountId}/config`, {
+      params: { region, migName }
+    });
+    return response.data;
+  } catch (error) {
+    console.error('❌ GCP API: Failed to fetch MIG config', error);
+    throw error;
+  }
+};
+
+export const updateGcpMigConfig = async (accountId: string, region: string, migName: string, config: any): Promise<any> => {
+  try {
+    const response = await axios.put(`/api/gcp/autospotting/migs/${accountId}/config`, config, {
+      params: { region, migName }
+    });
+    return response.data;
+  } catch (error) {
+    console.error('❌ GCP API: Failed to update MIG config', error);
+    throw error;
+  }
+};
+
 export default {
   fetchGcpDashboardData,
   fetchGcpMultiAccountDashboardData,
@@ -385,4 +409,6 @@ export default {
   fetchGcpSpotInstances,
   enableGcpAutoSpotting,
   disableGcpAutoSpotting,
+  fetchGcpMigConfig,
+  updateGcpMigConfig,
 };
