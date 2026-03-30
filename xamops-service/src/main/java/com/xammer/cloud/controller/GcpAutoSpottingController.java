@@ -3,6 +3,7 @@ package com.xammer.cloud.controller;
 import com.xammer.cloud.domain.SpotOptimizationEvent;
 import com.xammer.cloud.dto.autospotting.HistoryResponse;
 import com.xammer.cloud.dto.autospotting.SpotInstanceDto;
+import com.xammer.cloud.dto.gcp.GcpMigConfigDto;
 import com.xammer.cloud.service.gcp.GcpAutoSpottingService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -126,6 +127,54 @@ public class GcpAutoSpottingController {
             return ResponseEntity.status(500).body(Map.of(
                     "success", false,
                     "error", disableErr));
+        }
+    }
+
+    // ── MIG Configuration (mirrors AWS ASGConfig) ─────────────────────────────
+
+    /**
+     * GET /api/gcp/autospotting/migs/{accountId}/config?region=us-central1&migName=my-mig
+     *
+     * Returns the current update policy, autoscaler settings, machine type, and
+     * Spot status for a specific MIG — equivalent to AWS /asgs/{id}/config.
+     */
+    @GetMapping("/migs/{accountId}/config")
+    public ResponseEntity<?> getMigConfig(
+            @PathVariable("accountId") String accountId,
+            @RequestParam("region") String region,
+            @RequestParam("migName") String migName) {
+        log.info("GET /migs/{}/config  region={} migName={}", accountId, region, migName);
+        try {
+            GcpMigConfigDto config = gcpAutoSpottingService.getMigConfig(accountId, region, migName);
+            return ResponseEntity.ok(config);
+        } catch (Exception e) {
+            String cfgErr = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName() + " (no message)";
+            log.error("Failed to get MIG config for {}: {}", migName, cfgErr, e);
+            return ResponseEntity.status(500).body(Map.of("success", false, "error", cfgErr));
+        }
+    }
+
+    /**
+     * PUT /api/gcp/autospotting/migs/{accountId}/config?region=us-central1&migName=my-mig
+     *
+     * Updates the MIG update policy (maxSurge, maxUnavailable, minReadySeconds).
+     * This controls how future Spot conversions roll out — zero-downtime by default.
+     */
+    @PutMapping("/migs/{accountId}/config")
+    public ResponseEntity<?> updateMigConfig(
+            @PathVariable("accountId") String accountId,
+            @RequestParam("region") String region,
+            @RequestParam("migName") String migName,
+            @RequestBody GcpMigConfigDto config) {
+        log.info("PUT /migs/{}/config  region={} migName={} maxSurge={} maxUnavailable={} minReadySec={}",
+                accountId, region, migName, config.getMaxSurge(), config.getMaxUnavailable(), config.getMinReadySeconds());
+        try {
+            GcpMigConfigDto updated = gcpAutoSpottingService.updateMigConfig(accountId, region, migName, config);
+            return ResponseEntity.ok(updated);
+        } catch (Exception e) {
+            String updErr = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName() + " (no message)";
+            log.error("Failed to update MIG config for {}: {}", migName, updErr, e);
+            return ResponseEntity.status(500).body(Map.of("success", false, "error", updErr));
         }
     }
 }

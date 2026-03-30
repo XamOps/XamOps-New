@@ -398,95 +398,151 @@ public class GcpRestTemplateService {
     }
 
     /**
-     * Trigger rolling update on MIG to replace existing instances
-     * Uses recreateInstances API to force immediate replacement
+     * Trigger a zero-downtime rolling update on a MIG using GCP's native update policy.
+     *
+     * Instead of recreateInstances (which kills everything at once), we PATCH the MIG
+     * with a PROACTIVE update policy (maxSurge=1, maxUnavailable=0). GCP will then
+     * replace instances one-by-one, bringing a new one UP before taking the old one DOWN.
+     *
+     * This is the equivalent of AWS AutoScaling "RefreshInstances" with
+     * minHealthyPercentage=100%.
      */
-    public void startRollingUpdate(String projectId, String zone, String migName, String templateUrl)
+    public void startRollingUpdate(String projectId, String zone, String migName,
+                                   String templateUrl, int numZones)
             throws IOException, InterruptedException {
 
-        String url;
         boolean isZonal = zone.split("-").length == 3;
 
-        // Use recreateInstances endpoint to force immediate replacement
+        String url;
         if (isZonal) {
-            url = String.format("%s/projects/%s/zones/%s/instanceGroupManagers/%s/recreateInstances",
+            url = String.format("%s/projects/%s/zones/%s/instanceGroupManagers/%s",
                     COMPUTE_API_BASE, projectId, zone, migName);
         } else {
-            url = String.format("%s/projects/%s/regions/%s/instanceGroupManagers/%s/recreateInstances",
+            url = String.format("%s/projects/%s/regions/%s/instanceGroupManagers/%s",
                     COMPUTE_API_BASE, projectId, zone, migName);
         }
 
-        // Get list of all instances in the MIG to recreate them
-        String listUrl;
+        // ── Update policy ────────────────────────────────────────────────────────
+        // GCP rule (all regions): maxSurge.fixed and maxUnavailable.fixed must each be
+        // 0 OR >= numZones for regional MIGs. Any value between 1 and numZones-1 → 400.
+        //
+        // Strategy chosen for AutoSpotting:
+        //   Zonal   → maxSurge=1, maxUnavailable=0  (zero-downtime: new VM up before old is down)
+        //   Regional → maxSurge=0, maxUnavailable=numZones  (no surge cost; replace 1 row at a time)
+        JsonObject updatePolicy = new JsonObject();
+        updatePolicy.addProperty("type", "PROACTIVE");
+        updatePolicy.addProperty("minReadySeconds", 30);
+
         if (isZonal) {
-            listUrl = String.format("%s/projects/%s/zones/%s/instanceGroupManagers/%s/listManagedInstances",
+            JsonObject maxSurge = new JsonObject();
+            maxSurge.addProperty("fixed", 1);
+            updatePolicy.add("maxSurge", maxSurge);
+
+            JsonObject maxUnavailable = new JsonObject();
+            maxUnavailable.addProperty("fixed", 0);
+            updatePolicy.add("maxUnavailable", maxUnavailable);
+
+            log.info("🔄 [GCP REST] Rolling update: zonal MIG {} — maxSurge=1 maxUnavailable=0 (zero-downtime)", migName);
+        } else {
+            // Regional: maxSurge=0 (always valid), maxUnavailable=numZones (always valid, = 1 per zone)
+            int effectiveZones = numZones > 0 ? numZones : 3; // fallback to 3 if unknown
+            JsonObject maxSurge = new JsonObject();
+            maxSurge.addProperty("fixed", 0);
+            updatePolicy.add("maxSurge", maxSurge);
+
+            JsonObject maxUnavailable = new JsonObject();
+            maxUnavailable.addProperty("fixed", effectiveZones);
+            updatePolicy.add("maxUnavailable", maxUnavailable);
+
+            log.info("🔄 [GCP REST] Rolling update: regional MIG {} ({} zones) — maxSurge=0 maxUnavailable={} (1 row at a time)", migName, effectiveZones, effectiveZones);
+        }
+
+        JsonObject body = new JsonObject();
+        body.addProperty("instanceTemplate", templateUrl);
+        body.add("updatePolicy", updatePolicy);
+
+        HttpHeaders headers = createHeaders(projectId);
+        HttpEntity<String> entity = new HttpEntity<>(gson.toJson(body), headers);
+
+        ResponseEntity<String> response;
+        try {
+            response = restTemplate.exchange(url, HttpMethod.PATCH, entity, String.class);
+        } catch (HttpClientErrorException e) {
+            // 409 means another update is already in progress — that is fine, the template
+            // change will still take effect when that update finishes.
+            if (e.getStatusCode().value() == 409) {
+                log.warn("⚠️ [GCP REST] Rolling update 409 Conflict (another update in progress) — template will apply when current update completes.");
+                return;
+            }
+            log.error("❌ [GCP REST] Rolling update PATCH failed: {} — {}", e.getStatusCode(), e.getResponseBodyAsString());
+            throw new RuntimeException("Rolling update PATCH failed (" + e.getStatusCode() + "): " + e.getResponseBodyAsString());
+        }
+
+        JsonObject operation = gson.fromJson(response.getBody(), JsonObject.class);
+        log.info("✅ [GCP REST] Rolling update operation queued. GCP will replace instances one-by-one.");
+
+        // Wait for the PATCH operation to be accepted (actual instance replacement is async).
+        waitForOperation(projectId, operation);
+
+        log.info("✅ [GCP REST] Rolling update accepted. Instances will be replaced gradually with minUnavailable=0.");
+    }
+
+    /**
+     * Generic PATCH on a MIG resource (used for updating updatePolicy without changing template).
+     */
+    public void patchMig(String projectId, String zone, String migName, com.google.gson.JsonObject patchBody)
+            throws IOException, InterruptedException {
+
+        boolean isZonal = zone.split("-").length == 3;
+        String url;
+        if (isZonal) {
+            url = String.format("%s/projects/%s/zones/%s/instanceGroupManagers/%s",
                     COMPUTE_API_BASE, projectId, zone, migName);
         } else {
-            listUrl = String.format("%s/projects/%s/regions/%s/instanceGroupManagers/%s/listManagedInstances",
+            url = String.format("%s/projects/%s/regions/%s/instanceGroupManagers/%s",
                     COMPUTE_API_BASE, projectId, zone, migName);
         }
+
+        HttpHeaders headers = createHeaders(projectId);
+        HttpEntity<String> entity = new HttpEntity<>(gson.toJson(patchBody), headers);
 
         try {
-            log.info("🔄 [GCP REST] Fetching instances to recreate for MIG: {}", migName);
-
-            // Get list of instances
-            HttpHeaders headers = createHeaders(projectId);
-            HttpEntity<String> listEntity = new HttpEntity<>(headers);
-            ResponseEntity<String> listResponse = restTemplate.exchange(listUrl, HttpMethod.POST, listEntity, String.class);
-            JsonObject instancesList = gson.fromJson(listResponse.getBody(), JsonObject.class);
-
-            if (!instancesList.has("managedInstances")) {
-                log.info("ℹ️ [GCP REST] No instances to replace in MIG");
-                return;
-            }
-
-            // Build instances array with all instance URLs
-            com.google.gson.JsonArray instancesArray = new com.google.gson.JsonArray();
-            instancesList.getAsJsonArray("managedInstances").forEach(inst -> {
-                JsonObject instance = inst.getAsJsonObject();
-                if (instance.has("instance")) {
-                    instancesArray.add(instance.get("instance").getAsString());
-                }
-            });
-
-            if (instancesArray.size() == 0) {
-                log.info("ℹ️ [GCP REST] No instances to replace");
-                return;
-            }
-
-            log.info("🔄 [GCP REST] Found {} instance(s) to recreate with new Spot template", instancesArray.size());
-
-            // Build request body
-            JsonObject body = new JsonObject();
-            body.add("instances", instancesArray);
-
-            HttpEntity<String> entity = new HttpEntity<>(gson.toJson(body), headers);
-
-            log.info("🔄 [GCP REST] Initiating instance recreation for MIG: {}", migName);
-            log.info("🔄 [GCP REST] This will replace instances one-by-one with zero downtime");
-
-            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
+            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.PATCH, entity, String.class);
             JsonObject operation = gson.fromJson(response.getBody(), JsonObject.class);
-
-            log.info("✅ [GCP REST] Instance recreation operation started");
-
-            // Wait for operation to complete
             waitForOperation(projectId, operation);
-
-            log.info("✅ [GCP REST] Instance recreation completed successfully");
-            log.info("ℹ️ [GCP REST] All instances have been replaced with Spot VMs");
-
-        } catch (HttpClientErrorException e) {
-            // If rolling update fails, log but don't fail the entire operation
-            // Template update already succeeded, so new instances will use the new template
-            log.warn("⚠️ [GCP REST] Instance recreation failed (template update still successful): {} - {}",
-                e.getStatusCode(), e.getResponseBodyAsString());
-            log.info("ℹ️ [GCP REST] Template updated successfully. New instances will use the updated template.");
-            log.info("ℹ️ [GCP REST] Existing instances will be replaced during auto-scaling or manual recreation.");
+            log.info("✅ [GCP REST] MIG {} patched successfully", migName);
         } catch (Exception e) {
-            log.warn("⚠️ [GCP REST] Instance recreation failed (template update still successful): {}", e.getMessage());
-            log.info("ℹ️ [GCP REST] Template updated successfully. New instances will use the updated template.");
-            log.info("ℹ️ [GCP REST] Existing instances will be replaced during auto-scaling or manual recreation.");
+            log.error("❌ [GCP REST] Failed to patch MIG {}: {}", migName, e.getMessage());
+            throw new RuntimeException("Failed to patch MIG: " + e.getMessage());
         }
+    }
+
+    /**
+     * Check if a template is configured as SPOT/Preemptible by reading the raw REST JSON.
+     * This is more reliable than the Java SDK gRPC client which can return empty-string
+     * defaults for provisioningModel even when the field is set.
+     */
+    public boolean isSpotTemplate(String projectId, String region, String templateName) throws IOException {
+        // NOTE: Do NOT catch exceptions here — callers rely on exceptions propagating
+        // so they can fall back to the Java SDK check if the REST call fails.
+        JsonObject template = getInstanceTemplate(projectId, region, templateName);
+        JsonObject properties = template.getAsJsonObject("properties");
+        if (properties == null) return false;
+
+        JsonObject scheduling = properties.getAsJsonObject("scheduling");
+        if (scheduling == null) return false;
+
+        // Check provisioningModel = "SPOT"
+        if (scheduling.has("provisioningModel")) {
+            String model = scheduling.get("provisioningModel").getAsString();
+            if ("SPOT".equalsIgnoreCase(model)) return true;
+        }
+
+        // Also check legacy preemptible flag
+        if (scheduling.has("preemptible")) {
+            return scheduling.get("preemptible").getAsBoolean();
+        }
+
+        return false;
     }
 }

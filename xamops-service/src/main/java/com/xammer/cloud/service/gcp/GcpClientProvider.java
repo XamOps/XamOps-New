@@ -951,4 +951,32 @@ public class GcpClientProvider {
         });
     }
 
+    public Optional<AutoscalersClient> getAutoscalersClient(String gcpProjectId) {
+        return getCredentials(gcpProjectId).map(credentials -> {
+            try {
+                AutoscalersSettings settings = AutoscalersSettings.newBuilder()
+                        .setCredentialsProvider(() -> credentials)
+                        .build();
+                return AutoscalersClient.create(settings);
+            } catch (IOException e) {
+                log.error("Failed to create AutoscalersClient for project ID: {}", gcpProjectId, e);
+                return null;
+            }
+        });
+    }
+
+    public Optional<RegionAutoscalersClient> getRegionAutoscalersClient(String gcpProjectId) {
+        return getCredentials(gcpProjectId).map(credentials -> {
+            try {
+                RegionAutoscalersSettings settings = RegionAutoscalersSettings.newBuilder()
+                        .setCredentialsProvider(() -> credentials)
+                        .build();
+                return RegionAutoscalersClient.create(settings);
+            } catch (IOException e) {
+                log.error("Failed to create RegionAutoscalersClient for project ID: {}", gcpProjectId, e);
+                return null;
+            }
+        });
+    }
+
 }
