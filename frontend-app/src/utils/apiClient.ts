@@ -108,6 +108,11 @@ export const apiFetch = async (url: string | URL, options: FetchOptions = {}): P
       headers = addHeader(headers, 'Content-Type', 'application/json');
     }
 
+    // Always request JSON so Spring Boot error handler returns JSON (not HTML Whitelabel page)
+    if (!hasHeader(headers, 'Accept')) {
+      headers = addHeader(headers, 'Accept', 'application/json');
+    }
+
     // Add security and tenant headers
     headers = addHeader(headers, 'X-XSRF-TOKEN', csrfToken);
     headers = addHeader(headers, 'X-Tenant-ID', tenantId);
@@ -225,7 +230,8 @@ export default {
   post: <T = any>(url: string, body?: any) =>
     apiFetchJson<T>(url, {
       method: 'POST',
-      body: body instanceof FormData ? body : JSON.stringify(body),
+      // Don't send a body (or Content-Type) when body is null/undefined
+      ...(body != null ? { body: body instanceof FormData ? body : JSON.stringify(body) } : {}),
     }),
   put: <T = any>(url: string, body?: any) =>
     apiFetchJson<T>(url, {
