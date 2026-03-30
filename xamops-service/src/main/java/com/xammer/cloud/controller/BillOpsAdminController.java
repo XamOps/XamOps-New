@@ -14,6 +14,7 @@ import com.xammer.cloud.repository.MarketplaceAccountRepository;
 import com.xammer.cloud.repository.MarketplacePayerAccountRepository;
 import com.xammer.cloud.repository.UserCloudAccountAccessRepository;
 import com.xammer.cloud.repository.UserRepository;
+import com.xammer.cloud.service.CostDataSnapshotService;
 import com.xammer.cloud.service.CostService;
 import com.xammer.cloud.service.RedisCacheService;
 import com.xammer.cloud.service.gcp.GcpCostService;
@@ -31,6 +32,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -261,6 +263,9 @@ public class BillOpsAdminController {
     @Autowired
     private MarketplaceBillingShareService marketplaceBillingShareService;
 
+    @Autowired
+    private CostDataSnapshotService costDataSnapshotService;
+
     /** Evict the clients cache (call this after creating a client or user) */
     @DeleteMapping("/clients/cache")
     public ResponseEntity<String> evictClientsCache() {
@@ -456,6 +461,7 @@ public class BillOpsAdminController {
             dto.put("marketplaceOnly",
                     discovered.stream().filter(a -> "MARKETPLACE_ONLY".equals(a.getCategory())).count());
             dto.put("status", payer.getStatus());
+            dto.put("markupPercent", payer.getMarkupPercent());
             result.add(dto);
         }
         return ResponseEntity.ok(result);
@@ -535,5 +541,100 @@ public class BillOpsAdminController {
         response.put("sentTo", request.getRecipientEmail());
         response.put("message", "Billing data download link sent successfully (valid 48 hours)");
         return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Set (or update) the markup percentage for a payer account.
+     * All billing rows will be multiplied by (1 + markupPercent/100) during the next extraction.
+     * Re-run extract-all after updating to regenerate CSVs with the new markup applied.
+     *
+     * PUT /api/xamops/billops-admin/marketplace/payers/{id}/markup
+     * Body: { "markupPercent": 5.3 }
+     */
+    @PutMapping("/marketplace/payers/{id}/markup")
+    public ResponseEntity<Map<String, Object>> updateMarkup(
+            @PathVariable Long id,
+            @RequestBody Map<String, Double> body) {
+        double markupPercent = body.getOrDefault("markupPercent", 0.0);
+        MarketplacePayerAccount payer = marketplacePayerAccountRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Payer account not found: " + id));
+        payer.setMarkupPercent(markupPercent);
+        marketplacePayerAccountRepository.save(payer);
+        log.info("Updated markup for payer {} ({}) to {}%",
+                payer.getId(), payer.getAccountName(), markupPercent);
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("payerAccountId", payer.getId());
+        response.put("accountName", payer.getAccountName());
+        response.put("markupPercent", payer.getMarkupPercent());
+        response.put("message", "Markup updated. Re-run extract-all to apply to billing CSVs.");
+        return ResponseEntity.ok(response);
+    }
+
+    // =========================================================
+    // COST HISTORY SNAPSHOT ENDPOINTS
+    // =========================================================
+
+    /**
+     * Pre-extract ALL historical cost months (Jan 2025 → last month) for every
+     * active AWS account and store them in cached_data with absolute month keys.
+     *
+     * Run this ONCE before Billing Conductor is applied (before April 1st).
+     * Already-snapshotted months are skipped automatically.
+     *
+     * POST /api/xamops/billops-admin/snapshot-cost-history
+     */
+    @PostMapping("/snapshot-cost-history")
+    public ResponseEntity<Map<String, Object>> snapshotCostHistory() {
+        log.info("Starting historical cost snapshot (pre-Billing-Conductor extraction)...");
+        Map<String, String> accountResults = costDataSnapshotService.snapshotAllHistoricalMonths();
+
+        long ok   = accountResults.values().stream().filter(v -> v.startsWith("OK")).count();
+        long fail = accountResults.size() - ok;
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("status", fail == 0 ? "COMPLETE" : "PARTIAL");
+        response.put("accountsProcessed", accountResults.size());
+        response.put("accountsOk", ok);
+        response.put("accountsFailed", fail);
+        response.put("details", accountResults);
+        response.put("message", "Historical cost snapshots saved to cached_data. Closed months will now " +
+                "be served from DB snapshots instead of the CE API.");
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Snapshot current month's final cost data for all AWS accounts.
+     * Normally called automatically by the end-of-month scheduler but can be
+     * triggered manually if needed.
+     *
+     * POST /api/xamops/billops-admin/snapshot-current-month
+     */
+    @PostMapping("/snapshot-current-month")
+    public ResponseEntity<Map<String, String>> snapshotCurrentMonth() {
+        log.info("Manual trigger: snapshotting current month final cost data...");
+        costDataSnapshotService.snapshotCurrentMonthFinal();
+        Map<String, String> response = new LinkedHashMap<>();
+        response.put("status", "OK");
+        response.put("message", "Current month cost data snapshotted for all AWS accounts.");
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Returns a per-account, per-month snapshot coverage report.
+     * Shows which months are fully saved, partially saved, or missing.
+     *
+     * Response per account:
+     *   status        → COMPLETE | INCOMPLETE | PARTIAL_KEYS | NOT_STARTED
+     *   complete      → list of YYYY-MM months where all 7 key types are present
+     *   missing       → list of YYYY-MM months where no key types are present
+     *   partial       → map of YYYY-MM → [missing key type names] (some keys saved, some not)
+     *
+     * GET /api/xamops/billops-admin/snapshot-status
+     */
+    @GetMapping("/snapshot-status")
+    public ResponseEntity<Map<String, Object>> getSnapshotStatus() {
+        log.info("Fetching snapshot coverage status...");
+        Map<String, Object> report = costDataSnapshotService.getSnapshotStatusReport();
+        return ResponseEntity.ok(report);
     }
 }

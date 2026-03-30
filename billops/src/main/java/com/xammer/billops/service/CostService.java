@@ -82,8 +82,8 @@ public class CostService {
             return costMockService.getMockCostHistory(account, year, month);
         }
 
-        String cacheKey = String.format("BILLOPS_COST_HISTORY::%s::%s::%s",
-                account.getAwsAccountId(), year, month);
+        String accountId = account.getAwsAccountId();
+        String cacheKey = String.format("BILLOPS_COST_HISTORY::%s::%s::%s", accountId, year, month);
 
         if (!forceRefresh) {
             Optional<List<Map<String, Object>>> cached = redisCacheService.get(cacheKey, new TypeReference<>() {});
@@ -102,6 +102,45 @@ public class CostService {
                 }
             } catch (Exception dbEx) {
                 logger.warn("DB cache miss for {}: {}", cacheKey, dbEx.getMessage());
+            }
+
+            // ── Compose 6-month history from absolute monthly snapshots ───────────
+            // For each closed month in the window, read AWS_MONTHLY_TOTAL snapshot
+            // instead of calling CE API. Current month falls through to CE API below.
+            try {
+                LocalDate endDate = (year != null && month != null)
+                        ? YearMonth.of(year, month).atEndOfMonth() : LocalDate.now();
+                List<Map<String, Object>> composed = new ArrayList<>();
+                boolean allCoveredBySnapshot = true;
+
+                for (int i = 5; i >= 0; i--) {
+                    YearMonth ym = YearMonth.from(endDate).minusMonths(i);
+                    String snapKey = "AWS_MONTHLY_TOTAL::" + accountId + "::" + ym;
+                    Optional<CachedData> snapRow = cachedDataRepository.findById(snapKey);
+                    if (snapRow.isPresent()) {
+                        double total = objectMapper.readValue(snapRow.get().getJsonData(), Double.class);
+                        Map<String, Object> point = new HashMap<>();
+                        point.put("date", ym.atDay(1).toString());
+                        point.put("cost", total);
+                        composed.add(point);
+                    } else if (ym.isBefore(YearMonth.now())) {
+                        // Closed month but no snapshot yet — let CE API handle everything
+                        allCoveredBySnapshot = false;
+                        break;
+                    } else {
+                        // Current month — cannot snapshot; let CE API handle it
+                        allCoveredBySnapshot = false;
+                        break;
+                    }
+                }
+
+                if (allCoveredBySnapshot && composed.size() == 6) {
+                    redisCacheService.put(cacheKey, composed, 60);
+                    logger.info("✅ Cost history composed from monthly snapshots for account {}", accountId);
+                    return composed;
+                }
+            } catch (Exception e) {
+                logger.debug("Monthly snapshot composition failed for {}, falling through to CE API: {}", accountId, e.getMessage());
             }
         }
 
@@ -166,8 +205,8 @@ public class CostService {
         logger.info("[CostService] getCostByDimension called: account='{}' (awsId='{}'), dimension={}, year={}, month={}",
                 account.getAccountName(), account.getAwsAccountId(), dimension, year, month);
 
-        String cacheKey = String.format("BILLOPS_COST_DIMENSION::%s::%s::%s::%s",
-                account.getAwsAccountId(), dimension, year, month);
+        String accountId = account.getAwsAccountId();
+        String cacheKey = String.format("BILLOPS_COST_DIMENSION::%s::%s::%s::%s", accountId, dimension, year, month);
 
         if (!forceRefresh) {
             Optional<List<Map<String, Object>>> cached = redisCacheService.get(cacheKey, new TypeReference<>() {});
@@ -186,6 +225,51 @@ public class CostService {
                 }
             } catch (Exception dbEx) {
                 logger.warn("DB cache miss for {}: {}", cacheKey, dbEx.getMessage());
+            }
+
+            // ── Closed-month snapshot: read from absolute monthly breakdown ────────
+            // Serves SERVICE or REGION breakdown from snapshot — zero CE API calls.
+            if (year != null && month != null) {
+                try {
+                    YearMonth ym = YearMonth.of(year, month);
+                    if (ym.isBefore(YearMonth.now())) {
+                        String snapKey = "SERVICE".equalsIgnoreCase(dimension)
+                                ? "AWS_MONTHLY_BREAKDOWN_SVC::" + accountId + "::" + ym
+                                : "REGION".equalsIgnoreCase(dimension)
+                                        ? "AWS_MONTHLY_BREAKDOWN_RGN::" + accountId + "::" + ym
+                                        : null;
+
+                        if (snapKey != null) {
+                            Optional<CachedData> snapRow = cachedDataRepository.findById(snapKey);
+                            if (snapRow.isPresent()) {
+                                // Snapshot stores List<CostDto> {name, amount} — convert to billops format {name, cost}
+                                List<Map<String, Object>> snapData = objectMapper.readValue(
+                                        snapRow.get().getJsonData(),
+                                        new TypeReference<List<Map<String, Object>>>() {});
+                                // CostDto field is "amount" — normalize to "cost" expected by BillingService
+                                List<Map<String, Object>> result = snapData.stream().map(entry -> {
+                                    Map<String, Object> m = new HashMap<>();
+                                    m.put("name", entry.get("name"));
+                                    Object amtRaw = entry.containsKey("cost") ? entry.get("cost") : entry.get("amount");
+                                    m.put("cost", amtRaw instanceof Number ? ((Number) amtRaw).doubleValue() : 0.0);
+                                    return m;
+                                }).filter(m -> ((double) m.get("cost")) > 0.01)
+                                  .sorted(Comparator.comparingDouble((Map<String, Object> m) ->
+                                          (double) m.get("cost")).reversed())
+                                  .collect(Collectors.toList());
+
+                                if (!result.isEmpty()) {
+                                    redisCacheService.put(cacheKey, result, 60);
+                                    logger.info("✅ {} breakdown for {}/{} served from monthly snapshot — account {}",
+                                            dimension, year, month, accountId);
+                                    return result;
+                                }
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    logger.debug("Snapshot read skipped for getCostByDimension ({}): {}", accountId, e.getMessage());
+                }
             }
         }
 
@@ -268,8 +352,8 @@ public class CostService {
             return costMockService.getMockCostForServiceInRegion(account, serviceName, year, month);
         }
 
-        String cacheKey = String.format("BILLOPS_COST_SVC_REGION::%s::%s::%s::%s",
-                account.getAwsAccountId(), serviceName, year, month);
+        String accountId = account.getAwsAccountId();
+        String cacheKey = String.format("BILLOPS_COST_SVC_REGION::%s::%s::%s::%s", accountId, serviceName, year, month);
 
         if (!forceRefresh) {
             Optional<List<Map<String, Object>>> cached = redisCacheService.get(cacheKey, new TypeReference<>() {});
@@ -288,6 +372,61 @@ public class CostService {
                 }
             } catch (Exception dbEx) {
                 logger.warn("DB cache miss for {}: {}", cacheKey, dbEx.getMessage());
+            }
+
+            // ── Closed-month snapshot: filter AWS_MONTHLY_SVC_REGION by service ─────
+            // Reads the svc×region breakdown snapshot and extracts regions for this service.
+            // Returns [{name: regionName, cost: X}] — same format CE API returns.
+            if (year != null && month != null) {
+                try {
+                    YearMonth ym = YearMonth.of(year, month);
+                    if (ym.isBefore(YearMonth.now())) {
+                        String snapKey = "AWS_MONTHLY_SVC_REGION::" + accountId + "::" + ym;
+                        Optional<CachedData> snapRow = cachedDataRepository.findById(snapKey);
+                        if (snapRow.isPresent()) {
+                            // Snapshot stores List<DetailedCostDto> {service, region, cost}
+                            List<Map<String, Object>> allSvcRegion = objectMapper.readValue(
+                                    snapRow.get().getJsonData(),
+                                    new TypeReference<List<Map<String, Object>>>() {});
+
+                            // Aggregate by region for this specific service
+                            Map<String, Double> regionCostMap = new LinkedHashMap<>();
+                            for (Map<String, Object> entry : allSvcRegion) {
+                                Object svcObj = entry.get("service");
+                                if (svcObj == null) continue;
+                                String svc = svcObj.toString();
+                                // DetailedCostDto field names: "service", "region", "cost"
+                                if (!serviceName.equals(svc)) continue;
+                                Object regionObj = entry.get("region");
+                                Object costObj   = entry.get("cost");
+                                if (regionObj == null || costObj == null) continue;
+                                String region = regionObj.toString();
+                                double cost   = ((Number) costObj).doubleValue();
+                                regionCostMap.merge(region, cost, (a, b) -> a + b);
+                            }
+
+                            List<Map<String, Object>> result = regionCostMap.entrySet().stream()
+                                    .filter(e -> e.getValue() > 0.01)
+                                    .map(e -> {
+                                        Map<String, Object> m = new HashMap<>();
+                                        m.put("name", e.getKey());
+                                        m.put("cost", e.getValue());
+                                        return m;
+                                    })
+                                    .sorted(Comparator.comparingDouble((Map<String, Object> m) ->
+                                            (double) m.get("cost")).reversed())
+                                    .collect(Collectors.toList());
+
+                            // Cache even if empty (means service truly had no region split)
+                            redisCacheService.put(cacheKey, result, 60);
+                            logger.info("✅ Service-region breakdown for '{}' {}/{} served from snapshot — account {}",
+                                    serviceName, year, month, accountId);
+                            return result;
+                        }
+                    }
+                } catch (Exception e) {
+                    logger.debug("Snapshot read skipped for getCostForServiceInRegion ({}): {}", accountId, e.getMessage());
+                }
             }
         }
 
@@ -397,6 +536,50 @@ public class CostService {
                 }
             } catch (Exception dbEx) {
                 logger.warn("DB cache miss for {}: {}", cacheKey, dbEx.getMessage());
+            }
+        }
+
+        // ── Closed-month snapshot: filter AWS_MONTHLY_SVC_USAGE by service ──────
+        // Groups SERVICE×USAGE_TYPE; region filter cannot be applied from snapshot.
+        if (year != null && month != null) {
+            try {
+                YearMonth ym = YearMonth.of(year, month);
+                if (ym.isBefore(YearMonth.now())) {
+                    String snapKey = "AWS_MONTHLY_SVC_USAGE::" + account.getAwsAccountId() + "::" + ym;
+                    Optional<CachedData> snapRow = cachedDataRepository.findById(snapKey);
+                    if (snapRow.isPresent()) {
+                        List<Map<String, Object>> allSvcUsage = objectMapper.readValue(
+                                snapRow.get().getJsonData(),
+                                new TypeReference<List<Map<String, Object>>>() {});
+
+                        List<Map<String, Object>> filtered = allSvcUsage.stream()
+                                .filter(e -> serviceName.equals(e.get("service")))
+                                .map(e -> {
+                                    Map<String, Object> m = new HashMap<>();
+                                    Object usageType = e.get("usageType");
+                                    m.put("name", usageType);
+                                    m.put("id", usageType);
+                                    Object rawCost = e.get("cost");
+                                    m.put("cost", rawCost instanceof Number ? ((Number) rawCost).doubleValue() : 0.0);
+                                    Object rawQty = e.get("quantity");
+                                    m.put("quantity", rawQty instanceof Number ? ((Number) rawQty).doubleValue() : 0.0);
+                                    Object rawUnit = e.get("unit");
+                                    m.put("unit", rawUnit != null ? rawUnit.toString() : "");
+                                    return m;
+                                })
+                                .filter(m -> (double) m.get("cost") > 0)
+                                .collect(Collectors.toList());
+
+                        if (!filtered.isEmpty()) {
+                            logger.info("✅ SvcUsage snapshot hit for {} / {} — {} usage types",
+                                    serviceName, ym, filtered.size());
+                            return filtered;
+                        }
+                    }
+                }
+            } catch (Exception snapEx) {
+                logger.warn("SvcUsage snapshot read failed for {}/{}-{}: {}",
+                        serviceName, year, month, snapEx.getMessage());
             }
         }
 

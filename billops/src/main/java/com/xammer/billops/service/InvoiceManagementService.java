@@ -960,10 +960,22 @@ public class InvoiceManagementService {
             //   getDetailedBillingReport provides per-region/resource breakdown matching
             //   the billing page.  We scale all costs proportionally so the total matches
             //   the getCostHistory consolidated amount.
+            //
+            // Billing Conductor protection:
+            //   For CLOSED months (any month before the current calendar month), we use
+            //   forceRefresh=false so the call resolves through our pre-extracted monthly
+            //   snapshots (AWS_MONTHLY_TOTAL / AWS_MONTHLY_BREAKDOWN_SVC / AWS_MONTHLY_SVC_REGION
+            //   keys in cached_data) instead of hitting the CE API, which returns
+            //   Billing-Conductor-modified data after April 1st.
+            //   For the CURRENT month, forceRefresh=true stays to always get live CE data.
+            boolean isClosedMonth = YearMonth.of(year, month).isBefore(YearMonth.now());
+            boolean refreshFlag = !isClosedMonth; // false for closed months → uses snapshots
+            logger.info("[InvoiceGen] month={}/{} isClosedMonth={} → refreshFlag={}",
+                    year, month, isClosedMonth, refreshFlag);
 
             // Step 1: get correct consolidated total from getCostHistory
             BillingDashboardDto summaryDto = billingService.getBillingData(
-                    Collections.singletonList(accountId), year, month, true);
+                    Collections.singletonList(accountId), year, month, refreshFlag);
 
             double consolidatedTotal = 0.0;
             if (summaryDto != null && summaryDto.getCostHistory() != null) {
@@ -979,12 +991,32 @@ public class InvoiceManagementService {
 
             // Step 2: get full per-region/resource breakdown (same data as billing page)
             List<ServiceCostDetailDto> detailedData = billingService.getDetailedBillingReport(
-                    Collections.singletonList(accountId), year, month, true);
+                    Collections.singletonList(accountId), year, month, refreshFlag);
 
             if (consolidatedTotal > 0 && detailedData != null && !detailedData.isEmpty()) {
-                // Scale all costs so they sum to the correct consolidated total
-                double detailTotal = detailedData.stream()
-                        .mapToDouble(ServiceCostDetailDto::getTotalCost).sum();
+                // Compute detailTotal from the ACTUAL costs that will appear as line items
+                // (resource costs, or region cost when resources are empty).
+                // Using getTotalCost() is unreliable — it can be account-scoped while
+                // the nested resource costs are org-scoped (or vice-versa), causing a
+                // scale factor of ~1.0 when the true ratio is far from 1.
+                double detailTotal = 0.0;
+                for (ServiceCostDetailDto svc : detailedData) {
+                    if (svc.getRegionCosts() == null) continue;
+                    for (RegionCostDto rgn : svc.getRegionCosts()) {
+                        List<ResourceCostDto> rList = rgn.getResources();
+                        if (rList == null || rList.isEmpty()) {
+                            if (rgn.getCost() > 0) detailTotal += rgn.getCost();
+                        } else {
+                            for (ResourceCostDto r : rList) {
+                                if (r.getCost() > 0) detailTotal += r.getCost();
+                            }
+                        }
+                    }
+                }
+                // Fallback: if no region/resource data yet, use service-level totalCost
+                if (detailTotal == 0) {
+                    detailTotal = detailedData.stream().mapToDouble(ServiceCostDetailDto::getTotalCost).sum();
+                }
                 double scaleFactor = detailTotal > 0 ? consolidatedTotal / detailTotal : 1.0;
                 logger.info("[InvoiceGen] Detailed report total=${}, scaleFactor={}",
                         String.format("%.2f", detailTotal), String.format("%.4f", scaleFactor));

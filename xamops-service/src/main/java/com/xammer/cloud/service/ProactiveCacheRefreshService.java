@@ -37,6 +37,7 @@ import org.springframework.stereotype.Service;
 import javax.sql.DataSource;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -92,6 +93,9 @@ public class ProactiveCacheRefreshService {
     // ADDED: DbOps cost caching
     private final DbOpsCostService dbOpsCostService;
 
+    // ADDED: Monthly cost snapshot service (pre-Billing-Conductor persistence)
+    private final CostDataSnapshotService costDataSnapshotService;
+
     @Autowired
     public ProactiveCacheRefreshService(
             CloudAccountRepository cloudAccountRepository,
@@ -125,7 +129,8 @@ public class ProactiveCacheRefreshService {
             com.xammer.cloud.config.SchedulingEnvironmentConfig envConfig,
             AutoSpottingService autoSpottingService,
             XamOpsRightsizingService xamOpsRightsizingService,
-            DbOpsCostService dbOpsCostService) {
+            DbOpsCostService dbOpsCostService,
+            CostDataSnapshotService costDataSnapshotService) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.cacheManager = cacheManager;
         this.cloudListService = cloudListService;
@@ -158,6 +163,7 @@ public class ProactiveCacheRefreshService {
         this.autoSpottingService = autoSpottingService;
         this.xamOpsRightsizingService = xamOpsRightsizingService;
         this.dbOpsCostService = dbOpsCostService;
+        this.costDataSnapshotService = costDataSnapshotService;
 
         // Log configuration on startup
         envConfig.logConfiguration();
@@ -229,6 +235,8 @@ public class ProactiveCacheRefreshService {
                     try { performanceService.getInsights(accountId, "ALL", false); }
                     catch (Exception e) { logger.debug("[Seed] Performance skipped for {}: {}", accountId, e.getMessage()); }
                 }
+                // Pre-warm all historical closed months (2025-01 → last month) into Redis from DB snapshots
+                seedHistoricalCostMonths(accounts);
             } finally {
                 TenantContext.clear();
             }
@@ -311,6 +319,51 @@ public class ProactiveCacheRefreshService {
             }
         }
         logger.info("[CacheWarmUp] DB → Redis seed complete. All AWS + GCP + Azure pages will serve cached data.");
+    }
+
+    /**
+     * Pre-warms all historical closed months (SNAPSHOT_START → last month) into Redis for every AWS account.
+     * Each call hits the existing CostService snapshot-read logic:
+     *   Redis miss → DB snapshot hit → Redis cached → return   (no CE API call)
+     * Only falls back to CE API if a month's DB snapshot is somehow missing.
+     */
+    private void seedHistoricalCostMonths(List<CloudAccount> accounts) {
+        YearMonth startYm = YearMonth.of(2025, 1);
+        YearMonth lastMonth = YearMonth.now().minusMonths(1);
+        int warmed = 0;
+        int skipped = 0;
+
+        logger.info("[CacheWarmUp] Pre-warming historical cost months ({} → {}) into Redis...", startYm, lastMonth);
+
+        for (CloudAccount account : accounts) {
+            if (!"AWS".equals(account.getProvider()) || account.getAwsAccountId() == null) continue;
+            String accountId = account.getAwsAccountId();
+
+            for (YearMonth ym = startYm; !ym.isAfter(lastMonth); ym = ym.plusMonths(1)) {
+                // Only warm months that have a complete DB snapshot — never fall back to CE API in warmup
+                if (!costDataSnapshotService.isSnapshotComplete(accountId, ym)) {
+                    skipped++;
+                    continue;
+                }
+
+                String monthStart = ym.atDay(1).toString();
+                String monthEnd   = ym.atEndOfMonth().toString();
+                LocalDate startDate = ym.atDay(1);
+                LocalDate endDate   = ym.atEndOfMonth();
+
+                try { costService.getCostBreakdown(accountId, "SERVICE", null, false, monthStart, monthEnd).join(); }
+                catch (Exception e) { logger.debug("[Seed] HistCost SVC skip {}/{}: {}", accountId, ym, e.getMessage()); }
+
+                try { costService.getCostBreakdown(accountId, "REGION", null, false, monthStart, monthEnd).join(); }
+                catch (Exception e) { logger.debug("[Seed] HistCost RGN skip {}/{}: {}", accountId, ym, e.getMessage()); }
+
+                try { costService.getCostBreakdownByServiceAndRegion(accountId, startDate, endDate, false).join(); }
+                catch (Exception e) { logger.debug("[Seed] HistCost SvcRgn skip {}/{}: {}", accountId, ym, e.getMessage()); }
+
+                warmed++;
+            }
+        }
+        logger.info("[CacheWarmUp] Historical cost months warm-up done — {} warmed, {} skipped (no snapshot in DB)", warmed, skipped);
     }
 
     /**
@@ -1604,6 +1657,46 @@ public class ProactiveCacheRefreshService {
                 logger.error("❌ Failed XamOpsRightsizing refresh for tenant {}", tenantId, e);
             } finally {
                 TenantContext.clear();
+            }
+        }
+    }
+
+    // ===================================================================================
+    // 11:00 PM last day of month → capture final monthly cost snapshot before month closes
+    // ===================================================================================
+
+    /**
+     * Runs at 11:00 PM on the last day of every month.
+     * Captures the final cost numbers for the current calendar month and persists them
+     * in cached_data with absolute month keys (e.g. AWS_MONTHLY_TOTAL::acct::2026-03).
+     *
+     * After this runs, CostService will serve closed-month data from these snapshots
+     * without calling the CE API — critical for preserving pre-Billing-Conductor data.
+     */
+    @Scheduled(cron = "0 0 23 L * ?")
+    public void snapshotEndOfMonthCost() {
+        logger.info("--- [11 PM EOM] Starting end-of-month cost snapshot ---");
+        if (!envConfig.isSchedulingEnabled()) {
+            logger.info("⚠️ Scheduling disabled — skipping end-of-month snapshot");
+            return;
+        }
+
+        JobExecutionHistory jobHistory = new JobExecutionHistory(
+                "EOM_COST_SNAPSHOT", envConfig.getCurrentTenantId(), LocalDateTime.now(), "RUNNING");
+        try {
+            jobHistory = jobExecutionHistoryRepository.save(jobHistory);
+            costDataSnapshotService.snapshotCurrentMonthFinal();
+            jobHistory.setStatus("SUCCESS");
+            jobHistory.setEndTime(LocalDateTime.now());
+            jobExecutionHistoryRepository.save(jobHistory);
+            logger.info("✅ End-of-month cost snapshot complete");
+        } catch (Exception e) {
+            logger.error("❌ End-of-month cost snapshot failed: {}", e.getMessage(), e);
+            if (jobHistory.getId() != null) {
+                jobHistory.setStatus("FAILURE");
+                jobHistory.setErrorMessage(e.getMessage());
+                jobHistory.setEndTime(LocalDateTime.now());
+                jobExecutionHistoryRepository.save(jobHistory);
             }
         }
     }

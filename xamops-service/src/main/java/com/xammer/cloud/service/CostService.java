@@ -22,6 +22,7 @@ import software.amazon.awssdk.services.costexplorer.CostExplorerClient;
 import software.amazon.awssdk.services.costexplorer.model.*;
 
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
@@ -50,6 +51,7 @@ public class CostService {
         private final CachedDataRepository cachedDataRepository;
         private final ObjectMapper objectMapper;
         private final AwsPricingService awsPricingService;
+        private final CostDataSnapshotService snapshotService;
 
         @Value("${aws.costexplorer.mock:false}")
         private boolean useMockData;
@@ -62,7 +64,8 @@ public class CostService {
                         CostMockService costMockService,
                         CachedDataRepository cachedDataRepository,
                         ObjectMapper objectMapper,
-                        AwsPricingService awsPricingService) {
+                        AwsPricingService awsPricingService,
+                        CostDataSnapshotService snapshotService) {
                 this.cloudAccountRepository = cloudAccountRepository;
                 this.awsClientProvider = awsClientProvider;
                 this.redisCache = redisCache;
@@ -71,6 +74,7 @@ public class CostService {
                 this.cachedDataRepository = cachedDataRepository;
                 this.objectMapper = objectMapper;
                 this.awsPricingService = awsPricingService;
+                this.snapshotService = snapshotService;
 
                 logger.info("CostService initialized (Mock Mode: {})", useMockData);
         }
@@ -198,6 +202,19 @@ public class CostService {
         public CompletableFuture<Double> getLastMonthSpend(String accountId, boolean forceRefresh) {
                 String cacheKey = "lastMonthCost-" + accountId;
                 String dbKey = "AWS_LAST_MONTH_COST::" + accountId;
+
+                // ── Closed-month snapshot check (permanent, no TTL) ──────────────────────
+                // Last month is always a closed month — read from absolute snapshot first.
+                YearMonth lastMonth = YearMonth.now().minusMonths(1);
+                if (!forceRefresh) {
+                        Optional<Double> snap = snapshotService.readMonthlyTotal(accountId, lastMonth);
+                        if (snap.isPresent()) {
+                                logger.info("✅ Snapshot hit for last month cost ({}) — account {}", lastMonth, accountId);
+                                redisCache.put(cacheKey, snap.get(), 60 * 24);
+                                return CompletableFuture.completedFuture(snap.get());
+                        }
+                }
+
                 if (!forceRefresh) {
                         Optional<Double> cached = redisCache.get(cacheKey, Double.class);
                         if (cached.isPresent()) {
@@ -280,6 +297,23 @@ public class CostService {
 
                 String cacheKey = "costBreakdownServiceRegion-" + accountId + "-" + startDate + "-" + endDate;
                 String dbKey = "AWS_COST_BREAKDOWN_SVC_REGION::" + accountId + "::" + startDate + "::" + endDate;
+
+                // ── Closed-month snapshot check ──────────────────────────────────────────
+                // When the entire date range falls within a single closed month, serve from
+                // the permanent monthly snapshot (no CE API call, no TTL check).
+                if (!forceRefresh) {
+                        YearMonth startYm = YearMonth.from(startDate);
+                        YearMonth endYm   = YearMonth.from(endDate);
+                        if (startYm.equals(endYm) && CostDataSnapshotService.isClosedMonth(startYm)) {
+                                Optional<List<DetailedCostDto>> snap = snapshotService.readSvcRegion(accountId, startYm);
+                                if (snap.isPresent()) {
+                                        logger.info("✅ Monthly snapshot hit for svc/region breakdown ({}) — account {}",
+                                                startYm, accountId);
+                                        redisCache.put(cacheKey, snap.get(), 60 * 6);
+                                        return CompletableFuture.completedFuture(snap.get());
+                                }
+                        }
+                }
 
                 if (!forceRefresh) {
                         Optional<List<DetailedCostDto>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {
@@ -382,6 +416,31 @@ public class CostService {
                                 + startDate + "-" + endDate;
                 String dbKey = "AWS_COST_BREAKDOWN::" + accountId + "::" + groupBy + "::" + (tag != null ? tag : "")
                                 + "::" + startDate + "::" + endDate;
+
+                // ── Closed-month snapshot check ──────────────────────────────────────────
+                // For SERVICE or REGION groupBy over a single closed calendar month, serve
+                // directly from the permanent monthly snapshot — zero CE API calls.
+                if (!forceRefresh && tag == null && startDate != null && endDate != null) {
+                        try {
+                                YearMonth startYm = YearMonth.from(LocalDate.parse(startDate));
+                                YearMonth endYm   = YearMonth.from(LocalDate.parse(endDate));
+                                if (startYm.equals(endYm) && CostDataSnapshotService.isClosedMonth(startYm)) {
+                                        Optional<List<CostDto>> snap = "SERVICE".equalsIgnoreCase(groupBy)
+                                                ? snapshotService.readBreakdownSvc(accountId, startYm)
+                                                : "REGION".equalsIgnoreCase(groupBy)
+                                                        ? snapshotService.readBreakdownRgn(accountId, startYm)
+                                                        : Optional.empty();
+                                        if (snap.isPresent()) {
+                                                logger.info("✅ Monthly snapshot hit for {} breakdown ({}) — account {}",
+                                                        groupBy, startYm, accountId);
+                                                redisCache.put(cacheKey, snap.get(), 60);
+                                                return CompletableFuture.completedFuture(snap.get());
+                                        }
+                                }
+                        } catch (Exception e) {
+                                logger.debug("Snapshot check skipped for getCostBreakdown ({}): {}", accountId, e.getMessage());
+                        }
+                }
 
                 if (!forceRefresh) {
                         // 1. Check Redis first (fast, no DB connection consumed)
@@ -517,6 +576,116 @@ public class CostService {
                                 }
                         } catch (Exception e) {
                                 logger.warn("DB snapshot load failed for historical cost {}: {}", accountId, e.getMessage());
+                        }
+
+                        // ── Compose from daily snapshots for closed months ────────────────
+                        // Only for the all-services (no filter) case — service/region filtered
+                        // requests fall through to CE API as before.
+                        if (serviceName == null && regionName == null) {
+                                try {
+                                        LocalDate today    = LocalDate.now();
+                                        LocalDate rangeEnd = today;
+                                        LocalDate rangeStart = today.minusDays(days);
+
+                                        List<String> composedLabels = new ArrayList<>();
+                                        List<Double> composedCosts  = new ArrayList<>();
+                                        boolean allClosedMonthsCovered = true;
+
+                                        // Iterate day by day; serve closed months from snapshot, skip current
+                                        YearMonth currentYm = YearMonth.now();
+                                        for (LocalDate d = rangeStart; !d.isAfter(rangeEnd); d = d.plusDays(1)) {
+                                                YearMonth dYm = YearMonth.from(d);
+                                                if (!dYm.isBefore(currentYm)) {
+                                                        // Current month — cannot serve from snapshot
+                                                        allClosedMonthsCovered = false;
+                                                        break;
+                                                }
+                                                Optional<List<CostDataSnapshotService.DailyCostEntry>> dailySnap =
+                                                        snapshotService.readDailyCost(accountId, dYm);
+                                                if (!dailySnap.isPresent()) {
+                                                        allClosedMonthsCovered = false;
+                                                        break;
+                                                }
+                                                String dateStr = d.toString();
+                                                double amount = dailySnap.get().stream()
+                                                        .filter(e -> dateStr.equals(e.getDate()))
+                                                        .mapToDouble(CostDataSnapshotService.DailyCostEntry::getAmount)
+                                                        .sum();
+                                                composedLabels.add(dateStr);
+                                                composedCosts.add(amount);
+                                        }
+
+                                        if (allClosedMonthsCovered && !composedLabels.isEmpty()) {
+                                                HistoricalCostDto result = new HistoricalCostDto(composedLabels, composedCosts);
+                                                redisCache.put(cacheKey, result, 60);
+                                                logger.info("✅ Historical cost ({} days) composed from daily snapshots — account {}",
+                                                        days, accountId);
+                                                return CompletableFuture.completedFuture(result);
+                                        }
+                                } catch (Exception e) {
+                                        logger.debug("Daily snapshot composition skipped for {}: {}", accountId, e.getMessage());
+                                }
+                        }
+
+                        // ── Per-service: proportional approximation from snapshots ──────────
+                        // Distributes service monthly total across days proportionally:
+                        //   dayServiceCost = dailyTotal × (serviceMonthlyTotal / monthlyTotal)
+                        if (serviceName != null && !serviceName.isBlank() && !"ALL".equalsIgnoreCase(serviceName)) {
+                                try {
+                                        LocalDate today      = LocalDate.now();
+                                        LocalDate rangeEnd   = today;
+                                        LocalDate rangeStart = today.minusDays(days);
+
+                                        List<String> svcLabels = new ArrayList<>();
+                                        List<Double> svcCosts  = new ArrayList<>();
+                                        boolean allSvcCovered  = true;
+
+                                        for (LocalDate d = rangeStart; !d.isAfter(rangeEnd); d = d.plusDays(1)) {
+                                                YearMonth dYm = YearMonth.from(d);
+                                                if (!dYm.isBefore(YearMonth.now())) {
+                                                        allSvcCovered = false;
+                                                        break;
+                                                }
+                                                Optional<List<CostDataSnapshotService.DailyCostEntry>> dailySnap =
+                                                        snapshotService.readDailyCost(accountId, dYm);
+                                                Optional<Double> monthTotal =
+                                                        snapshotService.readMonthlyTotal(accountId, dYm);
+                                                Optional<List<CostDto>> svcBreakdown =
+                                                        snapshotService.readBreakdownSvc(accountId, dYm);
+
+                                                if (!dailySnap.isPresent() || !monthTotal.isPresent() || !svcBreakdown.isPresent()) {
+                                                        allSvcCovered = false;
+                                                        break;
+                                                }
+
+                                                double serviceMonthlyTotal = svcBreakdown.get().stream()
+                                                        .filter(c -> serviceName.equals(c.getName()))
+                                                        .mapToDouble(CostDto::getAmount)
+                                                        .sum();
+                                                double monthlyTotal = monthTotal.get();
+                                                String dateStr = d.toString();
+                                                double dayTotal = dailySnap.get().stream()
+                                                        .filter(e -> dateStr.equals(e.getDate()))
+                                                        .mapToDouble(CostDataSnapshotService.DailyCostEntry::getAmount)
+                                                        .sum();
+                                                double dayCostForService = monthlyTotal > 0
+                                                        ? dayTotal * (serviceMonthlyTotal / monthlyTotal)
+                                                        : 0.0;
+                                                svcLabels.add(dateStr);
+                                                svcCosts.add(dayCostForService);
+                                        }
+
+                                        if (allSvcCovered && !svcLabels.isEmpty()) {
+                                                HistoricalCostDto result = new HistoricalCostDto(svcLabels, svcCosts);
+                                                redisCache.put(cacheKey, result, 60);
+                                                logger.info("✅ Service '{}' historical cost ({} days) approximated from snapshots — account {}",
+                                                        serviceName, days, accountId);
+                                                return CompletableFuture.completedFuture(result);
+                                        }
+                                } catch (Exception e) {
+                                        logger.debug("Service snapshot approximation skipped for {}/{}: {}",
+                                                accountId, serviceName, e.getMessage());
+                                }
                         }
                 }
 
@@ -671,8 +840,31 @@ public class CostService {
 
                                 for (int i = 5; i >= 0; i--) {
                                         LocalDate month = LocalDate.now().minusMonths(i);
+                                        YearMonth ym = YearMonth.from(month);
                                         labels.add(month.format(DateTimeFormatter.ofPattern("MMM yyyy")));
 
+                                        // ── Use snapshot for closed months ─────────────────────────────────
+                                        if (CostDataSnapshotService.isClosedMonth(ym)) {
+                                                Optional<List<CostDto>> snapSvc = "SERVICE".equalsIgnoreCase(groupBy)
+                                                        ? snapshotService.readBreakdownSvc(accountId, ym)
+                                                        : Optional.empty();
+                                                Optional<List<CostDto>> snapRgn = "REGION".equalsIgnoreCase(groupBy)
+                                                        ? snapshotService.readBreakdownRgn(accountId, ym)
+                                                        : Optional.empty();
+                                                Optional<List<CostDto>> snapToUse = snapSvc.isPresent() ? snapSvc : snapRgn;
+
+                                                if (snapToUse.isPresent()) {
+                                                        double cost = snapToUse.get().stream()
+                                                                .filter(c -> dimensionValue.equals(c.getName()))
+                                                                .mapToDouble(CostDto::getAmount)
+                                                                .sum();
+                                                        costs.add(cost);
+                                                        logger.debug("✅ Snapshot used for {} / {} / {}", accountId, ym, dimensionValue);
+                                                        continue;
+                                                }
+                                        }
+
+                                        // ── Fall through to CE API (current month or snapshot missing) ─────
                                         DateInterval dateInterval = DateInterval.builder()
                                                         .start(month.withDayOfMonth(1).toString())
                                                         .end(month.plusMonths(1).withDayOfMonth(1).toString())

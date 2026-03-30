@@ -39,4 +39,12 @@ public class MarketplacePayerAccount {
 
     @Column
     private LocalDateTime lastSyncedAt;
+
+    /**
+     * Markup percentage applied to all extracted billing rows at extraction time.
+     * E.g. 5.3 means every row cost is multiplied by 1.053.
+     * Default: 0.0 (no markup).
+     */
+    @Column(nullable = false)
+    private double markupPercent = 0.0;
 }
