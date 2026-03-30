@@ -82,6 +82,35 @@ public class CloudFrontUsageService {
             logger.warn("DB cache miss for {}: {}", cacheKey, dbEx.getMessage());
         }
 
+        // ── Snapshot-first for closed months ────────────────────────────────────────
+        if (period.isBefore(YearMonth.now())) {
+            try {
+                String snapKey = "AWS_CF_USAGE::" + accountId + "::" + period;
+                Optional<CachedData> snapRow = cachedDataRepository.findById(snapKey);
+                if (snapRow.isPresent()) {
+                    List<Map<String, Object>> entries = objectMapper.readValue(
+                            snapRow.get().getJsonData(),
+                            new TypeReference<List<Map<String, Object>>>() {});
+                    List<CloudFrontUsageDto> snapList = new ArrayList<>();
+                    for (Map<String, Object> e : entries) {
+                        String region   = (String) e.getOrDefault("region", "Global");
+                        String usageTyp = (String) e.getOrDefault("usageType", "");
+                        double quantity = e.get("quantity") instanceof Number
+                                ? ((Number) e.get("quantity")).doubleValue() : 0.0;
+                        String unit     = (String) e.getOrDefault("unit", "");
+                        double cost     = e.get("cost") instanceof Number
+                                ? ((Number) e.get("cost")).doubleValue() : 0.0;
+                        snapList.add(new CloudFrontUsageDto(region, usageTyp, quantity, unit, cost));
+                    }
+                    redisCacheService.put(cacheKey, snapList, 360);
+                    logger.info("✅ CF usage snapshot hit for account={} period={}", accountId, period);
+                    return snapList;
+                }
+            } catch (Exception snapEx) {
+                logger.warn("[CF] Snapshot read failed for account={} period={}: {}", accountId, period, snapEx.getMessage());
+            }
+        }
+
         logger.info("Fetching CloudFront usage from AWS Cost Explorer for account: {}, period: {}", accountId, period);
 
         CloudAccount cloudAccount = cloudAccountRepository.findByAwsAccountId(accountId)

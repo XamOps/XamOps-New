@@ -93,6 +93,8 @@ public class MarketplaceBillingExtractionService {
         // Pull all data in one Cost Explorer call (GroupBy: LINKED_ACCOUNT + USAGE_TYPE)
         Map<String, List<CostRow>> dataByAccount = fetchFromCostExplorer(tempCreds, accountIds);
 
+        double markupPercent = payerAccount.getMarkupPercent();
+
         // Process each account: save to DB + upload per-month CSVs to S3
         Map<String, String> results = new LinkedHashMap<>();
         for (MarketplaceAccount account : allAccounts) {
@@ -106,8 +108,11 @@ public class MarketplaceBillingExtractionService {
             }
 
             try {
-                saveToDb(accountId, account.getAccountName(), rows);
-                List<String> keys = uploadMonthlyCSVsToS3(accountId, account.getAccountName(), rows);
+                // Apply markup so CSV totals match the true customer bill
+                List<CostRow> markedUpRows = applyMarkup(rows, markupPercent);
+
+                saveToDb(accountId, account.getAccountName(), markedUpRows);
+                List<String> keys = uploadMonthlyCSVsToS3(accountId, account.getAccountName(), markedUpRows);
 
                 account.setBillingExtracted(true);
                 marketplaceAccountRepository.save(account);
@@ -148,8 +153,10 @@ public class MarketplaceBillingExtractionService {
             return Collections.emptyList();
         }
 
-        saveToDb(awsAccountId, accountName, rows);
-        return uploadMonthlyCSVsToS3(awsAccountId, accountName, rows);
+        List<CostRow> markedUpRows = applyMarkup(rows, payerAccount.getMarkupPercent());
+
+        saveToDb(awsAccountId, accountName, markedUpRows);
+        return uploadMonthlyCSVsToS3(awsAccountId, accountName, markedUpRows);
     }
 
     /**
@@ -245,6 +252,22 @@ public class MarketplaceBillingExtractionService {
         return result;
     }
 
+    /**
+     * Apply a fixed markup percentage to every row's cost.
+     * E.g. markupPercent=5.3 multiplies each row by 1.053.
+     * Returns rows unchanged if markupPercent is 0 or negative.
+     */
+    private List<CostRow> applyMarkup(List<CostRow> rows, double markupPercent) {
+        if (markupPercent <= 0) return rows;
+        double multiplier = 1.0 + markupPercent / 100.0;
+        log.info("Applying {}% markup (×{}) to {} rows",
+                markupPercent, String.format("%.4f", multiplier), rows.size());
+        return rows.stream()
+                .map(r -> new CostRow(r.year, r.month, r.usageType,
+                        r.usageQuantity, r.costUsd * multiplier))
+                .collect(Collectors.toList());
+    }
+
     /** Save rows to billing_history_snapshot table (delete existing first) */
     private void saveToDb(String accountId, String accountName, List<CostRow> rows) {
         snapshotRepository.deleteByAwsAccountId(accountId);
@@ -301,8 +324,8 @@ public class MarketplaceBillingExtractionService {
         m.put("EUW2",   "Europe (London)");
         m.put("EUW3",   "Europe (Paris)");
         m.put("EUC1",   "Europe (Frankfurt)");
-        m.put("EUS1",   "Europe (Stockholm)");
-        m.put("EUN1",   "Europe (Milan)");
+        m.put("EUS1",   "Europe (Milan)");
+        m.put("EUN1",   "Europe (Stockholm)");
         m.put("EUS2",   "Europe (Zurich)");
         m.put("EUS3",   "Europe (Spain)");
         m.put("APS1",   "Asia Pacific (Singapore)");
@@ -349,13 +372,14 @@ public class MarketplaceBillingExtractionService {
         m.put("LoadBalancer",        "Elastic Load Balancing");
         m.put("LCU-",                "Elastic Load Balancing");
         m.put("LCUUsage",            "Elastic Load Balancing");
-        m.put("DataProcessing",      "Elastic Load Balancing");
+        // Custom CloudWatch Logs ingestion shows up as DataProcessing-Bytes in CE
+        m.put("DataProcessing",      "Amazon CloudWatch Logs");
         // Data Transfer
         m.put("DataTransfer",        "AWS Data Transfer");
         m.put("Bandwidth",           "AWS Data Transfer");
         m.put("AWS-Out-Bytes",       "AWS Data Transfer");
         m.put("AWS-In-Bytes",        "AWS Data Transfer");
-        m.put("CloudFront-",         "AWS Data Transfer");
+        m.put("CloudFront-",         "AWS CloudFront");
         // S3
         m.put("Requests-",           "Amazon Simple Storage Service");
         m.put("TimedStorage-RabbitMQ", "Amazon MQ");
@@ -371,7 +395,9 @@ public class MarketplaceBillingExtractionService {
         m.put("RDS-",                "Amazon Relational Database Service");
         m.put("Aurora:",             "Amazon Relational Database Service");
         m.put("InstanceUsage",            "Amazon Relational Database Service");
-        m.put("HeavyUsage",               "Amazon Relational Database Service");
+        // EC2 Reserved Instances are reported as HeavyUsage:<type> (no db.* part)
+        // while RDS HeavyUsage includes db.* usage types. We handle this in extractService().
+        m.put("HeavyUsage",               "Amazon Elastic Compute Cloud");
         m.put("PaidRDSvCPUMonitored",     "Amazon Relational Database Service");
         m.put("StorageIOUsage",           "Amazon Relational Database Service");
         m.put("StorageUsage",             "Amazon Relational Database Service");
@@ -489,10 +515,14 @@ public class MarketplaceBillingExtractionService {
         m.put("BundleUsage",         "Amazon Lightsail");
         m.put("AmazonEFS",           "Amazon Elastic File System");
         m.put("ProvisionedTP",       "Amazon Elastic File System");
+        // WarmStorage-ByteHrs-EFS is charged as AWS Backup (not EFS storage)
+        m.put("WarmStorage-ByteHrs-EFS", "AWS Backup");
         m.put("WarmStorage",         "Amazon Elastic File System");
-        m.put("ETDataAccess",        "Amazon Timestream");
+        m.put("ETDataAccess",        "Amazon Elastic File System");
         m.put("AttachmentsSize",     "Amazon WorkMail");
         m.put("TagStorage",          "AWS Resource Groups Tagging API");
+        // S3 Intelligent-Tiering monitoring fee shows up as Monitoring-Automation-INT-*
+        m.put("Monitoring-Automation", "Amazon Simple Storage Service");
         m.put("Monitoring",          "Amazon DevOps Guru");
         m.put("Llama4",              "Amazon Bedrock");
         m.put("Claude",              "Amazon Bedrock");
@@ -602,7 +632,16 @@ public class MarketplaceBillingExtractionService {
 
         // Global 2-letter/3-letter prefix (CloudFront/global data transfer): IN-*, JP-*, ME-*, etc.
         if (GLOBAL_PREFIX_PATTERN.matcher(usageType).matches()) {
-            return "AWS Data Transfer";
+            return "AWS CloudFront";
+        }
+
+        // EC2 Reserved Instances are reported as HeavyUsage:<instanceType>
+        // RDS HeavyUsage entries include db.<...> in the usageType suffix.
+        if (suffix.startsWith("HeavyUsage")) {
+            if (suffix.contains("db.")) {
+                return "Amazon Relational Database Service";
+            }
+            return "Amazon Elastic Compute Cloud";
         }
 
         for (Map.Entry<String, String> entry : SERVICE_PREFIX_MAP.entrySet()) {

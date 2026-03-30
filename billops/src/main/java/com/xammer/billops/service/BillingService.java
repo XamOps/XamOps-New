@@ -543,10 +543,13 @@ public class BillingService {
                             .doubleValue();
                     String unit = (String) Optional.ofNullable(resourceMap.get("unit")).orElse("");
 
-                    return new ResourceCostDto(
+                    ResourceCostDto dto = new ResourceCostDto(
                             resourceId != null ? resourceId : rawUsageType,
                             formatUsageType(rawUsageType),
-                            quantity, cost, unit);
+                            quantity, cost, rawUsageType);
+                    dto.setQuantity(quantity);
+                    dto.setUnit(unit);
+                    return dto;
                 })
                 .filter(Objects::nonNull)
                 .sorted(Comparator.comparing(ResourceCostDto::getCost).reversed())

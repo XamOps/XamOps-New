@@ -65,6 +65,7 @@ public class FinOpsService {
     private final CachedDataRepository cachedDataRepository;
     private final ObjectMapper objectMapper;
     private final CostService costService;
+    private final CostDataSnapshotService snapshotService;
 
     @Value("${aws.costexplorer.mock:false}")
     private boolean useMockData;
@@ -83,7 +84,8 @@ public class FinOpsService {
             @Lazy DashboardDataService dashboardDataService,
             CachedDataRepository cachedDataRepository,
             ObjectMapper objectMapper,
-            @Lazy CostService costService) {
+            @Lazy CostService costService,
+            CostDataSnapshotService snapshotService) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
         this.cloudListService = cloudListService;
@@ -97,6 +99,7 @@ public class FinOpsService {
         this.cachedDataRepository = cachedDataRepository;
         this.objectMapper = objectMapper;
         this.costService = costService;
+        this.snapshotService = snapshotService;
 
         logger.info("FinOpsService initialized (Mock Mode: {})", useMockData);
     }
@@ -707,6 +710,36 @@ public class FinOpsService {
             return CompletableFuture.completedFuture(mockResult);
         }
 
+        // ── Closed-month snapshot: use AWS_MONTHLY_BREAKDOWN_RGN ─────────────────
+        // When the request covers exactly one closed month, serve region breakdown
+        // from the permanent monthly snapshot instead of calling CE API.
+        if (startDate != null && endDate != null) {
+            try {
+                YearMonth startYm = YearMonth.from(LocalDate.parse(startDate));
+                YearMonth endYm   = YearMonth.from(LocalDate.parse(endDate));
+                if (startYm.equals(endYm) && CostDataSnapshotService.isClosedMonth(startYm)) {
+                    Optional<List<CostDto>> snap = snapshotService.readBreakdownRgn(account.getAwsAccountId(), startYm);
+                    if (snap.isPresent()) {
+                        List<Map<String, Object>> result = snap.get().stream()
+                                .map(c -> {
+                                    Map<String, Object> m = new HashMap<>();
+                                    m.put("region", c.getName());
+                                    m.put("cost", c.getAmount());
+                                    return m;
+                                })
+                                .filter(m -> (double) m.get("cost") > 0.01)
+                                .collect(Collectors.toList());
+                        logger.info("✅ getCostByRegion snapshot hit for {} / {} — {} regions",
+                                account.getAwsAccountId(), startYm, result.size());
+                        redisCache.put(cacheKey, result, 60);
+                        return CompletableFuture.completedFuture(result);
+                    }
+                }
+            } catch (Exception snapEx) {
+                logger.debug("getCostByRegion snapshot check failed: {}", snapEx.getMessage());
+            }
+        }
+
         CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
 
         // Determine date range and granularity
@@ -911,34 +944,95 @@ public class FinOpsService {
                     anomalies.add(false);
                 });
             } else {
-                logger.info("Fetching 6-month cost history for account {} (single batched call)...",
-                        account.getAwsAccountId());
-                LocalDate startRange = LocalDate.now().minusMonths(5).withDayOfMonth(1);
-                LocalDate endRange = LocalDate.now().plusDays(1);
-                GetCostAndUsageRequest req = GetCostAndUsageRequest.builder()
-                        .timePeriod(DateInterval.builder()
-                                .start(startRange.toString()).end(endRange.toString()).build())
-                        .granularity(Granularity.MONTHLY).metrics("UnblendedCost").build();
-
-                List<Double> allCosts = new ArrayList<>();
-                ce.getCostAndUsage(req).resultsByTime().forEach(result -> {
-                    LocalDate monthStart = LocalDate.parse(result.timePeriod().start());
-                    labels.add(monthStart.format(DateTimeFormatter.ofPattern("MMM uuuu")));
-                    allCosts.add(Double.parseDouble(result.total().get("UnblendedCost").amount()));
-                });
-
-                for (int i = 0; i < allCosts.size(); i++) {
-                    double currentCost = allCosts.get(i);
-                    costs.add(currentCost);
-                    boolean isAnomaly = false;
-                    if (i > 0) {
-                        double previousCost = allCosts.get(i - 1);
-                        if (previousCost > 100) {
-                            double changePercent = ((currentCost - previousCost) / previousCost) * 100;
-                            if (changePercent > 20) isAnomaly = true;
+                // ── Snapshot-first: compose 5 closed months from DB, only hit CE for current ──
+                boolean snapResolved = false;
+                try {
+                    String acctId = account.getAwsAccountId();
+                    YearMonth currentYm = YearMonth.now();
+                    List<Double> snapMonthCosts = new ArrayList<>();
+                    boolean allPresent = true;
+                    for (int i = 5; i >= 1; i--) {
+                        YearMonth ym = currentYm.minusMonths(i);
+                        Optional<Double> snapTotal = snapshotService.readMonthlyTotal(acctId, ym);
+                        if (snapTotal.isPresent()) {
+                            snapMonthCosts.add(snapTotal.get());
+                        } else {
+                            allPresent = false;
+                            break;
                         }
                     }
-                    anomalies.add(isAnomaly);
+                    if (allPresent && snapMonthCosts.size() == 5) {
+                        // Fetch only current (open) month from CE API
+                        double[] curCostArr = {0.0};
+                        try {
+                            LocalDate curStart = currentYm.atDay(1);
+                            LocalDate curEnd   = currentYm.atEndOfMonth().plusDays(1);
+                            GetCostAndUsageRequest curReq = GetCostAndUsageRequest.builder()
+                                    .timePeriod(DateInterval.builder()
+                                            .start(curStart.toString()).end(curEnd.toString()).build())
+                                    .granularity(Granularity.MONTHLY).metrics("UnblendedCost").build();
+                            ce.getCostAndUsage(curReq).resultsByTime().forEach(r ->
+                                    curCostArr[0] += Double.parseDouble(
+                                            r.total().get("UnblendedCost").amount()));
+                        } catch (Exception ceEx) {
+                            logger.warn("[FinOps] CE current-month fetch failed, using 0.0: {}", ceEx.getMessage());
+                        }
+                        // Build labels: months -5 … -1 then current
+                        for (int i = 5; i >= 1; i--) {
+                            labels.add(currentYm.minusMonths(i).atDay(1)
+                                    .format(DateTimeFormatter.ofPattern("MMM uuuu")));
+                        }
+                        labels.add(currentYm.atDay(1).format(DateTimeFormatter.ofPattern("MMM uuuu")));
+                        List<Double> allCosts2 = new ArrayList<>(snapMonthCosts);
+                        allCosts2.add(curCostArr[0]);
+                        for (int i = 0; i < allCosts2.size(); i++) {
+                            double cur = allCosts2.get(i);
+                            costs.add(cur);
+                            boolean isAnomaly = false;
+                            if (i > 0 && allCosts2.get(i - 1) > 100) {
+                                double changePercent = ((cur - allCosts2.get(i - 1)) / allCosts2.get(i - 1)) * 100;
+                                if (changePercent > 20) isAnomaly = true;
+                            }
+                            anomalies.add(isAnomaly);
+                        }
+                        snapResolved = true;
+                        logger.info("✅ getCostHistory snapshot-composed for account={}", acctId);
+                    }
+                } catch (Exception snapEx) {
+                    logger.warn("[FinOps] Snapshot composition for getCostHistory failed, falling back to CE: {}",
+                            snapEx.getMessage());
+                }
+
+                if (!snapResolved) {
+                    logger.info("Fetching 6-month cost history for account {} (single batched call)...",
+                            account.getAwsAccountId());
+                    LocalDate startRange = LocalDate.now().minusMonths(5).withDayOfMonth(1);
+                    LocalDate endRange = LocalDate.now().plusDays(1);
+                    GetCostAndUsageRequest req = GetCostAndUsageRequest.builder()
+                            .timePeriod(DateInterval.builder()
+                                    .start(startRange.toString()).end(endRange.toString()).build())
+                            .granularity(Granularity.MONTHLY).metrics("UnblendedCost").build();
+
+                    List<Double> allCosts = new ArrayList<>();
+                    ce.getCostAndUsage(req).resultsByTime().forEach(result -> {
+                        LocalDate monthStart = LocalDate.parse(result.timePeriod().start());
+                        labels.add(monthStart.format(DateTimeFormatter.ofPattern("MMM uuuu")));
+                        allCosts.add(Double.parseDouble(result.total().get("UnblendedCost").amount()));
+                    });
+
+                    for (int i = 0; i < allCosts.size(); i++) {
+                        double currentCost = allCosts.get(i);
+                        costs.add(currentCost);
+                        boolean isAnomaly = false;
+                        if (i > 0) {
+                            double previousCost = allCosts.get(i - 1);
+                            if (previousCost > 100) {
+                                double changePercent = ((currentCost - previousCost) / previousCost) * 100;
+                                if (changePercent > 20) isAnomaly = true;
+                            }
+                        }
+                        anomalies.add(isAnomaly);
+                    }
                 }
             }
         } catch (Exception e) {
