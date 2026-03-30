@@ -94,7 +94,6 @@ public class GcpAutoSpottingService {
         public int spotInstanceCount;
         public int ondemandInstanceCount;
         public String machineType; // Added to track machine type
-        public boolean gkeManagedPool; // true if this MIG is managed by GKE (name starts with "gke-")
     }
 
     public List<GcpAutoSpottingGroupDto> listMigsAllRegionsWithCosts(String accountId) {
@@ -279,9 +278,6 @@ public class GcpAutoSpottingService {
                            igm.getName().toLowerCase().contains("preempt");
         }
 
-        // Detect GKE-managed MIGs: GKE always prefixes MIG names with "gke-" (GKE enforces this)
-        boolean isGkeManagedPool = igm.getName() != null && igm.getName().startsWith("gke-");
-
         return GcpAutoSpottingGroupDto.builder()
                 .name(igm.getName())
                 .region(location)
@@ -290,7 +286,6 @@ public class GcpAutoSpottingService {
                 .ondemandInstanceCount(isSpotEnabled ? 0 : instanceCount)
                 .spotInstanceCount(isSpotEnabled ? instanceCount : 0)
                 .machineType(machineType)
-                .gkeManagedPool(isGkeManagedPool)
                 .build();
     }
 
@@ -735,56 +730,72 @@ public class GcpAutoSpottingService {
             }
             log.info("🔍 [GCP DEBUG] Step 4: Successfully fetched current template properties");
 
-            // Check if already spot
-            if (currentTemplate.getProperties().hasScheduling() &&
-                    "SPOT".equals(currentTemplate.getProperties().getScheduling().getProvisioningModel())) {
-                log.info("MIG {} is already using a SPOT template.", igmName);
+            // ── CRITICAL FIX: Use REST API to check SPOT status ──────────────────────────
+            // The Java SDK gRPC client can return empty-string for provisioningModel even
+            // when the field is set to "SPOT" via REST. Check via REST JSON instead.
+            boolean isAlreadySpot;
+            try {
+                isAlreadySpot = restTemplateService.isSpotTemplate(projectId, templateRegion, currentTemplateName);
+            } catch (Exception e) {
+                log.warn("⚠️ [GCP] REST SPOT check failed, falling back to SDK: {}", e.getMessage());
+                isAlreadySpot = currentTemplate.getProperties().hasScheduling()
+                    && ("SPOT".equals(currentTemplate.getProperties().getScheduling().getProvisioningModel())
+                        || currentTemplate.getProperties().getScheduling().getPreemptible());
+            }
+
+            if (isAlreadySpot) {
+                log.info("ℹ️ [GCP] MIG {} is already using a SPOT template.", igmName);
                 return;
             }
 
-            String newTemplateName = currentTemplateName.replace("-spot-", "-") + "-spot-"
-                    + System.currentTimeMillis() / 1000;
-            if (newTemplateName.length() > 63) { // Limit name length for GCP
-                newTemplateName = "spot-" + System.currentTimeMillis() / 1000;
+            // ── Build a safe spot template name (max 63 chars) ───────────────────────────
+            String base = currentTemplateName
+                .replace("-od-", "-spot-")
+                .replace("-od", "-spot");
+            if (!base.contains("-spot-") && !base.endsWith("-spot")) {
+                base = base + "-spot";
+            }
+            String suffix = "-" + (System.currentTimeMillis() / 1000 % 100_000_000);
+            String newTemplateName = base + suffix;
+            if (newTemplateName.length() > 63) {
+                newTemplateName = "spot-" + (System.currentTimeMillis() / 1000 % 100_000_000);
             }
 
-            // SOLUTION: Use GCP REST API directly (no gcloud required)
-            // This works in production without any CLI dependencies
-            log.info("🔧 [GCP] Creating SPOT template using REST API (SaaS-ready, no gcloud required)");
+            log.info("🔧 [GCP] Creating SPOT template using REST API: {}", newTemplateName);
 
             try {
-                // Step 1: Get current template via REST API
+                // Step 1: Get current template JSON via REST API
                 log.info("🔍 [GCP] Step 1: Fetching current template: {}", currentTemplateName);
                 com.google.gson.JsonObject sourceTemplate = restTemplateService.getInstanceTemplate(
                     projectId, templateRegion, currentTemplateName);
 
-                // Step 2: Create new SPOT template via REST API
+                // Step 2: Create new SPOT template
                 log.info("🔧 [GCP] Step 2: Creating SPOT template: {}", newTemplateName);
                 restTemplateService.createSpotTemplate(
                     projectId, templateRegion, newTemplateName, sourceTemplate, true);
                 log.info("✅ [GCP] Created SPOT template: {}", newTemplateName);
 
-                // Step 3: Update MIG to use new template
+                // Step 3: Build the full self-link URL (GCP REST API requires full URL for instanceTemplate field)
                 String newTemplateUrl;
                 if (templateRegion != null) {
-                    newTemplateUrl = String.format("projects/%s/regions/%s/instanceTemplates/%s",
+                    newTemplateUrl = String.format(
+                        "https://www.googleapis.com/compute/v1/projects/%s/regions/%s/instanceTemplates/%s",
                         projectId, templateRegion, newTemplateName);
                 } else {
-                    newTemplateUrl = String.format("projects/%s/global/instanceTemplates/%s",
+                    newTemplateUrl = String.format(
+                        "https://www.googleapis.com/compute/v1/projects/%s/global/instanceTemplates/%s",
                         projectId, newTemplateName);
                 }
 
-                log.info("🔧 [GCP] Step 3: Setting MIG template to: {}", newTemplateName);
-                restTemplateService.setMigTemplate(projectId, region, igmName, newTemplateUrl);
-                log.info("✅ [GCP] MIG template updated");
-
-                // Step 4: Perform rolling update (Spot.io-style orchestrated replacement)
-                log.info("🔄 [GCP] Step 4: Starting rolling update (zero-downtime replacement)");
-                restTemplateService.startRollingUpdate(projectId, region, igmName, newTemplateUrl);
+                // Step 4: Rolling update (PATCH MIG with new template + PROACTIVE policy)
+                int numZones = igm.hasDistributionPolicy()
+                        ? igm.getDistributionPolicy().getZonesCount() : 0;
+                log.info("🔄 [GCP] Step 4: Rolling update → SPOT (numZones={})", numZones);
+                restTemplateService.startRollingUpdate(projectId, region, igmName, newTemplateUrl, numZones);
                 log.info("✅ [GCP] Rolling update initiated. Instances being replaced with SPOT VMs gradually.");
 
-                // Step 5: Clean up old template (if it was a managed template)
-                if (currentTemplateName.contains("-spot-") || currentTemplateName.contains("-od-")) {
+                // Step 5: Clean up old template if it was previously managed
+                if (currentTemplateName.contains("-spot") || currentTemplateName.contains("-od-")) {
                     log.info("🗑️ [GCP] Step 5: Cleaning up old template: {}", currentTemplateName);
                     restTemplateService.deleteTemplate(projectId, templateRegion, currentTemplateName);
                 }
@@ -832,7 +843,7 @@ public class GcpAutoSpottingService {
     public void disableAutoSpotting(String accountId, String region, String igmName) {
         CloudAccount account = resolveAccount(accountId);
         String projectId = account.getGcpProjectId();
-        log.info("Disabling AutoSpotting (Spot) for MIG {} in project {}", igmName, projectId);
+        log.info("🔴 [GCP] Disabling AutoSpotting (Spot→OnDemand) for MIG {} in project {}", igmName, projectId);
 
         try {
             InstanceGroupManager igm = getMig(projectId, region, igmName);
@@ -843,82 +854,101 @@ public class GcpAutoSpottingService {
 
             String currentTemplateName = currentTemplateUri.substring(currentTemplateUri.lastIndexOf('/') + 1);
             String templateRegion = getTemplateRegion(currentTemplateUri);
-            InstanceTemplate currentTemplate;
 
-            if (templateRegion != null) {
-                Optional<RegionInstanceTemplatesClient> clientOpt = gcpClientProvider
-                        .getRegionInstanceTemplatesClient(projectId);
-                if (clientOpt.isEmpty())
-                    throw new RuntimeException("Failed to get RegionInstanceTemplatesClient");
-                try (RegionInstanceTemplatesClient client = clientOpt.get()) {
-                    currentTemplate = client.get(projectId, templateRegion, currentTemplateName);
-                }
-            } else {
-                Optional<InstanceTemplatesClient> clientOpt = gcpClientProvider.getInstanceTemplatesClient(projectId);
-                if (clientOpt.isEmpty())
-                    throw new RuntimeException("Failed to get InstanceTemplatesClient");
-                try (InstanceTemplatesClient client = clientOpt.get()) {
-                    currentTemplate = client.get(projectId, currentTemplateName);
-                }
+            // ── CRITICAL FIX: Use REST API to check SPOT status ──────────────────────────
+            // The Java SDK gRPC client can return empty-string for provisioningModel even when
+            // the template was created with SPOT via REST API. Reading via REST returns
+            // the actual JSON including "provisioningModel":"SPOT".
+            boolean isCurrentlySpot;
+            try {
+                isCurrentlySpot = restTemplateService.isSpotTemplate(projectId, templateRegion, currentTemplateName);
+            } catch (Exception e) {
+                log.warn("⚠️ [GCP] Could not check template via REST, falling back to SDK check: {}", e.getMessage());
+                // Fallback: attempt SDK check
+                InstanceTemplate sdkTemplate = fetchInstanceTemplate(projectId, templateRegion, currentTemplateName);
+                isCurrentlySpot = sdkTemplate != null
+                    && sdkTemplate.getProperties().hasScheduling()
+                    && ("SPOT".equals(sdkTemplate.getProperties().getScheduling().getProvisioningModel())
+                        || sdkTemplate.getProperties().getScheduling().getPreemptible());
             }
 
-            if (!currentTemplate.getProperties().hasScheduling() ||
-                    !"SPOT".equals(currentTemplate.getProperties().getScheduling().getProvisioningModel())) {
-                log.info("MIG {} is already using a non-SPOT template.", igmName);
+            if (!isCurrentlySpot) {
+                log.info("ℹ️ [GCP] MIG {} is already using a non-SPOT template, nothing to disable.", igmName);
                 return;
             }
 
-            String newTemplateName = currentTemplateName.replace("-spot-", "-od-") + "-"
-                    + System.currentTimeMillis() / 1000;
-            if (!newTemplateName.contains("-od-")) {
-                newTemplateName = currentTemplateName + "-od-" + System.currentTimeMillis() / 1000;
+            // ── Build a safe on-demand template name (max 63 chars, GCP requirement) ─────
+            String base = currentTemplateName
+                .replace("-spot-", "-od-")
+                .replace("-spot", "-od");
+            if (!base.contains("-od-") && !base.endsWith("-od")) {
+                base = "od-" + currentTemplateName;
+            }
+            // Append short epoch suffix (last 8 digits keeps name short)
+            String suffix = "-" + (System.currentTimeMillis() / 1000 % 100_000_000);
+            String newTemplateName = base + suffix;
+            if (newTemplateName.length() > 63) {
+                newTemplateName = "od-" + (System.currentTimeMillis() / 1000 % 100_000_000);
             }
 
-            // SOLUTION: Use GCP REST API directly (no gcloud required)
-            log.info("🔧 [GCP] Creating ON-DEMAND template using REST API");
+            log.info("🔧 [GCP] Creating ON-DEMAND template: {}", newTemplateName);
 
             try {
-                // Step 1: Get current template via REST API
-                log.info("🔍 [GCP] Step 1: Fetching current template: {}", currentTemplateName);
+                // Step 1: Get current template JSON via REST API
                 com.google.gson.JsonObject sourceTemplate = restTemplateService.getInstanceTemplate(
                     projectId, templateRegion, currentTemplateName);
 
-                // Step 2: Create new ON-DEMAND template via REST API
-                log.info("🔧 [GCP] Step 2: Creating ON-DEMAND template: {}", newTemplateName);
+                // Step 2: Create new ON-DEMAND template
                 restTemplateService.createSpotTemplate(
                     projectId, templateRegion, newTemplateName, sourceTemplate, false);
                 log.info("✅ [GCP] Created ON-DEMAND template: {}", newTemplateName);
 
-                // Step 3: Update MIG to use new template
+                // Step 3: Build the full self-link URL (GCP REST API requires full URL for instanceTemplate field)
                 String newTemplateUrl;
                 if (templateRegion != null) {
-                    newTemplateUrl = String.format("projects/%s/regions/%s/instanceTemplates/%s",
+                    newTemplateUrl = String.format(
+                        "https://www.googleapis.com/compute/v1/projects/%s/regions/%s/instanceTemplates/%s",
                         projectId, templateRegion, newTemplateName);
                 } else {
-                    newTemplateUrl = String.format("projects/%s/global/instanceTemplates/%s",
+                    newTemplateUrl = String.format(
+                        "https://www.googleapis.com/compute/v1/projects/%s/global/instanceTemplates/%s",
                         projectId, newTemplateName);
                 }
 
-                log.info("🔧 [GCP] Step 3: Setting MIG template to: {}", newTemplateName);
-                restTemplateService.setMigTemplate(projectId, region, igmName, newTemplateUrl);
-                log.info("✅ [GCP] MIG template updated");
+                // Step 4: Apply rolling update back to ON-DEMAND (region-aware surge/unavailable)
+                int numZones = igm.hasDistributionPolicy()
+                        ? igm.getDistributionPolicy().getZonesCount() : 0;
+                log.info("🔄 [GCP] Step 4: Rolling update → ON-DEMAND (numZones={})", numZones);
+                restTemplateService.startRollingUpdate(projectId, region, igmName, newTemplateUrl, numZones);
+                log.info("✅ [GCP] Rolling update initiated. Instances will be replaced with ON-DEMAND VMs gradually.");
 
-                // Step 4: Perform rolling update (Spot.io-style orchestrated replacement)
-                log.info("🔄 [GCP] Step 4: Starting rolling update (zero-downtime replacement)");
-                restTemplateService.startRollingUpdate(projectId, region, igmName, newTemplateUrl);
-                log.info("✅ [GCP] Rolling update initiated. Instances being replaced with ON-DEMAND VMs gradually.");
-
-                // Step 5: Clean up old template (if it was a managed template)
-                if (currentTemplateName.contains("-spot-") || currentTemplateName.contains("-od-")) {
-                    log.info("🗑️ [GCP] Step 5: Cleaning up old template: {}", currentTemplateName);
+                // Step 5: Clean up old spot template
+                if (currentTemplateName.contains("-spot") || currentTemplateName.contains("-od-")) {
+                    log.info("🗑️ [GCP] Cleaning up old template: {}", currentTemplateName);
                     restTemplateService.deleteTemplate(projectId, templateRegion, currentTemplateName);
                 }
 
                 log.info("✅ [GCP] Successfully disabled SPOT for MIG: {}", igmName);
 
-                // Evict cache so next fetch reflects the updated MIG state
+                // Evict cache
                 redisCacheService.evict(CACHE_KEY_MIGS + accountId);
                 redisCacheService.evict(CACHE_KEY_INSTANCES + accountId);
+
+                // Record disable event
+                try {
+                    int instanceCount = igm.getTargetSize();
+                    SpotOptimizationEvent event = new SpotOptimizationEvent();
+                    event.setAccount(account);
+                    event.setAsgName(igmName);
+                    event.setRegion(region);
+                    event.setStatus("DISABLED");
+                    event.setHourlySavings(0.0);
+                    event.setDetails(String.format("Disabled AutoSpotting for MIG %s with %d instance(s)", igmName, instanceCount));
+                    event.setEventTime(java.time.Instant.now());
+                    eventRepository.save(event);
+                } catch (Exception ev) {
+                    log.warn("⚠️ [GCP] Could not record disable event: {}", ev.getMessage());
+                }
 
             } catch (Exception e) {
                 log.error("❌ [GCP] Failed to disable SPOT: {}", e.getMessage(), e);
@@ -1009,6 +1039,184 @@ public class GcpAutoSpottingService {
     /**
      * Record savings event when AutoSpotting is enabled/disabled
      */
+    // ═══════════════════════════════════════════════════════════════════════════
+    // MIG CONFIGURATION (mirrors AWS ASGConfig endpoints)
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Returns the current configuration of a MIG: update policy, autoscaler settings,
+     * machine type, and whether Spot is currently enabled.
+     */
+    public com.xammer.cloud.dto.gcp.GcpMigConfigDto getMigConfig(String accountId, String region, String migName) {
+        CloudAccount account = resolveAccount(accountId);
+        String projectId = account.getGcpProjectId();
+
+        com.xammer.cloud.dto.gcp.GcpMigConfigDto config = new com.xammer.cloud.dto.gcp.GcpMigConfigDto();
+        config.setMigName(migName);
+        config.setRegion(region);
+
+        try {
+            InstanceGroupManager igm = getMig(projectId, region, migName);
+            config.setTargetSize(igm.getTargetSize());
+
+            // ── Update policy ─────────────────────────────────────────────────
+            if (igm.hasUpdatePolicy()) {
+                com.google.cloud.compute.v1.InstanceGroupManagerUpdatePolicy policy = igm.getUpdatePolicy();
+                if (policy.hasMaxSurge() && policy.getMaxSurge().hasFixed()) {
+                    config.setMaxSurge(policy.getMaxSurge().getFixed());
+                } else {
+                    config.setMaxSurge(1); // sane default
+                }
+                if (policy.hasMaxUnavailable() && policy.getMaxUnavailable().hasFixed()) {
+                    config.setMaxUnavailable(policy.getMaxUnavailable().getFixed());
+                } else {
+                    config.setMaxUnavailable(0);
+                }
+                config.setMinReadySeconds(30); // SDK does not expose minReadySeconds; use default
+            } else {
+                config.setMaxSurge(1);
+                config.setMaxUnavailable(0);
+                config.setMinReadySeconds(30);
+            }
+
+            // ── Machine type (from template) ───────────────────────────────────
+            String templateUri = igm.getInstanceTemplate();
+            if (templateUri != null && !templateUri.isBlank()) {
+                String templateName = templateUri.substring(templateUri.lastIndexOf('/') + 1);
+                String templateRegion = getTemplateRegion(templateUri);
+
+                try {
+                    // Check Spot status via REST (reliable)
+                    boolean isSpot = restTemplateService.isSpotTemplate(projectId, templateRegion, templateName);
+                    config.setSpotEnabled(isSpot);
+                } catch (Exception e) {
+                    log.warn("⚠️ [GCP Config] Could not check spot status: {}", e.getMessage());
+                }
+
+                InstanceTemplate tmpl = fetchInstanceTemplate(projectId, templateRegion, templateName);
+                if (tmpl != null && tmpl.hasProperties() && tmpl.getProperties().hasMachineType()) {
+                    String mt = tmpl.getProperties().getMachineType();
+                    config.setMachineType(mt.substring(mt.lastIndexOf('/') + 1));
+                }
+            }
+
+            // ── Autoscaler ────────────────────────────────────────────────────
+            try {
+                boolean isZonal = region.split("-").length == 3;
+                if (isZonal) {
+                    Optional<com.google.cloud.compute.v1.AutoscalersClient> asClientOpt =
+                        gcpClientProvider.getAutoscalersClient(projectId);
+                    if (asClientOpt.isPresent()) {
+                        try (com.google.cloud.compute.v1.AutoscalersClient asClient = asClientOpt.get()) {
+                            for (com.google.cloud.compute.v1.Autoscaler as :
+                                    asClient.list(projectId, region).iterateAll()) {
+                                if (as.getTarget().endsWith("/" + migName)) {
+                                    config.setAutoscalerEnabled(true);
+                                    if (as.hasAutoscalingPolicy()) {
+                                        config.setAutoscalerMinReplicas(as.getAutoscalingPolicy().getMinNumReplicas());
+                                        config.setAutoscalerMaxReplicas(as.getAutoscalingPolicy().getMaxNumReplicas());
+                                        config.setAutoscalerCoolDownPeriodSec(as.getAutoscalingPolicy().getCoolDownPeriodSec());
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Optional<com.google.cloud.compute.v1.RegionAutoscalersClient> rasClientOpt =
+                        gcpClientProvider.getRegionAutoscalersClient(projectId);
+                    if (rasClientOpt.isPresent()) {
+                        try (com.google.cloud.compute.v1.RegionAutoscalersClient rasClient = rasClientOpt.get()) {
+                            for (com.google.cloud.compute.v1.Autoscaler as :
+                                    rasClient.list(projectId, region).iterateAll()) {
+                                if (as.getTarget().endsWith("/" + migName)) {
+                                    config.setAutoscalerEnabled(true);
+                                    if (as.hasAutoscalingPolicy()) {
+                                        config.setAutoscalerMinReplicas(as.getAutoscalingPolicy().getMinNumReplicas());
+                                        config.setAutoscalerMaxReplicas(as.getAutoscalingPolicy().getMaxNumReplicas());
+                                        config.setAutoscalerCoolDownPeriodSec(as.getAutoscalingPolicy().getCoolDownPeriodSec());
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("⚠️ [GCP Config] Could not fetch autoscaler for MIG {}: {}", migName, e.getMessage());
+            }
+
+            config.setUpdatePolicySummary(String.format(
+                "Rolling update: +%d surge / %d unavailable / %ds ready wait",
+                config.getMaxSurge(), config.getMaxUnavailable(), config.getMinReadySeconds()));
+
+        } catch (Exception e) {
+            log.error("❌ [GCP Config] Failed to get config for MIG {}: {}", migName, e.getMessage(), e);
+            throw new RuntimeException("Failed to get MIG config: " + e.getMessage());
+        }
+
+        return config;
+    }
+
+    /**
+     * Update the update policy of a MIG (maxSurge, maxUnavailable, minReadySeconds).
+     * This affects how future Spot conversions roll out — not the current template.
+     */
+    public com.xammer.cloud.dto.gcp.GcpMigConfigDto updateMigConfig(
+            String accountId, String region, String migName,
+            com.xammer.cloud.dto.gcp.GcpMigConfigDto update) {
+
+        CloudAccount account = resolveAccount(accountId);
+        String projectId = account.getGcpProjectId();
+        log.info("🔧 [GCP Config] Updating config for MIG {}: maxSurge={}, maxUnavailable={}, minReadySec={}",
+            migName, update.getMaxSurge(), update.getMaxUnavailable(), update.getMinReadySeconds());
+
+        try {
+            // GCP constraint (all regions): for regional MIGs, maxSurge.fixed AND maxUnavailable.fixed
+            // must each be 0 or >= numZones. Any value between 1 and numZones-1 → 400 BAD_REQUEST.
+            // Safe rule: zonal → send user values as-is; regional → omit both, let GCP use defaults.
+            boolean isZonal = region.split("-").length == 3;
+
+            // Build PATCH body: update policy + optional target size
+            com.google.gson.JsonObject updatePolicy = new com.google.gson.JsonObject();
+            updatePolicy.addProperty("type", "PROACTIVE");
+            updatePolicy.addProperty("minReadySeconds", update.getMinReadySeconds());
+
+            if (isZonal) {
+                com.google.gson.JsonObject maxSurge = new com.google.gson.JsonObject();
+                maxSurge.addProperty("fixed", update.getMaxSurge());
+                updatePolicy.add("maxSurge", maxSurge);
+
+                com.google.gson.JsonObject maxUnavailable = new com.google.gson.JsonObject();
+                maxUnavailable.addProperty("fixed", update.getMaxUnavailable());
+                updatePolicy.add("maxUnavailable", maxUnavailable);
+            } else {
+                // Regional MIG: omit maxSurge/maxUnavailable — GCP uses numZones as default (always valid).
+                // Sending any fixed value < numZones causes 400 BAD_REQUEST regardless of region.
+                log.info("ℹ️ [GCP Config] Regional MIG {} — omitting maxSurge/maxUnavailable; GCP will apply zone-count defaults", migName);
+            }
+
+            com.google.gson.JsonObject body = new com.google.gson.JsonObject();
+            body.add("updatePolicy", updatePolicy);
+
+            // Also update targetSize if caller provided a non-zero value
+            if (update.getTargetSize() > 0) {
+                body.addProperty("targetSize", update.getTargetSize());
+                log.info("🔧 [GCP Config] Updating targetSize to {} for MIG {}", update.getTargetSize(), migName);
+            }
+
+            restTemplateService.patchMig(projectId, region, migName, body);
+            log.info("✅ [GCP Config] MIG {} config saved (updatePolicy + targetSize)", migName);
+
+        } catch (Exception e) {
+            log.error("❌ [GCP Config] Failed to update config for MIG {}: {}", migName, e.getMessage(), e);
+            throw new RuntimeException("Failed to update MIG config: " + e.getMessage());
+        }
+
+        // Return the updated config
+        return getMigConfig(accountId, region, migName);
+    }
+
     private void recordSavingsEvent(CloudAccount account, String migName, String region,
                                     int instanceCount, double hourlySavingsPerInstance, boolean enabled) {
         try {
