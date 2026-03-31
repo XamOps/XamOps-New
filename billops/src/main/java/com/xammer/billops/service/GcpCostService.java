@@ -4,6 +4,7 @@ import com.google.cloud.bigquery.BigQuery;
 import com.google.cloud.bigquery.Dataset;
 import com.google.cloud.bigquery.FieldValueList;
 import com.google.cloud.bigquery.QueryJobConfiguration;
+import com.google.cloud.bigquery.QueryParameterValue;
 import com.google.cloud.bigquery.Table;
 import com.google.cloud.bigquery.TableResult;
 import com.xammer.billops.domain.CloudAccount;
@@ -154,22 +155,22 @@ public class GcpCostService {
         String query = String.format(
                 "SELECT resource.name as resource_name, SUM(cost) as total_cost " +
                         "FROM %s " +
-                        "WHERE service.description = '%s' AND resource.name IS NOT NULL " +
-                        "AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' " +
+                        "WHERE service.description = @serviceName AND resource.name IS NOT NULL " +
+                        "AND DATE(usage_start_time) >= @startDate AND DATE(usage_start_time) <= @endDate " +
                         "GROUP BY 1 HAVING total_cost > 0.01 ORDER BY total_cost DESC LIMIT 50",
-                tableName,
-                serviceName,
-                startDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
-                today.format(DateTimeFormatter.ISO_LOCAL_DATE));
+                tableName);
+
+        QueryJobConfiguration queryConfig = QueryJobConfiguration.newBuilder(query)
+                .addNamedParameter("serviceName", QueryParameterValue.string(serviceName))
+                .addNamedParameter("startDate", QueryParameterValue.string(startDate.format(DateTimeFormatter.ISO_LOCAL_DATE)))
+                .addNamedParameter("endDate", QueryParameterValue.string(today.format(DateTimeFormatter.ISO_LOCAL_DATE)))
+                .build();
 
         // --- ADDED LOGGING ---
-        // This is the MOST IMPORTANT log. It shows the exact query.
-        // You can copy this query and run it directly in the BigQuery console to test
-        // it.
         logger.debug("Executing BigQuery query for resource costs:\n{}", query);
         // --- END LOGGING ---
 
-        return Optional.of(executeResourceCostQuery(bigquery, query)); // MODIFIED: Return as Optional
+        return Optional.of(executeResourceCostQuery(bigquery, queryConfig)); // MODIFIED: Return as Optional
     }
 
     @CacheEvict(value = { "gcpDashboard", "gcpResourceCosts" }, allEntries = true)
@@ -178,8 +179,10 @@ public class GcpCostService {
     }
 
     private List<GcpResourceCostDto> executeResourceCostQuery(BigQuery bq, String query) throws InterruptedException {
-        QueryJobConfiguration queryConfig = QueryJobConfiguration.newBuilder(query).build();
+        return executeResourceCostQuery(bq, QueryJobConfiguration.newBuilder(query).build());
+    }
 
+    private List<GcpResourceCostDto> executeResourceCostQuery(BigQuery bq, QueryJobConfiguration queryConfig) throws InterruptedException {
         // --- ADDED LOGGING ---
         logger.debug("BigQuery job configured. Executing query...");
         // --- END LOGGING ---
@@ -285,14 +288,14 @@ public class GcpCostService {
 
     private List<GcpBillingDashboardDto.CostHistory> getCostHistory(BigQuery bq, String tableName, LocalDate today)
             throws InterruptedException {
-        String startDate = today.minusMonths(6).withDayOfMonth(1).format(DateTimeFormatter.ISO_LOCAL_DATE);
-        String endDate = today.format(DateTimeFormatter.ISO_LOCAL_DATE);
+        String startDateStr = today.minusMonths(6).withDayOfMonth(1).format(DateTimeFormatter.ISO_LOCAL_DATE);
+        String endDateStr = today.format(DateTimeFormatter.ISO_LOCAL_DATE);
 
         String query = String.format(
                 "WITH MonthlyCosts AS (" +
                         "  SELECT FORMAT_DATE('%%Y-%%m', usage_start_time) as name, SUM(cost) as total_cost " +
                         "  FROM %s " +
-                        "  WHERE DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' " +
+                        "  WHERE DATE(usage_start_time) >= @startDate AND DATE(usage_start_time) <= @endDate " +
                         "  GROUP BY 1" +
                         "), " +
                         "MonthlyCostsWithLag AS (" +
@@ -302,9 +305,12 @@ public class GcpCostService {
                         "SELECT name, total_cost, (total_cost > prev_month_cost * 1.2 AND prev_month_cost > 10) as is_anomaly "
                         +
                         "FROM MonthlyCostsWithLag ORDER BY name",
-                tableName, startDate, endDate);
+                tableName);
 
-        QueryJobConfiguration queryConfig = QueryJobConfiguration.newBuilder(query).build();
+        QueryJobConfiguration queryConfig = QueryJobConfiguration.newBuilder(query)
+                .addNamedParameter("startDate", QueryParameterValue.string(startDateStr))
+                .addNamedParameter("endDate", QueryParameterValue.string(endDateStr))
+                .build();
         TableResult results = bq.query(queryConfig);
         List<GcpBillingDashboardDto.CostHistory> costHistory = new ArrayList<>();
         for (FieldValueList row : results.iterateAll()) {
@@ -324,13 +330,14 @@ public class GcpCostService {
         String query = String.format(
                 "SELECT service.description as service_name, SUM(cost) as total_cost " +
                         "FROM %s " +
-                        "WHERE DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' " +
+                        "WHERE DATE(usage_start_time) >= @startDate AND DATE(usage_start_time) <= @endDate " +
                         "GROUP BY 1 HAVING total_cost > 0 ORDER BY total_cost DESC",
-                tableName,
-                startDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
-                today.format(DateTimeFormatter.ISO_LOCAL_DATE));
+                tableName);
 
-        QueryJobConfiguration queryConfig = QueryJobConfiguration.newBuilder(query).build();
+        QueryJobConfiguration queryConfig = QueryJobConfiguration.newBuilder(query)
+                .addNamedParameter("startDate", QueryParameterValue.string(startDate.format(DateTimeFormatter.ISO_LOCAL_DATE)))
+                .addNamedParameter("endDate", QueryParameterValue.string(today.format(DateTimeFormatter.ISO_LOCAL_DATE)))
+                .build();
         TableResult results = bq.query(queryConfig);
         List<GcpBillingDashboardDto.ServiceBreakdown> serviceBreakdown = new ArrayList<>();
         for (FieldValueList row : results.iterateAll()) {
@@ -346,12 +353,15 @@ public class GcpCostService {
             throws InterruptedException {
         LocalDate startDate = today.withDayOfMonth(1);
         String query = String.format(
-                "SELECT SUM(cost) as total_cost FROM %s WHERE DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s'",
-                tableName,
-                startDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
-                today.format(DateTimeFormatter.ISO_LOCAL_DATE));
+                "SELECT SUM(cost) as total_cost FROM %s WHERE DATE(usage_start_time) >= @startDate AND DATE(usage_start_time) <= @endDate",
+                tableName);
 
-        TableResult results = bigquery.query(QueryJobConfiguration.newBuilder(query).build());
+        QueryJobConfiguration queryConfig = QueryJobConfiguration.newBuilder(query)
+                .addNamedParameter("startDate", QueryParameterValue.string(startDate.format(DateTimeFormatter.ISO_LOCAL_DATE)))
+                .addNamedParameter("endDate", QueryParameterValue.string(today.format(DateTimeFormatter.ISO_LOCAL_DATE)))
+                .build();
+
+        TableResult results = bigquery.query(queryConfig);
         FieldValueList row = results.getValues().iterator().next();
         if (row.get("total_cost").isNull()) {
             return BigDecimal.ZERO;
