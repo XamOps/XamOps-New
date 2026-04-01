@@ -66,7 +66,7 @@ public class EksAutoscalingService {
     public static final String DT_POLICY             = "autoscaling-policy";
     public static final String DT_METRICS            = "autoscaling-metrics";
     public static final String DT_EVENTS             = "autoscaling-events";
-    // Pushed by xamops-autoscaler (read-write controller):
+    // Pushed by xamops-automation (read-write controller):
     public static final String DT_RIGHTSIZING        = "autoscaling-rightsizing";
     public static final String DT_REBALANCE_STATUS   = "autoscaling-rebalance-status";
     public static final String DT_EVICTOR_CANDIDATES = "autoscaling-evictor-candidates";
@@ -548,12 +548,12 @@ public class EksAutoscalingService {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // AUTOSCALER CONTROLLER DATA (xamops-autoscaler pushes these)
+    // AUTOSCALER CONTROLLER DATA (xamops-automation pushes these)
     // ═══════════════════════════════════════════════════════════════════════
 
     /**
      * Read rightsizing recommendations.
-     * Primary source: autoscaling-rightsizing pushed by xamops-autoscaler (Prometheus-backed p80 analysis).
+     * Primary source: autoscaling-rightsizing pushed by xamops-automation (Prometheus-backed p80 analysis).
      * Fallback:       compute snapshot-based recommendations from EksDashboardCache (already in DB).
      */
     @SuppressWarnings("unchecked")
@@ -705,7 +705,7 @@ public class EksAutoscalingService {
                     rec.setP100Mem(maxMemUsage);
                     rec.setEstimatedSavingsPercent(Math.round(savingsPct * 10.0) / 10.0);
                     rec.setApplied(false);
-                    rec.setReason("snapshot-based (deploy xamops-autoscaler for Prometheus p80 analysis)");
+                    rec.setReason("snapshot-based (deploy xamops-automation for Prometheus p80 analysis)");
                     recommendations.add(rec);
                 }
             }
@@ -739,7 +739,7 @@ public class EksAutoscalingService {
     }
 
     /**
-     * Read rebalance status pushed by xamops-autoscaler.
+     * Read rebalance status pushed by xamops-automation.
      * Returns empty map if no rebalance has occurred.
      */
     public Map<String, Object> getRebalanceStatus(String clusterName, Long cloudAccountId) {
@@ -762,7 +762,7 @@ public class EksAutoscalingService {
     }
 
     /**
-     * Read evictor candidates pushed by xamops-autoscaler.
+     * Read evictor candidates pushed by xamops-automation.
      */
     @SuppressWarnings("unchecked")
     public List<Map<String, Object>> getEvictorCandidates(String clusterName, Long cloudAccountId) {

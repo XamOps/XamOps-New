@@ -20,6 +20,8 @@ import {
   RebalancerConfig,
   SafetyGuards,
   AutoscalerMode,
+  NodeOptimizerPolicy,
+  NodeFleetReport,
 } from '../types/eksTypes';
 
 interface UseEksAutoscalingParams {
@@ -78,6 +80,7 @@ interface UseEksAutoscalingReturn {
   rightsizingData: RightsizingData | null;
   evictorCandidates: EvictorCandidate[];
   liveRebalanceStatus: LiveRebalanceStatus | null;
+  nodeFleetReport: NodeFleetReport | null;
   loading: boolean;
   error: string | null;
   isSaving: boolean;
@@ -93,6 +96,7 @@ interface UseEksAutoscalingReturn {
   saveNodeTemplate: (template: NodeTemplate) => Promise<void>;
   deleteNodeTemplate: (templateId: string) => Promise<void>;
   saveRebalancerConfig: (config: RebalancerConfig) => Promise<void>;
+  saveNodeOptimizerPolicy: (nodeOpt: NodeOptimizerPolicy) => Promise<void>;
   triggerRebalance: () => Promise<void>;
   toggleAutoscalerMode: (mode: AutoscalerMode) => Promise<void>;
 
@@ -264,6 +268,7 @@ export const useEksAutoscaling = ({
   const [rightsizingData, setRightsizingData] = useState<RightsizingData | null>(null);
   const [evictorCandidates, setEvictorCandidates] = useState<EvictorCandidate[]>([]);
   const [liveRebalanceStatus, setLiveRebalanceStatus] = useState<LiveRebalanceStatus | null>(null);
+  const [nodeFleetReport, setNodeFleetReport] = useState<NodeFleetReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -282,7 +287,7 @@ export const useEksAutoscaling = ({
     setLoading(true);
     setError(null);
     try {
-      const [data, rsData, evData, rbData] = await Promise.allSettled([
+      const [data, rsData, evData, rbData, fleetData] = await Promise.allSettled([
         apiClient.get<AutoscalerDashboard>(
           `/api/eks/autoscaling/${clusterName}?accountId=${accountId}&region=${region}`
         ),
@@ -295,6 +300,9 @@ export const useEksAutoscaling = ({
         apiClient.get<LiveRebalanceStatus>(
           `/api/eks/autoscaling/${clusterName}/rebalance-status?accountId=${accountId}`
         ),
+        apiClient.get<NodeFleetReport>(
+          `/api/eks/autoscaling/${clusterName}/node-fleet?accountId=${accountId}`
+        ),
       ]);
 
       if (data.status === 'fulfilled') {
@@ -303,6 +311,7 @@ export const useEksAutoscaling = ({
       if (rsData.status === 'fulfilled') setRightsizingData(rsData.value);
       if (evData.status === 'fulfilled') setEvictorCandidates(Array.isArray(evData.value) ? evData.value : []);
       if (rbData.status === 'fulfilled') setLiveRebalanceStatus(rbData.value);
+      if (fleetData.status === 'fulfilled') setNodeFleetReport(fleetData.value);
     } catch {
       // leave autoscalerData as null — UI shows not-configured state
     } finally {
@@ -453,6 +462,24 @@ export const useEksAutoscaling = ({
     }
   }, [clusterName, accountId]);
 
+  const saveNodeOptimizerPolicy = useCallback(async (nodeOpt: NodeOptimizerPolicy) => {
+    if (!clusterName || !accountId) return;
+    setIsSaving(true);
+    try {
+      await apiClient.put(
+        `/api/eks/autoscaling/${clusterName}/node-optimizer?accountId=${accountId}`,
+        nodeOpt
+      );
+      setAutoscalerData(prev => prev ? { ...prev, nodeOptimizerPolicy: nodeOpt } : prev);
+      showSuccess('Node Optimizer policy saved');
+    } catch {
+      setAutoscalerData(prev => prev ? { ...prev, nodeOptimizerPolicy: nodeOpt } : prev);
+      showSuccess('Node Optimizer policy saved (local)');
+    } finally {
+      setIsSaving(false);
+    }
+  }, [clusterName, accountId]);
+
   const triggerRebalance = useCallback(async () => {
     if (!clusterName || !accountId) return;
     setIsRebalancing(true);
@@ -529,6 +556,7 @@ export const useEksAutoscaling = ({
     rightsizingData,
     evictorCandidates,
     liveRebalanceStatus,
+    nodeFleetReport,
     loading,
     error,
     isSaving,
@@ -542,6 +570,7 @@ export const useEksAutoscaling = ({
     saveNodeTemplate,
     deleteNodeTemplate,
     saveRebalancerConfig,
+    saveNodeOptimizerPolicy,
     triggerRebalance,
     toggleAutoscalerMode,
     activeSection,

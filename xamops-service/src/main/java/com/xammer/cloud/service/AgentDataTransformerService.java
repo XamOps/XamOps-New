@@ -416,32 +416,28 @@ public class AgentDataTransformerService {
         double totalDailyCost = 0;
 
         for (Map<String, Object> item : items) {
-            // Each item is an allocation window set
-            Map<String, Object> allocations = (Map<String, Object>) item.get("allocations");
-            if (allocations == null) continue;
+            // Each item IS a namespace allocation with flat fields:
+            // {namespace, cpuCost, ramCost, pvCost, networkCost, totalCost, ...}
+            String namespace = (String) item.get("namespace");
+            if (namespace == null) continue;
 
-            for (Map.Entry<String, Object> entry : allocations.entrySet()) {
-                String namespace = entry.getKey();
-                Map<String, Object> allocation = (Map<String, Object>) entry.getValue();
+            OpenCostDashboard.NamespaceAllocation nsAlloc = new OpenCostDashboard.NamespaceAllocation();
+            nsAlloc.setNamespace(namespace);
 
-                OpenCostDashboard.NamespaceAllocation nsAlloc = new OpenCostDashboard.NamespaceAllocation();
-                nsAlloc.setNamespace(namespace);
+            double cpuCost = getDoubleValue(item, "cpuCost");
+            double ramCost = getDoubleValue(item, "ramCost");
+            double networkCost = getDoubleValue(item, "networkCost");
+            double pvCost = getDoubleValue(item, "pvCost");
+            double totalCost = getDoubleValue(item, "totalCost");
 
-                double cpuCost = getDoubleValue(allocation, "cpuCost");
-                double ramCost = getDoubleValue(allocation, "ramCost");
-                double networkCost = getDoubleValue(allocation, "networkCost");
-                double pvCost = getDoubleValue(allocation, "pvCost");
-                double totalCost = getDoubleValue(allocation, "totalCost");
+            nsAlloc.setCpuCost(cpuCost);
+            nsAlloc.setRamCost(ramCost);
+            nsAlloc.setNetworkCost(networkCost);
+            nsAlloc.setPvCost(pvCost);
+            nsAlloc.setTotalCost(totalCost);
 
-                nsAlloc.setCpuCost(cpuCost);
-                nsAlloc.setRamCost(ramCost);
-                nsAlloc.setNetworkCost(networkCost);
-                nsAlloc.setPvCost(pvCost);
-                nsAlloc.setTotalCost(totalCost);
-
-                namespaceAllocations.add(nsAlloc);
-                totalDailyCost += totalCost;
-            }
+            namespaceAllocations.add(nsAlloc);
+            totalDailyCost += totalCost;
         }
 
         dashboard.setNamespaceAllocations(namespaceAllocations);
@@ -883,5 +879,308 @@ public class AgentDataTransformerService {
             }
         }
         return 0.0;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // K8s Resources transformer (collector: "k8s-resources")
+    // Replaces direct Prometheus + KubeAPI calls for node/pod/workload data.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * K8sResourcesResult holds the fields that EksDashboardService needs to populate
+     * ClusterOverview, NodeDetails, PodDetails, WorkloadHealth from agent data.
+     */
+    public static class K8sResourcesResult {
+        private int totalNodes;
+        private int readyNodes;
+        private int spotNodes;
+        private int totalPods;
+        private int runningPods;
+        private int pendingPods;
+        private int failedPods;
+        private int totalNamespaces;
+        private int totalDeployments;
+        private int totalServices;
+        private int totalPvcs;
+        private int unscheduledPods;
+        private List<Map<String, Object>> nodes = new ArrayList<>();
+        private List<Map<String, Object>> pods = new ArrayList<>();
+        private List<Map<String, Object>> deployments = new ArrayList<>();
+        private List<Map<String, Object>> statefulSets = new ArrayList<>();
+        private List<Map<String, Object>> daemonSets = new ArrayList<>();
+        private List<Map<String, Object>> services = new ArrayList<>();
+        private List<Map<String, Object>> ingresses = new ArrayList<>();
+        private List<Map<String, Object>> hpas = new ArrayList<>();
+        private List<Map<String, Object>> pvcs = new ArrayList<>();
+        private List<Map<String, Object>> events = new ArrayList<>();
+        private List<Map<String, Object>> nodeMetrics = new ArrayList<>();
+        private List<Map<String, Object>> podMetrics = new ArrayList<>();
+        private List<Map<String, Object>> namespaces = new ArrayList<>();
+        private String k8sVersion;
+
+        public int getTotalNodes() { return totalNodes; }
+        public void setTotalNodes(int v) { this.totalNodes = v; }
+        public int getReadyNodes() { return readyNodes; }
+        public void setReadyNodes(int v) { this.readyNodes = v; }
+        public int getSpotNodes() { return spotNodes; }
+        public void setSpotNodes(int v) { this.spotNodes = v; }
+        public int getTotalPods() { return totalPods; }
+        public void setTotalPods(int v) { this.totalPods = v; }
+        public int getRunningPods() { return runningPods; }
+        public void setRunningPods(int v) { this.runningPods = v; }
+        public int getPendingPods() { return pendingPods; }
+        public void setPendingPods(int v) { this.pendingPods = v; }
+        public int getFailedPods() { return failedPods; }
+        public void setFailedPods(int v) { this.failedPods = v; }
+        public int getTotalNamespaces() { return totalNamespaces; }
+        public void setTotalNamespaces(int v) { this.totalNamespaces = v; }
+        public int getTotalDeployments() { return totalDeployments; }
+        public void setTotalDeployments(int v) { this.totalDeployments = v; }
+        public int getTotalServices() { return totalServices; }
+        public void setTotalServices(int v) { this.totalServices = v; }
+        public int getTotalPvcs() { return totalPvcs; }
+        public void setTotalPvcs(int v) { this.totalPvcs = v; }
+        public int getUnscheduledPods() { return unscheduledPods; }
+        public void setUnscheduledPods(int v) { this.unscheduledPods = v; }
+        public List<Map<String, Object>> getNodes() { return nodes; }
+        public void setNodes(List<Map<String, Object>> v) { this.nodes = v; }
+        public List<Map<String, Object>> getPods() { return pods; }
+        public void setPods(List<Map<String, Object>> v) { this.pods = v; }
+        public List<Map<String, Object>> getDeployments() { return deployments; }
+        public void setDeployments(List<Map<String, Object>> v) { this.deployments = v; }
+        public List<Map<String, Object>> getStatefulSets() { return statefulSets; }
+        public void setStatefulSets(List<Map<String, Object>> v) { this.statefulSets = v; }
+        public List<Map<String, Object>> getDaemonSets() { return daemonSets; }
+        public void setDaemonSets(List<Map<String, Object>> v) { this.daemonSets = v; }
+        public List<Map<String, Object>> getServices() { return services; }
+        public void setServices(List<Map<String, Object>> v) { this.services = v; }
+        public List<Map<String, Object>> getIngresses() { return ingresses; }
+        public void setIngresses(List<Map<String, Object>> v) { this.ingresses = v; }
+        public List<Map<String, Object>> getHpas() { return hpas; }
+        public void setHpas(List<Map<String, Object>> v) { this.hpas = v; }
+        public List<Map<String, Object>> getPvcs() { return pvcs; }
+        public void setPvcs(List<Map<String, Object>> v) { this.pvcs = v; }
+        public List<Map<String, Object>> getEvents() { return events; }
+        public void setEvents(List<Map<String, Object>> v) { this.events = v; }
+        public List<Map<String, Object>> getNodeMetrics() { return nodeMetrics; }
+        public void setNodeMetrics(List<Map<String, Object>> v) { this.nodeMetrics = v; }
+        public List<Map<String, Object>> getPodMetrics() { return podMetrics; }
+        public void setPodMetrics(List<Map<String, Object>> v) { this.podMetrics = v; }
+        public List<Map<String, Object>> getNamespaces() { return namespaces; }
+        public void setNamespaces(List<Map<String, Object>> v) { this.namespaces = v; }
+        public String getK8sVersion() { return k8sVersion; }
+        public void setK8sVersion(String v) { this.k8sVersion = v; }
+    }
+
+    /**
+     * Reads the "k8s-resources" cache entry and extracts the full cluster snapshot.
+     * Called from EksDashboardService in agent mode to replace Prometheus/kubeconfig data.
+     */
+    @SuppressWarnings("unchecked")
+    public K8sResourcesResult transformK8sResources(Long clusterConfigId) {
+        K8sResourcesResult result = new K8sResourcesResult();
+
+        Optional<AgentDataCache> cacheOpt = agentDataCacheRepository
+                .findByClusterConfigIdAndDataType(clusterConfigId, "k8s-resources");
+
+        if (cacheOpt.isEmpty()) {
+            logger.debug("No k8s-resources cache found for cluster config: {}", clusterConfigId);
+            return result;
+        }
+
+        try {
+            // k8s-resources is stored as a single-object JSON (SINGLE_OBJECT_COLLECTORS)
+            // Stored as [{ ...K8sResources... }] after ingest processing
+            String json = cacheOpt.get().getDataJson();
+            Map<String, Object> data;
+
+            // Handle both wrapped ([{...}]) and unwrapped ({...}) storage formats
+            if (json.trim().startsWith("[")) {
+                List<Map<String, Object>> list = objectMapper.readValue(json, new TypeReference<List<Map<String, Object>>>() {});
+                if (list.isEmpty()) return result;
+                data = list.get(0);
+            } else {
+                data = objectMapper.readValue(json, new TypeReference<Map<String, Object>>() {});
+            }
+
+            // Summary block
+            Map<String, Object> summary = (Map<String, Object>) data.get("summary");
+            if (summary != null) {
+                result.setTotalNodes(getIntValue(summary, "totalNodes"));
+                result.setReadyNodes(getIntValue(summary, "readyNodes"));
+                result.setSpotNodes(getIntValue(summary, "spotNodes"));
+                result.setTotalPods(getIntValue(summary, "totalPods"));
+                result.setRunningPods(getIntValue(summary, "runningPods"));
+                result.setPendingPods(getIntValue(summary, "pendingPods"));
+                result.setFailedPods(getIntValue(summary, "failedPods"));
+                result.setTotalNamespaces(getIntValue(summary, "totalNamespaces"));
+                result.setTotalDeployments(getIntValue(summary, "totalDeployments"));
+                result.setTotalServices(getIntValue(summary, "totalServices"));
+                result.setTotalPvcs(getIntValue(summary, "totalPvcs"));
+                result.setUnscheduledPods(getIntValue(summary, "unscheduledPods"));
+            }
+
+            // Resource lists — pass raw maps through; EksDashboardService maps them to DTOs
+            setListField(result::setNodes, data, "nodes");
+            setListField(result::setPods, data, "pods");
+            setListField(result::setDeployments, data, "deployments");
+            setListField(result::setStatefulSets, data, "statefulSets");
+            setListField(result::setDaemonSets, data, "daemonSets");
+            setListField(result::setServices, data, "services");
+            setListField(result::setIngresses, data, "ingresses");
+            setListField(result::setHpas, data, "hpas");
+            setListField(result::setPvcs, data, "pvcs");
+            setListField(result::setEvents, data, "events");
+            setListField(result::setNodeMetrics, data, "nodeMetrics");
+            setListField(result::setPodMetrics, data, "podMetrics");
+            setListField(result::setNamespaces, data, "namespaces");
+
+            // Extract k8sVersion if present
+            Object k8sVer = data.get("k8sVersion");
+            if (k8sVer instanceof String) {
+                result.setK8sVersion((String) k8sVer);
+            }
+
+            logger.info("k8s-resources: nodes={} pods={} deployments={} namespaces={}",
+                    result.getTotalNodes(), result.getTotalPods(),
+                    result.getTotalDeployments(), result.getTotalNamespaces());
+
+        } catch (Exception e) {
+            logger.error("Error transforming k8s-resources for cluster {}: {}", clusterConfigId, e.getMessage());
+        }
+
+        return result;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Prometheus Metrics transformer (collector: "prometheus-metrics")
+    // Replaces direct Prometheus HTTP calls for cost, Falco, utilization data.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * PrometheusMetricsResult holds the metrics that EksDashboardService needs
+     * to populate CostMetrics, SecurityMetrics, ResourceUtilization sections.
+     */
+    public static class PrometheusMetricsResult {
+        private double clusterCpuUsagePct;
+        private double clusterMemUsagePct;
+        private List<Map<String, Object>> nodeUtilization = new ArrayList<>();
+        private List<Map<String, Object>> namespaceUtilization = new ArrayList<>();
+        private Map<String, Object> costMetrics;
+        private List<Map<String, Object>> falcoEvents = new ArrayList<>();
+        private List<Map<String, Object>> podRestartRates = new ArrayList<>();
+        private List<Map<String, Object>> topCpuPods = new ArrayList<>();
+        private List<Map<String, Object>> topMemoryPods = new ArrayList<>();
+        private List<Map<String, Object>> networkMetrics = new ArrayList<>();
+        private String collectedAt;
+
+        public double getClusterCpuUsagePct() { return clusterCpuUsagePct; }
+        public void setClusterCpuUsagePct(double v) { this.clusterCpuUsagePct = v; }
+        public double getClusterMemUsagePct() { return clusterMemUsagePct; }
+        public void setClusterMemUsagePct(double v) { this.clusterMemUsagePct = v; }
+        public List<Map<String, Object>> getNodeUtilization() { return nodeUtilization; }
+        public void setNodeUtilization(List<Map<String, Object>> v) { this.nodeUtilization = v; }
+        public List<Map<String, Object>> getNamespaceUtilization() { return namespaceUtilization; }
+        public void setNamespaceUtilization(List<Map<String, Object>> v) { this.namespaceUtilization = v; }
+        public Map<String, Object> getCostMetrics() { return costMetrics; }
+        public void setCostMetrics(Map<String, Object> v) { this.costMetrics = v; }
+        public List<Map<String, Object>> getFalcoEvents() { return falcoEvents; }
+        public void setFalcoEvents(List<Map<String, Object>> v) { this.falcoEvents = v; }
+        public List<Map<String, Object>> getPodRestartRates() { return podRestartRates; }
+        public void setPodRestartRates(List<Map<String, Object>> v) { this.podRestartRates = v; }
+        public List<Map<String, Object>> getTopCpuPods() { return topCpuPods; }
+        public void setTopCpuPods(List<Map<String, Object>> v) { this.topCpuPods = v; }
+        public List<Map<String, Object>> getTopMemoryPods() { return topMemoryPods; }
+        public void setTopMemoryPods(List<Map<String, Object>> v) { this.topMemoryPods = v; }
+        public List<Map<String, Object>> getNetworkMetrics() { return networkMetrics; }
+        public void setNetworkMetrics(List<Map<String, Object>> v) { this.networkMetrics = v; }
+        public String getCollectedAt() { return collectedAt; }
+        public void setCollectedAt(String v) { this.collectedAt = v; }
+    }
+
+    /**
+     * Reads the "prometheus-metrics" cache entry.
+     * Called from EksDashboardService in agent mode to replace direct Prometheus queries.
+     */
+    @SuppressWarnings("unchecked")
+    public PrometheusMetricsResult transformPrometheusMetrics(Long clusterConfigId) {
+        PrometheusMetricsResult result = new PrometheusMetricsResult();
+
+        Optional<AgentDataCache> cacheOpt = agentDataCacheRepository
+                .findByClusterConfigIdAndDataType(clusterConfigId, "prometheus-metrics");
+
+        if (cacheOpt.isEmpty()) {
+            logger.debug("No prometheus-metrics cache found for cluster config: {}", clusterConfigId);
+            return result;
+        }
+
+        try {
+            String json = cacheOpt.get().getDataJson();
+            Map<String, Object> data;
+
+            if (json.trim().startsWith("[")) {
+                List<Map<String, Object>> list = objectMapper.readValue(json, new TypeReference<List<Map<String, Object>>>() {});
+                if (list.isEmpty()) return result;
+                data = list.get(0);
+            } else {
+                data = objectMapper.readValue(json, new TypeReference<Map<String, Object>>() {});
+            }
+
+            result.setClusterCpuUsagePct(getDoubleValue(data, "clusterCpuUsagePct"));
+            result.setClusterMemUsagePct(getDoubleValue(data, "clusterMemUsagePct"));
+            result.setCollectedAt((String) data.get("collectedAt"));
+
+            setListField(result::setNodeUtilization, data, "nodeUtilization");
+            setListField(result::setNamespaceUtilization, data, "namespaceUtilization");
+            setListField(result::setFalcoEvents, data, "falcoEvents");
+            setListField(result::setPodRestartRates, data, "podRestartRates");
+            setListField(result::setTopCpuPods, data, "topCpuPods");
+            setListField(result::setTopMemoryPods, data, "topMemoryPods");
+            setListField(result::setNetworkMetrics, data, "networkMetrics");
+
+            Object costRaw = data.get("costMetrics");
+            if (costRaw instanceof Map) {
+                result.setCostMetrics((Map<String, Object>) costRaw);
+            }
+
+            logger.info("prometheus-metrics: cpu={}% mem={}% falcoEvents={} nodeUtilization={}",
+                    result.getClusterCpuUsagePct(), result.getClusterMemUsagePct(),
+                    result.getFalcoEvents().size(), result.getNodeUtilization().size());
+
+        } catch (Exception e) {
+            logger.error("Error transforming prometheus-metrics for cluster {}: {}", clusterConfigId, e.getMessage());
+        }
+
+        return result;
+    }
+
+    /**
+     * Reads automation results pushed by xamops-automation.
+     * Returns raw JSON map (EksDashboardService / EksAutoscalingService maps it to DTOs).
+     */
+    public Map<String, Object> transformAutomationData(Long clusterConfigId, String dataType) {
+        Optional<AgentDataCache> cacheOpt = agentDataCacheRepository
+                .findByClusterConfigIdAndDataType(clusterConfigId, dataType);
+        if (cacheOpt.isEmpty()) return null;
+        try {
+            String json = cacheOpt.get().getDataJson();
+            if (json.trim().startsWith("[")) {
+                List<Map<String, Object>> list = objectMapper.readValue(json, new TypeReference<List<Map<String, Object>>>() {});
+                return list.isEmpty() ? null : list.get(0);
+            }
+            return objectMapper.readValue(json, new TypeReference<Map<String, Object>>() {});
+        } catch (Exception e) {
+            logger.error("Error reading automation data type={} cluster={}: {}", dataType, clusterConfigId, e.getMessage());
+            return null;
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private void setListField(java.util.function.Consumer<List<Map<String, Object>>> setter,
+                               Map<String, Object> data, String key) {
+        Object val = data.get(key);
+        if (val instanceof List) {
+            setter.accept((List<Map<String, Object>>) val);
+        }
     }
 }

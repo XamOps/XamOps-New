@@ -327,7 +327,7 @@ public class EksAutoscalingController {
     /**
      * GET /api/eks/autoscaling/{clusterName}/rightsizing?accountId=xxx
      *
-     * Returns workload rightsizing recommendations pushed by xamops-autoscaler.
+     * Returns workload rightsizing recommendations pushed by xamops-automation.
      * Empty list if autoscaler has not run yet.
      */
     @GetMapping("/{clusterName}/rightsizing")
@@ -351,7 +351,7 @@ public class EksAutoscalingController {
     /**
      * GET /api/eks/autoscaling/{clusterName}/rebalance-status?accountId=xxx
      *
-     * Returns the current rebalance status pushed by xamops-autoscaler.
+     * Returns the current rebalance status pushed by xamops-automation.
      */
     @GetMapping("/{clusterName}/rebalance-status")
     public ResponseEntity<Map<String, Object>> getRebalanceStatus(

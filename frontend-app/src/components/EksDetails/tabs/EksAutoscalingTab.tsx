@@ -1,5 +1,5 @@
 /**
- * EKS Autoscaling Tab — XamOps Autoscaling Agent
+ * EKS Autoscaling Tab — XamOps Automation Agent
  *
  * Full CAST.ai-equivalent autoscaling UI for EKS clusters.
  * Covers: Agent status, Scale-Out (unschedulable pods), Scale-In (Evictor
@@ -22,6 +22,7 @@ import {
   RebalancerConfig,
   SafetyGuards,
   AutoscalingEvent,
+  NodeOptimizerPolicy,
 } from '../../../types/eksTypes';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -204,6 +205,7 @@ const EksAutoscalingTab: React.FC<{ eksData: any }> = (_props) => {
     rightsizingData,
     evictorCandidates,
     liveRebalanceStatus,
+    nodeFleetReport,
     loading,
     isSaving,
     isRebalancing,
@@ -216,6 +218,7 @@ const EksAutoscalingTab: React.FC<{ eksData: any }> = (_props) => {
     saveNodeTemplate,
     deleteNodeTemplate,
     saveRebalancerConfig,
+    saveNodeOptimizerPolicy,
     triggerRebalance,
     toggleAutoscalerMode,
     editingTemplateId,
@@ -229,8 +232,22 @@ const EksAutoscalingTab: React.FC<{ eksData: any }> = (_props) => {
   const [rightsizer, setRightsizer] = useState<WorkloadRightsizerPolicy | null>(null);
   const [guards, setGuards] = useState<SafetyGuards | null>(null);
   const [rebalancer, setRebalancerDraft] = useState<RebalancerConfig | null>(null);
+  const [nodeOpt, setNodeOpt] = useState<NodeOptimizerPolicy | null>(null);
   const [editingTemplate, setEditingTemplate] = useState<NodeTemplate | null>(null);
   const [showNewTemplateForm, setShowNewTemplateForm] = useState(false);
+
+  // Default NodeOptimizerPolicy for clusters without one configured
+  const defaultNodeOpt: NodeOptimizerPolicy = {
+    enabled: false,
+    idleCpuThresholdPct: 10,
+    idleMemThresholdPct: 20,
+    autoCordonIdleNodes: false,
+    autoDrainIdleNodes: false,
+    handleSpotInterruptions: false,
+    spotRatioTargetPct: 0,
+    karpenterEnabled: false,
+    maxParallelDrains: 1,
+  };
 
   // Sync drafts from fetched data when loaded
   React.useEffect(() => {
@@ -240,6 +257,7 @@ const EksAutoscalingTab: React.FC<{ eksData: any }> = (_props) => {
     if (!rightsizer) setRightsizer(autoscalerData.workloadRightsizerPolicy);
     if (!guards) setGuards(autoscalerData.safetyGuards);
     if (!rebalancer) setRebalancerDraft(autoscalerData.rebalancer);
+    if (!nodeOpt) setNodeOpt(autoscalerData.nodeOptimizerPolicy ?? defaultNodeOpt);
   }, [autoscalerData]);
 
   // ── Loading skeleton ──────────────────────────────────────────────────────
@@ -260,7 +278,7 @@ const EksAutoscalingTab: React.FC<{ eksData: any }> = (_props) => {
         <div className="w-20 h-20 rounded-2xl bg-gray-100 flex items-center justify-center mb-5">
           <i className="fas fa-robot text-4xl text-gray-300"></i>
         </div>
-        <h3 className="text-xl font-bold text-gray-800 mb-2">XamOps Autoscaling Agent Not Installed</h3>
+        <h3 className="text-xl font-bold text-gray-800 mb-2">XamOps Automation Agent Not Installed</h3>
         <p className="text-sm text-gray-500 max-w-md mb-6">
           This cluster has not been registered with XamOps. Install the agent using the Integration Guide,
           then come back to enable autoscaling.
@@ -284,7 +302,7 @@ const EksAutoscalingTab: React.FC<{ eksData: any }> = (_props) => {
         </div>
         <h3 className="text-xl font-bold text-gray-800 mb-2">Autoscaling is Not Enabled</h3>
         <p className="text-sm text-gray-500 max-w-md mb-2">
-          The XamOps Autoscaling Agent is installed but not yet activated for this cluster.
+          The XamOps Automation Agent is installed but not yet activated for this cluster.
           Click below to enable it — the agent will start syncing policies and metrics immediately.
         </p>
         <p className="text-xs text-gray-400 mb-6">
@@ -308,7 +326,7 @@ const EksAutoscalingTab: React.FC<{ eksData: any }> = (_props) => {
   }
 
   // ── Policies still loading from backend ───────────────────────────────────
-  if (!scaleOut || !evictor || !rightsizer || !guards || !rebalancer) {
+  if (!scaleOut || !evictor || !rightsizer || !guards || !rebalancer || !nodeOpt) {
     return (
       <div className="space-y-4">
         {[1, 2, 3, 4].map(i => (
@@ -372,7 +390,7 @@ const EksAutoscalingTab: React.FC<{ eksData: any }> = (_props) => {
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-lg font-bold text-gray-900">XamOps Autoscaling Agent</h2>
+                <h2 className="text-lg font-bold text-gray-900">XamOps Automation Agent</h2>
                 <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${allHealthy ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                   {allHealthy ? 'All Systems Healthy' : 'Degraded'}
                 </span>
@@ -1181,7 +1199,277 @@ const EksAutoscalingTab: React.FC<{ eksData: any }> = (_props) => {
         </div>
       </Section>
 
-      {/* ═══ 9. SPOT AUTOMATION BRIDGE ══════════════════════════════════════ */}
+      {/* ═══ 9. NODE OPTIMIZER ══════════════════════════════════════════════ */}
+      <Section
+        icon="fa-microchip"
+        color="bg-slate-600"
+        title="Node Optimizer"
+        subtitle="Spot/on-demand ratio management, idle node detection, and spot interruption handling"
+        badge={
+          <Toggle
+            checked={nodeOpt.enabled}
+            onChange={v => setNodeOpt(p => ({ ...p!, enabled: v }))}
+            label=""
+          />
+        }
+      >
+        <div className="space-y-6">
+
+          {/* ── Fleet Overview ─────────────────────────────────────────────── */}
+          {(() => {
+            const fleet = nodeFleetReport ?? autoscalerData.nodeFleetReport;
+            const total = fleet?.totalNodes ?? 0;
+            const spot = fleet?.spotNodes ?? 0;
+            const onDemand = fleet?.onDemandNodes ?? 0;
+            const idle = fleet?.idleNodes?.length ?? 0;
+            const currentSpotPct = total > 0 ? Math.round((spot / total) * 100) : 0;
+            return (
+              <div>
+                <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Current Node Fleet</h4>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {[
+                    { label: 'Total Nodes', value: total, icon: 'fa-server', color: 'text-slate-700' },
+                    { label: 'On-Demand', value: onDemand, icon: 'fa-cloud', color: 'text-blue-700' },
+                    { label: 'Spot', value: spot, icon: 'fa-bolt', color: 'text-amber-600' },
+                    { label: 'Idle / Flagged', value: idle, icon: 'fa-bed', color: idle > 0 ? 'text-red-500' : 'text-gray-500' },
+                  ].map(stat => (
+                    <div key={stat.label} className="bg-gray-50 border border-gray-200 rounded-xl p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <i className={`fas ${stat.icon} ${stat.color} text-sm`}></i>
+                        <span className="text-[10px] text-gray-500 font-semibold uppercase tracking-wide">{stat.label}</span>
+                      </div>
+                      <div className={`text-xl font-bold ${stat.color}`}>{stat.value}</div>
+                    </div>
+                  ))}
+                </div>
+                {total > 0 && (
+                  <div className="mt-3">
+                    <div className="flex justify-between text-xs text-gray-500 mb-1">
+                      <span>Current spot ratio</span>
+                      <span className="font-bold text-amber-600">{currentSpotPct}%</span>
+                    </div>
+                    <div className="h-2.5 bg-gray-200 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-amber-400 rounded-full transition-all"
+                        style={{ width: `${currentSpotPct}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* ── Spot Ratio Target ──────────────────────────────────────────── */}
+          <div>
+            <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">
+              Spot Ratio Target
+            </h4>
+            <SliderField
+              label={`Target Spot Ratio${nodeOpt.spotRatioTargetPct === 0 ? ' (disabled)' : ` — maintain ${nodeOpt.spotRatioTargetPct}% spot nodes`}`}
+              value={nodeOpt.spotRatioTargetPct}
+              min={0} max={100} step={10} unit="%"
+              onChange={v => setNodeOpt(p => ({ ...p!, spotRatioTargetPct: v }))}
+            />
+            {nodeOpt.spotRatioTargetPct > 0 && (() => {
+              const fleet = nodeFleetReport ?? autoscalerData.nodeFleetReport;
+              const total = fleet?.totalNodes ?? 0;
+              const currentSpot = fleet?.spotNodes ?? 0;
+              const targetSpot = total > 0 ? Math.round(total * nodeOpt.spotRatioTargetPct / 100) : 0;
+              const delta = targetSpot - currentSpot;
+              return (
+                <div className="mt-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
+                  <i className="fas fa-info-circle mr-1.5 text-amber-500"></i>
+                  {total === 0
+                    ? 'Fleet data not available yet — agent will calculate when first report arrives.'
+                    : delta > 0
+                    ? `Agent will drain ${delta} on-demand node(s) (least-loaded first) to reach ${nodeOpt.spotRatioTargetPct}% spot. Up to ${nodeOpt.maxParallelDrains} node(s) drained per cycle. Replacement spot nodes provisioned by Karpenter/Cluster Autoscaler.`
+                    : delta < 0
+                    ? `Currently above target (${currentSpot}/${total} spot). No action needed — natural termination will reduce spot count.`
+                    : `Fleet is already at target (${currentSpot}/${total} spot nodes).`
+                  }
+                </div>
+              );
+            })()}
+            {nodeOpt.spotRatioTargetPct === 0 && (
+              <p className="text-xs text-gray-400 mt-1">Set to &gt; 0% to enable automatic spot ratio management.</p>
+            )}
+          </div>
+
+          {/* ── Settings row ─────────────────────────────────────────────── */}
+          <div>
+            <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Settings</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                <Toggle
+                  checked={nodeOpt.karpenterEnabled}
+                  onChange={v => setNodeOpt(p => ({ ...p!, karpenterEnabled: v }))}
+                  label="Karpenter Installed"
+                  description="Enables NodePool CRD patching for spot ratio intent annotation"
+                />
+              </div>
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                <Toggle
+                  checked={nodeOpt.handleSpotInterruptions}
+                  onChange={v => setNodeOpt(p => ({ ...p!, handleSpotInterruptions: v }))}
+                  label="Handle Spot Interruptions"
+                  description="Cordon + drain node within AWS 2-minute termination window"
+                />
+              </div>
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                <Toggle
+                  checked={nodeOpt.autoCordonIdleNodes}
+                  onChange={v => setNodeOpt(p => ({ ...p!, autoCordonIdleNodes: v }))}
+                  label="Auto-Cordon Idle Nodes"
+                  description="Cordon nodes below CPU/memory thresholds (prevents new scheduling)"
+                />
+              </div>
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                <Toggle
+                  checked={nodeOpt.autoDrainIdleNodes}
+                  onChange={v => setNodeOpt(p => ({ ...p!, autoDrainIdleNodes: v }))}
+                  label="Auto-Drain Idle Nodes"
+                  description="PDB-aware safe drain of idle nodes — evict pods with replacement waiting"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* ── Thresholds + parallel drains ───────────────────────────────── */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <SliderField
+              label="CPU Idle Threshold"
+              value={nodeOpt.idleCpuThresholdPct}
+              min={1} max={30} unit="%"
+              onChange={v => setNodeOpt(p => ({ ...p!, idleCpuThresholdPct: v }))}
+            />
+            <SliderField
+              label="Memory Idle Threshold"
+              value={nodeOpt.idleMemThresholdPct}
+              min={1} max={40} unit="%"
+              onChange={v => setNodeOpt(p => ({ ...p!, idleMemThresholdPct: v }))}
+            />
+            <NumberField
+              label="Max Parallel Drains"
+              value={nodeOpt.maxParallelDrains}
+              min={1} max={5}
+              onChange={v => setNodeOpt(p => ({ ...p!, maxParallelDrains: v }))}
+            />
+          </div>
+
+          {/* ── Spot Candidates Table ─────────────────────────────────────── */}
+          {(() => {
+            const fleet = nodeFleetReport ?? autoscalerData.nodeFleetReport;
+            if (!fleet || fleet.spotCandidates.length === 0) return null;
+            return (
+              <div>
+                <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
+                  <i className="fas fa-bolt text-amber-500"></i>
+                  Spot Conversion Candidates ({fleet.spotCandidates.length} on-demand nodes)
+                  <span className="text-[10px] font-normal text-gray-400 normal-case">
+                    — avg {fleet.estimatedSavingsPct.toFixed(0)}% savings potential
+                  </span>
+                </h4>
+                <div className="overflow-x-auto rounded-xl border border-gray-200">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-gray-50 border-b border-gray-200">
+                        <th className="text-left px-3 py-2.5 font-semibold text-gray-600">Node</th>
+                        <th className="text-left px-3 py-2.5 font-semibold text-gray-600">Instance Type</th>
+                        <th className="text-right px-3 py-2.5 font-semibold text-gray-600">CPU Util</th>
+                        <th className="text-right px-3 py-2.5 font-semibold text-gray-600">Mem Util</th>
+                        <th className="text-right px-3 py-2.5 font-semibold text-gray-600">Est. Savings</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {fleet.spotCandidates.map((c, i) => (
+                        <tr key={i} className="border-b border-gray-100 hover:bg-amber-50/30 transition-colors">
+                          <td className="px-3 py-2.5 font-mono text-[11px] text-gray-800 font-semibold">{c.nodeName}</td>
+                          <td className="px-3 py-2.5 text-gray-600">{c.instanceType || '—'}</td>
+                          <td className="px-3 py-2.5 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <div className="w-12 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                                <div className="h-full bg-blue-400 rounded-full" style={{ width: `${c.cpuUsagePct}%` }} />
+                              </div>
+                              <span className="font-bold text-gray-700">{c.cpuUsagePct.toFixed(0)}%</span>
+                            </div>
+                          </td>
+                          <td className="px-3 py-2.5 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <div className="w-12 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                                <div className="h-full bg-purple-400 rounded-full" style={{ width: `${c.memUsagePct}%` }} />
+                              </div>
+                              <span className="font-bold text-gray-700">{c.memUsagePct.toFixed(0)}%</span>
+                            </div>
+                          </td>
+                          <td className="px-3 py-2.5 text-right">
+                            <span className="font-bold text-green-600">~{c.savingsPct.toFixed(0)}%</span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* ── Idle Nodes Table ───────────────────────────────────────────── */}
+          {(() => {
+            const fleet = nodeFleetReport ?? autoscalerData.nodeFleetReport;
+            if (!fleet || fleet.idleNodes.length === 0) return null;
+            return (
+              <div>
+                <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
+                  <i className="fas fa-bed text-red-400"></i>
+                  Idle Nodes ({fleet.idleNodes.length} detected)
+                </h4>
+                <div className="overflow-x-auto rounded-xl border border-gray-200">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-gray-50 border-b border-gray-200">
+                        <th className="text-left px-3 py-2.5 font-semibold text-gray-600">Node</th>
+                        <th className="text-left px-3 py-2.5 font-semibold text-gray-600">Type</th>
+                        <th className="text-right px-3 py-2.5 font-semibold text-gray-600">CPU%</th>
+                        <th className="text-right px-3 py-2.5 font-semibold text-gray-600">Mem%</th>
+                        <th className="text-right px-3 py-2.5 font-semibold text-gray-600">Pods</th>
+                        <th className="text-center px-3 py-2.5 font-semibold text-gray-600">Drain?</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {fleet.idleNodes.map((node, i) => (
+                        <tr key={i} className={`border-b border-gray-100 hover:bg-gray-50 transition-colors ${node.recommendDrain ? 'bg-red-50/20' : ''}`}>
+                          <td className="px-3 py-2.5 font-mono text-[11px] text-gray-800 font-semibold">{node.nodeName}</td>
+                          <td className="px-3 py-2.5">
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${node.capacityType === 'spot' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'}`}>
+                              {node.capacityType}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2.5 text-right font-bold text-red-500">{node.cpuUsagePct.toFixed(1)}%</td>
+                          <td className="px-3 py-2.5 text-right font-bold text-red-500">{node.memUsagePct.toFixed(1)}%</td>
+                          <td className="px-3 py-2.5 text-right text-gray-700 font-bold">{node.podCount}</td>
+                          <td className="px-3 py-2.5 text-center">
+                            {node.recommendDrain
+                              ? <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-[10px] font-bold"><i className="fas fa-exclamation-triangle mr-1"></i>Yes</span>
+                              : <span className="px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full text-[10px]">No</span>
+                            }
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          })()}
+
+          <div className="flex justify-end pt-2 border-t border-gray-100">
+            <SaveButton onClick={() => saveNodeOptimizerPolicy(nodeOpt)} saving={isSaving} />
+          </div>
+        </div>
+      </Section>
+
+      {/* ═══ 10. SPOT AUTOMATION BRIDGE ══════════════════════════════════════ */}
       <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-xl p-5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -1224,7 +1512,7 @@ const EksAutoscalingTab: React.FC<{ eksData: any }> = (_props) => {
         icon="fa-weight"
         color="bg-indigo-600"
         title="Workload Rightsizing Recommendations"
-        subtitle="Live analysis from xamops-autoscaler — Prometheus p80 CPU / p100 memory over the lookback window"
+        subtitle="Live analysis from xamops-automation — Prometheus p80 CPU / p100 memory over the lookback window"
         badge={
           rightsizingData && rightsizingData.workloadsWithRecommendations > 0 ? (
             <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-indigo-100 text-indigo-700">
@@ -1236,7 +1524,7 @@ const EksAutoscalingTab: React.FC<{ eksData: any }> = (_props) => {
         {!rightsizingData ? (
           <div className="text-center py-8 text-gray-400">
             <i className="fas fa-satellite-dish text-3xl mb-2 block"></i>
-            <p className="text-sm">Waiting for xamops-autoscaler agent data…</p>
+            <p className="text-sm">Waiting for xamops-automation agent data…</p>
             <p className="text-xs mt-1 text-gray-300">Agent must be deployed with <code className="bg-gray-100 px-1 rounded">ENABLE_RIGHTSIZER=true</code></p>
           </div>
         ) : rightsizingData.recommendations.length === 0 ? (
@@ -1401,7 +1689,7 @@ const EksAutoscalingTab: React.FC<{ eksData: any }> = (_props) => {
           icon="fa-sync-alt"
           color="bg-cyan-600"
           title="Live Rebalance Status"
-          subtitle="Real-time rebalance progress from the xamops-autoscaler agent"
+          subtitle="Real-time rebalance progress from the xamops-automation agent"
           badge={
             <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
               liveRebalanceStatus.status === 'running'

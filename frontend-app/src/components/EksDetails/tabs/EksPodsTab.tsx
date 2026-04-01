@@ -14,7 +14,10 @@ const ITEMS_PER_PAGE = 10;
 
 const EksPodsTab: React.FC<{ eksData: any }> = ({ eksData }) => {
   const { dashboard, getPodsCountByPhase } = eksData;
-  const pods = dashboard?.workloadHealth?.pods || [];
+  // Primary: new k8s-resources collector; fallback: old workloadHealth
+  const pods = dashboard?.k8sPods?.length
+    ? dashboard.k8sPods
+    : (dashboard?.workloadHealth?.pods || []);
 
   // Local state
   const [searchQuery, setSearchQuery] = useState('');

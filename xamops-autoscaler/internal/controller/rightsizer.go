@@ -20,7 +20,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 
-	"github.com/xamops/autoscaler/internal/policy"
+	"github.com/xamops/automation/internal/policy"
 )
 
 // Rightsizer analyses workload resource usage via Prometheus and recommends

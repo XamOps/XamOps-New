@@ -35,8 +35,99 @@ const EksSecurityTab: React.FC<EksSecurityTabProps> = ({ eksData }) => {
     vulnImagePage * imagesPerPage
   );
 
+  // Compute overall security score for hero
+  const totalCritical = trivyData?.summary?.totalCritical || 0;
+  const totalHigh = trivyData?.summary?.totalHigh || 0;
+  const totalMedium = trivyData?.summary?.totalMedium || 0;
+  const totalLow = trivyData?.summary?.totalLow || 0;
+  const totalVulns = totalCritical + totalHigh + totalMedium + totalLow;
+  const securityScore = Math.max(0, 100 - (totalCritical * 10 + totalHigh * 3 + totalMedium * 1));
+  const riskLevel = totalCritical > 0 ? 'Critical' : totalHigh > 5 ? 'High' : totalHigh > 0 ? 'Medium' : 'Low';
+  const riskConfig = {
+    Critical: { text: 'text-red-300', bg: 'bg-red-500/20', border: 'border-red-400/30', badge: 'bg-red-100 text-red-700' },
+    High:     { text: 'text-orange-300', bg: 'bg-orange-500/20', border: 'border-orange-400/30', badge: 'bg-orange-100 text-orange-700' },
+    Medium:   { text: 'text-amber-300', bg: 'bg-amber-500/20', border: 'border-amber-400/30', badge: 'bg-amber-100 text-amber-700' },
+    Low:      { text: 'text-emerald-300', bg: 'bg-emerald-500/20', border: 'border-emerald-400/30', badge: 'bg-emerald-100 text-emerald-700' },
+  }[riskLevel];
+
+  const falcoTotal = (dashboard.securityMetrics?.criticalAlerts || 0) +
+    (dashboard.securityMetrics?.highAlerts || 0) +
+    (dashboard.securityMetrics?.mediumAlerts || 0);
+  const kubescapeScore = dashboard.kubescape?.complianceScore || 0;
+
   return (
     <div className="space-y-8">
+
+      {/* ═══ HERO: Security Command Center ═══ */}
+      <div className="bg-gradient-to-br from-slate-900 via-purple-900 to-slate-800 rounded-2xl p-8 text-white shadow-xl relative overflow-hidden">
+        <div className="absolute -top-16 -right-16 w-64 h-64 bg-purple-500/10 rounded-full"></div>
+        <div className="absolute -bottom-8 left-8 w-40 h-40 bg-red-500/10 rounded-full"></div>
+
+        <div className="relative">
+          <div className="flex items-center justify-between mb-8">
+            <div>
+              <p className="text-purple-300 text-xs font-bold uppercase tracking-widest mb-1">Security Intelligence</p>
+              <h2 className="text-2xl font-black text-white">Cluster Security Posture</h2>
+            </div>
+            <div className={`flex items-center gap-2 px-4 py-2 rounded-full border ${riskConfig.bg} ${riskConfig.border}`}>
+              <div className={`w-2 h-2 rounded-full animate-pulse ${totalCritical > 0 ? 'bg-red-400' : totalHigh > 0 ? 'bg-orange-400' : 'bg-emerald-400'}`}></div>
+              <span className={`text-sm font-bold ${riskConfig.text}`}>{riskLevel} Risk</span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {/* Security Score */}
+            <div className="bg-white/10 backdrop-blur rounded-xl p-5 border border-white/10 md:col-span-1">
+              <p className="text-purple-300 text-xs font-bold uppercase tracking-widest mb-2">Security Score</p>
+              <p className={`text-5xl font-black ${securityScore >= 80 ? 'text-emerald-300' : securityScore >= 50 ? 'text-amber-300' : 'text-red-300'}`}>
+                {securityScore}
+              </p>
+              <p className="text-purple-300 text-xs mt-1">out of 100</p>
+            </div>
+
+            {/* Critical CVEs */}
+            <div className={`rounded-xl p-5 border ${totalCritical > 0 ? 'bg-red-500/20 border-red-400/30' : 'bg-white/10 border-white/10'}`}>
+              <p className="text-purple-300 text-xs font-bold uppercase tracking-widest mb-2">Critical CVEs</p>
+              <p className={`text-5xl font-black ${totalCritical > 0 ? 'text-red-300' : 'text-emerald-300'}`}>{totalCritical}</p>
+              <p className="text-purple-300 text-xs mt-1">{totalVulns} total vulns</p>
+            </div>
+
+            {/* Falco Events */}
+            <div className={`rounded-xl p-5 border ${falcoTotal > 0 ? 'bg-orange-500/20 border-orange-400/30' : 'bg-white/10 border-white/10'}`}>
+              <p className="text-purple-300 text-xs font-bold uppercase tracking-widest mb-2">Runtime Alerts</p>
+              <p className={`text-5xl font-black ${falcoTotal > 0 ? 'text-orange-300' : 'text-emerald-300'}`}>{falcoTotal}</p>
+              <p className="text-purple-300 text-xs mt-1">Falco events</p>
+            </div>
+
+            {/* Compliance */}
+            <div className={`rounded-xl p-5 border ${kubescapeScore > 0 ? 'bg-indigo-500/20 border-indigo-400/30' : 'bg-white/10 border-white/10'}`}>
+              <p className="text-purple-300 text-xs font-bold uppercase tracking-widest mb-2">Compliance</p>
+              <p className={`text-5xl font-black ${kubescapeScore >= 80 ? 'text-emerald-300' : kubescapeScore >= 50 ? 'text-amber-300' : kubescapeScore > 0 ? 'text-red-300' : 'text-slate-400'}`}>
+                {kubescapeScore > 0 ? `${kubescapeScore.toFixed(0)}%` : 'N/A'}
+              </p>
+              <p className="text-purple-300 text-xs mt-1">Kubescape score</p>
+            </div>
+          </div>
+
+          {/* Severity quick pills */}
+          {trivyData && (
+            <div className="flex items-center gap-3 mt-6 pt-5 border-t border-white/10 flex-wrap">
+              <span className="text-xs text-purple-300 font-semibold uppercase tracking-wide">CVE Breakdown:</span>
+              {totalCritical > 0 && <span className="text-xs bg-red-500/20 border border-red-400/30 text-red-300 px-3 py-1 rounded-full font-bold">{totalCritical} Critical</span>}
+              {totalHigh > 0 && <span className="text-xs bg-orange-500/20 border border-orange-400/30 text-orange-300 px-3 py-1 rounded-full font-bold">{totalHigh} High</span>}
+              {totalMedium > 0 && <span className="text-xs bg-amber-500/20 border border-amber-400/30 text-amber-300 px-3 py-1 rounded-full font-bold">{totalMedium} Medium</span>}
+              {totalLow > 0 && <span className="text-xs bg-blue-500/20 border border-blue-400/30 text-blue-300 px-3 py-1 rounded-full font-bold">{totalLow} Low</span>}
+              {totalVulns === 0 && <span className="text-xs bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 px-3 py-1 rounded-full font-bold">No vulnerabilities detected</span>}
+              {trivyData?.summary?.totalExposedSecrets > 0 && (
+                <span className="ml-auto text-xs bg-pink-500/20 border border-pink-400/30 text-pink-300 px-3 py-1 rounded-full font-bold">
+                  <i className="fas fa-key mr-1"></i>{trivyData.summary.totalExposedSecrets} Exposed Secrets
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Runtime Security Section - Powered by Falco */}
       {dashboard?.securityMetrics && (
         <RuntimeSecurityView securityMetrics={dashboard.securityMetrics} />

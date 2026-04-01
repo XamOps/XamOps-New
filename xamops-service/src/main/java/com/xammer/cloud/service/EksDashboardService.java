@@ -290,6 +290,218 @@ public class EksDashboardService {
                                             metaEx.getMessage());
                                 }
 
+                                // 6. K8s Resources from agent (nodes, pods, deployments, HPAs, PVCs, events)
+                                try {
+                                    AgentDataTransformerService.K8sResourcesResult k8sRes =
+                                            agentDataTransformerService.transformK8sResources(config.getId());
+                                    if (k8sRes.getTotalNodes() > 0 || k8sRes.getTotalPods() > 0) {
+                                        ClusterOverview overview = dashboard.getClusterOverview();
+                                        if (overview == null) overview = new EksCompleteDashboardDto.ClusterOverview();
+                                        overview.setTotalNodes(k8sRes.getTotalNodes());
+                                        overview.setTotalPods(k8sRes.getTotalPods());
+                                        overview.setTotalNamespaces(k8sRes.getTotalNamespaces());
+                                        overview.setReadyNodes(k8sRes.getReadyNodes());
+                                        overview.setSpotNodes(k8sRes.getSpotNodes());
+                                        overview.setRunningPods(k8sRes.getRunningPods());
+                                        overview.setPendingPods(k8sRes.getPendingPods());
+                                        overview.setFailedPods(k8sRes.getFailedPods());
+                                        dashboard.setClusterOverview(overview);
+                                        dashboard.setK8sNodes(k8sRes.getNodes());
+                                        dashboard.setK8sPods(k8sRes.getPods());
+                                        dashboard.setK8sDeployments(k8sRes.getDeployments());
+                                        dashboard.setK8sStatefulSets(k8sRes.getStatefulSets());
+                                        dashboard.setK8sDaemonSets(k8sRes.getDaemonSets());
+                                        dashboard.setK8sServices(k8sRes.getServices());
+                                        dashboard.setK8sIngresses(k8sRes.getIngresses());
+                                        dashboard.setK8sHpas(k8sRes.getHpas());
+                                        dashboard.setK8sPvcs(k8sRes.getPvcs());
+                                        dashboard.setK8sEvents(k8sRes.getEvents());
+                                        logger.info("📊 k8s-resources from agent: {} nodes {} pods {} deployments",
+                                                k8sRes.getTotalNodes(), k8sRes.getTotalPods(), k8sRes.getTotalDeployments());
+
+                                        // Set k8s version from agent data
+                                        if (k8sRes.getK8sVersion() != null && !k8sRes.getK8sVersion().isEmpty()) {
+                                            ClusterOverview ov = dashboard.getClusterOverview();
+                                            if (ov != null) ov.setVersion(k8sRes.getK8sVersion());
+                                        }
+
+                                        // Build resourceUtilization from agent k8s-resources data
+                                        try {
+                                            ResourceUtilization agentResourceUtil = new ResourceUtilization();
+                                            List<ResourceUtilization.NodeResource> agentNodes = new ArrayList<>();
+
+                                            for (Map<String, Object> nodeMap : k8sRes.getNodes()) {
+                                                ResourceUtilization.NodeResource node = new ResourceUtilization.NodeResource();
+                                                node.setNodeName((String) nodeMap.get("name"));
+                                                node.setInstanceType((String) nodeMap.getOrDefault("instanceType", "Unknown"));
+                                                node.setZone((String) nodeMap.getOrDefault("zone", ""));
+
+                                                // Determine condition from conditions array
+                                                @SuppressWarnings("unchecked")
+                                                List<Map<String, Object>> conditions = (List<Map<String, Object>>) nodeMap.get("conditions");
+                                                String condition = "Unknown";
+                                                if (conditions != null) {
+                                                    for (Map<String, Object> c : conditions) {
+                                                        if ("Ready".equals(c.get("type")) && "True".equals(c.get("status"))) {
+                                                            condition = "Ready";
+                                                            break;
+                                                        } else if ("Ready".equals(c.get("type"))) {
+                                                            condition = "NotReady";
+                                                        }
+                                                    }
+                                                }
+                                                node.setCondition(condition);
+
+                                                // Parse allocatable CPU (e.g. "1930m" or "2") → millicores
+                                                String allocCpu = (String) nodeMap.get("allocatableCpu");
+                                                if (allocCpu != null) {
+                                                    node.setCpuCapacity(parseCpuToMillicores(allocCpu));
+                                                    node.setCpuAllocatable(parseCpuToMillicores(allocCpu));
+                                                }
+                                                // Parse allocatable memory (e.g. "3209208Ki") → MB
+                                                String allocMem = (String) nodeMap.get("allocatableMemory");
+                                                if (allocMem != null) {
+                                                    node.setMemoryCapacity(parseMemoryToBytes(allocMem) / (1024.0 * 1024.0));
+                                                    node.setMemoryAllocatable(parseMemoryToBytes(allocMem) / (1024.0 * 1024.0));
+                                                }
+
+                                                agentNodes.add(node);
+                                            }
+                                            agentResourceUtil.setNodes(agentNodes);
+                                            agentResourceUtil.setNamespaces(new HashMap<>());
+                                            dashboard.setResourceUtilization(agentResourceUtil);
+                                            logger.info("📊 Built resourceUtilization from agent: {} nodes", agentNodes.size());
+                                        } catch (Exception ruEx) {
+                                            logger.warn("⚠️ Error building resourceUtilization from agent k8s-resources: {}", ruEx.getMessage());
+                                        }
+                                    }
+                                } catch (Exception k8sEx) {
+                                    logger.warn("⚠️ Error getting k8s-resources from agent: {}", k8sEx.getMessage());
+                                }
+
+                                // 7. Prometheus Metrics from agent (cost, Falco, per-node utilization, top pods)
+                                try {
+                                    AgentDataTransformerService.PrometheusMetricsResult promMetrics =
+                                            agentDataTransformerService.transformPrometheusMetrics(config.getId());
+                                    if (promMetrics.getClusterCpuUsagePct() > 0 || !promMetrics.getNodeUtilization().isEmpty()) {
+                                        ClusterOverview overview = dashboard.getClusterOverview();
+                                        if (overview != null) {
+                                            overview.setCpuUsagePercent(promMetrics.getClusterCpuUsagePct());
+                                            overview.setMemoryUsagePercent(promMetrics.getClusterMemUsagePct());
+                                        }
+                                        if (promMetrics.getCostMetrics() != null) {
+                                            dashboard.setAgentCostMetrics(promMetrics.getCostMetrics());
+                                        }
+                                        if (!promMetrics.getFalcoEvents().isEmpty()) {
+                                            dashboard.setFalcoEvents(promMetrics.getFalcoEvents());
+                                        }
+                                        dashboard.setNodeUtilization(promMetrics.getNodeUtilization());
+                                        dashboard.setNamespaceUtilization(promMetrics.getNamespaceUtilization());
+                                        dashboard.setTopCpuPods(promMetrics.getTopCpuPods());
+                                        dashboard.setTopMemoryPods(promMetrics.getTopMemoryPods());
+                                        dashboard.setNetworkMetrics(promMetrics.getNetworkMetrics());
+                                        logger.info("📊 prometheus-metrics from agent: cpu={}% mem={}% falco={} nodeUtil={}",
+                                                promMetrics.getClusterCpuUsagePct(), promMetrics.getClusterMemUsagePct(),
+                                                promMetrics.getFalcoEvents().size(), promMetrics.getNodeUtilization().size());
+
+                                        // Enrich nodes with prometheus utilization data + set absolute CPU/memory
+                                        try {
+                                            ResourceUtilization resUtil = dashboard.getResourceUtilization();
+                                            if (resUtil != null && resUtil.getNodes() != null && !promMetrics.getNodeUtilization().isEmpty()) {
+                                                Map<String, Map<String, Object>> nodeUtilMap = new HashMap<>();
+                                                for (Map<String, Object> nu : promMetrics.getNodeUtilization()) {
+                                                    String name = (String) nu.get("nodeName");
+                                                    if (name != null) nodeUtilMap.put(name, nu);
+                                                }
+
+                                                double totalCpuUsedCores = 0;
+                                                double totalCpuCapacityCores = 0;
+                                                double totalMemUsedGb = 0;
+                                                double totalMemCapacityGb = 0;
+
+                                                for (ResourceUtilization.NodeResource node : resUtil.getNodes()) {
+                                                    Map<String, Object> nu = nodeUtilMap.get(node.getNodeName());
+                                                    if (nu != null) {
+                                                        double cpuPct = getDoubleFromMap(nu, "cpuUsagePct");
+                                                        double memPct = getDoubleFromMap(nu, "memUsagePct");
+                                                        double cpuCoresUsed = getDoubleFromMap(nu, "cpuCoresUsed");
+                                                        double memGbUsed = getDoubleFromMap(nu, "memGbUsed");
+
+                                                        node.setCpuUsagePercent(cpuPct);
+                                                        node.setMemoryUsagePercent(memPct);
+                                                        node.setCpuUsageMillicores(cpuCoresUsed * 1000);
+                                                        node.setMemoryUsageMB(memGbUsed * 1024);
+
+                                                        totalCpuUsedCores += cpuCoresUsed;
+                                                        totalMemUsedGb += memGbUsed;
+                                                    }
+                                                    if (node.getCpuCapacity() != null) totalCpuCapacityCores += node.getCpuCapacity() / 1000.0;
+                                                    if (node.getMemoryCapacity() != null) totalMemCapacityGb += node.getMemoryCapacity() / 1024.0;
+                                                }
+
+                                                // Set absolute values on clusterOverview
+                                                ClusterOverview overview = dashboard.getClusterOverview();
+                                                if (overview != null) {
+                                                    overview.setCpuUsageMillicores(totalCpuUsedCores * 1000);
+                                                    overview.setCpuCapacityMillicores(totalCpuCapacityCores * 1000);
+                                                    overview.setMemoryUsageBytes(totalMemUsedGb * 1024 * 1024 * 1024);
+                                                    overview.setMemoryCapacityBytes(totalMemCapacityGb * 1024 * 1024 * 1024);
+                                                }
+                                                logger.info("📊 Enriched {} nodes with prometheus utilization, totalCpu={}m/{}m totalMem={:.1f}GB/{:.1f}GB",
+                                                        resUtil.getNodes().size(), (long)(totalCpuUsedCores*1000), (long)(totalCpuCapacityCores*1000),
+                                                        totalMemUsedGb, totalMemCapacityGb);
+                                            }
+                                        } catch (Exception enrichEx) {
+                                            logger.warn("⚠️ Error enriching resourceUtilization with prometheus data: {}", enrichEx.getMessage());
+                                        }
+
+                                        // Build workloadHealth from k8s-resources pods
+                                        try {
+                                            AgentDataTransformerService.K8sResourcesResult k8sResForWh =
+                                                    agentDataTransformerService.transformK8sResources(config.getId());
+                                            WorkloadHealth agentWorkloadHealth = dashboard.getWorkloadHealth();
+                                            if (agentWorkloadHealth == null) agentWorkloadHealth = new WorkloadHealth();
+
+                                            List<WorkloadHealth.PodHealth> podHealthList = new ArrayList<>();
+                                            for (Map<String, Object> podMap : k8sResForWh.getPods()) {
+                                                WorkloadHealth.PodHealth pod = new WorkloadHealth.PodHealth();
+                                                pod.setName((String) podMap.get("name"));
+                                                pod.setNamespace((String) podMap.get("namespace"));
+                                                pod.setPhase((String) podMap.getOrDefault("phase", "Unknown"));
+                                                pod.setNode((String) podMap.get("nodeName"));
+                                                pod.setReady(Boolean.TRUE.equals(podMap.get("ready")));
+                                                pod.setRestarts(getIntFromMap(podMap, "restarts"));
+                                                pod.setAge((String) podMap.getOrDefault("age", "N/A"));
+
+                                                // Extract containers as ContainerStatus list
+                                                @SuppressWarnings("unchecked")
+                                                List<Map<String, Object>> containers = (List<Map<String, Object>>) podMap.get("containers");
+                                                if (containers != null) {
+                                                    List<WorkloadHealth.PodHealth.ContainerStatus> containerStatusList = new ArrayList<>();
+                                                    for (Map<String, Object> c : containers) {
+                                                        WorkloadHealth.PodHealth.ContainerStatus cs = new WorkloadHealth.PodHealth.ContainerStatus();
+                                                        cs.setName((String) c.get("name"));
+                                                        cs.setImage((String) c.get("image"));
+                                                        cs.setReady(Boolean.TRUE.equals(c.get("ready")));
+                                                        cs.setRestartCount(getIntFromMap(c, "restartCount"));
+                                                        cs.setState((String) c.getOrDefault("state", "running"));
+                                                        containerStatusList.add(cs);
+                                                    }
+                                                    pod.setContainerStatuses(containerStatusList);
+                                                }
+                                                podHealthList.add(pod);
+                                            }
+                                            agentWorkloadHealth.setPods(podHealthList);
+                                            dashboard.setWorkloadHealth(agentWorkloadHealth);
+                                            logger.info("📊 Built workloadHealth from agent: {} pods", podHealthList.size());
+                                        } catch (Exception whEx) {
+                                            logger.warn("⚠️ Error building workloadHealth from agent pods: {}", whEx.getMessage());
+                                        }
+                                    }
+                                } catch (Exception promEx) {
+                                    logger.warn("⚠️ Error getting prometheus-metrics from agent: {}", promEx.getMessage());
+                                }
+
                                 logger.info("✅ Agent data processed for cluster: {}", clusterName);
 
                                 // For 'agent' mode, skip kubeconfig path
@@ -2318,5 +2530,31 @@ public class EksDashboardService {
         }
 
         return metrics;
+    }
+
+    private double parseCpuToMillicores(String cpu) {
+        if (cpu == null || cpu.isEmpty()) return 0;
+        if (cpu.endsWith("m")) return Double.parseDouble(cpu.replace("m", ""));
+        return Double.parseDouble(cpu) * 1000;
+    }
+
+    private double parseMemoryToBytes(String mem) {
+        if (mem == null || mem.isEmpty()) return 0;
+        if (mem.endsWith("Ki")) return Double.parseDouble(mem.replace("Ki", "")) * 1024;
+        if (mem.endsWith("Mi")) return Double.parseDouble(mem.replace("Mi", "")) * 1024 * 1024;
+        if (mem.endsWith("Gi")) return Double.parseDouble(mem.replace("Gi", "")) * 1024 * 1024 * 1024;
+        return Double.parseDouble(mem);
+    }
+
+    private double getDoubleFromMap(Map<String, Object> map, String key) {
+        Object v = map.get(key);
+        if (v instanceof Number) return ((Number) v).doubleValue();
+        return 0.0;
+    }
+
+    private int getIntFromMap(Map<String, Object> map, String key) {
+        Object v = map.get(key);
+        if (v instanceof Number) return ((Number) v).intValue();
+        return 0;
     }
 }

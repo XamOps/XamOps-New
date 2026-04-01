@@ -5,7 +5,7 @@ import java.util.List;
 /**
  * DTO for the rightsizing recommendations tab in the Autoscaling UI.
  * Populated from agent_data_cache (dataType = "autoscaling-rightsizing")
- * pushed by the xamops-autoscaler controller.
+ * pushed by the xamops-automation controller.
  */
 public class WorkloadRightsizingDto {
 

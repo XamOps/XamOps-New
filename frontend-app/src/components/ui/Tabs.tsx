@@ -56,7 +56,7 @@ export function AriaTabGroup({
         className={
           variant === 'pill'
             ? `flex gap-1 p-1 bg-slate-100 rounded-xl ${className}`
-            : `flex gap-1 border-b border-gray-200 ${className}`
+            : `flex gap-1 border-b border-gray-200 whitespace-nowrap ${className}`
         }
       >
         {tabs.map((tab) => (
