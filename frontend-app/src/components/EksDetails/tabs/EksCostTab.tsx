@@ -204,390 +204,285 @@ const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
   });
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
 
-      {/* ═══ HERO: Cost Command Center ═══ */}
-      <div className="bg-gradient-to-br from-emerald-600 via-teal-600 to-cyan-700 rounded-2xl p-8 text-white shadow-xl relative overflow-hidden">
-        {/* Decorative circles */}
-        <div className="absolute -top-12 -right-12 w-48 h-48 bg-white/5 rounded-full"></div>
-        <div className="absolute -bottom-8 -left-8 w-32 h-32 bg-white/5 rounded-full"></div>
-
-        <div className="relative">
-          <div className="flex items-center justify-between mb-8">
-            <div>
-              <p className="text-emerald-200 text-xs font-bold uppercase tracking-widest mb-1">Cost Intelligence</p>
-              <h2 className="text-2xl font-black text-white">Cluster Spending Analysis</h2>
-            </div>
-            <div className="flex items-center gap-2 bg-white/10 backdrop-blur px-4 py-2 rounded-full border border-white/20">
-              <div className="w-2 h-2 rounded-full bg-green-300 animate-pulse"></div>
-              <span className="text-white text-sm font-semibold">Live</span>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-            {/* Daily Cost */}
-            <div className="bg-white/10 backdrop-blur rounded-xl p-5 border border-white/20">
-              <p className="text-emerald-200 text-xs font-bold uppercase tracking-widest mb-3">Today's Spend</p>
-              <div className="flex items-baseline gap-1">
-                <span className="text-5xl font-black text-white">${dailyCost.toFixed(2)}</span>
-              </div>
-              <p className="text-emerald-200 text-sm mt-1">per day</p>
-            </div>
-
-            {/* Monthly Projection */}
-            <div className="bg-white/10 backdrop-blur rounded-xl p-5 border border-white/20">
-              <p className="text-emerald-200 text-xs font-bold uppercase tracking-widest mb-3">Monthly Projection</p>
-              <div className="flex items-baseline gap-1">
-                <span className="text-5xl font-black text-white">${monthlyCost.toFixed(0)}</span>
-              </div>
-              <p className="text-emerald-200 text-sm mt-1">30-day estimate</p>
-            </div>
-
-            {/* Savings */}
-            <div className={`rounded-xl p-5 border ${totalSavings > 0 ? 'bg-amber-400/20 border-amber-300/30' : 'bg-white/10 border-white/20'}`}>
-              <p className={`text-xs font-bold uppercase tracking-widest mb-3 ${totalSavings > 0 ? 'text-amber-200' : 'text-emerald-200'}`}>Potential Savings</p>
-              <div className="flex items-baseline gap-1">
-                <span className={`text-5xl font-black ${totalSavings > 0 ? 'text-amber-300' : 'text-white'}`}>${totalSavings.toFixed(0)}</span>
-              </div>
-              <p className={`text-sm mt-1 ${totalSavings > 0 ? 'text-amber-200' : 'text-emerald-200'}`}>per month identified</p>
-            </div>
-          </div>
-
-          {/* Secondary stats */}
-          <div className="flex items-center gap-6 pt-5 border-t border-white/10 flex-wrap">
-            <div className="text-sm text-emerald-100">
-              <span className="font-bold text-white">{sortedNodes.length}</span> nodes running
-            </div>
-            <div className="text-sm text-emerald-100">
-              <span className="font-bold text-white">${hourlyRate.toFixed(4)}</span>/hr cluster rate
-            </div>
-            <div className="text-sm text-emerald-100">
-              <span className="font-bold text-white">{namespaceCosts.length}</span> active namespaces
-            </div>
-            {recommendations.length > 0 && (
-              <div className="ml-auto flex items-center gap-2 bg-amber-400/20 border border-amber-300/30 rounded-full px-4 py-1.5">
-                <i className="fas fa-lightbulb text-amber-300 text-xs"></i>
-                <span className="text-amber-200 text-sm font-semibold">{recommendations.length} optimization{recommendations.length > 1 ? 's' : ''} found</span>
-              </div>
-            )}
-          </div>
+      {/* ── KPI Strip ── */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="bg-white border border-[#d0d7de] rounded-lg px-5 py-4">
+          <div className="text-[11px] font-medium uppercase tracking-wider text-[#8b949e] mb-1">TODAY'S SPEND</div>
+          <div className="text-[26px] font-semibold leading-none text-[#1a1f2e]">${dailyCost.toFixed(2)}</div>
+          <div className="text-[11px] text-[#8b949e] mt-1">per day · ${hourlyRate.toFixed(4)}/hr</div>
+        </div>
+        <div className="bg-white border border-[#d0d7de] rounded-lg px-5 py-4">
+          <div className="text-[11px] font-medium uppercase tracking-wider text-[#8b949e] mb-1">MONTHLY EST.</div>
+          <div className="text-[26px] font-semibold leading-none text-[#1a1f2e]">${monthlyCost.toFixed(0)}</div>
+          <div className="text-[11px] text-[#8b949e] mt-1">30-day projection</div>
+        </div>
+        <div className="bg-white border border-[#d0d7de] rounded-lg px-5 py-4">
+          <div className="text-[11px] font-medium uppercase tracking-wider text-[#8b949e] mb-1">POTENTIAL SAVINGS</div>
+          <div className={`text-[26px] font-semibold leading-none ${totalSavings > 0 ? 'text-[#1a7f37]' : 'text-[#1a1f2e]'}`}>${totalSavings.toFixed(0)}</div>
+          <div className="text-[11px] text-[#8b949e] mt-1">per month identified</div>
+        </div>
+        <div className="bg-white border border-[#d0d7de] rounded-lg px-5 py-4">
+          <div className="text-[11px] font-medium uppercase tracking-wider text-[#8b949e] mb-1">ACTIVE NAMESPACES</div>
+          <div className="text-[26px] font-semibold leading-none text-[#1a1f2e]">{namespaceCosts.length}</div>
+          <div className="text-[11px] text-[#8b949e] mt-1">{sortedNodes.length} nodes running</div>
         </div>
       </div>
 
-      {/* ═══ NAMESPACE COST BREAKDOWN (KubeCost style) ═══ */}
-      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center">
-              <i className="fas fa-layer-group text-indigo-600"></i>
-            </div>
-            <div>
-              <h3 className="text-base font-bold text-gray-900">Namespace Cost Breakdown</h3>
-              <p className="text-xs text-gray-500">{namespaceCosts.length} namespaces · sorted by spend</p>
-            </div>
-          </div>
-          <span className="text-xs bg-indigo-50 text-indigo-700 font-bold px-3 py-1.5 rounded-full">
-            ${totalNsCost.toFixed(2)}/day total
+      {/* ── Namespace Cost Breakdown ── */}
+      <div className="bg-white border border-[#d0d7de] rounded-lg overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-[#e8ecf0] flex items-center justify-between">
+          <span className="text-sm font-semibold text-[#1a1f2e]">Namespace Cost Breakdown</span>
+          <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold border border-[#d0d7de] text-[#57606a]">
+            ${totalNsCost.toFixed(2)}/day · {namespaceCosts.length} namespaces
           </span>
         </div>
 
-        <div className="p-6 space-y-4">
+        <div className="p-5 space-y-3">
           {namespaceCosts.slice(namespacePage * itemsPerPage, (namespacePage + 1) * itemsPerPage).map((ns: any, i: number) => {
             const idx = namespacePage * itemsPerPage + i;
             const costPct = totalNsCost > 0 ? (ns.dailyCost / totalNsCost) * 100 : 0;
-            const barColor = NS_BAR_COLORS[idx % NS_BAR_COLORS.length];
             return (
-              <div key={ns.namespace} className="group">
-                <div className="flex items-center justify-between mb-2">
+              <div key={ns.namespace}>
+                <div className="flex items-center justify-between mb-1">
                   <div className="flex items-center gap-2">
-                    <span className="text-xs text-gray-400 font-mono w-5 text-right">{idx + 1}</span>
-                    <div className={`w-2.5 h-2.5 rounded-full ${barColor}`}></div>
-                    <span className="font-mono text-sm font-bold text-gray-900 group-hover:text-indigo-600 transition-colors">{ns.namespace}</span>
-                    <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-medium">{ns.podCount} pods</span>
+                    <span className="text-[11px] text-[#8b949e] font-mono w-4">{idx + 1}</span>
+                    <span className="font-mono text-[13px] font-semibold text-[#1a1f2e]">{ns.namespace}</span>
+                    <span className="rounded-full px-2 py-0.5 text-[11px] font-semibold border border-[#d0d7de] text-[#57606a]">{ns.podCount} pods</span>
                   </div>
-                  <div className="flex items-center gap-4">
-                    <span className="text-xs text-gray-400 font-medium">{costPct.toFixed(1)}%</span>
-                    <span className="font-bold text-gray-900 text-sm">${(ns.dailyCost || 0).toFixed(2)}<span className="text-xs text-gray-500 font-normal">/day</span></span>
-                    <span className="text-xs text-gray-400 w-20 text-right">${((ns.dailyCost || 0) * 30).toFixed(0)}/mo</span>
+                  <div className="flex items-center gap-3">
+                    <span className="text-[11px] text-[#8b949e]">{costPct.toFixed(1)}%</span>
+                    <span className="text-[13px] font-semibold text-[#1a1f2e]">${(ns.dailyCost || 0).toFixed(2)}<span className="text-[11px] text-[#8b949e] font-normal">/day</span></span>
+                    <span className="text-[11px] text-[#8b949e] w-16 text-right">${((ns.dailyCost || 0) * 30).toFixed(0)}/mo</span>
                   </div>
                 </div>
-                <div className="h-2 bg-gray-100 rounded-full overflow-hidden ml-7">
-                  <div
-                    className={`h-full ${barColor} rounded-full transition-all duration-700`}
-                    style={{ width: `${Math.max(costPct, 0.5)}%` }}
-                  ></div>
+                <div className="h-1.5 bg-[#e8ecf0] rounded-full overflow-hidden ml-6">
+                  <div className="h-full bg-[#2f4bde] rounded-full transition-all duration-700"
+                    style={{ width: `${Math.max(costPct, 0.5)}%` }} />
                 </div>
               </div>
             );
           })}
           {namespaceCosts.length === 0 && (
             <div className="py-12 text-center">
-              <i className="fas fa-layer-group text-gray-200 text-4xl mb-3"></i>
-              <p className="text-gray-500 text-sm">No namespace cost data available</p>
+              <i className="fas fa-layer-group text-[#8b949e] text-3xl mb-3"></i>
+              <p className="text-[13px] text-[#57606a]">No namespace cost data available</p>
             </div>
           )}
         </div>
 
         {namespaceCosts.length > itemsPerPage && (
-          <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
-            <span className="text-sm text-gray-500">
+          <div className="px-5 py-3 bg-[#f6f8fa] border-t border-[#e8ecf0] flex items-center justify-between">
+            <span className="text-[11px] text-[#8b949e]">
               {namespacePage * itemsPerPage + 1}–{Math.min((namespacePage + 1) * itemsPerPage, namespaceCosts.length)} of {namespaceCosts.length}
             </span>
             <div className="flex gap-2">
               <button onClick={() => setNamespacePage(p => Math.max(0, p - 1))} disabled={namespacePage === 0}
-                className="px-3 py-1.5 text-sm bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 font-medium">Previous</button>
+                className="px-3 py-1.5 text-[12px] font-semibold bg-white border border-[#d0d7de] rounded-lg hover:bg-[#f6f8fa] disabled:opacity-40 text-[#1a1f2e]">Previous</button>
               <button onClick={() => setNamespacePage(p => p + 1)} disabled={(namespacePage + 1) * itemsPerPage >= namespaceCosts.length}
-                className="px-3 py-1.5 text-sm bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 font-medium">Next</button>
+                className="px-3 py-1.5 text-[12px] font-semibold bg-white border border-[#d0d7de] rounded-lg hover:bg-[#f6f8fa] disabled:opacity-40 text-[#1a1f2e]">Next</button>
             </div>
           </div>
         )}
       </div>
 
-      {/* ═══ NODE FLEET COST CARDS ═══ */}
-      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="px-6 py-5 border-b border-gray-100">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center">
-              <i className="fas fa-server text-blue-600"></i>
-            </div>
-            <div>
-              <h3 className="text-base font-bold text-gray-900">Node Fleet Cost</h3>
-              <p className="text-xs text-gray-500">{sortedNodes.length} nodes · by daily spend</p>
-            </div>
-          </div>
+      {/* ── Node Fleet Cost ── */}
+      <div className="bg-white border border-[#d0d7de] rounded-lg overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-[#e8ecf0]">
+          <span className="text-sm font-semibold text-[#1a1f2e]">Node Fleet Cost</span>
+          <span className="ml-2 text-[11px] text-[#8b949e]">{sortedNodes.length} nodes · by daily spend</span>
         </div>
 
-        <div className="p-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        <div className="p-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
             {sortedNodes.slice(nodePage * nodeItemsPerPage, (nodePage + 1) * nodeItemsPerPage).map((node: any, i: number) => {
               const isReady = !node.condition || node.condition === 'Ready' || node.condition === 'ready';
               const isSpot = node.capacityType === 'spot';
               const instanceType = node.instanceType || dashboard.nodes?.find((n: any) => n.name === node.nodeName)?.instanceType || 'Unknown';
               return (
-                <div key={i} className="relative bg-gradient-to-br from-gray-50 to-white rounded-xl p-5 border border-gray-200 hover:border-blue-300 hover:shadow-md transition-all group">
-                  {/* Capacity badge */}
-                  {node.capacityType && (
-                    <span className={`absolute top-3 right-3 text-xs px-2.5 py-1 rounded-full font-bold ${isSpot ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
-                      {isSpot ? '⚡ Spot' : '💎 On-Demand'}
-                    </span>
-                  )}
-
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${isReady ? 'bg-green-100' : 'bg-red-100'}`}>
-                      <i className={`fas fa-server text-sm ${isReady ? 'text-green-600' : 'text-red-600'}`}></i>
+                <div key={i} className="bg-white border border-[#d0d7de] rounded-lg p-4 hover:bg-[#f6f8fa] transition-colors">
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[13px] font-mono font-semibold text-[#1a1f2e] truncate">{node.nodeName}</p>
+                      <p className="text-[11px] text-[#8b949e] mt-0.5">{instanceType}</p>
                     </div>
-                    <div className="min-w-0 pr-16">
-                      <p className="text-xs font-mono text-gray-900 font-semibold truncate">{node.nodeName}</p>
-                      <p className="text-xs text-gray-500 mt-0.5">{instanceType}</p>
-                    </div>
+                    {node.capacityType && (
+                      <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold border ml-2 flex-shrink-0"
+                        style={isSpot
+                          ? { color: '#0550ae', background: '#ddf4ff', borderColor: 'rgba(84,174,255,0.4)' }
+                          : { color: '#57606a', background: '#f6f8fa', borderColor: '#d0d7de' }}>
+                        {isSpot ? 'Spot' : 'On-Demand'}
+                      </span>
+                    )}
                   </div>
 
-                  <div className="flex items-baseline gap-1 mb-1">
-                    <span className="text-4xl font-black text-gray-900">${(node.dailyCost || 0).toFixed(2)}</span>
-                    <span className="text-xs text-gray-500 mb-1">/day</span>
+                  <div className="text-[26px] font-semibold text-[#1a1f2e] leading-none mb-1">
+                    ${(node.dailyCost || 0).toFixed(2)}<span className="text-[13px] text-[#8b949e] font-normal">/day</span>
                   </div>
-                  <p className="text-xs text-gray-400 mb-4">${((node.dailyCost || 0) * 30).toFixed(0)}/month · ${(node.hourlyRate || 0).toFixed(4)}/hr</p>
+                  <p className="text-[11px] text-[#8b949e] mb-3">${((node.dailyCost || 0) * 30).toFixed(0)}/mo · ${(node.hourlyRate || 0).toFixed(4)}/hr</p>
 
-                  <div className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-semibold ${isReady ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                    <div className={`w-1.5 h-1.5 rounded-full ${isReady ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
-                    {isReady ? 'Running' : (node.condition || 'Not Ready')}
-                  </div>
+                  <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold border"
+                    style={isReady
+                      ? { color: '#1a7f37', background: '#dafbe1', borderColor: 'rgba(74,194,107,0.4)' }
+                      : { color: '#cf222e', background: '#ffebe9', borderColor: 'rgba(255,129,130,0.4)' }}>
+                    {isReady ? 'Ready' : (node.condition || 'Not Ready')}
+                  </span>
                 </div>
               );
             })}
           </div>
 
           {sortedNodes.length === 0 && (
-            <div className="py-12 text-center">
-              <i className="fas fa-server text-gray-200 text-4xl mb-3"></i>
-              <p className="text-gray-500 text-sm">No node cost data available</p>
+            <div className="py-10 text-center col-span-3">
+              <p className="text-[13px] text-[#57606a]">No node cost data available</p>
             </div>
           )}
+        </div>
 
           {sortedNodes.length > nodeItemsPerPage && (
-            <div className="flex items-center justify-between mt-6 pt-4 border-t border-gray-100">
-              <span className="text-sm text-gray-500">
-                Showing {nodePage * nodeItemsPerPage + 1}–{Math.min((nodePage + 1) * nodeItemsPerPage, sortedNodes.length)} of {sortedNodes.length}
+            <div className="flex items-center justify-between mt-4 pt-4 border-t border-[#e8ecf0]">
+              <span className="text-[11px] text-[#8b949e]">
+                {nodePage * nodeItemsPerPage + 1}–{Math.min((nodePage + 1) * nodeItemsPerPage, sortedNodes.length)} of {sortedNodes.length}
               </span>
               <div className="flex gap-2">
                 <button onClick={() => setNodePage(p => Math.max(0, p - 1))} disabled={nodePage === 0}
-                  className="px-3 py-1.5 text-sm bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 font-medium">Previous</button>
+                  className="px-3 py-1.5 text-[12px] font-semibold bg-white border border-[#d0d7de] rounded-lg hover:bg-[#f6f8fa] disabled:opacity-40 text-[#1a1f2e]">Previous</button>
                 <button onClick={() => setNodePage(p => p + 1)} disabled={(nodePage + 1) * nodeItemsPerPage >= sortedNodes.length}
-                  className="px-3 py-1.5 text-sm bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 font-medium">Next</button>
+                  className="px-3 py-1.5 text-[12px] font-semibold bg-white border border-[#d0d7de] rounded-lg hover:bg-[#f6f8fa] disabled:opacity-40 text-[#1a1f2e]">Next</button>
               </div>
             </div>
           )}
         </div>
       </div>
 
-      {/* ═══ WORKLOAD COST LEADERBOARD ═══ */}
-      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between flex-wrap gap-3">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-purple-50 rounded-xl flex items-center justify-center">
-              <i className="fas fa-cubes text-purple-600"></i>
-            </div>
-            <div>
-              <h3 className="text-base font-bold text-gray-900">Workload Cost Ranking</h3>
-              <p className="text-xs text-gray-500">{getWorkloadCosts().length} total workloads</p>
-            </div>
-          </div>
-          {/* Workload type tabs */}
-          <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-xl">
+      {/* ── Workload Cost Ranking ── */}
+      <div className="bg-white border border-[#d0d7de] rounded-lg overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-[#e8ecf0] flex items-center justify-between flex-wrap gap-3">
+          <span className="text-sm font-semibold text-[#1a1f2e]">Workload Cost Ranking</span>
+          <div className="flex items-center gap-1">
             {[
-              { key: 'deployments', label: 'Deployments', count: deploymentCosts.length, color: 'text-blue-600' },
-              { key: 'daemonsets', label: 'DaemonSets', count: daemonSetCosts.length, color: 'text-emerald-600' },
-              { key: 'statefulsets', label: 'StatefulSets', count: statefulSetCosts.length, color: 'text-purple-600' },
+              { key: 'deployments', label: 'Deployments', count: deploymentCosts.length },
+              { key: 'daemonsets', label: 'DaemonSets', count: daemonSetCosts.length },
+              { key: 'statefulsets', label: 'StatefulSets', count: statefulSetCosts.length },
             ].map(tab => (
-              <button
-                key={tab.key}
+              <button key={tab.key}
                 onClick={() => { setWorkloadTab(tab.key as any); setDeploymentPage(0); setDaemonSetPage(0); setStatefulSetPage(0); }}
-                className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-all ${workloadTab === tab.key ? `bg-white shadow-sm ${tab.color}` : 'text-gray-500 hover:text-gray-700'}`}
-              >
-                {tab.label}
-                <span className="ml-1.5 text-xs opacity-60">({tab.count})</span>
+                className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold transition-colors ${workloadTab === tab.key ? 'bg-[#2f4bde] text-white' : 'bg-white text-[#57606a] border border-[#d0d7de] hover:bg-[#f6f8fa]'}`}>
+                {tab.label} <span className="opacity-70">({tab.count})</span>
               </button>
             ))}
           </div>
         </div>
 
-        <div className="divide-y divide-gray-50">
-          {activeWorkloads.slice(activeWorkloadPage * itemsPerPage, (activeWorkloadPage + 1) * itemsPerPage).map((wl: any, i: number) => {
-            const rank = activeWorkloadPage * itemsPerPage + i + 1;
-            const costShare = (wl.dailyCost / Math.max(maxWorkloadCost, 0.01)) * 100;
-            const kindColors: Record<string, string> = { Deployment: 'bg-blue-100 text-blue-700', DaemonSet: 'bg-emerald-100 text-emerald-700', StatefulSet: 'bg-purple-100 text-purple-700' };
-            const barColors: Record<string, string> = { Deployment: 'bg-blue-500', DaemonSet: 'bg-emerald-500', StatefulSet: 'bg-purple-500' };
-            const rankColors = ['text-yellow-500', 'text-gray-400', 'text-amber-600'];
-            return (
-              <div key={i} className="px-6 py-4 hover:bg-gray-50 transition-colors group">
-                <div className="flex items-center gap-4">
-                  <span className={`text-lg font-black w-6 text-center flex-shrink-0 ${rank <= 3 ? rankColors[rank - 1] : 'text-gray-300'}`}>
-                    {rank <= 3 ? ['①', '②', '③'][rank - 1] : rank}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="font-bold text-gray-900 text-sm truncate group-hover:text-purple-600 transition-colors">{wl.name}</span>
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-bold flex-shrink-0 ${kindColors[wl.kind] || 'bg-gray-100 text-gray-600'}`}>{wl.kind}</span>
-                      <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-medium flex-shrink-0">{wl.namespace}</span>
+        <table className="w-full">
+          <thead>
+            <tr className="bg-[#f6f8fa] border-b border-[#d0d7de]">
+              <th className="px-5 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-[#8b949e]">#</th>
+              <th className="px-5 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-[#8b949e]">Workload</th>
+              <th className="px-5 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-[#8b949e]">Namespace</th>
+              <th className="px-5 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-[#8b949e]">Usage share</th>
+              <th className="px-5 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-[#8b949e]">Daily</th>
+              <th className="px-5 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-[#8b949e]">Monthly</th>
+            </tr>
+          </thead>
+          <tbody>
+            {activeWorkloads.slice(activeWorkloadPage * itemsPerPage, (activeWorkloadPage + 1) * itemsPerPage).map((wl: any, i: number) => {
+              const rank = activeWorkloadPage * itemsPerPage + i + 1;
+              const costShare = (wl.dailyCost / Math.max(maxWorkloadCost, 0.01)) * 100;
+              return (
+                <tr key={i} className="border-b border-[#e8ecf0] hover:bg-[#f6f8fa] transition-colors">
+                  <td className="px-5 py-2.5 text-[11px] text-[#8b949e] font-mono">{rank}</td>
+                  <td className="px-5 py-2.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[13px] font-semibold text-[#1a1f2e] truncate max-w-[180px]">{wl.name}</span>
+                      <span className="rounded-full px-2 py-0.5 text-[11px] font-semibold border border-[#d0d7de] text-[#57606a]">{wl.kind}</span>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                        <div className={`h-full ${barColors[wl.kind] || 'bg-gray-400'} rounded-full`} style={{ width: `${costShare}%` }}></div>
+                  </td>
+                  <td className="px-5 py-2.5 text-[13px] font-mono text-[#57606a]">{wl.namespace}</td>
+                  <td className="px-5 py-2.5 w-36">
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 h-1.5 bg-[#e8ecf0] rounded-full overflow-hidden">
+                        <div className="h-full bg-[#2f4bde] rounded-full" style={{ width: `${costShare}%` }} />
                       </div>
-                      <span className="text-xs text-gray-400 flex-shrink-0">{wl.podCount} pod{wl.podCount !== 1 ? 's' : ''}</span>
+                      <span className="text-[11px] text-[#8b949e] w-8">{wl.podCount}p</span>
                     </div>
-                  </div>
-                  <div className="text-right flex-shrink-0">
-                    <div className="text-sm font-black text-gray-900">${(wl.dailyCost || 0).toFixed(2)}<span className="text-xs text-gray-400 font-normal">/day</span></div>
-                    <div className="text-xs text-gray-400">${(wl.monthlyCost || 0).toFixed(0)}/mo</div>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-
-          {activeWorkloads.length === 0 && (
-            <div className="px-6 py-12 text-center text-gray-500">
-              <i className="fas fa-cubes text-gray-200 text-3xl mb-3"></i>
-              <p className="text-sm">No {workloadTab} cost data available</p>
-            </div>
-          )}
-        </div>
-
+                  </td>
+                  <td className="px-5 py-2.5 text-right text-[13px] font-semibold text-[#1a1f2e]">${(wl.dailyCost || 0).toFixed(2)}</td>
+                  <td className="px-5 py-2.5 text-right text-[11px] text-[#8b949e]">${(wl.monthlyCost || 0).toFixed(0)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {activeWorkloads.length === 0 && (
+          <div className="py-10 text-center">
+            <p className="text-[13px] text-[#57606a]">No {workloadTab} cost data available</p>
+          </div>
+        )}
         {activeWorkloads.length > itemsPerPage && (
-          <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
-            <span className="text-sm text-gray-500">
+          <div className="px-5 py-3 bg-[#f6f8fa] border-t border-[#e8ecf0] flex items-center justify-between">
+            <span className="text-[11px] text-[#8b949e]">
               {activeWorkloadPage * itemsPerPage + 1}–{Math.min((activeWorkloadPage + 1) * itemsPerPage, activeWorkloads.length)} of {activeWorkloads.length}
             </span>
             <div className="flex gap-2">
               <button onClick={() => setActiveWorkloadPage(p => Math.max(0, p - 1))} disabled={activeWorkloadPage === 0}
-                className="px-3 py-1.5 text-sm bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 font-medium">Previous</button>
+                className="px-3 py-1.5 text-[12px] font-semibold bg-white border border-[#d0d7de] rounded-lg hover:bg-[#f6f8fa] disabled:opacity-40 text-[#1a1f2e]">Previous</button>
               <button onClick={() => setActiveWorkloadPage(p => p + 1)} disabled={(activeWorkloadPage + 1) * itemsPerPage >= activeWorkloads.length}
-                className="px-3 py-1.5 text-sm bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 font-medium">Next</button>
+                className="px-3 py-1.5 text-[12px] font-semibold bg-white border border-[#d0d7de] rounded-lg hover:bg-[#f6f8fa] disabled:opacity-40 text-[#1a1f2e]">Next</button>
             </div>
           </div>
         )}
       </div>
 
-      {/* ═══ SAVINGS OPPORTUNITIES ═══ */}
+      {/* ── Savings Opportunities ── */}
       {recommendations.length > 0 && (
-        <div className="bg-gradient-to-br from-amber-50 via-yellow-50 to-orange-50 rounded-2xl border-2 border-amber-200 shadow-sm overflow-hidden">
-          <div className="px-6 py-5 border-b border-amber-200/60 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center">
-                <i className="fas fa-lightbulb text-amber-600"></i>
-              </div>
-              <div>
-                <h3 className="text-base font-bold text-gray-900">Savings Opportunities</h3>
-                <p className="text-xs text-gray-600">{recommendations.length} optimization{recommendations.length > 1 ? 's' : ''} identified</p>
-              </div>
-            </div>
-            <div className="bg-emerald-100 border border-emerald-200 rounded-xl px-4 py-2">
-              <p className="text-xs text-emerald-600 font-semibold uppercase tracking-wide">Potential savings</p>
-              <p className="text-xl font-black text-emerald-700">${totalSavings.toFixed(2)}<span className="text-sm font-normal text-emerald-600">/mo</span></p>
-            </div>
+        <div className="bg-white border border-[#d0d7de] rounded-lg overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-[#e8ecf0] flex items-center justify-between">
+            <span className="text-sm font-semibold text-[#1a1f2e]">Savings Opportunities</span>
+            <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold border"
+              style={{ color: '#1a7f37', background: '#dafbe1', borderColor: 'rgba(74,194,107,0.4)' }}>
+              ${totalSavings.toFixed(0)}/mo potential
+            </span>
           </div>
 
-          <div className="p-6 space-y-4">
+          <div className="p-5 space-y-3">
             {recommendations.map((rec) => {
-              const prioConfig = {
-                high: { bg: 'bg-red-50', border: 'border-red-200', icon: 'text-red-600', badge: 'bg-red-100 text-red-700', iconName: 'exclamation-circle' },
-                medium: { bg: 'bg-amber-50', border: 'border-amber-200', icon: 'text-amber-600', badge: 'bg-amber-100 text-amber-700', iconName: 'exclamation-triangle' },
-                low: { bg: 'bg-blue-50', border: 'border-blue-200', icon: 'text-blue-600', badge: 'bg-blue-100 text-blue-700', iconName: 'info-circle' },
-              }[rec.priority];
+              const prioStyle = rec.priority === 'high'
+                ? { color: '#cf222e', bg: '#ffebe9', border: 'rgba(255,129,130,0.4)' }
+                : rec.priority === 'medium'
+                ? { color: '#9a6700', bg: '#fff8c5', border: 'rgba(212,167,44,0.4)' }
+                : { color: '#0550ae', bg: '#ddf4ff', border: 'rgba(84,174,255,0.4)' };
               return (
-                <div key={rec.id} className={`${prioConfig.bg} border-2 ${prioConfig.border} rounded-xl p-5`}>
-                  <div className="flex items-start gap-4">
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-white border ${prioConfig.border}`}>
-                      <i className={`fas fa-${prioConfig.iconName} ${prioConfig.icon}`}></i>
-                    </div>
+                <div key={rec.id} className="border border-[#d0d7de] rounded-lg p-4 hover:bg-[#f6f8fa] transition-colors">
+                  <div className="flex items-start justify-between gap-3 mb-2">
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between gap-3 mb-2">
-                        <div>
-                          <h4 className="font-bold text-gray-900 text-sm">{rec.title}</h4>
-                          <span className={`inline-flex items-center gap-1 text-xs font-bold uppercase px-2 py-0.5 rounded-full mt-1 ${prioConfig.badge}`}>
-                            {rec.priority} priority
-                          </span>
-                        </div>
-                        {rec.savingsEstimate > 0 && (
-                          <div className="text-right flex-shrink-0 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
-                            <div className="text-lg font-black text-emerald-600">${rec.savingsEstimate.toFixed(2)}</div>
-                            <div className="text-xs text-emerald-500">potential/month</div>
-                          </div>
-                        )}
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        <h4 className="text-sm font-semibold text-[#1a1f2e]">{rec.title}</h4>
+                        <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold border"
+                          style={{ color: prioStyle.color, background: prioStyle.bg, borderColor: prioStyle.border }}>
+                          {rec.priority} priority
+                        </span>
                       </div>
-                      <p className="text-sm text-gray-700 mb-2">{rec.description}</p>
-                      <p className="text-sm font-semibold text-gray-900 mb-3">{rec.impact}</p>
-
-                      <button
-                        onClick={() => setShowRecommendationInfo(showRecommendationInfo === rec.id ? null : rec.id)}
-                        className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-800 font-medium mb-2"
-                      >
-                        <i className="fas fa-info-circle"></i>
-                        How is this calculated?
-                        <i className={`fas fa-chevron-${showRecommendationInfo === rec.id ? 'up' : 'down'} text-xs`}></i>
-                      </button>
-                      {showRecommendationInfo === rec.id && (
-                        <div className="bg-white rounded-lg p-3 mb-3 text-xs text-gray-700 border border-gray-200">
-                          <strong>Calculation Basis:</strong> {rec.basisExplanation}
-                        </div>
-                      )}
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-1 mb-2">
-                        {rec.actionItems.map((action, idx) => (
-                          <div key={idx} className="flex items-start gap-2 text-xs text-gray-700">
-                            <i className="fas fa-check text-emerald-500 mt-0.5 flex-shrink-0"></i>
-                            <span>{action}</span>
-                          </div>
-                        ))}
-                      </div>
-                      {rec.affectedResources.length > 0 && (
-                        <p className="text-xs text-gray-500 mt-2">
-                          <strong>Affected:</strong> {rec.affectedResources.slice(0, 3).join(', ')}{rec.affectedResources.length > 3 ? ` +${rec.affectedResources.length - 3} more` : ''}
-                        </p>
-                      )}
+                      <p className="text-[13px] text-[#57606a] mb-1">{rec.description}</p>
+                      <p className="text-[13px] font-semibold text-[#1a1f2e]">{rec.impact}</p>
                     </div>
+                    {rec.savingsEstimate > 0 && (
+                      <div className="text-right flex-shrink-0">
+                        <div className="text-[26px] font-semibold text-[#1a7f37] leading-none">${rec.savingsEstimate.toFixed(0)}</div>
+                        <div className="text-[11px] text-[#8b949e]">/month</div>
+                      </div>
+                    )}
                   </div>
+                  <button onClick={() => setShowRecommendationInfo(showRecommendationInfo === rec.id ? null : rec.id)}
+                    className="text-[12px] text-[#2f4bde] hover:underline">
+                    {showRecommendationInfo === rec.id ? '▲' : '▼'} How is this calculated?
+                  </button>
+                  {showRecommendationInfo === rec.id && (
+                    <div className="mt-2 p-3 bg-[#f6f8fa] rounded-lg border border-[#d0d7de] text-[11px] text-[#57606a]">
+                      {rec.basisExplanation}
+                    </div>
+                  )}
                 </div>
               );
             })}

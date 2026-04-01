@@ -145,8 +145,8 @@ const EksDetailsPage: React.FC = () => {
   }
 
   return (
-    <main className="eks-details-page flex-1 flex flex-col min-h-screen">
-      <div className="p-8 space-y-8 w-full">
+    <main className="eks-details-page flex-1 flex flex-col min-h-screen bg-[#f6f8fa]" style={{ fontFamily: "'Inter', sans-serif" }}>
+      <div className="p-6 space-y-4 w-full">
         {/* Old Header Removed */}
 
         {/* Loading State */}
@@ -163,12 +163,12 @@ const EksDetailsPage: React.FC = () => {
 
         {/* Error State */}
         {error && !loading && (
-          <div className="bg-red-900/20 border-l-4 border-red-500 p-6 rounded-lg shadow-sm backdrop-blur-sm">
-            <div className="flex items-center">
-              <i className="fas fa-exclamation-circle text-red-400 text-2xl mr-4"></i>
+          <div className="bg-[#ffebe9] border border-[rgba(255,129,130,0.4)] p-5 rounded-lg">
+            <div className="flex items-center gap-3">
+              <i className="fas fa-exclamation-circle text-[#cf222e] text-lg"></i>
               <div>
-                <h3 className="text-lg font-bold text-red-300">Error Loading Dashboard</h3>
-                <p className="text-sm text-red-400 mt-1">{error}</p>
+                <h3 className="text-sm font-semibold text-[#cf222e]">Error Loading Dashboard</h3>
+                <p className="text-[13px] text-[#57606a] mt-0.5">{error}</p>
               </div>
             </div>
           </div>

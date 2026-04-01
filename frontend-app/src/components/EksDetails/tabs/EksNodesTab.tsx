@@ -273,86 +273,72 @@ const EksNodesTab: React.FC<{ eksData: any }> = ({ eksData }) => {
                               <i className="fas fa-microchip text-orange-500 text-[10px]"></i>
                               CPU Usage
                             </span>
-                            <span className={`font-black text-sm ${cpuPercent >= 80 ? 'text-red-600' :
-                              cpuPercent >= 60 ? 'text-amber-600' : 'text-green-600'
+                            <span className={`font-semibold text-[12px] ${cpuPercent >= 80 ? 'text-[#cf222e]' :
+                              cpuPercent >= 60 ? 'text-[#9a6700]' : 'text-[#1a7f37]'
                               }`}>
                               {cpuPercent.toFixed(1)}% {cpuUsageMillicores > 0 && `(${Math.round(cpuUsageMillicores)}m)`}
                             </span>
                           </div>
-                          <div className="h-2.5 bg-gray-200 rounded-full overflow-hidden relative">
-                            <div
-                              className={`h-full rounded-full transition-all duration-500 ${cpuPercent >= 80 ? 'bg-gradient-to-r from-red-400 to-red-600' :
-                                cpuPercent >= 60 ? 'bg-gradient-to-r from-amber-400 to-amber-600' :
-                                  'bg-gradient-to-r from-green-400 to-green-600'
-                                }`}
-                              style={{ width: `${Math.min(100, cpuPercent)}%` }}
-                            ></div>
+                          <div className="h-1.5 bg-[#e8ecf0] rounded-full overflow-hidden">
+                            <div className="h-full rounded-full transition-all duration-500"
+                              style={{ width: `${Math.min(100, cpuPercent)}%`, background: cpuPercent >= 80 ? '#cf222e' : cpuPercent >= 60 ? '#9a6700' : '#2f4bde' }}
+                            />
                           </div>
                         </div>
 
                         {/* Memory Usage */}
                         <div>
                           <div className="flex items-center justify-between text-xs mb-1.5">
-                            <span className="font-bold text-gray-700 flex items-center gap-1.5">
-                              <i className="fas fa-memory text-purple-500 text-[10px]"></i>
+                            <span className="font-semibold text-[#57606a] flex items-center gap-1.5">
+                              <i className="fas fa-memory text-[11px]"></i>
                               Memory Usage
                             </span>
-                            <span className={`font-black text-sm ${memPercent >= 80 ? 'text-red-600' :
-                              memPercent >= 60 ? 'text-amber-600' : 'text-green-600'
-                              }`}>
+                            <span className="font-semibold text-sm" style={{ color: memPercent >= 80 ? '#cf222e' : memPercent >= 60 ? '#9a6700' : '#1a1f2e' }}>
                               {memPercent.toFixed(1)}% {memUsageMB > 0 && `(${Math.round(memUsageMB)} MB)`}
                             </span>
                           </div>
-                          <div className="h-2.5 bg-gray-200 rounded-full overflow-hidden relative">
-                            <div
-                              className={`h-full rounded-full transition-all duration-500 ${memPercent >= 80 ? 'bg-gradient-to-r from-red-400 to-red-600' :
-                                memPercent >= 60 ? 'bg-gradient-to-r from-amber-400 to-amber-600' :
-                                  'bg-gradient-to-r from-purple-400 to-purple-600'
-                                }`}
-                              style={{ width: `${Math.min(100, memPercent)}%` }}
-                            ></div>
+                          <div className="h-1.5 bg-[#e8ecf0] rounded-full overflow-hidden">
+                            <div className="h-full rounded-full transition-all duration-500"
+                              style={{ width: `${Math.min(100, memPercent)}%`, background: memPercent >= 80 ? '#cf222e' : memPercent >= 60 ? '#9a6700' : '#2f4bde' }}
+                            />
                           </div>
                         </div>
 
                         {/* CPU Requests */}
                         <div>
                           <div className="flex items-center justify-between text-xs mb-1.5">
-                            <span className="font-bold text-gray-700 flex items-center gap-1.5">
-                              <i className="fas fa-chart-line text-blue-500 text-[10px]"></i>
+                            <span className="font-semibold text-[#57606a] flex items-center gap-1.5">
+                              <i className="fas fa-chart-line text-[11px]"></i>
                               CPU Requests
                             </span>
-                            <span className="font-black text-sm text-blue-600">
+                            <span className="font-semibold text-sm text-[#2f4bde]">
                               {fullNode?.cpuRequestsPercent !== undefined
                                 ? `${fullNode.cpuRequestsPercent.toFixed(1)}% ${fullNode.cpuRequests ? `(${Math.round(fullNode.cpuRequests)}m)` : ''}`
                                 : 'N/A'}
                             </span>
                           </div>
-                          <div className="h-2.5 bg-gray-200 rounded-full overflow-hidden relative">
-                            <div
-                              className="h-full rounded-full transition-all duration-500 bg-gradient-to-r from-blue-400 to-blue-600"
-                              style={{ width: `${Math.min(100, fullNode?.cpuRequestsPercent || 0)}%` }}
-                            ></div>
+                          <div className="h-1.5 bg-[#e8ecf0] rounded-full overflow-hidden">
+                            <div className="h-full bg-[#2f4bde] rounded-full transition-all duration-500"
+                              style={{ width: `${Math.min(100, fullNode?.cpuRequestsPercent || 0)}%` }} />
                           </div>
                         </div>
 
                         {/* Memory Requests */}
                         <div>
                           <div className="flex items-center justify-between text-xs mb-1.5">
-                            <span className="font-bold text-gray-700 flex items-center gap-1.5">
-                              <i className="fas fa-chart-line text-indigo-500 text-[10px]"></i>
+                            <span className="font-semibold text-[#57606a] flex items-center gap-1.5">
+                              <i className="fas fa-chart-line text-[11px]"></i>
                               Memory Requests
                             </span>
-                            <span className="font-black text-sm text-indigo-600">
+                            <span className="font-semibold text-sm text-[#2f4bde]">
                               {fullNode?.memoryRequestsPercent !== undefined
                                 ? `${fullNode.memoryRequestsPercent.toFixed(1)}% ${fullNode.memoryRequests ? `(${Math.round(fullNode.memoryRequests)} MB)` : ''}`
                                 : 'N/A'}
                             </span>
                           </div>
-                          <div className="h-2.5 bg-gray-200 rounded-full overflow-hidden relative">
-                            <div
-                              className="h-full rounded-full transition-all duration-500 bg-gradient-to-r from-indigo-400 to-indigo-600"
-                              style={{ width: `${Math.min(100, fullNode?.memoryRequestsPercent || 0)}%` }}
-                            ></div>
+                          <div className="h-1.5 bg-[#e8ecf0] rounded-full overflow-hidden">
+                            <div className="h-full bg-[#2f4bde] rounded-full transition-all duration-500"
+                              style={{ width: `${Math.min(100, fullNode?.memoryRequestsPercent || 0)}%` }} />
                           </div>
                         </div>
                       </div>
@@ -389,11 +375,11 @@ const EksNodesTab: React.FC<{ eksData: any }> = ({ eksData }) => {
 
                   {/* Health Score */}
                   <div className="text-center flex-shrink-0 border-l border-gray-100 pl-4 min-w-[80px]">
-                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl font-black mx-auto border-4 ${isHealthy ? 'border-green-500 text-green-600 bg-green-50' : 'border-red-500 text-red-600 bg-red-50'
+                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center text-base font-semibold mx-auto border-2 ${isHealthy ? 'border-[#aceebb] text-[#1a7f37] bg-[#dafbe1]' : 'border-[rgba(255,129,130,0.4)] text-[#cf222e] bg-[#ffebe9]'
                       }`}>
                       {isHealthy ? '✓' : '!'}
                     </div>
-                    <div className="text-[10px] text-gray-500 mt-2 font-bold uppercase tracking-tighter">
+                    <div className="text-[10px] text-[#8b949e] mt-1.5 font-medium uppercase tracking-wider">
                       {isHealthy ? 'Healthy' : 'Issues'}
                     </div>
                   </div>
@@ -404,9 +390,9 @@ const EksNodesTab: React.FC<{ eksData: any }> = ({ eksData }) => {
 
           {
             filteredNodes.length === 0 && (
-              <div className="text-center py-16 bg-gray-50 rounded-xl border-2 border-dashed border-gray-300">
-                <i className="fas fa-server text-gray-300 text-4xl mb-3"></i>
-                <p className="text-gray-500 font-medium">No nodes found matching the filter</p>
+              <div className="text-center py-12 bg-[#f6f8fa] rounded-lg border border-dashed border-[#d0d7de]">
+                <i className="fas fa-server text-[#8b949e] text-2xl mb-3"></i>
+                <p className="text-[13px] text-[#57606a] font-medium">No nodes found matching the filter</p>
               </div>
             )
           }

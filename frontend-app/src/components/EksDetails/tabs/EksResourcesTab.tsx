@@ -30,11 +30,11 @@ const StatusBadge: React.FC<{ text: string; variant: 'green' | 'red' | 'amber' |
 
 const EmptyState: React.FC<{ icon: string; title: string; subtitle: string }> = ({ icon, title, subtitle }) => (
   <div className="flex flex-col items-center justify-center py-16 text-center">
-    <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mb-4">
-      <i className={`${icon} text-gray-300 text-2xl`}></i>
+    <div className="w-14 h-14 bg-[#f6f8fa] border border-[#e8ecf0] rounded-lg flex items-center justify-center mb-4">
+      <i className={`${icon} text-[#8b949e] text-xl`}></i>
     </div>
-    <p className="text-gray-600 font-semibold">{title}</p>
-    <p className="text-gray-400 text-sm mt-1">{subtitle}</p>
+    <p className="text-[13px] font-semibold text-[#1a1f2e]">{title}</p>
+    <p className="text-[12px] text-[#57606a] mt-1">{subtitle}</p>
   </div>
 );
 
@@ -49,21 +49,21 @@ const ResourceSection: React.FC<{
 }> = ({ icon, color, title, count, children }) => {
   const [open, setOpen] = useState(true);
   return (
-    <section className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+    <section className="bg-white rounded-lg border border-[#d0d7de] overflow-hidden">
       <button
         onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center justify-between px-6 py-4 hover:bg-gray-50 transition-colors"
+        className="w-full flex items-center justify-between px-6 py-4 hover:bg-[#f6f8fa] transition-colors"
       >
         <div className="flex items-center gap-3">
-          <div className={`w-9 h-9 rounded-lg ${color} flex items-center justify-center`}>
+          <div className={`w-8 h-8 rounded-md ${color} flex items-center justify-center`}>
             <i className={`fas ${icon} text-white text-sm`}></i>
           </div>
-          <span className="font-bold text-gray-900 text-base">{title}</span>
-          <span className="px-2.5 py-0.5 bg-gray-100 text-gray-600 rounded-full text-xs font-bold">{count}</span>
+          <span className="font-semibold text-[#1a1f2e] text-[13px]">{title}</span>
+          <span className="px-2 py-0.5 bg-[#f6f8fa] border border-[#e8ecf0] text-[#57606a] rounded-full text-[11px] font-medium">{count}</span>
         </div>
-        <i className={`fas fa-chevron-down text-gray-400 text-sm transition-transform ${open ? 'rotate-180' : ''}`}></i>
+        <i className={`fas fa-chevron-down text-[#8b949e] text-xs transition-transform ${open ? 'rotate-180' : ''}`}></i>
       </button>
-      {open && <div className="border-t border-gray-100">{children}</div>}
+      {open && <div className="border-t border-[#e8ecf0]">{children}</div>}
     </section>
   );
 };
@@ -78,9 +78,9 @@ const FilterBar: React.FC<{
   onNamespace: (v: string) => void;
   placeholder?: string;
 }> = ({ search, onSearch, namespaces, namespace, onNamespace, placeholder = 'Search...' }) => (
-  <div className="flex flex-col sm:flex-row gap-3 px-6 py-4 bg-gray-50 border-b border-gray-100">
+  <div className="flex flex-col sm:flex-row gap-3 px-6 py-3 bg-[#f6f8fa] border-b border-[#e8ecf0]">
     <div className="relative flex-1">
-      <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i>
+      <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-[#8b949e] text-xs"></i>
       <input
         type="text"
         value={search}
@@ -167,7 +167,7 @@ const HpaSection: React.FC<{ hpas: any[] }> = ({ hpas }) => {
                   <td className="px-6 py-3 text-center font-bold text-gray-700">{min}</td>
                   <td className="px-6 py-3 text-center">
                     <div className="flex flex-col items-center gap-1">
-                      <span className={`font-black text-sm ${isAtMax ? 'text-amber-600' : 'text-gray-900'}`}>{current}</span>
+                      <span className={`font-semibold text-[13px] ${isAtMax ? 'text-[#9a6700]' : 'text-[#1a1f2e]'}`}>{current}</span>
                       <div className="w-12 h-1.5 bg-gray-100 rounded-full overflow-hidden">
                         <div className={`h-full rounded-full ${isAtMax ? 'bg-amber-500' : 'bg-purple-500'}`} style={{ width: `${pct}%` }} />
                       </div>
@@ -235,18 +235,18 @@ const PvcSection: React.FC<{ pvcs: any[] }> = ({ pvcs }) => {
     <ResourceSection icon="fa-hdd" color="bg-teal-500" title="Persistent Volume Claims" count={pvcs.length}>
       <FilterBar search={search} onSearch={setSearch} namespaces={namespaces} namespace={ns} onNamespace={setNs} placeholder="Search PVCs..." />
       {/* Quick stats */}
-      <div className="grid grid-cols-3 gap-4 px-6 py-4 bg-teal-50/50 border-b border-teal-100">
+      <div className="grid grid-cols-3 gap-4 px-6 py-4 bg-[#f6f8fa] border-b border-[#e8ecf0]">
         <div className="text-center">
-          <div className="text-xl font-black text-green-700">{boundCount}</div>
-          <div className="text-xs text-gray-500 font-medium">Bound</div>
+          <div className="text-[20px] font-semibold text-[#1a7f37]">{boundCount}</div>
+          <div className="text-[11px] text-[#57606a]">Bound</div>
         </div>
-        <div className="text-center border-x border-teal-100">
-          <div className="text-xl font-black text-amber-600">{pendingCount}</div>
-          <div className="text-xs text-gray-500 font-medium">Pending / Lost</div>
+        <div className="text-center border-x border-[#e8ecf0]">
+          <div className="text-[20px] font-semibold text-[#9a6700]">{pendingCount}</div>
+          <div className="text-[11px] text-[#57606a]">Pending / Lost</div>
         </div>
         <div className="text-center">
-          <div className="text-xl font-black text-teal-700">{totalCapacityGi.toFixed(0)} Gi</div>
-          <div className="text-xs text-gray-500 font-medium">Total Capacity</div>
+          <div className="text-[20px] font-semibold text-[#1a1f2e]">{totalCapacityGi.toFixed(0)} Gi</div>
+          <div className="text-[11px] text-[#57606a]">Total Capacity</div>
         </div>
       </div>
       <div className="overflow-x-auto">
@@ -673,14 +673,9 @@ const ResourceSummary: React.FC<{ dashboard: any }> = ({ dashboard }) => {
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
       {stats.map(({ label, value, icon, color, bg }) => (
-        <div key={label} className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <div className={`w-8 h-8 rounded-lg ${bg} flex items-center justify-center`}>
-              <i className={`fas ${icon} ${color} text-sm`}></i>
-            </div>
-            <span className="text-xs font-semibold text-gray-500">{label}</span>
-          </div>
-          <div className="text-2xl font-black text-gray-900">{value}</div>
+        <div key={label} className="bg-white rounded-lg border border-[#d0d7de] px-4 py-3">
+          <div className="text-[11px] font-medium text-[#8b949e] uppercase tracking-wider mb-1">{label}</div>
+          <div className="text-[22px] font-semibold text-[#1a1f2e]">{value}</div>
         </div>
       ))}
     </div>

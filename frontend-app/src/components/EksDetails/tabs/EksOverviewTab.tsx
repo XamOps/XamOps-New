@@ -1,8 +1,5 @@
 /**
- * EKS Overview Tab
- *
- * Cast.ai / ScaleOps premium dashboard with score gauges, cost insights,
- * node fleet, top consumers, namespace utilization, recommendations and events.
+ * EKS Overview Tab — Cast.ai-inspired clean design
  */
 
 import React from 'react';
@@ -12,10 +9,9 @@ interface EksOverviewTabProps {
   eksData: any;
 }
 
-// ── Inline SVG donut gauge (no external library) ─────────────────────────────
 interface DonutGaugeProps {
-  value: number;       // 0-100
-  size?: number;       // diameter px
+  value: number;
+  size?: number;
   strokeWidth?: number;
   trackColor?: string;
   arcColor: string;
@@ -28,7 +24,7 @@ const DonutGauge: React.FC<DonutGaugeProps> = ({
   value,
   size = 140,
   strokeWidth = 12,
-  trackColor = '#e5e7eb',
+  trackColor = '#e8ecf0',
   arcColor,
   label,
   sublabel,
@@ -45,41 +41,24 @@ const DonutGauge: React.FC<DonutGaugeProps> = ({
   return (
     <div className="flex flex-col items-center">
       <div className="relative" style={{ width: size, height: size }}>
-        <svg
-          width={size}
-          height={size}
-          viewBox={`0 0 ${size} ${size}`}
-          style={{ transform: 'rotate(-90deg)' }}
-        >
+        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ transform: 'rotate(-90deg)' }}>
           <circle cx={cx} cy={cy} r={r} fill="none" stroke={trackColor} strokeWidth={strokeWidth} />
-          <circle
-            cx={cx}
-            cy={cy}
-            r={r}
-            fill="none"
-            stroke={arcColor}
-            strokeWidth={strokeWidth}
-            strokeLinecap="round"
-            strokeDasharray={dashArray}
-            style={{ transition: 'stroke-dasharray 1s ease' }}
-          />
+          <circle cx={cx} cy={cy} r={r} fill="none" stroke={arcColor} strokeWidth={strokeWidth}
+            strokeLinecap="round" strokeDasharray={dashArray} style={{ transition: 'stroke-dasharray 1s ease' }} />
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-2xl font-black leading-none" style={{ color: textColor }}>
-            {Math.round(filled)}
-          </span>
-          <span className="text-xs text-gray-400 font-medium leading-none mt-0.5">/100</span>
+          <span className="text-2xl font-semibold leading-none" style={{ color: textColor }}>{Math.round(filled)}</span>
+          <span className="text-[11px] text-[#8b949e] leading-none mt-0.5">/100</span>
         </div>
       </div>
       <div className="text-center mt-2">
-        <div className="text-sm font-bold text-gray-800">{label}</div>
-        {sublabel && <div className="text-xs text-gray-500 mt-0.5">{sublabel}</div>}
+        <div className="text-sm font-semibold text-[#1a1f2e]">{label}</div>
+        {sublabel && <div className="text-[11px] text-[#8b949e] mt-0.5">{sublabel}</div>}
       </div>
     </div>
   );
 };
 
-// ── Small inline gauge for CPU/Memory ────────────────────────────────────────
 interface SmallGaugeProps {
   value: number;
   size?: number;
@@ -90,12 +69,7 @@ interface SmallGaugeProps {
 }
 
 const SmallGauge: React.FC<SmallGaugeProps> = ({
-  value,
-  size = 100,
-  arcColor,
-  trackColor = '#e5e7eb',
-  strokeWidth = 10,
-  centerLabel,
+  value, size = 100, arcColor, trackColor = '#e8ecf0', strokeWidth = 10, centerLabel,
 }) => {
   const r = (size - strokeWidth) / 2;
   const circ = 2 * Math.PI * r;
@@ -103,68 +77,33 @@ const SmallGauge: React.FC<SmallGaugeProps> = ({
   const dashArray = `${(filled / 100) * circ} ${circ}`;
   const cx = size / 2;
   const cy = size / 2;
-
   return (
     <div className="relative inline-flex" style={{ width: size, height: size }}>
-      <svg
-        width={size}
-        height={size}
-        viewBox={`0 0 ${size} ${size}`}
-        style={{ transform: 'rotate(-90deg)' }}
-      >
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ transform: 'rotate(-90deg)' }}>
         <circle cx={cx} cy={cy} r={r} fill="none" stroke={trackColor} strokeWidth={strokeWidth} />
-        <circle
-          cx={cx}
-          cy={cy}
-          r={r}
-          fill="none"
-          stroke={arcColor}
-          strokeWidth={strokeWidth}
-          strokeLinecap="round"
-          strokeDasharray={dashArray}
-          style={{ transition: 'stroke-dasharray 1s ease' }}
-        />
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke={arcColor} strokeWidth={strokeWidth}
+          strokeLinecap="round" strokeDasharray={dashArray} style={{ transition: 'stroke-dasharray 1s ease' }} />
       </svg>
       <div className="absolute inset-0 flex items-center justify-center">
-        <span className="text-sm font-black" style={{ color: arcColor }}>{centerLabel}</span>
+        <span className="text-sm font-semibold" style={{ color: arcColor }}>{centerLabel}</span>
       </div>
     </div>
   );
 };
 
-// ── Horizontal usage bar ──────────────────────────────────────────────────────
-interface UsageBarProps {
-  pct: number;
-  colorClass: string;
-}
-
-const UsageBar: React.FC<UsageBarProps> = ({ pct, colorClass }) => (
-  <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
-    <div
-      className={`h-full rounded-full bg-gradient-to-r transition-all duration-1000 ${colorClass}`}
-      style={{ width: `${Math.min(100, pct)}%` }}
-    />
+const UsageBar: React.FC<{ pct: number; color: string }> = ({ pct, color }) => (
+  <div className="h-1.5 bg-[#e8ecf0] rounded-full overflow-hidden w-full">
+    <div className="h-full rounded-full transition-all duration-1000" style={{ width: `${Math.min(100, pct)}%`, backgroundColor: color }} />
   </div>
 );
 
-// ── Main component ────────────────────────────────────────────────────────────
 const EksOverviewTab: React.FC<EksOverviewTabProps> = ({ eksData }) => {
   const {
-    dashboard,
-    clusterHealthScore,
-    healthScoreLabel,
-    healthScoreColor,
-    resourceScore,
-    costScore,
-    securityScore,
-    quickWins,
-    potentialSavings,
-    totalPodsCount,
+    dashboard, clusterHealthScore, healthScoreLabel, healthScoreColor,
+    resourceScore, costScore, securityScore, quickWins, potentialSavings, totalPodsCount,
   } = eksData;
 
   if (!dashboard) return null;
-
-  // ── Derived data ─────────────────────────────────────────────────────────
 
   const totalNodes = dashboard.clusterOverview?.totalNodes || 0;
   const readyNodes = (() => {
@@ -176,691 +115,480 @@ const EksOverviewTab: React.FC<EksOverviewTabProps> = ({ eksData }) => {
     return unique.filter((n: any) => n.ready).length || totalNodes;
   })();
   const notReadyNodes = totalNodes - readyNodes;
-
   const spotNodes = dashboard?.karpenter?.spotNodesCount || 0;
   const onDemandNodes = dashboard?.karpenter?.onDemandNodesCount || (totalNodes - spotNodes);
-
   const runningPods = dashboard?.clusterOverview?.runningPods ||
     (dashboard?.workloadHealth?.pods || []).filter((p: any) => p.phase === 'Running').length;
   const pendingPods = dashboard?.clusterOverview?.pendingPods ||
     (dashboard?.workloadHealth?.pods || []).filter((p: any) => p.phase === 'Pending').length;
   const failedPods = dashboard?.clusterOverview?.failedPods ||
     (dashboard?.workloadHealth?.pods || []).filter((p: any) => p.phase === 'Failed').length;
-
   const cpuPct = dashboard.clusterOverview?.cpuUsagePercent || 0;
   const memPct = dashboard.clusterOverview?.memoryUsagePercent || 0;
   const cpuMillicores = Math.round(dashboard.clusterOverview?.cpuUsageMillicores || 0);
   const cpuCapMillicores = Math.round(dashboard.clusterOverview?.cpuCapacityMillicores || 0);
   const memGB = ((dashboard.clusterOverview?.memoryUsageBytes || 0) / (1024 ** 3)).toFixed(1);
   const memCapGB = ((dashboard.clusterOverview?.memoryCapacityBytes || 0) / (1024 ** 3)).toFixed(1);
-
   const dailyCost = dashboard.costMetrics?.dailyCost || 0;
   const monthlyCost = dashboard.costMetrics?.monthlyCost || dailyCost * 30;
-
   const topCpuPods: any[] = dashboard.topCpuPods || [];
   const topMemoryPods: any[] = dashboard.topMemoryPods || [];
   const namespaceUtilization: any[] = dashboard.namespaceUtilization || [];
+  const warningEvents = (dashboard.k8sEvents || []).filter((e: any) => e.type === 'Warning').slice(0, 5);
 
-  const warningEvents = (dashboard.k8sEvents || [])
-    .filter((e: any) => e.type === 'Warning')
-    .slice(0, 5);
-
-  // Score gauge colors
-  const efficiencyArcColor = resourceScore >= 70 ? '#10b981' : resourceScore >= 40 ? '#f59e0b' : '#ef4444';
-  const costArcColor = costScore >= 70 ? '#3b82f6' : costScore >= 40 ? '#f59e0b' : '#ef4444';
-  const securityArcColor = securityScore >= 80 ? '#10b981' : securityScore >= 50 ? '#f59e0b' : '#ef4444';
-
-  const cpuGaugeColor = cpuPct >= 80 ? '#ef4444' : cpuPct >= 60 ? '#f59e0b' : '#f97316';
-  const memGaugeColor = memPct >= 80 ? '#ef4444' : memPct >= 60 ? '#8b5cf6' : '#3b82f6';
-
+  const gaugeColor = (score: number) => score >= 70 ? '#2f4bde' : score >= 40 ? '#9a6700' : '#cf222e';
+  const cpuGaugeColor = cpuPct >= 80 ? '#cf222e' : cpuPct >= 60 ? '#9a6700' : '#2f4bde';
+  const memGaugeColor = memPct >= 80 ? '#cf222e' : memPct >= 60 ? '#9a6700' : '#2f4bde';
   const maxCpuPod = topCpuPods.length > 0 ? Math.max(...topCpuPods.map((p: any) => p.cpuMillicores || 0)) : 1;
   const maxMemPod = topMemoryPods.length > 0 ? Math.max(...topMemoryPods.map((p: any) => p.memoryMB || 0)) : 1;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
 
-      {/* ══════════════════════════════════════════════════════════════════════
-          Section 1 — Cluster Intelligence (score gauges)
-      ══════════════════════════════════════════════════════════════════════ */}
-      <section className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-        <div className="flex items-center gap-3 mb-6">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-sm">
-            <i className="fas fa-brain text-white text-sm"></i>
-          </div>
-          <div>
-            <h3 className="text-lg font-bold text-gray-900">Cluster Intelligence</h3>
-            <p className="text-xs text-gray-500">Composite scores across resource, cost and security dimensions</p>
-          </div>
+      {/* Section 1 — Cluster Intelligence */}
+      <div className="bg-white border border-[#d0d7de] rounded-lg overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-[#e8ecf0] flex items-center justify-between">
+          <span className="text-sm font-semibold text-[#1a1f2e]">Cluster Intelligence</span>
+          <span className="text-[11px] text-[#8b949e]">Composite scores across resource, cost and security dimensions</span>
         </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 items-center">
-          {/* Overall */}
-          <div className={`flex flex-col items-center p-6 rounded-2xl border-2 ${
-            clusterHealthScore >= 80 ? 'border-emerald-200 bg-emerald-50/40'
-            : clusterHealthScore >= 60 ? 'border-blue-200 bg-blue-50/40'
-            : clusterHealthScore >= 40 ? 'border-amber-200 bg-amber-50/40'
-            : 'border-red-200 bg-red-50/40'
-          }`}>
-            <DonutGauge
-              value={clusterHealthScore}
-              size={140}
-              strokeWidth={13}
-              arcColor={healthScoreColor}
-              label="Overall Health"
-              sublabel={healthScoreLabel}
-              valueColor={healthScoreColor}
-            />
-          </div>
-
-          {/* Efficiency Score */}
-          <div className="flex flex-col items-center p-6 rounded-2xl border-2 border-emerald-100 bg-emerald-50/30 hover:border-emerald-300 transition-colors">
-            <DonutGauge
-              value={resourceScore}
-              size={140}
-              strokeWidth={13}
-              arcColor={efficiencyArcColor}
-              label="Efficiency Score"
-              sublabel="CPU + Memory balance"
-              valueColor={efficiencyArcColor}
-            />
-            <div className={`mt-3 text-xs font-bold px-3 py-1 rounded-full ${
-              resourceScore >= 70 ? 'bg-emerald-100 text-emerald-700' : resourceScore >= 40 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
-            }`}>
-              Resource Efficiency
+        <div className="p-5">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6 items-center">
+            <div className="bg-white border border-[#d0d7de] rounded-lg p-5 flex flex-col items-center">
+              <DonutGauge value={clusterHealthScore} size={140} strokeWidth={13}
+                arcColor={healthScoreColor || gaugeColor(clusterHealthScore)}
+                label="Overall Health" sublabel={healthScoreLabel} valueColor={healthScoreColor || gaugeColor(clusterHealthScore)} />
             </div>
-          </div>
-
-          {/* Cost Score */}
-          <div className="flex flex-col items-center p-6 rounded-2xl border-2 border-blue-100 bg-blue-50/30 hover:border-blue-300 transition-colors">
-            <DonutGauge
-              value={costScore}
-              size={140}
-              strokeWidth={13}
-              arcColor={costArcColor}
-              label="Cost Score"
-              sublabel="Spend vs utilization"
-              valueColor={costArcColor}
-            />
-            <div className={`mt-3 text-xs font-bold px-3 py-1 rounded-full ${
-              costScore >= 70 ? 'bg-blue-100 text-blue-700' : costScore >= 40 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
-            }`}>
-              Cost Optimization
+            <div className="bg-white border border-[#d0d7de] rounded-lg p-5 flex flex-col items-center">
+              <DonutGauge value={resourceScore} size={140} strokeWidth={13}
+                arcColor={gaugeColor(resourceScore)} label="Efficiency Score" sublabel="CPU + Memory balance" valueColor={gaugeColor(resourceScore)} />
+              <span className="mt-3 rounded-full px-2.5 py-0.5 text-[11px] font-semibold border"
+                style={resourceScore >= 70 ? { color: '#1a7f37', background: '#dafbe1', borderColor: 'rgba(74,194,107,0.4)' }
+                  : resourceScore >= 40 ? { color: '#9a6700', background: '#fff8c5', borderColor: 'rgba(212,167,44,0.4)' }
+                  : { color: '#cf222e', background: '#ffebe9', borderColor: 'rgba(255,129,130,0.4)' }}>
+                Resource Efficiency
+              </span>
             </div>
-          </div>
-
-          {/* Security Score */}
-          <div className="flex flex-col items-center p-6 rounded-2xl border-2 border-rose-100 bg-rose-50/30 hover:border-rose-300 transition-colors">
-            <DonutGauge
-              value={securityScore}
-              size={140}
-              strokeWidth={13}
-              arcColor={securityArcColor}
-              label="Security Score"
-              sublabel="Events + vulnerabilities"
-              valueColor={securityArcColor}
-            />
-            <div className={`mt-3 text-xs font-bold px-3 py-1 rounded-full ${
-              securityScore >= 80 ? 'bg-emerald-100 text-emerald-700' : securityScore >= 50 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
-            }`}>
-              Security Posture
+            <div className="bg-white border border-[#d0d7de] rounded-lg p-5 flex flex-col items-center">
+              <DonutGauge value={costScore} size={140} strokeWidth={13}
+                arcColor={gaugeColor(costScore)} label="Cost Score" sublabel="Spend vs utilization" valueColor={gaugeColor(costScore)} />
+              <span className="mt-3 rounded-full px-2.5 py-0.5 text-[11px] font-semibold border"
+                style={costScore >= 70 ? { color: '#1a7f37', background: '#dafbe1', borderColor: 'rgba(74,194,107,0.4)' }
+                  : costScore >= 40 ? { color: '#9a6700', background: '#fff8c5', borderColor: 'rgba(212,167,44,0.4)' }
+                  : { color: '#cf222e', background: '#ffebe9', borderColor: 'rgba(255,129,130,0.4)' }}>
+                Cost Optimization
+              </span>
             </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ══════════════════════════════════════════════════════════════════════
-          Section 2 — Cost & Savings | Resource Utilization (60/40)
-      ══════════════════════════════════════════════════════════════════════ */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-
-        {/* Left 60% — Cost & Savings */}
-        <div className="lg:col-span-3 bg-white rounded-2xl shadow-sm border border-gray-100 p-6 flex flex-col gap-5">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-sm">
-              <i className="fas fa-dollar-sign text-white text-sm"></i>
-            </div>
-            <h3 className="text-lg font-bold text-gray-900">Cost &amp; Savings</h3>
-          </div>
-
-          {/* Big cost numbers */}
-          <div className="flex items-end gap-6">
-            <div>
-              <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Today</div>
-              <div className="text-5xl font-black text-gray-900 leading-none">
-                <span className="text-2xl font-bold text-gray-400 mr-0.5">$</span>{dailyCost.toFixed(2)}
-              </div>
-            </div>
-            <div className="pb-1">
-              <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Monthly Est.</div>
-              <div className="text-2xl font-bold text-gray-600">${monthlyCost.toFixed(2)}</div>
-            </div>
-          </div>
-
-          {/* Savings opportunity */}
-          {potentialSavings.affectedNodes > 0 && (
-            <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <i className="fas fa-leaf text-emerald-600 text-sm"></i>
-                <span className="text-sm font-bold text-emerald-800">Savings Opportunity</span>
-              </div>
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <div className="text-xl font-black text-emerald-700">${potentialSavings.daily.toFixed(2)}</div>
-                  <div className="text-xs text-emerald-600 font-medium">per day</div>
-                </div>
-                <div>
-                  <div className="text-xl font-black text-emerald-700">${potentialSavings.monthly.toFixed(2)}</div>
-                  <div className="text-xs text-emerald-600 font-medium">per month</div>
-                </div>
-                <div>
-                  <div className="text-xl font-black text-emerald-700">{potentialSavings.affectedNodes}</div>
-                  <div className="text-xs text-emerald-600 font-medium">nodes affected</div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Spot savings row */}
-          {spotNodes > 0 && (
-            <div className="flex items-center gap-3 rounded-xl bg-amber-50 border border-amber-200 px-4 py-3">
-              <span className="text-xl">⚡</span>
-              <div>
-                <div className="text-sm font-bold text-amber-800">
-                  {spotNodes} spot nodes saving ~${(spotNodes * dailyCost / Math.max(1, totalNodes) * 0.7).toFixed(2)}/day
-                </div>
-                <div className="text-xs text-amber-600">vs. equivalent on-demand pricing</div>
-              </div>
-            </div>
-          )}
-
-          {/* Node cost breakdown — top 4 nodes */}
-          {(dashboard.costMetrics?.nodeCosts || []).length > 0 && (
-            <div>
-              <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Node Cost Breakdown</div>
-              <div className="space-y-2">
-                {(dashboard.costMetrics.nodeCosts as any[]).slice(0, 4).map((node: any, i: number) => (
-                  <div key={i} className="flex items-center gap-3">
-                    <div className="text-xs text-gray-500 w-32 truncate font-mono">{node.nodeName?.split('.')[0] || node.instanceType}</div>
-                    <div className="flex-1">
-                      <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-gradient-to-r from-indigo-400 to-purple-500 rounded-full transition-all duration-1000"
-                          style={{ width: `${Math.min(100, (node.dailyCost / (dailyCost || 1)) * 100)}%` }}
-                        />
-                      </div>
-                    </div>
-                    <div className="text-xs font-bold text-gray-700 w-14 text-right">${node.dailyCost?.toFixed(2)}/d</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Right 40% — Resource Utilization */}
-        <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-gray-100 p-6 flex flex-col gap-5">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center shadow-sm">
-              <i className="fas fa-tachometer-alt text-white text-sm"></i>
-            </div>
-            <h3 className="text-lg font-bold text-gray-900">Resource Utilization</h3>
-          </div>
-
-          {/* CPU gauge */}
-          <div className="flex flex-col items-center gap-2">
-            <SmallGauge
-              value={cpuPct}
-              size={110}
-              arcColor={cpuGaugeColor}
-              strokeWidth={11}
-              centerLabel={`${cpuPct.toFixed(0)}%`}
-            />
-            <div className="text-center">
-              <div className="text-sm font-bold text-gray-800">CPU Utilization</div>
-              <div className="text-xs text-gray-500 mt-0.5">{cpuMillicores}m / {cpuCapMillicores}m millicores</div>
-            </div>
-            <div className="w-full">
-              <UsageBar pct={cpuPct} colorClass={cpuPct >= 80 ? 'from-red-500 to-red-600' : cpuPct >= 60 ? 'from-amber-400 to-orange-500' : 'from-orange-400 to-amber-400'} />
-            </div>
-          </div>
-
-          <div className="border-t border-gray-100" />
-
-          {/* Memory gauge */}
-          <div className="flex flex-col items-center gap-2">
-            <SmallGauge
-              value={memPct}
-              size={110}
-              arcColor={memGaugeColor}
-              strokeWidth={11}
-              centerLabel={`${memPct.toFixed(0)}%`}
-            />
-            <div className="text-center">
-              <div className="text-sm font-bold text-gray-800">Memory Utilization</div>
-              <div className="text-xs text-gray-500 mt-0.5">{memGB} GB / {memCapGB} GB</div>
-            </div>
-            <div className="w-full">
-              <UsageBar pct={memPct} colorClass={memPct >= 80 ? 'from-red-500 to-red-600' : memPct >= 60 ? 'from-violet-400 to-purple-600' : 'from-blue-400 to-indigo-500'} />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ══════════════════════════════════════════════════════════════════════
-          Section 3 — Node Fleet
-      ══════════════════════════════════════════════════════════════════════ */}
-      <section className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-        <div className="flex items-center gap-3 mb-5">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center shadow-sm">
-            <i className="fas fa-server text-white text-sm"></i>
-          </div>
-          <h3 className="text-lg font-bold text-gray-900">Node Fleet</h3>
-        </div>
-
-        <div className="flex flex-col md:flex-row gap-6">
-          {/* Total nodes + ready/not */}
-          <div className="flex items-center gap-5 flex-shrink-0">
-            <div>
-              <div className="text-6xl font-black text-gray-900 leading-none">{totalNodes}</div>
-              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mt-1">Total Nodes</div>
-            </div>
-            <div className="flex flex-col gap-2">
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 border border-emerald-200 rounded-full">
-                <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
-                <span className="text-sm font-bold text-emerald-700">{readyNodes} Ready</span>
-              </div>
-              {notReadyNodes > 0 && (
-                <div className="flex items-center gap-2 px-3 py-1.5 bg-red-50 border border-red-200 rounded-full">
-                  <div className="w-2 h-2 rounded-full bg-red-500"></div>
-                  <span className="text-sm font-bold text-red-700">{notReadyNodes} Not Ready</span>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="hidden md:block w-px bg-gray-100 self-stretch" />
-
-          {/* Spot / On-Demand split */}
-          <div className="flex flex-col gap-3 flex-shrink-0 justify-center">
-            <div className="text-xs font-bold text-gray-500 uppercase tracking-wider">Capacity Type</div>
-            <div className="flex gap-3">
-              {spotNodes > 0 && (
-                <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200">
-                  <span className="text-xl">⚡</span>
-                  <div>
-                    <div className="text-xl font-black text-amber-700">{spotNodes}</div>
-                    <div className="text-xs font-semibold text-amber-600">Spot</div>
-                  </div>
-                </div>
-              )}
-              <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-indigo-50 border border-indigo-200">
-                <span className="text-xl">💎</span>
-                <div>
-                  <div className="text-xl font-black text-indigo-700">{onDemandNodes}</div>
-                  <div className="text-xs font-semibold text-indigo-600">On-Demand</div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="hidden md:block w-px bg-gray-100 self-stretch" />
-
-          {/* Pod distribution */}
-          <div className="flex flex-col gap-3 justify-center">
-            <div className="text-xs font-bold text-gray-500 uppercase tracking-wider">Pod Distribution</div>
-            <div className="flex gap-3 flex-wrap">
-              <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-emerald-50 border border-emerald-200">
-                <div className="w-2.5 h-2.5 rounded-full bg-emerald-500"></div>
-                <div>
-                  <div className="text-xl font-black text-emerald-700">{runningPods}</div>
-                  <div className="text-xs font-semibold text-emerald-600">Running</div>
-                </div>
-              </div>
-              {pendingPods > 0 && (
-                <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200">
-                  <div className="w-2.5 h-2.5 rounded-full bg-amber-500"></div>
-                  <div>
-                    <div className="text-xl font-black text-amber-700">{pendingPods}</div>
-                    <div className="text-xs font-semibold text-amber-600">Pending</div>
-                  </div>
-                </div>
-              )}
-              {failedPods > 0 && (
-                <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-red-50 border border-red-200">
-                  <div className="w-2.5 h-2.5 rounded-full bg-red-500"></div>
-                  <div>
-                    <div className="text-xl font-black text-red-700">{failedPods}</div>
-                    <div className="text-xs font-semibold text-red-600">Failed</div>
-                  </div>
-                </div>
-              )}
-              <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-gray-50 border border-gray-200">
-                <div className="w-2.5 h-2.5 rounded-full bg-gray-400"></div>
-                <div>
-                  <div className="text-xl font-black text-gray-700">{totalPodsCount}</div>
-                  <div className="text-xs font-semibold text-gray-500">Total</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ══════════════════════════════════════════════════════════════════════
-          Section 4 — Top Resource Consumers (side by side)
-      ══════════════════════════════════════════════════════════════════════ */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-
-        {/* Top CPU Pods */}
-        <section className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-8 h-8 rounded-xl bg-orange-100 flex items-center justify-center">
-              <i className="fas fa-microchip text-orange-600 text-sm"></i>
-            </div>
-            <h3 className="text-base font-bold text-gray-900">Top CPU Pods</h3>
-          </div>
-          {topCpuPods.length === 0 ? (
-            <div className="text-xs text-gray-400 italic py-4 text-center">
-              No CPU metrics yet — data appears after first agent push
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {topCpuPods.slice(0, 8).map((pod: any, i: number) => {
-                const barPct = Math.min(100, ((pod.cpuMillicores || 0) / maxCpuPod) * 100);
-                const barColor = barPct > 75 ? 'from-red-400 to-red-600' : barPct > 50 ? 'from-amber-400 to-orange-500' : 'from-orange-400 to-amber-400';
-                return (
-                  <div key={i} className="flex items-center gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-0.5">
-                        <span className="text-xs font-mono font-semibold text-gray-800 truncate max-w-[140px]">{pod.name}</span>
-                        <span className="text-xs text-gray-400 truncate max-w-[80px]">{pod.namespace}</span>
-                      </div>
-                      <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full rounded-full bg-gradient-to-r transition-all duration-1000 ${barColor}`}
-                          style={{ width: `${barPct}%` }}
-                        />
-                      </div>
-                    </div>
-                    <div className="text-xs font-bold text-orange-700 w-14 text-right flex-shrink-0">
-                      {pod.cpuMillicores}m
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
-
-        {/* Top Memory Pods */}
-        <section className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-8 h-8 rounded-xl bg-violet-100 flex items-center justify-center">
-              <i className="fas fa-memory text-violet-600 text-sm"></i>
-            </div>
-            <h3 className="text-base font-bold text-gray-900">Top Memory Pods</h3>
-          </div>
-          {topMemoryPods.length === 0 ? (
-            <div className="text-xs text-gray-400 italic py-4 text-center">
-              No memory metrics yet — data appears after first agent push
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {topMemoryPods.slice(0, 8).map((pod: any, i: number) => {
-                const barPct = Math.min(100, ((pod.memoryMB || 0) / maxMemPod) * 100);
-                const barColor = barPct > 75 ? 'from-red-400 to-red-600' : barPct > 50 ? 'from-violet-400 to-purple-600' : 'from-blue-400 to-indigo-500';
-                const displayMem = (pod.memoryMB || 0) >= 1024
-                  ? `${((pod.memoryMB || 0) / 1024).toFixed(1)} GB`
-                  : `${Math.round(pod.memoryMB || 0)} MB`;
-                return (
-                  <div key={i} className="flex items-center gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-0.5">
-                        <span className="text-xs font-mono font-semibold text-gray-800 truncate max-w-[140px]">{pod.name}</span>
-                        <span className="text-xs text-gray-400 truncate max-w-[80px]">{pod.namespace}</span>
-                      </div>
-                      <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full rounded-full bg-gradient-to-r transition-all duration-1000 ${barColor}`}
-                          style={{ width: `${barPct}%` }}
-                        />
-                      </div>
-                    </div>
-                    <div className="text-xs font-bold text-violet-700 w-16 text-right flex-shrink-0">
-                      {displayMem}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
-      </div>
-
-      {/* ══════════════════════════════════════════════════════════════════════
-          Section 5 — Namespace Utilization (KubeCost style)
-      ══════════════════════════════════════════════════════════════════════ */}
-      <section className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-        <div className="flex items-center gap-3 mb-5">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-teal-500 to-cyan-600 flex items-center justify-center shadow-sm">
-            <i className="fas fa-layer-group text-white text-sm"></i>
-          </div>
-          <h3 className="text-lg font-bold text-gray-900">Namespace Utilization</h3>
-        </div>
-
-        {namespaceUtilization.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-10 text-center">
-            <div className="w-12 h-12 rounded-full bg-gray-50 border border-gray-200 flex items-center justify-center mb-3">
-              <i className="fas fa-satellite-dish text-gray-300 text-lg"></i>
-            </div>
-            <div className="text-sm font-semibold text-gray-500">No namespace data yet</div>
-            <div className="text-xs text-gray-400 mt-1">Data appears after first agent push with <span className="font-mono bg-gray-100 px-1 rounded">COLLECTOR_PROMETHEUS_METRICS=true</span></div>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-100">
-                  <th className="text-left text-xs font-bold text-gray-500 uppercase tracking-wider pb-3 pr-4">Namespace</th>
-                  <th className="text-left text-xs font-bold text-gray-500 uppercase tracking-wider pb-3 pr-4 w-48">CPU Usage</th>
-                  <th className="text-left text-xs font-bold text-gray-500 uppercase tracking-wider pb-3 pr-4 w-48">Memory Usage</th>
-                  <th className="text-center text-xs font-bold text-gray-500 uppercase tracking-wider pb-3 w-20">Pods</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {namespaceUtilization.map((ns: any, i: number) => {
-                  const cpuNs = ns.cpuUsagePct || 0;
-                  const memNs = ns.memUsagePct || 0;
-                  return (
-                    <tr key={i} className="hover:bg-gray-50/60 transition-colors">
-                      <td className="py-3 pr-4">
-                        <span className="inline-flex items-center gap-1.5 font-mono text-xs font-semibold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md">
-                          <i className="fas fa-layer-group text-indigo-400 text-xs"></i>
-                          {ns.namespace}
-                        </span>
-                      </td>
-                      <td className="py-3 pr-4">
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                            <div
-                              className={`h-full rounded-full bg-gradient-to-r transition-all ${
-                                cpuNs > 80 ? 'from-red-400 to-red-600' : cpuNs > 60 ? 'from-amber-400 to-orange-500' : 'from-orange-300 to-amber-400'
-                              }`}
-                              style={{ width: `${Math.min(100, cpuNs)}%` }}
-                            />
-                          </div>
-                          <span className={`text-xs font-bold w-10 text-right ${cpuNs > 80 ? 'text-red-600' : cpuNs > 60 ? 'text-amber-600' : 'text-gray-600'}`}>
-                            {cpuNs.toFixed(0)}%
-                          </span>
-                        </div>
-                      </td>
-                      <td className="py-3 pr-4">
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                            <div
-                              className={`h-full rounded-full bg-gradient-to-r transition-all ${
-                                memNs > 80 ? 'from-red-400 to-red-600' : memNs > 60 ? 'from-violet-400 to-purple-600' : 'from-blue-300 to-indigo-400'
-                              }`}
-                              style={{ width: `${Math.min(100, memNs)}%` }}
-                            />
-                          </div>
-                          <span className={`text-xs font-bold w-10 text-right ${memNs > 80 ? 'text-red-600' : memNs > 60 ? 'text-violet-600' : 'text-gray-600'}`}>
-                            {memNs.toFixed(0)}%
-                          </span>
-                        </div>
-                      </td>
-                      <td className="py-3 text-center">
-                        <span className="inline-flex items-center justify-center w-8 h-6 rounded-md bg-gray-100 text-xs font-bold text-gray-700">
-                          {ns.podCount || 0}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-
-      {/* ══════════════════════════════════════════════════════════════════════
-          Section 6 — Quick Wins / Recommendations
-      ══════════════════════════════════════════════════════════════════════ */}
-      {quickWins && quickWins.length > 0 && (
-        <section className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-          <div className="flex items-center gap-3 mb-5">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-sm">
-              <i className="fas fa-lightbulb text-white text-sm"></i>
-            </div>
-            <div>
-              <h3 className="text-lg font-bold text-gray-900">Quick Wins</h3>
-              <p className="text-xs text-gray-500">Prioritized actions for immediate impact</p>
-            </div>
-            <div className="ml-auto">
-              <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-amber-100 text-amber-700 text-xs font-bold">
-                <i className="fas fa-bolt text-xs"></i>
-                {quickWins.length} action{quickWins.length !== 1 ? 's' : ''}
+            <div className="bg-white border border-[#d0d7de] rounded-lg p-5 flex flex-col items-center">
+              <DonutGauge value={securityScore} size={140} strokeWidth={13}
+                arcColor={gaugeColor(securityScore)} label="Security Score" sublabel="Events + vulnerabilities" valueColor={gaugeColor(securityScore)} />
+              <span className="mt-3 rounded-full px-2.5 py-0.5 text-[11px] font-semibold border"
+                style={securityScore >= 70 ? { color: '#1a7f37', background: '#dafbe1', borderColor: 'rgba(74,194,107,0.4)' }
+                  : securityScore >= 40 ? { color: '#9a6700', background: '#fff8c5', borderColor: 'rgba(212,167,44,0.4)' }
+                  : { color: '#cf222e', background: '#ffebe9', borderColor: 'rgba(255,129,130,0.4)' }}>
+                Security Posture
               </span>
             </div>
           </div>
+        </div>
+      </div>
 
-          <div className="space-y-3">
+      {/* Section 2 — Cost & Resource Utilization */}
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
+        {/* Cost */}
+        <div className="lg:col-span-3 bg-white border border-[#d0d7de] rounded-lg overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-[#e8ecf0]">
+            <span className="text-sm font-semibold text-[#1a1f2e]">Cost &amp; Savings</span>
+          </div>
+          <div className="p-5 flex flex-col gap-4">
+            <div className="flex items-end gap-6">
+              <div>
+                <div className="text-[11px] font-medium uppercase tracking-wider text-[#8b949e] mb-1">TODAY</div>
+                <div className="text-[26px] font-semibold text-[#1a1f2e] leading-none">${dailyCost.toFixed(2)}</div>
+                <div className="text-[11px] text-[#8b949e] mt-1">per day</div>
+              </div>
+              <div>
+                <div className="text-[11px] font-medium uppercase tracking-wider text-[#8b949e] mb-1">MONTHLY EST.</div>
+                <div className="text-[26px] font-semibold text-[#1a1f2e] leading-none">${monthlyCost.toFixed(0)}</div>
+                <div className="text-[11px] text-[#8b949e] mt-1">30-day estimate</div>
+              </div>
+            </div>
+
+            {potentialSavings.affectedNodes > 0 && (
+              <div className="rounded-lg border border-[#e8ecf0] p-4 bg-[#f6f8fa]">
+                <div className="text-[11px] font-medium uppercase tracking-wider text-[#8b949e] mb-2">SAVINGS OPPORTUNITY</div>
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <div className="text-[26px] font-semibold text-[#1a7f37] leading-none">${potentialSavings.daily.toFixed(2)}</div>
+                    <div className="text-[11px] text-[#8b949e] mt-1">per day</div>
+                  </div>
+                  <div>
+                    <div className="text-[26px] font-semibold text-[#1a7f37] leading-none">${potentialSavings.monthly.toFixed(0)}</div>
+                    <div className="text-[11px] text-[#8b949e] mt-1">per month</div>
+                  </div>
+                  <div>
+                    <div className="text-[26px] font-semibold text-[#1a7f37] leading-none">{potentialSavings.affectedNodes}</div>
+                    <div className="text-[11px] text-[#8b949e] mt-1">nodes affected</div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {(dashboard.costMetrics?.nodeCosts || []).length > 0 && (
+              <div>
+                <div className="text-[11px] font-medium uppercase tracking-wider text-[#8b949e] mb-2">NODE COST BREAKDOWN</div>
+                <div className="space-y-2">
+                  {(dashboard.costMetrics.nodeCosts as any[]).slice(0, 4).map((node: any, i: number) => (
+                    <div key={i} className="flex items-center gap-3">
+                      <div className="text-[11px] text-[#57606a] w-32 truncate font-mono">{node.nodeName?.split('.')[0] || node.instanceType}</div>
+                      <div className="flex-1">
+                        <div className="h-1.5 bg-[#e8ecf0] rounded-full overflow-hidden">
+                          <div className="h-full bg-[#2f4bde] rounded-full transition-all duration-1000"
+                            style={{ width: `${Math.min(100, (node.dailyCost / (dailyCost || 1)) * 100)}%` }} />
+                        </div>
+                      </div>
+                      <div className="text-[11px] font-semibold text-[#1a1f2e] w-14 text-right">${node.dailyCost?.toFixed(2)}/d</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Resource Utilization */}
+        <div className="lg:col-span-2 bg-white border border-[#d0d7de] rounded-lg overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-[#e8ecf0]">
+            <span className="text-sm font-semibold text-[#1a1f2e]">Resource Utilization</span>
+          </div>
+          <div className="p-5 flex flex-col gap-5">
+            <div className="flex flex-col items-center gap-2">
+              <SmallGauge value={cpuPct} size={110} arcColor={cpuGaugeColor} strokeWidth={11} centerLabel={`${cpuPct.toFixed(0)}%`} />
+              <div className="text-center">
+                <div className="text-sm font-semibold text-[#1a1f2e]">CPU Utilization</div>
+                <div className="text-[11px] text-[#8b949e] mt-0.5">{cpuMillicores}m / {cpuCapMillicores}m millicores</div>
+              </div>
+              <div className="w-full"><UsageBar pct={cpuPct} color={cpuGaugeColor} /></div>
+            </div>
+            <div className="border-t border-[#e8ecf0]" />
+            <div className="flex flex-col items-center gap-2">
+              <SmallGauge value={memPct} size={110} arcColor={memGaugeColor} strokeWidth={11} centerLabel={`${memPct.toFixed(0)}%`} />
+              <div className="text-center">
+                <div className="text-sm font-semibold text-[#1a1f2e]">Memory Utilization</div>
+                <div className="text-[11px] text-[#8b949e] mt-0.5">{memGB} GB / {memCapGB} GB</div>
+              </div>
+              <div className="w-full"><UsageBar pct={memPct} color={memGaugeColor} /></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Section 3 — Node Fleet */}
+      <div className="bg-white border border-[#d0d7de] rounded-lg overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-[#e8ecf0]">
+          <span className="text-sm font-semibold text-[#1a1f2e]">Node Fleet</span>
+        </div>
+        <div className="p-5">
+          <div className="flex flex-col md:flex-row gap-6">
+            <div className="flex items-center gap-5 flex-shrink-0">
+              <div>
+                <div className="text-[26px] font-semibold text-[#1a1f2e] leading-none">{totalNodes}</div>
+                <div className="text-[11px] font-medium uppercase tracking-wider text-[#8b949e] mt-1">TOTAL NODES</div>
+              </div>
+              <div className="flex flex-col gap-2">
+                <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold border"
+                  style={{ color: '#1a7f37', background: '#dafbe1', borderColor: 'rgba(74,194,107,0.4)' }}>
+                  {readyNodes} Ready
+                </span>
+                {notReadyNodes > 0 && (
+                  <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold border"
+                    style={{ color: '#cf222e', background: '#ffebe9', borderColor: 'rgba(255,129,130,0.4)' }}>
+                    {notReadyNodes} Not Ready
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="hidden md:block w-px bg-[#e8ecf0] self-stretch" />
+
+            <div className="flex flex-col gap-2 flex-shrink-0 justify-center">
+              <div className="text-[11px] font-medium uppercase tracking-wider text-[#8b949e]">CAPACITY TYPE</div>
+              <div className="flex gap-3">
+                {spotNodes > 0 && (
+                  <div className="border border-[#d0d7de] rounded-lg px-4 py-3">
+                    <div className="text-[26px] font-semibold text-[#1a1f2e] leading-none">{spotNodes}</div>
+                    <div className="text-[11px] text-[#8b949e] mt-1">Spot</div>
+                  </div>
+                )}
+                <div className="border border-[#d0d7de] rounded-lg px-4 py-3">
+                  <div className="text-[26px] font-semibold text-[#1a1f2e] leading-none">{onDemandNodes}</div>
+                  <div className="text-[11px] text-[#8b949e] mt-1">On-Demand</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="hidden md:block w-px bg-[#e8ecf0] self-stretch" />
+
+            <div className="flex flex-col gap-2 justify-center">
+              <div className="text-[11px] font-medium uppercase tracking-wider text-[#8b949e]">POD DISTRIBUTION</div>
+              <div className="flex gap-3 flex-wrap">
+                <div className="border border-[#d0d7de] rounded-lg px-4 py-3">
+                  <div className="text-[26px] font-semibold text-[#1a7f37] leading-none">{runningPods}</div>
+                  <div className="text-[11px] text-[#8b949e] mt-1">Running</div>
+                </div>
+                {pendingPods > 0 && (
+                  <div className="border border-[#d0d7de] rounded-lg px-4 py-3">
+                    <div className="text-[26px] font-semibold text-[#9a6700] leading-none">{pendingPods}</div>
+                    <div className="text-[11px] text-[#8b949e] mt-1">Pending</div>
+                  </div>
+                )}
+                {failedPods > 0 && (
+                  <div className="border border-[#d0d7de] rounded-lg px-4 py-3">
+                    <div className="text-[26px] font-semibold text-[#cf222e] leading-none">{failedPods}</div>
+                    <div className="text-[11px] text-[#8b949e] mt-1">Failed</div>
+                  </div>
+                )}
+                <div className="border border-[#d0d7de] rounded-lg px-4 py-3">
+                  <div className="text-[26px] font-semibold text-[#1a1f2e] leading-none">{totalPodsCount}</div>
+                  <div className="text-[11px] text-[#8b949e] mt-1">Total</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Section 4 — Top Resource Consumers */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <div className="bg-white border border-[#d0d7de] rounded-lg overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-[#e8ecf0]">
+            <span className="text-sm font-semibold text-[#1a1f2e]">Top CPU Pods</span>
+          </div>
+          <div className="p-5">
+            {topCpuPods.length === 0 ? (
+              <div className="py-10 text-center">
+                <div className="text-[13px] text-[#57606a]">No CPU metrics yet — data appears after first agent push</div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {topCpuPods.slice(0, 8).map((pod: any, i: number) => {
+                  const barPct = Math.min(100, ((pod.cpuMillicores || 0) / maxCpuPod) * 100);
+                  return (
+                    <div key={i} className="flex items-center gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <span className="text-[13px] font-mono font-semibold text-[#1a1f2e] truncate max-w-[140px]">{pod.name}</span>
+                          <span className="text-[11px] text-[#8b949e] truncate max-w-[80px]">{pod.namespace}</span>
+                        </div>
+                        <div className="h-1.5 bg-[#e8ecf0] rounded-full overflow-hidden">
+                          <div className="h-full rounded-full bg-[#2f4bde] transition-all duration-1000" style={{ width: `${barPct}%` }} />
+                        </div>
+                      </div>
+                      <div className="text-[11px] font-semibold text-[#1a1f2e] w-14 text-right flex-shrink-0">{pod.cpuMillicores}m</div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="bg-white border border-[#d0d7de] rounded-lg overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-[#e8ecf0]">
+            <span className="text-sm font-semibold text-[#1a1f2e]">Top Memory Pods</span>
+          </div>
+          <div className="p-5">
+            {topMemoryPods.length === 0 ? (
+              <div className="py-10 text-center">
+                <div className="text-[13px] text-[#57606a]">No memory metrics yet — data appears after first agent push</div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {topMemoryPods.slice(0, 8).map((pod: any, i: number) => {
+                  const barPct = Math.min(100, ((pod.memoryMB || 0) / maxMemPod) * 100);
+                  const displayMem = (pod.memoryMB || 0) >= 1024
+                    ? `${((pod.memoryMB || 0) / 1024).toFixed(1)} GB`
+                    : `${Math.round(pod.memoryMB || 0)} MB`;
+                  return (
+                    <div key={i} className="flex items-center gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <span className="text-[13px] font-mono font-semibold text-[#1a1f2e] truncate max-w-[140px]">{pod.name}</span>
+                          <span className="text-[11px] text-[#8b949e] truncate max-w-[80px]">{pod.namespace}</span>
+                        </div>
+                        <div className="h-1.5 bg-[#e8ecf0] rounded-full overflow-hidden">
+                          <div className="h-full rounded-full bg-[#2f4bde] transition-all duration-1000" style={{ width: `${barPct}%` }} />
+                        </div>
+                      </div>
+                      <div className="text-[11px] font-semibold text-[#1a1f2e] w-16 text-right flex-shrink-0">{displayMem}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Section 5 — Namespace Utilization */}
+      <div className="bg-white border border-[#d0d7de] rounded-lg overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-[#e8ecf0]">
+          <span className="text-sm font-semibold text-[#1a1f2e]">Namespace Utilization</span>
+        </div>
+        <div className="p-5">
+          {namespaceUtilization.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-10 text-center">
+              <div className="w-12 h-12 rounded-full bg-[#f6f8fa] border border-[#d0d7de] flex items-center justify-center mb-3">
+                <i className="fas fa-satellite-dish text-[#8b949e] text-lg"></i>
+              </div>
+              <div className="text-[13px] font-semibold text-[#57606a]">No namespace data yet</div>
+              <div className="text-[11px] text-[#8b949e] mt-1">
+                Data appears after first agent push with <span className="font-mono bg-[#f6f8fa] px-1 rounded border border-[#d0d7de]">COLLECTOR_PROMETHEUS_METRICS=true</span>
+              </div>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-[#f6f8fa] border-b border-[#d0d7de]">
+                    <th className="px-5 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-[#8b949e]">Namespace</th>
+                    <th className="px-5 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-[#8b949e] w-48">CPU Usage</th>
+                    <th className="px-5 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-[#8b949e] w-48">Memory Usage</th>
+                    <th className="px-5 py-2 text-center text-[11px] font-semibold uppercase tracking-wider text-[#8b949e] w-20">Pods</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {namespaceUtilization.map((ns: any, i: number) => {
+                    const cpuNs = ns.cpuUsagePct || 0;
+                    const memNs = ns.memUsagePct || 0;
+                    return (
+                      <tr key={i} className="border-b border-[#e8ecf0] hover:bg-[#f6f8fa] transition-colors">
+                        <td className="px-5 py-2.5">
+                          <span className="text-[13px] font-mono font-semibold text-[#1a1f2e]">{ns.namespace}</span>
+                        </td>
+                        <td className="px-5 py-2.5">
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 h-1.5 bg-[#e8ecf0] rounded-full overflow-hidden">
+                              <div className="h-full rounded-full bg-[#2f4bde] transition-all" style={{ width: `${Math.min(100, cpuNs)}%` }} />
+                            </div>
+                            <span className="text-[11px] font-semibold w-10 text-right"
+                              style={{ color: cpuNs > 80 ? '#cf222e' : cpuNs > 60 ? '#9a6700' : '#1a1f2e' }}>
+                              {cpuNs.toFixed(0)}%
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-5 py-2.5">
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 h-1.5 bg-[#e8ecf0] rounded-full overflow-hidden">
+                              <div className="h-full rounded-full bg-[#2f4bde] transition-all" style={{ width: `${Math.min(100, memNs)}%` }} />
+                            </div>
+                            <span className="text-[11px] font-semibold w-10 text-right"
+                              style={{ color: memNs > 80 ? '#cf222e' : memNs > 60 ? '#9a6700' : '#1a1f2e' }}>
+                              {memNs.toFixed(0)}%
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-5 py-2.5 text-center">
+                          <span className="text-[13px] font-semibold text-[#1a1f2e]">{ns.podCount || 0}</span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Section 6 — Quick Wins */}
+      {quickWins && quickWins.length > 0 && (
+        <div className="bg-white border border-[#d0d7de] rounded-lg overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-[#e8ecf0] flex items-center justify-between">
+            <span className="text-sm font-semibold text-[#1a1f2e]">Quick Wins</span>
+            <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold border"
+              style={{ color: '#9a6700', background: '#fff8c5', borderColor: 'rgba(212,167,44,0.4)' }}>
+              {quickWins.length} action{quickWins.length !== 1 ? 's' : ''}
+            </span>
+          </div>
+          <div className="p-5 space-y-3">
             {quickWins.map((win: QuickWin, index: number) => {
-              const typeStyles = {
-                security: {
-                  bg: 'bg-red-50',
-                  border: 'border-l-red-500',
-                  iconBg: 'bg-red-100',
-                  iconColor: 'text-red-600',
-                  badge: 'bg-red-100 text-red-700',
-                  badgeLabel: 'Security',
-                },
-                cost: {
-                  bg: 'bg-amber-50',
-                  border: 'border-l-amber-500',
-                  iconBg: 'bg-amber-100',
-                  iconColor: 'text-amber-600',
-                  badge: 'bg-amber-100 text-amber-700',
-                  badgeLabel: 'Cost',
-                },
-                optimization: {
-                  bg: 'bg-indigo-50',
-                  border: 'border-l-indigo-500',
-                  iconBg: 'bg-indigo-100',
-                  iconColor: 'text-indigo-600',
-                  badge: 'bg-indigo-100 text-indigo-700',
-                  badgeLabel: 'Optimization',
-                },
-              };
-              const style = typeStyles[win.type as keyof typeof typeStyles] || typeStyles.optimization;
-
+              const severityStyle =
+                win.type === 'security' ? { color: '#cf222e', bg: '#ffebe9', border: 'rgba(255,129,130,0.4)' }
+                : win.type === 'cost' ? { color: '#9a6700', bg: '#fff8c5', border: 'rgba(212,167,44,0.4)' }
+                : { color: '#0550ae', bg: '#ddf4ff', border: 'rgba(84,174,255,0.4)' };
               return (
-                <div
-                  key={index}
-                  className={`flex items-start gap-4 p-4 rounded-xl border border-l-4 ${style.bg} ${style.border} border-gray-100 hover:shadow-sm transition-all`}
-                >
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${style.iconBg}`}>
-                    <i className={`fas ${win.icon} ${style.iconColor} text-base`}></i>
+                <div key={index} className="flex items-start gap-4 p-4 border border-[#d0d7de] rounded-lg hover:bg-[#f6f8fa] transition-colors">
+                  <div className="w-9 h-9 rounded-lg border border-[#d0d7de] flex items-center justify-center flex-shrink-0 bg-[#f6f8fa]">
+                    <i className={`fas ${win.icon} text-[#57606a] text-sm`}></i>
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
-                      <h4 className="text-sm font-bold text-gray-900">{win.title}</h4>
-                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${style.badge}`}>
-                        {style.badgeLabel}
+                      <h4 className="text-sm font-semibold text-[#1a1f2e]">{win.title}</h4>
+                      <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold border"
+                        style={{ color: severityStyle.color, background: severityStyle.bg, borderColor: severityStyle.border }}>
+                        {win.type}
                       </span>
                     </div>
-                    <p className="text-xs text-gray-600 mb-3 leading-relaxed">{win.impact}</p>
+                    <p className="text-[11px] text-[#57606a] mb-3 leading-relaxed">{win.impact}</p>
                     <div className="flex gap-2 flex-wrap">
                       {win.actions.map((action: string, i: number) => (
-                        <button
-                          key={i}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                            i === 0
-                              ? 'bg-gray-900 text-white hover:bg-gray-700'
-                              : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-200'
-                          }`}
-                        >
+                        <button key={i}
+                          className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold transition-all ${i === 0
+                            ? 'bg-[#2f4bde] text-white hover:bg-[#1e3ac8]'
+                            : 'bg-white text-[#57606a] hover:bg-[#f6f8fa] border border-[#d0d7de]'}`}>
                           {action}
                         </button>
                       ))}
                     </div>
                   </div>
-                  <div className="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-white border border-gray-200 text-xs font-black text-gray-500">
+                  <div className="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-[#f6f8fa] border border-[#d0d7de] text-[11px] font-semibold text-[#57606a]">
                     {index + 1}
                   </div>
                 </div>
               );
             })}
           </div>
-        </section>
+        </div>
       )}
 
-      {/* ══════════════════════════════════════════════════════════════════════
-          Section 7 — Cluster Events (warnings only)
-      ══════════════════════════════════════════════════════════════════════ */}
+      {/* Section 7 — Cluster Events */}
       {warningEvents.length > 0 && (
-        <section className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-          <div className="flex items-center gap-3 mb-5">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-red-500 to-rose-600 flex items-center justify-center shadow-sm">
-              <i className="fas fa-exclamation-triangle text-white text-sm"></i>
-            </div>
-            <div>
-              <h3 className="text-lg font-bold text-gray-900">Cluster Events</h3>
-              <p className="text-xs text-gray-500">Recent warning events from your cluster</p>
-            </div>
-            <div className="ml-auto">
-              <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-red-100 text-red-700 text-xs font-bold">
-                <i className="fas fa-exclamation-circle text-xs"></i>
-                {warningEvents.length} warning{warningEvents.length !== 1 ? 's' : ''}
-              </span>
-            </div>
+        <div className="bg-white border border-[#d0d7de] rounded-lg overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-[#e8ecf0] flex items-center justify-between">
+            <span className="text-sm font-semibold text-[#1a1f2e]">Cluster Events</span>
+            <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold border"
+              style={{ color: '#cf222e', background: '#ffebe9', borderColor: 'rgba(255,129,130,0.4)' }}>
+              {warningEvents.length} warning{warningEvents.length !== 1 ? 's' : ''}
+            </span>
           </div>
-
-          <div className="space-y-2">
+          <div className="p-5 space-y-2">
             {warningEvents.map((event: any, i: number) => (
-              <div key={i} className="flex items-start gap-3 p-3 rounded-xl bg-red-50/60 border border-red-100 hover:bg-red-50 transition-colors">
+              <div key={i} className="flex items-start gap-3 p-3 rounded-lg border border-[#e8ecf0] hover:bg-[#f6f8fa] transition-colors">
                 <div className="flex-shrink-0 mt-0.5">
-                  <i className="fas fa-circle-exclamation text-red-400 text-sm"></i>
+                  <i className="fas fa-circle-exclamation text-[#cf222e] text-sm"></i>
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                    <span className="text-xs font-bold text-red-700 font-mono">{event.reason || 'Warning'}</span>
+                    <span className="text-[11px] font-semibold text-[#cf222e] font-mono">{event.reason || 'Warning'}</span>
                     {event.involvedObject?.name && (
-                      <span className="text-xs text-gray-500 truncate max-w-[200px] font-mono">{event.involvedObject.name}</span>
+                      <span className="text-[11px] text-[#57606a] truncate max-w-[200px] font-mono">{event.involvedObject.name}</span>
                     )}
                     {event.namespace && (
-                      <span className="text-xs bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-mono">{event.namespace}</span>
+                      <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold border"
+                        style={{ color: '#cf222e', background: '#ffebe9', borderColor: 'rgba(255,129,130,0.4)' }}>
+                        {event.namespace}
+                      </span>
                     )}
                     {(event.count || 0) > 1 && (
-                      <span className="text-xs font-bold bg-red-200 text-red-800 px-2 py-0.5 rounded-full">×{event.count}</span>
+                      <span className="text-[11px] font-semibold text-[#57606a]">×{event.count}</span>
                     )}
                   </div>
-                  <p className="text-xs text-gray-600 leading-snug line-clamp-2">{event.message}</p>
+                  <p className="text-[11px] text-[#57606a] leading-snug line-clamp-2">{event.message}</p>
                 </div>
               </div>
             ))}
           </div>
-        </section>
+        </div>
       )}
 
     </div>

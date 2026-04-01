@@ -56,7 +56,7 @@ export function AriaTabGroup({
         className={
           variant === 'pill'
             ? `flex gap-1 p-1 bg-slate-100 rounded-xl ${className}`
-            : `flex gap-1 border-b border-gray-200 whitespace-nowrap ${className}`
+            : `flex gap-0 border-b border-[#d0d7de] whitespace-nowrap ${className}`
         }
       >
         {tabs.map((tab) => (
@@ -75,11 +75,11 @@ export function AriaTabGroup({
                     tab.disabled ? 'opacity-40 cursor-not-allowed' : '',
                   ].join(' ')
                 : [
-                    'flex items-center gap-2 px-4 py-3 text-sm font-semibold border-b-2 transition-all outline-none cursor-pointer -mb-px',
+                    'flex items-center gap-1.5 px-3.5 py-2.5 text-[13px] font-medium border-b-2 transition-colors outline-none cursor-pointer -mb-px',
                     isSelected
-                      ? 'border-indigo-600 text-indigo-700'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300',
-                    isFocusVisible ? 'ring-2 ring-indigo-500 ring-inset' : '',
+                      ? 'border-[#2f4bde] text-[#1a1f2e] font-semibold'
+                      : 'border-transparent text-[#57606a] hover:text-[#1a1f2e] hover:border-[#d0d7de]',
+                    isFocusVisible ? 'ring-2 ring-[#2f4bde] ring-inset' : '',
                     tab.disabled ? 'opacity-40 cursor-not-allowed' : '',
                   ].join(' ')
             }

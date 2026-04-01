@@ -75,15 +75,15 @@ const Section: React.FC<{
   badge?: React.ReactNode;
   children: React.ReactNode;
 }> = ({ icon, color, title, subtitle, badge, children }) => (
-  <section className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-    <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
+  <section className="bg-white rounded-lg border border-[#d0d7de] overflow-hidden">
+    <div className="px-6 py-4 border-b border-[#e8ecf0] flex items-center justify-between">
       <div className="flex items-center gap-3">
-        <div className={`w-10 h-10 rounded-lg ${color} flex items-center justify-center`}>
-          <i className={`fas ${icon} text-white`}></i>
+        <div className={`w-8 h-8 rounded-md ${color} flex items-center justify-center`}>
+          <i className={`fas ${icon} text-white text-sm`}></i>
         </div>
         <div>
-          <h3 className="text-base font-bold text-gray-900">{title}</h3>
-          {subtitle && <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>}
+          <h3 className="text-[13px] font-semibold text-[#1a1f2e]">{title}</h3>
+          {subtitle && <p className="text-[11px] text-[#57606a] mt-0.5">{subtitle}</p>}
         </div>
       </div>
       {badge}
@@ -275,8 +275,8 @@ const EksAutoscalingTab: React.FC<{ eksData: any }> = (_props) => {
   if (!autoscalerData) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center">
-        <div className="w-20 h-20 rounded-2xl bg-gray-100 flex items-center justify-center mb-5">
-          <i className="fas fa-robot text-4xl text-gray-300"></i>
+        <div className="w-16 h-16 rounded-lg bg-[#f6f8fa] border border-[#e8ecf0] flex items-center justify-center mb-5">
+          <i className="fas fa-robot text-2xl text-[#8b949e]"></i>
         </div>
         <h3 className="text-xl font-bold text-gray-800 mb-2">XamOps Automation Agent Not Installed</h3>
         <p className="text-sm text-gray-500 max-w-md mb-6">
@@ -297,8 +297,8 @@ const EksAutoscalingTab: React.FC<{ eksData: any }> = (_props) => {
   if (!autoscalerData.autoscalingEnabled) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center">
-        <div className="w-20 h-20 rounded-2xl bg-purple-100 flex items-center justify-center mb-5">
-          <i className="fas fa-robot text-4xl text-purple-400"></i>
+        <div className="w-16 h-16 rounded-lg bg-[#f6f8fa] border border-[#e8ecf0] flex items-center justify-center mb-5">
+          <i className="fas fa-robot text-2xl text-[#2f4bde]"></i>
         </div>
         <h3 className="text-xl font-bold text-gray-800 mb-2">Autoscaling is Not Enabled</h3>
         <p className="text-sm text-gray-500 max-w-md mb-2">
@@ -373,29 +373,29 @@ const EksAutoscalingTab: React.FC<{ eksData: any }> = (_props) => {
 
       {/* ── Save Success Toast ────────────────────────────────────────────── */}
       {saveSuccess && (
-        <div className="fixed top-6 right-6 z-50 bg-green-600 text-white text-sm font-semibold px-5 py-3 rounded-xl shadow-xl flex items-center gap-2 animate-fade-in">
+        <div className="fixed top-6 right-6 z-50 bg-[#1a7f37] text-white text-[13px] font-medium px-4 py-2.5 rounded-lg border border-[#1a7f37] flex items-center gap-2 animate-fade-in">
           <i className="fas fa-check-circle"></i>
           {saveSuccess}
         </div>
       )}
 
       {/* ═══ 1. AGENT STATUS BANNER ═════════════════════════════════════════ */}
-      <section className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <section className="bg-white rounded-lg border border-[#d0d7de] p-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
 
           {/* Title + overall health */}
           <div className="flex items-center gap-4">
-            <div className={`w-12 h-12 rounded-xl flex items-center justify-center shadow-sm ${allHealthy ? 'bg-green-500' : 'bg-red-500'}`}>
+            <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${allHealthy ? 'bg-[#1a7f37]' : 'bg-[#cf222e]'}`}>
               <i className={`fas fa-robot text-white text-xl`}></i>
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-lg font-bold text-gray-900">XamOps Automation Agent</h2>
-                <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${allHealthy ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                <h2 className="text-[14px] font-semibold text-[#1a1f2e]">XamOps Automation Agent</h2>
+                <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${allHealthy ? 'bg-[#dafbe1] text-[#1a7f37]' : 'bg-[#ffebe9] text-[#cf222e]'}`}>
                   {allHealthy ? 'All Systems Healthy' : 'Degraded'}
                 </span>
               </div>
-              <p className="text-xs text-gray-500 mt-0.5">
+              <p className="text-[11px] text-[#57606a] mt-0.5">
                 v{agentStatus.agentVersion} · Last sync {timeSince(agentStatus.lastSyncAt)} · Syncs every 15s
               </p>
             </div>
@@ -429,7 +429,7 @@ const EksAutoscalingTab: React.FC<{ eksData: any }> = (_props) => {
         </div>
 
         {/* Component status grid */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-5 pt-5 border-t border-gray-100">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-5 pt-5 border-t border-[#e8ecf0]">
           {[
             { label: 'Agent', key: 'agentHealthy', icon: 'fa-satellite-dish' },
             { label: 'Cluster Controller', key: 'clusterControllerHealthy', icon: 'fa-cogs' },
@@ -438,12 +438,12 @@ const EksAutoscalingTab: React.FC<{ eksData: any }> = (_props) => {
           ].map(comp => {
             const healthy = agentStatus[comp.key as keyof typeof agentStatus] as boolean;
             return (
-              <div key={comp.key} className={`rounded-lg p-3 border ${healthy ? 'bg-green-50 border-green-100' : 'bg-red-50 border-red-100'}`}>
+              <div key={comp.key} className={`rounded-md p-3 border ${healthy ? 'bg-[#dafbe1] border-[#aceebb]' : 'bg-[#ffebe9] border-[rgba(255,129,130,0.4)]'}`}>
                 <div className="flex items-center gap-2 mb-1">
-                  <i className={`fas ${comp.icon} text-xs ${healthy ? 'text-green-600' : 'text-red-600'}`}></i>
-                  <span className="text-xs font-semibold text-gray-700">{comp.label}</span>
+                  <i className={`fas ${comp.icon} text-xs ${healthy ? 'text-[#1a7f37]' : 'text-[#cf222e]'}`}></i>
+                  <span className="text-[11px] font-medium text-[#57606a]">{comp.label}</span>
                 </div>
-                <div className={`text-xs font-bold ${healthy ? 'text-green-700' : 'text-red-700'}`}>
+                <div className={`text-[11px] font-semibold ${healthy ? 'text-[#1a7f37]' : 'text-[#cf222e]'}`}>
                   {healthy ? 'Healthy' : 'Offline'}
                 </div>
               </div>
@@ -472,15 +472,10 @@ const EksAutoscalingTab: React.FC<{ eksData: any }> = (_props) => {
             value: `${kpis.spotRatio}%`, unit: '', suffix: 'via XamOps Spot'
           },
         ].map(card => (
-          <div key={card.label} className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-            <div className="flex items-center gap-3 mb-3">
-              <div className={`w-9 h-9 rounded-lg ${card.color} flex items-center justify-center`}>
-                <i className={`fas ${card.icon} text-white text-sm`}></i>
-              </div>
-              <span className="text-xs font-semibold text-gray-500">{card.label}</span>
-            </div>
-            <div className="text-2xl font-bold text-gray-900">{card.value}</div>
-            <div className="text-[10px] text-gray-400 mt-1">{card.suffix}</div>
+          <div key={card.label} className="bg-white rounded-lg border border-[#d0d7de] px-5 py-4">
+            <div className="text-[11px] font-medium uppercase tracking-wider text-[#8b949e] mb-1">{card.label}</div>
+            <div className="text-[26px] font-semibold leading-none text-[#1a1f2e]">{card.value}</div>
+            <div className="text-[11px] text-[#8b949e] mt-1">{card.suffix}</div>
           </div>
         ))}
       </div>
@@ -492,15 +487,15 @@ const EksAutoscalingTab: React.FC<{ eksData: any }> = (_props) => {
           { label: 'Avg Memory Utilization', value: kpis.avgNodeUtilizationMemory, color: 'bg-blue-500' },
           { label: 'Managed Nodes', value: null, display: `${kpis.totalManagedNodes} nodes`, color: 'bg-gray-700' },
         ].map(m => (
-          <div key={m.label} className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+          <div key={m.label} className="bg-white rounded-lg border border-[#d0d7de] p-4">
             <div className="flex justify-between items-center mb-2">
-              <span className="text-xs font-semibold text-gray-600">{m.label}</span>
-              <span className="text-xs font-bold text-gray-800">{m.display ?? `${m.value}%`}</span>
+              <span className="text-[11px] font-medium text-[#57606a]">{m.label}</span>
+              <span className="text-[11px] font-semibold text-[#1a1f2e]">{m.display ?? `${m.value}%`}</span>
             </div>
             {m.value !== null && (
-              <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+              <div className="h-1.5 bg-[#e8ecf0] rounded-full overflow-hidden">
                 <div
-                  className={`h-full rounded-full transition-all ${m.color}`}
+                  className="h-full rounded-full transition-all bg-[#2f4bde]"
                   style={{ width: `${m.value}%` }}
                 />
               </div>
@@ -1470,15 +1465,15 @@ const EksAutoscalingTab: React.FC<{ eksData: any }> = (_props) => {
       </Section>
 
       {/* ═══ 10. SPOT AUTOMATION BRIDGE ══════════════════════════════════════ */}
-      <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-xl p-5">
+      <div className="bg-[#fff8c5] border border-[#d4a72c] rounded-lg p-5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-amber-500 flex items-center justify-center shadow-sm">
-              <i className="fas fa-bolt text-white"></i>
+            <div className="w-9 h-9 rounded-md bg-[#9a6700] flex items-center justify-center">
+              <i className="fas fa-bolt text-white text-sm"></i>
             </div>
             <div>
-              <h3 className="text-sm font-bold text-amber-900">XamOps Spot Automation — Integrated</h3>
-              <p className="text-xs text-amber-700 mt-0.5">
+              <h3 className="text-[13px] font-semibold text-[#9a6700]">XamOps Spot Automation — Integrated</h3>
+              <p className="text-[11px] text-[#9a6700]/80 mt-0.5">
                 Spot instance lifecycle (interruption, diversity, fallback) is handled by the XamOps Spot
                 Automation engine. Node templates marked with "XamOps Spot" above are managed there.
               </p>
@@ -1486,7 +1481,7 @@ const EksAutoscalingTab: React.FC<{ eksData: any }> = (_props) => {
           </div>
           <a
             href="/spot-automation"
-            className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white text-xs font-bold rounded-lg shadow hover:bg-amber-600 transition-all shrink-0"
+            className="flex items-center gap-2 px-3 py-1.5 bg-[#9a6700] text-white text-[12px] font-medium rounded-md hover:bg-[#7a5200] transition-all shrink-0"
           >
             <i className="fas fa-external-link-alt"></i>
             Open Spot Automation

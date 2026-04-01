@@ -98,139 +98,108 @@ const EksPerformanceTab: React.FC<EksPerformanceTabProps> = ({ eksData }) => {
   const memColors = getUsageColor(memoryUsagePercent);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
 
-      {/* ═══ HERO: Performance Command Center ═══ */}
-      <div className="bg-gradient-to-br from-slate-800 via-slate-700 to-slate-900 rounded-2xl p-8 text-white shadow-xl relative overflow-hidden">
-        <div className="absolute -top-12 -right-12 w-48 h-48 bg-white/5 rounded-full"></div>
-        <div className="absolute -bottom-8 right-24 w-32 h-32 bg-white/5 rounded-full"></div>
-
-        <div className="relative">
-          <div className="flex items-center justify-between mb-8">
-            <div>
-              <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-1">Performance Monitor</p>
-              <h2 className="text-2xl font-black text-white">Cluster Resource Utilization</h2>
-            </div>
-            <div className={`flex items-center gap-2 px-4 py-2 rounded-full border ${isOptimal ? 'bg-emerald-500/20 border-emerald-400/30 text-emerald-300' : 'bg-amber-500/20 border-amber-400/30 text-amber-300'}`}>
-              <div className={`w-2 h-2 rounded-full animate-pulse ${isOptimal ? 'bg-emerald-400' : 'bg-amber-400'}`}></div>
-              <span className="text-sm font-bold">{isOptimal ? 'Optimized' : 'Needs Tuning'}</span>
-            </div>
-          </div>
-
-          {/* KPI pills row */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="bg-white/10 backdrop-blur rounded-xl p-4 border border-white/10">
-              <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-2">Active Nodes</p>
-              <p className="text-4xl font-black text-white">{readyNodes.length}</p>
-              <p className="text-slate-400 text-xs mt-1">{podDensity} pods/node avg</p>
-            </div>
-            <div className="bg-white/10 backdrop-blur rounded-xl p-4 border border-white/10">
-              <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-2">Running Pods</p>
-              <p className="text-4xl font-black text-white">{runningPods}</p>
-              <p className="text-slate-400 text-xs mt-1">of {totalPods} total</p>
-            </div>
-            <div className={`rounded-xl p-4 border ${cpuUsagePercent >= 80 ? 'bg-red-500/20 border-red-400/30' : cpuUsagePercent >= 60 ? 'bg-amber-500/20 border-amber-400/30' : 'bg-emerald-500/20 border-emerald-400/30'}`}>
-              <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-2">CPU</p>
-              <p className={`text-4xl font-black ${cpuUsagePercent >= 80 ? 'text-red-300' : cpuUsagePercent >= 60 ? 'text-amber-300' : 'text-emerald-300'}`}>{cpuUsagePercent.toFixed(0)}%</p>
-              <p className="text-slate-400 text-xs mt-1">{usedCpuCores} / {totalCpuCores} cores</p>
-            </div>
-            <div className={`rounded-xl p-4 border ${memoryUsagePercent >= 80 ? 'bg-red-500/20 border-red-400/30' : memoryUsagePercent >= 60 ? 'bg-amber-500/20 border-amber-400/30' : 'bg-indigo-500/20 border-indigo-400/30'}`}>
-              <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-2">Memory</p>
-              <p className={`text-4xl font-black ${memoryUsagePercent >= 80 ? 'text-red-300' : memoryUsagePercent >= 60 ? 'text-amber-300' : 'text-indigo-300'}`}>{memoryUsagePercent.toFixed(0)}%</p>
-              <p className="text-slate-400 text-xs mt-1">{usedMemoryGB} / {totalMemoryGB} GB</p>
-            </div>
-          </div>
+      {/* ── KPI Strip ── */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="bg-white border border-[#d0d7de] rounded-lg px-5 py-4">
+          <div className="text-[11px] font-medium uppercase tracking-wider text-[#8b949e] mb-1">ACTIVE NODES</div>
+          <div className="text-[26px] font-semibold leading-none text-[#1a1f2e]">{readyNodes.length}</div>
+          <div className="text-[11px] text-[#8b949e] mt-1">{podDensity} pods/node avg</div>
+        </div>
+        <div className="bg-white border border-[#d0d7de] rounded-lg px-5 py-4">
+          <div className="text-[11px] font-medium uppercase tracking-wider text-[#8b949e] mb-1">RUNNING PODS</div>
+          <div className="text-[26px] font-semibold leading-none text-[#1a1f2e]">{runningPods}</div>
+          <div className="text-[11px] text-[#8b949e] mt-1">of {totalPods} total</div>
+        </div>
+        <div className="bg-white border border-[#d0d7de] rounded-lg px-5 py-4">
+          <div className="text-[11px] font-medium uppercase tracking-wider text-[#8b949e] mb-1">CPU USAGE</div>
+          <div className={`text-[26px] font-semibold leading-none ${cpuUsagePercent >= 80 ? 'text-[#cf222e]' : cpuUsagePercent >= 60 ? 'text-[#9a6700]' : 'text-[#1a1f2e]'}`}>{cpuUsagePercent.toFixed(0)}%</div>
+          <div className="text-[11px] text-[#8b949e] mt-1">{usedCpuCores} / {totalCpuCores} cores</div>
+        </div>
+        <div className="bg-white border border-[#d0d7de] rounded-lg px-5 py-4">
+          <div className="text-[11px] font-medium uppercase tracking-wider text-[#8b949e] mb-1">MEMORY USAGE</div>
+          <div className={`text-[26px] font-semibold leading-none ${memoryUsagePercent >= 80 ? 'text-[#cf222e]' : memoryUsagePercent >= 60 ? 'text-[#9a6700]' : 'text-[#1a1f2e]'}`}>{memoryUsagePercent.toFixed(0)}%</div>
+          <div className="text-[11px] text-[#8b949e] mt-1">{usedMemoryGB} / {totalMemoryGB} GB</div>
         </div>
       </div>
 
-      {/* ═══ RESOURCE UTILIZATION GAUGES ═══ */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* CPU Gauge Card */}
-        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-8">
-          <div className="flex items-center gap-3 mb-6">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${cpuColors.light}`}>
-              <i className={`fas fa-microchip ${cpuColors.text}`}></i>
-            </div>
-            <div>
-              <h3 className="font-bold text-gray-900">CPU Utilization</h3>
-              <p className="text-xs text-gray-500">Cluster-wide compute usage</p>
-            </div>
-            <div className={`ml-auto text-xs font-bold px-3 py-1 rounded-full ${cpuColors.badge}`}>
+      {/* ── Resource Utilization Gauges ── */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="bg-white border border-[#d0d7de] rounded-lg p-5">
+          <div className="flex items-center justify-between mb-4">
+            <span className="text-sm font-semibold text-[#1a1f2e]">CPU Utilization</span>
+            <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold border"
+              style={cpuUsagePercent >= 80 ? { color: '#cf222e', background: '#ffebe9', borderColor: 'rgba(255,129,130,0.4)' }
+                : cpuUsagePercent >= 60 ? { color: '#9a6700', background: '#fff8c5', borderColor: 'rgba(212,167,44,0.4)' }
+                : { color: '#1a7f37', background: '#dafbe1', borderColor: 'rgba(74,194,107,0.4)' }}>
               {cpuUsagePercent >= 80 ? 'High Load' : cpuUsagePercent >= 60 ? 'Moderate' : 'Healthy'}
-            </div>
+            </span>
           </div>
-
-          <div className="flex items-center gap-8">
-            <DonutGauge pct={cpuUsagePercent} color={getCpuColor()} size={160} strokeWidth={14}>
-              <span className="text-3xl font-black" style={{ color: getCpuColor() }}>{cpuUsagePercent.toFixed(0)}</span>
-              <span className="text-xs text-gray-500 font-semibold">%</span>
+          <div className="flex items-center gap-6">
+            <DonutGauge pct={cpuUsagePercent} color={getCpuColor()} size={140} strokeWidth={12}>
+              <span className="text-[26px] font-semibold" style={{ color: getCpuColor() }}>{cpuUsagePercent.toFixed(0)}</span>
+              <span className="text-[11px] text-[#8b949e]">%</span>
             </DonutGauge>
-
-            <div className="flex-1 space-y-4">
+            <div className="flex-1 space-y-3">
               <div>
-                <div className="flex justify-between text-xs font-semibold text-gray-600 mb-1.5">
-                  <span>Used</span><span className="text-gray-900">{Math.round(cpuUsageMillicores)}m / {Math.round(cpuCapacityMillicores)}m</span>
+                <div className="flex justify-between text-[11px] text-[#8b949e] mb-1">
+                  <span>Used</span><span className="font-semibold text-[#1a1f2e]">{Math.round(cpuUsageMillicores)}m / {Math.round(cpuCapacityMillicores)}m</span>
                 </div>
-                <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                  <div className={`h-full ${cpuColors.bg} rounded-full transition-all duration-700`} style={{ width: `${cpuUsagePercent}%` }}></div>
+                <div className="h-1.5 bg-[#e8ecf0] rounded-full overflow-hidden">
+                  <div className="h-full bg-[#2f4bde] rounded-full transition-all duration-700" style={{ width: `${cpuUsagePercent}%` }} />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
-                  <p className="text-xs text-gray-500 mb-1">Cores Used</p>
-                  <p className="text-xl font-black text-gray-900">{usedCpuCores}</p>
-                  <p className="text-xs text-gray-400">of {totalCpuCores} total</p>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="border border-[#d0d7de] rounded-lg p-3">
+                  <div className="text-[11px] text-[#8b949e] mb-1">Cores Used</div>
+                  <div className="text-[20px] font-semibold text-[#1a1f2e]">{usedCpuCores}</div>
+                  <div className="text-[11px] text-[#8b949e]">of {totalCpuCores}</div>
                 </div>
-                <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
-                  <p className="text-xs text-gray-500 mb-1">Avg / Node</p>
-                  <p className="text-xl font-black text-gray-900">{avgNodeCpuUsage}%</p>
-                  <p className="text-xs text-gray-400">node average</p>
+                <div className="border border-[#d0d7de] rounded-lg p-3">
+                  <div className="text-[11px] text-[#8b949e] mb-1">Avg / Node</div>
+                  <div className="text-[20px] font-semibold text-[#1a1f2e]">{avgNodeCpuUsage}%</div>
+                  <div className="text-[11px] text-[#8b949e]">average</div>
                 </div>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Memory Gauge Card */}
-        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-8">
-          <div className="flex items-center gap-3 mb-6">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${memColors.light}`}>
-              <i className={`fas fa-memory ${memColors.text}`}></i>
-            </div>
-            <div>
-              <h3 className="font-bold text-gray-900">Memory Utilization</h3>
-              <p className="text-xs text-gray-500">Cluster-wide RAM usage</p>
-            </div>
-            <div className={`ml-auto text-xs font-bold px-3 py-1 rounded-full ${memColors.badge}`}>
+        <div className="bg-white border border-[#d0d7de] rounded-lg p-5">
+          <div className="flex items-center justify-between mb-4">
+            <span className="text-sm font-semibold text-[#1a1f2e]">Memory Utilization</span>
+            <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold border"
+              style={memoryUsagePercent >= 80 ? { color: '#cf222e', background: '#ffebe9', borderColor: 'rgba(255,129,130,0.4)' }
+                : memoryUsagePercent >= 60 ? { color: '#9a6700', background: '#fff8c5', borderColor: 'rgba(212,167,44,0.4)' }
+                : { color: '#1a7f37', background: '#dafbe1', borderColor: 'rgba(74,194,107,0.4)' }}>
               {memoryUsagePercent >= 80 ? 'High Load' : memoryUsagePercent >= 60 ? 'Moderate' : 'Healthy'}
-            </div>
+            </span>
           </div>
-
-          <div className="flex items-center gap-8">
-            <DonutGauge pct={memoryUsagePercent} color={getMemoryColor()} size={160} strokeWidth={14}>
-              <span className="text-3xl font-black" style={{ color: getMemoryColor() }}>{memoryUsagePercent.toFixed(0)}</span>
-              <span className="text-xs text-gray-500 font-semibold">%</span>
+          <div className="flex items-center gap-6">
+            <DonutGauge pct={memoryUsagePercent} color={getMemoryColor()} size={140} strokeWidth={12}>
+              <span className="text-[26px] font-semibold" style={{ color: getMemoryColor() }}>{memoryUsagePercent.toFixed(0)}</span>
+              <span className="text-[11px] text-[#8b949e]">%</span>
             </DonutGauge>
-
-            <div className="flex-1 space-y-4">
+            <div className="flex-1 space-y-3">
               <div>
-                <div className="flex justify-between text-xs font-semibold text-gray-600 mb-1.5">
-                  <span>Used</span><span className="text-gray-900">{formatBytes(memoryUsageBytes)} / {formatBytes(memoryCapacityBytes)}</span>
+                <div className="flex justify-between text-[11px] text-[#8b949e] mb-1">
+                  <span>Used</span><span className="font-semibold text-[#1a1f2e]">{formatBytes(memoryUsageBytes)} / {formatBytes(memoryCapacityBytes)}</span>
                 </div>
-                <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                  <div className={`h-full ${memColors.bg} rounded-full transition-all duration-700`} style={{ width: `${memoryUsagePercent}%` }}></div>
+                <div className="h-1.5 bg-[#e8ecf0] rounded-full overflow-hidden">
+                  <div className="h-full bg-[#2f4bde] rounded-full transition-all duration-700" style={{ width: `${memoryUsagePercent}%` }} />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
-                  <p className="text-xs text-gray-500 mb-1">Used</p>
-                  <p className="text-xl font-black text-gray-900">{usedMemoryGB}</p>
-                  <p className="text-xs text-gray-400">GB consumed</p>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="border border-[#d0d7de] rounded-lg p-3">
+                  <div className="text-[11px] text-[#8b949e] mb-1">Used</div>
+                  <div className="text-[20px] font-semibold text-[#1a1f2e]">{usedMemoryGB} GB</div>
+                  <div className="text-[11px] text-[#8b949e]">consumed</div>
                 </div>
-                <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
-                  <p className="text-xs text-gray-500 mb-1">Avg / Node</p>
-                  <p className="text-xl font-black text-gray-900">{avgNodeMemUsage}%</p>
-                  <p className="text-xs text-gray-400">node average</p>
+                <div className="border border-[#d0d7de] rounded-lg p-3">
+                  <div className="text-[11px] text-[#8b949e] mb-1">Avg / Node</div>
+                  <div className="text-[20px] font-semibold text-[#1a1f2e]">{avgNodeMemUsage}%</div>
+                  <div className="text-[11px] text-[#8b949e]">average</div>
                 </div>
               </div>
             </div>
@@ -238,19 +207,14 @@ const EksPerformanceTab: React.FC<EksPerformanceTabProps> = ({ eksData }) => {
         </div>
       </div>
 
-      {/* ═══ NODE PERFORMANCE CARDS ═══ */}
-      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="px-6 py-5 border-b border-gray-100 flex items-center gap-3">
-          <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center">
-            <i className="fas fa-server text-blue-600"></i>
-          </div>
-          <div>
-            <h3 className="text-base font-bold text-gray-900">Node Resource Breakdown</h3>
-            <p className="text-xs text-gray-500">{readyNodes.length} active nodes · CPU & memory utilization</p>
-          </div>
+      {/* ── Node Resource Breakdown ── */}
+      <div className="bg-white border border-[#d0d7de] rounded-lg overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-[#e8ecf0]">
+          <span className="text-sm font-semibold text-[#1a1f2e]">Node Resource Breakdown</span>
+          <span className="ml-2 text-[11px] text-[#8b949e]">{readyNodes.length} active nodes</span>
         </div>
 
-        <div className="divide-y divide-gray-50">
+        <div className="divide-y divide-[#e8ecf0]">
           {readyNodes.map((node: any, index: number) => {
             const cpuReqPercent = node.cpuRequestsPercent !== undefined ? node.cpuRequestsPercent
               : (node.cpuCapacity ? (node.cpuRequests / (node.cpuCapacity * 1000)) * 100 : 0);
@@ -258,156 +222,116 @@ const EksPerformanceTab: React.FC<EksPerformanceTabProps> = ({ eksData }) => {
               : (node.memoryCapacity ? (node.memoryRequests / (node.memoryCapacity * 1024)) * 100 : 0);
             const cpu = node.cpuUsagePercent || 0;
             const mem = node.memoryUsagePercent || 0;
-            const cpuC = getUsageColor(cpu);
-            const memC = getUsageColor(mem);
-            const cpuMillicores = Math.round(node.cpuUsageMillicores || 0);
+            const cpuMillicoresNode = Math.round(node.cpuUsageMillicores || 0);
+            const cpuColor = cpu >= 80 ? '#cf222e' : cpu >= 60 ? '#9a6700' : '#2f4bde';
+            const memColor = mem >= 80 ? '#cf222e' : mem >= 60 ? '#9a6700' : '#2f4bde';
 
             return (
-              <div key={index} className="px-6 py-5 hover:bg-gray-50 transition-colors">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 bg-blue-50 rounded-lg flex items-center justify-center">
-                      <i className="fas fa-server text-blue-500 text-sm"></i>
-                    </div>
-                    <div>
-                      <p className="font-mono text-sm font-bold text-gray-900">{node.nodeName}</p>
-                    </div>
-                  </div>
+              <div key={index} className="px-5 py-4 hover:bg-[#f6f8fa] transition-colors">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="font-mono text-[13px] font-semibold text-[#1a1f2e]">{node.nodeName}</span>
                   <div className="flex items-center gap-2">
-                    <span className={`text-xs px-2.5 py-1 rounded-full font-bold ${cpuC.badge}`}>CPU {cpu.toFixed(0)}%</span>
-                    <span className={`text-xs px-2.5 py-1 rounded-full font-bold ${memC.badge}`}>MEM {mem.toFixed(0)}%</span>
+                    <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold border"
+                      style={cpu >= 80 ? { color: '#cf222e', background: '#ffebe9', borderColor: 'rgba(255,129,130,0.4)' }
+                        : cpu >= 60 ? { color: '#9a6700', background: '#fff8c5', borderColor: 'rgba(212,167,44,0.4)' }
+                        : { color: '#1a7f37', background: '#dafbe1', borderColor: 'rgba(74,194,107,0.4)' }}>
+                      CPU {cpu.toFixed(0)}%
+                    </span>
+                    <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold border"
+                      style={mem >= 80 ? { color: '#cf222e', background: '#ffebe9', borderColor: 'rgba(255,129,130,0.4)' }
+                        : mem >= 60 ? { color: '#9a6700', background: '#fff8c5', borderColor: 'rgba(212,167,44,0.4)' }
+                        : { color: '#1a7f37', background: '#dafbe1', borderColor: 'rgba(74,194,107,0.4)' }}>
+                      MEM {mem.toFixed(0)}%
+                    </span>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  {/* CPU Usage bar */}
-                  <div>
-                    <div className="flex justify-between text-xs mb-1.5">
-                      <span className="text-gray-500 flex items-center gap-1">
-                        <i className="fas fa-microchip text-orange-400 text-[10px]"></i> CPU Usage
-                      </span>
-                      <span className={`font-black ${cpuC.text}`}>{cpu.toFixed(1)}%</span>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {[
+                    { label: 'CPU Usage', pct: cpu, val: `${cpuMillicoresNode}m`, color: cpuColor },
+                    { label: 'Mem Usage', pct: mem, val: `${Math.round(node.memoryUsageGb || 0)} GB`, color: memColor },
+                    { label: 'CPU Requests', pct: cpuReqPercent, val: node.cpuRequests > 0 ? `${Math.round(node.cpuRequests)}m` : null, color: '#2f4bde' },
+                    { label: 'Mem Requests', pct: memReqPercent, val: node.memoryRequests > 0 ? `${Math.round(node.memoryRequests)} MB` : null, color: '#2f4bde' },
+                  ].map((bar, bi) => (
+                    <div key={bi}>
+                      <div className="flex items-center justify-between text-[11px] mb-1">
+                        <span className="text-[#8b949e]">{bar.label}</span>
+                        <span className="font-semibold" style={{ color: bar.color }}>{bar.pct.toFixed(1)}%</span>
+                      </div>
+                      <div className="h-1.5 bg-[#e8ecf0] rounded-full overflow-hidden">
+                        <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, bar.pct)}%`, background: bar.color }} />
+                      </div>
+                      {bar.val && <div className="text-[11px] text-[#8b949e] mt-0.5">{bar.val}</div>}
                     </div>
-                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                      <div className={`h-full ${cpuC.bg} rounded-full transition-all`} style={{ width: `${Math.min(100, cpu)}%` }}></div>
-                    </div>
-                    {cpuMillicores > 0 && <p className="text-[10px] text-gray-400 mt-1">{cpuMillicores}m</p>}
-                  </div>
-
-                  {/* Memory Usage bar */}
-                  <div>
-                    <div className="flex justify-between text-xs mb-1.5">
-                      <span className="text-gray-500 flex items-center gap-1">
-                        <i className="fas fa-memory text-purple-400 text-[10px]"></i> Mem Usage
-                      </span>
-                      <span className={`font-black ${memC.text}`}>{mem.toFixed(1)}%</span>
-                    </div>
-                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                      <div className={`h-full bg-gradient-to-r ${mem >= 80 ? 'from-red-400 to-red-500' : mem >= 60 ? 'from-amber-400 to-amber-500' : 'from-indigo-400 to-indigo-500'} rounded-full transition-all`} style={{ width: `${Math.min(100, mem)}%` }}></div>
-                    </div>
-                  </div>
-
-                  {/* CPU Requests bar */}
-                  <div>
-                    <div className="flex justify-between text-xs mb-1.5">
-                      <span className="text-gray-500 flex items-center gap-1">
-                        <i className="fas fa-chart-line text-blue-400 text-[10px]"></i> CPU Req
-                      </span>
-                      <span className="font-black text-blue-600">{cpuReqPercent.toFixed(1)}%</span>
-                    </div>
-                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                      <div className="h-full bg-gradient-to-r from-blue-400 to-blue-500 rounded-full transition-all" style={{ width: `${Math.min(100, cpuReqPercent)}%` }}></div>
-                    </div>
-                    {node.cpuRequests > 0 && <p className="text-[10px] text-gray-400 mt-1">{Math.round(node.cpuRequests)}m</p>}
-                  </div>
-
-                  {/* Memory Requests bar */}
-                  <div>
-                    <div className="flex justify-between text-xs mb-1.5">
-                      <span className="text-gray-500 flex items-center gap-1">
-                        <i className="fas fa-chart-line text-indigo-400 text-[10px]"></i> Mem Req
-                      </span>
-                      <span className="font-black text-indigo-600">{memReqPercent.toFixed(1)}%</span>
-                    </div>
-                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                      <div className="h-full bg-gradient-to-r from-indigo-400 to-indigo-500 rounded-full transition-all" style={{ width: `${Math.min(100, memReqPercent)}%` }}></div>
-                    </div>
-                    {node.memoryRequests > 0 && <p className="text-[10px] text-gray-400 mt-1">{Math.round(node.memoryRequests)} MB</p>}
-                  </div>
+                  ))}
                 </div>
               </div>
             );
           })}
 
           {readyNodes.length === 0 && (
-            <div className="px-6 py-16 text-center">
-              <i className="fas fa-server text-gray-200 text-4xl mb-3"></i>
-              <p className="text-gray-500 text-sm font-medium">No active node metrics available</p>
+            <div className="py-14 text-center">
+              <p className="text-[13px] text-[#57606a]">No active node metrics available</p>
             </div>
           )}
         </div>
       </div>
 
-      {/* ═══ PERFORMANCE INSIGHTS ═══ */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Efficiency Score */}
-        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 flex flex-col items-center text-center">
-          <div className="mb-4">
-            <DonutGauge
-              pct={Number(efficiencyScore)}
-              color={Number(efficiencyScore) >= 60 ? '#10b981' : Number(efficiencyScore) >= 40 ? '#f59e0b' : '#ef4444'}
-              size={120}
-              strokeWidth={10}
-            >
-              <span className={`text-2xl font-black ${Number(efficiencyScore) >= 60 ? 'text-emerald-600' : Number(efficiencyScore) >= 40 ? 'text-amber-600' : 'text-red-600'}`}>
-                {efficiencyScore}%
-              </span>
-            </DonutGauge>
-          </div>
-          <h4 className="font-bold text-gray-900 mb-1">Resource Efficiency</h4>
-          <p className="text-xs text-gray-500">Average CPU + memory utilization</p>
-          <div className={`mt-3 text-xs font-bold px-3 py-1 rounded-full ${Number(efficiencyScore) >= 60 ? 'bg-emerald-100 text-emerald-700' : Number(efficiencyScore) >= 40 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
+      {/* ── Performance Insights ── */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="bg-white border border-[#d0d7de] rounded-lg p-5 flex flex-col items-center text-center">
+          <DonutGauge
+            pct={Number(efficiencyScore)}
+            color={Number(efficiencyScore) >= 60 ? '#1a7f37' : Number(efficiencyScore) >= 40 ? '#9a6700' : '#cf222e'}
+            size={120} strokeWidth={10}
+          >
+            <span className="text-[26px] font-semibold" style={{ color: Number(efficiencyScore) >= 60 ? '#1a7f37' : Number(efficiencyScore) >= 40 ? '#9a6700' : '#cf222e' }}>
+              {efficiencyScore}%
+            </span>
+          </DonutGauge>
+          <div className="text-sm font-semibold text-[#1a1f2e] mt-3">Resource Efficiency</div>
+          <div className="text-[11px] text-[#8b949e] mt-0.5">Avg CPU + memory utilization</div>
+          <span className="mt-3 rounded-full px-2.5 py-0.5 text-[11px] font-semibold border"
+            style={Number(efficiencyScore) >= 60 ? { color: '#1a7f37', background: '#dafbe1', borderColor: 'rgba(74,194,107,0.4)' }
+              : Number(efficiencyScore) >= 40 ? { color: '#9a6700', background: '#fff8c5', borderColor: 'rgba(212,167,44,0.4)' }
+              : { color: '#cf222e', background: '#ffebe9', borderColor: 'rgba(255,129,130,0.4)' }}>
             {Number(efficiencyScore) >= 60 ? 'Good utilization' : Number(efficiencyScore) >= 40 ? 'Acceptable' : 'Under-utilized'}
-          </div>
+          </span>
         </div>
 
-        {/* Pod Density */}
-        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 flex flex-col items-center text-center">
-          <div className="w-24 h-24 bg-indigo-50 rounded-2xl flex items-center justify-center mb-4 mx-auto">
-            <div>
-              <p className="text-4xl font-black text-indigo-600">{podDensity}</p>
-              <p className="text-xs text-indigo-400 font-semibold">pods/node</p>
-            </div>
-          </div>
-          <h4 className="font-bold text-gray-900 mb-1">Pod Density</h4>
-          <p className="text-xs text-gray-500 mb-3">Workload distribution balance</p>
+        <div className="bg-white border border-[#d0d7de] rounded-lg p-5 flex flex-col items-center text-center">
+          <div className="text-[26px] font-semibold text-[#1a1f2e] mt-4">{podDensity}</div>
+          <div className="text-[11px] text-[#8b949e]">pods/node avg</div>
+          <div className="text-sm font-semibold text-[#1a1f2e] mt-2">Pod Density</div>
+          <div className="text-[11px] text-[#8b949e] mt-0.5 mb-3">Workload distribution</div>
           <div className="grid grid-cols-2 gap-2 w-full">
-            <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
-              <p className="text-xs text-gray-500">Total Pods</p>
-              <p className="text-lg font-black text-gray-900">{totalPods}</p>
+            <div className="border border-[#d0d7de] rounded-lg p-3">
+              <div className="text-[11px] text-[#8b949e]">Total</div>
+              <div className="text-[20px] font-semibold text-[#1a1f2e]">{totalPods}</div>
             </div>
-            <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
-              <p className="text-xs text-gray-500">Running</p>
-              <p className="text-lg font-black text-emerald-600">{runningPods}</p>
+            <div className="border border-[#d0d7de] rounded-lg p-3">
+              <div className="text-[11px] text-[#8b949e]">Running</div>
+              <div className="text-[20px] font-semibold text-[#1a7f37]">{runningPods}</div>
             </div>
           </div>
         </div>
 
-        {/* Allocation Status */}
-        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 flex flex-col items-center text-center">
-          <div className={`w-24 h-24 rounded-2xl flex items-center justify-center mb-4 mx-auto ${isOptimal ? 'bg-emerald-50' : 'bg-amber-50'}`}>
-            <i className={`fas ${isOptimal ? 'fa-check-circle text-emerald-500' : 'fa-exclamation-circle text-amber-500'} text-5xl`}></i>
-          </div>
-          <h4 className="font-bold text-gray-900 mb-1">Allocation Status</h4>
-          <p className="text-xs text-gray-500 mb-3">{isOptimal ? 'Resources in optimal 40–75% band' : 'Resources outside optimal range'}</p>
+        <div className="bg-white border border-[#d0d7de] rounded-lg p-5 flex flex-col items-center text-center">
+          <div className="text-sm font-semibold text-[#1a1f2e] mt-2">Allocation Status</div>
+          <div className="text-[11px] text-[#8b949e] mt-0.5 mb-3">{isOptimal ? 'Resources in optimal 40–75% band' : 'Resources outside optimal range'}</div>
+          <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold border mb-4"
+            style={isOptimal ? { color: '#1a7f37', background: '#dafbe1', borderColor: 'rgba(74,194,107,0.4)' }
+              : { color: '#9a6700', background: '#fff8c5', borderColor: 'rgba(212,167,44,0.4)' }}>
+            {isOptimal ? 'Optimized' : 'Needs Tuning'}
+          </span>
           <div className="grid grid-cols-2 gap-2 w-full">
-            <div className={`rounded-xl p-3 border ${cpuColors.light} border-gray-100`}>
-              <p className="text-xs text-gray-500 uppercase font-bold">CPU</p>
-              <p className={`text-lg font-black ${cpuColors.text}`}>{cpuUsagePercent.toFixed(0)}%</p>
+            <div className="border border-[#d0d7de] rounded-lg p-3">
+              <div className="text-[11px] font-medium uppercase text-[#8b949e]">CPU</div>
+              <div className="text-[20px] font-semibold" style={{ color: cpuUsagePercent >= 80 ? '#cf222e' : '#1a1f2e' }}>{cpuUsagePercent.toFixed(0)}%</div>
             </div>
-            <div className={`rounded-xl p-3 border ${memColors.light} border-gray-100`}>
-              <p className="text-xs text-gray-500 uppercase font-bold">Memory</p>
-              <p className={`text-lg font-black ${memColors.text}`}>{memoryUsagePercent.toFixed(0)}%</p>
+            <div className="border border-[#d0d7de] rounded-lg p-3">
+              <div className="text-[11px] font-medium uppercase text-[#8b949e]">Memory</div>
+              <div className="text-[20px] font-semibold" style={{ color: memoryUsagePercent >= 80 ? '#cf222e' : '#1a1f2e' }}>{memoryUsagePercent.toFixed(0)}%</div>
             </div>
           </div>
         </div>
