@@ -29,10 +29,10 @@ import java.util.stream.Collectors;
 @Slf4j
 public class MarketplaceBillingExtractionService {
 
-    // Fixed date range: February 2025 – March 2026 (temp: within 14-month CE limit)
+    // Fixed date range: March 2025 – March 2026 (temp: within 14-month CE limit)
     // TODO: change EXTRACTION_START back to "2024-12-01" after enabling
     // "Multi-year data" in Cost Explorer on the payer account.
-    static final String EXTRACTION_START = "2025-02-01";
+    static final String EXTRACTION_START = "2025-03-01";
     static final String EXTRACTION_END = "2026-04-01"; // exclusive — Cost Explorer end date
 
     /** Per-month S3 key: billing-archive/{accountId}/YYYY-MM/billing.csv */
@@ -99,7 +99,8 @@ public class MarketplaceBillingExtractionService {
         // ECR).
         // CE groups S3, EFS, and ECR storage under the same usage-type key, so we use
         // separate SERVICE-filtered queries to learn how much belongs to each service.
-        // CE service name for ECR is "Amazon EC2 Container Registry (ECR)" — the "(ECR)"
+        // CE service name for ECR is "Amazon EC2 Container Registry (ECR)" — the
+        // "(ECR)"
         // suffix is required. Other variants are kept as fallbacks for accounts
         // where CE may return an older or alternate name.
         List<String> ecrServiceNames = List.of("Amazon EC2 Container Registry (ECR)",
@@ -111,7 +112,8 @@ public class MarketplaceBillingExtractionService {
         Map<String, Map<String, Map<String, Double>>> ecrServiceCosts = fetchServiceRegionalCosts(tempCreds, accountIds,
                 ecrServiceNames);
         // Usage-quantity queries: actual GB-months per TimedStorage usage-type key,
-        // broken out by service. Used to split quantities correctly in resolveTimedStorage.
+        // broken out by service. Used to split quantities correctly in
+        // resolveTimedStorage.
         Map<String, Map<String, Map<String, Double>>> efsUsageQty = fetchServiceUsageQuantities(tempCreds, accountIds,
                 List.of("Amazon Elastic File System"));
         Map<String, Map<String, Map<String, Double>>> ecrUsageQty = fetchServiceUsageQuantities(tempCreds, accountIds,
@@ -184,8 +186,10 @@ public class MarketplaceBillingExtractionService {
             return Collections.emptyList();
         }
 
-        // Supplementary queries to resolve TimedStorage-ByteHrs ambiguity (S3 vs EFS vs ECR)
-        // CE service name for ECR is "Amazon EC2 Container Registry (ECR)" — the "(ECR)"
+        // Supplementary queries to resolve TimedStorage-ByteHrs ambiguity (S3 vs EFS vs
+        // ECR)
+        // CE service name for ECR is "Amazon EC2 Container Registry (ECR)" — the
+        // "(ECR)"
         // suffix is required. Other variants are kept as fallbacks for accounts
         // where CE may return an older or alternate name.
         List<String> ecrServiceNames = List.of("Amazon EC2 Container Registry (ECR)",
@@ -328,7 +332,8 @@ public class MarketplaceBillingExtractionService {
      * resolveTimedStorage uses real values rather than a cost-proportional
      * approximation.
      *
-     * @param serviceNames CE service dimension values, e.g. "Amazon Elastic File System"
+     * @param serviceNames CE service dimension values, e.g. "Amazon Elastic File
+     *                     System"
      * @return accountId → yearMonth ("YYYY-MM") → usageType (e.g.
      *         "APS3-TimedStorage-ByteHrs") → UsageQuantity
      */
@@ -842,8 +847,10 @@ public class MarketplaceBillingExtractionService {
         m.put("AWS-In-Bytes", "AWS Data Transfer");
         m.put("CloudFront-", "AWS CloudFront");
 
-        // SQS-specific request patterns must come BEFORE the generic "Requests-" S3 entry
-        // because CE uses "Requests-Tier1" for both S3 and SQS, but FIFO and RBP are SQS-only
+        // SQS-specific request patterns must come BEFORE the generic "Requests-" S3
+        // entry
+        // because CE uses "Requests-Tier1" for both S3 and SQS, but FIFO and RBP are
+        // SQS-only
         m.put("Requests-FIFO-", "Amazon Simple Queue Service");
         m.put("Requests-RBP", "Amazon Simple Queue Service");
 

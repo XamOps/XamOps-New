@@ -83,6 +83,47 @@ public class InvoiceViewController {
     }
 
     /**
+     * Endpoint to generate and download a detailed bill PDF (no tax) from an invoice DTO.
+     */
+    @PostMapping("/download-detail")
+    public ResponseEntity<byte[]> downloadDetailBill(@RequestBody InvoiceDto invoiceDto) {
+        if (invoiceDto == null || invoiceDto.getBillingPeriod() == null) {
+            logger.warn("Received invalid InvoiceDto for detail bill download: {}", invoiceDto);
+            return ResponseEntity.badRequest().build();
+        }
+        try {
+            ByteArrayInputStream pdfStream = invoiceManagementService.generateDetailBillPdf(invoiceDto);
+            byte[] contents = pdfStream.readAllBytes();
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_PDF);
+
+            String accountIdentifier = invoiceDto.getAwsAccountId();
+            if (accountIdentifier == null || "N/A".equals(accountIdentifier)) {
+                accountIdentifier = invoiceDto.getGcpProjectId();
+            }
+            if (accountIdentifier == null) {
+                accountIdentifier = "unknown";
+            }
+
+            String filename = String.format("detail-bill-%s-%s.pdf",
+                    accountIdentifier.replaceAll("[^a-zA-Z0-9_-]", ""),
+                    invoiceDto.getBillingPeriod().replaceAll("[^a-zA-Z0-9_-]", "")
+            );
+
+            headers.setContentDispositionFormData("attachment", filename);
+            headers.setCacheControl("must-revalidate, post-check=0, pre-check=0");
+
+            return ResponseEntity.ok().headers(headers).body(contents);
+        } catch (Exception e) {
+            String accId = invoiceDto.getAwsAccountId() != null ? invoiceDto.getAwsAccountId()
+                    : invoiceDto.getGcpProjectId();
+            logger.error("Error generating detail bill PDF for account {}: {}", accId, e.getMessage(), e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    /**
      * Endpoint to generate and download a PDF of an invoice DTO.
      * This can be used for both temporary previews and finalized invoices.
      */

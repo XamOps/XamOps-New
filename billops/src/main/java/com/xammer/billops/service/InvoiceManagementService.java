@@ -126,6 +126,10 @@ public class InvoiceManagementService {
     }
 
     public ByteArrayInputStream generatePdfFromDto(InvoiceDto dto) {
+        return generatePdfFromDto(dto, true);
+    }
+
+    public ByteArrayInputStream generatePdfFromDto(InvoiceDto dto, boolean includeTax) {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         try (PdfWriter writer = new PdfWriter(out); PdfDocument pdf = new PdfDocument(writer); Document document = new Document(pdf, PageSize.A4)) {
 
@@ -139,7 +143,7 @@ public class InvoiceManagementService {
                 if (client != null) clientGstin = Optional.ofNullable(client.getGstin()).orElse("");
             }
             boolean isIntraState = !clientGstin.isEmpty() && clientGstin.startsWith(sellerStateCode);
-            logger.info("[InvoiceGen] Client GSTIN={}, sellerState={}, isIntraState={}", clientGstin, sellerStateCode, isIntraState);
+            logger.info("[InvoiceGen] Client GSTIN={}, sellerState={}, isIntraState={}, includeTax={}", clientGstin, sellerStateCode, isIntraState, includeTax);
 
             // 1. Header & Address Section (Combined Grid)
             addHeaderAndAddressSection(document, dto);
@@ -150,15 +154,20 @@ public class InvoiceManagementService {
             // 3. Main Item Table (amounts shown in INR)
             BigDecimal taxableValueInr = addMainTable(document, dto, isIntraState, exchangeRate);
 
-            // 4. Tax Section (computed in INR from the INR taxable value)
-            BigDecimal taxAmountInr = taxableValueInr.multiply(IGST_RATE).setScale(2, RoundingMode.HALF_UP);
-            addTaxSection(document, taxableValueInr, taxAmountInr, isIntraState);
+            if (includeTax) {
+                // 4. Tax Section (computed in INR from the INR taxable value)
+                BigDecimal taxAmountInr = taxableValueInr.multiply(IGST_RATE).setScale(2, RoundingMode.HALF_UP);
+                addTaxSection(document, taxableValueInr, taxAmountInr, isIntraState);
 
-            // 5. Footer
-            addFooter(document, taxableValueInr.add(taxAmountInr));
+                // 5. Footer
+                addFooter(document, taxableValueInr.add(taxAmountInr));
+            } else {
+                // 5. Footer without tax (detail bill)
+                addFooter(document, taxableValueInr);
+            }
 
             // 6. IRN Section (only for Tax Invoices with IRN)
-            if (dto.isIncludeIrn()) {
+            if (includeTax && dto.isIncludeIrn()) {
                 addIrnSection(document, pdf);
             }
 
@@ -751,6 +760,193 @@ public class InvoiceManagementService {
                 .setFontSize(8));
         document.add(new Paragraph("This is a Computer Generated Invoice").setFontSize(8).setItalic()
                 .setTextAlignment(TextAlignment.CENTER).setMarginTop(5));
+    }
+
+    /**
+     * Generates a detailed bill PDF showing service → region → resource breakdown
+     * with usage quantity and cost in USD. No tax section.
+     */
+    public ByteArrayInputStream generateDetailBillPdf(InvoiceDto dto) {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try (PdfWriter writer = new PdfWriter(out);
+             PdfDocument pdf = new PdfDocument(writer);
+             Document document = new Document(pdf, PageSize.A4)) {
+
+            document.setMargins(25, 25, 25, 25);
+
+            DeviceRgb headerBg    = new DeviceRgb(41,  55,  99);   // dark navy
+            DeviceRgb serviceBg   = new DeviceRgb(224, 229, 245);  // light indigo
+            DeviceRgb regionBg    = new DeviceRgb(243, 245, 250);  // very light grey
+            DeviceRgb subtotalBg  = new DeviceRgb(210, 216, 238);  // medium indigo
+
+            // ── Title ──────────────────────────────────────────────────────────
+            document.add(new Paragraph("Detailed Bill")
+                    .setBold().setFontSize(16).setTextAlignment(TextAlignment.CENTER)
+                    .setMarginBottom(4));
+
+            // ── Account / Period Info ───────────────────────────────────────────
+            String accountLabel = dto.getAccountName() != null ? dto.getAccountName() : "";
+            String accountId    = dto.getAwsAccountId() != null ? dto.getAwsAccountId()
+                                : (dto.getGcpProjectId() != null ? dto.getGcpProjectId()
+                                : (dto.getAzureSubscriptionId() != null ? dto.getAzureSubscriptionId() : ""));
+            if (!accountId.isEmpty()) accountLabel += " (" + accountId + ")";
+
+            document.add(new Paragraph("Account: " + accountLabel)
+                    .setFontSize(9).setMarginBottom(2));
+            document.add(new Paragraph("Billing Period: " + (dto.getBillingPeriod() != null ? dto.getBillingPeriod() : ""))
+                    .setFontSize(9).setMarginBottom(8));
+
+            // ── Collect non-hidden line items ──────────────────────────────────
+            List<InvoiceDto.LineItemDto> items = dto.getLineItems() == null ? Collections.emptyList()
+                    : dto.getLineItems().stream()
+                        .filter(li -> !li.isHidden())
+                        .collect(Collectors.toList());
+
+            // Group: service → region → [items]
+            Map<String, Map<String, List<InvoiceDto.LineItemDto>>> grouped = new LinkedHashMap<>();
+            for (InvoiceDto.LineItemDto li : items) {
+                String svc = li.getServiceName() != null ? li.getServiceName() : "";
+                String rgn = li.getRegionName()  != null ? li.getRegionName()  : "";
+                grouped.computeIfAbsent(svc, k -> new LinkedHashMap<>())
+                       .computeIfAbsent(rgn, k -> new ArrayList<>())
+                       .add(li);
+            }
+
+            // ── Table ──────────────────────────────────────────────────────────
+            float[] cols = {55f, 18f, 12f, 15f};
+            Table table = new Table(UnitValue.createPercentArray(cols)).useAllAvailableWidth();
+
+            // Header row
+            String[] headers = {"SERVICE / REGION / RESOURCE", "USAGE QUANTITY", "UNIT", "AMOUNT (USD)"};
+            for (String h : headers) {
+                Cell hc = new Cell()
+                        .setBackgroundColor(headerBg)
+                        .setBorder(Border.NO_BORDER)
+                        .setPadding(5);
+                hc.add(new Paragraph(h).setBold().setFontSize(8)
+                        .setFontColor(com.itextpdf.kernel.colors.ColorConstants.WHITE)
+                        .setTextAlignment("AMOUNT (USD)".equals(h) || "UNIT".equals(h) || "USAGE QUANTITY".equals(h)
+                                ? TextAlignment.RIGHT : TextAlignment.LEFT));
+                table.addHeaderCell(hc);
+            }
+
+            BigDecimal grandTotal = BigDecimal.ZERO;
+
+            for (Map.Entry<String, Map<String, List<InvoiceDto.LineItemDto>>> svcEntry : grouped.entrySet()) {
+                String svcName = svcEntry.getKey();
+
+                // Service subtotal
+                BigDecimal svcTotal = svcEntry.getValue().values().stream()
+                        .flatMap(List::stream)
+                        .map(li -> li.getCost() != null ? li.getCost() : BigDecimal.ZERO)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+                grandTotal = grandTotal.add(svcTotal);
+
+                // Service row (spans all 4 cols with subtotal in last col)
+                Cell svcCell = new Cell(1, 3)
+                        .setBackgroundColor(serviceBg)
+                        .setBorder(new SolidBorder(new DeviceRgb(180, 190, 220), 0.3f))
+                        .setPaddingLeft(6).setPaddingTop(4).setPaddingBottom(4);
+                svcCell.add(new Paragraph(svcName).setBold().setFontSize(8));
+                table.addCell(svcCell);
+
+                Cell svcAmt = new Cell()
+                        .setBackgroundColor(serviceBg)
+                        .setBorder(new SolidBorder(new DeviceRgb(180, 190, 220), 0.3f))
+                        .setPaddingRight(6).setPaddingTop(4).setPaddingBottom(4);
+                svcAmt.add(new Paragraph(String.format("$%.4f", svcTotal.doubleValue()))
+                        .setBold().setFontSize(8).setTextAlignment(TextAlignment.RIGHT));
+                table.addCell(svcAmt);
+
+                for (Map.Entry<String, List<InvoiceDto.LineItemDto>> rgnEntry : svcEntry.getValue().entrySet()) {
+                    String rgnName = rgnEntry.getKey();
+                    List<InvoiceDto.LineItemDto> rgnItems = rgnEntry.getValue();
+
+                    // Region subtotal
+                    BigDecimal rgnTotal = rgnItems.stream()
+                            .map(li -> li.getCost() != null ? li.getCost() : BigDecimal.ZERO)
+                            .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+                    // Region row
+                    Cell rgnCell = new Cell(1, 3)
+                            .setBackgroundColor(regionBg)
+                            .setBorder(new SolidBorder(new DeviceRgb(210, 215, 230), 0.3f))
+                            .setPaddingLeft(14).setPaddingTop(3).setPaddingBottom(3);
+                    rgnCell.add(new Paragraph(rgnName).setItalic().setFontSize(8)
+                            .setFontColor(new DeviceRgb(60, 80, 130)));
+                    table.addCell(rgnCell);
+
+                    Cell rgnAmt = new Cell()
+                            .setBackgroundColor(regionBg)
+                            .setBorder(new SolidBorder(new DeviceRgb(210, 215, 230), 0.3f))
+                            .setPaddingRight(6).setPaddingTop(3).setPaddingBottom(3);
+                    rgnAmt.add(new Paragraph(String.format("$%.4f", rgnTotal.doubleValue()))
+                            .setItalic().setFontSize(8).setTextAlignment(TextAlignment.RIGHT)
+                            .setFontColor(new DeviceRgb(60, 80, 130)));
+                    table.addCell(rgnAmt);
+
+                    // Resource rows
+                    for (InvoiceDto.LineItemDto li : rgnItems) {
+                        String resource = li.getResourceName() != null ? li.getResourceName() : "";
+                        String qty      = li.getUsageQuantity() != null ? li.getUsageQuantity() : "";
+                        String unit     = li.getUnit() != null ? li.getUnit() : "";
+                        double cost     = li.getCost() != null ? li.getCost().doubleValue() : 0.0;
+
+                        Cell resCell = new Cell()
+                                .setBorder(new SolidBorder(new DeviceRgb(225, 228, 235), 0.3f))
+                                .setPaddingLeft(24).setPaddingTop(2).setPaddingBottom(2);
+                        resCell.add(new Paragraph(resource).setFontSize(7.5f));
+                        table.addCell(resCell);
+
+                        Cell qtyCell = new Cell()
+                                .setBorder(new SolidBorder(new DeviceRgb(225, 228, 235), 0.3f))
+                                .setPaddingRight(4).setPaddingTop(2).setPaddingBottom(2);
+                        qtyCell.add(new Paragraph(qty).setFontSize(7.5f).setTextAlignment(TextAlignment.RIGHT));
+                        table.addCell(qtyCell);
+
+                        Cell unitCell = new Cell()
+                                .setBorder(new SolidBorder(new DeviceRgb(225, 228, 235), 0.3f))
+                                .setPaddingRight(4).setPaddingTop(2).setPaddingBottom(2);
+                        unitCell.add(new Paragraph(unit).setFontSize(7.5f).setTextAlignment(TextAlignment.RIGHT));
+                        table.addCell(unitCell);
+
+                        Cell costCell = new Cell()
+                                .setBorder(new SolidBorder(new DeviceRgb(225, 228, 235), 0.3f))
+                                .setPaddingRight(6).setPaddingTop(2).setPaddingBottom(2);
+                        costCell.add(new Paragraph(String.format("$%.4f", cost))
+                                .setFontSize(7.5f).setTextAlignment(TextAlignment.RIGHT));
+                        table.addCell(costCell);
+                    }
+                }
+            }
+
+            // Grand total row
+            Cell totalLabelCell = new Cell(1, 3)
+                    .setBackgroundColor(subtotalBg)
+                    .setBorder(new SolidBorder(new DeviceRgb(150, 160, 200), 0.5f))
+                    .setPaddingLeft(6).setPaddingTop(5).setPaddingBottom(5);
+            totalLabelCell.add(new Paragraph("TOTAL").setBold().setFontSize(9));
+            table.addCell(totalLabelCell);
+
+            Cell totalAmtCell = new Cell()
+                    .setBackgroundColor(subtotalBg)
+                    .setBorder(new SolidBorder(new DeviceRgb(150, 160, 200), 0.5f))
+                    .setPaddingRight(6).setPaddingTop(5).setPaddingBottom(5);
+            totalAmtCell.add(new Paragraph(String.format("$%.4f", grandTotal.doubleValue()))
+                    .setBold().setFontSize(9).setTextAlignment(TextAlignment.RIGHT));
+            table.addCell(totalAmtCell);
+
+            document.add(table);
+
+            document.add(new Paragraph("This is a Computer Generated Detailed Bill")
+                    .setFontSize(8).setItalic()
+                    .setTextAlignment(TextAlignment.CENTER).setMarginTop(10));
+
+        } catch (Exception e) {
+            logger.error("Error generating detail bill PDF", e);
+            throw new RuntimeException("Detail bill PDF generation failed", e);
+        }
+        return new ByteArrayInputStream(out.toByteArray());
     }
 
     // --- END PDF GENERATION ---
