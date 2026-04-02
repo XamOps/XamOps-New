@@ -4,6 +4,8 @@ import com.xammer.cloud.config.AwsConfig;
 import com.xammer.cloud.config.multitenancy.TenantContext;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.security.ClientUserDetails;
+import com.xammer.cloud.util.SecurityUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -63,7 +65,6 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
         Map<String, String> queryParams = parseQueryParams(session.getUri().getQuery());
         String accountId = queryParams.get("accountId");
-        String tenantId = queryParams.get("tenantId");
 
         // Initialize session lock for thread-safe message sending
         sessionLocks.put(session.getId(), new Object());
@@ -74,21 +75,42 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
             return;
         }
 
-        if (tenantId != null && !tenantId.equals("null")) {
-            TenantContext.setCurrentTenant(tenantId);
-        }
-
         try {
-            log.info("WS Connecting: Session={}, Account={}", session.getId(), accountId);
+            // ✅ SECURITY: Get tenant and principal from the authenticated session, NOT from query params
+            ClientUserDetails principal = SecurityUtils.getPrincipal();
+            String tenantId = principal.getTenantId();
+
+            if (tenantId != null) {
+                TenantContext.setCurrentTenant(tenantId);
+            }
+
+            log.info("WS Connecting: Session={}, Account={}, User={}, Client={}",
+                    session.getId(), accountId, principal.getUsername(), principal.getClientId());
 
             // Track session start time
             sessionStartTimes.put(session.getId(), System.currentTimeMillis());
 
             CloudAccount account = findAccount(accountId);
             if (account == null) {
+                log.warn("Access Denied: Cloud account '{}' not found", accountId);
                 sendMessageSafe(session, "Error: Account not found.\r\n");
                 session.close();
                 return;
+            }
+
+            // ✅ SECURITY: Ownership Check
+            // Ensure the user's clientId matches the cloud account's client, unless they are a SuperAdmin.
+            if (!SecurityUtils.isSuperAdmin()) {
+                if (account.getClient() == null || !account.getClient().getId().equals(principal.getClientId())) {
+                    log.error("SECURITY VIOLATION: User {} (Client {}) attempted to access account {} (Client {})",
+                            principal.getUsername(), principal.getClientId(),
+                            account.getProviderAccountId(),
+                            account.getClient() != null ? account.getClient().getId() : "NULL");
+
+                    sendMessageSafe(session, "Error: Access Denied. You do not own this account.\r\n");
+                    session.close();
+                    return;
+                }
             }
 
             String provider = account.getProvider();
