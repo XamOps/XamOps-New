@@ -5,6 +5,7 @@ import com.xammer.cloud.dto.gcp.GcpResourceDto;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.service.gcp.GcpDataService;
 import com.xammer.cloud.service.gcp.GcpNetworkService;
+import com.xammer.cloud.util.SecurityUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -103,6 +104,7 @@ public class GcpCloudmapController {
 
             if (accountOpt.isPresent()) {
                 CloudAccount account = accountOpt.get();
+                SecurityUtils.checkAccountOwnership(account);
                 if ("GCP".equalsIgnoreCase(account.getProvider()) && account.getGcpProjectId() != null) {
                     return Optional.of(account.getGcpProjectId());
                 } else {
@@ -115,7 +117,9 @@ public class GcpCloudmapController {
             log.debug("accountId is not a number, trying to find by gcpProjectId: {}", accountId);
             Optional<CloudAccount> accountOpt = cloudAccountRepository.findByGcpProjectId(accountId);
             if (accountOpt.isPresent()) {
-                return Optional.of(accountOpt.get().getGcpProjectId());
+                CloudAccount account = accountOpt.get();
+                SecurityUtils.checkAccountOwnership(account);
+                return Optional.of(account.getGcpProjectId());
             }
         }
 

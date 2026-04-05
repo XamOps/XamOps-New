@@ -1,9 +1,13 @@
 package com.xammer.cloud.util;
 
 import com.xammer.cloud.config.multitenancy.ImpersonationContext;
+import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.security.ClientUserDetails;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+
+import java.util.Objects;
 
 public class SecurityUtils {
 
@@ -29,5 +33,24 @@ public class SecurityUtils {
     public static boolean isSuperAdmin() {
         return getPrincipal().getAuthorities().stream()
                 .anyMatch(a -> a.getAuthority().equals("ROLE_SUPER_ADMIN"));
+    }
+
+    /**
+     * Verifies that the current user has access to the given cloud account.
+     * A user has access if they are a SuperAdmin or if the account's clientId
+     * matches their own clientId.
+     *
+     * @param account The cloud account to check ownership for.
+     * @throws AccessDeniedException if the user does not have access.
+     */
+    public static void checkAccountOwnership(CloudAccount account) {
+        if (isSuperAdmin()) {
+            return;
+        }
+
+        ClientUserDetails currentUser = getPrincipal();
+        if (account.getClient() == null || !Objects.equals(account.getClient().getId(), currentUser.getClientId())) {
+            throw new AccessDeniedException("You do not have permission to access this account.");
+        }
     }
 }

@@ -5,6 +5,7 @@ import com.xammer.cloud.dto.k8s.EksCompleteDashboardDto;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.service.EksDashboardService;
 import com.xammer.cloud.service.EksDashboardSyncService;
+import com.xammer.cloud.util.SecurityUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -37,7 +38,9 @@ public class EksController {
         if (accounts.isEmpty()) {
             throw new RuntimeException("Account not found: " + accountId);
         }
-        return accounts.get(0);
+        CloudAccount account = accounts.get(0);
+        SecurityUtils.checkAccountOwnership(account);
+        return account;
     }
 
     /**
