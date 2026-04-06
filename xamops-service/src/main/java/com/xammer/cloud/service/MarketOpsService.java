@@ -1,7 +1,5 @@
 package com.xammer.cloud.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.MarketplaceMeterBilling;
 import com.xammer.cloud.domain.MarketplaceProductSubscription;
@@ -20,7 +18,10 @@ import software.amazon.awssdk.services.marketplaceagreement.model.Resource;
 import software.amazon.awssdk.services.marketplaceagreement.model.SearchAgreementsRequest;
 import software.amazon.awssdk.services.marketplaceagreement.model.SearchAgreementsResponse;
 import software.amazon.awssdk.services.marketplacecatalog.MarketplaceCatalogClient;
-import software.amazon.awssdk.services.marketplacecatalog.model.DescribeEntityResponse;
+import software.amazon.awssdk.services.marketplacecatalog.model.EntitySummary;
+import software.amazon.awssdk.services.marketplacecatalog.model.Filter;
+import software.amazon.awssdk.services.marketplacecatalog.model.ListEntitiesRequest;
+import software.amazon.awssdk.services.marketplacecatalog.model.ListEntitiesResponse;
 import software.amazon.awssdk.services.costexplorer.CostExplorerClient;
 import software.amazon.awssdk.services.costexplorer.model.*;
 import software.amazon.awssdk.services.sts.StsClient;
@@ -47,9 +48,11 @@ import java.util.stream.Collectors;
 public class MarketOpsService {
 
     private static final int BILLING_LOOKBACK_MONTHS = 12;
-    private static final String AWS_MARKETPLACE_CATALOG = "aws.marketplace";
+    // Marketplace Agreement API (SearchAgreements) requires "AWSMarketplace"
+    private static final String AGREEMENT_CATALOG = "AWSMarketplace";
+    // Marketplace Catalog API (DescribeEntity) requires "AWSMarketplace"
+    private static final String CATALOG_CATALOG = "AWSMarketplace";
     private static final Pattern REGION_PREFIX_PATTERN = Pattern.compile("^[a-z]{2,4}\\d[-:_]");
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final StsClient stsClient;
     private final MarketplaceProductSubscriptionRepository subscriptionRepository;
@@ -100,6 +103,8 @@ public class MarketOpsService {
     /**
      * Full re-sync: queries Cost Explorer for AWS Marketplace costs, derives
      * subscriptions from distinct products found, persists both in DB.
+     *
+     * Priority: Agreement API (real product names) > billing-derived (usage-type slugs).
      */
     @Transactional
     public Map<String, Object> syncAll(CloudAccount account) {
@@ -110,18 +115,54 @@ public class MarketOpsService {
             throw new IllegalStateException("No IAM role configured for account " + accountId);
         }
 
+        // Skip CE API call if data was synced within the last 24 hours
+        List<MarketplaceMeterBilling> existingBilling = meterBillingRepository.findByCloudAccountId(accountId);
+        if (!existingBilling.isEmpty()) {
+            LocalDateTime lastSync = existingBilling.stream()
+                    .map(MarketplaceMeterBilling::getSyncedAt)
+                    .filter(java.util.Objects::nonNull)
+                    .max(Comparator.naturalOrder())
+                    .orElse(null);
+            if (lastSync != null && lastSync.isAfter(LocalDateTime.now().minusHours(24))) {
+                log.info("Skipping MarketOps CE sync for {} — data is fresh (last sync: {})", accountId, lastSync);
+                Map<String, Object> summary = new LinkedHashMap<>();
+                summary.put("status", "CACHED");
+                summary.put("cloudAccountId", accountId);
+                summary.put("subscriptionsFound", subscriptionRepository.findByCloudAccountId(accountId).size());
+                summary.put("billingMonthsSynced", existingBilling.stream()
+                        .map(MarketplaceMeterBilling::getYearMonth).distinct().count());
+                summary.put("lastSyncedAt", lastSync.toString());
+                return summary;
+            }
+        }
+
         StaticCredentialsProvider creds = assumeRole(account.getRoleArn(), account.getExternalId());
 
         // 1. Pull all AWS Marketplace billing from Cost Explorer
         List<MarketplaceMeterBilling> billingEntries = fetchMarketplaceBilling(accountId, creds);
 
-        // 2. Derive unique subscriptions from billing data
-        List<MarketplaceProductSubscription> subscriptions =
-                deriveSubscriptions(accountId, billingEntries);
-        // 2b. Enrich from Marketplace agreements (real subscription records)
-        subscriptions = mergeAgreementSubscriptions(
-                subscriptions,
-                fetchAgreementSubscriptions(accountId, creds));
+        // 2. Try Agreement API first — these have real product names (e.g. "Uniskai by Profisea Labs")
+        List<MarketplaceProductSubscription> agreementSubs = fetchAgreementSubscriptions(accountId, creds);
+
+        List<MarketplaceProductSubscription> subscriptions;
+        if (!agreementSubs.isEmpty()) {
+            // Agreement API worked: use real product names as the canonical list.
+            // Remap billing entries so their productCode matches the agreement product codes,
+            // allowing totalCostUsd to be attributed correctly per product.
+            remapBillingProductCodes(billingEntries, agreementSubs);
+            subscriptions = agreementSubs;
+            log.info("Using {} agreement subscription(s) as primary source for account {}",
+                    agreementSubs.size(), accountId);
+        } else {
+            // Agreement API unavailable (likely missing IAM permissions for
+            // aws-marketplace:SearchAgreements). Fall back to billing-derived names.
+            log.warn("Agreement API returned no data for account {}. " +
+                    "Falling back to billing-derived subscription names. " +
+                    "To show real product names, add aws-marketplace:SearchAgreements, " +
+                    "aws-marketplace:DescribeAgreement and aws-marketplace:DescribeEntity " +
+                    "permissions to the assumed role.", accountId);
+            subscriptions = deriveSubscriptions(accountId, billingEntries);
+        }
 
         // 3. Replace existing data
         subscriptionRepository.deleteByCloudAccountId(accountId);
@@ -141,6 +182,78 @@ public class MarketOpsService {
                 .map(MarketplaceMeterBilling::getYearMonth).distinct().count());
         summary.put("syncedAt", LocalDateTime.now().toString());
         return summary;
+    }
+
+    // ------------------------------------------------------------------
+    // Billing product-code remapping
+    // ------------------------------------------------------------------
+
+    /**
+     * Updates each billing entry's {@code productCode} to match the real agreement
+     * product code where we can determine the association.
+     *
+     * <p>AWS Cost Explorer groups Marketplace billing by usage-type dimension, not by
+     * product. Multiple products can share the same usage-type category (e.g. all
+     * Bedrock models emit {@code BedrockInputTokens}). This method uses heuristics:
+     *
+     * <ul>
+     *   <li>If there is exactly one <em>non-Bedrock</em> agreement product and a billing
+     *       entry's slug is {@code software-usage-contracts}, map it to that product.</li>
+     *   <li>If there is exactly one Bedrock-type agreement product, map all Bedrock
+     *       token billing to it.</li>
+     *   <li>When multiple Bedrock products exist we cannot distinguish per-product costs
+     *       from CE data alone, so we assign all token billing to the first Bedrock
+     *       product (combined view). The other products will show $0.</li>
+     * </ul>
+     */
+    private void remapBillingProductCodes(
+            List<MarketplaceMeterBilling> billingEntries,
+            List<MarketplaceProductSubscription> agreementSubs) {
+
+        List<String> contractCodes = agreementSubs.stream()
+                .filter(s -> !isBedrockProduct(s.getProductTitle()))
+                .map(MarketplaceProductSubscription::getProductCode)
+                .collect(Collectors.toList());
+
+        List<String> bedrockCodes = agreementSubs.stream()
+                .filter(s -> isBedrockProduct(s.getProductTitle()))
+                .map(MarketplaceProductSubscription::getProductCode)
+                .collect(Collectors.toList());
+
+        // When multiple Bedrock products exist, assign all token billing to the first one
+        String bedrockTarget = bedrockCodes.isEmpty() ? null : bedrockCodes.get(0);
+
+        int remapped = 0;
+        for (MarketplaceMeterBilling entry : billingEntries) {
+            String slug = extractProductCode(entry.getUsageType());
+
+            if ("software-usage-contracts".equals(slug) && contractCodes.size() == 1) {
+                entry.setProductCode(contractCodes.get(0));
+                remapped++;
+            } else if (isBedrockSlug(slug) && bedrockTarget != null) {
+                entry.setProductCode(bedrockTarget);
+                remapped++;
+            }
+            // Otherwise leave the slug-based code; the entry will appear under a
+            // billing-derived subscription if no agreement product code matches it.
+        }
+
+        log.info("Remapped {}/{} billing entries to agreement product codes for account",
+                remapped, billingEntries.size());
+    }
+
+    private static boolean isBedrockProduct(String title) {
+        if (title == null) return false;
+        String lower = title.toLowerCase(Locale.ROOT);
+        return lower.contains("bedrock") || lower.contains("claude") ||
+                lower.contains("mistral") || lower.contains("llama") ||
+                lower.contains("titan") || lower.contains("nova") ||
+                lower.contains("cohere") || lower.contains("amazon") && lower.contains("ai");
+    }
+
+    private static boolean isBedrockSlug(String slug) {
+        return slug.contains("bedrock") || slug.contains("token") || slug.contains("inputtoken")
+                || slug.contains("outputtoken");
     }
 
     // ------------------------------------------------------------------
@@ -244,21 +357,6 @@ public class MarketOpsService {
     // Derive product subscriptions from billing rows
     // ------------------------------------------------------------------
 
-    private List<MarketplaceProductSubscription> mergeAgreementSubscriptions(
-            List<MarketplaceProductSubscription> billingDerived,
-            List<MarketplaceProductSubscription> agreementDerived) {
-        if (agreementDerived.isEmpty()) return billingDerived;
-
-        Map<String, MarketplaceProductSubscription> merged = new LinkedHashMap<>();
-        for (MarketplaceProductSubscription sub : billingDerived) {
-            merged.put(sub.getProductCode(), sub);
-        }
-        for (MarketplaceProductSubscription sub : agreementDerived) {
-            merged.putIfAbsent(sub.getProductCode(), sub);
-        }
-        return new ArrayList<>(merged.values());
-    }
-
     private List<MarketplaceProductSubscription> fetchAgreementSubscriptions(
             String accountId, StaticCredentialsProvider creds) {
         List<MarketplaceProductSubscription> result = new ArrayList<>();
@@ -276,10 +374,10 @@ public class MarketOpsService {
             String nextToken = null;
             do {
                 SearchAgreementsRequest.Builder req = SearchAgreementsRequest.builder()
-                        .catalog(AWS_MARKETPLACE_CATALOG)
+                        .catalog(AGREEMENT_CATALOG)
                         .filters(
+                                f -> f.name("PartyType").values("Acceptor"),
                                 f -> f.name("AgreementType").values("PurchaseAgreement"),
-                                f -> f.name("AcceptorAccountId").values(accountId),
                                 f -> f.name("Status").values("ACTIVE"))
                         .maxResults(50);
                 if (nextToken != null) req.nextToken(nextToken);
@@ -294,12 +392,15 @@ public class MarketOpsService {
                             .findFirst()
                             .orElse(proposal.resources().get(0));
 
+                    log.info("Agreement {}: resource type={} id={} offerId={}",
+                            summary.agreementId(), product.type(), product.id(), proposal.offerId());
+
                     String productCode = firstNonBlank(product.id(), proposal.offerId(), summary.agreementId());
                     if (productCode == null || productCode.isBlank()) continue;
 
                     String productTitle = titleCache.computeIfAbsent(
                             productCode,
-                            key -> resolveCatalogTitle(catalogClient, key));
+                            key -> resolveListingTitle(catalogClient, key, product.type()));
 
                     MarketplaceProductSubscription sub = new MarketplaceProductSubscription();
                     sub.setCloudAccountId(accountId);
@@ -318,66 +419,52 @@ public class MarketOpsService {
 
             log.info("Marketplace Agreement returned {} subscription record(s) for account {}", result.size(), accountId);
         } catch (Exception e) {
-            log.warn("Marketplace Agreement lookup failed for account {}: {}", accountId, e.getMessage());
+            // Common causes: missing IAM permissions (aws-marketplace:SearchAgreements,
+            // aws-marketplace:DescribeAgreement) on the assumed role, or the API not
+            // being accessible in the selected region.
+            log.warn("Marketplace Agreement lookup failed for account {} [{}]: {}. " +
+                            "Product names will fall back to billing usage-type labels.",
+                    accountId, e.getClass().getSimpleName(), e.getMessage());
         }
 
         return result;
     }
 
-    private String resolveCatalogTitle(MarketplaceCatalogClient catalogClient, String entityId) {
+    /**
+     * Resolves the human-readable product name for a marketplace entity using
+     * {@code ListEntities} (a buyer-accessible discovery API).
+     *
+     * <p>{@code DescribeEntity} requires a resource-based policy grant from the
+     * seller and is therefore inaccessible to buyer accounts. {@code ListEntities}
+     * with a {@code EntityId} filter returns public entity summaries (including
+     * {@code Name}) without that restriction.
+     */
+    private String resolveListingTitle(MarketplaceCatalogClient catalogClient,
+                                       String entityId, String entityType) {
+        String type = (entityType != null && !entityType.isBlank()) ? entityType : "SaaSProduct";
         try {
-            DescribeEntityResponse response = catalogClient.describeEntity(r -> r
-                    .catalog(AWS_MARKETPLACE_CATALOG)
-                    .entityId(entityId));
-            String title = extractTitleFromJson(response.details());
-            return firstNonBlank(title, response.entityIdentifier(), entityId);
+            ListEntitiesRequest req = ListEntitiesRequest.builder()
+                    .catalog(CATALOG_CATALOG)
+                    .entityType(type)
+                    .filterList(Filter.builder()
+                            .name("EntityId")
+                            .valueList(entityId)
+                            .build())
+                    .build();
+
+            ListEntitiesResponse resp = catalogClient.listEntities(req);
+            if (resp.hasEntitySummaryList() && !resp.entitySummaryList().isEmpty()) {
+                EntitySummary summary = resp.entitySummaryList().get(0);
+                String name = summary.name();
+                log.info("ListEntities {} → name={}", entityId, name);
+                return firstNonBlank(name, entityId);
+            }
+            log.warn("ListEntities found no match for entityId={} type={}", entityId, type);
         } catch (Exception e) {
-            return entityId;
+            log.warn("ListEntities failed for entityId={} type={} [{}]: {}",
+                    entityId, type, e.getClass().getSimpleName(), e.getMessage());
         }
-    }
-
-    private String extractTitleFromJson(String json) {
-        if (json == null || json.isBlank()) return null;
-        try {
-            JsonNode root = OBJECT_MAPPER.readTree(json);
-            String direct = firstNonBlank(
-                    textOrNull(root.get("ProductTitle")),
-                    textOrNull(root.get("productTitle")),
-                    textOrNull(root.get("Name")),
-                    textOrNull(root.get("name")),
-                    textOrNull(root.get("Title")),
-                    textOrNull(root.get("title")));
-            if (direct != null) return direct;
-            return findTitleRecursive(root);
-        } catch (Exception ignore) {
-            return null;
-        }
-    }
-
-    private String findTitleRecursive(JsonNode node) {
-        if (node == null) return null;
-        if (node.isObject()) {
-            Iterator<Map.Entry<String, JsonNode>> fields = node.fields();
-            while (fields.hasNext()) {
-                Map.Entry<String, JsonNode> field = fields.next();
-                String key = field.getKey().toLowerCase(Locale.ROOT);
-                if (("title".equals(key) || "name".equals(key) || "producttitle".equals(key)) && field.getValue().isTextual()) {
-                    return field.getValue().asText();
-                }
-                String nested = findTitleRecursive(field.getValue());
-                if (nested != null) return nested;
-            }
-        } else if (node.isArray()) {
-            for (JsonNode child : node) {
-                String nested = findTitleRecursive(child);
-                if (nested != null) return nested;
-            }
-        }
-        return null;
-    }
-
-    private String textOrNull(JsonNode node) {
-        return node != null && node.isTextual() ? node.asText() : null;
+        return entityId;
     }
 
     private String firstNonBlank(String... values) {

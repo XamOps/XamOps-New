@@ -95,7 +95,7 @@ public class CostService {
                 if (dbCached.isPresent()) {
                     List<Map<String, Object>> dbData = objectMapper.readValue(dbCached.get().getJsonData(), new TypeReference<>() {});
                     if (dbData != null) {
-                        redisCacheService.put(cacheKey, dbData, 60);
+                        redisCacheService.put(cacheKey, dbData, 60 * 24);
                         logger.info("✅ DB snapshot hit — re-warmed Redis: {}", cacheKey);
                         return dbData;
                     }
@@ -103,45 +103,45 @@ public class CostService {
             } catch (Exception dbEx) {
                 logger.warn("DB cache miss for {}: {}", cacheKey, dbEx.getMessage());
             }
+        }
 
-            // ── Compose 6-month history from absolute monthly snapshots ───────────
-            // For each closed month in the window, read AWS_MONTHLY_TOTAL snapshot
-            // instead of calling CE API. Current month falls through to CE API below.
-            try {
-                LocalDate endDate = (year != null && month != null)
-                        ? YearMonth.of(year, month).atEndOfMonth() : LocalDate.now();
-                List<Map<String, Object>> composed = new ArrayList<>();
-                boolean allCoveredBySnapshot = true;
+        // ── Compose 6-month history from absolute monthly snapshots ───────────
+        // For each closed month in the window, read AWS_MONTHLY_TOTAL snapshot
+        // instead of calling CE API. Current month falls through to CE API below.
+        try {
+            LocalDate endDate = (year != null && month != null)
+                    ? YearMonth.of(year, month).atEndOfMonth() : LocalDate.now();
+            List<Map<String, Object>> composed = new ArrayList<>();
+            boolean allCoveredBySnapshot = true;
 
-                for (int i = 5; i >= 0; i--) {
-                    YearMonth ym = YearMonth.from(endDate).minusMonths(i);
-                    String snapKey = "AWS_MONTHLY_TOTAL::" + accountId + "::" + ym;
-                    Optional<CachedData> snapRow = cachedDataRepository.findById(snapKey);
-                    if (snapRow.isPresent()) {
-                        double total = objectMapper.readValue(snapRow.get().getJsonData(), Double.class);
-                        Map<String, Object> point = new HashMap<>();
-                        point.put("date", ym.atDay(1).toString());
-                        point.put("cost", total);
-                        composed.add(point);
-                    } else if (ym.isBefore(YearMonth.now())) {
-                        // Closed month but no snapshot yet — let CE API handle everything
-                        allCoveredBySnapshot = false;
-                        break;
-                    } else {
-                        // Current month — cannot snapshot; let CE API handle it
-                        allCoveredBySnapshot = false;
-                        break;
-                    }
+            for (int i = 5; i >= 0; i--) {
+                YearMonth ym = YearMonth.from(endDate).minusMonths(i);
+                String snapKey = "AWS_MONTHLY_TOTAL::" + accountId + "::" + ym;
+                Optional<CachedData> snapRow = cachedDataRepository.findById(snapKey);
+                if (snapRow.isPresent()) {
+                    double total = objectMapper.readValue(snapRow.get().getJsonData(), Double.class);
+                    Map<String, Object> point = new HashMap<>();
+                    point.put("date", ym.atDay(1).toString());
+                    point.put("cost", total);
+                    composed.add(point);
+                } else if (ym.isBefore(YearMonth.now())) {
+                    // Closed month but no snapshot yet — let CE API handle everything
+                    allCoveredBySnapshot = false;
+                    break;
+                } else {
+                    // Current month — cannot snapshot; let CE API handle it
+                    allCoveredBySnapshot = false;
+                    break;
                 }
-
-                if (allCoveredBySnapshot && composed.size() == 6) {
-                    redisCacheService.put(cacheKey, composed, 60);
-                    logger.info("✅ Cost history composed from monthly snapshots for account {}", accountId);
-                    return composed;
-                }
-            } catch (Exception e) {
-                logger.debug("Monthly snapshot composition failed for {}, falling through to CE API: {}", accountId, e.getMessage());
             }
+
+            if (allCoveredBySnapshot && composed.size() == 6) {
+                redisCacheService.put(cacheKey, composed, 60 * 24);
+                logger.info("✅ Cost history composed from monthly snapshots for account {}", accountId);
+                return composed;
+            }
+        } catch (Exception e) {
+            logger.debug("Monthly snapshot composition failed for {}, falling through to CE API: {}", accountId, e.getMessage());
         }
 
         try {
@@ -173,7 +173,7 @@ public class CostService {
                 return dataPoint;
             }).collect(Collectors.toList());
 
-            redisCacheService.put(cacheKey, result, 60);
+            redisCacheService.put(cacheKey, result, 60 * 24);
             try {
                 CachedData snapshot = cachedDataRepository.findById(cacheKey).orElse(new CachedData());
                 snapshot.setCacheKey(cacheKey);
@@ -218,7 +218,7 @@ public class CostService {
                 if (dbCached.isPresent()) {
                     List<Map<String, Object>> dbData = objectMapper.readValue(dbCached.get().getJsonData(), new TypeReference<>() {});
                     if (dbData != null) {
-                        redisCacheService.put(cacheKey, dbData, 60);
+                        redisCacheService.put(cacheKey, dbData, 60 * 24);
                         logger.info("✅ DB snapshot hit — re-warmed Redis: {}", cacheKey);
                         return dbData;
                     }
@@ -226,50 +226,50 @@ public class CostService {
             } catch (Exception dbEx) {
                 logger.warn("DB cache miss for {}: {}", cacheKey, dbEx.getMessage());
             }
+        }
 
-            // ── Closed-month snapshot: read from absolute monthly breakdown ────────
-            // Serves SERVICE or REGION breakdown from snapshot — zero CE API calls.
-            if (year != null && month != null) {
-                try {
-                    YearMonth ym = YearMonth.of(year, month);
-                    if (ym.isBefore(YearMonth.now())) {
-                        String snapKey = "SERVICE".equalsIgnoreCase(dimension)
-                                ? "AWS_MONTHLY_BREAKDOWN_SVC::" + accountId + "::" + ym
-                                : "REGION".equalsIgnoreCase(dimension)
-                                        ? "AWS_MONTHLY_BREAKDOWN_RGN::" + accountId + "::" + ym
-                                        : null;
+        // ── Closed-month snapshot: read from absolute monthly breakdown ────────
+        // Serves SERVICE or REGION breakdown from snapshot — zero CE API calls.
+        if (year != null && month != null) {
+            try {
+                YearMonth ym = YearMonth.of(year, month);
+                if (ym.isBefore(YearMonth.now())) {
+                    String snapKey = "SERVICE".equalsIgnoreCase(dimension)
+                            ? "AWS_MONTHLY_BREAKDOWN_SVC::" + accountId + "::" + ym
+                            : "REGION".equalsIgnoreCase(dimension)
+                                    ? "AWS_MONTHLY_BREAKDOWN_RGN::" + accountId + "::" + ym
+                                    : null;
 
-                        if (snapKey != null) {
-                            Optional<CachedData> snapRow = cachedDataRepository.findById(snapKey);
-                            if (snapRow.isPresent()) {
-                                // Snapshot stores List<CostDto> {name, amount} — convert to billops format {name, cost}
-                                List<Map<String, Object>> snapData = objectMapper.readValue(
-                                        snapRow.get().getJsonData(),
-                                        new TypeReference<List<Map<String, Object>>>() {});
-                                // CostDto field is "amount" — normalize to "cost" expected by BillingService
-                                List<Map<String, Object>> result = snapData.stream().map(entry -> {
-                                    Map<String, Object> m = new HashMap<>();
-                                    m.put("name", entry.get("name"));
-                                    Object amtRaw = entry.containsKey("cost") ? entry.get("cost") : entry.get("amount");
-                                    m.put("cost", amtRaw instanceof Number ? ((Number) amtRaw).doubleValue() : 0.0);
-                                    return m;
-                                }).filter(m -> ((double) m.get("cost")) > 0.01)
-                                  .sorted(Comparator.comparingDouble((Map<String, Object> m) ->
-                                          (double) m.get("cost")).reversed())
-                                  .collect(Collectors.toList());
+                    if (snapKey != null) {
+                        Optional<CachedData> snapRow = cachedDataRepository.findById(snapKey);
+                        if (snapRow.isPresent()) {
+                            // Snapshot stores List<CostDto> {name, amount} — convert to billops format {name, cost}
+                            List<Map<String, Object>> snapData = objectMapper.readValue(
+                                    snapRow.get().getJsonData(),
+                                    new TypeReference<List<Map<String, Object>>>() {});
+                            // CostDto field is "amount" — normalize to "cost" expected by BillingService
+                            List<Map<String, Object>> result = snapData.stream().map(entry -> {
+                                Map<String, Object> m = new HashMap<>();
+                                m.put("name", entry.get("name"));
+                                Object amtRaw = entry.containsKey("cost") ? entry.get("cost") : entry.get("amount");
+                                m.put("cost", amtRaw instanceof Number ? ((Number) amtRaw).doubleValue() : 0.0);
+                                return m;
+                            }).filter(m -> ((double) m.get("cost")) > 0.01)
+                              .sorted(Comparator.comparingDouble((Map<String, Object> m) ->
+                                      (double) m.get("cost")).reversed())
+                              .collect(Collectors.toList());
 
-                                if (!result.isEmpty()) {
-                                    redisCacheService.put(cacheKey, result, 60);
-                                    logger.info("✅ {} breakdown for {}/{} served from monthly snapshot — account {}",
-                                            dimension, year, month, accountId);
-                                    return result;
-                                }
+                            if (!result.isEmpty()) {
+                                redisCacheService.put(cacheKey, result, 60 * 24);
+                                logger.info("✅ {} breakdown for {}/{} served from monthly snapshot — account {}",
+                                        dimension, year, month, accountId);
+                                return result;
                             }
                         }
                     }
-                } catch (Exception e) {
-                    logger.debug("Snapshot read skipped for getCostByDimension ({}): {}", accountId, e.getMessage());
                 }
+            } catch (Exception e) {
+                logger.debug("Snapshot read skipped for getCostByDimension ({}): {}", accountId, e.getMessage());
             }
         }
 
@@ -323,7 +323,7 @@ public class CostService {
             logger.info("[CostService] getCostByDimension result for '{}': {} service(s), total cost = ${}",
                     account.getAwsAccountId(), result.size(), String.format("%.2f", totalCost));
 
-            redisCacheService.put(cacheKey, result, 60);
+            redisCacheService.put(cacheKey, result, 60 * 24);
             try {
                 CachedData snapshot = cachedDataRepository.findById(cacheKey).orElse(new CachedData());
                 snapshot.setCacheKey(cacheKey);
@@ -365,7 +365,7 @@ public class CostService {
                 if (dbCached.isPresent()) {
                     List<Map<String, Object>> dbData = objectMapper.readValue(dbCached.get().getJsonData(), new TypeReference<>() {});
                     if (dbData != null) {
-                        redisCacheService.put(cacheKey, dbData, 60);
+                        redisCacheService.put(cacheKey, dbData, 60 * 24);
                         logger.info("✅ DB snapshot hit — re-warmed Redis: {}", cacheKey);
                         return dbData;
                     }
@@ -373,60 +373,60 @@ public class CostService {
             } catch (Exception dbEx) {
                 logger.warn("DB cache miss for {}: {}", cacheKey, dbEx.getMessage());
             }
+        }
 
-            // ── Closed-month snapshot: filter AWS_MONTHLY_SVC_REGION by service ─────
-            // Reads the svc×region breakdown snapshot and extracts regions for this service.
-            // Returns [{name: regionName, cost: X}] — same format CE API returns.
-            if (year != null && month != null) {
-                try {
-                    YearMonth ym = YearMonth.of(year, month);
-                    if (ym.isBefore(YearMonth.now())) {
-                        String snapKey = "AWS_MONTHLY_SVC_REGION::" + accountId + "::" + ym;
-                        Optional<CachedData> snapRow = cachedDataRepository.findById(snapKey);
-                        if (snapRow.isPresent()) {
-                            // Snapshot stores List<DetailedCostDto> {service, region, cost}
-                            List<Map<String, Object>> allSvcRegion = objectMapper.readValue(
-                                    snapRow.get().getJsonData(),
-                                    new TypeReference<List<Map<String, Object>>>() {});
+        // ── Closed-month snapshot: filter AWS_MONTHLY_SVC_REGION by service ─────
+        // Reads the svc×region breakdown snapshot and extracts regions for this service.
+        // Returns [{name: regionName, cost: X}] — same format CE API returns.
+        if (year != null && month != null) {
+            try {
+                YearMonth ym = YearMonth.of(year, month);
+                if (ym.isBefore(YearMonth.now())) {
+                    String snapKey = "AWS_MONTHLY_SVC_REGION::" + accountId + "::" + ym;
+                    Optional<CachedData> snapRow = cachedDataRepository.findById(snapKey);
+                    if (snapRow.isPresent()) {
+                        // Snapshot stores List<DetailedCostDto> {service, region, cost}
+                        List<Map<String, Object>> allSvcRegion = objectMapper.readValue(
+                                snapRow.get().getJsonData(),
+                                new TypeReference<List<Map<String, Object>>>() {});
 
-                            // Aggregate by region for this specific service
-                            Map<String, Double> regionCostMap = new LinkedHashMap<>();
-                            for (Map<String, Object> entry : allSvcRegion) {
-                                Object svcObj = entry.get("service");
-                                if (svcObj == null) continue;
-                                String svc = svcObj.toString();
-                                // DetailedCostDto field names: "service", "region", "cost"
-                                if (!serviceName.equals(svc)) continue;
-                                Object regionObj = entry.get("region");
-                                Object costObj   = entry.get("cost");
-                                if (regionObj == null || costObj == null) continue;
-                                String region = regionObj.toString();
-                                double cost   = ((Number) costObj).doubleValue();
-                                regionCostMap.merge(region, cost, (a, b) -> a + b);
-                            }
-
-                            List<Map<String, Object>> result = regionCostMap.entrySet().stream()
-                                    .filter(e -> e.getValue() > 0.01)
-                                    .map(e -> {
-                                        Map<String, Object> m = new HashMap<>();
-                                        m.put("name", e.getKey());
-                                        m.put("cost", e.getValue());
-                                        return m;
-                                    })
-                                    .sorted(Comparator.comparingDouble((Map<String, Object> m) ->
-                                            (double) m.get("cost")).reversed())
-                                    .collect(Collectors.toList());
-
-                            // Cache even if empty (means service truly had no region split)
-                            redisCacheService.put(cacheKey, result, 60);
-                            logger.info("✅ Service-region breakdown for '{}' {}/{} served from snapshot — account {}",
-                                    serviceName, year, month, accountId);
-                            return result;
+                        // Aggregate by region for this specific service
+                        Map<String, Double> regionCostMap = new LinkedHashMap<>();
+                        for (Map<String, Object> entry : allSvcRegion) {
+                            Object svcObj = entry.get("service");
+                            if (svcObj == null) continue;
+                            String svc = svcObj.toString();
+                            // DetailedCostDto field names: "service", "region", "cost"
+                            if (!serviceName.equals(svc)) continue;
+                            Object regionObj = entry.get("region");
+                            Object costObj   = entry.get("cost");
+                            if (regionObj == null || costObj == null) continue;
+                            String region = regionObj.toString();
+                            double cost   = ((Number) costObj).doubleValue();
+                            regionCostMap.merge(region, cost, (a, b) -> a + b);
                         }
+
+                        List<Map<String, Object>> result = regionCostMap.entrySet().stream()
+                                .filter(e -> e.getValue() > 0.01)
+                                .map(e -> {
+                                    Map<String, Object> m = new HashMap<>();
+                                    m.put("name", e.getKey());
+                                    m.put("cost", e.getValue());
+                                    return m;
+                                })
+                                .sorted(Comparator.comparingDouble((Map<String, Object> m) ->
+                                        (double) m.get("cost")).reversed())
+                                .collect(Collectors.toList());
+
+                        // Cache even if empty (means service truly had no region split)
+                        redisCacheService.put(cacheKey, result, 60 * 24);
+                        logger.info("✅ Service-region breakdown for '{}' {}/{} served from snapshot — account {}",
+                                serviceName, year, month, accountId);
+                        return result;
                     }
-                } catch (Exception e) {
-                    logger.debug("Snapshot read skipped for getCostForServiceInRegion ({}): {}", accountId, e.getMessage());
                 }
+            } catch (Exception e) {
+                logger.debug("Snapshot read skipped for getCostForServiceInRegion ({}): {}", accountId, e.getMessage());
             }
         }
 
@@ -484,7 +484,7 @@ public class CostService {
                     .filter(map -> (double) map.get("cost") > 0.01)
                     .collect(Collectors.toList());
 
-            redisCacheService.put(cacheKey, result, 60);
+            redisCacheService.put(cacheKey, result, 60 * 24);
             try {
                 CachedData snapshot = cachedDataRepository.findById(cacheKey).orElse(new CachedData());
                 snapshot.setCacheKey(cacheKey);
@@ -529,7 +529,7 @@ public class CostService {
                 if (dbCached.isPresent()) {
                     List<Map<String, Object>> dbData = objectMapper.readValue(dbCached.get().getJsonData(), new TypeReference<>() {});
                     if (dbData != null) {
-                        redisCacheService.put(cacheKey, dbData, 60);
+                        redisCacheService.put(cacheKey, dbData, 60 * 24);
                         logger.info("✅ DB snapshot hit — re-warmed Redis: {}", cacheKey);
                         return dbData;
                     }
@@ -650,7 +650,7 @@ public class CostService {
                     .filter(map -> (double) map.get("cost") > 0)
                     .collect(Collectors.toList());
 
-            redisCacheService.put(cacheKey, result, 60);
+            redisCacheService.put(cacheKey, result, 60 * 24);
             try {
                 CachedData snapshot = cachedDataRepository.findById(cacheKey).orElse(new CachedData());
                 snapshot.setCacheKey(cacheKey);
