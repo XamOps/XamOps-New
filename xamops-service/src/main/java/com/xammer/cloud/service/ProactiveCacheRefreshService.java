@@ -563,7 +563,10 @@ public class ProactiveCacheRefreshService {
                     if (accountId == null)
                         continue;
                     try {
-                        costService.getCostBreakdown(accountId, "SERVICE", null, true, startDate, endDate).join();
+                        // NOTE: getCostBreakdown("SERVICE") is intentionally omitted here — it is
+                        // already called at 2:00 AM via refreshFinOps() → getFinOpsReport() →
+                        // getBillingSummary() with forceRefresh=true. Calling it again 30 min later
+                        // would be a duplicate CE API hit.
                         costService.getTotalMonthToDateCost(accountId, true).join();
                         costService.getLastMonthSpend(accountId, true).join();
                         costService.getCostBreakdownByServiceAndRegion(

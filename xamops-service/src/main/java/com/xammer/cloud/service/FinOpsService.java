@@ -134,7 +134,7 @@ public class FinOpsService {
                 FinOpsReportDto dbData = dashboardDataService.getFinOpsSnapshot(dbKey);
                 if (dbData != null) {
                     logger.info("✅ DB hit for FinOps report — repopulating Redis: {}", accountId);
-                    redisCache.put(cacheKey, dbData, 60);
+                    redisCache.put(cacheKey, dbData, 60 * 24);
                     return CompletableFuture.completedFuture(dbData);
                 }
             }
@@ -275,7 +275,7 @@ public class FinOpsService {
                         FinOpsReportDto report = new FinOpsReportDto(kpis, costBreakdown, rightsizingFuture.join(),
                                 wastedResourcesFuture.join(), anomaliesFuture.join(), taggingComplianceFuture.join(),
                                 budgetsFuture.join());
-                        redisCache.put(cacheKey, report, 60);
+                        redisCache.put(cacheKey, report, 60 * 24);
                         // Save to DB for default (no custom date range) requests — warm for post-deploy cold starts
                         if (startDate == null && endDate == null) {
                             dashboardDataService.saveFinOpsSnapshot(dbKey, report);
@@ -307,7 +307,7 @@ public class FinOpsService {
                 if (dbCached.isPresent()) {
                     List<BudgetDetails> dbData = objectMapper.readValue(dbCached.get().getJsonData(), new TypeReference<>() {});
                     if (dbData != null) {
-                        redisCache.put(cacheKey, dbData, 60);
+                        redisCache.put(cacheKey, dbData, 60 * 24);
                         logger.info("✅ DB snapshot hit — re-warmed Redis: {}", dbKey);
                         return CompletableFuture.completedFuture(dbData);
                     }
@@ -320,7 +320,7 @@ public class FinOpsService {
         // Return mock data if mock mode is enabled
         if (useMockData) {
             List<BudgetDetails> mockResult = costMockService.getMockAccountBudgets(account);
-            redisCache.put(cacheKey, mockResult, 60);
+            redisCache.put(cacheKey, mockResult, 60 * 24);
             return CompletableFuture.completedFuture(mockResult);
         }
 
@@ -337,7 +337,7 @@ public class FinOpsService {
                             ? b.calculatedSpend().forecastedSpend().amount()
                             : BigDecimal.ZERO))
                     .collect(Collectors.toList());
-            redisCache.put(cacheKey, result, 60);
+            redisCache.put(cacheKey, result, 60 * 24);
             try {
                 CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
                 snapshot.setCacheKey(dbKey);
@@ -593,7 +593,7 @@ public class FinOpsService {
             double percentage = (totalScanned > 0) ? ((double) taggedCount / totalScanned) * 100.0 : 100.0;
             DashboardData.TaggingCompliance result = new DashboardData.TaggingCompliance(percentage, totalScanned,
                     untaggedList.size(), untaggedList);
-            redisCache.put(cacheKey, result, 60);
+            redisCache.put(cacheKey, result, 60 * 24);
             return result;
         });
     }
@@ -614,7 +614,7 @@ public class FinOpsService {
                 if (dbCached.isPresent()) {
                     List<Map<String, Object>> dbData = objectMapper.readValue(dbCached.get().getJsonData(), new TypeReference<>() {});
                     if (dbData != null) {
-                        redisCache.put(cacheKey, dbData, 60);
+                        redisCache.put(cacheKey, dbData, 60 * 24);
                         logger.info("✅ DB snapshot hit — re-warmed Redis: {}", dbKey);
                         return CompletableFuture.completedFuture(dbData);
                     }
@@ -630,7 +630,7 @@ public class FinOpsService {
         // Return mock data if mock mode is enabled
         if (useMockData) {
             List<Map<String, Object>> mockResult = costMockService.getMockCostByTag(accountId, tagKey);
-            redisCache.put(cacheKey, mockResult, 60);
+            redisCache.put(cacheKey, mockResult, 60 * 24);
             return CompletableFuture.completedFuture(mockResult);
         }
 
@@ -653,7 +653,7 @@ public class FinOpsService {
                     })
                     .filter(map -> (double) map.get("cost") > 0.01)
                     .collect(Collectors.toList());
-            redisCache.put(cacheKey, result, 60);
+            redisCache.put(cacheKey, result, 60 * 24);
             try {
                 CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
                 snapshot.setCacheKey(dbKey);
@@ -693,7 +693,7 @@ public class FinOpsService {
                 if (dbCached.isPresent()) {
                     List<Map<String, Object>> dbData = objectMapper.readValue(dbCached.get().getJsonData(), new TypeReference<>() {});
                     if (dbData != null) {
-                        redisCache.put(cacheKey, dbData, 60);
+                        redisCache.put(cacheKey, dbData, 60 * 24);
                         logger.info("✅ DB snapshot hit — re-warmed Redis: {}", dbKey);
                         return CompletableFuture.completedFuture(dbData);
                     }
@@ -706,7 +706,7 @@ public class FinOpsService {
         // Return mock data if mock mode is enabled
         if (useMockData) {
             List<Map<String, Object>> mockResult = costMockService.getMockCostByRegion(account, startDate, endDate);
-            redisCache.put(cacheKey, mockResult, 60);
+            redisCache.put(cacheKey, mockResult, 60 * 24);
             return CompletableFuture.completedFuture(mockResult);
         }
 
@@ -731,7 +731,7 @@ public class FinOpsService {
                                 .collect(Collectors.toList());
                         logger.info("✅ getCostByRegion snapshot hit for {} / {} — {} regions",
                                 account.getAwsAccountId(), startYm, result.size());
-                        redisCache.put(cacheKey, result, 60);
+                        redisCache.put(cacheKey, result, 60 * 24);
                         return CompletableFuture.completedFuture(result);
                     }
                 }
@@ -782,7 +782,7 @@ public class FinOpsService {
                     .collect(Collectors.toList());
 
             logger.info("Fetched {} regions with costs for account {}", result.size(), account.getAwsAccountId());
-            redisCache.put(cacheKey, result, 60);
+            redisCache.put(cacheKey, result, 60 * 24);
             try {
                 CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
                 snapshot.setCacheKey(dbKey);
@@ -821,7 +821,7 @@ public class FinOpsService {
                 if (dbCached.isPresent()) {
                     List<DashboardData.BillingSummary> dbData = objectMapper.readValue(dbCached.get().getJsonData(), new TypeReference<>() {});
                     if (dbData != null) {
-                        redisCache.put(cacheKey, dbData, 60);
+                        redisCache.put(cacheKey, dbData, 60 * 24);
                         logger.info("✅ DB snapshot hit — re-warmed Redis: {}", dbKey);
                         return CompletableFuture.completedFuture(dbData);
                     }
@@ -835,7 +835,7 @@ public class FinOpsService {
         if (useMockData) {
             List<DashboardData.BillingSummary> mockResult = costMockService.getMockBillingSummary(account, startDate,
                     endDate);
-            redisCache.put(cacheKey, mockResult, 60);
+            redisCache.put(cacheKey, mockResult, 60 * 24);
             return CompletableFuture.completedFuture(mockResult);
         }
 
@@ -858,7 +858,7 @@ public class FinOpsService {
                     .collect(Collectors.toList());
 
             logger.info("Fetched {} services with costs for account {}", result.size(), account.getAwsAccountId());
-            redisCache.put(cacheKey, result, 60);
+            redisCache.put(cacheKey, result, 60 * 24);
             try {
                 CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
                 snapshot.setCacheKey(dbKey);
@@ -896,7 +896,7 @@ public class FinOpsService {
                 if (dbCached.isPresent()) {
                     DashboardData.CostHistory dbData = objectMapper.readValue(dbCached.get().getJsonData(), DashboardData.CostHistory.class);
                     if (dbData != null) {
-                        redisCache.put(cacheKey, dbData, 60);
+                        redisCache.put(cacheKey, dbData, 60 * 24);
                         logger.info("✅ DB snapshot hit — re-warmed Redis: {}", dbKey);
                         return CompletableFuture.completedFuture(dbData);
                     }
@@ -909,7 +909,7 @@ public class FinOpsService {
         // Return mock data if mock mode is enabled
         if (useMockData) {
             DashboardData.CostHistory mockResult = costMockService.getMockCostHistory(account, startDate, endDate);
-            redisCache.put(cacheKey, mockResult, 60);
+            redisCache.put(cacheKey, mockResult, 60 * 24);
             return CompletableFuture.completedFuture(mockResult);
         }
 
@@ -1040,7 +1040,7 @@ public class FinOpsService {
         }
 
         DashboardData.CostHistory result = new DashboardData.CostHistory(labels, costs, anomalies);
-        redisCache.put(cacheKey, result, 60);
+        redisCache.put(cacheKey, result, 60 * 24);
         try {
             CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
             snapshot.setCacheKey(dbKey);
@@ -1069,7 +1069,7 @@ public class FinOpsService {
                 if (dbCached.isPresent()) {
                     List<DashboardData.CostAnomaly> dbData = objectMapper.readValue(dbCached.get().getJsonData(), new TypeReference<>() {});
                     if (dbData != null) {
-                        redisCache.put(cacheKey, dbData, 60);
+                        redisCache.put(cacheKey, dbData, 60 * 24);
                         logger.info("✅ DB snapshot hit — re-warmed Redis: {}", dbKey);
                         return CompletableFuture.completedFuture(dbData);
                     }
@@ -1082,7 +1082,7 @@ public class FinOpsService {
         // Return mock data if mock mode is enabled
         if (useMockData) {
             List<DashboardData.CostAnomaly> mockResult = costMockService.getMockCostAnomalies(account);
-            redisCache.put(cacheKey, mockResult, 60);
+            redisCache.put(cacheKey, mockResult, 60 * 24);
             return CompletableFuture.completedFuture(mockResult);
         }
 
@@ -1101,7 +1101,7 @@ public class FinOpsService {
                             a.anomalyEndDate() != null ? LocalDate.parse(a.anomalyEndDate().substring(0, 10))
                                     : LocalDate.now()))
                     .collect(Collectors.toList());
-            redisCache.put(cacheKey, result, 60);
+            redisCache.put(cacheKey, result, 60 * 24);
             try {
                 CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
                 snapshot.setCacheKey(dbKey);

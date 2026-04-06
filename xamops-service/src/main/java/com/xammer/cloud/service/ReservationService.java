@@ -89,10 +89,25 @@ public class ReservationService {
     @Async("awsTaskExecutor")
     public CompletableFuture<ReservationDto> getReservationPageData(String accountId, boolean forceRefresh) {
         String cacheKey = "reservationPageData-" + accountId;
+        String dbKey = "RESERVATION_PAGE::" + accountId;
         if (!forceRefresh) {
             Optional<ReservationDto> cachedData = redisCache.get(cacheKey, ReservationDto.class);
             if (cachedData.isPresent()) {
                 return CompletableFuture.completedFuture(cachedData.get());
+            }
+            // DB fallback on Redis miss — avoids fan-out CE calls on cold Redis
+            try {
+                Optional<CachedData> dbCached = cachedDataRepository.findById(dbKey);
+                if (dbCached.isPresent()) {
+                    ReservationDto dbData = objectMapper.readValue(dbCached.get().getData(), ReservationDto.class);
+                    if (dbData != null) {
+                        redisCache.put(cacheKey, dbData, 60 * 24);
+                        logger.info("✅ Reservation page DB hit — repopulating Redis for account {}", accountId);
+                        return CompletableFuture.completedFuture(dbData);
+                    }
+                }
+            } catch (Exception e) {
+                logger.warn("DB read failed for reservation page data {}: {}", accountId, e.getMessage());
             }
         }
 
@@ -131,7 +146,13 @@ public class ReservationService {
                                 historicalDataFuture.join(),
                                 modificationRecsFuture.join(),
                                 savingsPlansFuture.join());
-                        redisCache.put(cacheKey, result, 60);
+                        try {
+                            cachedDataRepository.save(new CachedData(dbKey,
+                                    objectMapper.writeValueAsString(result), java.time.LocalDateTime.now()));
+                        } catch (Exception e) {
+                            logger.warn("DB save failed for reservation page data {}: {}", accountId, e.getMessage());
+                        }
+                        redisCache.put(cacheKey, result, 60 * 24);
                         return result;
                     });
         });
@@ -195,7 +216,7 @@ public class ReservationService {
                 if (dbCached.isPresent()) {
                     DashboardData.ReservationAnalysis dbData = objectMapper.readValue(dbCached.get().getJsonData(), DashboardData.ReservationAnalysis.class);
                     if (dbData != null) {
-                        redisCache.put(cacheKey, dbData, 60);
+                        redisCache.put(cacheKey, dbData, 60 * 24);
                         logger.info("✅ DB snapshot hit — re-warmed Redis: {}", dbKey);
                         return CompletableFuture.completedFuture(dbData);
                     }
@@ -249,7 +270,7 @@ public class ReservationService {
                 double finalCov = (riCov > 0) ? riCov : spCov;
 
                 DashboardData.ReservationAnalysis result = new DashboardData.ReservationAnalysis(finalUtil, finalCov);
-                redisCache.put(cacheKey, result, 60);
+                redisCache.put(cacheKey, result, 60 * 24);
                 try {
                     CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
                     snapshot.setCacheKey(dbKey);
@@ -278,6 +299,30 @@ public class ReservationService {
 
         String cacheKey = "historicalReservationData-" + account.getAwsAccountId();
         String dbKey = "RESERVATION_HISTORICAL::" + account.getAwsAccountId();
+
+        // ── Immutable-window check (runs regardless of forceRefresh) ──────────────
+        // The 6-month window covers only closed months and shifts once per month.
+        // If the DB snapshot was saved THIS month the window hasn't changed — serve
+        // it directly, even when the nightly scheduler calls with forceRefresh=true,
+        // saving 4 CE API calls per account per night.
+        try {
+            Optional<CachedData> dbCached = cachedDataRepository.findById(dbKey);
+            if (dbCached.isPresent() && dbCached.get().getLastUpdated() != null) {
+                java.time.YearMonth snapMonth = java.time.YearMonth.from(dbCached.get().getLastUpdated());
+                if (snapMonth.equals(java.time.YearMonth.now())) {
+                    HistoricalReservationDataDto dbData = objectMapper.readValue(
+                            dbCached.get().getJsonData(), HistoricalReservationDataDto.class);
+                    if (dbData != null) {
+                        redisCache.put(cacheKey, dbData, 60 * 24);
+                        logger.info("✅ Reservation historical DB hit (current-month window) — skipped CE: {}", dbKey);
+                        return CompletableFuture.completedFuture(dbData);
+                    }
+                }
+            }
+        } catch (Exception preEx) {
+            logger.debug("Pre-check for reservation historical skipped: {}", preEx.getMessage());
+        }
+
         if (!forceRefresh) {
             Optional<HistoricalReservationDataDto> cachedData = redisCache.get(cacheKey,
                     HistoricalReservationDataDto.class);
@@ -289,7 +334,7 @@ public class ReservationService {
                 if (dbCached.isPresent()) {
                     HistoricalReservationDataDto dbData = objectMapper.readValue(dbCached.get().getJsonData(), HistoricalReservationDataDto.class);
                     if (dbData != null) {
-                        redisCache.put(cacheKey, dbData, 60);
+                        redisCache.put(cacheKey, dbData, 60 * 24);
                         logger.info("✅ DB snapshot hit — re-warmed Redis: {}", dbKey);
                         return CompletableFuture.completedFuture(dbData);
                     }
@@ -392,7 +437,7 @@ public class ReservationService {
 
                 HistoricalReservationDataDto result = new HistoricalReservationDataDto(labels, utilPercentages,
                         covPercentages);
-                redisCache.put(cacheKey, result, 60);
+                redisCache.put(cacheKey, result, 60 * 24);
                 try {
                     CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
                     snapshot.setCacheKey(dbKey);
@@ -437,7 +482,7 @@ public class ReservationService {
                 if (dbCached.isPresent()) {
                     List<DashboardData.ReservationPurchaseRecommendation> dbData = objectMapper.readValue(dbCached.get().getJsonData(), new TypeReference<>() {});
                     if (dbData != null) {
-                        redisCache.put(cacheKey, dbData, 60);
+                        redisCache.put(cacheKey, dbData, 60 * 24);
                         logger.info("✅ DB snapshot hit — re-warmed Redis: {}", dbKey);
                         return CompletableFuture.completedFuture(dbData);
                     }
@@ -489,7 +534,7 @@ public class ReservationService {
                             }))
                     .filter(Objects::nonNull)
                     .collect(Collectors.toList());
-            redisCache.put(cacheKey, result, 60);
+            redisCache.put(cacheKey, result, 60 * 24);
             try {
                 CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
                 snapshot.setCacheKey(dbKey);
@@ -565,7 +610,7 @@ public class ReservationService {
                 if (dbCached.isPresent()) {
                     List<ReservationInventoryDto> dbData = objectMapper.readValue(dbCached.get().getJsonData(), new TypeReference<>() {});
                     if (dbData != null) {
-                        redisCache.put(cacheKey, dbData, 60);
+                        redisCache.put(cacheKey, dbData, 60 * 24);
                         logger.info("✅ DB snapshot hit — re-warmed Redis: {}", dbKey);
                         return CompletableFuture.completedFuture(dbData);
                     }
@@ -633,7 +678,7 @@ public class ReservationService {
                                 .map(CompletableFuture::join)
                                 .collect(Collectors.toList());
 
-                        redisCache.put(cacheKey, updatedInventory, 60);
+                        redisCache.put(cacheKey, updatedInventory, 60 * 24);
                         try {
                             CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
                             snapshot.setCacheKey(dbKey);
@@ -672,7 +717,7 @@ public class ReservationService {
                 if (dbCached.isPresent()) {
                     List<ReservationModificationRecommendationDto> dbData = objectMapper.readValue(dbCached.get().getJsonData(), new TypeReference<>() {});
                     if (dbData != null) {
-                        redisCache.put(cacheKey, dbData, 60);
+                        redisCache.put(cacheKey, dbData, 60 * 24);
                         logger.info("✅ DB snapshot hit — re-warmed Redis: {}", dbKey);
                         return CompletableFuture.completedFuture(dbData);
                     }
@@ -703,7 +748,7 @@ public class ReservationService {
                         }
                     }
                 }
-                redisCache.put(cacheKey, recommendations, 60);
+                redisCache.put(cacheKey, recommendations, 60 * 24);
                 try {
                     CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
                     snapshot.setCacheKey(dbKey);
@@ -793,7 +838,7 @@ public class ReservationService {
                 if (dbCached.isPresent()) {
                     List<CostByTagDto> dbData = objectMapper.readValue(dbCached.get().getJsonData(), new TypeReference<>() {});
                     if (dbData != null) {
-                        redisCache.put(cacheKey, dbData, 60);
+                        redisCache.put(cacheKey, dbData, 60 * 24);
                         logger.info("✅ DB snapshot hit — re-warmed Redis: {}", dbKey);
                         return CompletableFuture.completedFuture(dbData);
                     }
@@ -831,7 +876,7 @@ public class ReservationService {
                     })
                     .filter(dto -> dto.getCost() > 0.01)
                     .collect(Collectors.toList());
-            redisCache.put(cacheKey, resultList, 60);
+            redisCache.put(cacheKey, resultList, 60 * 24);
             try {
                 CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
                 snapshot.setCacheKey(dbKey);

@@ -2272,7 +2272,7 @@ public class AutoSpottingService {
     public RiSpCoverageResponse getRiSpCoverage(Long cloudAccountId, boolean forceRefresh) {
         String cacheKey = "AUTOSPOTTING_RISP::" + cloudAccountId;
         String dbKey = "AUTOSPOTTING_RISP::" + cloudAccountId;
-        final int RISP_CACHE_TTL = 240;
+        final int RISP_CACHE_TTL = 60 * 24; // 24 hours
 
         if (!forceRefresh) {
             Optional<RiSpCoverageResponse> cached = redisCacheService.get(cacheKey, RiSpCoverageResponse.class);
