@@ -66,7 +66,7 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     // 2:00 AM -> Dashboard (High Priority)
     // ===================================================================================
-    @Scheduled(cron = "0 0 2 * * ?")
+    @Scheduled(cron = "0 0 2 * * WED,SUN")
     public void refreshDashboardCache() {
         if (!envConfig.isSchedulingEnabled()) {
             return;
@@ -115,7 +115,7 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     // 2:30 AM -> Billing & Cost Data (Heavy Aggregation)
     // ===================================================================================
-    @Scheduled(cron = "0 30 2 * * ?")
+    @Scheduled(cron = "0 30 2 * * WED,SUN")
     public void refreshBillingAndCostCache() {
         if (!envConfig.isSchedulingEnabled()) {
             return;
@@ -188,7 +188,7 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     // 3:30 AM -> Invoices (Admin Views)
     // ===================================================================================
-    @Scheduled(cron = "0 30 3 * * ?")
+    @Scheduled(cron = "0 30 3 * * WED,SUN")
     public void refreshInvoicesCache() {
         if (!envConfig.isSchedulingEnabled()) {
             return;
@@ -208,7 +208,7 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     // 4:00 AM -> Tickets (Support Views)
     // ===================================================================================
-    @Scheduled(cron = "0 0 4 * * ?")
+    @Scheduled(cron = "0 0 4 * * WED,SUN")
     public void refreshTicketsCache() {
         if (!envConfig.isSchedulingEnabled()) {
             return;

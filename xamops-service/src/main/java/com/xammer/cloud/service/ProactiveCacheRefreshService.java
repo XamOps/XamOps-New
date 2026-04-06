@@ -442,7 +442,7 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     // 2:00 AM -> BillOps Dashboard Refresh (User & Admin)
     // ===================================================================================
-    // @Scheduled(cron = "0 0 2 * * ?")
+    // @Scheduled(cron = "0 0 2 * * WED,SUN")
     // public void refreshBillOpsDashboards() {
     // logger.info("--- [2:00 AM] Starting BillOps Dashboard Refresh ---");
 
@@ -484,7 +484,7 @@ public class ProactiveCacheRefreshService {
     // }
     // }
 
-    @Scheduled(cron = "0 0 2 * * ?")
+    @Scheduled(cron = "0 0 2 * * WED,SUN")
     public void refreshFinOps() {
         logger.info("--- [2:00 AM] Starting FinOps Refresh ---");
         String startDate = LocalDate.now().withDayOfMonth(1).toString();
@@ -542,7 +542,7 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     // 2:30 AM -> Cost Management (Data Intensive)
     // ===================================================================================
-    @Scheduled(cron = "0 30 2 * * ?")
+    @Scheduled(cron = "0 30 2 * * WED,SUN")
     public void refreshCostData() {
         logger.info("--- [2:30 AM] Starting Cost Data Refresh (cost.html) ---");
         String startDate = LocalDate.now().withDayOfMonth(1).toString(); // Start of month
@@ -601,7 +601,7 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     // 3:30 AM -> AWS Dashboard Snapshot Refresh
     // ===================================================================================
-    @Scheduled(cron = "0 30 3 * * ?")
+    @Scheduled(cron = "0 30 3 * * WED,SUN")
     public void refreshAwsDashboardData() {
         logger.info("--- [3:30 AM] Starting AWS Dashboard Snapshot Refresh ---");
         List<String> tenants = fetchActiveTenants();
@@ -649,7 +649,7 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     // 3:00 AM -> Security & Performance
     // ===================================================================================
-    @Scheduled(cron = "0 0 3 * * ?")
+    @Scheduled(cron = "0 0 3 * * WED,SUN")
     public void refreshSecurityAndPerformance() {
         logger.info("--- [3:00 AM] Starting Security & Performance Refresh ---");
         List<String> tenants = fetchActiveTenants();
@@ -717,7 +717,7 @@ public class ProactiveCacheRefreshService {
     // 3:30 AM -> Optimization (Waste & Rightsizing)
     // OPTIMIZED: Changed from daily to Mon/Wed/Fri to reduce costs
     // ===================================================================================
-    @Scheduled(cron = "0 30 3 * * MON,WED,FRI")
+    @Scheduled(cron = "0 30 3 * * WED,SUN")
     public void refreshOptimization() {
         logger.info("--- [3:30 AM] Starting Optimization Refresh (Waste & Rightsizing) ---");
         List<String> tenants = fetchActiveTenants();
@@ -775,10 +775,11 @@ public class ProactiveCacheRefreshService {
     }
 
     // ===================================================================================
-    // 4:00 AM -> Reservations (Can be slow)
-    // OPTIMIZED: Changed from daily to weekly (Sundays) to reduce costs
+    // 4:00 AM Sunday -> Reservations (Can be slow)
+    // OPTIMIZED: Weekly (Sundays only) — RI/SP data changes slowly, daily is wasteful
+    // 8 CE calls/account/run × daily = 56/week → weekly = 8/week (saves 48 CE calls/week)
     // ===================================================================================
-    @Scheduled(cron = "0 0 4 * * ?")
+    @Scheduled(cron = "0 0 4 * * WED,SUN")
     public void refreshReservations() {
         logger.info("--- [4:00 AM] Starting Reservation Refresh ---");
         List<String> tenants = fetchActiveTenants();
@@ -844,7 +845,7 @@ public class ProactiveCacheRefreshService {
     // 3:00 AM -> Alerts (Quota & Cost Anomalies)
     // SCHEDULED: Tuesday, Thursday, Saturday
     // ===================================================================================
-    @Scheduled(cron = "0 0 3 * * TUE,THU,SAT")
+    @Scheduled(cron = "0 0 3 * * WED,SUN")
     public void refreshAlerts() {
         logger.info("--- [3:00 AM] Starting Alerts Refresh (Tue/Thu/Sat) ---");
         List<String> tenants = fetchActiveTenants();
@@ -902,7 +903,7 @@ public class ProactiveCacheRefreshService {
     // 4:30 AM -> Azure Dashboard Refresh (Daily)
     // Caches Azure dashboard data (cost, inventory, IAM) to database for fast access
     // ===================================================================================
-    @Scheduled(cron = "0 30 4 * * ?")
+    @Scheduled(cron = "0 30 4 * * WED,SUN")
     public void refreshAzureDashboardData() {
         logger.info("--- [4:30 AM] Starting Azure Dashboard Data Refresh ---");
         List<String> tenants = fetchActiveTenants();
@@ -960,7 +961,7 @@ public class ProactiveCacheRefreshService {
     // 1:30 AM -> GCP Dashboard Refresh (Daily)
     // Caches GCP dashboard data to database for fast access
     // ===================================================================================
-    @Scheduled(cron = "0 30 1 * * ?")
+    @Scheduled(cron = "0 30 1 * * WED,SUN")
     public void refreshGcpDashboardData() {
         logger.info("--- [1:30 AM] Starting GCP Dashboard Data Refresh ---");
         List<String> tenants = fetchActiveTenants();
@@ -1017,7 +1018,7 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     // 2:00 AM -> GCP FinOps Report Refresh (Daily, runs alongside AWS FinOps)
     // ===================================================================================
-    @Scheduled(cron = "0 5 2 * * ?")
+    @Scheduled(cron = "0 5 2 * * WED,SUN")
     public void refreshGcpFinOpsData() {
         logger.info("--- [2:05 AM] Starting GCP FinOps Report Refresh ---");
         List<String> tenants = fetchActiveTenants();
@@ -1065,7 +1066,7 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     // 2:35 AM -> GCP Cost Data Refresh (Daily, runs alongside AWS Cost)
     // ===================================================================================
-    @Scheduled(cron = "0 35 2 * * ?")
+    @Scheduled(cron = "0 35 2 * * WED,SUN")
     public void refreshGcpCostData() {
         logger.info("--- [2:35 AM] Starting GCP Cost Data Refresh ---");
         List<String> tenants = fetchActiveTenants();
@@ -1115,7 +1116,7 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     // 3:05 AM -> GCP Security Refresh (Daily, runs alongside AWS Security)
     // ===================================================================================
-    @Scheduled(cron = "0 5 3 * * ?")
+    @Scheduled(cron = "0 5 3 * * WED,SUN")
     public void refreshGcpSecurityData() {
         logger.info("--- [3:05 AM] Starting GCP Security Refresh ---");
         List<String> tenants = fetchActiveTenants();
@@ -1163,7 +1164,7 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     // 3:10 AM -> GCP Performance Refresh (Daily, runs alongside AWS Performance)
     // ===================================================================================
-    @Scheduled(cron = "0 10 3 * * ?")
+    @Scheduled(cron = "0 10 3 * * WED,SUN")
     public void refreshGcpPerformanceData() {
         logger.info("--- [3:10 AM] Starting GCP Performance Refresh ---");
         List<String> tenants = fetchActiveTenants();
@@ -1211,7 +1212,7 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     // 3:05 AM Tue/Thu/Sat -> GCP Alerts Refresh
     // ===================================================================================
-    @Scheduled(cron = "0 5 3 * * TUE,THU,SAT")
+    @Scheduled(cron = "0 5 3 * * WED,SUN")
     public void refreshGcpAlertsData() {
         logger.info("--- [3:05 AM Tue/Thu/Sat] Starting GCP Alerts Refresh ---");
         List<String> tenants = fetchActiveTenants();
@@ -1259,7 +1260,7 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     // 3:35 AM Mon/Wed/Fri -> GCP Waste Refresh
     // ===================================================================================
-    @Scheduled(cron = "0 35 3 * * MON,WED,FRI")
+    @Scheduled(cron = "0 35 3 * * WED,SUN")
     public void refreshGcpWasteData() {
         logger.info("--- [3:35 AM Mon/Wed/Fri] Starting GCP Waste Refresh ---");
         List<String> tenants = fetchActiveTenants();
@@ -1307,7 +1308,7 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     // 3:35 AM Mon/Wed/Fri -> GCP Rightsizing Refresh
     // ===================================================================================
-    @Scheduled(cron = "0 35 3 * * MON,WED,FRI")
+    @Scheduled(cron = "0 35 3 * * WED,SUN")
     public void refreshGcpRightsizingData() {
         logger.info("--- [3:35 AM Mon/Wed/Fri] Starting GCP Rightsizing Refresh ---");
         List<String> tenants = fetchActiveTenants();
@@ -1355,7 +1356,7 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     // 4:40 AM -> Azure Waste Refresh (Daily)
     // ===================================================================================
-    @Scheduled(cron = "0 40 4 * * ?")
+    @Scheduled(cron = "0 40 4 * * WED,SUN")
     public void refreshAzureWasteData() {
         logger.info("--- [4:40 AM] Starting Azure Waste Refresh ---");
         List<String> tenants = fetchActiveTenants();
@@ -1403,7 +1404,7 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     // 4:45 AM -> Azure Security Refresh (Daily)
     // ===================================================================================
-    @Scheduled(cron = "0 45 4 * * ?")
+    @Scheduled(cron = "0 45 4 * * WED,SUN")
     public void refreshAzureSecurityData() {
         logger.info("--- [4:45 AM] Starting Azure Security Refresh ---");
         List<String> tenants = fetchActiveTenants();
@@ -1451,7 +1452,7 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     // 4:50 AM -> Azure Performance Refresh (Daily)
     // ===================================================================================
-    @Scheduled(cron = "0 50 4 * * ?")
+    @Scheduled(cron = "0 50 4 * * WED,SUN")
     public void refreshAzurePerformanceData() {
         logger.info("--- [4:50 AM] Starting Azure Performance Refresh ---");
         List<String> tenants = fetchActiveTenants();
@@ -1499,7 +1500,7 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     // 4:55 AM Mon/Wed/Fri -> Azure Rightsizing Refresh
     // ===================================================================================
-    @Scheduled(cron = "0 55 4 * * MON,WED,FRI")
+    @Scheduled(cron = "0 55 4 * * WED,SUN")
     public void refreshAzureRightsizingData() {
         logger.info("--- [4:55 AM Mon/Wed/Fri] Starting Azure Rightsizing Refresh ---");
         List<String> tenants = fetchActiveTenants();
@@ -1547,7 +1548,7 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     // 5:00 AM -> Azure Cloudlist Refresh (Daily)
     // ===================================================================================
-    @Scheduled(cron = "0 0 5 * * ?")
+    @Scheduled(cron = "0 0 5 * * WED,SUN")
     public void refreshAzureCloudListData() {
         logger.info("--- [5:00 AM] Starting Azure Cloudlist Refresh ---");
         List<String> tenants = fetchActiveTenants();
@@ -1596,7 +1597,7 @@ public class ProactiveCacheRefreshService {
     // SpotAutomation Cache Refresh (Daily + Startup warmup)
     // Caches ASG list, cost data, and spot instances for the SpotAutomation page
     // ===================================================================================
-    @Scheduled(cron = "0 0 2 * * ?")
+    @Scheduled(cron = "0 0 2 * * WED,SUN")
     public void refreshSpotAutomation() {
         logger.info("--- [SpotAutomation] Starting SpotAutomation Cache Refresh ---");
         List<String> tenants = fetchActiveTenants();
@@ -1634,7 +1635,7 @@ public class ProactiveCacheRefreshService {
     // XamOpsRightsizing Cache Refresh (Daily + Startup warmup)
     // Caches XamOps-proprietary rightsizing recommendations for each AWS account
     // ===================================================================================
-    @Scheduled(cron = "0 30 3 * * MON,WED,FRI")
+    @Scheduled(cron = "0 30 3 * * WED,SUN")
     public void refreshXamOpsRightsizing() {
         logger.info("--- [XamOpsRightsizing] Starting XamOpsRightsizing Cache Refresh ---");
         List<String> tenants = fetchActiveTenants();
