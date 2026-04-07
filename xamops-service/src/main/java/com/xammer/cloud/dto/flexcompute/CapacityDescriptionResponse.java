@@ -119,12 +119,18 @@ public class CapacityDescriptionResponse {
     }
 
     /**
-     * Parse an ISO 8601 datetime string to an Instant, handling both offset-aware
-     * ("2026-02-28T15:30:00Z", "2026-02-28T15:30:00+05:30") and naive
-     * ("2026-02-28T15:30:00") formats. Naive datetimes are assumed to be UTC.
+     * Parse an ISO 8601 datetime string to an Instant, handling:
+     * - Offset-aware with optional millis: "2026-02-28T15:30:00Z", "2026-02-28T15:30:00.123Z", "2026-02-28T15:30:00+05:30"
+     * - Naive (assumed UTC): "2026-02-28T15:30:00", "2026-02-28T15:30:00.123"
      */
     private static Instant parseAsInstant(String dateTimeStr) {
         if (dateTimeStr == null) return null;
+        // Try instant parse first (handles "Z" suffix with optional millis)
+        try {
+            return Instant.parse(dateTimeStr);
+        } catch (Exception e0) {
+            // no-op
+        }
         try {
             return OffsetDateTime.parse(dateTimeStr, DateTimeFormatter.ISO_OFFSET_DATE_TIME).toInstant();
         } catch (Exception e1) {

@@ -120,8 +120,9 @@ public class CapacityMonitoringService {
                 return;
             }
 
-            // Fetch all active capacities — only valid CloudiDR statuses (RUNNING/SCHEDULED don't exist → 404)
-            List<String> activeStatuses = Arrays.asList("ACTIVE", "COMPLETED");
+            // Fetch only ACTIVE capacities — COMPLETED ones have static 100% consumption
+            // and would trigger threshold emails repeatedly every 24 hours.
+            List<String> activeStatuses = Arrays.asList("ACTIVE");
             CapacityListResponse capacityList = flexComputeService.describeCapacity(userId, 1, 100, "desc", activeStatuses);
 
             if (capacityList == null || capacityList.getValues() == null || capacityList.getValues().isEmpty()) {
@@ -168,15 +169,10 @@ public class CapacityMonitoringService {
         }
 
         try {
-            logger.info("Sending deployment notification for capacity {} to user {} ({})",
-                    cidrId, userId, userEmail);
-
-            String htmlBody = emailBuilder.buildCapacityDeployedEmail(capacity, userEmail);
-            String subject = String.format("XamOps FlexCompute - Capacity Deployed: %s", capacity.getPolicyName());
-
-            emailService.sendHtmlEmail(userEmail, subject, htmlBody);
-
-            // Record notification in history (thresholdPercent=0 marks deployment notification)
+            // Save the sentinel record FIRST.
+            // If this fails (e.g. DB constraint not yet updated), we skip sending the email
+            // rather than sending it without a sentinel — which would cause duplicate emails
+            // every monitoring cycle.
             CapacityNotificationHistory history = new CapacityNotificationHistory(
                     userId,
                     cidrId,
@@ -188,10 +184,19 @@ public class CapacityMonitoringService {
             );
             recordNotificationHistory(history);
 
+            // Sentinel saved — now send the email
+            logger.info("Sending deployment notification for capacity {} to user {} ({})",
+                    cidrId, userId, userEmail);
+
+            String htmlBody = emailBuilder.buildCapacityDeployedEmail(capacity, userEmail);
+            String subject = String.format("XamOps FlexCompute - Capacity Deployed: %s", capacity.getPolicyName());
+
+            emailService.sendHtmlEmail(userEmail, subject, htmlBody);
+
             logger.info("Successfully sent deployment notification for capacity {} to {}", cidrId, userEmail);
 
         } catch (Exception e) {
-            logger.error("Failed to send deployment notification for capacity {}: {}", cidrId, e.getMessage(), e);
+            logger.error("Failed to process deployment notification for capacity {}: {}", cidrId, e.getMessage(), e);
         }
     }
 

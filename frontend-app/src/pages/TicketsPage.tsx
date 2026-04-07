@@ -52,7 +52,13 @@ const SEVERITY_OPTIONS = ['Info', 'Low', 'Normal', 'High', 'Urgent'];
 
 const TicketsPage: React.FC = () => {
   const { userProfile } = useAuth();
-  const { selectedAccountIds } = useAccounts();
+  const { selectedAccountIds, accounts } = useAccounts();
+
+  const getAccountName = (accountId?: string): string | null => {
+    if (!accountId) return null;
+    const acc = accounts.find(a => a.id === accountId);
+    return acc ? acc.name : null;
+  };
   const navigate = useNavigate();
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
@@ -390,29 +396,21 @@ const TicketsPage: React.FC = () => {
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-transparent">
       {/* Scrollable Content Area */}
-      <main className="flex-1 overflow-y-auto custom-scrollbar p-6 lg:p-8">
-        <div className="max-w-7xl mx-auto space-y-6">
+      <main className="flex-1 overflow-y-auto custom-scrollbar p-8">
+        <div className="space-y-2">
 
           {/* Loading Skeleton */}
           {loading && (
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="bg-white/80 backdrop-blur-xl border border-white/40 rounded-3xl p-6 shadow-sm">
-                  <div className="flex justify-between items-start mb-6">
-                    <div className="space-y-3 w-2/3">
-                      <Skeleton variant="text" height={24} width="90%" />
-                      <Skeleton variant="text" height={16} width="50%" />
-                    </div>
-                    <Skeleton variant="rounded" height={28} width={80} className="rounded-full" />
+            <div className="space-y-2">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="flex items-center gap-4 px-5 py-4 bg-white border border-slate-200 rounded-2xl">
+                  <div className="flex-1 space-y-2">
+                    <Skeleton variant="text" height={12} width="15%" />
+                    <Skeleton variant="text" height={16} width="55%" />
                   </div>
-                  <div className="space-y-2 mb-6">
-                    <Skeleton variant="text" height={16} width="100%" />
-                    <Skeleton variant="text" height={16} width="85%" />
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <Skeleton variant="text" height={16} width={100} />
-                    <Skeleton variant="text" height={16} width={80} />
-                  </div>
+                  <Skeleton variant="text" height={24} width={80} />
+                  <Skeleton variant="text" height={24} width={70} />
+                  <Skeleton variant="text" height={24} width={90} />
                 </div>
               ))}
             </div>
@@ -420,67 +418,66 @@ const TicketsPage: React.FC = () => {
 
           {/* Tickets List */}
           {!loading && tickets.length > 0 && (
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <div className="space-y-2">
               {tickets.map((ticket) => (
                 <div
                   key={ticket.id}
                   onClick={() => navigateToDetail(ticket.id)}
-                  className="group relative bg-white/70 backdrop-blur-xl border border-white p-6 rounded-[2rem] shadow-[0_8px_32px_rgba(0,0,0,0.04)] hover:shadow-[0_20px_40px_rgba(0,0,0,0.08)] hover:bg-white hover:border-indigo-100/50 transition-all duration-500 cursor-pointer overflow-hidden"
+                  className="flex items-center gap-4 px-5 py-4 bg-white border border-slate-200 rounded-2xl hover:border-indigo-300 hover:shadow-sm transition-all duration-200 cursor-pointer group"
                 >
-                  {/* Glass Accent Decor */}
-                  <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-indigo-500/5 to-purple-500/5 rounded-full blur-3xl -mr-16 -mt-16 group-hover:scale-150 transition-transform duration-700"></div>
-
-                  <div className="relative flex flex-col h-full">
-                    {/* Header: ID & Status */}
-                    <div className="flex justify-between items-start mb-4">
-                      <div className="flex flex-col gap-1">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Case #{ticket.id}</span>
-                        <h3 className="text-base font-bold text-slate-900 group-hover:text-indigo-600 transition-colors line-clamp-1 leading-tight">
-                          {ticket.subject}
-                        </h3>
-                      </div>
-                      <span className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider shadow-sm ${getStatusBadgeClass(ticket.status)}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full bg-white shadow-[0_0_8px_white] ${ticket.status.toLowerCase() === 'open' ? 'animate-pulse' : ''}`}></span>
-                        {ticket.status.replace('_', ' ')}
-                      </span>
-                    </div>
-
-                    {/* Metadata Badges */}
-                    <div className="flex flex-wrap gap-2 mb-4">
-                      <span className="flex items-center gap-1.5 px-2.5 py-1 bg-indigo-50/80 text-indigo-600 rounded-lg text-[10px] font-bold tracking-tight">
-                        <i className="fas fa-cube text-[8px] text-indigo-400"></i>
-                        {ticket.service}
-                      </span>
-                    </div>
-
-                    {/* Description */}
-                    <p className="text-xs text-slate-500 line-clamp-2 mb-6 leading-relaxed flex-1">
-                      {ticket.description}
+                  {/* ID + Subject */}
+                  <div className="flex-1 min-w-0">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Case #{ticket.id}</span>
+                    <p className="text-sm font-semibold text-slate-800 group-hover:text-indigo-600 transition-colors truncate leading-snug">
+                      {ticket.subject}
                     </p>
-
-                    {/* Footer */}
-                    <div className="flex items-center justify-between pt-4 border-t border-slate-100/50">
-                      <div className="flex items-center gap-1.5 text-slate-400">
-                        <i className={`${getSeverityIcon(ticket.severity)} ${getSeverityClass(ticket.severity)} text-xs`}></i>
-                        <span className={`text-[10px] font-bold uppercase tracking-wider ${getSeverityClass(ticket.severity)}`}>
-                          {ticket.severity}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2 text-[10px] font-medium text-slate-400">
-                        <i className="far fa-calendar-alt"></i>
-                        {new Date(ticket.createdAt).toLocaleDateString('en-US', {
-                          month: 'short',
-                          day: 'numeric'
-                        })}
-                      </div>
-                    </div>
                   </div>
+
+                  {/* Account Info */}
+                  {ticket.accountId && (
+                    <div className="hidden lg:flex flex-col items-end min-w-0 max-w-[160px]">
+                      {getAccountName(ticket.accountId) && (
+                        <span className="text-xs font-semibold text-slate-700 truncate w-full text-right">
+                          {getAccountName(ticket.accountId)}
+                        </span>
+                      )}
+                      <span className="text-[10px] text-slate-400 font-mono truncate w-full text-right">{ticket.accountId}</span>
+                    </div>
+                  )}
+
+                  {/* Service */}
+                  <span className="hidden md:flex items-center gap-1.5 px-2.5 py-1 bg-indigo-50 text-indigo-600 rounded-lg text-[10px] font-bold whitespace-nowrap">
+                    <i className="fas fa-cube text-[8px] text-indigo-400"></i>
+                    {ticket.service}
+                  </span>
+
+                  {/* Severity */}
+                  <div className="hidden lg:flex items-center gap-1.5">
+                    <i className={`${getSeverityIcon(ticket.severity)} ${getSeverityClass(ticket.severity)} text-xs`}></i>
+                    <span className={`text-[10px] font-bold uppercase tracking-wider ${getSeverityClass(ticket.severity)}`}>
+                      {ticket.severity}
+                    </span>
+                  </div>
+
+                  {/* Date */}
+                  <span className="hidden xl:block text-[10px] font-medium text-slate-400 whitespace-nowrap">
+                    <i className="far fa-calendar-alt mr-1"></i>
+                    {new Date(ticket.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  </span>
+
+                  {/* Status */}
+                  <span className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider shadow-sm whitespace-nowrap ${getStatusBadgeClass(ticket.status)}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full bg-white ${ticket.status.toLowerCase() === 'open' ? 'animate-pulse' : ''}`}></span>
+                    {ticket.status.replace('_', ' ')}
+                  </span>
+
+                  <i className="fas fa-chevron-right text-slate-300 text-xs group-hover:text-indigo-400 transition-colors"></i>
                 </div>
               ))}
             </div>
           )}
 
-          {/* Empty State */}
+          {/* Empty State — full-width, outside the space-y-2 list */}
           {!loading && tickets.length === 0 && !error && (
             <div className="max-w-md mx-auto text-center py-20 bg-white/50 backdrop-blur-xl border border-white rounded-[3rem] shadow-xl shadow-indigo-500/5">
               <div className="w-24 h-24 bg-indigo-50 rounded-full flex items-center justify-center mx-auto mb-8 shadow-inner border border-indigo-100/50">

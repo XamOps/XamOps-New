@@ -16,6 +16,7 @@ interface WizardStep3ReviewProps {
   onBack: () => void;
   isPurchasing: boolean;
   purchaseError?: string | null;
+  reservedAt?: number; // epoch ms — used to compute real remaining time
 }
 
 const formatCurrency = (value: number): string => {
@@ -34,11 +35,17 @@ const WizardStep3Review: React.FC<WizardStep3ReviewProps> = ({
   onBack,
   isPurchasing,
   purchaseError,
+  reservedAt,
 }) => {
   const [termsAccepted, setTermsAccepted] = useState(false);
 
-  // 15-minute countdown timer (900 seconds)
-  const [timeRemaining, setTimeRemaining] = useState(900);
+  // Compute initial seconds based on when the reservation was actually made.
+  // Falls back to full 900s if reservedAt is unknown (e.g. continue-purchase flow).
+  const initialSeconds = reservedAt
+    ? Math.max(0, 900 - Math.floor((Date.now() - reservedAt) / 1000))
+    : 900;
+
+  const [timeRemaining, setTimeRemaining] = useState(initialSeconds);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -239,7 +246,7 @@ const WizardStep3Review: React.FC<WizardStep3ReviewProps> = ({
                 <span className="text-sm text-gray-600">Savings</span>
                 <span className="text-sm font-bold text-green-600">
                   <i className="fas fa-arrow-down mr-1"></i>
-                  {pricing.savingsPercent.toFixed(1)}%
+                  {(pricing.savingsPercent ?? 0).toFixed(1)}%
                 </span>
               </div>
               <hr className="border-green-200" />
@@ -257,15 +264,30 @@ const WizardStep3Review: React.FC<WizardStep3ReviewProps> = ({
 
         {/* Terms */}
         <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 space-y-3">
-          <p className="text-xs text-gray-600 leading-relaxed">
-            In the rare event of a disaster recovery scenario necessitating capacity withdrawal, we may reclaim your Purchased Capacity to support recovery efforts for other customers. By using our services, you agree to this policy and accept that our liability is limited to the refund specified. These terms are governed by the laws of our jurisdiction.
-          </p>
-          <label className="flex items-start gap-3 cursor-pointer">
+          <ul className="space-y-1.5 text-xs text-gray-600">
+            <li className="flex items-start gap-2">
+              <i className="fas fa-circle text-yellow-500 mt-1 flex-shrink-0" style={{ fontSize: '5px' }}></i>
+              <span>The instances will be deployed inside your AWS account.</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <i className="fas fa-circle text-yellow-500 mt-1 flex-shrink-0" style={{ fontSize: '5px' }}></i>
+              <span>This capacity will not appear in AWS Console billing or Cost Explorer.</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <i className="fas fa-circle text-yellow-500 mt-1 flex-shrink-0" style={{ fontSize: '5px' }}></i>
+              <span>All billing will be invoiced separately by Xammer.</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <i className="fas fa-circle text-yellow-500 mt-1 flex-shrink-0" style={{ fontSize: '5px' }}></i>
+              <span>In the rare event of a disaster recovery scenario necessitating capacity withdrawal, we may reclaim your Purchased Capacity to support recovery efforts for other customers. Our liability is limited to the refund specified. These terms are governed by the laws of our jurisdiction.</span>
+            </li>
+          </ul>
+          <label className="flex items-start gap-3 cursor-pointer pt-1">
             <input
               type="checkbox"
               checked={termsAccepted}
               onChange={(e) => setTermsAccepted(e.target.checked)}
-              className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 mt-0.5"
+              className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 mt-0.5 flex-shrink-0"
             />
             <span className="text-sm text-gray-700">
               I agree to the{' '}

@@ -221,9 +221,14 @@ public class FlexComputeController {
             Long userId = userDetails.getId();
             SearchCapacityResponse response = flexComputeService.purchaseCapacity(userId, request);
 
-            // Send purchase confirmation email
+            // Send purchase confirmation email asynchronously so the purchase response
+            // is not blocked, and CloudiDR has time to propagate the new capacity to its list.
             if (purchaseEmailEnabled) {
-                sendPurchaseConfirmationEmail(userId, request.getCidrId());
+                final Long uid = userId;
+                final String cid = request.getCidrId();
+                Thread emailThread = new Thread(() -> sendPurchaseConfirmationEmailAsync(uid, cid));
+                emailThread.setDaemon(true);
+                emailThread.start();
             }
 
             return ResponseEntity.ok(response);
@@ -340,25 +345,45 @@ public class FlexComputeController {
     }
 
     /**
-     * Helper method to send purchase confirmation email
+     * Async helper: waits for CloudiDR to propagate the purchased capacity, then sends email.
+     * Called in a daemon thread so it never blocks the purchase HTTP response.
+     * Retries once after a longer delay if the capacity isn't in the list yet.
      */
-    private void sendPurchaseConfirmationEmail(Long userId, String cidrId) {
+    private void sendPurchaseConfirmationEmailAsync(Long userId, String cidrId) {
+        // Wait 5 seconds for CloudiDR to propagate the new capacity into the list
+        try { Thread.sleep(5000); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); return; }
+
+        if (trySendPurchaseConfirmationEmail(userId, cidrId)) return;
+
+        // Capacity not found on first attempt — wait 20 more seconds and retry once
+        logger.info("Purchase email: capacity {} not yet in list, retrying in 20s", cidrId);
+        try { Thread.sleep(20000); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); return; }
+
+        trySendPurchaseConfirmationEmail(userId, cidrId);
+    }
+
+    /**
+     * Attempts to fetch capacity details and send the purchase confirmation email.
+     * Returns true if the email was sent (or definitively cannot be sent), false if the
+     * capacity was not found in the list yet and the caller should retry.
+     */
+    private boolean trySendPurchaseConfirmationEmail(Long userId, String cidrId) {
         try {
             // Get user email
             Optional<User> userOpt = userRepository.findById(userId);
             if (!userOpt.isPresent() || userOpt.get().getEmail() == null || userOpt.get().getEmail().isEmpty()) {
                 logger.warn("Cannot send purchase email - user {} has no email address", userId);
-                return;
+                return true; // no point retrying
             }
 
             String userEmail = userOpt.get().getEmail();
 
-            // Fetch capacity details using describeCapacity (get first page with this specific cidrId)
+            // Fetch capacity details from CloudiDR list (all statuses, up to 100)
             CapacityListResponse capacityList = flexComputeService.describeCapacity(userId, 1, 100, "desc", null);
 
             if (capacityList == null || capacityList.getValues() == null) {
-                logger.warn("Cannot send purchase email - no capacity data returned for cidrId {}", cidrId);
-                return;
+                logger.warn("Purchase email: describeCapacity returned empty list for cidrId {}", cidrId);
+                return false; // retry may help
             }
 
             // Find the purchased capacity in the list
@@ -367,8 +392,9 @@ public class FlexComputeController {
                     .findFirst();
 
             if (!purchasedCapacity.isPresent()) {
-                logger.warn("Cannot send purchase email - capacity {} not found in list", cidrId);
-                return;
+                logger.warn("Purchase email: capacity {} not found in list ({}  items returned)", cidrId,
+                        capacityList.getValues().size());
+                return false; // retry may help
             }
 
             CapacityDescriptionResponse capacity = purchasedCapacity.get();
@@ -380,10 +406,11 @@ public class FlexComputeController {
             emailService.sendHtmlEmail(userEmail, subject, htmlBody);
 
             logger.info("Purchase confirmation email sent to {} for capacity {}", userEmail, cidrId);
+            return true;
 
         } catch (Exception e) {
-            // Don't fail the purchase if email fails - just log the error
             logger.error("Failed to send purchase confirmation email for capacity {}: {}", cidrId, e.getMessage(), e);
+            return true; // non-retriable error (SMTP failure etc.)
         }
     }
 

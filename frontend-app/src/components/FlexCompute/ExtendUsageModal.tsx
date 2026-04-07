@@ -11,36 +11,25 @@ import { TIME_ZONES } from '../../types/flexCompute';
 
 interface ExtendUsageModalProps {
   capacity: FlexComputeCapacity;
-  onExtend: (cidrId: string, endDate: string, endTime: string, utcOffset: string) => Promise<boolean>;
+  onExtend: (cidrId: string, datetime: string, timezone: string) => Promise<boolean>;
   onClose: () => void;
 }
 
-// Round minutes up to the next 15-min increment
+// Round minutes to the nearest 15-min increment in a "YYYY-MM-DDTHH:mm" string
+// without using Date (avoids browser-local timezone interpretation).
 const roundToQuarterHour = (datetimeStr: string): string => {
   if (!datetimeStr) return datetimeStr;
-  const date = new Date(datetimeStr);
-  const minutes = date.getMinutes();
-  const roundedMinutes = Math.round(minutes / 15) * 15;
-  if (roundedMinutes === 60) {
-    date.setHours(date.getHours() + 1);
-    date.setMinutes(0);
-  } else {
-    date.setMinutes(roundedMinutes);
-  }
-  return date.toISOString().slice(0, 16);
-};
-
-// Convert IANA timezone to UTC offset string e.g. "America/Los_Angeles" -> "-8"
-const tzOffsetMap: Record<string, string> = {
-  'America/Los_Angeles': '-8',
-  'America/Denver': '-7',
-  'America/Chicago': '-6',
-  'America/New_York': '-5',
-  'Europe/London': '0',
-  'Europe/Berlin': '1',
-  'Asia/Kolkata': '5.5',
-  'Asia/Tokyo': '9',
-  'Australia/Sydney': '11',
+  const [datePart, timePart] = datetimeStr.split('T');
+  const [h, m] = (timePart || '00:00').split(':').map(Number);
+  const totalMins = h * 60 + m;
+  const rounded = Math.round(totalMins / 15) * 15;
+  const rh = Math.floor(rounded / 60) % 24;
+  const rm = rounded % 60;
+  // If rounding pushed past midnight, advance the date
+  const date = new Date(`${datePart}T00:00Z`);
+  if (Math.floor(rounded / 60) >= 24) date.setUTCDate(date.getUTCDate() + 1);
+  const newDate = date.toISOString().slice(0, 10);
+  return `${newDate}T${String(rh).padStart(2, '0')}:${String(rm).padStart(2, '0')}`;
 };
 
 const ExtendUsageModal: React.FC<ExtendUsageModalProps> = ({ capacity, onExtend, onClose }) => {
@@ -56,26 +45,14 @@ const ExtendUsageModal: React.FC<ExtendUsageModalProps> = ({ capacity, onExtend,
     }
 
     const rounded = roundToQuarterHour(newEndDatetime);
-    const date = new Date(rounded);
-
-    // Format date as MM/dd/yyyy
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    const year = date.getFullYear();
-    const endDate = `${month}/${day}/${year}`;
-
-    // Format time as HH:mm
-    const hours = String(date.getHours()).padStart(2, '0');
-    const mins = String(date.getMinutes()).padStart(2, '0');
-    const endTime = `${hours}:${mins}`;
-
-    const utcOffset = tzOffsetMap[timezone] || '0';
 
     setIsSubmitting(true);
     setError(null);
 
     try {
-      const success = await onExtend(capacity.id, endDate, endTime, utcOffset);
+      // Pass the raw wall-clock datetime and IANA timezone to the hook,
+      // which will convert to UTC using DST-aware Intl APIs.
+      const success = await onExtend(capacity.id, rounded, timezone);
       if (success) {
         onClose();
       } else {

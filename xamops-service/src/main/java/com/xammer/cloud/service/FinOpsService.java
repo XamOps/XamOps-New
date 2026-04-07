@@ -40,6 +40,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.YearMonth;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -66,6 +67,8 @@ public class FinOpsService {
     private final ObjectMapper objectMapper;
     private final CostService costService;
     private final CostDataSnapshotService snapshotService;
+    private final EmailService emailService;
+    private final BudgetEmailBuilder budgetEmailBuilder;
 
     @Value("${aws.costexplorer.mock:false}")
     private boolean useMockData;
@@ -85,7 +88,9 @@ public class FinOpsService {
             CachedDataRepository cachedDataRepository,
             ObjectMapper objectMapper,
             @Lazy CostService costService,
-            CostDataSnapshotService snapshotService) {
+            CostDataSnapshotService snapshotService,
+            EmailService emailService,
+            BudgetEmailBuilder budgetEmailBuilder) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
         this.cloudListService = cloudListService;
@@ -100,6 +105,8 @@ public class FinOpsService {
         this.objectMapper = objectMapper;
         this.costService = costService;
         this.snapshotService = snapshotService;
+        this.emailService = emailService;
+        this.budgetEmailBuilder = budgetEmailBuilder;
 
         logger.info("FinOpsService initialized (Mock Mode: {})", useMockData);
     }
@@ -464,15 +471,18 @@ public class FinOpsService {
         CloudAccount account = getAccount(accountId);
         BudgetsClient budgetsClient = awsClientProvider.getBudgetsClient(account);
 
-        // Find the user in the database to get their email
+        // Find the user in the database to get their email.
+        // Users log in with email as username, so fall back to username itself if email field is blank.
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new RuntimeException("User not found: " + username));
-        String userEmail = user.getEmail();
+        String userEmail = (user.getEmail() != null && !user.getEmail().isBlank())
+                ? user.getEmail() : username;
 
         try {
+            Instant startOfMonth = LocalDate.now().withDayOfMonth(1).atStartOfDay(ZoneOffset.UTC).toInstant();
             Budget budget = Budget.builder()
                     .budgetName(budgetDetails.getBudgetName()).budgetType(BudgetType.COST).timeUnit(software.amazon.awssdk.services.budgets.model.TimeUnit.MONTHLY)
-                    .timePeriod(TimePeriod.builder().start(Instant.now()).build())
+                    .timePeriod(TimePeriod.builder().start(startOfMonth).build())
                     .budgetLimit(Spend.builder().amount(budgetDetails.getBudgetLimit())
                             .unit(budgetDetails.getBudgetUnit()).build())
                     .build();
@@ -491,18 +501,32 @@ public class FinOpsService {
                         .address(userEmail)
                         .build();
 
-                Notification notification = Notification.builder()
-                        .notificationType(NotificationType.ACTUAL)
-                        .comparisonOperator(ComparisonOperator.GREATER_THAN)
-                        .threshold(80.0)
-                        .thresholdType(ThresholdType.PERCENTAGE)
-                        .build();
+                // Actual spend thresholds: 50%, 80%, 100%
+                List<NotificationWithSubscribers> notifications = new java.util.ArrayList<>();
+                for (double threshold : new double[]{50.0, 80.0, 100.0}) {
+                    notifications.add(NotificationWithSubscribers.builder()
+                            .notification(Notification.builder()
+                                    .notificationType(NotificationType.ACTUAL)
+                                    .comparisonOperator(ComparisonOperator.GREATER_THAN)
+                                    .threshold(threshold)
+                                    .thresholdType(ThresholdType.PERCENTAGE)
+                                    .build())
+                            .subscribers(emailSubscriber)
+                            .build());
+                }
 
-                requestBuilder.notificationsWithSubscribers(Collections.singletonList(
-                        NotificationWithSubscribers.builder()
-                                .notification(notification)
-                                .subscribers(emailSubscriber)
-                                .build()));
+                // Forecasted spend threshold: 100% — alerts before you actually overspend
+                notifications.add(NotificationWithSubscribers.builder()
+                        .notification(Notification.builder()
+                                .notificationType(NotificationType.FORECASTED)
+                                .comparisonOperator(ComparisonOperator.GREATER_THAN)
+                                .threshold(100.0)
+                                .thresholdType(ThresholdType.PERCENTAGE)
+                                .build())
+                        .subscribers(emailSubscriber)
+                        .build());
+
+                requestBuilder.notificationsWithSubscribers(notifications);
             } else {
                 // If no email, just log the creation without notification info
                 logger.info("Creating new budget: {} for account {} (no notification email found for user {})",
@@ -515,10 +539,52 @@ public class FinOpsService {
             redisCache.evict("budgets-" + accountId);
             redisCache.evict("finopsReport-" + accountId);
 
-            // --- FIX: Return the DTO for the frontend ---
-            // A new budget has 0 spend, so we populate it.
-            budgetDetails.setActualSpend(BigDecimal.ZERO);
-            budgetDetails.setForecastedSpend(BigDecimal.ZERO);
+            // AWS does NOT populate calculatedSpend immediately after budget creation — it
+            // can take minutes to hours. Instead, query Cost Explorer directly for the
+            // month-to-date unblended cost, which is always up-to-date.
+            try {
+                CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
+                String monthStart = LocalDate.now().withDayOfMonth(1).toString();
+                String today = LocalDate.now().plusDays(1).toString();
+                GetCostAndUsageRequest ceRequest = GetCostAndUsageRequest.builder()
+                        .timePeriod(DateInterval.builder().start(monthStart).end(today).build())
+                        .granularity(Granularity.MONTHLY)
+                        .metrics("UnblendedCost")
+                        .build();
+                BigDecimal mtdCost = ce.getCostAndUsage(ceRequest).resultsByTime().stream()
+                        .map(r -> new BigDecimal(r.total().get("UnblendedCost").amount()))
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+                budgetDetails.setActualSpend(mtdCost);
+                // Simple linear forecast: project MTD spend to end of month
+                int dayOfMonth = LocalDate.now().getDayOfMonth();
+                int daysInMonth = LocalDate.now().lengthOfMonth();
+                BigDecimal forecasted = dayOfMonth > 0
+                        ? mtdCost.multiply(BigDecimal.valueOf(daysInMonth))
+                                 .divide(BigDecimal.valueOf(dayOfMonth), 2, java.math.RoundingMode.HALF_UP)
+                        : BigDecimal.ZERO;
+                budgetDetails.setForecastedSpend(forecasted);
+                logger.info("Budget '{}' created — MTD actual: {}, forecasted: {}",
+                        budgetDetails.getBudgetName(), mtdCost, forecasted);
+            } catch (Exception fetchEx) {
+                logger.warn("Could not fetch MTD spend for new budget '{}', defaulting to zero: {}",
+                        budgetDetails.getBudgetName(), fetchEx.getMessage());
+                budgetDetails.setActualSpend(BigDecimal.ZERO);
+                budgetDetails.setForecastedSpend(BigDecimal.ZERO);
+            }
+
+            // Send XamOps confirmation email with real spend values
+            if (userEmail != null && !userEmail.isBlank()) {
+                try {
+                    String accountName = account.getAccountName() != null ? account.getAccountName() : account.getAwsAccountId();
+                    String html = budgetEmailBuilder.buildBudgetCreatedEmail(budgetDetails, accountName, accountId);
+                    emailService.sendHtmlEmail(userEmail,
+                            "Budget Created: " + budgetDetails.getBudgetName(), html);
+                    logger.info("Budget creation confirmation email sent to {}", userEmail);
+                } catch (Exception emailEx) {
+                    logger.warn("Budget created but confirmation email failed for {}: {}", userEmail, emailEx.getMessage());
+                }
+            }
+
             return budgetDetails;
 
         } catch (Exception e) {

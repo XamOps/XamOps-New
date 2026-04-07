@@ -71,16 +71,20 @@ const Sidebar: React.FC = () => {
       '/finops', '/gcp-finops', '/azure-finops', '/waste', '/gcp-waste', '/azure-waste',
       '/rightsizing', '/gcp-rightsizing', '/azure-rightsizing', '/ebs-rightsizing',
       '/cloudsitter', '/flex-compute', '/autospotting', '/gcp-autospotting', '/azure-autospotting'];
-    const cloudopsRoutes = ['/tickets', '/cloudk8s', '/gcp-cloudk8s', '/azure-cloudk8s',
+    const cloudopsRoutes = ['/cloudk8s', '/gcp-cloudk8s', '/azure-cloudk8s',
       '/sonarqube', '/cicd-pipelines', '/devops-in-the-box', '/grafana-dashboard', '/aiops', '/dataops', '/ebs-rightsizing'];
+    const ticketsRoutes = ['/tickets', '/billops-tickets'];
     const secopsRoutes = ['/security', '/gcp-security', '/azure-security', '/complianceops',
       '/performance', '/gcp-performance', '/azure-performance', '/alerts', '/gcp-alerts', '/azure-alerts'];
     const licensesRoutes = ['/marketplace-purchases', '/workspace-licenses', '/isv-metering'];
+    const observabilityRoutes = ['/observability'];
 
     if (finopsRoutes.some(r => path.startsWith(r))) setOpenDropdown('finops');
     else if (cloudopsRoutes.some(r => path.startsWith(r))) setOpenDropdown('cloudops');
+    else if (ticketsRoutes.some(r => path.startsWith(r))) setOpenDropdown('tickets');
     else if (secopsRoutes.some(r => path.startsWith(r))) setOpenDropdown('security');
     else if (licensesRoutes.some(r => path.startsWith(r))) setOpenDropdown('licenses');
+    else if (observabilityRoutes.some(r => path.startsWith(r))) setOpenDropdown('observability');
   }, [location.pathname]);
 
   /**
@@ -293,7 +297,6 @@ const Sidebar: React.FC = () => {
                 isOpen={openDropdown === 'cloudops'}
                 onToggle={() => toggleDropdown('cloudops')}
               >
-                <NavItem href="/tickets" icon="fas fa-ticket-alt" label="Support Tickets" isActive={isActive('/tickets')} />
                 <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-cloudk8s' : selectedAccountDisplay.provider === 'Azure' ? '/azure-cloudk8s' : '/cloudk8s'} icon="fas fa-dharmachakra" label="CloudK8s" isActive={isActive('/cloudk8s')} />
                 <NavItem href="/sonarqube" icon="fas fa-chart-line" label="Code Quality" isActive={isActive('/sonarqube')} />
                 <NavItem href="/cicd-pipelines" icon="fas fa-cogs" label="CICD Pipelines" isActive={isActive('/cicd-pipelines')} />
@@ -317,6 +320,22 @@ const Sidebar: React.FC = () => {
               </NavSection>
 
               <NavSection
+                icon="fas fa-satellite-dish"
+                label="Observability"
+                gradientClass="from-violet-500 to-purple-600"
+                badge="Beta"
+                isOpen={openDropdown === 'observability'}
+                onToggle={() => toggleDropdown('observability')}
+              >
+                <NavItem href="/observability" icon="fas fa-chart-pie" label="Overview" isActive={location.pathname === '/observability'} />
+                <NavItem href="/observability/logs" icon="fas fa-list-alt" label="Logs" isActive={isActive('/observability/logs')} />
+                <NavItem href="/observability/metrics" icon="fas fa-chart-line" label="Metrics" isActive={isActive('/observability/metrics')} />
+                <NavItem href="/observability/traces" icon="fas fa-project-diagram" label="Traces" isActive={isActive('/observability/traces')} />
+                <NavItem href="/observability/alerts" icon="fas fa-bell" label="Alerts" isActive={isActive('/observability/alerts')} />
+                <NavItem href="/observability/setup" icon="fas fa-cog" label="Setup" isActive={isActive('/observability/setup')} />
+              </NavSection>
+
+              <NavSection
                 icon="fas fa-key"
                 label="Licenses"
                 gradientClass="from-cyan-500 to-blue-600"
@@ -325,6 +344,17 @@ const Sidebar: React.FC = () => {
               >
                 <NavItem href="/marketplace-purchases" icon="fas fa-store" label="MarketOps" isActive={isActive('/marketplace-purchases')} />
                 <NavItem href="/workspace-licenses" icon="fas fa-key" label="Licenses & Tools" isActive={isActive('/workspace-licenses')} />
+              </NavSection>
+
+              <NavSection
+                icon="fas fa-ticket-alt"
+                label="Tickets"
+                gradientClass="from-yellow-500 to-orange-500"
+                isOpen={openDropdown === 'tickets'}
+                onToggle={() => toggleDropdown('tickets')}
+              >
+                <NavItem href="/tickets" icon="fas fa-tools" label="Technical" isActive={isActive('/tickets')} />
+                <NavItem href="/billops-tickets" icon="fas fa-file-invoice-dollar" label="Account & Billing" isActive={isActive('/billops-tickets')} />
               </NavSection>
             </>
           )}
@@ -348,7 +378,6 @@ const Sidebar: React.FC = () => {
               <NavItem href={getBillingUrl()} icon="fas fa-dollar-sign" label="Billing" isActive={isActive('/billops-billing')} />
               <NavItem href="/billops-invoices" icon="fas fa-file-invoice" label="Invoices" isActive={isActive('/billops-invoices')} />
               <NavItem href="/billops-credits" icon="fas fa-coins" label="Credits" isActive={isActive('/billops-credits')} />
-              <NavItem href="/billops-tickets" icon="fas fa-ticket-alt" label="Tickets" isActive={isActive('/billops-tickets')} />
               <NavItem href="/billops-agreements" icon="fas fa-file-contract" label="Agreements" isActive={isActive('/billops-agreements')} />
             </NavSection>
           )}

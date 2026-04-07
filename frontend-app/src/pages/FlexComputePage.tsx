@@ -26,6 +26,7 @@ const FlexComputePage: React.FC = () => {
   const {
     capacities,
     kpis,
+    kpiCapacities,
     isLoading,
     fetchCapacities,
     searchCapacity,
@@ -70,6 +71,33 @@ const FlexComputePage: React.FC = () => {
     () => (capacities || []).filter((c) => allowedAccountNames.has(c.accountName)),
     [capacities, allowedAccountNames]
   );
+
+  // When client-side filtering removes items, the server-side totalElements/totalPages
+  // no longer matches what's visible. Use 0 when nothing passes the filter so the
+  // header count doesn't show a misleading number (e.g. "(31)" with 0 rows).
+  const hasUnfilteredData = (capacities || []).length > 0;
+  const displayTotalElements = filteredCapacities.length === 0 && hasUnfilteredData ? 0 : totalElements;
+  const displayTotalPages    = filteredCapacities.length === 0 && hasUnfilteredData ? 0 : totalPages;
+
+  // Re-compute KPIs from kpiCapacities filtered to only the allowed accounts,
+  // so cards don't show figures from CloudiDR accounts the selected user can't see.
+  const displayKpis = useMemo(() => {
+    if (allowedAccountNames.size === 0) {
+      return { totalSavings: 0, totalCost: 0, awsCost: 0, totalUsageHours: 0, remainingHours: 0 };
+    }
+    const filtered = (kpiCapacities || []).filter((c) => allowedAccountNames.has(c.accountName));
+    if (filtered.length === 0) return kpis; // fallback to raw if names don't match yet
+    return filtered.reduce(
+      (acc, item) => ({
+        totalSavings:    acc.totalSavings    + (item.totalSavings    || 0),
+        totalCost:       acc.totalCost       + (item.totalCost       || 0),
+        awsCost:         acc.awsCost         + (item.awsPrice        || 0),
+        totalUsageHours: acc.totalUsageHours + (item.totalUsageHours || 0),
+        remainingHours:  acc.remainingHours  + (item.remainingHours  || 0),
+      }),
+      { totalSavings: 0, totalCost: 0, awsCost: 0, totalUsageHours: 0, remainingHours: 0 }
+    );
+  }, [kpiCapacities, allowedAccountNames, kpis]);
 
   // Pricing pre-loaded from an existing READY_FOR_PURCHASE capacity
   const [continuePricing, setContinuePricing] = useState<CapacityPricing | null>(null);
@@ -139,7 +167,7 @@ const FlexComputePage: React.FC = () => {
       <div className="flex-1 p-8">
         {activeTab === 'dashboard' && (
           <div className="space-y-8">
-            <FlexComputeKPICards kpis={kpis} />
+            <FlexComputeKPICards kpis={displayKpis} />
             <FlexComputeTable
               capacities={filteredCapacities}
               isLoading={isLoading}
@@ -148,8 +176,8 @@ const FlexComputePage: React.FC = () => {
               onContinuePurchase={handleContinuePurchase}
               currentPage={currentPage}
               pageSize={pageSize}
-              totalElements={totalElements}
-              totalPages={totalPages}
+              totalElements={displayTotalElements}
+              totalPages={displayTotalPages}
               onPageChange={(page, size, statuses) => fetchCapacities(page, size, statuses)}
             />
           </div>
