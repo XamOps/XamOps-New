@@ -92,6 +92,7 @@ export interface CapacityPricing {
   startDate: string;
   endDate: string;
   status: string;
+  reservedAt?: number; // epoch ms when the 15-min reservation was made
 }
 
 export type FlexComputeTab = 'dashboard' | 'create';

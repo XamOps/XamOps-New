@@ -149,7 +149,9 @@ public class FlexComputeService {
         // Check if we have a valid (non-expired) token
         if (credsOpt.isPresent()) {
             CloudiDRCredentials creds = credsOpt.get();
-            boolean expired = creds.getTokenExpiresAt() != null && creds.getTokenExpiresAt().isBefore(Instant.now());
+            // Treat token as expired 60 seconds early to avoid race conditions where the
+            // token expires in-flight before CloudiDR receives the request.
+            boolean expired = creds.getTokenExpiresAt() != null && creds.getTokenExpiresAt().isBefore(Instant.now().plusSeconds(60));
             if (!expired) {
                 String token = encryptionService.decrypt(creds.getCloudidrTokenEncrypted());
                 if (token != null) {

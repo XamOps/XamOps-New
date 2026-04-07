@@ -312,7 +312,10 @@ public class CloudiDRApiClient {
             if (pageSize != null) builder.queryParam("pageSize", pageSize);
             if (sort != null) builder.queryParam("sort", sort);
             if (statuses != null && !statuses.isEmpty()) {
-                builder.queryParam("statuses", String.join(",", statuses));
+                // Add each status as a separate query param: ?statuses=ACTIVE&statuses=COMPLETED
+                for (String status : statuses) {
+                    builder.queryParam("statuses", status);
+                }
             }
 
             String url = builder.encode().toUriString();
@@ -320,13 +323,6 @@ public class CloudiDRApiClient {
             HttpHeaders headers = createAuthHeaders(token);
             HttpEntity<Void> entity = new HttpEntity<>(headers);
 
-            // First get raw response as String to see what CloudiDR actually returns
-            ResponseEntity<String> rawResponse = restTemplate.exchange(
-                    url, HttpMethod.GET, entity, String.class);
-
-            logger.info("CloudiDR raw capacities response: {}", rawResponse.getBody());
-
-            // Now parse it properly
             ResponseEntity<CapacityListResponse> response = restTemplate.exchange(
                     url, HttpMethod.GET, entity, CapacityListResponse.class);
 

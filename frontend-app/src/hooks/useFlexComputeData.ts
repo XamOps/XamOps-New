@@ -26,6 +26,7 @@ export const useFlexComputeData = () => {
   // Dashboard data
   const [capacities, setCapacities] = useState<FlexComputeCapacity[]>([]);
   const [kpis, setKpis] = useState<FlexComputeKPIs>(defaultKPIs);
+  const [kpiCapacities, setKpiCapacities] = useState<FlexComputeCapacity[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
   // Linked accounts from CloudiDR
@@ -73,6 +74,7 @@ export const useFlexComputeData = () => {
         allData = responseData.data;
       }
 
+      setKpiCapacities(allData);
       const computedKpis: FlexComputeKPIs = allData.reduce(
         (acc, item) => ({
           totalSavings: acc.totalSavings + (item.totalSavings || 0),
@@ -465,18 +467,20 @@ export const useFlexComputeData = () => {
   }, [fetchCapacities, fetchKpis]);
 
   /**
-   * Extend capacity end date
+   * Extend capacity end date.
+   * Accepts a wall-clock datetime string ("YYYY-MM-DDTHH:mm") in the given IANA timezone
+   * and converts to UTC before sending to the backend.
    */
   const extendCapacity = useCallback(async (
     cidrId: string,
-    endDate: string,
-    endTime: string,
-    utcOffset: string,
+    datetime: string,
+    timezone: string,
   ): Promise<boolean> => {
     try {
       setError(null);
 
-      const requestBody = { cidrId, endDate, endTime, utcOffset };
+      const utc = wallClockToUtc(datetime, timezone);
+      const requestBody = { cidrId, endDate: utc.date, endTime: utc.time, utcOffset: '0' };
       console.log('[FlexCompute] Extend capacity request:', requestBody);
 
       const response = await fetch('/api/flexcompute/capacity/extend', {
@@ -545,6 +549,7 @@ export const useFlexComputeData = () => {
     // Dashboard
     capacities,
     kpis,
+    kpiCapacities,
     isLoading,
     fetchCapacities,
     fetchKpis,

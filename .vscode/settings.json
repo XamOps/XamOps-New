@@ -19,5 +19,6 @@
   "java.project.importOnFirstTimeStartup": "automatic",
   "java.autobuild.enabled": true,
   "java.errors.incompleteClasspath.severity": "warning",
-  "java.referencesCodeLens.enabled": true
+  "java.referencesCodeLens.enabled": true,
+  "git.ignoreLimitWarning": true
 } 

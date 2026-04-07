@@ -1,0 +1,228 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Fluent Bit DaemonSet — collects logs from every pod on every node
+# Sends to OpenObserve as the "kubernetes" log stream
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fluent-bit-config
+  namespace: xamops-system
+data:
+  fluent-bit.conf: |
+    [SERVICE]
+        Flush           5
+        Daemon          Off
+        Log_Level       info
+        Parsers_File    parsers.conf
+        HTTP_Server     On
+        HTTP_Listen     0.0.0.0
+        HTTP_Port       2020
+        Health_Check    On
+
+    # ── INPUT: read all container logs ──────────────────────────────────────────
+    [INPUT]
+        Name              tail
+        Tag               kube.*
+        Path              /var/log/containers/*.log
+        multiline.parser  docker, cri
+        DB                /var/log/flb_kube.db
+        Mem_Buf_Limit     50MB
+        Skip_Long_Lines   On
+        Refresh_Interval  10
+
+    # ── FILTER: Kubernetes metadata enrichment (adds pod, namespace, labels) ────
+    [FILTER]
+        Name                kubernetes
+        Match               kube.*
+        Kube_URL            https://kubernetes.default.svc:443
+        Kube_CA_File        /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        Kube_Token_File     /var/run/secrets/kubernetes.io/serviceaccount/token
+        Kube_Tag_Prefix     kube.var.log.containers.
+        Merge_Log           On
+        Merge_Log_Trim      On
+        Keep_Log            Off
+        K8S-Logging.Parser  On
+        K8S-Logging.Exclude On
+        Annotations         Off
+        Labels              On
+
+    # ── FILTER: Lift nested kubernetes.* fields to top level ────────────────────
+    [FILTER]
+        Name    nest
+        Match   kube.*
+        Operation lift
+        Nested_under kubernetes
+        Add_prefix kubernetes_
+
+    # ── FILTER: Add cluster name as a field ─────────────────────────────────────
+    [FILTER]
+        Name    record_modifier
+        Match   kube.*
+        Record  cluster xamops-eks
+        Record  source eks
+
+    # ── OUTPUT: Send to OpenObserve ──────────────────────────────────────────────
+    [OUTPUT]
+        Name              http
+        Match             kube.*
+        Host              ${O2_HOST}
+        Port              ${O2_PORT}
+        URI               /api/${O2_ORG_ID}/kubernetes/_json
+        Format            json
+        Json_Date_Key     _timestamp
+        Json_Date_Format  java_sql_timestamp
+        Http_User         ${O2_EMAIL}
+        Http_Passwd       ${O2_PASSWORD}
+        TLS               Off
+        compress          gzip
+        Retry_Limit       5
+
+  parsers.conf: |
+    [PARSER]
+        Name        docker
+        Format      json
+        Time_Key    time
+        Time_Format %Y-%m-%dT%H:%M:%S.%LZ
+        Time_Keep   On
+
+    [PARSER]
+        Name        cri
+        Format      regex
+        Regex       ^(?<time>[^ ]+) (?<stream>stdout|stderr) (?<logtag>[^ ]*) (?<message>.*)$
+        Time_Key    time
+        Time_Format %Y-%m-%dT%H:%M:%S.%L%z
+        Time_Keep   On
+
+    [PARSER]
+        Name        json
+        Format      json
+        Time_Key    time
+        Time_Format %d/%b/%Y:%H:%M:%S %z
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: fluent-bit
+  namespace: xamops-system
+  labels:
+    app: fluent-bit
+    component: log-collector
+spec:
+  selector:
+    matchLabels:
+      app: fluent-bit
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app: fluent-bit
+        component: log-collector
+    spec:
+      serviceAccountName: fluent-bit
+      tolerations:
+        # Run on ALL nodes including control-plane and tainted nodes
+        - operator: Exists
+          effect: NoSchedule
+        - operator: Exists
+          effect: NoExecute
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: fluent-bit
+          image: fluent/fluent-bit:3.2
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http-metrics
+              containerPort: 2020
+              protocol: TCP
+          env:
+            # Fluent Bit HTTP output needs host+port separately (not a full URL)
+            - name: O2_HOST
+              value: "openobserve.xamops.svc.cluster.local"
+            - name: O2_PORT
+              value: "5080"
+            - name: O2_ORG_ID
+              valueFrom:
+                secretKeyRef:
+                  name: o2-agent-credentials
+                  key: O2_ORG_ID
+            - name: O2_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: o2-agent-credentials
+                  key: O2_EMAIL
+            - name: O2_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: o2-agent-credentials
+                  key: O2_PASSWORD
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 2020
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 2020
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+          volumeMounts:
+            - name: config
+              mountPath: /fluent-bit/etc/fluent-bit.conf
+              subPath: fluent-bit.conf
+            - name: config
+              mountPath: /fluent-bit/etc/parsers.conf
+              subPath: parsers.conf
+            # Host log paths
+            - name: varlog
+              mountPath: /var/log
+              readOnly: true
+            - name: varlibdockercontainers
+              mountPath: /var/lib/docker/containers
+              readOnly: true
+            # Fluent Bit state DB (tracks file positions)
+            - name: flbstate
+              mountPath: /var/log/flb_kube.db
+              subPath: flb_kube.db
+      volumes:
+        - name: config
+          configMap:
+            name: fluent-bit-config
+        - name: varlog
+          hostPath:
+            path: /var/log
+        - name: varlibdockercontainers
+          hostPath:
+            path: /var/lib/docker/containers
+        - name: flbstate
+          hostPath:
+            path: /var/fluent-bit-state
+            type: DirectoryOrCreate
+---
+# Optional: expose Fluent Bit metrics for monitoring
+apiVersion: v1
+kind: Service
+metadata:
+  name: fluent-bit-metrics
+  namespace: xamops-system
+  labels:
+    app: fluent-bit
+spec:
+  selector:
+    app: fluent-bit
+  ports:
+    - name: http-metrics
+      port: 2020
+      targetPort: 2020
+  type: ClusterIP
