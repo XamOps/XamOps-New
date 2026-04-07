@@ -480,6 +480,8 @@ public class DashboardData {
     private String recommendationReason;
     private double currentMonthlyCost;
     private double recommendedMonthlyCost;
+    private String region;
+    private String instanceName;
 
     public OptimizationRecommendation(
         String service,
@@ -488,7 +490,8 @@ public class DashboardData {
         String recommendedType,
         double estimatedMonthlySavings,
         String recommendationReason,
-        double currentMonthlyCost) {
+        double currentMonthlyCost,
+        double recommendedMonthlyCost) {
       this.service = service;
       this.resourceId = resourceId;
       this.currentType = currentType;
@@ -496,7 +499,13 @@ public class DashboardData {
       this.estimatedMonthlySavings = estimatedMonthlySavings;
       this.recommendationReason = recommendationReason;
       this.currentMonthlyCost = currentMonthlyCost;
+      this.recommendedMonthlyCost = recommendedMonthlyCost;
     }
+
+    public String getRegion() { return region; }
+    public void setRegion(String region) { this.region = region; }
+    public String getInstanceName() { return instanceName; }
+    public void setInstanceName(String instanceName) { this.instanceName = instanceName; }
   }
 
   @Data

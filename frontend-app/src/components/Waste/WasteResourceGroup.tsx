@@ -12,6 +12,8 @@ interface WasteResourceGroupProps {
   resources: WastedResource[];
   isOpen: boolean;
   onToggle: () => void;
+  canDelete: boolean;
+  onDelete: (resource: WastedResource) => void;
 }
 
 const getServiceIcon = (serviceType: string): string => {
@@ -52,6 +54,8 @@ const WasteResourceGroup: React.FC<WasteResourceGroupProps> = ({
   resources,
   isOpen,
   onToggle,
+  canDelete,
+  onDelete,
 }) => {
   const [expandedResources, setExpandedResources] = useState<Set<string>>(new Set());
 
@@ -145,13 +149,23 @@ const WasteResourceGroup: React.FC<WasteResourceGroupProps> = ({
                   </div>
                   <div className="col-span-3 text-right pr-4">
                     <div className="flex justify-end gap-2" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        disabled
-                        title="Delete (Coming Soon)"
-                        className="action-button px-3 py-2 text-xs font-semibold text-white bg-red-600 rounded-lg opacity-50 cursor-not-allowed"
-                      >
-                        <i className="fas fa-trash-alt"></i>
-                      </button>
+                      {canDelete ? (
+                        <button
+                          title="Delete this resource"
+                          onClick={() => onDelete(resource)}
+                          className="action-button px-3 py-2 text-xs font-semibold text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors cursor-pointer"
+                        >
+                          <i className="fas fa-trash-alt"></i>
+                        </button>
+                      ) : (
+                        <button
+                          disabled
+                          title="Read-only access — upgrade to Read & Write to delete"
+                          className="action-button px-3 py-2 text-xs font-semibold text-white bg-red-600 rounded-lg opacity-40 cursor-not-allowed"
+                        >
+                          <i className="fas fa-trash-alt"></i>
+                        </button>
+                      )}
                       <button
                         disabled
                         title="Archive (Coming Soon)"

@@ -14,19 +14,32 @@
  * - Cost comparison and savings calculations
  */
 
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useRightsizingData } from '../hooks/useRightsizingData';
 import { AriaTabGroup } from '../components/ui';
+import { AlertDialog } from '../components/ui/AlertDialog';
+import apiClient from '../utils/apiClient';
 
 // Component imports
 import RightsizingHeader from '../components/Rightsizing/RightsizingHeader';
 import AWSRecommendationsTable from '../components/Rightsizing/AWSRecommendationsTable';
 import XamOpsRecommendationsTable from '../components/Rightsizing/XamOpsRecommendationsTable';
 
+interface ApplyTarget {
+  instanceId: string;
+  currentType: string;
+  targetType: string;
+  region: string;
+}
+
 export const RightsizingPage: React.FC = () => {
-  const { selectedAccountIds } = useAccounts();
+  const { selectedAccountIds, accounts } = useAccounts();
   const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
+
+  // Determine if the active account has read-write access
+  const selectedAccount = accounts.find(a => a.id === selectedAccountIds[0]);
+  const canApply = selectedAccount?.access === 'read-write';
 
   // Get rightsizing data
   const {
@@ -43,6 +56,10 @@ export const RightsizingPage: React.FC = () => {
 
   // Tab state
   const [activeTab, setActiveTab] = useState<'aws' | 'xamops'>('aws');
+
+  // Apply confirmation state
+  const [applyTarget, setApplyTarget] = useState<ApplyTarget | null>(null);
+  const [isApplying, setIsApplying] = useState(false);
 
   // Filter out already optimized resources from AWS recommendations
   const filteredAWSRecommendations = awsRecommendations.filter(rec => {
@@ -61,7 +78,32 @@ export const RightsizingPage: React.FC = () => {
     return true;
   });
 
+  // Handle apply request — find the current type from the recommendation list
+  const handleApplyRequest = useCallback((instanceId: string, targetType: string, region: string) => {
+    // Look up current type from both recommendation lists
+    const awsRec = awsRecommendations.find(r => r.resourceId === instanceId);
+    const xamopsRec = xamopsRecommendations.find(r => r.instanceId === instanceId);
+    const currentType = awsRec?.currentType || xamopsRec?.currentInstance || 'current type';
 
+    setApplyTarget({ instanceId, currentType, targetType, region });
+  }, [awsRecommendations, xamopsRecommendations]);
+
+  const handleApplyConfirm = useCallback(async () => {
+    if (!applyTarget || !selectedAccountId) return;
+    setIsApplying(true);
+    try {
+      await apiClient.fetch(
+        `/api/xamops/rightsizing/apply?accountId=${selectedAccountId}&instanceId=${encodeURIComponent(applyTarget.instanceId)}&targetInstanceType=${encodeURIComponent(applyTarget.targetType)}&region=${encodeURIComponent(applyTarget.region)}`,
+        { method: 'POST' }
+      );
+      setApplyTarget(null);
+    } catch (err) {
+      console.error('Failed to apply rightsizing:', err);
+      setApplyTarget(null);
+    } finally {
+      setIsApplying(false);
+    }
+  }, [applyTarget, selectedAccountId]);
 
   // Show error state
   if (error) {
@@ -137,6 +179,8 @@ export const RightsizingPage: React.FC = () => {
                   <AWSRecommendationsTable
                     recommendations={filteredAWSRecommendations}
                     isLoading={isLoadingAWS}
+                    canApply={canApply}
+                    onApply={handleApplyRequest}
                   />
                 </div>
               )
@@ -157,6 +201,8 @@ export const RightsizingPage: React.FC = () => {
                   <XamOpsRecommendationsTable
                     recommendations={xamopsRecommendations}
                     isLoading={isLoadingXamOps}
+                    canApply={canApply}
+                    onApply={handleApplyRequest}
                   />
                 </div>
               )
@@ -165,6 +211,26 @@ export const RightsizingPage: React.FC = () => {
         )}
       </div>
 
+      {/* Apply Rightsizing Confirmation Dialog */}
+      <AlertDialog
+        isOpen={applyTarget !== null}
+        title="Apply Rightsizing?"
+        variant="warning"
+        confirmLabel={isApplying ? 'Applying…' : 'Apply'}
+        description={
+          applyTarget && (
+            <>
+              Instance <strong>{applyTarget.instanceId}</strong> will be{' '}
+              <strong>stopped</strong>, resized from{' '}
+              <strong>{applyTarget.currentType}</strong> to{' '}
+              <strong>{applyTarget.targetType}</strong>, then{' '}
+              <strong>restarted</strong>. This may take a few minutes.
+            </>
+          )
+        }
+        onConfirm={handleApplyConfirm}
+        onCancel={() => setApplyTarget(null)}
+      />
     </main>
   );
 };

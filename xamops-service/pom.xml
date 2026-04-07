@@ -191,6 +191,19 @@
         </dependency>
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
+            <artifactId>marketplaceagreement</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>marketplacecatalog</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>organizations</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
             <artifactId>iam</artifactId>
         </dependency>
         <dependency>
@@ -376,10 +389,6 @@
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>shield</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>software.amazon.awssdk</groupId>
-            <artifactId>organizations</artifactId>
         </dependency>
         <dependency>
             <groupId>software.amazon.awssdk</groupId>

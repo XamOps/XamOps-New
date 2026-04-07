@@ -37,4 +37,6 @@ public interface CloudAccountRepository extends JpaRepository<CloudAccount, Long
 
     List<CloudAccount> findByProvider(String provider);
 
+    List<CloudAccount> findByAwsAccountIdIn(List<String> awsAccountIds);
+
 }

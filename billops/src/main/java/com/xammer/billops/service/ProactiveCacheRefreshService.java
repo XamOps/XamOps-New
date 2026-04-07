@@ -13,6 +13,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -29,6 +30,7 @@ public class ProactiveCacheRefreshService {
     private final TicketService ticketService;
     private final DashboardService dashboardService; // [New]
     private final CostService costService;
+    private final CloudFrontUsageService cloudFrontUsageService;
     private final CacheManager cacheManager;
     private final BillopsSchedulingEnvironmentConfig envConfig;
 
@@ -40,6 +42,7 @@ public class ProactiveCacheRefreshService {
             TicketService ticketService,
             DashboardService dashboardService,
             CostService costService,
+            CloudFrontUsageService cloudFrontUsageService,
             CacheManager cacheManager,
             BillopsSchedulingEnvironmentConfig envConfig) {
         this.cloudAccountRepository = cloudAccountRepository;
@@ -48,6 +51,7 @@ public class ProactiveCacheRefreshService {
         this.ticketService = ticketService;
         this.dashboardService = dashboardService;
         this.costService = costService;
+        this.cloudFrontUsageService = cloudFrontUsageService;
         this.cacheManager = cacheManager;
         this.envConfig = envConfig;
 
@@ -62,7 +66,7 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     // 2:00 AM -> Dashboard (High Priority)
     // ===================================================================================
-    @Scheduled(cron = "0 0 2 * * ?")
+    @Scheduled(cron = "0 0 2 * * WED,SUN")
     public void refreshDashboardCache() {
         if (!envConfig.isSchedulingEnabled()) {
             return;
@@ -111,7 +115,7 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     // 2:30 AM -> Billing & Cost Data (Heavy Aggregation)
     // ===================================================================================
-    @Scheduled(cron = "0 30 2 * * ?")
+    @Scheduled(cron = "0 30 2 * * WED,SUN")
     public void refreshBillingAndCostCache() {
         if (!envConfig.isSchedulingEnabled()) {
             return;
@@ -134,6 +138,16 @@ public class ProactiveCacheRefreshService {
                 logger.debug(" > Cost dimensions refreshed for account {}", account.getAwsAccountId());
             } catch (Exception e) {
                 logger.error("Failed CostService refresh for account {}", account.getAwsAccountId(), e);
+            }
+
+            // Refresh CloudFront usage for current month
+            if (account.getAwsAccountId() != null) {
+                try {
+                    cloudFrontUsageService.getUsageFromAws(account.getAwsAccountId(), YearMonth.now());
+                    logger.debug(" > CloudFront usage refreshed for account {}", account.getAwsAccountId());
+                } catch (Exception e) {
+                    logger.error("Failed CloudFront refresh for account {}", account.getAwsAccountId(), e);
+                }
             }
         }
 
@@ -174,7 +188,7 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     // 3:30 AM -> Invoices (Admin Views)
     // ===================================================================================
-    @Scheduled(cron = "0 30 3 * * ?")
+    @Scheduled(cron = "0 30 3 * * WED,SUN")
     public void refreshInvoicesCache() {
         if (!envConfig.isSchedulingEnabled()) {
             return;
@@ -194,7 +208,7 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     // 4:00 AM -> Tickets (Support Views)
     // ===================================================================================
-    @Scheduled(cron = "0 0 4 * * ?")
+    @Scheduled(cron = "0 0 4 * * WED,SUN")
     public void refreshTicketsCache() {
         if (!envConfig.isSchedulingEnabled()) {
             return;

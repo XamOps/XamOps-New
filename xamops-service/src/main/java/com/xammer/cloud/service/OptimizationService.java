@@ -264,11 +264,17 @@ public class OptimizationService {
                             }
                             // --- End of Fix ---
 
-                            return new DashboardData.OptimizationRecommendation(
-                                    "EC2", r.instanceArn().split("/")[1], r.currentInstanceType(),
-                                    bestOption.instanceType(),
-                                    savings, reason, // Use the new 'reason' variable
-                                    currentCost, recommendedCost);
+                            DashboardData.OptimizationRecommendation rec =
+                                    new DashboardData.OptimizationRecommendation(
+                                            "EC2", r.instanceArn().split("/")[1], r.currentInstanceType(),
+                                            bestOption.instanceType(),
+                                            savings, reason, // Use the new 'reason' variable
+                                            currentCost, recommendedCost);
+                            rec.setRegion(regionId);
+                            if (r.instanceName() != null && !r.instanceName().isBlank()) {
+                                rec.setInstanceName(r.instanceName());
+                            }
+                            return rec;
                         })
                         .forEach(recommendations::add);
 

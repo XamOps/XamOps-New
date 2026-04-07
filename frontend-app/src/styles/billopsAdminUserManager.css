@@ -10,7 +10,7 @@
 /* Page Container */
 .user-manager-page {
     min-height: 100vh;
-    padding: 6rem 2rem 2rem 2rem;
+    padding: 2rem 2rem 2rem 2rem;
     background: linear-gradient(135deg, #f0f4f8 0%, #e2e8f0 50%, #f0f4f8 100%);
     font-family: 'Inter', sans-serif;
 }

@@ -1,11 +1,15 @@
 package com.xammer.cloud.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.xammer.cloud.domain.CachedData;
 import com.xammer.cloud.domain.CloudAccount;
+import com.xammer.cloud.dto.CostDto;
 import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.dto.DashboardData.BudgetDetails;
 import com.xammer.cloud.dto.FinOpsReportDto;
 import com.xammer.cloud.dto.ResourceDto;
+import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -58,6 +62,10 @@ public class FinOpsService {
     private final CostMockService costMockService;
     private final Executor backgroundTaskExecutor;
     private final DashboardDataService dashboardDataService;
+    private final CachedDataRepository cachedDataRepository;
+    private final ObjectMapper objectMapper;
+    private final CostService costService;
+    private final CostDataSnapshotService snapshotService;
 
     @Value("${aws.costexplorer.mock:false}")
     private boolean useMockData;
@@ -73,7 +81,11 @@ public class FinOpsService {
             UserRepository userRepository,
             CostMockService costMockService,
             @Qualifier("backgroundTaskExecutor") Executor backgroundTaskExecutor,
-            @Lazy DashboardDataService dashboardDataService) {
+            @Lazy DashboardDataService dashboardDataService,
+            CachedDataRepository cachedDataRepository,
+            ObjectMapper objectMapper,
+            @Lazy CostService costService,
+            CostDataSnapshotService snapshotService) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
         this.cloudListService = cloudListService;
@@ -84,6 +96,10 @@ public class FinOpsService {
         this.costMockService = costMockService;
         this.backgroundTaskExecutor = backgroundTaskExecutor;
         this.dashboardDataService = dashboardDataService;
+        this.cachedDataRepository = cachedDataRepository;
+        this.objectMapper = objectMapper;
+        this.costService = costService;
+        this.snapshotService = snapshotService;
 
         logger.info("FinOpsService initialized (Mock Mode: {})", useMockData);
     }
@@ -118,7 +134,7 @@ public class FinOpsService {
                 FinOpsReportDto dbData = dashboardDataService.getFinOpsSnapshot(dbKey);
                 if (dbData != null) {
                     logger.info("✅ DB hit for FinOps report — repopulating Redis: {}", accountId);
-                    redisCache.put(cacheKey, dbData, 60);
+                    redisCache.put(cacheKey, dbData, 60 * 24);
                     return CompletableFuture.completedFuture(dbData);
                 }
             }
@@ -259,7 +275,7 @@ public class FinOpsService {
                         FinOpsReportDto report = new FinOpsReportDto(kpis, costBreakdown, rightsizingFuture.join(),
                                 wastedResourcesFuture.join(), anomaliesFuture.join(), taggingComplianceFuture.join(),
                                 budgetsFuture.join());
-                        redisCache.put(cacheKey, report, 60);
+                        redisCache.put(cacheKey, report, 60 * 24);
                         // Save to DB for default (no custom date range) requests — warm for post-deploy cold starts
                         if (startDate == null && endDate == null) {
                             dashboardDataService.saveFinOpsSnapshot(dbKey, report);
@@ -279,18 +295,32 @@ public class FinOpsService {
     @Async("awsTaskExecutor")
     public CompletableFuture<List<BudgetDetails>> getAccountBudgets(CloudAccount account, boolean forceRefresh) {
         String cacheKey = "budgets-" + account.getAwsAccountId();
+        String dbKey = "FINOPS_BUDGETS::" + account.getAwsAccountId();
         if (!forceRefresh) {
             Optional<List<BudgetDetails>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {
             });
             if (cachedData.isPresent()) {
                 return CompletableFuture.completedFuture(cachedData.get());
             }
+            try {
+                Optional<CachedData> dbCached = cachedDataRepository.findById(dbKey);
+                if (dbCached.isPresent()) {
+                    List<BudgetDetails> dbData = objectMapper.readValue(dbCached.get().getJsonData(), new TypeReference<>() {});
+                    if (dbData != null) {
+                        redisCache.put(cacheKey, dbData, 60 * 24);
+                        logger.info("✅ DB snapshot hit — re-warmed Redis: {}", dbKey);
+                        return CompletableFuture.completedFuture(dbData);
+                    }
+                }
+            } catch (Exception dbEx) {
+                logger.warn("DB cache miss for {}: {}", dbKey, dbEx.getMessage());
+            }
         }
 
         // Return mock data if mock mode is enabled
         if (useMockData) {
             List<BudgetDetails> mockResult = costMockService.getMockAccountBudgets(account);
-            redisCache.put(cacheKey, mockResult, 60);
+            redisCache.put(cacheKey, mockResult, 60 * 24);
             return CompletableFuture.completedFuture(mockResult);
         }
 
@@ -307,7 +337,16 @@ public class FinOpsService {
                             ? b.calculatedSpend().forecastedSpend().amount()
                             : BigDecimal.ZERO))
                     .collect(Collectors.toList());
-            redisCache.put(cacheKey, result, 60);
+            redisCache.put(cacheKey, result, 60 * 24);
+            try {
+                CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+                snapshot.setCacheKey(dbKey);
+                snapshot.setJsonData(objectMapper.writeValueAsString(result));
+                snapshot.setLastUpdated(java.time.LocalDateTime.now());
+                cachedDataRepository.save(snapshot);
+            } catch (Exception dbEx) {
+                logger.warn("Failed to save DB snapshot {}: {}", dbKey, dbEx.getMessage());
+            }
             return CompletableFuture.completedFuture(result);
         } catch (Exception e) {
             logger.error("Failed to fetch AWS Budgets for account {}", account.getAwsAccountId(), e);
@@ -554,7 +593,7 @@ public class FinOpsService {
             double percentage = (totalScanned > 0) ? ((double) taggedCount / totalScanned) * 100.0 : 100.0;
             DashboardData.TaggingCompliance result = new DashboardData.TaggingCompliance(percentage, totalScanned,
                     untaggedList.size(), untaggedList);
-            redisCache.put(cacheKey, result, 60);
+            redisCache.put(cacheKey, result, 60 * 24);
             return result;
         });
     }
@@ -563,11 +602,25 @@ public class FinOpsService {
     public CompletableFuture<List<Map<String, Object>>> getCostByTag(String accountId, String tagKey,
             boolean forceRefresh) {
         String cacheKey = "costByTag-" + accountId + "-" + tagKey;
+        String dbKey = "FINOPS_COST_TAG::" + accountId + "::" + tagKey;
         if (!forceRefresh) {
             Optional<List<Map<String, Object>>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {
             });
             if (cachedData.isPresent()) {
                 return CompletableFuture.completedFuture(cachedData.get());
+            }
+            try {
+                Optional<CachedData> dbCached = cachedDataRepository.findById(dbKey);
+                if (dbCached.isPresent()) {
+                    List<Map<String, Object>> dbData = objectMapper.readValue(dbCached.get().getJsonData(), new TypeReference<>() {});
+                    if (dbData != null) {
+                        redisCache.put(cacheKey, dbData, 60 * 24);
+                        logger.info("✅ DB snapshot hit — re-warmed Redis: {}", dbKey);
+                        return CompletableFuture.completedFuture(dbData);
+                    }
+                }
+            } catch (Exception dbEx) {
+                logger.warn("DB cache miss for {}: {}", dbKey, dbEx.getMessage());
             }
         }
 
@@ -577,7 +630,7 @@ public class FinOpsService {
         // Return mock data if mock mode is enabled
         if (useMockData) {
             List<Map<String, Object>> mockResult = costMockService.getMockCostByTag(accountId, tagKey);
-            redisCache.put(cacheKey, mockResult, 60);
+            redisCache.put(cacheKey, mockResult, 60 * 24);
             return CompletableFuture.completedFuture(mockResult);
         }
 
@@ -600,7 +653,16 @@ public class FinOpsService {
                     })
                     .filter(map -> (double) map.get("cost") > 0.01)
                     .collect(Collectors.toList());
-            redisCache.put(cacheKey, result, 60);
+            redisCache.put(cacheKey, result, 60 * 24);
+            try {
+                CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+                snapshot.setCacheKey(dbKey);
+                snapshot.setJsonData(objectMapper.writeValueAsString(result));
+                snapshot.setLastUpdated(java.time.LocalDateTime.now());
+                cachedDataRepository.save(snapshot);
+            } catch (Exception dbEx) {
+                logger.warn("Failed to save DB snapshot {}: {}", dbKey, dbEx.getMessage());
+            }
             return CompletableFuture.completedFuture(result);
         } catch (Exception e) {
             logger.error(
@@ -614,8 +676,10 @@ public class FinOpsService {
     public CompletableFuture<List<Map<String, Object>>> getCostByRegion(CloudAccount account, boolean forceRefresh,
             String startDate, String endDate) {
         String cacheKey = "costByRegion-" + account.getAwsAccountId();
+        String dbKey = "FINOPS_COST_REGION::" + account.getAwsAccountId();
         if (startDate != null && endDate != null) {
             cacheKey += "-" + startDate + "-" + endDate;
+            dbKey += "::" + startDate + "::" + endDate;
         }
 
         if (!forceRefresh) {
@@ -624,13 +688,56 @@ public class FinOpsService {
             if (cachedData.isPresent()) {
                 return CompletableFuture.completedFuture(cachedData.get());
             }
+            try {
+                Optional<CachedData> dbCached = cachedDataRepository.findById(dbKey);
+                if (dbCached.isPresent()) {
+                    List<Map<String, Object>> dbData = objectMapper.readValue(dbCached.get().getJsonData(), new TypeReference<>() {});
+                    if (dbData != null) {
+                        redisCache.put(cacheKey, dbData, 60 * 24);
+                        logger.info("✅ DB snapshot hit — re-warmed Redis: {}", dbKey);
+                        return CompletableFuture.completedFuture(dbData);
+                    }
+                }
+            } catch (Exception dbEx) {
+                logger.warn("DB cache miss for {}: {}", dbKey, dbEx.getMessage());
+            }
         }
 
         // Return mock data if mock mode is enabled
         if (useMockData) {
             List<Map<String, Object>> mockResult = costMockService.getMockCostByRegion(account, startDate, endDate);
-            redisCache.put(cacheKey, mockResult, 60);
+            redisCache.put(cacheKey, mockResult, 60 * 24);
             return CompletableFuture.completedFuture(mockResult);
+        }
+
+        // ── Closed-month snapshot: use AWS_MONTHLY_BREAKDOWN_RGN ─────────────────
+        // When the request covers exactly one closed month, serve region breakdown
+        // from the permanent monthly snapshot instead of calling CE API.
+        if (startDate != null && endDate != null) {
+            try {
+                YearMonth startYm = YearMonth.from(LocalDate.parse(startDate));
+                YearMonth endYm   = YearMonth.from(LocalDate.parse(endDate));
+                if (startYm.equals(endYm) && CostDataSnapshotService.isClosedMonth(startYm)) {
+                    Optional<List<CostDto>> snap = snapshotService.readBreakdownRgn(account.getAwsAccountId(), startYm);
+                    if (snap.isPresent()) {
+                        List<Map<String, Object>> result = snap.get().stream()
+                                .map(c -> {
+                                    Map<String, Object> m = new HashMap<>();
+                                    m.put("region", c.getName());
+                                    m.put("cost", c.getAmount());
+                                    return m;
+                                })
+                                .filter(m -> (double) m.get("cost") > 0.01)
+                                .collect(Collectors.toList());
+                        logger.info("✅ getCostByRegion snapshot hit for {} / {} — {} regions",
+                                account.getAwsAccountId(), startYm, result.size());
+                        redisCache.put(cacheKey, result, 60 * 24);
+                        return CompletableFuture.completedFuture(result);
+                    }
+                }
+            } catch (Exception snapEx) {
+                logger.debug("getCostByRegion snapshot check failed: {}", snapEx.getMessage());
+            }
         }
 
         CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
@@ -675,7 +782,16 @@ public class FinOpsService {
                     .collect(Collectors.toList());
 
             logger.info("Fetched {} regions with costs for account {}", result.size(), account.getAwsAccountId());
-            redisCache.put(cacheKey, result, 60);
+            redisCache.put(cacheKey, result, 60 * 24);
+            try {
+                CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+                snapshot.setCacheKey(dbKey);
+                snapshot.setJsonData(objectMapper.writeValueAsString(result));
+                snapshot.setLastUpdated(java.time.LocalDateTime.now());
+                cachedDataRepository.save(snapshot);
+            } catch (Exception dbEx) {
+                logger.warn("Failed to save DB snapshot {}: {}", dbKey, dbEx.getMessage());
+            }
             return CompletableFuture.completedFuture(result);
         } catch (Exception e) {
             logger.error("Could not fetch cost by region for account {} (dates: {} to {}): {}",
@@ -688,8 +804,10 @@ public class FinOpsService {
     public CompletableFuture<List<DashboardData.BillingSummary>> getBillingSummary(CloudAccount account,
             boolean forceRefresh, String startDate, String endDate) {
         String cacheKey = "billingSummary-" + account.getAwsAccountId();
+        String dbKey = "FINOPS_BILLING_SUMMARY::" + account.getAwsAccountId();
         if (startDate != null && endDate != null) {
             cacheKey += "-" + startDate + "-" + endDate;
+            dbKey += "::" + startDate + "::" + endDate;
         }
 
         if (!forceRefresh) {
@@ -698,63 +816,62 @@ public class FinOpsService {
             if (cachedData.isPresent()) {
                 return CompletableFuture.completedFuture(cachedData.get());
             }
+            try {
+                Optional<CachedData> dbCached = cachedDataRepository.findById(dbKey);
+                if (dbCached.isPresent()) {
+                    List<DashboardData.BillingSummary> dbData = objectMapper.readValue(dbCached.get().getJsonData(), new TypeReference<>() {});
+                    if (dbData != null) {
+                        redisCache.put(cacheKey, dbData, 60 * 24);
+                        logger.info("✅ DB snapshot hit — re-warmed Redis: {}", dbKey);
+                        return CompletableFuture.completedFuture(dbData);
+                    }
+                }
+            } catch (Exception dbEx) {
+                logger.warn("DB cache miss for {}: {}", dbKey, dbEx.getMessage());
+            }
         }
 
         // Return mock data if mock mode is enabled
         if (useMockData) {
             List<DashboardData.BillingSummary> mockResult = costMockService.getMockBillingSummary(account, startDate,
                     endDate);
-            redisCache.put(cacheKey, mockResult, 60);
+            redisCache.put(cacheKey, mockResult, 60 * 24);
             return CompletableFuture.completedFuture(mockResult);
         }
 
-        CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
+        // Delegate to CostService.getCostBreakdown("SERVICE") — shares the same CE call
+        // and Redis/DB cache with the Cost Management page, avoiding a duplicate API charge.
+        String effectiveStartDate = startDate != null ? startDate : LocalDate.now().withDayOfMonth(1).toString();
+        String effectiveEndDate = endDate != null ? endDate : LocalDate.now().toString();
 
-        // Determine date range and granularity
-        String start, end;
-        Granularity granularity;
-        if (startDate != null && endDate != null) {
-            start = startDate;
-            end = LocalDate.parse(endDate).plusDays(1).toString(); // Add one day to include end date
-            granularity = Granularity.DAILY; // Use DAILY for custom date ranges
-            logger.info("Fetching billing summary for account {} from {} to {} (DAILY)...", account.getAwsAccountId(),
-                    start, end);
-        } else {
-            start = LocalDate.now().withDayOfMonth(1).toString();
-            end = LocalDate.now().plusDays(1).toString();
-            granularity = Granularity.MONTHLY; // Use MONTHLY for month-to-date
-            logger.info("Fetching billing summary for account {} (MONTHLY)...", account.getAwsAccountId());
-        }
+        logger.info("Fetching billing summary for account {} via getCostBreakdown ({} to {})...",
+                account.getAwsAccountId(), effectiveStartDate, effectiveEndDate);
 
         try {
-            GetCostAndUsageRequest request = GetCostAndUsageRequest.builder()
-                    .timePeriod(DateInterval.builder().start(start).end(end).build())
-                    .granularity(granularity)
-                    .metrics("UnblendedCost")
-                    .groupBy(GroupDefinition.builder().type(GroupDefinitionType.DIMENSION).key("SERVICE").build())
-                    .build();
+            List<CostDto> breakdown = costService
+                    .getCostBreakdown(account.getAwsAccountId(), "SERVICE", null, forceRefresh,
+                            effectiveStartDate, effectiveEndDate)
+                    .join();
 
-            // Aggregate results across all time periods and group by service
-            Map<String, Double> serviceCostMap = new HashMap<>();
-            ce.getCostAndUsage(request).resultsByTime().forEach(timePeriod -> {
-                timePeriod.groups().forEach(group -> {
-                    String serviceName = group.keys().get(0);
-                    double cost = Double.parseDouble(group.metrics().get("UnblendedCost").amount());
-                    serviceCostMap.merge(serviceName, cost, Double::sum);
-                });
-            });
-
-            List<DashboardData.BillingSummary> result = serviceCostMap.entrySet().stream()
-                    .map(e -> new DashboardData.BillingSummary(e.getKey(), e.getValue()))
-                    .filter(s -> s.getMonthToDateCost() > 0.01)
+            List<DashboardData.BillingSummary> result = breakdown.stream()
+                    .map(dto -> new DashboardData.BillingSummary(dto.getName(), dto.getAmount()))
                     .collect(Collectors.toList());
 
             logger.info("Fetched {} services with costs for account {}", result.size(), account.getAwsAccountId());
-            redisCache.put(cacheKey, result, 60);
+            redisCache.put(cacheKey, result, 60 * 24);
+            try {
+                CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+                snapshot.setCacheKey(dbKey);
+                snapshot.setJsonData(objectMapper.writeValueAsString(result));
+                snapshot.setLastUpdated(java.time.LocalDateTime.now());
+                cachedDataRepository.save(snapshot);
+            } catch (Exception dbEx) {
+                logger.warn("Failed to save DB snapshot {}: {}", dbKey, dbEx.getMessage());
+            }
             return CompletableFuture.completedFuture(result);
         } catch (Exception e) {
-            logger.error("Could not fetch billing summary for account {} (dates: {} to {}): {}",
-                    account.getAwsAccountId(), start, end, e.getMessage(), e);
+            logger.error("Could not fetch billing summary for account {}: {}",
+                    account.getAwsAccountId(), e.getMessage(), e);
             return CompletableFuture.completedFuture(new ArrayList<>());
         }
     }
@@ -763,8 +880,10 @@ public class FinOpsService {
     public CompletableFuture<DashboardData.CostHistory> getCostHistory(CloudAccount account, boolean forceRefresh,
             String startDate, String endDate) {
         String cacheKey = "costHistory-" + account.getAwsAccountId();
+        String dbKey = "FINOPS_COST_HISTORY::" + account.getAwsAccountId();
         if (startDate != null && endDate != null) {
             cacheKey += "-" + startDate + "-" + endDate;
+            dbKey += "::" + startDate + "::" + endDate;
         }
 
         if (!forceRefresh) {
@@ -772,12 +891,25 @@ public class FinOpsService {
             if (cachedData.isPresent()) {
                 return CompletableFuture.completedFuture(cachedData.get());
             }
+            try {
+                Optional<CachedData> dbCached = cachedDataRepository.findById(dbKey);
+                if (dbCached.isPresent()) {
+                    DashboardData.CostHistory dbData = objectMapper.readValue(dbCached.get().getJsonData(), DashboardData.CostHistory.class);
+                    if (dbData != null) {
+                        redisCache.put(cacheKey, dbData, 60 * 24);
+                        logger.info("✅ DB snapshot hit — re-warmed Redis: {}", dbKey);
+                        return CompletableFuture.completedFuture(dbData);
+                    }
+                }
+            } catch (Exception dbEx) {
+                logger.warn("DB cache miss for {}: {}", dbKey, dbEx.getMessage());
+            }
         }
 
         // Return mock data if mock mode is enabled
         if (useMockData) {
             DashboardData.CostHistory mockResult = costMockService.getMockCostHistory(account, startDate, endDate);
-            redisCache.put(cacheKey, mockResult, 60);
+            redisCache.put(cacheKey, mockResult, 60 * 24);
             return CompletableFuture.completedFuture(mockResult);
         }
 
@@ -812,34 +944,95 @@ public class FinOpsService {
                     anomalies.add(false);
                 });
             } else {
-                logger.info("Fetching 6-month cost history for account {} (single batched call)...",
-                        account.getAwsAccountId());
-                LocalDate startRange = LocalDate.now().minusMonths(5).withDayOfMonth(1);
-                LocalDate endRange = LocalDate.now().plusDays(1);
-                GetCostAndUsageRequest req = GetCostAndUsageRequest.builder()
-                        .timePeriod(DateInterval.builder()
-                                .start(startRange.toString()).end(endRange.toString()).build())
-                        .granularity(Granularity.MONTHLY).metrics("UnblendedCost").build();
-
-                List<Double> allCosts = new ArrayList<>();
-                ce.getCostAndUsage(req).resultsByTime().forEach(result -> {
-                    LocalDate monthStart = LocalDate.parse(result.timePeriod().start());
-                    labels.add(monthStart.format(DateTimeFormatter.ofPattern("MMM uuuu")));
-                    allCosts.add(Double.parseDouble(result.total().get("UnblendedCost").amount()));
-                });
-
-                for (int i = 0; i < allCosts.size(); i++) {
-                    double currentCost = allCosts.get(i);
-                    costs.add(currentCost);
-                    boolean isAnomaly = false;
-                    if (i > 0) {
-                        double previousCost = allCosts.get(i - 1);
-                        if (previousCost > 100) {
-                            double changePercent = ((currentCost - previousCost) / previousCost) * 100;
-                            if (changePercent > 20) isAnomaly = true;
+                // ── Snapshot-first: compose 5 closed months from DB, only hit CE for current ──
+                boolean snapResolved = false;
+                try {
+                    String acctId = account.getAwsAccountId();
+                    YearMonth currentYm = YearMonth.now();
+                    List<Double> snapMonthCosts = new ArrayList<>();
+                    boolean allPresent = true;
+                    for (int i = 5; i >= 1; i--) {
+                        YearMonth ym = currentYm.minusMonths(i);
+                        Optional<Double> snapTotal = snapshotService.readMonthlyTotal(acctId, ym);
+                        if (snapTotal.isPresent()) {
+                            snapMonthCosts.add(snapTotal.get());
+                        } else {
+                            allPresent = false;
+                            break;
                         }
                     }
-                    anomalies.add(isAnomaly);
+                    if (allPresent && snapMonthCosts.size() == 5) {
+                        // Fetch only current (open) month from CE API
+                        double[] curCostArr = {0.0};
+                        try {
+                            LocalDate curStart = currentYm.atDay(1);
+                            LocalDate curEnd   = currentYm.atEndOfMonth().plusDays(1);
+                            GetCostAndUsageRequest curReq = GetCostAndUsageRequest.builder()
+                                    .timePeriod(DateInterval.builder()
+                                            .start(curStart.toString()).end(curEnd.toString()).build())
+                                    .granularity(Granularity.MONTHLY).metrics("UnblendedCost").build();
+                            ce.getCostAndUsage(curReq).resultsByTime().forEach(r ->
+                                    curCostArr[0] += Double.parseDouble(
+                                            r.total().get("UnblendedCost").amount()));
+                        } catch (Exception ceEx) {
+                            logger.warn("[FinOps] CE current-month fetch failed, using 0.0: {}", ceEx.getMessage());
+                        }
+                        // Build labels: months -5 … -1 then current
+                        for (int i = 5; i >= 1; i--) {
+                            labels.add(currentYm.minusMonths(i).atDay(1)
+                                    .format(DateTimeFormatter.ofPattern("MMM uuuu")));
+                        }
+                        labels.add(currentYm.atDay(1).format(DateTimeFormatter.ofPattern("MMM uuuu")));
+                        List<Double> allCosts2 = new ArrayList<>(snapMonthCosts);
+                        allCosts2.add(curCostArr[0]);
+                        for (int i = 0; i < allCosts2.size(); i++) {
+                            double cur = allCosts2.get(i);
+                            costs.add(cur);
+                            boolean isAnomaly = false;
+                            if (i > 0 && allCosts2.get(i - 1) > 100) {
+                                double changePercent = ((cur - allCosts2.get(i - 1)) / allCosts2.get(i - 1)) * 100;
+                                if (changePercent > 20) isAnomaly = true;
+                            }
+                            anomalies.add(isAnomaly);
+                        }
+                        snapResolved = true;
+                        logger.info("✅ getCostHistory snapshot-composed for account={}", acctId);
+                    }
+                } catch (Exception snapEx) {
+                    logger.warn("[FinOps] Snapshot composition for getCostHistory failed, falling back to CE: {}",
+                            snapEx.getMessage());
+                }
+
+                if (!snapResolved) {
+                    logger.info("Fetching 6-month cost history for account {} (single batched call)...",
+                            account.getAwsAccountId());
+                    LocalDate startRange = LocalDate.now().minusMonths(5).withDayOfMonth(1);
+                    LocalDate endRange = LocalDate.now().plusDays(1);
+                    GetCostAndUsageRequest req = GetCostAndUsageRequest.builder()
+                            .timePeriod(DateInterval.builder()
+                                    .start(startRange.toString()).end(endRange.toString()).build())
+                            .granularity(Granularity.MONTHLY).metrics("UnblendedCost").build();
+
+                    List<Double> allCosts = new ArrayList<>();
+                    ce.getCostAndUsage(req).resultsByTime().forEach(result -> {
+                        LocalDate monthStart = LocalDate.parse(result.timePeriod().start());
+                        labels.add(monthStart.format(DateTimeFormatter.ofPattern("MMM uuuu")));
+                        allCosts.add(Double.parseDouble(result.total().get("UnblendedCost").amount()));
+                    });
+
+                    for (int i = 0; i < allCosts.size(); i++) {
+                        double currentCost = allCosts.get(i);
+                        costs.add(currentCost);
+                        boolean isAnomaly = false;
+                        if (i > 0) {
+                            double previousCost = allCosts.get(i - 1);
+                            if (previousCost > 100) {
+                                double changePercent = ((currentCost - previousCost) / previousCost) * 100;
+                                if (changePercent > 20) isAnomaly = true;
+                            }
+                        }
+                        anomalies.add(isAnomaly);
+                    }
                 }
             }
         } catch (Exception e) {
@@ -847,7 +1040,16 @@ public class FinOpsService {
         }
 
         DashboardData.CostHistory result = new DashboardData.CostHistory(labels, costs, anomalies);
-        redisCache.put(cacheKey, result, 60);
+        redisCache.put(cacheKey, result, 60 * 24);
+        try {
+            CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+            snapshot.setCacheKey(dbKey);
+            snapshot.setJsonData(objectMapper.writeValueAsString(result));
+            snapshot.setLastUpdated(java.time.LocalDateTime.now());
+            cachedDataRepository.save(snapshot);
+        } catch (Exception dbEx) {
+            logger.warn("Failed to save DB snapshot {}: {}", dbKey, dbEx.getMessage());
+        }
         return CompletableFuture.completedFuture(result);
     }
 
@@ -855,18 +1057,32 @@ public class FinOpsService {
     public CompletableFuture<List<DashboardData.CostAnomaly>> getCostAnomalies(CloudAccount account,
             boolean forceRefresh) {
         String cacheKey = "costAnomalies-" + account.getAwsAccountId();
+        String dbKey = "FINOPS_ANOMALIES::" + account.getAwsAccountId();
         if (!forceRefresh) {
             Optional<List<DashboardData.CostAnomaly>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {
             });
             if (cachedData.isPresent()) {
                 return CompletableFuture.completedFuture(cachedData.get());
             }
+            try {
+                Optional<CachedData> dbCached = cachedDataRepository.findById(dbKey);
+                if (dbCached.isPresent()) {
+                    List<DashboardData.CostAnomaly> dbData = objectMapper.readValue(dbCached.get().getJsonData(), new TypeReference<>() {});
+                    if (dbData != null) {
+                        redisCache.put(cacheKey, dbData, 60 * 24);
+                        logger.info("✅ DB snapshot hit — re-warmed Redis: {}", dbKey);
+                        return CompletableFuture.completedFuture(dbData);
+                    }
+                }
+            } catch (Exception dbEx) {
+                logger.warn("DB cache miss for {}: {}", dbKey, dbEx.getMessage());
+            }
         }
 
         // Return mock data if mock mode is enabled
         if (useMockData) {
             List<DashboardData.CostAnomaly> mockResult = costMockService.getMockCostAnomalies(account);
-            redisCache.put(cacheKey, mockResult, 60);
+            redisCache.put(cacheKey, mockResult, 60 * 24);
             return CompletableFuture.completedFuture(mockResult);
         }
 
@@ -885,7 +1101,16 @@ public class FinOpsService {
                             a.anomalyEndDate() != null ? LocalDate.parse(a.anomalyEndDate().substring(0, 10))
                                     : LocalDate.now()))
                     .collect(Collectors.toList());
-            redisCache.put(cacheKey, result, 60);
+            redisCache.put(cacheKey, result, 60 * 24);
+            try {
+                CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+                snapshot.setCacheKey(dbKey);
+                snapshot.setJsonData(objectMapper.writeValueAsString(result));
+                snapshot.setLastUpdated(java.time.LocalDateTime.now());
+                cachedDataRepository.save(snapshot);
+            } catch (Exception dbEx) {
+                logger.warn("Failed to save DB snapshot {}: {}", dbKey, dbEx.getMessage());
+            }
             return CompletableFuture.completedFuture(result);
         } catch (Exception e) {
             logger.error(

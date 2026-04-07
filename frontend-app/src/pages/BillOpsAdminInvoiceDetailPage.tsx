@@ -309,6 +309,36 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
     }
   }, [invoice]);
 
+  const downloadDetailBill = useCallback(async () => {
+    if (!invoice) return;
+    try {
+      const detailRes = await apiFetch(`/api/admin/invoices/${invoice.id}`, { credentials: 'include' });
+      if (!detailRes.ok) throw new Error('Failed to fetch invoice.');
+      const fullDto = await detailRes.json();
+
+      const pdfRes = await apiFetch('/api/billops/invoices/download-detail', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(fullDto),
+      });
+      if (!pdfRes.ok) throw new Error('Detail bill generation failed.');
+
+      const blob = await pdfRes.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = url;
+      a.download = `detail-bill-${invoice.invoiceNumber}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Download failed.');
+    }
+  }, [invoice]);
+
   // ── Render ─────────────────────────────────────────────────────────────────
 
   if (!invoiceId) {
@@ -383,6 +413,10 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
             <button onClick={downloadPdf} className="invoice-action-btn flex items-center gap-2 px-4 py-2 text-sm font-medium" title="Download PDF Preview">
               <i className="fas fa-file-pdf" />
               Download PDF
+            </button>
+            <button onClick={downloadDetailBill} className="invoice-action-btn flex items-center gap-2 px-4 py-2 text-sm font-medium" title="Download Detail Bill (without tax)">
+              <i className="fas fa-file-invoice" />
+              Download Detail Bill
             </button>
             {isDraft && (
               <button

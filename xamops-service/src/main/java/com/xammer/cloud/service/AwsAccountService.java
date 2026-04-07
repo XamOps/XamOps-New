@@ -32,6 +32,9 @@ public class AwsAccountService {
     @Value("${cloudformation.template.s3.url}")
     private String cloudFormationTemplateUrl;
 
+    @Value("${cloudformation.template.s3.readwrite.url}")
+    private String cloudFormationReadWriteTemplateUrl;
+
     @Value("${xamops.cfn.callback.param.name:}")
     private String cfnCallbackParamName;
 
@@ -83,6 +86,7 @@ public class AwsAccountService {
 
         String stackName = "XamOps-Connection-" + accountName.replaceAll("[^a-zA-Z0-9-]", "");
         String xamopsAccountId = this.hostAccountId;
+        String templateUrl = "read-write".equals(accessType) ? cloudFormationReadWriteTemplateUrl : cloudFormationTemplateUrl;
 
         boolean eventBridgeEnabled = cfnCallbackParamName != null && !cfnCallbackParamName.isEmpty();
         String callbackParam = eventBridgeEnabled
@@ -91,7 +95,7 @@ public class AwsAccountService {
 
         String urlString = String.format(
                 "https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?templateURL=%s&stackName=%s&param_XamOpsAccountId=%s&param_ExternalId=%s%s",
-                cloudFormationTemplateUrl, stackName, xamopsAccountId, externalId, callbackParam);
+                templateUrl, stackName, xamopsAccountId, externalId, callbackParam);
 
         return Map.of(
                 "url", new URL(urlString),
@@ -136,7 +140,8 @@ public class AwsAccountService {
                 .orElseThrow(() -> new RuntimeException("No account found for externalId: " + externalId));
 
         if (!"PENDING".equals(account.getStatus()) && !"FAILED".equals(account.getStatus())) {
-            logger.info("EventBridge callback: account {} already in status {}. Skipping.", externalId, account.getStatus());
+            logger.info("EventBridge callback: account {} already in status {}. Skipping.", externalId,
+                    account.getStatus());
             return account;
         }
 
@@ -152,7 +157,8 @@ public class AwsAccountService {
             return cloudAccountRepository.save(account);
         } catch (Exception e) {
             account.setStatus("FAILED");
-            logger.error("EventBridge callback: role assumption failed for externalId={}: {}", externalId, e.getMessage());
+            logger.error("EventBridge callback: role assumption failed for externalId={}: {}", externalId,
+                    e.getMessage());
             cloudAccountRepository.save(account);
             awsClientProvider.evictAccount(awsAccountId);
             throw new RuntimeException("Role assumption failed during EventBridge callback.", e);

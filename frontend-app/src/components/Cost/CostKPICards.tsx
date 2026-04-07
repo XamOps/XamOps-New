@@ -10,9 +10,10 @@ interface CostKPICardsProps {
   costData: CostDataItem[];
   filters: CostFilters;
   isLoading: boolean;
+  labelFilterActive?: boolean;
 }
 
-const CostKPICards: React.FC<CostKPICardsProps> = ({ costData, filters, isLoading }) => {
+const CostKPICards: React.FC<CostKPICardsProps> = ({ costData, filters, isLoading, labelFilterActive }) => {
   const totalCost = costData.reduce((sum, item) => sum + item.amount, 0);
   const sortedData = [...costData].sort((a, b) => b.amount - a.amount);
   const topSpender = sortedData.length > 0 ? sortedData[0] : null;
@@ -32,9 +33,15 @@ const CostKPICards: React.FC<CostKPICardsProps> = ({ costData, filters, isLoadin
             </p>
           </div>
         </div>
-        <div className="text-sm text-gray-500 flex items-center">
-          <i className="far fa-calendar-alt mr-2"></i>
+        <div className="text-sm text-gray-500 flex items-center gap-2 flex-wrap">
+          <i className="far fa-calendar-alt mr-1"></i>
           <span>Spending for {filters.startDate} to {filters.endDate}</span>
+          {labelFilterActive && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-700 border border-indigo-200">
+              <i className="fas fa-tag text-indigo-500" style={{ fontSize: '9px' }} />
+              Label filtered
+            </span>
+          )}
         </div>
       </div>
 

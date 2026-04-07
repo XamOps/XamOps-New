@@ -37,6 +37,7 @@ import org.springframework.stereotype.Service;
 import javax.sql.DataSource;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -89,6 +90,12 @@ public class ProactiveCacheRefreshService {
     private final AutoSpottingService autoSpottingService;
     private final XamOpsRightsizingService xamOpsRightsizingService;
 
+    // ADDED: DbOps cost caching
+    private final DbOpsCostService dbOpsCostService;
+
+    // ADDED: Monthly cost snapshot service (pre-Billing-Conductor persistence)
+    private final CostDataSnapshotService costDataSnapshotService;
+
     @Autowired
     public ProactiveCacheRefreshService(
             CloudAccountRepository cloudAccountRepository,
@@ -121,7 +128,9 @@ public class ProactiveCacheRefreshService {
             @Qualifier("masterDataSource") DataSource masterDataSource,
             com.xammer.cloud.config.SchedulingEnvironmentConfig envConfig,
             AutoSpottingService autoSpottingService,
-            XamOpsRightsizingService xamOpsRightsizingService) {
+            XamOpsRightsizingService xamOpsRightsizingService,
+            DbOpsCostService dbOpsCostService,
+            CostDataSnapshotService costDataSnapshotService) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.cacheManager = cacheManager;
         this.cloudListService = cloudListService;
@@ -153,6 +162,8 @@ public class ProactiveCacheRefreshService {
         this.envConfig = envConfig;
         this.autoSpottingService = autoSpottingService;
         this.xamOpsRightsizingService = xamOpsRightsizingService;
+        this.dbOpsCostService = dbOpsCostService;
+        this.costDataSnapshotService = costDataSnapshotService;
 
         // Log configuration on startup
         envConfig.logConfiguration();
@@ -224,6 +235,8 @@ public class ProactiveCacheRefreshService {
                     try { performanceService.getInsights(accountId, "ALL", false); }
                     catch (Exception e) { logger.debug("[Seed] Performance skipped for {}: {}", accountId, e.getMessage()); }
                 }
+                // Pre-warm all historical closed months (2025-01 → last month) into Redis from DB snapshots
+                seedHistoricalCostMonths(accounts);
             } finally {
                 TenantContext.clear();
             }
@@ -309,6 +322,51 @@ public class ProactiveCacheRefreshService {
     }
 
     /**
+     * Pre-warms all historical closed months (SNAPSHOT_START → last month) into Redis for every AWS account.
+     * Each call hits the existing CostService snapshot-read logic:
+     *   Redis miss → DB snapshot hit → Redis cached → return   (no CE API call)
+     * Only falls back to CE API if a month's DB snapshot is somehow missing.
+     */
+    private void seedHistoricalCostMonths(List<CloudAccount> accounts) {
+        YearMonth startYm = YearMonth.of(2025, 1);
+        YearMonth lastMonth = YearMonth.now().minusMonths(1);
+        int warmed = 0;
+        int skipped = 0;
+
+        logger.info("[CacheWarmUp] Pre-warming historical cost months ({} → {}) into Redis...", startYm, lastMonth);
+
+        for (CloudAccount account : accounts) {
+            if (!"AWS".equals(account.getProvider()) || account.getAwsAccountId() == null) continue;
+            String accountId = account.getAwsAccountId();
+
+            for (YearMonth ym = startYm; !ym.isAfter(lastMonth); ym = ym.plusMonths(1)) {
+                // Only warm months that have a complete DB snapshot — never fall back to CE API in warmup
+                if (!costDataSnapshotService.isSnapshotComplete(accountId, ym)) {
+                    skipped++;
+                    continue;
+                }
+
+                String monthStart = ym.atDay(1).toString();
+                String monthEnd   = ym.atEndOfMonth().toString();
+                LocalDate startDate = ym.atDay(1);
+                LocalDate endDate   = ym.atEndOfMonth();
+
+                try { costService.getCostBreakdown(accountId, "SERVICE", null, false, monthStart, monthEnd).join(); }
+                catch (Exception e) { logger.debug("[Seed] HistCost SVC skip {}/{}: {}", accountId, ym, e.getMessage()); }
+
+                try { costService.getCostBreakdown(accountId, "REGION", null, false, monthStart, monthEnd).join(); }
+                catch (Exception e) { logger.debug("[Seed] HistCost RGN skip {}/{}: {}", accountId, ym, e.getMessage()); }
+
+                try { costService.getCostBreakdownByServiceAndRegion(accountId, startDate, endDate, false).join(); }
+                catch (Exception e) { logger.debug("[Seed] HistCost SvcRgn skip {}/{}: {}", accountId, ym, e.getMessage()); }
+
+                warmed++;
+            }
+        }
+        logger.info("[CacheWarmUp] Historical cost months warm-up done — {} warmed, {} skipped (no snapshot in DB)", warmed, skipped);
+    }
+
+    /**
      * Helper to fetch active tenants from Master DB - ENVIRONMENT AWARE
      * - Local/UAT: Returns single configured tenant (uses local/uat DB)
      * - Prod: Returns ALL active tenants from master DB (tenant_config table)
@@ -384,7 +442,7 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     // 2:00 AM -> BillOps Dashboard Refresh (User & Admin)
     // ===================================================================================
-    // @Scheduled(cron = "0 0 2 * * ?")
+    // @Scheduled(cron = "0 0 2 * * WED,SUN")
     // public void refreshBillOpsDashboards() {
     // logger.info("--- [2:00 AM] Starting BillOps Dashboard Refresh ---");
 
@@ -426,7 +484,7 @@ public class ProactiveCacheRefreshService {
     // }
     // }
 
-    @Scheduled(cron = "0 0 2 * * ?")
+    @Scheduled(cron = "0 0 2 * * WED,SUN")
     public void refreshFinOps() {
         logger.info("--- [2:00 AM] Starting FinOps Refresh ---");
         String startDate = LocalDate.now().withDayOfMonth(1).toString();
@@ -484,7 +542,7 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     // 2:30 AM -> Cost Management (Data Intensive)
     // ===================================================================================
-    @Scheduled(cron = "0 30 2 * * ?")
+    @Scheduled(cron = "0 30 2 * * WED,SUN")
     public void refreshCostData() {
         logger.info("--- [2:30 AM] Starting Cost Data Refresh (cost.html) ---");
         String startDate = LocalDate.now().withDayOfMonth(1).toString(); // Start of month
@@ -505,7 +563,16 @@ public class ProactiveCacheRefreshService {
                     if (accountId == null)
                         continue;
                     try {
-                        costService.getCostBreakdown(accountId, "SERVICE", null, true, startDate, endDate).join();
+                        // NOTE: getCostBreakdown("SERVICE") is intentionally omitted here — it is
+                        // already called at 2:00 AM via refreshFinOps() → getFinOpsReport() →
+                        // getBillingSummary() with forceRefresh=true. Calling it again 30 min later
+                        // would be a duplicate CE API hit.
+                        costService.getTotalMonthToDateCost(accountId, true).join();
+                        costService.getLastMonthSpend(accountId, true).join();
+                        costService.getCostBreakdownByServiceAndRegion(
+                                accountId, LocalDate.parse(startDate), LocalDate.parse(endDate), true).join();
+                        costService.getHistoricalCost(accountId, null, null, 30, true).join();
+                        dbOpsCostService.getDbCosts(accountId, true).join();
                         count++;
                     } catch (Exception e) {
                         logger.error("Failed Cost refresh for {}", accountId, e);
@@ -534,7 +601,7 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     // 3:30 AM -> AWS Dashboard Snapshot Refresh
     // ===================================================================================
-    @Scheduled(cron = "0 30 3 * * ?")
+    @Scheduled(cron = "0 30 3 * * WED,SUN")
     public void refreshAwsDashboardData() {
         logger.info("--- [3:30 AM] Starting AWS Dashboard Snapshot Refresh ---");
         List<String> tenants = fetchActiveTenants();
@@ -582,7 +649,7 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     // 3:00 AM -> Security & Performance
     // ===================================================================================
-    @Scheduled(cron = "0 0 3 * * ?")
+    @Scheduled(cron = "0 0 3 * * WED,SUN")
     public void refreshSecurityAndPerformance() {
         logger.info("--- [3:00 AM] Starting Security & Performance Refresh ---");
         List<String> tenants = fetchActiveTenants();
@@ -650,7 +717,7 @@ public class ProactiveCacheRefreshService {
     // 3:30 AM -> Optimization (Waste & Rightsizing)
     // OPTIMIZED: Changed from daily to Mon/Wed/Fri to reduce costs
     // ===================================================================================
-    @Scheduled(cron = "0 30 3 * * MON,WED,FRI")
+    @Scheduled(cron = "0 30 3 * * WED,SUN")
     public void refreshOptimization() {
         logger.info("--- [3:30 AM] Starting Optimization Refresh (Waste & Rightsizing) ---");
         List<String> tenants = fetchActiveTenants();
@@ -708,10 +775,11 @@ public class ProactiveCacheRefreshService {
     }
 
     // ===================================================================================
-    // 4:00 AM -> Reservations (Can be slow)
-    // OPTIMIZED: Changed from daily to weekly (Sundays) to reduce costs
+    // 4:00 AM Sunday -> Reservations (Can be slow)
+    // OPTIMIZED: Weekly (Sundays only) — RI/SP data changes slowly, daily is wasteful
+    // 8 CE calls/account/run × daily = 56/week → weekly = 8/week (saves 48 CE calls/week)
     // ===================================================================================
-    @Scheduled(cron = "0 0 4 * * ?")
+    @Scheduled(cron = "0 0 4 * * WED,SUN")
     public void refreshReservations() {
         logger.info("--- [4:00 AM] Starting Reservation Refresh ---");
         List<String> tenants = fetchActiveTenants();
@@ -777,7 +845,7 @@ public class ProactiveCacheRefreshService {
     // 3:00 AM -> Alerts (Quota & Cost Anomalies)
     // SCHEDULED: Tuesday, Thursday, Saturday
     // ===================================================================================
-    @Scheduled(cron = "0 0 3 * * TUE,THU,SAT")
+    @Scheduled(cron = "0 0 3 * * WED,SUN")
     public void refreshAlerts() {
         logger.info("--- [3:00 AM] Starting Alerts Refresh (Tue/Thu/Sat) ---");
         List<String> tenants = fetchActiveTenants();
@@ -835,7 +903,7 @@ public class ProactiveCacheRefreshService {
     // 4:30 AM -> Azure Dashboard Refresh (Daily)
     // Caches Azure dashboard data (cost, inventory, IAM) to database for fast access
     // ===================================================================================
-    @Scheduled(cron = "0 30 4 * * ?")
+    @Scheduled(cron = "0 30 4 * * WED,SUN")
     public void refreshAzureDashboardData() {
         logger.info("--- [4:30 AM] Starting Azure Dashboard Data Refresh ---");
         List<String> tenants = fetchActiveTenants();
@@ -893,7 +961,7 @@ public class ProactiveCacheRefreshService {
     // 1:30 AM -> GCP Dashboard Refresh (Daily)
     // Caches GCP dashboard data to database for fast access
     // ===================================================================================
-    @Scheduled(cron = "0 30 1 * * ?")
+    @Scheduled(cron = "0 30 1 * * WED,SUN")
     public void refreshGcpDashboardData() {
         logger.info("--- [1:30 AM] Starting GCP Dashboard Data Refresh ---");
         List<String> tenants = fetchActiveTenants();
@@ -950,7 +1018,7 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     // 2:00 AM -> GCP FinOps Report Refresh (Daily, runs alongside AWS FinOps)
     // ===================================================================================
-    @Scheduled(cron = "0 5 2 * * ?")
+    @Scheduled(cron = "0 5 2 * * WED,SUN")
     public void refreshGcpFinOpsData() {
         logger.info("--- [2:05 AM] Starting GCP FinOps Report Refresh ---");
         List<String> tenants = fetchActiveTenants();
@@ -998,7 +1066,7 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     // 2:35 AM -> GCP Cost Data Refresh (Daily, runs alongside AWS Cost)
     // ===================================================================================
-    @Scheduled(cron = "0 35 2 * * ?")
+    @Scheduled(cron = "0 35 2 * * WED,SUN")
     public void refreshGcpCostData() {
         logger.info("--- [2:35 AM] Starting GCP Cost Data Refresh ---");
         List<String> tenants = fetchActiveTenants();
@@ -1048,7 +1116,7 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     // 3:05 AM -> GCP Security Refresh (Daily, runs alongside AWS Security)
     // ===================================================================================
-    @Scheduled(cron = "0 5 3 * * ?")
+    @Scheduled(cron = "0 5 3 * * WED,SUN")
     public void refreshGcpSecurityData() {
         logger.info("--- [3:05 AM] Starting GCP Security Refresh ---");
         List<String> tenants = fetchActiveTenants();
@@ -1096,7 +1164,7 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     // 3:10 AM -> GCP Performance Refresh (Daily, runs alongside AWS Performance)
     // ===================================================================================
-    @Scheduled(cron = "0 10 3 * * ?")
+    @Scheduled(cron = "0 10 3 * * WED,SUN")
     public void refreshGcpPerformanceData() {
         logger.info("--- [3:10 AM] Starting GCP Performance Refresh ---");
         List<String> tenants = fetchActiveTenants();
@@ -1144,7 +1212,7 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     // 3:05 AM Tue/Thu/Sat -> GCP Alerts Refresh
     // ===================================================================================
-    @Scheduled(cron = "0 5 3 * * TUE,THU,SAT")
+    @Scheduled(cron = "0 5 3 * * WED,SUN")
     public void refreshGcpAlertsData() {
         logger.info("--- [3:05 AM Tue/Thu/Sat] Starting GCP Alerts Refresh ---");
         List<String> tenants = fetchActiveTenants();
@@ -1192,7 +1260,7 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     // 3:35 AM Mon/Wed/Fri -> GCP Waste Refresh
     // ===================================================================================
-    @Scheduled(cron = "0 35 3 * * MON,WED,FRI")
+    @Scheduled(cron = "0 35 3 * * WED,SUN")
     public void refreshGcpWasteData() {
         logger.info("--- [3:35 AM Mon/Wed/Fri] Starting GCP Waste Refresh ---");
         List<String> tenants = fetchActiveTenants();
@@ -1240,7 +1308,7 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     // 3:35 AM Mon/Wed/Fri -> GCP Rightsizing Refresh
     // ===================================================================================
-    @Scheduled(cron = "0 35 3 * * MON,WED,FRI")
+    @Scheduled(cron = "0 35 3 * * WED,SUN")
     public void refreshGcpRightsizingData() {
         logger.info("--- [3:35 AM Mon/Wed/Fri] Starting GCP Rightsizing Refresh ---");
         List<String> tenants = fetchActiveTenants();
@@ -1288,7 +1356,7 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     // 4:40 AM -> Azure Waste Refresh (Daily)
     // ===================================================================================
-    @Scheduled(cron = "0 40 4 * * ?")
+    @Scheduled(cron = "0 40 4 * * WED,SUN")
     public void refreshAzureWasteData() {
         logger.info("--- [4:40 AM] Starting Azure Waste Refresh ---");
         List<String> tenants = fetchActiveTenants();
@@ -1336,7 +1404,7 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     // 4:45 AM -> Azure Security Refresh (Daily)
     // ===================================================================================
-    @Scheduled(cron = "0 45 4 * * ?")
+    @Scheduled(cron = "0 45 4 * * WED,SUN")
     public void refreshAzureSecurityData() {
         logger.info("--- [4:45 AM] Starting Azure Security Refresh ---");
         List<String> tenants = fetchActiveTenants();
@@ -1384,7 +1452,7 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     // 4:50 AM -> Azure Performance Refresh (Daily)
     // ===================================================================================
-    @Scheduled(cron = "0 50 4 * * ?")
+    @Scheduled(cron = "0 50 4 * * WED,SUN")
     public void refreshAzurePerformanceData() {
         logger.info("--- [4:50 AM] Starting Azure Performance Refresh ---");
         List<String> tenants = fetchActiveTenants();
@@ -1432,7 +1500,7 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     // 4:55 AM Mon/Wed/Fri -> Azure Rightsizing Refresh
     // ===================================================================================
-    @Scheduled(cron = "0 55 4 * * MON,WED,FRI")
+    @Scheduled(cron = "0 55 4 * * WED,SUN")
     public void refreshAzureRightsizingData() {
         logger.info("--- [4:55 AM Mon/Wed/Fri] Starting Azure Rightsizing Refresh ---");
         List<String> tenants = fetchActiveTenants();
@@ -1480,7 +1548,7 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     // 5:00 AM -> Azure Cloudlist Refresh (Daily)
     // ===================================================================================
-    @Scheduled(cron = "0 0 5 * * ?")
+    @Scheduled(cron = "0 0 5 * * WED,SUN")
     public void refreshAzureCloudListData() {
         logger.info("--- [5:00 AM] Starting Azure Cloudlist Refresh ---");
         List<String> tenants = fetchActiveTenants();
@@ -1529,7 +1597,7 @@ public class ProactiveCacheRefreshService {
     // SpotAutomation Cache Refresh (Daily + Startup warmup)
     // Caches ASG list, cost data, and spot instances for the SpotAutomation page
     // ===================================================================================
-    @Scheduled(cron = "0 0 2 * * ?")
+    @Scheduled(cron = "0 0 2 * * WED,SUN")
     public void refreshSpotAutomation() {
         logger.info("--- [SpotAutomation] Starting SpotAutomation Cache Refresh ---");
         List<String> tenants = fetchActiveTenants();
@@ -1545,6 +1613,7 @@ public class ProactiveCacheRefreshService {
                         autoSpottingService.listAsgsAllRegions(account.getId(), true);
                         autoSpottingService.getCostData(account.getId(), true);
                         autoSpottingService.getSpotInstances(account.getId(), true);
+                        autoSpottingService.getRiSpCoverage(account.getId(), true);
                         logger.info("✓ SpotAutomation cached for account {} (cloudAccountId={})",
                                 account.getAwsAccountId(), account.getId());
                         count++;
@@ -1566,7 +1635,7 @@ public class ProactiveCacheRefreshService {
     // XamOpsRightsizing Cache Refresh (Daily + Startup warmup)
     // Caches XamOps-proprietary rightsizing recommendations for each AWS account
     // ===================================================================================
-    @Scheduled(cron = "0 30 3 * * MON,WED,FRI")
+    @Scheduled(cron = "0 30 3 * * WED,SUN")
     public void refreshXamOpsRightsizing() {
         logger.info("--- [XamOpsRightsizing] Starting XamOpsRightsizing Cache Refresh ---");
         List<String> tenants = fetchActiveTenants();
@@ -1592,6 +1661,46 @@ public class ProactiveCacheRefreshService {
                 logger.error("❌ Failed XamOpsRightsizing refresh for tenant {}", tenantId, e);
             } finally {
                 TenantContext.clear();
+            }
+        }
+    }
+
+    // ===================================================================================
+    // 11:00 PM last day of month → capture final monthly cost snapshot before month closes
+    // ===================================================================================
+
+    /**
+     * Runs at 11:00 PM on the last day of every month.
+     * Captures the final cost numbers for the current calendar month and persists them
+     * in cached_data with absolute month keys (e.g. AWS_MONTHLY_TOTAL::acct::2026-03).
+     *
+     * After this runs, CostService will serve closed-month data from these snapshots
+     * without calling the CE API — critical for preserving pre-Billing-Conductor data.
+     */
+    @Scheduled(cron = "0 0 23 L * ?")
+    public void snapshotEndOfMonthCost() {
+        logger.info("--- [11 PM EOM] Starting end-of-month cost snapshot ---");
+        if (!envConfig.isSchedulingEnabled()) {
+            logger.info("⚠️ Scheduling disabled — skipping end-of-month snapshot");
+            return;
+        }
+
+        JobExecutionHistory jobHistory = new JobExecutionHistory(
+                "EOM_COST_SNAPSHOT", envConfig.getCurrentTenantId(), LocalDateTime.now(), "RUNNING");
+        try {
+            jobHistory = jobExecutionHistoryRepository.save(jobHistory);
+            costDataSnapshotService.snapshotCurrentMonthFinal();
+            jobHistory.setStatus("SUCCESS");
+            jobHistory.setEndTime(LocalDateTime.now());
+            jobExecutionHistoryRepository.save(jobHistory);
+            logger.info("✅ End-of-month cost snapshot complete");
+        } catch (Exception e) {
+            logger.error("❌ End-of-month cost snapshot failed: {}", e.getMessage(), e);
+            if (jobHistory.getId() != null) {
+                jobHistory.setStatus("FAILURE");
+                jobHistory.setErrorMessage(e.getMessage());
+                jobHistory.setEndTime(LocalDateTime.now());
+                jobExecutionHistoryRepository.save(jobHistory);
             }
         }
     }
