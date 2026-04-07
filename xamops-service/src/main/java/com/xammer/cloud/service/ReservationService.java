@@ -99,7 +99,7 @@ public class ReservationService {
             try {
                 Optional<CachedData> dbCached = cachedDataRepository.findById(dbKey);
                 if (dbCached.isPresent()) {
-                    ReservationDto dbData = objectMapper.readValue(dbCached.get().getData(), ReservationDto.class);
+                    ReservationDto dbData = objectMapper.readValue(dbCached.get().getJsonData(), ReservationDto.class);
                     if (dbData != null) {
                         redisCache.put(cacheKey, dbData, 60 * 24);
                         logger.info("✅ Reservation page DB hit — repopulating Redis for account {}", accountId);
