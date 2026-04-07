@@ -7,6 +7,7 @@ interface NavSectionProps {
   icon: string;
   label: string;
   gradientClass?: string;
+  badge?: string;
   isOpen: boolean;
   onToggle: () => void;
   children: React.ReactNode;
@@ -17,6 +18,7 @@ const NavSection: React.FC<NavSectionProps> = ({
   icon,
   label,
   gradientClass = 'from-[#704fe6] to-[#9171f8]',
+  badge,
   isOpen,
   onToggle,
   children,
@@ -53,9 +55,14 @@ const NavSection: React.FC<NavSectionProps> = ({
               : 'text-gray-700 hover:bg-gray-100'
         )}
       >
-        <div className="flex items-center overflow-hidden">
-          <i className={clsx(icon, 'w-5 text-center mr-3')} />
+        <div className="flex items-center overflow-hidden gap-2">
+          <i className={clsx(icon, 'w-5 text-center mr-1')} />
           <span className="text-[13px] font-medium truncate">{label}</span>
+          {badge && (
+            <span className="flex-shrink-0 text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-amber-400/20 text-amber-300 border border-amber-400/30">
+              {badge}
+            </span>
+          )}
         </div>
         <svg
           className={clsx(

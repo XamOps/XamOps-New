@@ -12,7 +12,7 @@ import ExtendUsageModal from './ExtendUsageModal';
 interface ViewCapacityDetailModalProps {
   capacity: FlexComputeCapacity | null;
   onClose: () => void;
-  onExtend: (cidrId: string, endDate: string, endTime: string, utcOffset: string) => Promise<boolean>;
+  onExtend: (cidrId: string, datetime: string, timezone: string) => Promise<boolean>;
 }
 
 const formatCurrency = (value?: number): string => {

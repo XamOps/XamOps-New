@@ -1045,23 +1045,55 @@ public class EbsDiskRightsizingService {
         try {
             CloudWatchClient cw = awsClientProvider.getCloudWatchClient(account, region);
 
-            // List all disk_used_percent metrics in CWAgent namespace, paginated
+            // ListMetrics results are cached per account+region to avoid repeated pagination
+            // (CWAgent metric definitions rarely change — same TTL as the volume cache)
+            String listCacheKey = "cwagent-disk-metrics-list:" + account.getAwsAccountId() + ":" + region;
+            List<Map<String, Object>> cachedList = redisCacheService
+                    .get(listCacheKey, new TypeReference<List<Map<String, Object>>>() {})
+                    .orElse(null);
+
             List<Metric> relevantMetrics = new ArrayList<>();
-            String nextToken = null;
-            do {
-                ListMetricsRequest.Builder reqBuilder = ListMetricsRequest.builder()
-                        .namespace("CWAgent")
-                        .metricName("disk_used_percent")
-                        .dimensions(DimensionFilter.builder().name("InstanceId").build());
-                if (nextToken != null) reqBuilder.nextToken(nextToken);
-                ListMetricsResponse listResp = cw.listMetrics(reqBuilder.build());
-                for (Metric m : listResp.metrics()) {
-                    boolean matches = m.dimensions().stream()
-                            .anyMatch(d -> "InstanceId".equals(d.name()) && instanceIds.contains(d.value()));
-                    if (matches) relevantMetrics.add(m);
+            if (cachedList != null) {
+                // Rebuild Metric objects from cached dimension maps, filtered to requested instances
+                for (Map<String, Object> entry : cachedList) {
+                    @SuppressWarnings("unchecked")
+                    List<Map<String, String>> dims = (List<Map<String, String>>) entry.get("dimensions");
+                    if (dims == null) continue;
+                    boolean matchesInstance = dims.stream()
+                            .anyMatch(d -> "InstanceId".equals(d.get("name")) && instanceIds.contains(d.get("value")));
+                    if (!matchesInstance) continue;
+                    List<Dimension> dimensionObjs = dims.stream()
+                            .map(d -> Dimension.builder().name(d.get("name")).value(d.get("value")).build())
+                            .collect(Collectors.toList());
+                    relevantMetrics.add(Metric.builder()
+                            .namespace("CWAgent").metricName("disk_used_percent")
+                            .dimensions(dimensionObjs).build());
                 }
-                nextToken = listResp.nextToken();
-            } while (nextToken != null);
+            } else {
+                // Cold path: run ListMetrics and cache the results
+                List<Map<String, Object>> allMetricDims = new ArrayList<>();
+                String nextToken = null;
+                do {
+                    ListMetricsRequest.Builder reqBuilder = ListMetricsRequest.builder()
+                            .namespace("CWAgent")
+                            .metricName("disk_used_percent")
+                            .dimensions(DimensionFilter.builder().name("InstanceId").build());
+                    if (nextToken != null) reqBuilder.nextToken(nextToken);
+                    ListMetricsResponse listResp = cw.listMetrics(reqBuilder.build());
+                    for (Metric m : listResp.metrics()) {
+                        // Store dimensions as plain maps for serialisation
+                        List<Map<String, String>> dimMaps = m.dimensions().stream()
+                                .map(d -> Map.of("name", d.name(), "value", d.value()))
+                                .collect(Collectors.toList());
+                        allMetricDims.add(Map.of("dimensions", dimMaps));
+                        boolean matches = m.dimensions().stream()
+                                .anyMatch(d -> "InstanceId".equals(d.name()) && instanceIds.contains(d.value()));
+                        if (matches) relevantMetrics.add(m);
+                    }
+                    nextToken = listResp.nextToken();
+                } while (nextToken != null);
+                redisCacheService.put(listCacheKey, allMetricDims, CACHE_TTL_MINUTES);
+            }
 
             if (relevantMetrics.isEmpty()) {
                 logger.debug("[EBS] No CWAgent disk_used_percent metrics found for instances in {}", region);

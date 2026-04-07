@@ -1,0 +1,411 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# XamOps Unified Agent — single OTel-based observability agent
+#
+# DaemonSet  (xamops-node-agent)    — pod logs + host metrics + kubelet stats
+# Deployment (xamops-cluster-agent) — cluster metrics + k8s events
+#
+# Credentials are injected from the o2-agent-credentials Secret (auto-created
+# by the XamOps backend when you click "Apply" in Observability → Setup).
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Node Agent ConfigMap ──────────────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: xamops-node-agent-config
+  namespace: xamops-system
+data:
+  config.yaml: |
+    receivers:
+      filelog:
+        include: [/var/log/containers/*.log]
+        start_at: beginning
+        include_file_path: true
+        include_file_name: false
+        operators:
+          - type: regex_parser
+            id: parse_cri
+            regex: '^(?P<time>\S+) (?P<stream>stdout|stderr) (?P<flags>\S*) (?P<log>.*)$'
+            timestamp:
+              parse_from: attributes.time
+              layout: '%Y-%m-%dT%H:%M:%S.%fZ'
+            on_error: send
+          - type: move
+            from: attributes.log
+            to: body
+          - type: remove
+            field: attributes.time
+          - type: regex_parser
+            id: extract_k8s_metadata
+            regex: '/(?P<pod_name>[^_/]+)_(?P<namespace>[^_]+)_(?P<container_name>.+)-[0-9a-f]{64}\.log$'
+            parse_from: attributes["log.file.path"]
+            on_error: send
+          - type: move
+            from: attributes.pod_name
+            to: resource["k8s.pod.name"]
+          - type: move
+            from: attributes.namespace
+            to: resource["k8s.namespace.name"]
+          - type: move
+            from: attributes.container_name
+            to: resource["k8s.container.name"]
+          - type: json_parser
+            id: parse_json
+            parse_from: body
+            on_error: send
+
+      hostmetrics:
+        collection_interval: 30s
+        root_path: /hostfs
+        scrapers:
+          cpu:
+            metrics:
+              system.cpu.utilization:
+                enabled: true
+          memory:
+            metrics:
+              system.memory.utilization:
+                enabled: true
+          disk: {}
+          filesystem:
+            exclude_mount_points:
+              mount_points: [/dev/*, /proc/*, /sys/*, /run/k3s/**, /var/lib/docker/**, /var/lib/kubelet/**, /snap/**]
+              match_type: regexp
+            exclude_fs_types:
+              fs_types: [autofs, binfmt_misc, bpf, cgroup2, configfs, debugfs, devpts, devtmpfs,
+                         fusectl, hugetlbfs, iso9660, mqueue, nsfs, overlay, proc, procfs, pstore,
+                         rpc_pipefs, securityfs, selinuxfs, squashfs, sysfs, tracefs]
+              match_type: strict
+          load: {}
+          network:
+            include:
+              interfaces: [eth0, ens3, ens5, enp.*]
+              match_type: regexp
+
+      kubeletstats:
+        collection_interval: 30s
+        auth_type: serviceAccount
+        endpoint: https://${K8S_NODE_IP}:10250
+        insecure_skip_verify: true
+        metric_groups: [node, pod, container, volume]
+
+    processors:
+      memory_limiter:
+        check_interval: 5s
+        limit_mib: 256
+        spike_limit_mib: 64
+
+      k8sattributes:
+        auth_type: serviceAccount
+        passthrough: false
+        extract:
+          metadata:
+            - k8s.pod.name
+            - k8s.pod.uid
+            - k8s.deployment.name
+            - k8s.statefulset.name
+            - k8s.daemonset.name
+            - k8s.job.name
+            - k8s.namespace.name
+            - k8s.node.name
+            - k8s.pod.start_time
+          labels:
+            - tag_name: k8s.pod.label.app
+              key: app
+              from: pod
+            - tag_name: k8s.pod.label.version
+              key: version
+              from: pod
+        pod_association:
+          - sources:
+              - from: resource_attribute
+                name: k8s.pod.name
+              - from: resource_attribute
+                name: k8s.namespace.name
+          - sources:
+              - from: connection
+
+      resource:
+        attributes:
+          - key: k8s.cluster.name
+            value: xamops-eks
+            action: upsert
+          - key: source
+            value: xamops-agent
+            action: upsert
+
+      filter/drop_unused:
+        metrics:
+          exclude:
+            match_type: regexp
+            metric_names:
+              - system\.filesystem\.inodes.*
+              - system\.disk\.pending_operations
+
+      batch:
+        timeout: 10s
+        send_batch_size: 1000
+
+    exporters:
+      otlphttp:
+        endpoint: "${O2_URL}/api/${O2_ORG_ID}"
+        headers:
+          Authorization: "Basic ${O2_AUTH_BASE64}"
+        compression: gzip
+        retry_on_failure:
+          enabled: true
+          initial_interval: 5s
+          max_interval: 30s
+          max_elapsed_time: 300s
+
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13133
+
+    service:
+      extensions: [health_check]
+      pipelines:
+        logs:
+          receivers: [filelog]
+          processors: [memory_limiter, k8sattributes, resource, batch]
+          exporters: [otlphttp]
+        metrics:
+          receivers: [hostmetrics, kubeletstats]
+          processors: [memory_limiter, filter/drop_unused, resource, batch]
+          exporters: [otlphttp]
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: xamops-node-agent
+  namespace: xamops-system
+  labels:
+    app: xamops-node-agent
+    component: xamops-agent
+spec:
+  selector:
+    matchLabels:
+      app: xamops-node-agent
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app: xamops-node-agent
+        component: xamops-agent
+    spec:
+      serviceAccountName: xamops-agent
+      tolerations:
+        - operator: Exists
+          effect: NoSchedule
+        - operator: Exists
+          effect: NoExecute
+      containers:
+        - name: agent
+          image: otel/opentelemetry-collector-contrib:0.103.0
+          imagePullPolicy: IfNotPresent
+          args: ["--config=/conf/config.yaml"]
+          env:
+            - name: K8S_NODE_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+            - name: K8S_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: O2_URL
+              valueFrom:
+                secretKeyRef:
+                  name: o2-agent-credentials
+                  key: O2_URL
+            - name: O2_ORG_ID
+              valueFrom:
+                secretKeyRef:
+                  name: o2-agent-credentials
+                  key: O2_ORG_ID
+            - name: O2_AUTH_BASE64
+              valueFrom:
+                secretKeyRef:
+                  name: o2-agent-credentials
+                  key: O2_AUTH_BASE64
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "192Mi"
+            limits:
+              cpu: "500m"
+              memory: "384Mi"
+          volumeMounts:
+            - name: config
+              mountPath: /conf
+            - name: hostfs
+              mountPath: /hostfs
+              readOnly: true
+              mountPropagation: HostToContainer
+            - name: varlog
+              mountPath: /var/log
+              readOnly: true
+            - name: varlibdockercontainers
+              mountPath: /var/lib/docker/containers
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 13133
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 13133
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      volumes:
+        - name: config
+          configMap:
+            name: xamops-node-agent-config
+        - name: hostfs
+          hostPath:
+            path: /
+        - name: varlog
+          hostPath:
+            path: /var/log
+        - name: varlibdockercontainers
+          hostPath:
+            path: /var/lib/docker/containers
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: xamops-cluster-agent-config
+  namespace: xamops-system
+data:
+  config.yaml: |
+    receivers:
+      k8s_cluster:
+        collection_interval: 30s
+        node_conditions_to_report: [Ready, MemoryPressure, DiskPressure]
+        allocatable_types_to_report: [cpu, memory, storage]
+
+      k8sobjects:
+        objects:
+          - name: events
+            mode: watch
+            namespaces: [xamops, xamops-system, default, kube-system]
+
+    processors:
+      memory_limiter:
+        check_interval: 5s
+        limit_mib: 256
+        spike_limit_mib: 64
+
+      resource:
+        attributes:
+          - key: k8s.cluster.name
+            value: xamops-eks
+            action: upsert
+          - key: source
+            value: xamops-agent
+            action: upsert
+
+      batch:
+        timeout: 10s
+        send_batch_size: 1000
+
+    exporters:
+      otlphttp:
+        endpoint: "${O2_URL}/api/${O2_ORG_ID}"
+        headers:
+          Authorization: "Basic ${O2_AUTH_BASE64}"
+        compression: gzip
+        retry_on_failure:
+          enabled: true
+          initial_interval: 5s
+          max_interval: 30s
+
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13133
+
+    service:
+      extensions: [health_check]
+      pipelines:
+        metrics:
+          receivers: [k8s_cluster]
+          processors: [memory_limiter, resource, batch]
+          exporters: [otlphttp]
+        logs:
+          receivers: [k8sobjects]
+          processors: [memory_limiter, resource, batch]
+          exporters: [otlphttp]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: xamops-cluster-agent
+  namespace: xamops-system
+  labels:
+    app: xamops-cluster-agent
+    component: xamops-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: xamops-cluster-agent
+  template:
+    metadata:
+      labels:
+        app: xamops-cluster-agent
+        component: xamops-agent
+    spec:
+      serviceAccountName: xamops-agent
+      containers:
+        - name: agent
+          image: otel/opentelemetry-collector-contrib:0.103.0
+          imagePullPolicy: IfNotPresent
+          args: ["--config=/conf/config.yaml"]
+          env:
+            - name: O2_URL
+              valueFrom:
+                secretKeyRef:
+                  name: o2-agent-credentials
+                  key: O2_URL
+            - name: O2_ORG_ID
+              valueFrom:
+                secretKeyRef:
+                  name: o2-agent-credentials
+                  key: O2_ORG_ID
+            - name: O2_AUTH_BASE64
+              valueFrom:
+                secretKeyRef:
+                  name: o2-agent-credentials
+                  key: O2_AUTH_BASE64
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+          volumeMounts:
+            - name: config
+              mountPath: /conf
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 13133
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 13133
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      volumes:
+        - name: config
+          configMap:
+            name: xamops-cluster-agent-config

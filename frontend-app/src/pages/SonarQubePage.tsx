@@ -109,6 +109,43 @@ const SonarQubePage: React.FC = () => {
   }, []);
 
   /**
+   * Get semantic color class for issue count numbers
+   */
+  const getCountClass = useCallback((count: number | undefined, type: 'bug' | 'vuln' | 'hotspot' | 'smell') => {
+    const n = count || 0;
+    if (n === 0) return 'metric-count-good';
+    if (type === 'bug' || type === 'vuln') return 'metric-count-danger';
+    if (type === 'hotspot') return 'metric-count-warn';
+    return 'metric-count-neutral';
+  }, []);
+
+  /**
+   * Get progress bar fill class based on metric type and value
+   */
+  const getCoverageProgressClass = useCallback((coverage: number | undefined) => {
+    const c = coverage || 0;
+    if (c >= 80) return 'progress-fill-good';
+    if (c >= 50) return 'progress-fill-warn';
+    return 'progress-fill-danger';
+  }, []);
+
+  /**
+   * Compute overall health label from all ratings
+   */
+  const getOverallHealth = useCallback(() => {
+    if (!metrics) return null;
+    const ratings = [metrics.reliabilityRating, metrics.securityRating, metrics.maintainabilityRating, metrics.securityReviewRating];
+    const scores: Record<string, number> = { A: 5, B: 4, C: 3, D: 2, E: 1 };
+    const valid = ratings.filter(Boolean) as string[];
+    if (valid.length === 0) return null;
+    const avg = valid.reduce((sum, r) => sum + (scores[r.toUpperCase()] || 1), 0) / valid.length;
+    if (avg >= 4.5) return { label: 'Excellent', color: 'health-excellent' };
+    if (avg >= 3.5) return { label: 'Good', color: 'health-good' };
+    if (avg >= 2.5) return { label: 'Fair', color: 'health-fair' };
+    return { label: 'Poor', color: 'health-poor' };
+  }, [metrics]);
+
+  /**
    * Format technical debt (minutes to days/hours/mins)
    */
   const formatTechDebt = useCallback((minutes: number | undefined) => {
@@ -325,6 +362,44 @@ const SonarQubePage: React.FC = () => {
         {/* Metrics Display */}
         {!isLoading && selectedProjectId && metrics && (
           <div className="space-y-8 stagger-enter">
+
+            {/* Summary Strip */}
+            {(() => {
+              const health = getOverallHealth();
+              return (
+                <div className="summary-strip glass-card p-4">
+                  <div className="flex flex-wrap items-center gap-3">
+                    {health && (
+                      <span className={`summary-pill summary-pill-health ${health.color}`}>
+                        <i className="fas fa-heartbeat"></i>
+                        {health.label}
+                      </span>
+                    )}
+                    <span className={`summary-pill ${(metrics.bugs || 0) === 0 ? 'summary-pill-ok' : 'summary-pill-danger'}`}>
+                      <i className="fas fa-bug"></i>
+                      {metrics.bugs || 0} Bug{(metrics.bugs || 0) !== 1 ? 's' : ''}
+                    </span>
+                    <span className={`summary-pill ${(metrics.vulnerabilities || 0) === 0 ? 'summary-pill-ok' : 'summary-pill-danger'}`}>
+                      <i className="fas fa-shield-virus"></i>
+                      {metrics.vulnerabilities || 0} Vuln{(metrics.vulnerabilities || 0) !== 1 ? 's' : ''}
+                    </span>
+                    <span className={`summary-pill ${(metrics.coverage || 0) >= 80 ? 'summary-pill-ok' : (metrics.coverage || 0) >= 50 ? 'summary-pill-warn' : 'summary-pill-danger'}`}>
+                      <i className="fas fa-crosshairs"></i>
+                      {metrics.coverage || 0}% Coverage
+                    </span>
+                    <span className="summary-pill summary-pill-neutral">
+                      <i className="fas fa-clock"></i>
+                      {formatTechDebt(metrics.techDebt)} Debt
+                    </span>
+                    <span className={`summary-pill ${(metrics.codeSmells || 0) === 0 ? 'summary-pill-ok' : 'summary-pill-neutral'}`}>
+                      <i className="fas fa-wind"></i>
+                      {formatNumber(metrics.codeSmells)} Smell{(metrics.codeSmells || 0) !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Quality Gate and Lines of Code */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className={clsx('glass-card metric-card p-6 top-glow', getQualityGateClass(metrics.qualityGateStatus))}>
@@ -390,10 +465,10 @@ const SonarQubePage: React.FC = () => {
                   <div>
                     <div className="flex justify-between items-center mb-2">
                       <span className="text-xs font-bold text-gray-600 uppercase tracking-wide">Bugs</span>
-                      <span className="text-2xl font-black text-orange-600 number-change">{metrics.bugs || 0}</span>
+                      <span className={`text-2xl font-black number-change ${getCountClass(metrics.bugs, 'bug')}`}>{metrics.bugs || 0}</span>
                     </div>
                     <div className="progress-bar">
-                      <div className="progress-fill" style={{ width: `${Math.min((metrics.bugs || 0) * 3, 100)}%` }}></div>
+                      <div className={`progress-fill ${(metrics.bugs || 0) === 0 ? 'progress-fill-good' : 'progress-fill-danger'}`} style={{ width: `${Math.min((metrics.bugs || 0) * 3, 100)}%` }}></div>
                     </div>
                   </div>
                 </div>
@@ -416,10 +491,10 @@ const SonarQubePage: React.FC = () => {
                   <div>
                     <div className="flex justify-between items-center mb-2">
                       <span className="text-xs font-bold text-gray-600 uppercase tracking-wide">Vulnerabilities</span>
-                      <span className="text-2xl font-black text-red-600 number-change">{metrics.vulnerabilities || 0}</span>
+                      <span className={`text-2xl font-black number-change ${getCountClass(metrics.vulnerabilities, 'vuln')}`}>{metrics.vulnerabilities || 0}</span>
                     </div>
                     <div className="progress-bar">
-                      <div className="progress-fill" style={{ width: `${Math.min((metrics.vulnerabilities || 0) * 4, 100)}%` }}></div>
+                      <div className={`progress-fill ${(metrics.vulnerabilities || 0) === 0 ? 'progress-fill-good' : 'progress-fill-danger'}`} style={{ width: `${Math.min((metrics.vulnerabilities || 0) * 4, 100)}%` }}></div>
                     </div>
                   </div>
                 </div>
@@ -442,10 +517,10 @@ const SonarQubePage: React.FC = () => {
                   <div>
                     <div className="flex justify-between items-center mb-2">
                       <span className="text-xs font-bold text-gray-600 uppercase tracking-wide">To Review</span>
-                      <span className="text-2xl font-black text-yellow-600 number-change">{metrics.securityHotspots || 0}</span>
+                      <span className={`text-2xl font-black number-change ${getCountClass(metrics.securityHotspots, 'hotspot')}`}>{metrics.securityHotspots || 0}</span>
                     </div>
                     <div className="progress-bar">
-                      <div className="progress-fill" style={{ width: `${Math.min((metrics.securityHotspots || 0) * 2, 100)}%` }}></div>
+                      <div className={`progress-fill ${(metrics.securityHotspots || 0) === 0 ? 'progress-fill-good' : 'progress-fill-warn'}`} style={{ width: `${Math.min((metrics.securityHotspots || 0) * 2, 100)}%` }}></div>
                     </div>
                   </div>
                 </div>
@@ -468,10 +543,10 @@ const SonarQubePage: React.FC = () => {
                   <div>
                     <div className="flex justify-between items-center mb-2">
                       <span className="text-xs font-bold text-gray-600 uppercase tracking-wide">Code Smells</span>
-                      <span className="text-2xl font-black text-indigo-600 number-change">{metrics.codeSmells || 0}</span>
+                      <span className={`text-2xl font-black number-change ${getCountClass(metrics.codeSmells, 'smell')}`}>{metrics.codeSmells || 0}</span>
                     </div>
                     <div className="progress-bar">
-                      <div className="progress-fill" style={{ width: `${Math.min((metrics.codeSmells || 0) * 2, 100)}%` }}></div>
+                      <div className={`progress-fill ${(metrics.codeSmells || 0) === 0 ? 'progress-fill-good' : ''}`} style={{ width: `${Math.min((metrics.codeSmells || 0) * 2, 100)}%` }}></div>
                     </div>
                   </div>
                   <div className="pt-4 border-t border-gray-200">
@@ -483,25 +558,39 @@ const SonarQubePage: React.FC = () => {
 
               {/* Test Coverage */}
               <div className="glass-card metric-card p-6 top-glow hover-lift">
-                <div className="flex items-center gap-3 mb-6">
+                <div className="flex items-center gap-3 mb-4">
                   <div className="w-12 h-12 bg-gradient-to-br from-blue-100 to-cyan-100 rounded-xl flex items-center justify-center">
                     <i className="fas fa-crosshairs text-blue-600 text-lg"></i>
                   </div>
                   <h4 className="font-bold text-gray-900">Test Coverage</h4>
                 </div>
-                <div className="space-y-4">
-                  <div>
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-xs font-bold text-gray-600 uppercase tracking-wide">Coverage</span>
-                      <span className="text-2xl font-black text-blue-600 number-change">{metrics.coverage || 0}%</span>
+                <div className="flex items-center gap-6">
+                  {/* Coverage Ring */}
+                  <div className="coverage-ring-wrapper flex-shrink-0">
+                    <svg viewBox="0 0 36 36" className="coverage-ring">
+                      <path
+                        className="coverage-ring-bg"
+                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                      />
+                      <path
+                        className={`coverage-ring-fill ${getCoverageProgressClass(metrics.coverage)}`}
+                        strokeDasharray={`${metrics.coverage || 0}, 100`}
+                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                      />
+                      <g transform="rotate(90, 18, 18)">
+                        <text x="18" y="15.5" className="coverage-ring-pct">{metrics.coverage || 0}</text>
+                        <text x="18" y="22" className="coverage-ring-label">%</text>
+                      </g>
+                    </svg>
+                  </div>
+                  <div className="space-y-3 flex-1">
+                    <div>
+                      <p className="text-xs font-bold text-gray-600 uppercase tracking-wide mb-1">Lines to Cover</p>
+                      <p className="text-xl font-black text-gray-900 number-change">{formatNumber(metrics.linesToCover)}</p>
                     </div>
                     <div className="progress-bar">
-                      <div className="progress-fill" style={{ width: `${metrics.coverage || 0}%` }}></div>
+                      <div className={`progress-fill ${getCoverageProgressClass(metrics.coverage)}`} style={{ width: `${metrics.coverage || 0}%` }}></div>
                     </div>
-                  </div>
-                  <div className="pt-4 border-t border-gray-200">
-                    <p className="text-xs font-bold text-gray-600 uppercase tracking-wide mb-2">Lines to Cover</p>
-                    <p className="text-xl font-black text-gray-900 number-change">{formatNumber(metrics.linesToCover)}</p>
                   </div>
                 </div>
               </div>
@@ -518,10 +607,10 @@ const SonarQubePage: React.FC = () => {
                   <div>
                     <div className="flex justify-between items-center mb-2">
                       <span className="text-xs font-bold text-gray-600 uppercase tracking-wide">Density</span>
-                      <span className="text-2xl font-black text-pink-600 number-change">{metrics.duplicationDensity || 0}%</span>
+                      <span className={`text-2xl font-black number-change ${(metrics.duplicationDensity || 0) === 0 ? 'metric-count-good' : (metrics.duplicationDensity || 0) <= 5 ? 'metric-count-warn' : 'metric-count-danger'}`}>{metrics.duplicationDensity || 0}%</span>
                     </div>
                     <div className="progress-bar">
-                      <div className="progress-fill" style={{ width: `${metrics.duplicationDensity || 0}%` }}></div>
+                      <div className={`progress-fill ${(metrics.duplicationDensity || 0) === 0 ? 'progress-fill-good' : (metrics.duplicationDensity || 0) <= 5 ? 'progress-fill-warn' : 'progress-fill-danger'}`} style={{ width: `${metrics.duplicationDensity || 0}%` }}></div>
                     </div>
                   </div>
                   <div className="pt-4 border-t border-gray-200">
