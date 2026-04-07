@@ -26,6 +26,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import com.xammer.cloud.dto.azure.AzureAccountRequestDto;
@@ -227,9 +228,15 @@ public class AccountManagerController {
     }
 
     @DeleteMapping("/accounts/{id}")
-    public ResponseEntity<?> deleteAccount(@PathVariable Long id) {
+    public ResponseEntity<?> deleteAccount(@PathVariable Long id,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
         return cloudAccountRepository.findById(id)
                 .map(account -> {
+                    // IDOR Check: Ensure user belongs to the same client or is SuperAdmin
+                    if (!isAuthorizedForAccount(account, userDetails)) {
+                        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                                .body(Map.of("error", "Access Denied", "message", "You do not have permission to delete this account."));
+                    }
                     awsAccountService.clearAllCaches();
                     cloudAccountRepository.delete(account);
                     return ResponseEntity
@@ -308,6 +315,13 @@ public class AccountManagerController {
             if (existingAccountOpt.isPresent()) {
                 // UPDATE existing account
                 account = existingAccountOpt.get();
+
+                // IDOR Check: Ensure user belongs to the same client or is SuperAdmin
+                if (!isAuthorizedForAccount(account, userDetails)) {
+                    return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                            .body("Access Denied: You do not have permission to update this account.");
+                }
+
                 logger.info("Updating existing Azure account: {}", account.getAccountName());
 
                 account.setAccountName(request.getAccountName());
@@ -369,7 +383,20 @@ public class AccountManagerController {
 
     @PutMapping("/accounts/{accountId}/billing-table")
     public ResponseEntity<?> updateBillingTable(@PathVariable Long accountId,
-            @RequestBody Map<String, String> payload) {
+            @RequestBody Map<String, String> payload,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+
+        Optional<CloudAccount> accountOpt = cloudAccountRepository.findById(accountId);
+        if (accountOpt.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        // IDOR Check: Ensure user belongs to the same client or is SuperAdmin
+        if (!isAuthorizedForAccount(accountOpt.get(), userDetails)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("error", "Access Denied", "message", "You do not have permission to update this account."));
+        }
+
         String billingExportTable = payload.get("billingExportTable");
         if (billingExportTable == null || billingExportTable.trim().isEmpty()) {
             return ResponseEntity.badRequest()
@@ -401,11 +428,8 @@ public class AccountManagerController {
 
     @PostMapping("/accounts/{accountId}/monitoring")
     public ResponseEntity<?> updateMonitoringEndpoint(@PathVariable String accountId,
-            @RequestBody Map<String, String> payload) {
-        String grafanaIp = payload.get("grafanaIp");
-        if (grafanaIp == null || grafanaIp.trim().isEmpty()) {
-            return ResponseEntity.badRequest().body(Map.of("message", "grafanaIp is required in the request body."));
-        }
+            @RequestBody Map<String, String> payload,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
 
         CloudAccount account = cloudAccountRepository
                 .findByAwsAccountIdOrGcpProjectIdOrAzureSubscriptionId(accountId, accountId, accountId)
@@ -416,10 +440,37 @@ public class AccountManagerController {
                     .body(Map.of("message", "Account not found with ID: " + accountId));
         }
 
+        // IDOR Check: Ensure user belongs to the same client or is SuperAdmin
+        if (!isAuthorizedForAccount(account, userDetails)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("error", "Access Denied", "message", "You do not have permission to update this account."));
+        }
+
+        String grafanaIp = payload.get("grafanaIp");
+        if (grafanaIp == null || grafanaIp.trim().isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("message", "grafanaIp is required in the request body."));
+        }
+
         account.setGrafanaIp(grafanaIp);
         cloudAccountRepository.save(account);
 
         return ResponseEntity.ok()
                 .body(Map.of("message", "Monitoring endpoint updated successfully for account: " + accountId));
+    }
+
+    /**
+     * IDOR Check: Verifies if the authenticated user has permission to access/modify the given account.
+     * Permission is granted if the user is a SuperAdmin or if the account belongs to the user's client.
+     */
+    private boolean isAuthorizedForAccount(CloudAccount account, ClientUserDetails userDetails) {
+        if (account == null || userDetails == null) {
+            return false;
+        }
+
+        boolean isSuperAdmin = userDetails.getAuthorities().stream()
+                .anyMatch(a -> "ROLE_SUPER_ADMIN".equals(a.getAuthority()));
+
+        // Check if account has a client and compare IDs, or allow if SuperAdmin
+        return isSuperAdmin || (account.getClient() != null && Objects.equals(account.getClient().getId(), userDetails.getClientId()));
     }
 }

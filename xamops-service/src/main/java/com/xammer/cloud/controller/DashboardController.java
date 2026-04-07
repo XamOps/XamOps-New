@@ -23,6 +23,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 
@@ -221,6 +222,9 @@ public class DashboardController {
             @RequestParam(defaultValue = "false") boolean forceRefresh,
             @AuthenticationPrincipal ClientUserDetails userDetails) {
         try {
+            if (!isAuthorizedForAccount(accountId, userDetails)) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(createErrorResponse("Access Denied"));
+            }
             DashboardData data = dashboardDataService.getDashboardData(accountId, forceRefresh, userDetails);
             return ResponseEntity.ok(data);
         } catch (Exception ex) {
@@ -306,8 +310,12 @@ public class DashboardController {
             @RequestParam String accountId,
             @RequestParam String resourceId,
             @RequestParam String resourceType,
-            @RequestParam String region) {
+            @RequestParam String region,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
         try {
+            if (!isAuthorizedForAccount(accountId, userDetails)) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Access Denied"));
+            }
             wasteDeleteService.deleteResource(accountId, resourceId, resourceType, region);
             logger.info("[WasteDelete] Successfully deleted {} '{}' for account {}", resourceType, resourceId, accountId);
             return ResponseEntity.ok(Map.of("message", "Resource deleted successfully"));
@@ -343,5 +351,15 @@ public class DashboardController {
         logger.error("An asynchronous execution error occurred: {}", e.getMessage(), e);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(Map.of("error", "Failed to fetch data from AWS.", "message", e.getMessage()));
+    }
+
+    private boolean isAuthorizedForAccount(String accountId, ClientUserDetails userDetails) {
+        if (accountId == null || userDetails == null) return false;
+        boolean isSuperAdmin = userDetails.getAuthorities().stream().anyMatch(a -> "ROLE_SUPER_ADMIN".equals(a.getAuthority()));
+        if (isSuperAdmin) return true;
+        String idToUse = accountId.contains(",") ? accountId.split(",")[0] : accountId;
+        return cloudAccountRepository.findByProviderAccountId(idToUse)
+                .map(acc -> acc.getClient() != null && Objects.equals(acc.getClient().getId(), userDetails.getClientId()))
+                .orElse(false);
     }
 }
