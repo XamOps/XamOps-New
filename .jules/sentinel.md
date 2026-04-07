@@ -1,0 +1,4 @@
+## 2024-05-20 - [IDOR Protection in Account Management and Dashboard]
+**Vulnerability:** Insecure Direct Object Reference (IDOR) in `AccountManagerController` and `DashboardController`. Users could delete or modify cloud accounts, or view sensitive account dashboard data by providing another client's account ID in the request path or parameters.
+**Learning:** Legacy endpoints often lack explicit ownership checks, relying instead on high-level UI filtering which is insufficient for API security. Write operations (`DELETE`, `PUT`, `POST`) and sensitive read operations (`GET` dashboard data) must always verify that the resource belongs to the requesting user's tenant/client.
+**Prevention:** Implement a reusable authorization helper (e.g., `isAuthorizedForAccount`) that compares the resource's owner ID with the authenticated user's `clientId`, while allowing `ROLE_SUPER_ADMIN` to bypass the check. Ensure all endpoints accepting IDs perform this check before processing.
