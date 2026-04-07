@@ -75,10 +75,12 @@ const Sidebar: React.FC = () => {
       '/sonarqube', '/cicd-pipelines', '/devops-in-the-box', '/grafana-dashboard', '/aiops', '/dataops', '/ebs-rightsizing'];
     const secopsRoutes = ['/security', '/gcp-security', '/azure-security', '/complianceops',
       '/performance', '/gcp-performance', '/azure-performance', '/alerts', '/gcp-alerts', '/azure-alerts'];
+    const observabilityRoutes = ['/observability'];
 
     if (finopsRoutes.some(r => path.startsWith(r))) setOpenDropdown('finops');
     else if (cloudopsRoutes.some(r => path.startsWith(r))) setOpenDropdown('cloudops');
     else if (secopsRoutes.some(r => path.startsWith(r))) setOpenDropdown('security');
+    else if (observabilityRoutes.some(r => path.startsWith(r))) setOpenDropdown('observability');
   }, [location.pathname]);
 
   /**
@@ -311,6 +313,22 @@ const Sidebar: React.FC = () => {
                 <NavItem href="/complianceops" icon="fas fa-file-contract" label="ComplianceOps" isActive={isActive('/complianceops')} />
                 <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-performance' : selectedAccountDisplay.provider === 'Azure' ? '/azure-performance' : '/performance'} icon="fas fa-chart-line" label="Performance Insights" isActive={isActive('/performance') || isActive('/gcp-performance') || isActive('/azure-performance')} />
                 <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-alerts' : selectedAccountDisplay.provider === 'Azure' ? '/azure-alerts' : '/alerts'} icon="fas fa-bell" label="Alerts" isActive={isActive('/alerts') || isActive('/gcp-alerts') || isActive('/azure-alerts')} />
+              </NavSection>
+
+              <NavSection
+                icon="fas fa-satellite-dish"
+                label="Observability"
+                gradientClass="from-violet-500 to-purple-600"
+                badge="Beta"
+                isOpen={openDropdown === 'observability'}
+                onToggle={() => toggleDropdown('observability')}
+              >
+                <NavItem href="/observability" icon="fas fa-chart-pie" label="Overview" isActive={location.pathname === '/observability'} />
+                <NavItem href="/observability/logs" icon="fas fa-list-alt" label="Logs" isActive={isActive('/observability/logs')} />
+                <NavItem href="/observability/metrics" icon="fas fa-chart-line" label="Metrics" isActive={isActive('/observability/metrics')} />
+                <NavItem href="/observability/traces" icon="fas fa-project-diagram" label="Traces" isActive={isActive('/observability/traces')} />
+                <NavItem href="/observability/alerts" icon="fas fa-bell" label="Alerts" isActive={isActive('/observability/alerts')} />
+                <NavItem href="/observability/setup" icon="fas fa-cog" label="Setup" isActive={isActive('/observability/setup')} />
               </NavSection>
 
               <NavSection

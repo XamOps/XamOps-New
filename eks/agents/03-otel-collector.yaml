@@ -1,0 +1,333 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# OpenTelemetry Collector — two components:
+#
+#  1. DaemonSet  (one per node)  → node metrics: CPU, memory, disk, network
+#  2. Deployment (one per cluster) → K8s cluster metrics: pods, deployments, events
+#
+# Both export to OpenObserve via OTLP HTTP.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Shared ConfigMap: Node Metrics Collector (DaemonSet) ─────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-node-collector-config
+  namespace: xamops-system
+data:
+  config.yaml: |
+    receivers:
+      # Host-level metrics from the node
+      hostmetrics:
+        collection_interval: 30s
+        root_path: /hostfs
+        scrapers:
+          cpu:
+            metrics:
+              system.cpu.utilization:
+                enabled: true
+          memory:
+            metrics:
+              system.memory.utilization:
+                enabled: true
+          disk: {}
+          filesystem:
+            exclude_mount_points:
+              mount_points: [/dev/*, /proc/*, /sys/*, /run/k3s/**, /var/lib/docker/**, /var/lib/kubelet/**, /snap/**]
+              match_type: regexp
+            exclude_fs_types:
+              fs_types: [autofs, binfmt_misc, bpf, cgroup2, configfs, debugfs, devpts, devtmpfs, fusectl, hugetlbfs, iso9660, mqueue, nsfs, overlay, proc, procfs, pstore, rpc_pipefs, securityfs, selinuxfs, squashfs, sysfs, tracefs]
+              match_type: strict
+          load: {}
+          network:
+            include:
+              interfaces: [eth0, ens3, ens5, enp*]
+              match_type: regexp
+
+      # kubelet stats (pod-level CPU/memory from kubelet API)
+      kubeletstats:
+        collection_interval: 30s
+        auth_type: serviceAccount
+        endpoint: https://${K8S_NODE_IP}:10250
+        insecure_skip_verify: true
+        metric_groups: [node, pod, container, volume]
+
+    processors:
+      # Drop low-value metrics to reduce cardinality
+      filter/drop_unused:
+        metrics:
+          exclude:
+            match_type: regexp
+            metric_names:
+              - system.filesystem.inodes.*
+              - system.disk.pending_operations
+
+      # Add cluster + node labels to every metric
+      resource:
+        attributes:
+          - key: k8s.cluster.name
+            value: xamops-eks
+            action: upsert
+          - key: source
+            value: otel-node-collector
+            action: upsert
+
+      # Batch for efficient export
+      batch:
+        timeout: 10s
+        send_batch_size: 1000
+
+      # Trim memory usage
+      memory_limiter:
+        check_interval: 5s
+        limit_mib: 200
+        spike_limit_mib: 50
+
+    exporters:
+      # Send metrics to OpenObserve via OTLP HTTP
+      otlphttp/metrics:
+        endpoint: "${O2_URL}/api/${O2_ORG_ID}"
+        headers:
+          Authorization: "Basic ${O2_AUTH_BASE64}"
+        compression: gzip
+        retry_on_failure:
+          enabled: true
+          initial_interval: 5s
+          max_interval: 30s
+          max_elapsed_time: 300s
+
+      # Debug logging (remove in production)
+      # logging:
+      #   verbosity: detailed
+
+    service:
+      pipelines:
+        metrics:
+          receivers: [hostmetrics, kubeletstats]
+          processors: [memory_limiter, filter/drop_unused, resource, batch]
+          exporters: [otlphttp/metrics]
+---
+# ── Node Metrics DaemonSet ────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: otel-node-collector
+  namespace: xamops-system
+  labels:
+    app: otel-node-collector
+    component: metrics-collector
+spec:
+  selector:
+    matchLabels:
+      app: otel-node-collector
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app: otel-node-collector
+        component: metrics-collector
+    spec:
+      serviceAccountName: otel-collector
+      tolerations:
+        - operator: Exists
+          effect: NoSchedule
+        - operator: Exists
+          effect: NoExecute
+      hostNetwork: false
+      containers:
+        - name: otel-collector
+          image: otel/opentelemetry-collector-contrib:0.103.0
+          imagePullPolicy: IfNotPresent
+          args: ["--config=/conf/config.yaml"]
+          env:
+            - name: K8S_NODE_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+            - name: K8S_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: O2_URL
+              valueFrom:
+                secretKeyRef:
+                  name: o2-agent-credentials
+                  key: O2_URL
+            - name: O2_ORG_ID
+              valueFrom:
+                secretKeyRef:
+                  name: o2-agent-credentials
+                  key: O2_ORG_ID
+            - name: O2_AUTH_BASE64
+              valueFrom:
+                secretKeyRef:
+                  name: o2-agent-credentials
+                  key: O2_AUTH_BASE64
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+          volumeMounts:
+            - name: config
+              mountPath: /conf
+            - name: hostfs
+              mountPath: /hostfs
+              readOnly: true
+              mountPropagation: HostToContainer
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 13133
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 13133
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      volumes:
+        - name: config
+          configMap:
+            name: otel-node-collector-config
+        - name: hostfs
+          hostPath:
+            path: /
+---
+# ── Cluster Metrics Collector ConfigMap (Deployment) ─────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-cluster-collector-config
+  namespace: xamops-system
+data:
+  config.yaml: |
+    receivers:
+      # Kubernetes cluster-level metrics (pod counts, deployment status, etc.)
+      k8s_cluster:
+        collection_interval: 30s
+        node_conditions_to_report: [Ready, MemoryPressure, DiskPressure]
+        allocatable_types_to_report: [cpu, memory, storage]
+        distribution: kubernetes
+
+      # Kubernetes events as logs
+      k8sobjects:
+        objects:
+          - name: events
+            mode: watch
+            namespaces: [xamops, xamops-system, default, kube-system]
+
+    processors:
+      resource:
+        attributes:
+          - key: k8s.cluster.name
+            value: xamops-eks
+            action: upsert
+          - key: source
+            value: otel-cluster-collector
+            action: upsert
+
+      batch:
+        timeout: 10s
+        send_batch_size: 1000
+
+      memory_limiter:
+        check_interval: 5s
+        limit_mib: 256
+        spike_limit_mib: 64
+
+    exporters:
+      otlphttp/metrics:
+        endpoint: "${O2_URL}/api/${O2_ORG_ID}"
+        headers:
+          Authorization: "Basic ${O2_AUTH_BASE64}"
+        compression: gzip
+        retry_on_failure:
+          enabled: true
+          initial_interval: 5s
+          max_interval: 30s
+
+      otlphttp/logs:
+        endpoint: "${O2_URL}/api/${O2_ORG_ID}"
+        headers:
+          Authorization: "Basic ${O2_AUTH_BASE64}"
+        compression: gzip
+
+    service:
+      pipelines:
+        metrics:
+          receivers: [k8s_cluster]
+          processors: [memory_limiter, resource, batch]
+          exporters: [otlphttp/metrics]
+        logs:
+          receivers: [k8sobjects]
+          processors: [memory_limiter, resource, batch]
+          exporters: [otlphttp/logs]
+---
+# ── Cluster Metrics Deployment (single replica) ───────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-cluster-collector
+  namespace: xamops-system
+  labels:
+    app: otel-cluster-collector
+    component: metrics-collector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: otel-cluster-collector
+  template:
+    metadata:
+      labels:
+        app: otel-cluster-collector
+        component: metrics-collector
+    spec:
+      serviceAccountName: otel-collector
+      containers:
+        - name: otel-collector
+          image: otel/opentelemetry-collector-contrib:0.103.0
+          imagePullPolicy: IfNotPresent
+          args: ["--config=/conf/config.yaml"]
+          env:
+            - name: O2_URL
+              valueFrom:
+                secretKeyRef:
+                  name: o2-agent-credentials
+                  key: O2_URL
+            - name: O2_ORG_ID
+              valueFrom:
+                secretKeyRef:
+                  name: o2-agent-credentials
+                  key: O2_ORG_ID
+            - name: O2_AUTH_BASE64
+              valueFrom:
+                secretKeyRef:
+                  name: o2-agent-credentials
+                  key: O2_AUTH_BASE64
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+          volumeMounts:
+            - name: config
+              mountPath: /conf
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 13133
+            initialDelaySeconds: 20
+            periodSeconds: 20
+      volumes:
+        - name: config
+          configMap:
+            name: otel-cluster-collector-config

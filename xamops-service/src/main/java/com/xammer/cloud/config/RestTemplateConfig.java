@@ -55,8 +55,8 @@ public class RestTemplateConfig {
 
         // Create request factory
         HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory(httpClient);
-        factory.setConnectTimeout(120000); // 120 seconds (increased for CloudiDR API)
-        factory.setReadTimeout(240000); // 4 minutes
+        factory.setConnectTimeout(15000); // 15 seconds — fail fast if server is unreachable
+        factory.setReadTimeout(300000);  // 5 minutes — purchase endpoint provisions real AWS capacity and can take 2-3 minutes
 
         // Wrap with buffering for request/response logging
         BufferingClientHttpRequestFactory bufferingFactory = new BufferingClientHttpRequestFactory(factory);

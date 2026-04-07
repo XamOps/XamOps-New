@@ -1,0 +1,46 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: xamops-config
+  namespace: xamops
+data:
+  SPRING_PROFILES_ACTIVE: "uat"
+  SERVER_PORT: "8080"
+
+  # ── Database pool ─────────────────────────────────────────────────────────────
+  SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE: "2"
+  SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: "10"
+  SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT: "15000"
+  SPRING_DATASOURCE_HIKARI_KEEPALIVE_TIME: "30000"
+
+  # ── Redis ─────────────────────────────────────────────────────────────────────
+  SPRING_REDIS_HOST: "redis"
+  SPRING_REDIS_PORT: "6379"
+
+  # ── OpenObserve (UAT EC2: i-0eeeb2d2506b987c0, private IP 10.0.12.171) ───────
+  # Private IP used so backend traffic stays inside the VPC (no egress cost)
+  OPENOBSERVE_URL: "http://10.0.12.171:5080"
+
+  # ── CORS & Frontend ───────────────────────────────────────────────────────────
+  CORS_ALLOWED_ORIGINS: "https://uat.xamops.com"
+  APP_FRONTEND_URL: "https://uat.xamops.com"
+
+  # ── AWS ───────────────────────────────────────────────────────────────────────
+  AWS_REGION: "ap-south-1"
+  AWS_COSTEXPLORER_MOCK: "false"
+
+  # ── JPA / Hibernate ───────────────────────────────────────────────────────────
+  SPRING_JPA_HIBERNATE_DDL_AUTO: "update"
+  SPRING_JPA_SHOW_SQL: "false"
+  SERVER_FORWARD_HEADERS_STRATEGY: "native"
+
+  # ── Logging ───────────────────────────────────────────────────────────────────
+  LOGGING_LEVEL_ORG_SPRINGFRAMEWORK: "INFO"
+  LOGGING_LEVEL_COM_XAMMER_CLOUD: "INFO"
+
+  # ── Cookie (HTTPS) ────────────────────────────────────────────────────────────
+  SERVER_SERVLET_SESSION_COOKIE_SAME_SITE: "None"
+  SERVER_SERVLET_SESSION_COOKIE_SECURE: "true"
+
+  # ── CloudFormation S3 ─────────────────────────────────────────────────────────
+  CLOUDFORMATION_TEMPLATE_S3_URL: "https://xamopscftemplate.s3.ap-south-1.amazonaws.com/xamops-readonly-role-uat.yml"

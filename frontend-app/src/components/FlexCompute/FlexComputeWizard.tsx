@@ -112,6 +112,7 @@ const FlexComputeWizard: React.FC<FlexComputeWizardProps> = ({
             startDate: searchForm.startDate,
             endDate: searchForm.endDate,
             status: reservation.myPolicy.policyStatus || 'READY_FOR_PURCHASE',
+            reservedAt: Date.now(),
           };
 
           console.log('Updated pricing:', updatedPricing);
@@ -283,6 +284,7 @@ const FlexComputeWizard: React.FC<FlexComputeWizardProps> = ({
           onBack={() => setStep('configure')}
           isPurchasing={isPurchasing}
           purchaseError={purchaseError}
+          reservedAt={pricing.reservedAt}
         />
       )}
 

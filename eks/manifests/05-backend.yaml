@@ -1,0 +1,119 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# XamOps Backend — Spring Boot service
+# Image: built and pushed to ECR by build-and-push.sh
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: xamops-service
+  namespace: xamops
+  labels:
+    app: xamops-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: xamops-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: xamops-service
+    spec:
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: xamops-service
+          # Replace <AWS_ACCOUNT_ID> with your account ID
+          image: <AWS_ACCOUNT_ID>.dkr.ecr.ap-south-1.amazonaws.com/xamops-service:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: xamops-config
+          env:
+            - name: SPRING_DATASOURCE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: xamops-secrets
+                  key: DB_URL
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: xamops-secrets
+                  key: DB_USERNAME
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: xamops-secrets
+                  key: DB_PASSWORD
+            - name: OPENOBSERVE_URL
+              value: "http://10.1.10.93:5080"
+            - name: OPENOBSERVE_EXTERNAL_URL
+              valueFrom:
+                secretKeyRef:
+                  name: xamops-secrets
+                  key: O2_EXTERNAL_URL
+            - name: OPENOBSERVE_ADMIN_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: xamops-secrets
+                  key: O2_ADMIN_EMAIL
+            - name: OPENOBSERVE_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: xamops-secrets
+                  key: O2_ADMIN_PASSWORD
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: xamops-secrets
+                  key: GEMINI_API_KEY
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: xamops-secrets
+                  key: OPENAI_API_KEY
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 40
+            periodSeconds: 10
+            failureThreshold: 5
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2000m"
+              memory: "2Gi"
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "sleep 10"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: xamops-service
+  namespace: xamops
+spec:
+  selector:
+    app: xamops-service
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+  type: ClusterIP

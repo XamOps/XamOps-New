@@ -13,7 +13,7 @@ interface FlexComputeTableProps {
   capacities: FlexComputeCapacity[];
   isLoading: boolean;
   onCancelCapacity: (cidrId: string) => Promise<boolean>;
-  onExtendCapacity: (cidrId: string, endDate: string, endTime: string, utcOffset: string) => Promise<boolean>;
+  onExtendCapacity: (cidrId: string, datetime: string, timezone: string) => Promise<boolean>;
   onContinuePurchase?: (capacity: FlexComputeCapacity) => void;
   // Pagination
   currentPage: number;

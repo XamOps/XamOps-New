@@ -2,6 +2,7 @@ package com.xammer.cloud.dto.flexcompute;
 
 import com.fasterxml.jackson.annotation.JsonGetter;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonProperty.Access;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -13,8 +14,8 @@ import java.util.List;
 @AllArgsConstructor
 public class CapacityListResponse {
 
-    @JsonProperty("values")
-    private List<CapacityDescriptionResponse> values; // Array of capacity objects (CloudiDR uses "values" not "data")
+    @JsonProperty(value = "values", access = Access.WRITE_ONLY) // deserialize from CloudiDR; serialized to frontend as "data" via @JsonGetter
+    private List<CapacityDescriptionResponse> values;
 
     @JsonProperty("page")
     private Integer page; // Current page number
