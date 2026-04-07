@@ -6,6 +6,8 @@
 import React, { useEffect, useRef } from 'react';
 import { Chart, ChartConfiguration, ArcElement, DoughnutController, Tooltip, Legend } from 'chart.js';
 import type { CostDataItem, CostFilters, GroupByType } from '../../types/cost';
+import type { ResourceLabel } from '../../types/resourceLabels';
+import type { TrackedResource } from '../../services/resourceLabelsApi';
 
 // Register Chart.js components
 Chart.register(ArcElement, DoughnutController, Tooltip, Legend);
@@ -16,6 +18,14 @@ interface CostBreakdownSectionProps {
   isLoading: boolean;
   onFiltersChange: (filters: Partial<CostFilters>) => void;
   onHistoricalClick: (dimension: string) => void;
+  labels?: ResourceLabel[];
+  labelFilterId?: number | null;
+  onLabelFilterChange?: (id: number | null) => void;
+  labelFilterLoading?: boolean;
+  labelResourceLevel?: boolean;
+  labelMessage?: string;
+  labelTrackedResources?: TrackedResource[];
+  labelApproximationWarning?: string;
 }
 
 const CostBreakdownSection: React.FC<CostBreakdownSectionProps> = ({
@@ -24,6 +34,14 @@ const CostBreakdownSection: React.FC<CostBreakdownSectionProps> = ({
   isLoading,
   onFiltersChange,
   onHistoricalClick,
+  labels = [],
+  labelFilterId,
+  onLabelFilterChange,
+  labelFilterLoading = false,
+  labelResourceLevel,
+  labelMessage,
+  labelTrackedResources,
+  labelApproximationWarning,
 }) => {
   const chartRef = useRef<HTMLCanvasElement>(null);
   const chartInstanceRef = useRef<Chart<'doughnut'> | null>(null);
@@ -127,7 +145,27 @@ const CostBreakdownSection: React.FC<CostBreakdownSectionProps> = ({
           </div>
           <div>
             <h2 className="text-xl font-bold text-gray-800">Cost Breakdown</h2>
-            <p className="text-sm text-gray-600">Spending analysis for selected range</p>
+            <p className="text-sm text-gray-600">
+              {labelFilterId && labels.length > 0
+                ? (
+                  <>
+                    Filtered by label:{' '}
+                    <span className="font-semibold text-indigo-600">{labels.find(l => l.id === labelFilterId)?.name}</span>
+                    {labelResourceLevel === true && (
+                      <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700 border border-green-200">
+                        <i className="fas fa-check-circle" style={{ fontSize: '9px' }} /> resource-level
+                      </span>
+                    )}
+                    {labelResourceLevel === false && (
+                      <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700 border border-amber-200">
+                        <i className="fas fa-info-circle" style={{ fontSize: '9px' }} />
+                        {labelApproximationWarning ? 'service-level approx.' : 'estimated (on-demand)'}
+                      </span>
+                    )}
+                  </>
+                )
+                : 'Spending analysis for selected range'}
+            </p>
           </div>
         </div>
 
@@ -174,8 +212,81 @@ const CostBreakdownSection: React.FC<CostBreakdownSectionProps> = ({
               />
             </div>
           )}
+          {/* XamOps Label filter */}
+          {labels.length > 0 && onLabelFilterChange && (
+            <div className="flex items-center space-x-2">
+              <i className={`fas fa-tag text-indigo-400 text-xs ${labelFilterLoading ? 'animate-pulse' : ''}`} />
+              <select
+                value={labelFilterId ?? ''}
+                onChange={e => onLabelFilterChange(e.target.value ? Number(e.target.value) : null)}
+                className="px-3 py-1.5 text-sm rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 bg-white"
+              >
+                <option value="">All Labels</option>
+                {labels.map(l => (
+                  <option key={l.id} value={l.id}>{l.name}</option>
+                ))}
+              </select>
+              {labelFilterId && (
+                <button
+                  type="button"
+                  onClick={() => onLabelFilterChange(null)}
+                  className="text-xs text-gray-400 hover:text-gray-600 px-1"
+                  title="Clear label filter"
+                >
+                  <i className="fas fa-times" />
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
+
+      {/* Tracked resources banner — shown when a label filter is active */}
+      {labelFilterId && labelTrackedResources && labelTrackedResources.length > 0 && (
+        <div className={`mb-6 rounded-xl border px-4 py-3 flex gap-3 ${
+          labelResourceLevel
+            ? 'bg-green-50 border-green-200'
+            : 'bg-amber-50 border-amber-200'
+        }`}>
+          <div className="flex-shrink-0 mt-0.5">
+            <i className={`fas ${labelResourceLevel ? 'fa-check-circle text-green-500' : 'fa-exclamation-triangle text-amber-500'}`} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className={`text-xs font-semibold mb-1.5 ${labelResourceLevel ? 'text-green-700' : 'text-amber-700'}`}>
+              {labelResourceLevel
+                ? `Showing costs for ${labelTrackedResources.length} tagged resource${labelTrackedResources.length !== 1 ? 's' : ''}`
+                : `Showing per-resource cost estimates for ${labelTrackedResources.length} tagged resource${labelTrackedResources.length !== 1 ? 's' : ''}`}
+            </p>
+            <div className="flex flex-wrap gap-1.5 mb-1.5">
+              {labelTrackedResources.map(r => (
+                <span
+                  key={r.id}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-white border border-gray-200 text-gray-700 shadow-sm"
+                  title={`${r.type} • ${r.region} • ${r.id}`}
+                >
+                  <i className="fas fa-server text-indigo-400" style={{ fontSize: '9px' }} />
+                  <span className="font-semibold">{r.name !== r.id ? r.name : r.id}</span>
+                  {r.name !== r.id && (
+                    <span className="text-gray-400 font-normal">{r.id}</span>
+                  )}
+                  {r.region && (
+                    <span className="text-gray-400">• {r.region}</span>
+                  )}
+                </span>
+              ))}
+            </div>
+            {!labelResourceLevel && labelMessage && (
+              <p className="text-xs text-amber-600 italic">{labelMessage}</p>
+            )}
+            {labelApproximationWarning && (
+              <p className="text-xs text-amber-700 mt-1">
+                <i className="fas fa-exclamation-circle mr-1" />
+                {labelApproximationWarning}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Loading State */}
       {isLoading && (

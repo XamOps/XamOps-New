@@ -7,7 +7,6 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.jsontype.impl.LaissezFaireSubTypeValidator;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.xammer.billops.config.ClientUserDetailsJacksonModule; // Ensure this import is correct
-import org.springframework.boot.CommandLineRunner;
 import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -76,16 +75,4 @@ public class CacheConfig {
                 .build();
     }
 
-    // Keep your flush bean if needed, or remove it if you're done debugging
-    @Bean
-    public CommandLineRunner clearRedisCache(RedisConnectionFactory connectionFactory) {
-        return args -> {
-            try {
-                connectionFactory.getConnection().serverCommands().flushAll();
-                System.out.println("✅ REDIS CACHE FLUSHED (BillOps)");
-            } catch (Exception e) {
-                // ignore
-            }
-        };
-    }
 }

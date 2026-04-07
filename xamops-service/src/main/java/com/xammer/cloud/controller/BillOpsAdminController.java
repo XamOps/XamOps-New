@@ -2,15 +2,26 @@ package com.xammer.cloud.controller;
 
 import com.xammer.cloud.domain.Client;
 import com.xammer.cloud.domain.CloudAccount;
+import com.xammer.cloud.domain.MarketplaceAccount;
+import com.xammer.cloud.domain.MarketplacePayerAccount;
 import com.xammer.cloud.domain.User;
+import com.xammer.cloud.dto.marketplace.BillingShareRequest;
+import com.xammer.cloud.dto.marketplace.ConnectMarketplaceRequest;
+import com.xammer.cloud.dto.marketplace.MarketplaceAccountSummaryDto;
 import com.xammer.cloud.repository.ClientRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.repository.MarketplaceAccountRepository;
+import com.xammer.cloud.repository.MarketplacePayerAccountRepository;
 import com.xammer.cloud.repository.UserCloudAccountAccessRepository;
 import com.xammer.cloud.repository.UserRepository;
+import com.xammer.cloud.service.CostDataSnapshotService;
 import com.xammer.cloud.service.CostService;
 import com.xammer.cloud.service.RedisCacheService;
 import com.xammer.cloud.service.gcp.GcpCostService;
 import com.xammer.cloud.service.azure.AzureCostService;
+import com.xammer.cloud.service.marketplace.MarketplaceAccountDiscoveryService;
+import com.xammer.cloud.service.marketplace.MarketplaceBillingExtractionService;
+import com.xammer.cloud.service.marketplace.MarketplaceBillingShareService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,11 +30,16 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -232,6 +248,24 @@ public class BillOpsAdminController {
     @Autowired
     private AzureCostService azureCostService;
 
+    @Autowired
+    private MarketplacePayerAccountRepository marketplacePayerAccountRepository;
+
+    @Autowired
+    private MarketplaceAccountRepository marketplaceAccountRepository;
+
+    @Autowired
+    private MarketplaceAccountDiscoveryService marketplaceAccountDiscoveryService;
+
+    @Autowired
+    private MarketplaceBillingExtractionService marketplaceBillingExtractionService;
+
+    @Autowired
+    private MarketplaceBillingShareService marketplaceBillingShareService;
+
+    @Autowired
+    private CostDataSnapshotService costDataSnapshotService;
+
     /** Evict the clients cache (call this after creating a client or user) */
     @DeleteMapping("/clients/cache")
     public ResponseEntity<String> evictClientsCache() {
@@ -373,5 +407,234 @@ public class BillOpsAdminController {
         // Cache for next requests
         redisCacheService.put(CLIENTS_CACHE_KEY, result, CLIENTS_CACHE_TTL_MINUTES);
         return result;
+    }
+
+    // =========================================================
+    // MARKETPLACE BILLING ENDPOINTS
+    // =========================================================
+
+    /**
+     * Connect a marketplace payer account and auto-discover all member accounts.
+     * Call this once with the IAM Role ARN created in the payer account.
+     *
+     * POST /api/xamops/billops-admin/marketplace/connect
+     * Body: { "accountName": "My Marketplace", "roleArn": "arn:aws:iam::123456789012:role/XamOpsMarketRole" }
+     */
+    @PostMapping("/marketplace/connect")
+    public ResponseEntity<Map<String, Object>> connectMarketplace(
+            @RequestBody ConnectMarketplaceRequest request) {
+        log.info("Connecting marketplace account with roleArn: {}", request.getRoleArn());
+        MarketplacePayerAccount payer = marketplaceAccountDiscoveryService.connectAndDiscover(request);
+        List<MarketplaceAccount> discovered = marketplaceAccountRepository.findByPayerAccount(payer);
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("payerAccountId", payer.getId());
+        response.put("payerAwsAccountId", payer.getPayerAwsAccountId());
+        response.put("accountName", payer.getAccountName());
+        response.put("totalDiscovered", discovered.size());
+        response.put("marketplaceXamops",
+                discovered.stream().filter(a -> "MARKETPLACE_XAMOPS".equals(a.getCategory())).count());
+        response.put("marketplaceOnly",
+                discovered.stream().filter(a -> "MARKETPLACE_ONLY".equals(a.getCategory())).count());
+        response.put("status", "CONNECTED");
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Return the connected payer account(s) so the UI can retrieve payerAccountId on page load.
+     *
+     * GET /api/xamops/billops-admin/marketplace/payers
+     */
+    @GetMapping("/marketplace/payers")
+    public ResponseEntity<List<Map<String, Object>>> getMarketplacePayers() {
+        List<MarketplacePayerAccount> payers = marketplacePayerAccountRepository.findAll();
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (MarketplacePayerAccount payer : payers) {
+            List<MarketplaceAccount> discovered = marketplaceAccountRepository.findByPayerAccount(payer);
+            Map<String, Object> dto = new LinkedHashMap<>();
+            dto.put("payerAccountId", payer.getId());
+            dto.put("payerAwsAccountId", payer.getPayerAwsAccountId());
+            dto.put("accountName", payer.getAccountName());
+            dto.put("totalDiscovered", discovered.size());
+            dto.put("marketplaceXamops",
+                    discovered.stream().filter(a -> "MARKETPLACE_XAMOPS".equals(a.getCategory())).count());
+            dto.put("marketplaceOnly",
+                    discovered.stream().filter(a -> "MARKETPLACE_ONLY".equals(a.getCategory())).count());
+            dto.put("status", payer.getStatus());
+            dto.put("markupPercent", payer.getMarkupPercent());
+            result.add(dto);
+        }
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * List all discovered marketplace accounts with their extraction status.
+     *
+     * GET /api/xamops/billops-admin/marketplace/accounts
+     */
+    @GetMapping("/marketplace/accounts")
+    public ResponseEntity<List<MarketplaceAccountSummaryDto>> getMarketplaceAccounts() {
+        List<MarketplacePayerAccount> payers = marketplacePayerAccountRepository.findAll();
+        List<MarketplaceAccountSummaryDto> result = new ArrayList<>();
+        for (MarketplacePayerAccount payer : payers) {
+            marketplaceAccountRepository.findByPayerAccount(payer).forEach(account -> {
+                MarketplaceAccountSummaryDto dto = new MarketplaceAccountSummaryDto();
+                dto.setId(account.getId());
+                dto.setAwsAccountId(account.getAwsAccountId());
+                dto.setAccountName(account.getAccountName());
+                dto.setContactEmail(account.getContactEmail());
+                dto.setCategory(account.getCategory());
+                dto.setBillingExtracted(account.getBillingExtracted());
+                dto.setStatus(account.getStatus());
+                dto.setDiscoveredAt(account.getDiscoveredAt());
+                result.add(dto);
+            });
+        }
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * Returns the list of months (e.g. ["2025-02","2025-03"]) for which billing data
+     * has been extracted into DB for the given account.
+     *
+     * GET /api/xamops/billops-admin/marketplace/accounts/{accountId}/billing-months
+     */
+    @GetMapping("/marketplace/accounts/{accountId}/billing-months")
+    public ResponseEntity<List<String>> getBillingMonths(@PathVariable String accountId) {
+        List<String> months = marketplaceBillingExtractionService.getAvailableMonths(accountId);
+        return ResponseEntity.ok(months);
+    }
+
+    /**
+     * Extract billing data for ALL marketplace accounts (Dec 2024 – Mar 2026).
+     * Run this ONCE before applying Billing Conductor.
+     * Saves CSV to S3 and summary rows to DB for every account.
+     *
+     * POST /api/xamops/billops-admin/marketplace/extract-all/{payerAccountId}
+     */
+    @PostMapping("/marketplace/extract-all/{payerAccountId}")
+    public ResponseEntity<Map<String, String>> extractAllBilling(
+            @PathVariable Long payerAccountId) {
+        log.info("Starting bulk billing extraction for payer account {}", payerAccountId);
+        Map<String, String> results = marketplaceBillingExtractionService.extractAll(payerAccountId);
+        return ResponseEntity.ok(results);
+    }
+
+    /**
+     * Share billing data for a single marketplace account via email.
+     * Generates a 48-hour S3 download link and emails it to the customer.
+     *
+     * POST /api/xamops/billops-admin/marketplace/share-billing
+     * Body: { "awsAccountId": "123456789012", "recipientEmail": "customer@example.com" }
+     */
+    @PostMapping("/marketplace/share-billing")
+    public ResponseEntity<Map<String, String>> shareBilling(
+            @RequestBody BillingShareRequest request) {
+        log.info("Sharing billing data for account {} → {}",
+                request.getAwsAccountId(), request.getRecipientEmail());
+        marketplaceBillingShareService.shareBillingData(
+                request.getAwsAccountId(), request.getRecipientEmail(), request.getYearMonth());
+        Map<String, String> response = new LinkedHashMap<>();
+        response.put("status", "EMAIL_SENT");
+        response.put("awsAccountId", request.getAwsAccountId());
+        response.put("yearMonth", request.getYearMonth());
+        response.put("sentTo", request.getRecipientEmail());
+        response.put("message", "Billing data download link sent successfully (valid 48 hours)");
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Set (or update) the markup percentage for a payer account.
+     * All billing rows will be multiplied by (1 + markupPercent/100) during the next extraction.
+     * Re-run extract-all after updating to regenerate CSVs with the new markup applied.
+     *
+     * PUT /api/xamops/billops-admin/marketplace/payers/{id}/markup
+     * Body: { "markupPercent": 5.3 }
+     */
+    @PutMapping("/marketplace/payers/{id}/markup")
+    public ResponseEntity<Map<String, Object>> updateMarkup(
+            @PathVariable Long id,
+            @RequestBody Map<String, Double> body) {
+        double markupPercent = body.getOrDefault("markupPercent", 0.0);
+        MarketplacePayerAccount payer = marketplacePayerAccountRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Payer account not found: " + id));
+        payer.setMarkupPercent(markupPercent);
+        marketplacePayerAccountRepository.save(payer);
+        log.info("Updated markup for payer {} ({}) to {}%",
+                payer.getId(), payer.getAccountName(), markupPercent);
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("payerAccountId", payer.getId());
+        response.put("accountName", payer.getAccountName());
+        response.put("markupPercent", payer.getMarkupPercent());
+        response.put("message", "Markup updated. Re-run extract-all to apply to billing CSVs.");
+        return ResponseEntity.ok(response);
+    }
+
+    // =========================================================
+    // COST HISTORY SNAPSHOT ENDPOINTS
+    // =========================================================
+
+    /**
+     * Pre-extract ALL historical cost months (Jan 2025 → last month) for every
+     * active AWS account and store them in cached_data with absolute month keys.
+     *
+     * Run this ONCE before Billing Conductor is applied (before April 1st).
+     * Already-snapshotted months are skipped automatically.
+     *
+     * POST /api/xamops/billops-admin/snapshot-cost-history
+     */
+    @PostMapping("/snapshot-cost-history")
+    public ResponseEntity<Map<String, Object>> snapshotCostHistory() {
+        log.info("Starting historical cost snapshot (pre-Billing-Conductor extraction)...");
+        Map<String, String> accountResults = costDataSnapshotService.snapshotAllHistoricalMonths();
+
+        long ok   = accountResults.values().stream().filter(v -> v.startsWith("OK")).count();
+        long fail = accountResults.size() - ok;
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("status", fail == 0 ? "COMPLETE" : "PARTIAL");
+        response.put("accountsProcessed", accountResults.size());
+        response.put("accountsOk", ok);
+        response.put("accountsFailed", fail);
+        response.put("details", accountResults);
+        response.put("message", "Historical cost snapshots saved to cached_data. Closed months will now " +
+                "be served from DB snapshots instead of the CE API.");
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Snapshot current month's final cost data for all AWS accounts.
+     * Normally called automatically by the end-of-month scheduler but can be
+     * triggered manually if needed.
+     *
+     * POST /api/xamops/billops-admin/snapshot-current-month
+     */
+    @PostMapping("/snapshot-current-month")
+    public ResponseEntity<Map<String, String>> snapshotCurrentMonth() {
+        log.info("Manual trigger: snapshotting current month final cost data...");
+        costDataSnapshotService.snapshotCurrentMonthFinal();
+        Map<String, String> response = new LinkedHashMap<>();
+        response.put("status", "OK");
+        response.put("message", "Current month cost data snapshotted for all AWS accounts.");
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Returns a per-account, per-month snapshot coverage report.
+     * Shows which months are fully saved, partially saved, or missing.
+     *
+     * Response per account:
+     *   status        → COMPLETE | INCOMPLETE | PARTIAL_KEYS | NOT_STARTED
+     *   complete      → list of YYYY-MM months where all 7 key types are present
+     *   missing       → list of YYYY-MM months where no key types are present
+     *   partial       → map of YYYY-MM → [missing key type names] (some keys saved, some not)
+     *
+     * GET /api/xamops/billops-admin/snapshot-status
+     */
+    @GetMapping("/snapshot-status")
+    public ResponseEntity<Map<String, Object>> getSnapshotStatus() {
+        log.info("Fetching snapshot coverage status...");
+        Map<String, Object> report = costDataSnapshotService.getSnapshotStatusReport();
+        return ResponseEntity.ok(report);
     }
 }

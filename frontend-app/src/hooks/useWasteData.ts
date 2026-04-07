@@ -17,6 +17,7 @@ interface UseWasteDataReturn {
   isRefreshing: boolean;
   error: Error | null;
   loadWastedResources: (forceRefresh?: boolean) => Promise<void>;
+  removeResource: (resourceId: string) => void;
 }
 
 export const useWasteData = ({
@@ -100,6 +101,23 @@ export const useWasteData = ({
     [selectedAccountId]
   );
 
+  const removeResource = useCallback(
+    (resourceId: string) => {
+      setWastedResources((prev) => {
+        const updated = prev.filter((r) => r.resourceId !== resourceId);
+        if (selectedAccountId) {
+          try {
+            sessionStorage.setItem(`waste_data_${selectedAccountId}`, JSON.stringify(updated));
+          } catch (e) {
+            // ignore cache errors
+          }
+        }
+        return updated;
+      });
+    },
+    [selectedAccountId]
+  );
+
   // Initial load
   useEffect(() => {
     if (selectedAccountId) {
@@ -113,5 +131,6 @@ export const useWasteData = ({
     isRefreshing,
     error,
     loadWastedResources,
+    removeResource,
   };
 };

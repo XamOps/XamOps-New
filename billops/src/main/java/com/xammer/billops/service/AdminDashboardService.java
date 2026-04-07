@@ -21,6 +21,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.PostConstruct;
 
@@ -97,6 +98,7 @@ public class AdminDashboardService {
         return CACHE_KEY + ":system";
     }
 
+    @Transactional
     public AdminDashboardDto getAdminDashboardSummary(boolean forceRefresh) {
         // Sub-users get a custom filtered view — never served from (or stored to) the global cache
         List<CloudAccount> filteredAccounts = accountAccessHelper.filterAccounts(cloudAccountRepository.findAll());

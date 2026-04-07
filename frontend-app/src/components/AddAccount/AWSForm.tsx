@@ -238,7 +238,7 @@ const AWSForm: React.FC<AWSFormProps> = ({
         </div>
 
         <div className="form-group">
-          <label htmlFor="read-only" className="form-label">
+          <label className="form-label">
             <i className="fas fa-shield-alt" />
             Access Level
           </label>
@@ -260,6 +260,27 @@ const AWSForm: React.FC<AWSFormProps> = ({
               </span>
               <p className="radio-option-description">
                 Grants visibility into costs, usage, and inventory without modification rights
+              </p>
+            </div>
+          </label>
+          <label
+            htmlFor="read-write"
+            className={`radio-option ${accessType === 'read-write' ? 'selected' : ''}`}
+          >
+            <input
+              type="radio"
+              id="read-write"
+              name="access-type"
+              value="read-write"
+              checked={accessType === 'read-write'}
+              onChange={() => onAccessTypeChange('read-write')}
+            />
+            <div className="radio-option-content">
+              <span className="radio-option-label">
+                Read &amp; Write Access
+              </span>
+              <p className="radio-option-description">
+                Grants full visibility plus the ability to manage resources, configure auto-spotting, create users, and perform operational actions
               </p>
             </div>
           </label>

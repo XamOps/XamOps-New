@@ -159,6 +159,11 @@ Resources:
                   - 'sqs:GetQueueAttributes'
                   - 'sqs:ListQueues'
                   - 'sts:GetCallerIdentity'
+                  - 'aws-marketplace:SearchAgreements'
+                  - 'aws-marketplace:DescribeAgreement'
+                  - 'aws-marketplace:DescribeEntity'
+                  - 'aws-marketplace:GetAgreementApprovalRequest'
+                  - 'aws-marketplace:ListEntities'
                 Resource: '*'
 
   # =================================================================

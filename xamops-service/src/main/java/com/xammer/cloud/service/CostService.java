@@ -22,8 +22,19 @@ import software.amazon.awssdk.services.costexplorer.CostExplorerClient;
 import software.amazon.awssdk.services.costexplorer.model.*;
 
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
+import software.amazon.awssdk.services.ec2.Ec2Client;
+import software.amazon.awssdk.services.ec2.model.DescribeInstancesRequest;
+import software.amazon.awssdk.services.ec2.model.DescribeVolumesRequest;
+import software.amazon.awssdk.services.ec2.model.DescribeAddressesRequest;
+import software.amazon.awssdk.services.rds.RdsClient;
+import software.amazon.awssdk.services.rds.model.DescribeDbInstancesRequest;
+import software.amazon.awssdk.services.rds.model.DescribeDbInstancesResponse;
+import software.amazon.awssdk.services.elasticloadbalancingv2.ElasticLoadBalancingV2Client;
+import software.amazon.awssdk.services.elasticloadbalancingv2.model.DescribeLoadBalancersRequest;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
@@ -39,6 +50,8 @@ public class CostService {
         private final CostMockService costMockService;
         private final CachedDataRepository cachedDataRepository;
         private final ObjectMapper objectMapper;
+        private final AwsPricingService awsPricingService;
+        private final CostDataSnapshotService snapshotService;
 
         @Value("${aws.costexplorer.mock:false}")
         private boolean useMockData;
@@ -50,7 +63,9 @@ public class CostService {
                         @Lazy ForecastingService forecastingService,
                         CostMockService costMockService,
                         CachedDataRepository cachedDataRepository,
-                        ObjectMapper objectMapper) {
+                        ObjectMapper objectMapper,
+                        AwsPricingService awsPricingService,
+                        CostDataSnapshotService snapshotService) {
                 this.cloudAccountRepository = cloudAccountRepository;
                 this.awsClientProvider = awsClientProvider;
                 this.redisCache = redisCache;
@@ -58,6 +73,8 @@ public class CostService {
                 this.costMockService = costMockService;
                 this.cachedDataRepository = cachedDataRepository;
                 this.objectMapper = objectMapper;
+                this.awsPricingService = awsPricingService;
+                this.snapshotService = snapshotService;
 
                 logger.info("CostService initialized (Mock Mode: {})", useMockData);
         }
@@ -75,18 +92,61 @@ public class CostService {
         @Async("awsTaskExecutor")
         public CompletableFuture<Double> getTotalMonthToDateCost(String accountId, boolean forceRefresh) {
                 String cacheKey = "totalMtdCost-" + accountId;
+                String dbKey = "AWS_MTD_COST::" + accountId;
                 if (!forceRefresh) {
                         Optional<Double> cached = redisCache.get(cacheKey, Double.class);
                         if (cached.isPresent()) {
                                 logger.info("✅ Cache hit for MTD cost: {}", cacheKey);
                                 return CompletableFuture.completedFuture(cached.get());
                         }
+                        try {
+                                Optional<CachedData> dbCached = cachedDataRepository.findById(dbKey);
+                                if (dbCached.isPresent()) {
+                                        Double dbData = objectMapper.readValue(dbCached.get().getJsonData(), Double.class);
+                                        if (dbData != null) {
+                                                redisCache.put(cacheKey, dbData, 60 * 24);
+                                                logger.info("✅ DB snapshot hit for MTD cost — re-warmed Redis: {}", dbKey);
+                                                return CompletableFuture.completedFuture(dbData);
+                                        }
+                                }
+                        } catch (Exception e) {
+                                logger.warn("DB cache miss for {}: {}", dbKey, e.getMessage());
+                        }
+
+                        // Derive from getCostBreakdown(SERVICE) Redis cache — avoids a redundant CE call
+                        // when cost.html has already populated the breakdown cache.
+                        LocalDate cbNow = LocalDate.now();
+                        String cbStart = cbNow.withDayOfMonth(1).toString();
+                        String cbEnd = cbNow.toString();
+                        String breakdownCacheKey = "costBreakdown-" + accountId + "-SERVICE--" + cbStart + "-" + cbEnd;
+                        try {
+                                Optional<List<CostDto>> breakdownOpt = redisCache.get(breakdownCacheKey,
+                                                new TypeReference<List<CostDto>>() {});
+                                if (breakdownOpt.isPresent()) {
+                                        double total = breakdownOpt.get().stream()
+                                                        .mapToDouble(CostDto::getAmount).sum();
+                                        redisCache.put(cacheKey, total, 60 * 24);
+                                        try {
+                                                CachedData snap = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+                                                snap.setCacheKey(dbKey);
+                                                snap.setJsonData(objectMapper.writeValueAsString(total));
+                                                snap.setLastUpdated(java.time.LocalDateTime.now());
+                                                cachedDataRepository.save(snap);
+                                        } catch (Exception dbEx) {
+                                                logger.warn("Failed to save MTD cost DB snapshot {}: {}", dbKey, dbEx.getMessage());
+                                        }
+                                        logger.info("✅ MTD cost derived from getCostBreakdown Redis cache for {}", accountId);
+                                        return CompletableFuture.completedFuture(total);
+                                }
+                        } catch (Exception e) {
+                                logger.warn("Could not derive MTD cost from breakdown cache for {}: {}", accountId, e.getMessage());
+                        }
                 }
 
                 // Return mock data if mock mode is enabled
                 if (useMockData) {
                         Double mockResult = costMockService.getMockTotalMonthToDateCost(accountId);
-                        redisCache.put(cacheKey, mockResult, 60);
+                        redisCache.put(cacheKey, mockResult, 60 * 24);
                         return CompletableFuture.completedFuture(mockResult);
                 }
 
@@ -117,7 +177,16 @@ public class CostService {
                                                 .mapToDouble(Double::parseDouble)
                                                 .sum();
 
-                                redisCache.put(cacheKey, total, 60); // Cache for 1 hour
+                                redisCache.put(cacheKey, total, 60 * 24); // Cache for 24 hours
+                                try {
+                                        CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+                                        snapshot.setCacheKey(dbKey);
+                                        snapshot.setJsonData(objectMapper.writeValueAsString(total));
+                                        snapshot.setLastUpdated(java.time.LocalDateTime.now());
+                                        cachedDataRepository.save(snapshot);
+                                } catch (Exception dbEx) {
+                                        logger.warn("Failed to save MTD cost DB snapshot {}: {}", dbKey, dbEx.getMessage());
+                                }
                                 return total;
                         } catch (Exception e) {
                                 logger.error("❌ Error fetching MTD cost for account {}: {}", accountId, e.getMessage());
@@ -132,11 +201,37 @@ public class CostService {
         @Async("awsTaskExecutor")
         public CompletableFuture<Double> getLastMonthSpend(String accountId, boolean forceRefresh) {
                 String cacheKey = "lastMonthCost-" + accountId;
+                String dbKey = "AWS_LAST_MONTH_COST::" + accountId;
+
+                // ── Closed-month snapshot check (permanent, no TTL) ──────────────────────
+                // Last month is ALWAYS closed — snapshot is immutable. Check regardless of
+                // forceRefresh so the nightly scheduler never wastes a CE call for this.
+                YearMonth lastMonth = YearMonth.now().minusMonths(1);
+                Optional<Double> snap = snapshotService.readMonthlyTotal(accountId, lastMonth);
+                if (snap.isPresent()) {
+                        logger.info("✅ Snapshot hit for last month cost ({}) — account {}", lastMonth, accountId);
+                        redisCache.put(cacheKey, snap.get(), 60 * 24);
+                        return CompletableFuture.completedFuture(snap.get());
+                }
+
                 if (!forceRefresh) {
                         Optional<Double> cached = redisCache.get(cacheKey, Double.class);
                         if (cached.isPresent()) {
                                 logger.info("✅ Cache hit for Last Month cost: {}", cacheKey);
                                 return CompletableFuture.completedFuture(cached.get());
+                        }
+                        try {
+                                Optional<CachedData> dbCached = cachedDataRepository.findById(dbKey);
+                                if (dbCached.isPresent()) {
+                                        Double dbData = objectMapper.readValue(dbCached.get().getJsonData(), Double.class);
+                                        if (dbData != null) {
+                                                redisCache.put(cacheKey, dbData, 60 * 24);
+                                                logger.info("✅ DB snapshot hit for last month cost — re-warmed Redis: {}", dbKey);
+                                                return CompletableFuture.completedFuture(dbData);
+                                        }
+                                }
+                        } catch (Exception e) {
+                                logger.warn("DB cache miss for {}: {}", dbKey, e.getMessage());
                         }
                 }
 
@@ -175,6 +270,15 @@ public class CostService {
                                                 .sum();
 
                                 redisCache.put(cacheKey, total, 60 * 24); // Cache for 24 hours
+                                try {
+                                        CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+                                        snapshot.setCacheKey(dbKey);
+                                        snapshot.setJsonData(objectMapper.writeValueAsString(total));
+                                        snapshot.setLastUpdated(java.time.LocalDateTime.now());
+                                        cachedDataRepository.save(snapshot);
+                                } catch (Exception dbEx) {
+                                        logger.warn("Failed to save last month cost DB snapshot {}: {}", dbKey, dbEx.getMessage());
+                                }
                                 return total;
                         } catch (Exception e) {
                                 logger.error("❌ Error fetching Last Month cost for account {}: {}", accountId,
@@ -191,6 +295,23 @@ public class CostService {
                         String accountId, LocalDate startDate, LocalDate endDate, boolean forceRefresh) {
 
                 String cacheKey = "costBreakdownServiceRegion-" + accountId + "-" + startDate + "-" + endDate;
+                String dbKey = "AWS_COST_BREAKDOWN_SVC_REGION::" + accountId + "::" + startDate + "::" + endDate;
+
+                // ── Closed-month snapshot check ──────────────────────────────────────────
+                // When the entire date range falls within a single closed month, serve from
+                // the permanent monthly snapshot. Immutable — check regardless of forceRefresh
+                // so the nightly scheduler never wastes a CE call here.
+                YearMonth startYm = YearMonth.from(startDate);
+                YearMonth endYm   = YearMonth.from(endDate);
+                if (startYm.equals(endYm) && CostDataSnapshotService.isClosedMonth(startYm)) {
+                        Optional<List<DetailedCostDto>> snap = snapshotService.readSvcRegion(accountId, startYm);
+                        if (snap.isPresent()) {
+                                logger.info("✅ Monthly snapshot hit for svc/region breakdown ({}) — account {}",
+                                        startYm, accountId);
+                                redisCache.put(cacheKey, snap.get(), 60 * 24);
+                                return CompletableFuture.completedFuture(snap.get());
+                        }
+                }
 
                 if (!forceRefresh) {
                         Optional<List<DetailedCostDto>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {
@@ -199,13 +320,27 @@ public class CostService {
                                 logger.info("✅ Cache hit for detailed cost breakdown: {}", cacheKey);
                                 return CompletableFuture.completedFuture(cachedData.get());
                         }
+                        try {
+                                Optional<CachedData> dbCached = cachedDataRepository.findById(dbKey);
+                                if (dbCached.isPresent()) {
+                                        List<DetailedCostDto> dbData = objectMapper.readValue(
+                                                        dbCached.get().getJsonData(), new TypeReference<List<DetailedCostDto>>() {});
+                                        if (dbData != null) {
+                                                redisCache.put(cacheKey, dbData, 60 * 24);
+                                                logger.info("✅ DB snapshot hit for cost breakdown svc/region — re-warmed Redis: {}", dbKey);
+                                                return CompletableFuture.completedFuture(dbData);
+                                        }
+                                }
+                        } catch (Exception e) {
+                                logger.warn("DB cache miss for {}: {}", dbKey, e.getMessage());
+                        }
                 }
 
                 // Return mock data if mock mode is enabled
                 if (useMockData) {
                         List<DetailedCostDto> mockResult = costMockService
                                         .getMockCostBreakdownByServiceAndRegion(accountId, startDate, endDate);
-                        redisCache.put(cacheKey, mockResult, 60 * 6);
+                        redisCache.put(cacheKey, mockResult, 60 * 24);
                         return CompletableFuture.completedFuture(mockResult);
                 }
 
@@ -245,7 +380,16 @@ public class CostService {
                                                 .sorted((a, b) -> Double.compare(b.getCost(), a.getCost()))
                                                 .collect(Collectors.toList());
 
-                                redisCache.put(cacheKey, costs, 60 * 6); // Cache for 6 hours
+                                redisCache.put(cacheKey, costs, 60 * 24); // Cache for 6 hours
+                                try {
+                                        CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+                                        snapshot.setCacheKey(dbKey);
+                                        snapshot.setJsonData(objectMapper.writeValueAsString(costs));
+                                        snapshot.setLastUpdated(java.time.LocalDateTime.now());
+                                        cachedDataRepository.save(snapshot);
+                                } catch (Exception dbEx) {
+                                        logger.warn("Failed to save cost svc/region DB snapshot {}: {}", dbKey, dbEx.getMessage());
+                                }
                                 logger.info("✅ Detailed cost breakdown fetched: {} items for account {}", costs.size(),
                                                 accountId);
                                 return costs;
@@ -270,6 +414,31 @@ public class CostService {
                                 + startDate + "-" + endDate;
                 String dbKey = "AWS_COST_BREAKDOWN::" + accountId + "::" + groupBy + "::" + (tag != null ? tag : "")
                                 + "::" + startDate + "::" + endDate;
+
+                // ── Closed-month snapshot check ──────────────────────────────────────────
+                // For SERVICE or REGION groupBy over a single closed calendar month, serve
+                // directly from the permanent monthly snapshot — zero CE API calls.
+                if (!forceRefresh && tag == null && startDate != null && endDate != null) {
+                        try {
+                                YearMonth startYm = YearMonth.from(LocalDate.parse(startDate));
+                                YearMonth endYm   = YearMonth.from(LocalDate.parse(endDate));
+                                if (startYm.equals(endYm) && CostDataSnapshotService.isClosedMonth(startYm)) {
+                                        Optional<List<CostDto>> snap = "SERVICE".equalsIgnoreCase(groupBy)
+                                                ? snapshotService.readBreakdownSvc(accountId, startYm)
+                                                : "REGION".equalsIgnoreCase(groupBy)
+                                                        ? snapshotService.readBreakdownRgn(accountId, startYm)
+                                                        : Optional.empty();
+                                        if (snap.isPresent()) {
+                                                logger.info("✅ Monthly snapshot hit for {} breakdown ({}) — account {}",
+                                                        groupBy, startYm, accountId);
+                                                redisCache.put(cacheKey, snap.get(), 60);
+                                                return CompletableFuture.completedFuture(snap.get());
+                                        }
+                                }
+                        } catch (Exception e) {
+                                logger.debug("Snapshot check skipped for getCostBreakdown ({}): {}", accountId, e.getMessage());
+                        }
+                }
 
                 if (!forceRefresh) {
                         // 1. Check Redis first (fast, no DB connection consumed)
@@ -400,7 +569,7 @@ public class CostService {
                                         HistoricalCostDto dbResult = objectMapper.readValue(
                                                         dbSnapshot.get().getJsonData(), HistoricalCostDto.class);
                                         logger.info("✅ Historical cost loaded from DB for {} — re-warming Redis", accountId);
-                                        redisCache.put(cacheKey, dbResult, 60);
+                                        redisCache.put(cacheKey, dbResult, 60 * 24);
                                         return CompletableFuture.completedFuture(dbResult);
                                 }
                         } catch (Exception e) {
@@ -408,11 +577,121 @@ public class CostService {
                         }
                 }
 
+                // ── Compose from daily snapshots for closed months ────────────────
+                // Only for the all-services (no filter) case — service/region filtered
+                // requests fall through to CE API as before.
+                if (serviceName == null && regionName == null) {
+                        try {
+                                LocalDate today    = LocalDate.now();
+                                LocalDate rangeEnd = today;
+                                LocalDate rangeStart = today.minusDays(days);
+
+                                List<String> composedLabels = new ArrayList<>();
+                                List<Double> composedCosts  = new ArrayList<>();
+                                boolean allClosedMonthsCovered = true;
+
+                                // Iterate day by day; serve closed months from snapshot, skip current
+                                YearMonth currentYm = YearMonth.now();
+                                for (LocalDate d = rangeStart; !d.isAfter(rangeEnd); d = d.plusDays(1)) {
+                                        YearMonth dYm = YearMonth.from(d);
+                                        if (!dYm.isBefore(currentYm)) {
+                                                // Current month — cannot serve from snapshot
+                                                allClosedMonthsCovered = false;
+                                                break;
+                                        }
+                                        Optional<List<CostDataSnapshotService.DailyCostEntry>> dailySnap =
+                                                snapshotService.readDailyCost(accountId, dYm);
+                                        if (!dailySnap.isPresent()) {
+                                                allClosedMonthsCovered = false;
+                                                break;
+                                        }
+                                        String dateStr = d.toString();
+                                        double amount = dailySnap.get().stream()
+                                                .filter(e -> dateStr.equals(e.getDate()))
+                                                .mapToDouble(CostDataSnapshotService.DailyCostEntry::getAmount)
+                                                .sum();
+                                        composedLabels.add(dateStr);
+                                        composedCosts.add(amount);
+                                }
+
+                                if (allClosedMonthsCovered && !composedLabels.isEmpty()) {
+                                        HistoricalCostDto result = new HistoricalCostDto(composedLabels, composedCosts);
+                                        redisCache.put(cacheKey, result, 60 * 24);
+                                        logger.info("✅ Historical cost ({} days) composed from daily snapshots — account {}",
+                                                days, accountId);
+                                        return CompletableFuture.completedFuture(result);
+                                }
+                        } catch (Exception e) {
+                                logger.debug("Daily snapshot composition skipped for {}: {}", accountId, e.getMessage());
+                        }
+                }
+
+                // ── Per-service: proportional approximation from snapshots ──────────
+                // Distributes service monthly total across days proportionally:
+                //   dayServiceCost = dailyTotal × (serviceMonthlyTotal / monthlyTotal)
+                if (serviceName != null && !serviceName.isBlank() && !"ALL".equalsIgnoreCase(serviceName)) {
+                        try {
+                                LocalDate today      = LocalDate.now();
+                                LocalDate rangeEnd   = today;
+                                LocalDate rangeStart = today.minusDays(days);
+
+                                List<String> svcLabels = new ArrayList<>();
+                                List<Double> svcCosts  = new ArrayList<>();
+                                boolean allSvcCovered  = true;
+
+                                for (LocalDate d = rangeStart; !d.isAfter(rangeEnd); d = d.plusDays(1)) {
+                                        YearMonth dYm = YearMonth.from(d);
+                                        if (!dYm.isBefore(YearMonth.now())) {
+                                                allSvcCovered = false;
+                                                break;
+                                        }
+                                        Optional<List<CostDataSnapshotService.DailyCostEntry>> dailySnap =
+                                                snapshotService.readDailyCost(accountId, dYm);
+                                        Optional<Double> monthTotal =
+                                                snapshotService.readMonthlyTotal(accountId, dYm);
+                                        Optional<List<CostDto>> svcBreakdown =
+                                                snapshotService.readBreakdownSvc(accountId, dYm);
+
+                                        if (!dailySnap.isPresent() || !monthTotal.isPresent() || !svcBreakdown.isPresent()) {
+                                                allSvcCovered = false;
+                                                break;
+                                        }
+
+                                        double serviceMonthlyTotal = svcBreakdown.get().stream()
+                                                .filter(c -> serviceName.equals(c.getName()))
+                                                .mapToDouble(CostDto::getAmount)
+                                                .sum();
+                                        double monthlyTotal = monthTotal.get();
+                                        String dateStr = d.toString();
+                                        double dayTotal = dailySnap.get().stream()
+                                                .filter(e -> dateStr.equals(e.getDate()))
+                                                .mapToDouble(CostDataSnapshotService.DailyCostEntry::getAmount)
+                                                .sum();
+                                        double dayCostForService = monthlyTotal > 0
+                                                ? dayTotal * (serviceMonthlyTotal / monthlyTotal)
+                                                : 0.0;
+                                        svcLabels.add(dateStr);
+                                        svcCosts.add(dayCostForService);
+                                }
+
+                                if (allSvcCovered && !svcLabels.isEmpty()) {
+                                        HistoricalCostDto result = new HistoricalCostDto(svcLabels, svcCosts);
+                                        redisCache.put(cacheKey, result, 60 * 24);
+                                        logger.info("✅ Service '{}' historical cost ({} days) approximated from snapshots — account {}",
+                                                serviceName, days, accountId);
+                                        return CompletableFuture.completedFuture(result);
+                                }
+                        } catch (Exception e) {
+                                logger.debug("Service snapshot approximation skipped for {}/{}: {}",
+                                        accountId, serviceName, e.getMessage());
+                        }
+                }
+
                 // Return mock data if mock mode is enabled
                 if (useMockData) {
                         HistoricalCostDto mockResult = costMockService.getMockHistoricalCost(accountId, serviceName,
                                         regionName, days);
-                        redisCache.put(cacheKey, mockResult, 60);
+                        redisCache.put(cacheKey, mockResult, 60 * 24);
                         return CompletableFuture.completedFuture(mockResult);
                 }
 
@@ -484,7 +763,7 @@ public class CostService {
                                 }
 
                                 HistoricalCostDto historicalCost = new HistoricalCostDto(labels, costs);
-                                redisCache.put(cacheKey, historicalCost, 60);
+                                redisCache.put(cacheKey, historicalCost, 60 * 24);
                                 try {
                                         CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
                                         snapshot.setCacheKey(dbKey);
@@ -516,6 +795,8 @@ public class CostService {
 
                 String cacheKey = "historicalCostDim-" + accountId + "-" + groupBy + "-" + dimensionValue + "-" +
                                 (tagKey != null ? tagKey : "");
+                String dbKey = "AWS_HIST_COST_DIM::" + accountId + "::" + groupBy + "::" + dimensionValue + "::"
+                                + (tagKey != null ? tagKey : "");
 
                 if (!forceRefresh) {
                         Optional<HistoricalCostDto> cachedData = redisCache.get(cacheKey, HistoricalCostDto.class);
@@ -523,13 +804,27 @@ public class CostService {
                                 logger.info("✅ Cache hit for historical cost dimension: {}", cacheKey);
                                 return CompletableFuture.completedFuture(cachedData.get());
                         }
+                        try {
+                                Optional<CachedData> dbCached = cachedDataRepository.findById(dbKey);
+                                if (dbCached.isPresent()) {
+                                        HistoricalCostDto dbData = objectMapper.readValue(
+                                                        dbCached.get().getJsonData(), HistoricalCostDto.class);
+                                        if (dbData != null) {
+                                                redisCache.put(cacheKey, dbData, 60 * 24);
+                                                logger.info("✅ DB snapshot hit — re-warmed Redis: {}", dbKey);
+                                                return CompletableFuture.completedFuture(dbData);
+                                        }
+                                }
+                        } catch (Exception dbEx) {
+                                logger.warn("DB cache miss for {}: {}", dbKey, dbEx.getMessage());
+                        }
                 }
 
                 // Return mock data if mock mode is enabled
                 if (useMockData) {
                         HistoricalCostDto mockResult = costMockService.getMockHistoricalCostForDimension(accountId,
                                         groupBy, dimensionValue, tagKey);
-                        redisCache.put(cacheKey, mockResult, 60);
+                        redisCache.put(cacheKey, mockResult, 60 * 24);
                         return CompletableFuture.completedFuture(mockResult);
                 }
 
@@ -543,8 +838,31 @@ public class CostService {
 
                                 for (int i = 5; i >= 0; i--) {
                                         LocalDate month = LocalDate.now().minusMonths(i);
+                                        YearMonth ym = YearMonth.from(month);
                                         labels.add(month.format(DateTimeFormatter.ofPattern("MMM yyyy")));
 
+                                        // ── Use snapshot for closed months ─────────────────────────────────
+                                        if (CostDataSnapshotService.isClosedMonth(ym)) {
+                                                Optional<List<CostDto>> snapSvc = "SERVICE".equalsIgnoreCase(groupBy)
+                                                        ? snapshotService.readBreakdownSvc(accountId, ym)
+                                                        : Optional.empty();
+                                                Optional<List<CostDto>> snapRgn = "REGION".equalsIgnoreCase(groupBy)
+                                                        ? snapshotService.readBreakdownRgn(accountId, ym)
+                                                        : Optional.empty();
+                                                Optional<List<CostDto>> snapToUse = snapSvc.isPresent() ? snapSvc : snapRgn;
+
+                                                if (snapToUse.isPresent()) {
+                                                        double cost = snapToUse.get().stream()
+                                                                .filter(c -> dimensionValue.equals(c.getName()))
+                                                                .mapToDouble(CostDto::getAmount)
+                                                                .sum();
+                                                        costs.add(cost);
+                                                        logger.debug("✅ Snapshot used for {} / {} / {}", accountId, ym, dimensionValue);
+                                                        continue;
+                                                }
+                                        }
+
+                                        // ── Fall through to CE API (current month or snapshot missing) ─────
                                         DateInterval dateInterval = DateInterval.builder()
                                                         .start(month.withDayOfMonth(1).toString())
                                                         .end(month.plusMonths(1).withDayOfMonth(1).toString())
@@ -575,7 +893,17 @@ public class CostService {
                                 }
 
                                 HistoricalCostDto historicalCost = new HistoricalCostDto(labels, costs);
-                                redisCache.put(cacheKey, historicalCost, 60);
+                                redisCache.put(cacheKey, historicalCost, 60 * 24);
+                                try {
+                                        CachedData snapshot = cachedDataRepository.findById(dbKey)
+                                                        .orElse(new CachedData());
+                                        snapshot.setCacheKey(dbKey);
+                                        snapshot.setJsonData(objectMapper.writeValueAsString(historicalCost));
+                                        snapshot.setLastUpdated(java.time.LocalDateTime.now());
+                                        cachedDataRepository.save(snapshot);
+                                } catch (Exception dbEx) {
+                                        logger.warn("Failed to save DB snapshot {}: {}", dbKey, dbEx.getMessage());
+                                }
 
                                 logger.info("✅ Historical cost for dimension fetched: 6 months for {}", dimensionValue);
                                 return historicalCost;
@@ -641,6 +969,670 @@ public class CostService {
                                                         Collections.emptyList(),
                                                         Collections.emptyList());
                                 });
+        }
+
+        // -----------------------------------------------------------------------
+        // Per-label resource cost (used by ResourceLabelController)
+        // -----------------------------------------------------------------------
+
+        /**
+         * Maps XamOps resource type strings to the corresponding AWS service names
+         * as they appear in Cost Explorer results.
+         */
+        private static final Map<String, List<String>> RESOURCE_TYPE_TO_SERVICE_NAMES = Map.ofEntries(
+                Map.entry("EC2 Instance",          List.of("Amazon Elastic Compute Cloud - Compute", "EC2 - Other")),
+                Map.entry("EBS Volume",             List.of("EC2 - Other")),
+                Map.entry("Auto Scaling Group",     List.of("Amazon Elastic Compute Cloud - Compute")),
+                Map.entry("Load Balancer",          List.of("Amazon Elastic Load Balancing", "EC2 - Other")),
+                Map.entry("RDS Instance",           List.of("Amazon Relational Database Service")),
+                Map.entry("Lambda Function",        List.of("AWS Lambda")),
+                Map.entry("S3 Bucket",              List.of("Amazon Simple Storage Service")),
+                Map.entry("EKS Cluster",            List.of("Amazon Elastic Kubernetes Service")),
+                Map.entry("ECS Cluster",            List.of("Amazon Elastic Container Service")),
+                Map.entry("CloudWatch Log Group",   List.of("Amazon CloudWatch")),
+                Map.entry("Route 53 Zone",          List.of("Amazon Route 53")),
+                Map.entry("DynamoDB Table",         List.of("Amazon DynamoDB")),
+                Map.entry("SNS Topic",              List.of("Amazon Simple Notification Service")),
+                Map.entry("SQS Queue",              List.of("Amazon Simple Queue Service")),
+                Map.entry("ElastiCache Cluster",    List.of("Amazon ElastiCache")),
+                Map.entry("API Gateway",            List.of("Amazon API Gateway")),
+                Map.entry("CloudFront",             List.of("Amazon CloudFront")),
+                Map.entry("KMS",                    List.of("AWS Key Management Service")),
+                Map.entry("NAT Gateway",            List.of("Amazon Virtual Private Cloud"))
+        );
+
+        /**
+         * Fetches cost breakdown for a specific set of resource IDs.
+         *
+         * Attempts AWS Cost Explorer RESOURCE_ID dimension filtering first (requires
+         * "Hourly and Resource Level Data" to be enabled in Cost Explorer Settings).
+         * Falls back to SERVICE-level filtering grouped by the resource types if
+         * resource-level data is not available.
+         *
+         * Returns a Map with:
+         *   "costs"         → List<CostDto>
+         *   "resourceLevel" → Boolean (true = resource-level, false = service-level approximation)
+         *   "message"       → String (optional note about approximation)
+         */
+        @Async("awsTaskExecutor")
+        public CompletableFuture<Map<String, Object>> getCostForLabelResources(
+                        String accountId,
+                        List<String> resourceIds,
+                        List<String> resourceTypes,
+                        List<Map<String, String>> resourceDetails,
+                        String startDate,
+                        String endDate) {
+
+                // Build a deterministic cache key from sorted resource IDs
+                String sortedIds = (resourceIds != null)
+                        ? resourceIds.stream().sorted().collect(Collectors.joining(","))
+                        : "empty";
+                int idsHash = sortedIds.hashCode();
+                String cacheKey = "costLabelResources-" + accountId + "-" + idsHash + "-" + startDate + "-" + endDate;
+                String dbKey = "AWS_COST_LABEL_RESOURCES::" + accountId + "::" + idsHash + "::" + startDate + "::" + endDate;
+
+                Optional<Map<String, Object>> cached = redisCache.get(cacheKey, new TypeReference<>() {});
+                if (cached.isPresent()) {
+                        logger.info("✅ Redis cache hit for label resources cost: {}", cacheKey);
+                        return CompletableFuture.completedFuture(cached.get());
+                }
+                try {
+                        Optional<CachedData> dbCached = cachedDataRepository.findById(dbKey);
+                        if (dbCached.isPresent()) {
+                                Map<String, Object> dbData = objectMapper.readValue(
+                                        dbCached.get().getJsonData(), new TypeReference<Map<String, Object>>() {});
+                                if (dbData != null) {
+                                        redisCache.put(cacheKey, dbData, 60);
+                                        logger.info("✅ DB snapshot hit for label resources cost — re-warmed Redis: {}", dbKey);
+                                        return CompletableFuture.completedFuture(dbData);
+                                }
+                        }
+                } catch (Exception e) {
+                        logger.warn("DB cache miss for {}: {}", dbKey, e.getMessage());
+                }
+
+                if (useMockData) {
+                        // In mock mode, return the full service breakdown as-is
+                        return getCostBreakdown(accountId, "SERVICE", null, false, startDate, endDate)
+                                        .thenApply(costs -> {
+                                                Map<String, Object> result = new HashMap<>();
+                                                result.put("costs", costs);
+                                                result.put("resourceLevel", false);
+                                                result.put("message", "Mock data — showing all service costs");
+                                                return result;
+                                        });
+                }
+
+                if (resourceIds == null || resourceIds.isEmpty()) {
+                        Map<String, Object> empty = new HashMap<>();
+                        empty.put("costs", Collections.emptyList());
+                        empty.put("resourceLevel", false);
+                        empty.put("message", "No resources assigned to this label");
+                        return CompletableFuture.completedFuture(empty);
+                }
+
+                CloudAccount account = getAccount(accountId);
+                CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
+
+                return CompletableFuture.supplyAsync(() -> {
+                        LocalDate parsedEnd = LocalDate.parse(endDate);
+                        DateInterval interval = DateInterval.builder()
+                                        .start(startDate)
+                                        .end(parsedEnd.plusDays(1).toString())
+                                        .build();
+
+                        // --- Attempt 1: RESOURCE_ID dimension filter ---
+                        try {
+                                Expression resourceFilter = Expression.builder()
+                                                .dimensions(DimensionValues.builder()
+                                                                .key(Dimension.RESOURCE_ID)
+                                                                .values(resourceIds)
+                                                                .build())
+                                                .build();
+
+                                GetCostAndUsageRequest req = GetCostAndUsageRequest.builder()
+                                                .timePeriod(interval)
+                                                .granularity(Granularity.MONTHLY)
+                                                .metrics("UnblendedCost")
+                                                .groupBy(GroupDefinition.builder()
+                                                                .type(GroupDefinitionType.DIMENSION)
+                                                                .key("SERVICE")
+                                                                .build())
+                                                .filter(resourceFilter)
+                                                .build();
+
+                                Map<String, Double> costMap = new HashMap<>();
+                                ce.getCostAndUsage(req).resultsByTime().forEach(t ->
+                                        t.groups().forEach(g -> {
+                                                String name = g.keys().get(0);
+                                                double cost = Double.parseDouble(g.metrics().get("UnblendedCost").amount());
+                                                costMap.merge(name, cost, Double::sum);
+                                        })
+                                );
+
+                                List<CostDto> costs = costMap.entrySet().stream()
+                                                .map(e -> new CostDto(e.getKey(), e.getValue()))
+                                                .filter(c -> c.getAmount() > 0.01)
+                                                .sorted((a, b) -> Double.compare(b.getAmount(), a.getAmount()))
+                                                .collect(Collectors.toList());
+
+                                Map<String, Object> result = new HashMap<>();
+                                result.put("costs", costs);
+                                result.put("resourceLevel", true);
+                                logger.info("✅ Resource-level label cost fetched: {} items for {} resources",
+                                                costs.size(), resourceIds.size());
+                                redisCache.put(cacheKey, result, 60);
+                                try {
+                                        CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+                                        snapshot.setCacheKey(dbKey);
+                                        snapshot.setJsonData(objectMapper.writeValueAsString(result));
+                                        snapshot.setLastUpdated(java.time.LocalDateTime.now());
+                                        cachedDataRepository.save(snapshot);
+                                } catch (Exception dbEx) {
+                                        logger.warn("Failed to save label resources cost DB snapshot {}: {}", dbKey, dbEx.getMessage());
+                                }
+                                return result;
+
+                        } catch (Exception resourceEx) {
+                                logger.warn("⚠️ RESOURCE_ID filter unavailable — falling back to SERVICE filter. " +
+                                                "Enable 'Hourly and Resource Level Data' in Cost Explorer Settings. Error: {}",
+                                                resourceEx.getMessage());
+                        }
+
+                        // --- Fallback: per-instance estimate for EC2 + RDS, service-level for everything else ---
+
+                        long daysBetween = ChronoUnit.DAYS.between(LocalDate.parse(startDate), LocalDate.parse(endDate)) + 1;
+                        double totalHours = daysBetween * 24.0;
+
+                        // Separate EC2 instances
+                        List<Map<String, String>> ec2Details = (resourceDetails == null) ? Collections.emptyList() :
+                                resourceDetails.stream()
+                                        .filter(r -> "EC2 Instance".equalsIgnoreCase(r.get("type")) ||
+                                                     (r.get("id") != null && r.get("id").startsWith("i-")))
+                                        .collect(Collectors.toList());
+
+                        // Separate RDS instances
+                        List<Map<String, String>> rdsDetails = (resourceDetails == null) ? Collections.emptyList() :
+                                resourceDetails.stream()
+                                        .filter(r -> "RDS Instance".equalsIgnoreCase(r.get("type")))
+                                        .collect(Collectors.toList());
+
+                        // Separate EBS volumes
+                        List<Map<String, String>> ebsDetails = (resourceDetails == null) ? Collections.emptyList() :
+                                resourceDetails.stream()
+                                        .filter(r -> "EBS Volume".equalsIgnoreCase(r.get("type")) ||
+                                                     (r.get("id") != null && r.get("id").startsWith("vol-")))
+                                        .collect(Collectors.toList());
+
+                        // Separate Load Balancers
+                        List<Map<String, String>> lbDetails = (resourceDetails == null) ? Collections.emptyList() :
+                                resourceDetails.stream()
+                                        .filter(r -> "Load Balancer".equalsIgnoreCase(r.get("type")))
+                                        .collect(Collectors.toList());
+
+                        // Separate Elastic IPs
+                        List<Map<String, String>> eipDetails = (resourceDetails == null) ? Collections.emptyList() :
+                                resourceDetails.stream()
+                                        .filter(r -> "Elastic IP".equalsIgnoreCase(r.get("type")))
+                                        .collect(Collectors.toList());
+
+                        // Remaining types fall through to service-level Cost Explorer (inaccurate for multi-resource accounts)
+                        // Mutable — EC2/RDS/EBS/LB/EIP are added back here if their per-resource API calls fail
+                        // Security Groups are always free in AWS — excluded permanently, never queried
+                        List<String> serviceOnlyTypes = new ArrayList<>((resourceDetails == null
+                                ? (resourceTypes == null ? Collections.<String>emptyList() : resourceTypes)
+                                : resourceDetails.stream().map(r -> r.get("type")).filter(Objects::nonNull).collect(Collectors.toList()))
+                                .stream()
+                                .filter(t -> !"EC2 Instance".equalsIgnoreCase(t)
+                                          && !"RDS Instance".equalsIgnoreCase(t)
+                                          && !"EBS Volume".equalsIgnoreCase(t)
+                                          && !"Load Balancer".equalsIgnoreCase(t)
+                                          && !"Elastic IP".equalsIgnoreCase(t)
+                                          && !"Security Group".equalsIgnoreCase(t))
+                                .distinct()
+                                .collect(Collectors.toList()));
+
+                        List<CostDto> combinedCosts = new ArrayList<>();
+                        boolean hasEc2Estimates = false;
+                        boolean hasRdsEstimates = false;
+                        List<String> approximationWarnings = new ArrayList<>();
+
+                        // --- EC2 per-instance cost estimation ---
+                        if (!ec2Details.isEmpty()) {
+                                Map<String, List<Map<String, String>>> ec2ByRegion = ec2Details.stream()
+                                        .collect(Collectors.groupingBy(r -> {
+                                                String rgn = r.getOrDefault("region", "");
+                                                return (rgn != null && !rgn.isEmpty()) ? rgn : "us-east-1";
+                                        }));
+
+                                // Collect stopped/terminated instance IDs across all regions.
+                                // These need actual billing data from Cost Explorer — full-period estimate would be wrong.
+                                List<String> nonRunningIds = new ArrayList<>();
+
+                                for (Map.Entry<String, List<Map<String, String>>> entry : ec2ByRegion.entrySet()) {
+                                        String region = entry.getKey();
+                                        List<Map<String, String>> regionInstances = entry.getValue();
+                                        List<String> instanceIds = regionInstances.stream()
+                                                .map(r -> r.get("id")).filter(Objects::nonNull)
+                                                .collect(Collectors.toList());
+                                        try {
+                                                Ec2Client ec2 = awsClientProvider.getEc2Client(account, region);
+                                                Map<String, String> instanceTypeById = new HashMap<>();
+                                                Map<String, String> instanceStateById = new HashMap<>();
+
+                                                for (int i = 0; i < instanceIds.size(); i += 50) {
+                                                        List<String> chunk = instanceIds.subList(i, Math.min(i + 50, instanceIds.size()));
+                                                        try {
+                                                                ec2.describeInstances(DescribeInstancesRequest.builder()
+                                                                                .instanceIds(chunk).build())
+                                                                        .reservations()
+                                                                        .forEach(r -> r.instances()
+                                                                                .forEach(inst -> {
+                                                                                        instanceTypeById.put(inst.instanceId(), inst.instanceTypeAsString());
+                                                                                        instanceStateById.put(inst.instanceId(), inst.state().nameAsString());
+                                                                                }));
+                                                        } catch (Exception chunkEx) {
+                                                                logger.warn("⚠️ DescribeInstances chunk failed in {}: {}", region, chunkEx.getMessage());
+                                                        }
+                                                }
+
+                                                for (Map<String, String> resource : regionInstances) {
+                                                        String id = resource.get("id");
+                                                        String name = resource.getOrDefault("name", id);
+                                                        String instanceType = instanceTypeById.get(id);
+                                                        String state = instanceStateById.getOrDefault(id, "unknown");
+
+                                                        if ("terminated".equalsIgnoreCase(state)) {
+                                                                // Terminated: ran for an unknown fraction of the period.
+                                                                // hourlyRate × fullPeriod would wildly overestimate. Use actual CE data.
+                                                                nonRunningIds.add(id);
+                                                                logger.info("⏹️ EC2 {} is terminated — queuing for actual CE cost", id);
+                                                                continue;
+                                                        }
+
+                                                        if ("stopped".equalsIgnoreCase(state)) {
+                                                                // Stopped: may have been stopped partway through the period.
+                                                                // hourlyRate × fullPeriod would overestimate. Use actual CE data.
+                                                                nonRunningIds.add(id);
+                                                                logger.info("⏸️ EC2 {} is stopped — queuing for actual CE cost (avoid overestimate)", id);
+                                                                continue;
+                                                        }
+
+                                                        // Running: full-period on-demand estimate is reasonable
+                                                        double hourlyRate = awsPricingService.getHourlyCost(instanceType, region);
+                                                        if (hourlyRate > 0) {
+                                                                double estimatedCost = hourlyRate * totalHours;
+                                                                String label = name + (instanceType != null ? " (" + instanceType + ")" : "");
+                                                                combinedCosts.add(new CostDto(label, estimatedCost));
+                                                                hasEc2Estimates = true;
+                                                                logger.info("💡 EC2 estimate: {} [{}] {} @ ${}/hr × {}hrs = ${}",
+                                                                        name, instanceType, state, hourlyRate, totalHours,
+                                                                        String.format("%.2f", estimatedCost));
+                                                        } else {
+                                                                logger.warn("⚠️ No EC2 pricing for {} type={} in {}", id, instanceType, region);
+                                                        }
+                                                }
+                                        } catch (Exception ex) {
+                                                logger.warn("⚠️ Could not get EC2 info for region {} — falling back to service-level: {}", region, ex.getMessage());
+                                                if (!serviceOnlyTypes.contains("EC2 Instance")) serviceOnlyTypes.add("EC2 Instance");
+                                        }
+                                }
+
+                                // --- Actual Cost Explorer query for stopped / terminated instances ---
+                                // A single RESOURCE_ID-filtered query for all non-running IDs across all regions.
+                                if (!nonRunningIds.isEmpty()) {
+                                        try {
+                                                Expression nonRunningFilter = Expression.builder()
+                                                        .dimensions(DimensionValues.builder()
+                                                                .key(Dimension.RESOURCE_ID)
+                                                                .values(nonRunningIds)
+                                                                .build())
+                                                        .build();
+
+                                                GetCostAndUsageRequest ceReq = GetCostAndUsageRequest.builder()
+                                                        .timePeriod(interval)
+                                                        .granularity(Granularity.MONTHLY)
+                                                        .metrics("UnblendedCost")
+                                                        .groupBy(GroupDefinition.builder()
+                                                                .type(GroupDefinitionType.DIMENSION)
+                                                                .key("RESOURCE_ID")
+                                                                .build())
+                                                        .filter(nonRunningFilter)
+                                                        .build();
+
+                                                Map<String, Double> actualCostMap = new HashMap<>();
+                                                ce.getCostAndUsage(ceReq).resultsByTime().forEach(t ->
+                                                        t.groups().forEach(g -> {
+                                                                String resId = g.keys().get(0);
+                                                                double cost = Double.parseDouble(g.metrics().get("UnblendedCost").amount());
+                                                                actualCostMap.merge(resId, cost, Double::sum);
+                                                        })
+                                                );
+                                                actualCostMap.forEach((resId, cost) ->
+                                                        combinedCosts.add(new CostDto(resId + " (actual)", cost))
+                                                );
+                                                if (!actualCostMap.isEmpty()) {
+                                                        hasEc2Estimates = true;
+                                                }
+                                                logger.info("✅ Actual CE cost fetched for {}/{} stopped/terminated EC2 instances",
+                                                        actualCostMap.size(), nonRunningIds.size());
+                                        } catch (Exception ceEx) {
+                                                // Resource-level CE not enabled — cannot determine actual cost for partial-period instances.
+                                                // Do NOT fall back to full-period estimate (that would overestimate).
+                                                // Report $0 and surface the warning to the caller.
+                                                approximationWarnings.add("stopped/terminated EC2 instances (enable 'Hourly and Resource Level Data' in Cost Explorer to see their actual cost)");
+                                                logger.warn("⚠️ Could not fetch actual CE cost for stopped/terminated EC2 {} — " +
+                                                        "reporting $0 to avoid overestimate. Enable 'Hourly and Resource Level Data'. Error: {}",
+                                                        nonRunningIds, ceEx.getMessage());
+                                        }
+                                }
+                        }
+
+                        // --- RDS per-instance cost estimation ---
+                        if (!rdsDetails.isEmpty()) {
+                                Map<String, List<Map<String, String>>> rdsByRegion = rdsDetails.stream()
+                                        .collect(Collectors.groupingBy(r -> {
+                                                String rgn = r.getOrDefault("region", "");
+                                                return (rgn != null && !rgn.isEmpty()) ? rgn : "us-east-1";
+                                        }));
+
+                                for (Map.Entry<String, List<Map<String, String>>> entry : rdsByRegion.entrySet()) {
+                                        String region = entry.getKey();
+                                        List<Map<String, String>> regionInstances = entry.getValue();
+                                        try {
+                                                RdsClient rdsClient = awsClientProvider.getRdsClient(account, region);
+
+                                                // Fetch all DB instances in this region; filter locally by identifier
+                                                Map<String, String> instanceClassById = new HashMap<>();
+                                                String marker = null;
+                                                do {
+                                                        DescribeDbInstancesRequest.Builder reqBuilder =
+                                                                DescribeDbInstancesRequest.builder().maxRecords(100);
+                                                        if (marker != null) reqBuilder.marker(marker);
+                                                        DescribeDbInstancesResponse resp = rdsClient.describeDBInstances(reqBuilder.build());
+                                                        resp.dbInstances().forEach(db ->
+                                                                instanceClassById.put(db.dbInstanceIdentifier(), db.dbInstanceClass()));
+                                                        marker = resp.marker();
+                                                } while (marker != null);
+
+                                                for (Map<String, String> resource : regionInstances) {
+                                                        String id = resource.get("id");
+                                                        String name = resource.getOrDefault("name", id);
+                                                        // Strip ARN prefix if stored as ARN (arn:aws:rds:...:db:identifier)
+                                                        String identifier = (id != null && id.contains(":"))
+                                                                ? id.substring(id.lastIndexOf(':') + 1) : id;
+                                                        String dbClass = instanceClassById.get(identifier);
+                                                        double hourlyRate = awsPricingService.getRdsHourlyCost(dbClass, region);
+                                                        if (hourlyRate > 0) {
+                                                                double estimatedCost = hourlyRate * totalHours;
+                                                                String label = name + (dbClass != null ? " (" + dbClass + ")" : "");
+                                                                combinedCosts.add(new CostDto(label, estimatedCost));
+                                                                hasRdsEstimates = true;
+                                                                logger.info("💡 RDS estimate: {} [{}] in {} @ ${}/hr × {}hrs = ${}",
+                                                                        name, dbClass, region, hourlyRate, totalHours,
+                                                                        String.format("%.2f", estimatedCost));
+                                                        } else {
+                                                                logger.warn("⚠️ No RDS pricing for {} class={} in {}", id, dbClass, region);
+                                                        }
+                                                }
+                                        } catch (Exception ex) {
+                                                logger.warn("⚠️ Could not get RDS pricing for region {} — falling back to service-level: {}", region, ex.getMessage());
+                                                if (!serviceOnlyTypes.contains("RDS Instance")) serviceOnlyTypes.add("RDS Instance");
+                                        }
+                                }
+                        }
+
+                        // --- EBS per-volume cost estimation ---
+                        // pricePerGbMonth × sizeGb × (days/30) — exact per-volume cost, no account-level bleed
+                        if (!ebsDetails.isEmpty()) {
+                                Map<String, List<Map<String, String>>> ebsByRegion = ebsDetails.stream()
+                                        .collect(Collectors.groupingBy(r -> {
+                                                String rgn = r.getOrDefault("region", "");
+                                                return (rgn != null && !rgn.isEmpty()) ? rgn : "us-east-1";
+                                        }));
+
+                                for (Map.Entry<String, List<Map<String, String>>> entry : ebsByRegion.entrySet()) {
+                                        String region = entry.getKey();
+                                        List<Map<String, String>> regionVolumes = entry.getValue();
+                                        List<String> volumeIds = regionVolumes.stream()
+                                                .map(r -> r.get("id")).filter(Objects::nonNull)
+                                                .collect(Collectors.toList());
+                                        try {
+                                                Ec2Client ec2 = awsClientProvider.getEc2Client(account, region);
+                                                Map<String, Integer> sizeById = new HashMap<>();
+                                                Map<String, String> typeById  = new HashMap<>();
+
+                                                for (int i = 0; i < volumeIds.size(); i += 200) {
+                                                        List<String> chunk = volumeIds.subList(i, Math.min(i + 200, volumeIds.size()));
+                                                        ec2.describeVolumes(DescribeVolumesRequest.builder().volumeIds(chunk).build())
+                                                                .volumes()
+                                                                .forEach(vol -> {
+                                                                        sizeById.put(vol.volumeId(), vol.size());
+                                                                        typeById.put(vol.volumeId(), vol.volumeTypeAsString());
+                                                                });
+                                                }
+
+                                                for (Map<String, String> resource : regionVolumes) {
+                                                        String id   = resource.get("id");
+                                                        String name = resource.getOrDefault("name", id);
+                                                        Integer sizeGb   = sizeById.get(id);
+                                                        String  volType  = typeById.get(id);
+                                                        if (sizeGb != null && sizeGb > 0) {
+                                                                double cost = awsPricingService.getEbsCostForPeriod(volType, sizeGb, region, daysBetween);
+                                                                combinedCosts.add(new CostDto(name + " (" + sizeGb + "GiB " + volType + ")", cost));
+                                                                logger.info("💡 EBS estimate: {} {} GiB {} in {} = ${}", name, sizeGb, volType, region,
+                                                                        String.format("%.2f", cost));
+                                                        } else {
+                                                                logger.warn("⚠️ EBS size unknown for {} — skipping", id);
+                                                        }
+                                                }
+                                        } catch (Exception ex) {
+                                                logger.warn("⚠️ Could not get EBS info for region {} — falling back to service-level: {}", region, ex.getMessage());
+                                                if (!serviceOnlyTypes.contains("EBS Volume")) serviceOnlyTypes.add("EBS Volume");
+                                        }
+                                }
+                        }
+
+                        // --- Load Balancer base cost estimation ---
+                        // Hourly fixed rate × hours (does not include LCU charges — requires traffic metrics)
+                        if (!lbDetails.isEmpty()) {
+                                Map<String, List<Map<String, String>>> lbByRegion = lbDetails.stream()
+                                        .collect(Collectors.groupingBy(r -> {
+                                                String rgn = r.getOrDefault("region", "");
+                                                return (rgn != null && !rgn.isEmpty()) ? rgn : "us-east-1";
+                                        }));
+
+                                for (Map.Entry<String, List<Map<String, String>>> entry : lbByRegion.entrySet()) {
+                                        String region = entry.getKey();
+                                        List<Map<String, String>> regionLbs = entry.getValue();
+                                        List<String> lbArns = regionLbs.stream()
+                                                .map(r -> r.get("id")).filter(Objects::nonNull)
+                                                .collect(Collectors.toList());
+                                        try {
+                                                ElasticLoadBalancingV2Client elbv2 = awsClientProvider.getElbv2Client(account, region);
+                                                Map<String, String> lbTypeByArn = new HashMap<>();
+
+                                                elbv2.describeLoadBalancers(DescribeLoadBalancersRequest.builder()
+                                                        .loadBalancerArns(lbArns).build())
+                                                        .loadBalancers()
+                                                        .forEach(lb -> lbTypeByArn.put(lb.loadBalancerArn(), lb.typeAsString()));
+
+                                                for (Map<String, String> resource : regionLbs) {
+                                                        String id   = resource.get("id");
+                                                        String name = resource.getOrDefault("name", id);
+                                                        String lbType = lbTypeByArn.getOrDefault(id, "application");
+                                                        double hourlyRate = awsPricingService.getElbHourlyRate(lbType);
+                                                        double cost = hourlyRate * totalHours;
+                                                        combinedCosts.add(new CostDto(name + " (" + lbType + " LB, base only)", cost));
+                                                        logger.info("💡 LB estimate: {} [{}] @ ${}/hr × {}hrs = ${}",
+                                                                name, lbType, hourlyRate, totalHours, String.format("%.2f", cost));
+                                                }
+                                        } catch (Exception ex) {
+                                                logger.warn("⚠️ Could not get LB info for region {} — falling back to service-level: {}", region, ex.getMessage());
+                                                if (!serviceOnlyTypes.contains("Load Balancer")) serviceOnlyTypes.add("Load Balancer");
+                                        }
+                                }
+                        }
+
+                        // --- Elastic IP cost estimation ---
+                        // $0.005/hr when not associated; $0 when associated with a running instance
+                        if (!eipDetails.isEmpty()) {
+                                Map<String, List<Map<String, String>>> eipByRegion = eipDetails.stream()
+                                        .collect(Collectors.groupingBy(r -> {
+                                                String rgn = r.getOrDefault("region", "");
+                                                return (rgn != null && !rgn.isEmpty()) ? rgn : "us-east-1";
+                                        }));
+
+                                for (Map.Entry<String, List<Map<String, String>>> entry : eipByRegion.entrySet()) {
+                                        String region = entry.getKey();
+                                        List<Map<String, String>> regionEips = entry.getValue();
+                                        try {
+                                                Ec2Client ec2 = awsClientProvider.getEc2Client(account, region);
+
+                                                List<String> allocationIds = regionEips.stream()
+                                                        .map(r -> r.get("id")).filter(id -> id != null && id.startsWith("eipalloc-"))
+                                                        .collect(Collectors.toList());
+                                                List<String> publicIps = regionEips.stream()
+                                                        .map(r -> r.get("id")).filter(id -> id != null && !id.startsWith("eipalloc-"))
+                                                        .collect(Collectors.toList());
+
+                                                // associationId is null when the EIP is not associated (billable)
+                                                Map<String, String> associationByAllocationId = new HashMap<>();
+                                                Map<String, String> associationByPublicIp     = new HashMap<>();
+
+                                                if (!allocationIds.isEmpty()) {
+                                                        ec2.describeAddresses(DescribeAddressesRequest.builder()
+                                                                .allocationIds(allocationIds).build())
+                                                                .addresses()
+                                                                .forEach(a -> associationByAllocationId.put(
+                                                                        a.allocationId(), a.associationId()));
+                                                }
+                                                if (!publicIps.isEmpty()) {
+                                                        ec2.describeAddresses(DescribeAddressesRequest.builder()
+                                                                .publicIps(publicIps).build())
+                                                                .addresses()
+                                                                .forEach(a -> associationByPublicIp.put(
+                                                                        a.publicIp(), a.associationId()));
+                                                }
+
+                                                for (Map<String, String> resource : regionEips) {
+                                                        String id   = resource.get("id");
+                                                        String name = resource.getOrDefault("name", id);
+                                                        String assoc = id != null && id.startsWith("eipalloc-")
+                                                                ? associationByAllocationId.get(id)
+                                                                : associationByPublicIp.get(id);
+
+                                                        if (assoc != null) {
+                                                                // Associated with a running instance — no charge
+                                                                combinedCosts.add(new CostDto(name + " (EIP, associated)", 0.0));
+                                                                logger.info("💡 EIP {} is associated — $0 cost", id);
+                                                        } else {
+                                                                // Unassociated — $0.005/hr
+                                                                double cost = 0.005 * totalHours;
+                                                                combinedCosts.add(new CostDto(name + " (EIP, unassociated)", cost));
+                                                                logger.info("💡 EIP {} is unassociated @ $0.005/hr × {}hrs = ${}", id, totalHours,
+                                                                        String.format("%.2f", cost));
+                                                        }
+                                                }
+                                        } catch (Exception ex) {
+                                                logger.warn("⚠️ Could not get EIP info for region {} — skipping (EIPs are low-cost): {}", region, ex.getMessage());
+                                        }
+                                }
+                        }
+
+                        // --- Service-level Cost Explorer for remaining types ---
+                        // NOTE: This returns the full account bill for each AWS service, NOT just tagged resources.
+                        // It is fundamentally inaccurate when the account has more resources of the same type.
+                        if (!serviceOnlyTypes.isEmpty()) {
+                                List<String> serviceNames = serviceOnlyTypes.stream()
+                                        .flatMap(t -> RESOURCE_TYPE_TO_SERVICE_NAMES
+                                                .getOrDefault(t, List.of(t.split(" ")[0]))
+                                                .stream())
+                                        .distinct()
+                                        .collect(Collectors.toList());
+
+                                approximationWarnings.addAll(serviceOnlyTypes);
+
+                                if (!serviceNames.isEmpty()) {
+                                        try {
+                                                Expression serviceFilter = Expression.builder()
+                                                        .dimensions(DimensionValues.builder()
+                                                                .key(Dimension.SERVICE)
+                                                                .values(serviceNames)
+                                                                .build())
+                                                        .build();
+
+                                                GetCostAndUsageRequest req = GetCostAndUsageRequest.builder()
+                                                        .timePeriod(interval)
+                                                        .granularity(Granularity.MONTHLY)
+                                                        .metrics("UnblendedCost")
+                                                        .groupBy(GroupDefinition.builder()
+                                                                .type(GroupDefinitionType.DIMENSION)
+                                                                .key("SERVICE")
+                                                                .build())
+                                                        .filter(serviceFilter)
+                                                        .build();
+
+                                                Map<String, Double> svcCostMap = new HashMap<>();
+                                                ce.getCostAndUsage(req).resultsByTime().forEach(t ->
+                                                        t.groups().forEach(g -> {
+                                                                String svcName = g.keys().get(0);
+                                                                double cost = Double.parseDouble(g.metrics().get("UnblendedCost").amount());
+                                                                svcCostMap.merge(svcName, cost, Double::sum);
+                                                        })
+                                                );
+                                                svcCostMap.forEach((svcName, cost) -> combinedCosts.add(new CostDto(svcName, cost)));
+                                        } catch (Exception svcEx) {
+                                                logger.error("❌ Error fetching service-level label cost: {}", svcEx.getMessage(), svcEx);
+                                        }
+                                }
+                        }
+
+                        List<CostDto> finalCosts = combinedCosts.stream()
+                                .filter(c -> c.getAmount() > 0.01)
+                                .sorted((a, b) -> Double.compare(b.getAmount(), a.getAmount()))
+                                .collect(Collectors.toList());
+
+                        // Build message parts
+                        List<String> messageParts = new ArrayList<>();
+                        if (hasEc2Estimates || hasRdsEstimates) {
+                                messageParts.add("Per-instance cost estimate based on on-demand pricing for the selected date range.");
+                        }
+                        if (!approximationWarnings.isEmpty()) {
+                                messageParts.add("Service-level cost (full account bill) shown for: " +
+                                        String.join(", ", approximationWarnings) +
+                                        " — not per-resource. Enable 'Hourly and Resource Level Data' in Cost Explorer for accuracy.");
+                        }
+                        if (messageParts.isEmpty()) {
+                                messageParts.add("Approximate — Enable 'Hourly and Resource Level Data' in Cost Explorer for per-resource accuracy.");
+                        }
+
+                        Map<String, Object> fallbackResult = new HashMap<>();
+                        fallbackResult.put("costs", finalCosts);
+                        fallbackResult.put("resourceLevel", false);
+                        fallbackResult.put("message", String.join(" ", messageParts));
+                        if (!approximationWarnings.isEmpty()) {
+                                fallbackResult.put("approximationWarning",
+                                        "Service-level cost shown for: " + String.join(", ", approximationWarnings) +
+                                        ". This is the total account cost for these services, not just tagged resources.");
+                        }
+                        logger.info("✅ Label cost fallback: {} items (EC2={}, RDS={}, service-level={})",
+                                finalCosts.size(),
+                                hasEc2Estimates ? "estimated" : "none",
+                                hasRdsEstimates ? "estimated" : "none",
+                                approximationWarnings.isEmpty() ? "none" : approximationWarnings);
+                        redisCache.put(cacheKey, fallbackResult, 60);
+                        try {
+                                CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+                                snapshot.setCacheKey(dbKey);
+                                snapshot.setJsonData(objectMapper.writeValueAsString(fallbackResult));
+                                snapshot.setLastUpdated(java.time.LocalDateTime.now());
+                                cachedDataRepository.save(snapshot);
+                        } catch (Exception dbEx) {
+                                logger.warn("Failed to save label resources fallback DB snapshot {}: {}", dbKey, dbEx.getMessage());
+                        }
+                        return fallbackResult;
+                });
         }
 
         @Async("awsTaskExecutor")

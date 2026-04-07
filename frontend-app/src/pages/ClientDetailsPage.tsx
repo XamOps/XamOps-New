@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import apiClient from '../utils/apiClient';
 import ClientDetailsSkeleton from '../components/Shared/ClientDetailsSkeleton';
 import { useCurrency } from '../hooks/useCurrency';
+import { useTopbarActions } from '../contexts/TopbarContext';
 import '../styles/billopsAdminDashboard.css';
 import '../styles/billopsClientDetails.css';
 
@@ -33,6 +34,7 @@ interface ClientDetails {
 
 const CACHE_KEY = 'billops_clients_cache';
 const CACHE_TTL_MS = 60_000; // 1 minute
+const PAGE_SIZE = 10;
 
 function readCache(): ClientDetails[] | null {
     try {
@@ -63,6 +65,7 @@ const ClientDetailsPage: React.FC = () => {
     const [search, setSearch] = useState('');
     const [filterProvider, setFilterProvider] = useState('');
     const [sortBy, setSortBy] = useState('');
+    const [currentPage, setCurrentPage] = useState(1);
 
     const { loadRates, convert } = useCurrency();
     useEffect(() => { loadRates('inr'); }, [loadRates]);
@@ -77,6 +80,8 @@ const ClientDetailsPage: React.FC = () => {
     const clientTotal = useCallback((c: ClientDetails): number =>
         c.accounts.reduce((s, a) => s + (convertConsumption(a.consumption || 0, a.provider)), 0),
     [convertConsumption]);
+
+    const { setActions, clearActions } = useTopbarActions();
 
     const evictServerCache = useCallback(async () => {
         try {
@@ -102,6 +107,29 @@ const ClientDetailsPage: React.FC = () => {
             setIsRefreshing(false);
         }
     }, []);
+
+    // Inject Refresh button into the app top bar
+    useEffect(() => {
+        setActions(
+            <div className="flex items-center gap-3">
+                {isRefreshing && (
+                    <span className="text-xs text-slate-400 flex items-center gap-1">
+                        <i className="fas fa-circle-notch fa-spin text-indigo-400"></i>
+                        Refreshing...
+                    </span>
+                )}
+                <button
+                    onClick={async () => { sessionStorage.removeItem(CACHE_KEY); await evictServerCache(); fetchClients(false); }}
+                    disabled={isLoading || isRefreshing}
+                    className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg shadow-sm hover:shadow-md hover:bg-slate-50 transition-all font-bold text-slate-700 text-sm disabled:opacity-50"
+                >
+                    <i className={`fas fa-sync-alt text-slate-400 ${isRefreshing ? 'animate-spin' : ''}`}></i>
+                    Refresh
+                </button>
+            </div>
+        );
+        return () => clearActions();
+    }, [setActions, clearActions, isLoading, isRefreshing, evictServerCache, fetchClients]);
 
     useEffect(() => {
         const cached = readCache();
@@ -213,6 +241,15 @@ const ClientDetailsPage: React.FC = () => {
         return result;
     }, [clients, search, filterProvider, sortBy, clientTotal]);
 
+    // Reset to page 1 whenever filters/sort change
+    useEffect(() => { setCurrentPage(1); }, [search, filterProvider, sortBy]);
+
+    const totalPages = Math.ceil(filteredClients.length / PAGE_SIZE);
+    const paginatedClients = useMemo(() => {
+        const start = (currentPage - 1) * PAGE_SIZE;
+        return filteredClients.slice(start, start + PAGE_SIZE);
+    }, [filteredClients, currentPage]);
+
     if (isLoading) {
         return (
             <div className="p-4 md:p-8 bg-gray-50/50 min-h-screen">
@@ -234,36 +271,6 @@ const ClientDetailsPage: React.FC = () => {
 
     return (
         <div className="p-4 md:p-8 space-y-6 bg-gray-50/50 min-h-screen">
-            <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4 animate-premium-fade-in">
-                <div>
-                    <div className="flex items-center gap-3 mb-1">
-                        <span className="p-2 bg-indigo-600 rounded-lg text-white shadow-sm">
-                            <i className="fas fa-users-cog text-sm"></i>
-                        </span>
-                        <h1 className="text-2xl font-extrabold tracking-tight text-slate-900">
-                            Client Administration
-                        </h1>
-                    </div>
-                    <p className="text-slate-500 font-medium text-sm ml-11">Manage enterprise clients, cloud accounts, and identity impersonation</p>
-                </div>
-                <div className="flex items-center gap-3">
-                    {isRefreshing && (
-                        <span className="text-xs text-slate-400 flex items-center gap-1">
-                            <i className="fas fa-circle-notch fa-spin text-indigo-400"></i>
-                            Refreshing...
-                        </span>
-                    )}
-                    <button
-                        onClick={async () => { sessionStorage.removeItem(CACHE_KEY); await evictServerCache(); fetchClients(false); }}
-                        disabled={isLoading || isRefreshing}
-                        className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg shadow-sm hover:shadow-md hover:bg-slate-50 transition-all font-bold text-slate-700 premium-button-secondary text-sm disabled:opacity-50"
-                    >
-                        <i className={`fas fa-sync-alt text-slate-400 ${isRefreshing ? 'animate-spin' : ''}`}></i>
-                        Refresh
-                    </button>
-                </div>
-            </header>
-
             {/* Stats Summary */}
             {!isLoading && clients.length > 0 && (
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 animate-premium-fade-in">
@@ -354,9 +361,16 @@ const ClientDetailsPage: React.FC = () => {
             {/* Results count + clear all */}
             <div className="flex items-center justify-between -mt-2">
                 <p className="text-xs text-slate-500 font-medium">
-                    {filteredClients.length === clients.length
-                        ? `${clients.length} client${clients.length !== 1 ? 's' : ''}`
-                        : `${filteredClients.length} of ${clients.length} clients`}
+                    {filteredClients.length === 0
+                        ? '0 clients'
+                        : (() => {
+                            const start = (currentPage - 1) * PAGE_SIZE + 1;
+                            const end = Math.min(currentPage * PAGE_SIZE, filteredClients.length);
+                            const suffix = filteredClients.length !== clients.length
+                                ? ` of ${clients.length} clients`
+                                : ` client${filteredClients.length !== 1 ? 's' : ''}`;
+                            return `Showing ${start}–${end} of ${filteredClients.length}${suffix}`;
+                        })()}
                 </p>
                 {(search || filterProvider || sortBy) && (
                     <button
@@ -370,7 +384,7 @@ const ClientDetailsPage: React.FC = () => {
             </div>
 
             <div className="grid gap-4">
-                {filteredClients.map((client, index) => (
+                {paginatedClients.map((client, index) => (
                     <div
                         key={client.id}
                         className={`premium-glass rounded-2xl premium-card-shadow premium-card-hover border transition-all duration-500 overflow-hidden animate-premium-fade-in stagger-${(index % 5) + 1} ${expandedClient === client.id ? 'border-indigo-500 ring-4 ring-indigo-500/5' : 'border-white/40'
@@ -640,6 +654,55 @@ const ClientDetailsPage: React.FC = () => {
                     </div>
                 )}
             </div>
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+                <div className="flex items-center justify-center gap-2 pt-2 animate-premium-fade-in">
+                    <button
+                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                        disabled={currentPage === 1}
+                        className="flex items-center gap-1.5 px-4 py-2 bg-white border border-slate-200 rounded-lg shadow-sm text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                    >
+                        <i className="fas fa-chevron-left text-xs"></i>
+                        Prev
+                    </button>
+
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => {
+                        const isActive = page === currentPage;
+                        const isEdge = page === 1 || page === totalPages;
+                        const isNearCurrent = Math.abs(page - currentPage) <= 1;
+                        if (!isEdge && !isNearCurrent) {
+                            // Show ellipsis only once per gap
+                            if (page === 2 || page === totalPages - 1) {
+                                return <span key={page} className="px-1 text-slate-400 text-sm select-none">…</span>;
+                            }
+                            return null;
+                        }
+                        return (
+                            <button
+                                key={page}
+                                onClick={() => setCurrentPage(page)}
+                                className={`w-9 h-9 rounded-lg text-sm font-bold transition-all ${
+                                    isActive
+                                        ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200'
+                                        : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 shadow-sm'
+                                }`}
+                            >
+                                {page}
+                            </button>
+                        );
+                    })}
+
+                    <button
+                        onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                        disabled={currentPage === totalPages}
+                        className="flex items-center gap-1.5 px-4 py-2 bg-white border border-slate-200 rounded-lg shadow-sm text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                    >
+                        Next
+                        <i className="fas fa-chevron-right text-xs"></i>
+                    </button>
+                </div>
+            )}
         </div>
     );
 };

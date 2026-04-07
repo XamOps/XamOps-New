@@ -12,6 +12,7 @@ import lombok.NoArgsConstructor;
 public class XamOpsRightsizingRecommendation {
     private String currentInstance;         // Instance type (e.g., "t3.medium")
     private String instanceId;              // Actual instance ID
+    private String instanceName;            // Instance name tag
     private String currentUtilization;      //Actual CPU utilization
     private String loadRange;               // Load range (e.g., "0-50%")
     private String intelRecommendation;     // Intel-based recommendation
@@ -19,4 +20,5 @@ public class XamOpsRightsizingRecommendation {
     private String projectedMaxUtil;        // Projected max utilization
     private String approxCostSavings;       // Cost savings estimate
     private String reason;                  // Recommendation reason
+    private String region;                  // AWS region where the instance runs
 }
