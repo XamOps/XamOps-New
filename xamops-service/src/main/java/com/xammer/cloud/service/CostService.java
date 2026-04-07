@@ -84,6 +84,32 @@ public class CostService {
                                 .orElseThrow(() -> new RuntimeException("Account not found: " + accountId));
         }
 
+        /**
+         * Normalises a String endDate to the last day of the month when the date
+         * falls in the current calendar month. This keeps the cache key stable for the
+         * entire billing cycle so data written by the WED/SUN nightly scheduler remains
+         * a cache hit on Mon/Tue/Thu/Fri. CE API returns only completed-day data
+         * regardless of a future end date, so using end-of-month is safe.
+         */
+        private String normalizeEndDate(String endDate) {
+                if (endDate == null) return null;
+                try {
+                        LocalDate end = LocalDate.parse(endDate);
+                        YearMonth endYm = YearMonth.from(end);
+                        if (endYm.equals(YearMonth.now())) {
+                                return endYm.atEndOfMonth().toString();
+                        }
+                } catch (Exception ignored) {}
+                return endDate;
+        }
+
+        /** LocalDate overload — same semantics as the String version above. */
+        private LocalDate normalizeEndDate(LocalDate endDate) {
+                if (endDate == null) return null;
+                YearMonth endYm = YearMonth.from(endDate);
+                return endYm.equals(YearMonth.now()) ? endYm.atEndOfMonth() : endDate;
+        }
+
         // --- NEW METHODS ADDED TO FIX COMPILATION ERROR ---
 
         /**
@@ -294,8 +320,10 @@ public class CostService {
         public CompletableFuture<List<DetailedCostDto>> getCostBreakdownByServiceAndRegion(
                         String accountId, LocalDate startDate, LocalDate endDate, boolean forceRefresh) {
 
-                String cacheKey = "costBreakdownServiceRegion-" + accountId + "-" + startDate + "-" + endDate;
-                String dbKey = "AWS_COST_BREAKDOWN_SVC_REGION::" + accountId + "::" + startDate + "::" + endDate;
+                // Stable cache key: use end-of-month for current-month queries.
+                LocalDate normalizedEnd = normalizeEndDate(endDate);
+                String cacheKey = "costBreakdownServiceRegion-" + accountId + "-" + startDate + "-" + normalizedEnd;
+                String dbKey = "AWS_COST_BREAKDOWN_SVC_REGION::" + accountId + "::" + startDate + "::" + normalizedEnd;
 
                 // ── Closed-month snapshot check ──────────────────────────────────────────
                 // When the entire date range falls within a single closed month, serve from
@@ -339,7 +367,7 @@ public class CostService {
                 // Return mock data if mock mode is enabled
                 if (useMockData) {
                         List<DetailedCostDto> mockResult = costMockService
-                                        .getMockCostBreakdownByServiceAndRegion(accountId, startDate, endDate);
+                                        .getMockCostBreakdownByServiceAndRegion(accountId, startDate, normalizedEnd);
                         redisCache.put(cacheKey, mockResult, 60 * 24);
                         return CompletableFuture.completedFuture(mockResult);
                 }
@@ -351,8 +379,7 @@ public class CostService {
                         try {
                                 DateInterval dateInterval = DateInterval.builder()
                                                 .start(startDate.toString())
-                                                .end(endDate.plusDays(1).toString()) // Cost Explorer is exclusive of
-                                                                                     // end date
+                                                .end(normalizedEnd.plusDays(1).toString()) // CE is exclusive of end date
                                                 .build();
 
                                 List<GroupDefinition> groupBy = List.of(
@@ -410,10 +437,13 @@ public class CostService {
                         String accountId, String groupBy, String tag, boolean forceRefresh, String startDate,
                         String endDate) {
 
+                // Stable cache key: use end-of-month for current-month queries so the key
+                // doesn't change daily between nightly scheduler runs.
+                String normalizedEnd = normalizeEndDate(endDate);
                 String cacheKey = "costBreakdown-" + accountId + "-" + groupBy + "-" + (tag != null ? tag : "") + "-"
-                                + startDate + "-" + endDate;
+                                + startDate + "-" + normalizedEnd;
                 String dbKey = "AWS_COST_BREAKDOWN::" + accountId + "::" + groupBy + "::" + (tag != null ? tag : "")
-                                + "::" + startDate + "::" + endDate;
+                                + "::" + startDate + "::" + normalizedEnd;
 
                 // ── Closed-month snapshot check ──────────────────────────────────────────
                 // For SERVICE or REGION groupBy over a single closed calendar month, serve
@@ -477,7 +507,7 @@ public class CostService {
 
                 return CompletableFuture.supplyAsync(() -> {
                         try {
-                                LocalDate parsedEndDate = LocalDate.parse(endDate);
+                                LocalDate parsedEndDate = LocalDate.parse(normalizedEnd);
                                 DateInterval dateInterval = DateInterval.builder()
                                                 .start(startDate)
                                                 .end(parsedEndDate.plusDays(1).toString())

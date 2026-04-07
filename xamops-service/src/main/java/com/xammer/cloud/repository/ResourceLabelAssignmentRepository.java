@@ -4,9 +4,11 @@ import com.xammer.cloud.domain.ResourceLabelAssignment;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
@@ -30,6 +32,11 @@ public interface ResourceLabelAssignmentRepository extends JpaRepository<Resourc
 
     // Delete all labels from a resource (e.g. when resource is removed from all labels)
     void deleteByCloudAccountIdAndResourceId(Long accountId, String resourceId);
+
+    // Delete all label assignments for an account (used during account deletion)
+    @Modifying
+    @Transactional
+    void deleteByCloudAccountId(Long accountId);
 
     // Count resources for a label (for label summary cards)
     long countByLabelId(Long labelId);

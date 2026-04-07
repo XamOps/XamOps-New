@@ -3,7 +3,9 @@ package com.xammer.cloud.repository;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.KubernetesCluster;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 import java.util.Optional;
 import java.util.List;
 
@@ -19,4 +21,8 @@ public interface KubernetesClusterRepository extends JpaRepository<KubernetesClu
 
     // ✅ ADDED: For debugging/logging purposes
     List<KubernetesCluster> findByCloudAccountId(Long cloudAccountId);
+
+    @Modifying
+    @Transactional
+    void deleteByCloudAccount_Id(Long cloudAccountId);
 }
