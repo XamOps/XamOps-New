@@ -4,7 +4,9 @@ import java.time.Instant;
 import java.util.List;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.xammer.cloud.domain.SpotOptimizationEvent;
 
@@ -34,4 +36,7 @@ public interface SpotOptimizationEventRepository extends JpaRepository<SpotOptim
 
     boolean existsByAccountIdAndNewInstanceId(Long accountId, String newInstanceId);
 
+    @Modifying
+    @Transactional
+    void deleteByAccountId(Long accountId);
 }

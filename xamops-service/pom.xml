@@ -199,6 +199,10 @@
         </dependency>
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
+            <artifactId>marketplacemetering</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
             <artifactId>organizations</artifactId>
         </dependency>
 
@@ -490,6 +494,20 @@
         <dependency>
             <groupId>com.google.apis</groupId>
             <artifactId>google-api-services-sqladmin</artifactId>
+        </dependency>
+
+        <!-- Google Workspace Admin SDK — Directory API (users, licenses, OUs) -->
+        <dependency>
+            <groupId>com.google.apis</groupId>
+            <artifactId>google-api-services-admin-directory</artifactId>
+            <version>directory_v1-rev20260227-2.0.0</version>
+        </dependency>
+
+        <!-- Google Workspace Admin SDK — Reports API (last login, usage) -->
+        <dependency>
+            <groupId>com.google.apis</groupId>
+            <artifactId>google-api-services-admin-reports</artifactId>
+            <version>reports_v1-rev20260317-2.0.0</version>
         </dependency>
         <dependency>
             <groupId>com.google.cloud</groupId>

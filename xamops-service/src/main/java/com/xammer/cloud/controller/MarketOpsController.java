@@ -57,10 +57,27 @@ public class MarketOpsController {
 
         List<MarketplaceProductSubscription> subs = marketOpsService.getSubscriptions(account);
 
-        // Compute totalCostUsd per productCode from billing table
+        // Build per-product cost lookup from billing table (exact product code match)
+        List<com.xammer.cloud.domain.MarketplaceMeterBilling> allBilling =
+                marketOpsService.getMeterBillingAll(cloudAccountId);
+
         Map<String, BigDecimal> totalCostByProduct = new HashMap<>();
-        marketOpsService.getMeterBillingAll(cloudAccountId).forEach(entry ->
+        allBilling.forEach(entry ->
                 totalCostByProduct.merge(entry.getProductCode(), entry.getCostUsd(), BigDecimal::add));
+
+        // Check whether any subscription has a direct billing match.
+        // When the Agreement API returned product codes (e.g. "prod-xxx") but Cost Explorer
+        // stored billing under usage-type slugs (e.g. "software-usage-contracts"), none of
+        // the per-product lookups will match.  In that case we expose the account-level total
+        // so the UI can display meaningful cost information.
+        boolean anyDirectMatch = subs.stream()
+                .anyMatch(s -> totalCostByProduct.getOrDefault(s.getProductCode(), BigDecimal.ZERO)
+                        .compareTo(BigDecimal.ZERO) > 0);
+
+        BigDecimal accountTotalCostUsd = allBilling.stream()
+                .map(com.xammer.cloud.domain.MarketplaceMeterBilling::getCostUsd)
+                .filter(java.util.Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         List<Map<String, Object>> result = subs.stream().map(sub -> {
             Map<String, Object> dto = new LinkedHashMap<>();
@@ -72,6 +89,10 @@ public class MarketOpsController {
             dto.put("expiryDate", sub.getExpiryDate() != null ? sub.getExpiryDate().toString() : null);
             dto.put("totalCostUsd", totalCostByProduct.getOrDefault(sub.getProductCode(), BigDecimal.ZERO));
             dto.put("syncedAt", sub.getSyncedAt().toString());
+            // Included when per-product attribution is not available (shared billing scenario)
+            if (!anyDirectMatch && accountTotalCostUsd.compareTo(BigDecimal.ZERO) > 0) {
+                dto.put("accountTotalCostUsd", accountTotalCostUsd);
+            }
             return dto;
         }).collect(Collectors.toList());
 
@@ -96,14 +117,27 @@ public class MarketOpsController {
      * ]
      */
     @GetMapping("/subscriptions/{productCode}/billing")
-    public ResponseEntity<List<Map<String, Object>>> getMeterBilling(
+    public ResponseEntity<Map<String, Object>> getMeterBilling(
             @PathVariable String productCode,
             @RequestParam String cloudAccountId) {
 
         List<MarketplaceMeterBilling> entries =
                 marketOpsService.getMeterBilling(cloudAccountId, productCode);
 
-        List<Map<String, Object>> result = entries.stream().map(entry -> {
+        // When no product-specific billing exists (common for accounts with multiple
+        // marketplace subscriptions — AWS CE groups charges under shared usage-type slugs
+        // making per-product attribution impossible), fall back to account-level billing so
+        // the user can at least see their total marketplace spend.
+        boolean accountLevel = false;
+        if (entries.isEmpty()) {
+            entries = marketOpsService.getMeterBillingAll(cloudAccountId)
+                    .stream()
+                    .sorted(java.util.Comparator.comparing(MarketplaceMeterBilling::getYearMonth).reversed())
+                    .collect(Collectors.toList());
+            accountLevel = true;
+        }
+
+        List<Map<String, Object>> rows = entries.stream().map(entry -> {
             Map<String, Object> dto = new LinkedHashMap<>();
             dto.put("yearMonth", entry.getYearMonth());
             dto.put("usageType", entry.getUsageType());
@@ -112,7 +146,55 @@ public class MarketOpsController {
             return dto;
         }).collect(Collectors.toList());
 
-        return ResponseEntity.ok(result);
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("entries", rows);
+        response.put("accountLevel", accountLevel);
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * GET /api/marketops/subscriptions/{productCode}/billing/daily
+     *     ?cloudAccountId={awsAccountId}&yearMonth={yyyy-MM}
+     *
+     * Returns daily meter billing for a specific product within a calendar month.
+     * Queries AWS Cost Explorer with DAILY granularity (live call, not cached).
+     *
+     * Response shape:
+     * [
+     *   { "date": "2026-03-01", "costUsd": 2.10, "usageQuantity": 23.5 },
+     *   ... one entry per calendar day, zero-cost days included
+     * ]
+     */
+    @GetMapping("/subscriptions/{productCode}/billing/daily")
+    public ResponseEntity<Map<String, Object>> getDailyMeterBilling(
+            @PathVariable String productCode,
+            @RequestParam String cloudAccountId,
+            @RequestParam String yearMonth) {
+
+        CloudAccount account = resolveAccount(cloudAccountId);
+        List<Map<String, Object>> entries = marketOpsService.getDailyMeterBilling(account, productCode, yearMonth);
+
+        // Same account-level fallback as monthly: when the product code is an agreement ID
+        // that does not match any stored usage types, the daily query returns all-zero days.
+        // In that case re-run the query without a product filter (account-level).
+        boolean accountLevel = false;
+        boolean allZero = entries.stream()
+                .allMatch(e -> {
+                    Object cost = e.get("costUsd");
+                    if (cost == null) return true;
+                    if (cost instanceof java.math.BigDecimal) return ((java.math.BigDecimal) cost).compareTo(java.math.BigDecimal.ZERO) == 0;
+                    return Double.parseDouble(cost.toString()) == 0.0;
+                });
+
+        if (allZero) {
+            entries = marketOpsService.getDailyMeterBillingAccountLevel(account, yearMonth);
+            accountLevel = true;
+        }
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("entries", entries);
+        response.put("accountLevel", accountLevel);
+        return ResponseEntity.ok(response);
     }
 
     /**
@@ -133,7 +215,8 @@ public class MarketOpsController {
     public ResponseEntity<Map<String, Object>> sync(@RequestParam String cloudAccountId) {
         log.info("Manual sync triggered for account {}", cloudAccountId);
         CloudAccount account = resolveAccount(cloudAccountId);
-        Map<String, Object> result = marketOpsService.syncAll(account);
+        // force=true: user-triggered syncs always bypass the 24-hour freshness cache
+        Map<String, Object> result = marketOpsService.syncAll(account, true);
         return ResponseEntity.ok(result);
     }
 

@@ -75,10 +75,12 @@ const Sidebar: React.FC = () => {
       '/sonarqube', '/cicd-pipelines', '/devops-in-the-box', '/grafana-dashboard', '/aiops', '/dataops', '/ebs-rightsizing'];
     const secopsRoutes = ['/security', '/gcp-security', '/azure-security', '/complianceops',
       '/performance', '/gcp-performance', '/azure-performance', '/alerts', '/gcp-alerts', '/azure-alerts'];
+    const licensesRoutes = ['/marketplace-purchases', '/workspace-licenses', '/isv-metering'];
 
     if (finopsRoutes.some(r => path.startsWith(r))) setOpenDropdown('finops');
     else if (cloudopsRoutes.some(r => path.startsWith(r))) setOpenDropdown('cloudops');
     else if (secopsRoutes.some(r => path.startsWith(r))) setOpenDropdown('security');
+    else if (licensesRoutes.some(r => path.startsWith(r))) setOpenDropdown('licenses');
   }, [location.pathname]);
 
   /**
