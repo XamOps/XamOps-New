@@ -230,10 +230,10 @@ public class AccountManagerController {
     public ResponseEntity<?> deleteAccount(@PathVariable Long id) {
         return cloudAccountRepository.findById(id)
                 .map(account -> {
-                    awsAccountService.clearAllCaches();
-                    cloudAccountRepository.delete(account);
+                    String accountName = account.getAccountName();
+                    awsAccountService.deleteAccountById(id);
                     return ResponseEntity
-                            .ok(Map.of("message", "Account " + account.getAccountName() + " removed successfully."));
+                            .ok(Map.of("message", "Account " + accountName + " removed successfully."));
                 }).orElse(ResponseEntity.notFound().build());
     }
 

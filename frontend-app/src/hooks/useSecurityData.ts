@@ -143,8 +143,8 @@ export const useSecurityData = ({
 
       // Check if scan just finished (transitioned from RUNNING to COMPLETED)
       if (data.status === 'COMPLETED' && prowlerStatus.status === 'RUNNING') {
-        // Reload findings silently in background
-        loadFindings(false, true);
+        // Force refresh to merge new Prowler findings with manual checks
+        loadFindings(true, true);
       }
 
       setProwlerStatus(data);

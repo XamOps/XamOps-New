@@ -18,6 +18,8 @@ import software.amazon.awssdk.services.marketplaceagreement.model.Resource;
 import software.amazon.awssdk.services.marketplaceagreement.model.SearchAgreementsRequest;
 import software.amazon.awssdk.services.marketplaceagreement.model.SearchAgreementsResponse;
 import software.amazon.awssdk.services.marketplacecatalog.MarketplaceCatalogClient;
+import software.amazon.awssdk.services.marketplacecatalog.model.DescribeEntityRequest;
+import software.amazon.awssdk.services.marketplacecatalog.model.DescribeEntityResponse;
 import software.amazon.awssdk.services.marketplacecatalog.model.EntitySummary;
 import software.amazon.awssdk.services.marketplacecatalog.model.Filter;
 import software.amazon.awssdk.services.marketplacecatalog.model.ListEntitiesRequest;
@@ -76,10 +78,220 @@ public class MarketOpsService {
                 subscriptionRepository.findByCloudAccountId(accountId);
         if (existing.isEmpty()) {
             log.info("No cached subscriptions for account {}. Triggering initial sync.", accountId);
-            syncAll(account);
+            syncAll(account, false);
             return subscriptionRepository.findByCloudAccountId(accountId);
         }
         return existing;
+    }
+
+    /**
+     * Queries AWS Cost Explorer with DAILY granularity for a specific product and month.
+     * Uses the usage-types stored from the last monthly sync to match billing rows to the product,
+     * so that agreement-based product codes (e.g. "prod-xxx") are handled correctly.
+     *
+     * Returns one entry per calendar day (including zero-cost days) sorted by date ascending.
+     */
+    public List<Map<String, Object>> getDailyMeterBilling(CloudAccount account, String productCode, String yearMonth) {
+        String accountId = account.getAwsAccountId();
+        log.info("Fetching daily billing: account={} product={} month={}", accountId, productCode, yearMonth);
+
+        if (account.getRoleArn() == null || account.getRoleArn().isBlank()) {
+            throw new IllegalStateException("No IAM role configured for account " + accountId);
+        }
+
+        // Resolve usage-types linked to this productCode from stored monthly data.
+        // This works for both billing-derived slugs and agreement-based product codes.
+        Set<String> knownUsageTypes = meterBillingRepository
+                .findByCloudAccountIdAndProductCode(accountId, productCode)
+                .stream()
+                .map(MarketplaceMeterBilling::getUsageType)
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        StaticCredentialsProvider creds = assumeRole(account.getRoleArn(), account.getExternalId());
+
+        YearMonth ym = YearMonth.parse(yearMonth);
+        String startDate = ym.atDay(1).format(DateTimeFormatter.ISO_LOCAL_DATE);
+        String endDate   = ym.plusMonths(1).atDay(1).format(DateTimeFormatter.ISO_LOCAL_DATE);
+
+        Map<String, BigDecimal> costByDate     = new LinkedHashMap<>();
+        Map<String, Double>     quantityByDate = new LinkedHashMap<>();
+
+        try (CostExplorerClient ce = CostExplorerClient.builder()
+                .region(Region.US_EAST_1)
+                .credentialsProvider(creds)
+                .build()) {
+
+            GetCostAndUsageRequest req = GetCostAndUsageRequest.builder()
+                    .timePeriod(DateInterval.builder().start(startDate).end(endDate).build())
+                    .granularity(Granularity.DAILY)
+                    .metrics("UnblendedCost", "UsageQuantity")
+                    .groupBy(GroupDefinition.builder()
+                            .type(GroupDefinitionType.DIMENSION)
+                            .key("USAGE_TYPE")
+                            .build())
+                    .filter(Expression.builder()
+                            .and(
+                                    Expression.builder()
+                                            .dimensions(DimensionValues.builder()
+                                                    .key(Dimension.LINKED_ACCOUNT)
+                                                    .values(accountId)
+                                                    .build())
+                                            .build(),
+                                    Expression.builder()
+                                            .dimensions(DimensionValues.builder()
+                                                    .key(Dimension.BILLING_ENTITY)
+                                                    .values("AWS Marketplace")
+                                                    .build())
+                                            .build())
+                            .build())
+                    .build();
+
+            GetCostAndUsageResponse response = ce.getCostAndUsage(req);
+
+            for (ResultByTime rbt : response.resultsByTime()) {
+                String date = rbt.timePeriod().start(); // "2026-03-01"
+
+                for (Group group : rbt.groups()) {
+                    String usageType = group.keys().isEmpty() ? "" : group.keys().get(0);
+
+                    // Prefer exact usage-type match (works for agreement product codes).
+                    // Fall back to extractProductCode slug matching when no stored types exist.
+                    boolean matches = !knownUsageTypes.isEmpty()
+                            ? knownUsageTypes.contains(usageType)
+                            : productCode.equals(extractProductCode(usageType));
+
+                    if (!matches) continue;
+
+                    double cost = group.metrics().containsKey("UnblendedCost")
+                            ? Double.parseDouble(group.metrics().get("UnblendedCost").amount()) : 0.0;
+                    double qty  = group.metrics().containsKey("UsageQuantity")
+                            ? Double.parseDouble(group.metrics().get("UsageQuantity").amount()) : 0.0;
+
+                    costByDate.merge(date, BigDecimal.valueOf(cost), BigDecimal::add);
+                    quantityByDate.merge(date, qty, Double::sum);
+                }
+            }
+
+        } catch (Exception e) {
+            log.error("Daily CE query failed: account={} product={} month={}: {}",
+                    accountId, productCode, yearMonth, e.getMessage(), e);
+            throw new IllegalStateException(
+                    "Failed to query daily billing for " + productCode + ": " + e.getMessage(), e);
+        }
+
+        // One entry per calendar day (zero-cost days included so the chart is continuous)
+        List<Map<String, Object>> result = new ArrayList<>();
+        java.time.LocalDate day    = ym.atDay(1);
+        java.time.LocalDate endDay = ym.plusMonths(1).atDay(1);
+        while (day.isBefore(endDay)) {
+            String d = day.format(DateTimeFormatter.ISO_LOCAL_DATE);
+            Map<String, Object> entry = new LinkedHashMap<>();
+            entry.put("date",          d);
+            entry.put("costUsd",       costByDate.getOrDefault(d, BigDecimal.ZERO));
+            entry.put("usageQuantity", quantityByDate.getOrDefault(d, 0.0));
+            result.add(entry);
+            day = day.plusDays(1);
+        }
+
+        log.info("Daily billing result: {} days in month, {} with non-zero cost — account={} product={} month={}",
+                result.size(), costByDate.size(), accountId, productCode, yearMonth);
+        return result;
+    }
+
+    /**
+     * Queries AWS Cost Explorer with DAILY granularity for the entire account
+     * (no product filter) for the given calendar month.
+     *
+     * Used as a fallback when the per-product daily query returns all-zero rows
+     * because AWS CE groups all SaaS charges under a shared usage-type slug that
+     * cannot be attributed to a specific product.
+     *
+     * Returns one entry per calendar day (zero-cost days included).
+     */
+    public List<Map<String, Object>> getDailyMeterBillingAccountLevel(CloudAccount account, String yearMonth) {
+        String accountId = account.getAwsAccountId();
+        log.info("Fetching account-level daily billing: account={} month={}", accountId, yearMonth);
+
+        if (account.getRoleArn() == null || account.getRoleArn().isBlank()) {
+            throw new IllegalStateException("No IAM role configured for account " + accountId);
+        }
+
+        StaticCredentialsProvider creds = assumeRole(account.getRoleArn(), account.getExternalId());
+
+        YearMonth ym = YearMonth.parse(yearMonth);
+        String startDate = ym.atDay(1).format(DateTimeFormatter.ISO_LOCAL_DATE);
+        String endDate   = ym.plusMonths(1).atDay(1).format(DateTimeFormatter.ISO_LOCAL_DATE);
+
+        Map<String, BigDecimal> costByDate     = new LinkedHashMap<>();
+        Map<String, Double>     quantityByDate = new LinkedHashMap<>();
+
+        try (CostExplorerClient ce = CostExplorerClient.builder()
+                .region(Region.US_EAST_1)
+                .credentialsProvider(creds)
+                .build()) {
+
+            // No groupBy — read totals directly from rbt.total() for each day
+            GetCostAndUsageRequest req = GetCostAndUsageRequest.builder()
+                    .timePeriod(DateInterval.builder().start(startDate).end(endDate).build())
+                    .granularity(Granularity.DAILY)
+                    .metrics("UnblendedCost", "UsageQuantity")
+                    .filter(Expression.builder()
+                            .and(
+                                    Expression.builder()
+                                            .dimensions(DimensionValues.builder()
+                                                    .key(Dimension.LINKED_ACCOUNT)
+                                                    .values(accountId)
+                                                    .build())
+                                            .build(),
+                                    Expression.builder()
+                                            .dimensions(DimensionValues.builder()
+                                                    .key(Dimension.BILLING_ENTITY)
+                                                    .values("AWS Marketplace")
+                                                    .build())
+                                            .build())
+                            .build())
+                    .build();
+
+            GetCostAndUsageResponse response = ce.getCostAndUsage(req);
+
+            for (ResultByTime rbt : response.resultsByTime()) {
+                String date = rbt.timePeriod().start(); // "2026-03-01"
+
+                if (rbt.total() != null && !rbt.total().isEmpty()) {
+                    double cost = rbt.total().containsKey("UnblendedCost")
+                            ? Double.parseDouble(rbt.total().get("UnblendedCost").amount()) : 0.0;
+                    double qty  = rbt.total().containsKey("UsageQuantity")
+                            ? Double.parseDouble(rbt.total().get("UsageQuantity").amount()) : 0.0;
+                    costByDate.merge(date, BigDecimal.valueOf(cost), BigDecimal::add);
+                    quantityByDate.merge(date, qty, Double::sum);
+                }
+            }
+
+        } catch (Exception e) {
+            log.error("Account-level daily CE query failed: account={} month={}: {}",
+                    accountId, yearMonth, e.getMessage(), e);
+            throw new IllegalStateException(
+                    "Failed to query account-level daily billing: " + e.getMessage(), e);
+        }
+
+        // One entry per calendar day (zero-cost days included so chart is continuous)
+        List<Map<String, Object>> result = new ArrayList<>();
+        java.time.LocalDate day    = ym.atDay(1);
+        java.time.LocalDate endDay = ym.plusMonths(1).atDay(1);
+        while (day.isBefore(endDay)) {
+            String d = day.format(DateTimeFormatter.ISO_LOCAL_DATE);
+            Map<String, Object> entry = new LinkedHashMap<>();
+            entry.put("date",          d);
+            entry.put("costUsd",       costByDate.getOrDefault(d, BigDecimal.ZERO));
+            entry.put("usageQuantity", quantityByDate.getOrDefault(d, 0.0));
+            result.add(entry);
+            day = day.plusDays(1);
+        }
+
+        log.info("Account-level daily billing: {} days, {} with non-zero cost — account={} month={}",
+                result.size(), costByDate.size(), accountId, yearMonth);
+        return result;
     }
 
     /**
@@ -105,34 +317,40 @@ public class MarketOpsService {
      * subscriptions from distinct products found, persists both in DB.
      *
      * Priority: Agreement API (real product names) > billing-derived (usage-type slugs).
+     *
+     * @param force when {@code true} the 24-hour freshness cache is bypassed.
+     *              Pass {@code true} for user-initiated syncs; {@code false}
+     *              for automatic background syncs.
      */
     @Transactional
-    public Map<String, Object> syncAll(CloudAccount account) {
+    public Map<String, Object> syncAll(CloudAccount account, boolean force) {
         String accountId = account.getAwsAccountId();
-        log.info("Syncing MarketOps data for account {}", accountId);
+        log.info("Syncing MarketOps data for account {} (force={})", accountId, force);
 
         if (account.getRoleArn() == null || account.getRoleArn().isBlank()) {
             throw new IllegalStateException("No IAM role configured for account " + accountId);
         }
 
-        // Skip CE API call if data was synced within the last 24 hours
-        List<MarketplaceMeterBilling> existingBilling = meterBillingRepository.findByCloudAccountId(accountId);
-        if (!existingBilling.isEmpty()) {
-            LocalDateTime lastSync = existingBilling.stream()
-                    .map(MarketplaceMeterBilling::getSyncedAt)
-                    .filter(java.util.Objects::nonNull)
-                    .max(Comparator.naturalOrder())
-                    .orElse(null);
-            if (lastSync != null && lastSync.isAfter(LocalDateTime.now().minusHours(24))) {
-                log.info("Skipping MarketOps CE sync for {} — data is fresh (last sync: {})", accountId, lastSync);
-                Map<String, Object> summary = new LinkedHashMap<>();
-                summary.put("status", "CACHED");
-                summary.put("cloudAccountId", accountId);
-                summary.put("subscriptionsFound", subscriptionRepository.findByCloudAccountId(accountId).size());
-                summary.put("billingMonthsSynced", existingBilling.stream()
-                        .map(MarketplaceMeterBilling::getYearMonth).distinct().count());
-                summary.put("lastSyncedAt", lastSync.toString());
-                return summary;
+        // Skip CE API call if data was synced within the last 24 hours (unless force=true)
+        if (!force) {
+            List<MarketplaceMeterBilling> existingBilling = meterBillingRepository.findByCloudAccountId(accountId);
+            if (!existingBilling.isEmpty()) {
+                LocalDateTime lastSync = existingBilling.stream()
+                        .map(MarketplaceMeterBilling::getSyncedAt)
+                        .filter(java.util.Objects::nonNull)
+                        .max(Comparator.naturalOrder())
+                        .orElse(null);
+                if (lastSync != null && lastSync.isAfter(LocalDateTime.now().minusHours(24))) {
+                    log.info("Skipping MarketOps CE sync for {} — data is fresh (last sync: {})", accountId, lastSync);
+                    Map<String, Object> summary = new LinkedHashMap<>();
+                    summary.put("status", "CACHED");
+                    summary.put("cloudAccountId", accountId);
+                    summary.put("subscriptionsFound", subscriptionRepository.findByCloudAccountId(accountId).size());
+                    summary.put("billingMonthsSynced", existingBilling.stream()
+                            .map(MarketplaceMeterBilling::getYearMonth).distinct().count());
+                    summary.put("lastSyncedAt", lastSync.toString());
+                    return summary;
+                }
             }
         }
 
@@ -398,14 +616,20 @@ public class MarketOpsService {
                     String productCode = firstNonBlank(product.id(), proposal.offerId(), summary.agreementId());
                     if (productCode == null || productCode.isBlank()) continue;
 
-                    String productTitle = titleCache.computeIfAbsent(
+                    // Title resolution priority:
+                    //   1. DescribeEntity — buyer-side API, works for any public product
+                    //      including UUID-format SaaS product IDs. Returns name from
+                    //      Description.ProductTitle in the entity details JSON.
+                    //   2. ListEntities fallback — seller-side, for prod-xxx codes.
+                    //   3. humanReadableTitle — last resort slug/placeholder.
+                    String catalogTitle = titleCache.computeIfAbsent(
                             productCode,
                             key -> resolveListingTitle(catalogClient, key, product.type()));
 
                     MarketplaceProductSubscription sub = new MarketplaceProductSubscription();
                     sub.setCloudAccountId(accountId);
                     sub.setProductCode(productCode);
-                    sub.setProductTitle(firstNonBlank(productTitle, humanReadableTitle(productCode)));
+                    sub.setProductTitle(firstNonBlank(catalogTitle, humanReadableTitle(productCode)));
                     sub.setVendorName(null);
                     sub.setSubscriptionStatus(
                             summary.statusAsString() != null ? summary.statusAsString() : "ACTIVE");
@@ -430,41 +654,119 @@ public class MarketOpsService {
         return result;
     }
 
+    private static final com.fasterxml.jackson.databind.ObjectMapper CATALOG_OBJECT_MAPPER =
+            new com.fasterxml.jackson.databind.ObjectMapper();
+
     /**
-     * Resolves the human-readable product name for a marketplace entity using
-     * {@code ListEntities} (a buyer-accessible discovery API).
+     * Resolves the human-readable product name for a marketplace entity.
      *
-     * <p>{@code DescribeEntity} requires a resource-based policy grant from the
-     * seller and is therefore inaccessible to buyer accounts. {@code ListEntities}
-     * with a {@code EntityId} filter returns public entity summaries (including
-     * {@code Name}) without that restriction.
+     * <p>Strategy 1: {@code DescribeEntity} — works for ANY public marketplace product
+     * (buyer or seller). Takes only the entity ID, no type guessing needed.
+     * Requires {@code aws-marketplace:DescribeEntity} on the IAM role.
+     * The JSON {@code details} field contains {@code Description.ProductTitle}.
+     *
+     * <p>Strategy 2: {@code ListEntities} fallback — only works for entities owned by
+     * the calling account (seller-side). Kept as a fallback for completeness.
+     *
+     * <p>Returns {@code null} when the name cannot be determined.
      */
     private String resolveListingTitle(MarketplaceCatalogClient catalogClient,
                                        String entityId, String entityType) {
-        String type = (entityType != null && !entityType.isBlank()) ? entityType : "SaaSProduct";
-        try {
-            ListEntitiesRequest req = ListEntitiesRequest.builder()
-                    .catalog(CATALOG_CATALOG)
-                    .entityType(type)
-                    .filterList(Filter.builder()
-                            .name("EntityId")
-                            .valueList(entityId)
-                            .build())
-                    .build();
+        if (entityId == null || entityId.isBlank()) return null;
 
-            ListEntitiesResponse resp = catalogClient.listEntities(req);
-            if (resp.hasEntitySummaryList() && !resp.entitySummaryList().isEmpty()) {
-                EntitySummary summary = resp.entitySummaryList().get(0);
-                String name = summary.name();
-                log.info("ListEntities {} → name={}", entityId, name);
-                return firstNonBlank(name, entityId);
+        // Strategy 1: DescribeEntity — the correct buyer-side API for product lookups.
+        // ListEntities only returns entities owned by the calling account (seller-side),
+        // so it cannot resolve names for products listed by other vendors.
+        try {
+            DescribeEntityRequest descReq = DescribeEntityRequest.builder()
+                    .catalog(CATALOG_CATALOG)
+                    .entityId(entityId)
+                    .build();
+            DescribeEntityResponse descResp = catalogClient.describeEntity(descReq);
+            if (descResp.details() != null && !descResp.details().isBlank()) {
+                String title = extractProductTitle(descResp.details());
+                if (title != null && !title.isBlank()) {
+                    log.info("DescribeEntity {} → name={}", entityId, title);
+                    return title;
+                }
             }
-            log.warn("ListEntities found no match for entityId={} type={}", entityId, type);
         } catch (Exception e) {
-            log.warn("ListEntities failed for entityId={} type={} [{}]: {}",
-                    entityId, type, e.getClass().getSimpleName(), e.getMessage());
+            log.warn("DescribeEntity failed for entityId={} [{}]: {}",
+                    entityId, e.getClass().getSimpleName(), e.getMessage());
         }
-        return entityId;
+
+        // Strategy 2: ListEntities fallback (works for seller-owned entities only)
+        boolean isUuid = entityId.matches(
+                "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}");
+        String baseType = (entityType != null && !entityType.isBlank()) ? entityType : "SaaSProduct";
+        List<String> typesToTry;
+        if (isUuid) {
+            typesToTry = new ArrayList<>(Arrays.asList("SaaSProduct", "SaaSProduct@1.0"));
+            if (!baseType.startsWith("SaaS")) {
+                typesToTry.add(baseType);
+                if (!baseType.contains("@")) typesToTry.add(baseType + "@1.0");
+            }
+        } else {
+            typesToTry = baseType.contains("@")
+                    ? new ArrayList<>(List.of(baseType))
+                    : new ArrayList<>(Arrays.asList(baseType, baseType + "@1.0"));
+        }
+
+        for (String type : typesToTry) {
+            try {
+                ListEntitiesRequest req = ListEntitiesRequest.builder()
+                        .catalog(CATALOG_CATALOG)
+                        .entityType(type)
+                        .filterList(Filter.builder()
+                                .name("EntityId")
+                                .valueList(entityId)
+                                .build())
+                        .build();
+                ListEntitiesResponse resp = catalogClient.listEntities(req);
+                if (resp.hasEntitySummaryList() && !resp.entitySummaryList().isEmpty()) {
+                    EntitySummary entitySummary = resp.entitySummaryList().get(0);
+                    String name = entitySummary.name();
+                    if (name != null && !name.isBlank()) {
+                        log.info("ListEntities {} (type={}) → name={}", entityId, type, name);
+                        return name;
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("ListEntities failed for entityId={} type={} [{}]: {}",
+                        entityId, type, e.getClass().getSimpleName(), e.getMessage());
+            }
+        }
+
+        log.warn("resolveListingTitle: no name found for entityId={}", entityId);
+        return null;
+    }
+
+    /**
+     * Extracts the product title from the JSON {@code details} string returned by
+     * {@code DescribeEntity}. Handles both SaaS and AMI/container product shapes.
+     */
+    private String extractProductTitle(String detailsJson) {
+        try {
+            com.fasterxml.jackson.databind.JsonNode root = CATALOG_OBJECT_MAPPER.readTree(detailsJson);
+            // SaaS product: {"Description":{"ProductTitle":"..."}}
+            com.fasterxml.jackson.databind.JsonNode desc = root.get("Description");
+            if (desc != null && desc.has("ProductTitle")) {
+                String t = desc.get("ProductTitle").asText(null);
+                if (t != null && !t.isBlank()) return t;
+            }
+            // AMI / container: {"Versions":[{"Details":{"Description":{"ProductTitle":"..."}}}]}
+            com.fasterxml.jackson.databind.JsonNode versions = root.get("Versions");
+            if (versions != null && versions.isArray() && !versions.isEmpty()) {
+                com.fasterxml.jackson.databind.JsonNode pt = versions.get(0).at("/Details/Description/ProductTitle");
+                if (!pt.isMissingNode()) {
+                    String t = pt.asText(null);
+                    if (t != null && !t.isBlank()) return t;
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Failed to parse entity details JSON: {}", e.getMessage());
+        }
+        return null;
     }
 
     private String firstNonBlank(String... values) {
@@ -565,6 +867,12 @@ public class MarketOpsService {
         if ("bedrock-input-token-usage".equals(productCode)) return "Bedrock Input Token Usage";
         if ("bedrock-output-token-usage".equals(productCode)) return "Bedrock Output Token Usage";
         if ("bedrock-token-usage".equals(productCode)) return "Bedrock Token Usage";
+
+        // UUID-format product IDs — ListEntities should resolve these to real names.
+        // This is the last-resort fallback if ListEntities fails (e.g. private product).
+        if (productCode.matches("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")) {
+            return "Marketplace Product (" + productCode.substring(0, 8) + "…)";
+        }
 
         return Arrays.stream(productCode.split("-"))
                 .filter(s -> !s.isBlank())

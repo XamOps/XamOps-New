@@ -3,13 +3,28 @@ package com.xammer.cloud.service;
 import com.xammer.cloud.domain.Client;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.VerifyAccountRequest;
+import com.xammer.cloud.repository.AsgSpotConfigRepository;
+import com.xammer.cloud.repository.AutoSpottingSettingsRepository;
 import com.xammer.cloud.repository.ClientRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.repository.DailySpotSavingsRepository;
+import com.xammer.cloud.repository.DbAgentConfigRepository;
+import com.xammer.cloud.repository.DiskPolicyRepository;
+import com.xammer.cloud.repository.EbsVolumeActionRepository;
+import com.xammer.cloud.repository.FinOpsReportScheduleRepository;
+import com.xammer.cloud.repository.KubernetesClusterConfigRepository;
+import com.xammer.cloud.repository.KubernetesClusterRepository;
+import com.xammer.cloud.repository.ResourceLabelAssignmentRepository;
+import com.xammer.cloud.repository.SpotOptimizationEventRepository;
+import com.xammer.cloud.repository.StatefulAsgConfigRepository;
+import com.xammer.cloud.repository.UserCloudAccountAccessRepository;
+import com.xammer.cloud.repository.VmssSpotConfigRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.sts.StsClient;
 
@@ -167,5 +182,40 @@ public class AwsAccountService {
 
     public void clearAllCaches() {
         cacheService.evictAllCaches();
+    }
+
+    @Autowired private ResourceLabelAssignmentRepository resourceLabelAssignmentRepository;
+    @Autowired private EbsVolumeActionRepository ebsVolumeActionRepository;
+    @Autowired private SpotOptimizationEventRepository spotOptimizationEventRepository;
+    @Autowired private DailySpotSavingsRepository dailySpotSavingsRepository;
+    @Autowired private AsgSpotConfigRepository asgSpotConfigRepository;
+    @Autowired private StatefulAsgConfigRepository statefulAsgConfigRepository;
+    @Autowired private VmssSpotConfigRepository vmssSpotConfigRepository;
+    @Autowired private DiskPolicyRepository diskPolicyRepository;
+    @Autowired private AutoSpottingSettingsRepository autoSpottingSettingsRepository;
+    @Autowired private FinOpsReportScheduleRepository finOpsReportScheduleRepository;
+    @Autowired private DbAgentConfigRepository dbAgentConfigRepository;
+    @Autowired private KubernetesClusterConfigRepository kubernetesClusterConfigRepository;
+    @Autowired private KubernetesClusterRepository kubernetesClusterRepository;
+    @Autowired private UserCloudAccountAccessRepository userCloudAccountAccessRepository;
+
+    @Transactional
+    public void deleteAccountById(Long accountId) {
+        resourceLabelAssignmentRepository.deleteByCloudAccountId(accountId);
+        ebsVolumeActionRepository.deleteByAccountId(accountId);
+        spotOptimizationEventRepository.deleteByAccountId(accountId);
+        dailySpotSavingsRepository.deleteByAccountId(accountId);
+        asgSpotConfigRepository.deleteByAccountId(accountId);
+        statefulAsgConfigRepository.deleteByAccount_Id(accountId);
+        vmssSpotConfigRepository.deleteByAccountId(accountId);
+        diskPolicyRepository.deleteByAccountId(accountId);
+        autoSpottingSettingsRepository.deleteByAccountId(accountId);
+        finOpsReportScheduleRepository.deleteByCloudAccountId(accountId);
+        dbAgentConfigRepository.deleteByCloudAccountId(accountId);
+        kubernetesClusterConfigRepository.deleteByCloudAccountId(accountId);
+        kubernetesClusterRepository.deleteByCloudAccount_Id(accountId);
+        userCloudAccountAccessRepository.deleteByCloudAccountId(accountId);
+        cloudAccountRepository.deleteById(accountId);
+        clearAllCaches();
     }
 }

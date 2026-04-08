@@ -199,9 +199,6 @@ const MetricPanel: React.FC<MetricPanelProps> = ({
 
   const dark = theme === 'dark';
   const cardCls = clsx('rounded-2xl border p-4 shadow-sm', dark ? 'bg-slate-800/80 border-slate-700' : 'bg-white border-gray-200');
-  const gridColor = dark ? '#334155' : '#e5e7eb';
-  const tickColor = dark ? '#64748b' : '#9ca3af';
-
   const chartHeight = 80;
 
   function renderChart() {
@@ -325,7 +322,7 @@ const PROMQL_TEMPLATES = [
   { label: 'Container CPU',    query: 'avg by (k8s_container_name) (container_cpu_utilization) * 100' },
 ];
 
-function PromQLEditor({ timeRange, refreshTick }: { timeRange: typeof TIME_RANGES[0]; refreshTick: number }) {
+function PromQLEditor({ timeRange, refreshTick: _refreshTick }: { timeRange: typeof TIME_RANGES[0]; refreshTick: number }) {
   const { theme } = useTheme();
   const { queryMetrics } = useObservabilityData();
   const [promql, setPromql] = useState('');

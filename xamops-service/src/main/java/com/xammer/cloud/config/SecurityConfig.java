@@ -157,6 +157,18 @@ public class SecurityConfig {
                                                                 // XamOps Agent API (authenticates via API key, not session)
                                                                 new AntPathRequestMatcher("/api/v1/agent/**"),
 
+                                                                // XamOps Metering API — public:
+                                                                //   /register → AWS Marketplace redirect (no session)
+                                                                //   /events   → ISV product server (API key auth in service layer)
+                                                                //   /sns      → AWS SNS webhook (no session, AWS calls directly)
+                                                                //   /health   → uptime check
+                                                                new AntPathRequestMatcher("/api/metering/register", "POST"),
+                                                                new AntPathRequestMatcher("/api/metering/events", "POST"),
+                                                                new AntPathRequestMatcher("/api/metering/events/batch", "POST"),
+                                                                new AntPathRequestMatcher("/api/metering/customers/**"),
+                                                                new AntPathRequestMatcher("/api/metering/sns", "POST"),
+                                                                new AntPathRequestMatcher("/api/metering/health"),
+
                                                                 // Public APIs
                                                                 // new AntPathRequestMatcher("/api/ai/**"),
                                                                 new AntPathRequestMatcher("/api/cicd/github/runs"),

@@ -1,5 +1,6 @@
 package com.xammer.billops.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xammer.billops.domain.CloudAccount;
 import com.xammer.billops.dto.AccountSummaryDto;
@@ -13,6 +14,7 @@ import com.xammer.billops.repository.ClientRepository;
 import com.xammer.billops.repository.CloudAccountRepository;
 import com.xammer.billops.repository.InvoiceRepository;
 import com.xammer.billops.repository.TicketRepository;
+import com.xammer.billops.util.SecurityUtils;
 import com.xammer.cloud.domain.CachedData;
 import com.xammer.cloud.domain.Invoice;
 import com.xammer.cloud.domain.Ticket;
@@ -140,11 +142,43 @@ public class AdminDashboardService {
             return dashboard;
         }
 
-        // Sub-user: build filtered dashboard without caching
-        logger.info("Building filtered admin dashboard summary for sub-user");
-        AdminDashboardDto dashboard = buildDashboard(filteredAccounts);
-        dashboard.setLastUpdated(System.currentTimeMillis());
-        return dashboard;
+        // Sub-user: 3-layer cache keyed by userId
+        try {
+            Long userId = SecurityUtils.getCurrentUserId();
+            String userCacheKey = CACHE_KEY + ":user:" + userId;
+            String userDbKey = DB_CACHE_KEY_PREFIX + "user::" + userId;
+
+            if (!forceRefresh) {
+                Optional<AdminDashboardDto> cached = redisCache.get(userCacheKey, AdminDashboardDto.class);
+                if (cached.isPresent()) {
+                    logger.info("Returning Redis-cached sub-user dashboard for user {}", userId);
+                    return cached.get();
+                }
+                Optional<CachedData> dbEntry = cachedDataRepository.findById(userDbKey);
+                if (dbEntry.isPresent()) {
+                    try {
+                        AdminDashboardDto dbData = objectMapper.readValue(dbEntry.get().getJsonData(), AdminDashboardDto.class);
+                        redisCache.put(userCacheKey, dbData, CACHE_TTL_MINUTES);
+                        logger.info("Returning DB-cached sub-user dashboard for user {}, re-warmed Redis", userId);
+                        return dbData;
+                    } catch (Exception e) {
+                        logger.warn("Failed to deserialize sub-user DB dashboard for user {}: {}", userId, e.getMessage());
+                    }
+                }
+            }
+
+            logger.info("Building filtered admin dashboard summary for sub-user {}", userId);
+            AdminDashboardDto dashboard = buildDashboard(filteredAccounts);
+            dashboard.setLastUpdated(System.currentTimeMillis());
+            redisCache.put(userCacheKey, dashboard, CACHE_TTL_MINUTES);
+            saveToDb(userDbKey, dashboard);
+            return dashboard;
+        } catch (Exception e) {
+            logger.warn("Sub-user cache key resolution failed, serving live: {}", e.getMessage());
+            AdminDashboardDto dashboard = buildDashboard(filteredAccounts);
+            dashboard.setLastUpdated(System.currentTimeMillis());
+            return dashboard;
+        }
     }
 
     private AdminDashboardDto buildDashboard(List<CloudAccount> allAccounts) {
@@ -285,26 +319,52 @@ public class AdminDashboardService {
     }
 
     private BigDecimal calculateAccountSpending(CloudAccount account, YearMonth month) {
-        try {
-            // Use BillingService to get accurate spend (matches Billing Page logic)
-            BillingDashboardDto billingData = billingService.getAccountBillingSummary(
-                    account,
-                    month.getYear(),
-                    month.getMonthValue());
+        String accountId = account.getAwsAccountId();
+        if (accountId == null) return BigDecimal.ZERO;
 
-            // Sum up costs from service breakdown
+        // 1. Try xamops AWS_MONTHLY_TOTAL snapshot — covers all closed months and current
+        //    month once the WED/SUN scheduler has run. Zero CE API cost.
+        String monthlyKey = "AWS_MONTHLY_TOTAL::" + accountId + "::" + month;
+        try {
+            Optional<CachedData> snap = cachedDataRepository.findById(monthlyKey);
+            if (snap.isPresent()) {
+                Double total = objectMapper.readValue(snap.get().getJsonData(), Double.class);
+                if (total != null) return BigDecimal.valueOf(total);
+            }
+        } catch (Exception e) {
+            logger.debug("AWS_MONTHLY_TOTAL read failed for {}/{}: {}", accountId, month, e.getMessage());
+        }
+
+        // 2. Try xamops AWS_COST_BREAKDOWN SERVICE snapshot for current/recent month.
+        //    Key includes the scheduler run date, so search by prefix.
+        String breakdownPrefix = "AWS_COST_BREAKDOWN::" + accountId + "::SERVICE::::" + month.atDay(1) + "::";
+        try {
+            Optional<CachedData> breakdown = cachedDataRepository.findFirstByCacheKeyStartingWith(breakdownPrefix);
+            if (breakdown.isPresent()) {
+                List<Map<String, Object>> costs = objectMapper.readValue(
+                        breakdown.get().getJsonData(), new TypeReference<List<Map<String, Object>>>() {});
+                double total = costs.stream()
+                        .mapToDouble(c -> ((Number) c.getOrDefault("amount", 0.0)).doubleValue())
+                        .sum();
+                return BigDecimal.valueOf(total);
+            }
+        } catch (Exception e) {
+            logger.debug("AWS_COST_BREAKDOWN prefix read failed for {}: {}", accountId, e.getMessage());
+        }
+
+        // 3. Fallback: BillingService — uses its own Redis/DB cache before hitting CE API
+        try {
+            BillingDashboardDto billingData = billingService.getAccountBillingSummary(
+                    account, month.getYear(), month.getMonthValue());
             if (billingData != null && billingData.getServiceBreakdown() != null) {
                 return billingData.getServiceBreakdown().stream()
-                        .map(s -> s.getCost())
-                        .map(BigDecimal::valueOf)
+                        .map(s -> BigDecimal.valueOf(s.getCost()))
                         .reduce(BigDecimal.ZERO, BigDecimal::add);
             }
-
-            return BigDecimal.ZERO;
         } catch (Exception e) {
             logger.warn("Error calculating spending for account {}: {}", account.getAccountName(), e.getMessage());
-            return BigDecimal.ZERO;
         }
+        return BigDecimal.ZERO;
     }
 
     private LocalDate getLastInvoiceDate(CloudAccount account) {

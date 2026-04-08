@@ -1,0 +1,145 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  XamOps ISV Metering Role: Creates a secure IAM Role that allows the XamOps Metering
+  Platform to submit usage records to AWS Marketplace on behalf of this ISV, resolve
+  customer registration tokens, and optionally check entitlements.
+
+  Deploy this template in the AWS account that OWNS the AWS Marketplace SaaS listing.
+  After deployment, copy the RoleArn output and paste it into your XamOps ISV product registration.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "XamOps Platform Configuration"
+        Parameters:
+          - XamOpsAccountId
+          - ExternalId
+      - Label:
+          default: "AWS Marketplace Product"
+        Parameters:
+          - ProductCode
+    ParameterLabels:
+      XamOpsAccountId:
+        default: "XamOps AWS Account ID"
+      ExternalId:
+        default: "Unique External ID (from XamOps)"
+      ProductCode:
+        default: "AWS Marketplace Product Code"
+
+Parameters:
+  XamOpsAccountId:
+    Type: String
+    Description: >
+      The 12-digit AWS Account ID for the XamOps platform. Provided by XamOps.
+      XamOps will assume this role from that account to submit your metering records.
+    AllowedPattern: '^\d{12}$'
+    ConstraintDescription: Must be a 12-digit AWS Account ID.
+
+  ExternalId:
+    Type: String
+    Description: >
+      A unique secret value provided by XamOps during ISV product registration.
+      Acts as a second factor to prevent confused-deputy attacks.
+      Copy this from the "External ID" field in your XamOps ISV product settings.
+    MinLength: 8
+    ConstraintDescription: Must be the unique external ID from XamOps (at least 8 characters).
+
+  ProductCode:
+    Type: String
+    Description: >
+      Your AWS Marketplace product code (e.g. prod-xxxxxxxxxxxx).
+      Used only for tagging — does not restrict the role permissions.
+    Default: ""
+
+Conditions:
+  HasProductCode: !Not [!Equals [!Ref ProductCode, ""]]
+
+Resources:
+
+  # ── IAM Role ────────────────────────────────────────────────────────────────
+  XamOpsMeteringRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "XamOpsMeteringRole-${AWS::StackName}"
+      Description: >
+        Allows XamOps Metering Platform to submit usage records to AWS Marketplace
+        (BatchMeterUsage, ResolveCustomer) on behalf of this ISV account.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowXamOpsToAssumeRole
+            Effect: Allow
+            Principal:
+              AWS: !Sub "arn:aws:iam::${XamOpsAccountId}:root"
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                sts:ExternalId: !Ref ExternalId
+      MaxSessionDuration: 3600   # 1 hour — metering sessions are short-lived
+      Tags:
+        - Key: ManagedBy
+          Value: XamOps
+        - Key: Purpose
+          Value: ISV-Metering
+        - !If
+          - HasProductCode
+          - Key: ProductCode
+            Value: !Ref ProductCode
+          - !Ref AWS::NoValue
+
+  # ── Inline Policy ────────────────────────────────────────────────────────────
+  XamOpsMeteringPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: XamOpsMeteringPolicy
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+
+          # Submit hourly usage records to AWS Marketplace
+          - Sid: BatchMeterUsage
+            Effect: Allow
+            Action:
+              - aws-marketplace:BatchMeterUsage
+            Resource: "*"
+
+          # Resolve buyer registration tokens (called when a new customer subscribes)
+          - Sid: ResolveCustomer
+            Effect: Allow
+            Action:
+              - aws-marketplace:ResolveCustomer
+            Resource: "*"
+
+          # Check buyer entitlements (optional — used for entitlement refresh)
+          - Sid: GetEntitlements
+            Effect: Allow
+            Action:
+              - aws-marketplace:GetEntitlements
+            Resource: "*"
+
+      Roles:
+        - !Ref XamOpsMeteringRole
+
+# ── Outputs ──────────────────────────────────────────────────────────────────
+Outputs:
+
+  RoleArn:
+    Description: >
+      Copy this ARN and paste it into the "IAM Role ARN" field when registering
+      your product in XamOps ISV Metering (MarketOps → ISV Metering → Register Product).
+    Value: !GetAtt XamOpsMeteringRole.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-RoleArn"
+
+  RoleName:
+    Description: The name of the created IAM role.
+    Value: !Ref XamOpsMeteringRole
+    Export:
+      Name: !Sub "${AWS::StackName}-RoleName"
+
+  ExternalIdReminder:
+    Description: >
+      Remember to also enter the same External ID in XamOps when registering your product.
+      Store this value securely — it is the second factor for role assumption.
+    Value: !Sub "ExternalId used: ${ExternalId}"
