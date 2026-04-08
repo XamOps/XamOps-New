@@ -13,6 +13,8 @@ import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
 
 import java.io.IOException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.UUID;
 
@@ -93,12 +95,11 @@ public class FileStorageService {
             // but more importantly, set disposition to 'inline' for viewing.
             String fileName = key.substring(key.lastIndexOf("/") + 1);
 
+            String encodedFileName = URLEncoder.encode(fileName, StandardCharsets.UTF_8).replace("+", "%20");
             GetObjectRequest getObjectRequest = GetObjectRequest.builder()
                     .bucket(bucketName)
                     .key(key)
-                    // FIX: Force "inline" disposition so browsers display images/PDFs instead of
-                    // downloading
-                    .responseContentDisposition("inline; filename=\"" + fileName + "\"")
+                    .responseContentDisposition("inline; filename*=UTF-8''" + encodedFileName)
                     .build();
 
             GetObjectPresignRequest presignRequest = GetObjectPresignRequest.builder()
