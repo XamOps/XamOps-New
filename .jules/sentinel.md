@@ -1,0 +1,4 @@
+## 2026-04-08 - [Insecure Agent API Whitelist]
+**Vulnerability:** A broad whitelist entry in `SecurityConfig.java` (`/api/v1/agent/**`) bypassed session-based authentication for all agent-related endpoints, including sensitive management functions.
+**Learning:** Management endpoints like `/api/v1/agent/install-info` (which leaks the global API key) and `/api/v1/agent/db/config` (which reveals database passwords) were publicly accessible to any unauthenticated user because they lacked internal API key checks and were covered by the broad whitelist.
+**Prevention:** Whitelists in security configurations should be as specific as possible. When an API namespace mixes data-plane (agent-to-server) and control-plane (user-to-server) operations, only the minimal set of endpoints required for the data-plane should be exempted from session authentication.
