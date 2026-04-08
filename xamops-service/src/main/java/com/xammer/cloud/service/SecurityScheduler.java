@@ -44,12 +44,28 @@ public class SecurityScheduler {
             try {
                 logger.info("Triggering background scan for account: {}", account.getAwsAccountId());
 
-                // Trigger Prowler asynchronously.
+                // Trigger Prowler asynchronously with compliance frameworks.
                 // The ProwlerService is responsible for updating the Cache/DB when it finishes.
+                String[] services = {
+                        "s3", "ec2", "iam", "rds", "cloudtrail", "cloudwatch",
+                        "kms", "lambda", "vpc", "config", "sns", "sqs",
+                        "efs", "elb", "elbv2", "secretsmanager", "guardduty"
+                };
+                String[] complianceFrameworks = {
+                        "cis_3.0_aws", "soc2_aws", "pci_3.2.1_aws",
+                        "hipaa_aws", "nist_csf_1.1_aws", "nist_800_53_revision_5_aws",
+                        "gdpr_aws", "iso27001_2013_aws", "mitre_attack_aws",
+                        "cisa_aws", "fedramp_moderate_revision_4_aws",
+                        "ffiec_aws", "rbi_cyber_security_framework_aws",
+                        "ens_rd2022_aws", "aws_well_architected_framework_security_pillar_aws",
+                        "aws_foundational_security_best_practices_aws",
+                        "gxp_21_cfr_part_11_aws"
+                };
                 prowlerService.triggerScanAsync(
                         account.getAwsAccountId(),
-                        "us-east-1", // Default region entry point
-                        "s3", "ec2", "iam", "rds" // Scan critical services
+                        "us-east-1",
+                        services,
+                        complianceFrameworks
                 );
 
             } catch (Exception e) {

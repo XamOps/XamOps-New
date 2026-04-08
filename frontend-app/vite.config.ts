@@ -186,6 +186,8 @@ export default defineConfig({
       '/api/karpenter': { target: authTarget, changeOrigin: true, secure: false },
       '/api/ai': { target: authTarget, changeOrigin: true, secure: false },
       '/api/marketops': { target: authTarget, changeOrigin: true, secure: false },
+      '/api/isv': { target: authTarget, changeOrigin: true, secure: false },
+      '/api/metering': { target: authTarget, changeOrigin: true, secure: false },
       '/api/workspace': { target: authTarget, changeOrigin: true, secure: false }, // Google Workspace integration
       '/api/dev_ops_script': { target: 'http://localhost:8080', changeOrigin: true, secure: false }, // DevOps In The Box scripts
       '/api/flexcompute': { target: 'http://localhost:8080', changeOrigin: true, secure: false }, // FlexCompute (CloudiDR)

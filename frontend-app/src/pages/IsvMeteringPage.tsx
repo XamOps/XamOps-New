@@ -106,7 +106,7 @@ const ApiKeyDisplay: React.FC<{
   productCode: string;
   apiKey: string;
   onRegenerate: () => void;
-}> = ({ productCode, apiKey, onRegenerate }) => {
+}> = ({ productCode: _productCode, apiKey, onRegenerate }) => {
   const [visible, setVisible] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -159,7 +159,7 @@ const ApiKeyDisplay: React.FC<{
 
 // ─── Integration Guide ────────────────────────────────────────────────────────
 
-const IntegrationGuide: React.FC<{ productCode: string; apiKey: string }> = ({ productCode, apiKey }) => {
+const IntegrationGuide: React.FC<{ productCode: string; apiKey: string }> = ({ productCode: _productCode, apiKey }) => {
   const [copied, setCopied] = useState(false);
   const snippet = `// Send a usage event from your product backend
 curl -X POST https://app.xamops.io/api/metering/events \\
@@ -602,7 +602,7 @@ const ProductDetailPanel: React.FC<{
 }> = ({ productCode, onRefreshList }) => {
   const [activeTab, setActiveTab] = useState<Tab>('overview');
   const { data: dashboard, loading, error, refetch } = useIsvDashboard(productCode);
-  const [regenerating, setRegenerating] = useState(false);
+  const [, setRegenerating] = useState(false);
   const [triggeringEngine, setTriggeringEngine] = useState(false);
 
   const handleRegenerate = useCallback(async () => {
@@ -775,13 +775,10 @@ const XAMOPS_ACCOUNT_ID = ''; // Set this to the XamOps AWS account ID in produc
 
 function buildCfnQuickCreateUrl(productCode: string, externalId: string): string {
   const base = 'https://console.aws.amazon.com/cloudformation/home#/stacks/create/review';
-  const params = new URLSearchParams({
-    templateURL: CFN_TEMPLATE_URL,
-    stackName:   'xamops-isv-metering-role',
-    ...(XAMOPS_ACCOUNT_ID && { param_XamOpsAccountId: XAMOPS_ACCOUNT_ID }),
-    ...(externalId         && { param_ExternalId: externalId }),
-    ...(productCode        && { param_ProductCode: productCode }),
-  });
+  const params = new URLSearchParams({ templateURL: CFN_TEMPLATE_URL, stackName: 'xamops-isv-metering-role' });
+  if (XAMOPS_ACCOUNT_ID) params.set('param_XamOpsAccountId', XAMOPS_ACCOUNT_ID);
+  if (externalId)        params.set('param_ExternalId', externalId);
+  if (productCode)       params.set('param_ProductCode', productCode);
   return `${base}?${params.toString()}`;
 }
 
