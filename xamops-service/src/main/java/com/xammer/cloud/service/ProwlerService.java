@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.ProwlerFinding;
+import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,6 +31,7 @@ public class ProwlerService {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final RedisCacheService redisCacheService;
     private final CloudAccountRepository cloudAccountRepository;
+    private final CachedDataRepository cachedDataRepository;
     private final AwsClientProvider awsClientProvider;
 
     @Value("${prowler.executable.path:}")
@@ -38,14 +40,33 @@ public class ProwlerService {
     @Autowired
     public ProwlerService(RedisCacheService redisCacheService,
             CloudAccountRepository cloudAccountRepository,
+            CachedDataRepository cachedDataRepository,
             AwsClientProvider awsClientProvider) {
         this.redisCacheService = redisCacheService;
         this.cloudAccountRepository = cloudAccountRepository;
+        this.cachedDataRepository = cachedDataRepository;
         this.awsClientProvider = awsClientProvider;
     }
 
+    /**
+     * Trigger async Prowler scan with compliance frameworks.
+     */
+    @Async("prowlerTaskExecutor")
+    public void triggerScanAsync(String accountId, String region, String[] serviceGroups,
+            String[] complianceFrameworks) {
+        runAsyncScan(accountId, region, serviceGroups, complianceFrameworks);
+    }
+
+    /**
+     * Backward-compatible trigger without compliance frameworks.
+     */
     @Async("prowlerTaskExecutor")
     public void triggerScanAsync(String accountId, String region, String... serviceGroups) {
+        runAsyncScan(accountId, region, serviceGroups, new String[0]);
+    }
+
+    private void runAsyncScan(String accountId, String region, String[] serviceGroups,
+            String[] complianceFrameworks) {
         String statusKey = "prowler_status_" + accountId;
         String findingsKey = "prowler_findings_" + accountId;
         String securityServiceCacheKey = "securityFindings-" + accountId;
@@ -71,14 +92,20 @@ public class ProwlerService {
             AwsCredentials credentials = awsClientProvider.getCredentialsProvider(account).resolveCredentials();
 
             // 3. Execute Scan (Pass credentials)
-            List<ProwlerFinding> findings = runInternalScan(region, credentials, serviceGroups);
+            List<ProwlerFinding> findings = runInternalScan(region, credentials, serviceGroups, complianceFrameworks);
 
             // 4. Save Results & Update Status
             redisCacheService.put(findingsKey, findings, 1440); // Cache findings for 24 hours
 
-            // Force refresh of combined security findings
+            // Force refresh of combined security findings (Redis + DB snapshots)
             redisCacheService.evict(securityServiceCacheKey);
-            logger.info("Evicted stale security cache: {}", securityServiceCacheKey);
+            // Also evict the DB snapshot used by SecurityController's fast-path cache
+            String dbSnapshotKey = "security-" + accountId;
+            cachedDataRepository.deleteById(dbSnapshotKey);
+            // Evict the LATEST archive so SecurityService re-merges with new Prowler data
+            String dbLatestKey = "SECURITY::" + accountId + "::LATEST";
+            cachedDataRepository.deleteById(dbLatestKey);
+            logger.info("Evicted stale security caches (Redis + DB): {}", accountId);
 
             status.put("status", "COMPLETED");
             status.put("endTime", LocalDateTime.now().toString());
@@ -119,10 +146,11 @@ public class ProwlerService {
         }
         CloudAccount account = accounts.get(0);
         AwsCredentials credentials = awsClientProvider.getCredentialsProvider(account).resolveCredentials();
-        return runInternalScan(region, credentials, serviceGroups);
+        return runInternalScan(region, credentials, serviceGroups, new String[0]);
     }
 
-    private List<ProwlerFinding> runInternalScan(String region, AwsCredentials credentials, String... serviceGroups) {
+    private List<ProwlerFinding> runInternalScan(String region, AwsCredentials credentials, String[] serviceGroups,
+            String[] complianceFrameworks) {
         String uniqueId = UUID.randomUUID().toString();
         String outputDir = System.getProperty("java.io.tmpdir");
         if (outputDir.endsWith(File.separator))
@@ -137,23 +165,33 @@ public class ProwlerService {
             executable = isWindows ? "prowler.exe" : "prowler";
         }
 
+        // Verify Prowler executable exists
+        File prowlerFile = new File(executable);
+        if (executable.contains(File.separator) && !prowlerFile.exists()) {
+            throw new RuntimeException(
+                    "Prowler executable not found at: " + executable
+                            + ". Install Prowler with: pip install prowler");
+        }
+
         List<String> command = new ArrayList<>();
         command.add(executable);
         command.add("aws");
 
-        // ✅ UPDATE: Removed "--region" flag to allow Prowler to scan ALL available
-        // regions.
-        // command.add("--region");
-        // command.add(region);
+        // Prowler v5: removed --quiet (not supported) and --region (scan all regions)
+        command.add("--no-banner");
 
-        command.add("--quiet");
-
-        if (serviceGroups.length > 0) {
+        // Prowler does NOT allow --compliance and --services together.
+        // If compliance frameworks are specified, use --compliance only.
+        // Otherwise, use --services for targeted service scans.
+        if (complianceFrameworks != null && complianceFrameworks.length > 0) {
+            command.add("--compliance");
+            Collections.addAll(command, complianceFrameworks);
+        } else if (serviceGroups.length > 0) {
             command.add("--services");
             Collections.addAll(command, serviceGroups);
         }
         command.add("--output-modes");
-        command.add("json");
+        command.add("json-ocsf");
         command.add("--output-filename");
         command.add(filenameBase);
         command.add("--output-directory");
@@ -177,14 +215,21 @@ public class ProwlerService {
         builder.environment().put("PYTHONIOENCODING", "utf-8");
         builder.redirectErrorStream(true);
 
+        logger.info("Executing Prowler command: {}", String.join(" ", command));
+
         try {
             Process process = builder.start();
 
+            // Capture output for better error diagnostics
+            StringBuilder processOutput = new StringBuilder();
             try (BufferedReader reader = new BufferedReader(
                     new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
                     logger.debug("[Prowler]: {}", line);
+                    if (processOutput.length() < 2000) {
+                        processOutput.append(line).append("\n");
+                    }
                 }
             }
 
@@ -195,8 +240,21 @@ public class ProwlerService {
                 throw new RuntimeException("Prowler scan timed out after 60 minutes");
             }
 
+            int exitCode = process.exitValue();
+            logger.info("Prowler process exited with code: {}", exitCode);
+
+            if (exitCode != 0 && exitCode != 3) {
+                // Exit code 3 means findings found (expected), other non-zero is error
+                String output = processOutput.length() > 500
+                        ? processOutput.substring(processOutput.length() - 500)
+                        : processOutput.toString();
+                throw new RuntimeException(
+                        "Prowler exited with code " + exitCode + ". Output: " + output);
+            }
+
             File dir = new File(outputDir);
-            File[] matchingFiles = dir.listFiles((d, name) -> name.startsWith(filenameBase) && name.endsWith(".json"));
+            // Prowler v5 OCSF output: {filename}.ocsf.json
+            File[] matchingFiles = dir.listFiles((d, name) -> name.startsWith(filenameBase) && name.contains(".json"));
 
             if (matchingFiles != null && matchingFiles.length > 0) {
                 File jsonFile = matchingFiles[0];
@@ -206,6 +264,7 @@ public class ProwlerService {
                     throw new RuntimeException("Prowler output file is empty. The process likely crashed.");
                 }
 
+                logger.info("Parsing Prowler output file: {} ({} bytes)", jsonFile.getName(), jsonFile.length());
                 List<ProwlerFinding> findings = objectMapper.readValue(jsonFile,
                         new TypeReference<List<ProwlerFinding>>() {
                         });
