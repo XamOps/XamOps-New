@@ -160,21 +160,6 @@ export const useFlexComputeData = () => {
     }
   }, []);
 
-  /**
-   * Compute the UTC offset for a given IANA timezone as a whole-number INTEGER of hours.
-   * Backend field is java.lang.Integer, valid range -18 to +18.
-   * Uses Intl so DST is handled automatically for the current moment.
-   * Fractional-hour timezones (e.g. IST +5:30, Nepal +5:45) are rounded to nearest integer.
-   */
-  const getUtcOffsetHours = (timezone: string): number => {
-    const now = new Date();
-    const utcStr = now.toLocaleString('sv-SE', { timeZone: 'UTC' });
-    const tzStr = now.toLocaleString('sv-SE', { timeZone: timezone });
-    const utcDate = new Date(utcStr.replace(' ', 'T') + 'Z');
-    const tzDate = new Date(tzStr.replace(' ', 'T') + 'Z');
-    const offsetMinutes = (tzDate.getTime() - utcDate.getTime()) / 60000;
-    return Math.round(offsetMinutes / 60);
-  };
 
   /**
    * Convert a wall-clock datetime string ("YYYY-MM-DDTHH:mm") entered in the given
@@ -294,7 +279,7 @@ export const useFlexComputeData = () => {
           zoneId: form.zoneId,
           startDate: startUtc.date,
           endDate: endUtc.date,
-          utcOffsetHours: getUtcOffsetHours(form.timeZone),
+          utcOffsetHours: 0,
           quantity: form.quantity,
           region: form.region,
           capacityName: form.capacityName,
@@ -362,7 +347,7 @@ export const useFlexComputeData = () => {
         endDate: endUtc.date,
         startTime: startUtc.time,
         endTime: endUtc.time,
-        utcOffsetHours: getUtcOffsetHours(form.timeZone),
+        utcOffsetHours: 0,
         quantity: form.quantity,
       };
 

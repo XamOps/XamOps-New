@@ -13,6 +13,8 @@ import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
 
 import java.io.IOException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.UUID;
 
@@ -96,10 +98,15 @@ public class FileStorageService {
             String fileName = key.substring(key.lastIndexOf("/") + 1);
             String safeFileName = sanitizeFileName(fileName);
 
+            String encodedFileName = URLEncoder.encode(fileName, StandardCharsets.UTF_8).replace("+", "%20");
             GetObjectRequest getObjectRequest = GetObjectRequest.builder()
                     .bucket(bucketName)
                     .key(key)
+<<<<<<< HEAD
                     .responseContentDisposition("inline; filename=\"" + safeFileName + "\"")
+=======
+                    .responseContentDisposition("inline; filename*=UTF-8''" + encodedFileName)
+>>>>>>> 12adb541adafe26bff8ccb1b8b7063eb22e3bb24
                     .build();
 
             GetObjectPresignRequest presignRequest = GetObjectPresignRequest.builder()
