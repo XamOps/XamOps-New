@@ -382,8 +382,11 @@ public class CloudGuardService {
                 forceRefresh);
         CompletableFuture<List<DashboardData.ServiceQuotaInfo>> networkQuotasFuture = getNetworkQuotaAlerts(accountId,
                 forceRefresh);
+        // Anomalies: always cache-first — FinOps scheduler already calls getCostAnomalies
+        // with forceRefresh=true at 2:00 AM. Re-fetching here at 3:00 AM wastes one
+        // GetAnomalies CE API call per account per run.
         CompletableFuture<List<DashboardData.CostAnomaly>> anomaliesFuture = finOpsService.getCostAnomalies(account,
-                forceRefresh);
+                false);
         CompletableFuture<List<AlertDto>> securityFuture = securityHubService.getSecurityAlerts(accountId,
                 forceRefresh);
 

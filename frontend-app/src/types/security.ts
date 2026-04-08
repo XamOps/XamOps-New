@@ -17,6 +17,10 @@ export interface SecurityFinding {
 export interface ProwlerStatus {
   status: 'RUNNING' | 'COMPLETED' | 'FAILED' | 'UNKNOWN';
   message?: string;
+  error?: string;
+  findingsCount?: number;
+  startTime?: string;
+  endTime?: string;
 }
 
 export interface SeverityCounts {

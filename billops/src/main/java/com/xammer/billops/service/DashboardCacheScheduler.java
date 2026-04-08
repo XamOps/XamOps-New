@@ -4,8 +4,6 @@ import com.xammer.billops.repository.AppUserRepository;
 import com.xammer.cloud.domain.AppUser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -29,29 +27,10 @@ public class DashboardCacheScheduler {
     }
 
     /**
-     * Warm up cache on application startup
-     * This ensures cached data is available immediately when users visit dashboards
+     * Refresh dashboard caches on Wednesday and Sunday nights so users
+     * see updated data on Monday and Thursday. Use the refresh button for live data.
      */
-    @EventListener(ApplicationReadyEvent.class)
-    public void warmCacheOnStartup() {
-        logger.info("Starting dashboard cache warming on application startup...");
-
-        // Run in separate thread to avoid blocking application startup
-        new Thread(() -> {
-            try {
-                refreshAllDashboardCaches();
-                logger.info("Dashboard cache warming completed successfully");
-            } catch (Exception e) {
-                logger.error("Error during startup cache warming", e);
-            }
-        }).start();
-    }
-
-    /**
-     * Scheduled task to refresh dashboard caches every night at 2 AM
-     * Ensures users see fresh data every morning
-     */
-    @Scheduled(cron = "0 0 2 * * ?") // Runs at 2:00 AM every day
+    @Scheduled(cron = "0 0 2 * * WED,SUN")
     public void refreshCachesNightly() {
         logger.info("Starting scheduled nightly dashboard cache refresh...");
         try {

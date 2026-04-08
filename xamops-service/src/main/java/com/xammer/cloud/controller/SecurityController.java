@@ -15,6 +15,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -132,7 +133,51 @@ public class SecurityController {
                 });
     }
 
-    // ✅ New Endpoint for Polling Status
+    // ✅ Trigger a full compliance scan with all frameworks
+    @PostMapping("/prowler/scan")
+    public ResponseEntity<Map<String, Object>> triggerComplianceScan(@RequestParam String accountId) {
+        logger.info("Manual compliance scan triggered for accountId: {}", accountId);
+
+        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
+        if (accounts.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "status", "ERROR",
+                    "message", "Account not found: " + accountId));
+        }
+
+        // Check if a scan is already running
+        Map<String, Object> currentStatus = prowlerService.getScanStatus(accountId);
+        if ("RUNNING".equals(currentStatus.get("status"))) {
+            return ResponseEntity.ok(Map.of(
+                    "status", "ALREADY_RUNNING",
+                    "message", "A scan is already in progress for this account."));
+        }
+
+        // Trigger full compliance scan with all services and frameworks
+        String[] services = {
+                "s3", "ec2", "iam", "rds", "cloudtrail", "cloudwatch",
+                "kms", "lambda", "vpc", "config", "sns", "sqs",
+                "efs", "elb", "elbv2", "secretsmanager", "guardduty"
+        };
+        String[] complianceFrameworks = {
+                "cis_3.0_aws", "soc2_aws", "pci_3.2.1_aws",
+                "hipaa_aws", "nist_csf_1.1_aws", "nist_800_53_revision_5_aws",
+                "gdpr_aws", "iso27001_2013_aws", "mitre_attack_aws",
+                "cisa_aws", "fedramp_moderate_revision_4_aws",
+                "ffiec_aws", "rbi_cyber_security_framework_aws",
+                "ens_rd2022_aws", "aws_well_architected_framework_security_pillar_aws",
+                "aws_foundational_security_best_practices_aws",
+                "gxp_21_cfr_part_11_aws"
+        };
+
+        prowlerService.triggerScanAsync(accountId, "us-east-1", services, complianceFrameworks);
+
+        return ResponseEntity.ok(Map.of(
+                "status", "STARTED",
+                "message", "Compliance scan triggered successfully. Poll /prowler/status for progress."));
+    }
+
+    // ✅ Endpoint for Polling Status
     @GetMapping("/prowler/status")
     public ResponseEntity<Map<String, Object>> getProwlerStatus(@RequestParam String accountId) {
         return ResponseEntity.ok(prowlerService.getScanStatus(accountId));

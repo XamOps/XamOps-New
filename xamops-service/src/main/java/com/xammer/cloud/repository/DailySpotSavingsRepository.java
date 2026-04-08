@@ -5,8 +5,10 @@ import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.xammer.cloud.domain.DailySpotSavings;
 
@@ -25,4 +27,8 @@ public interface DailySpotSavingsRepository extends JpaRepository<DailySpotSavin
 
     @Query("SELECT d.date, SUM(d.amountSaved), SUM(d.swapCount) FROM DailySpotSavings d WHERE d.date >= :startDate GROUP BY d.date ORDER BY d.date ASC")
     List<Object[]> getAggregatedHistory(LocalDate startDate);
+
+    @Modifying
+    @Transactional
+    void deleteByAccountId(Long accountId);
 }

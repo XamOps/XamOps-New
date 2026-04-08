@@ -1,15 +1,19 @@
 package com.xammer.billops.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xammer.billops.domain.CloudAccount;
 import com.xammer.billops.dto.AccountSummaryDto;
 import com.xammer.billops.dto.InvoiceDto;
 import com.xammer.billops.dto.TicketDto;
 import com.xammer.billops.dto.UserDashboardDto;
 import com.xammer.billops.dto.BillingDashboardDto;
+import com.xammer.billops.repository.BillOpsCachedDataRepository;
 import com.xammer.billops.repository.CloudAccountRepository;
 import com.xammer.billops.repository.InvoiceRepository;
 import com.xammer.billops.repository.TicketRepository;
 import com.xammer.cloud.domain.AppUser;
+import com.xammer.cloud.domain.CachedData;
 import com.xammer.cloud.domain.Invoice;
 import com.xammer.cloud.domain.Ticket;
 import org.slf4j.Logger;
@@ -39,8 +43,11 @@ public class UserDashboardService {
     private final InvoiceRepository invoiceRepository;
     private final TicketRepository ticketRepository;
     private final RedisCacheService redisCache;
+    private final BillOpsCachedDataRepository cachedDataRepository;
+    private final ObjectMapper objectMapper;
 
     private static final String CACHE_KEY_PREFIX = "billops:user:dashboard:";
+    private static final String DB_CACHE_KEY_PREFIX = "BILLOPS_USER_DASHBOARD::";
     private static final long CACHE_TTL_MINUTES = 1440; // 24 hours
 
     private final BillingService billingService;
@@ -49,12 +56,16 @@ public class UserDashboardService {
             InvoiceRepository invoiceRepository,
             TicketRepository ticketRepository,
             RedisCacheService redisCache,
-            BillingService billingService) {
+            BillingService billingService,
+            BillOpsCachedDataRepository cachedDataRepository,
+            ObjectMapper objectMapper) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.invoiceRepository = invoiceRepository;
         this.ticketRepository = ticketRepository;
         this.redisCache = redisCache;
         this.billingService = billingService;
+        this.cachedDataRepository = cachedDataRepository;
+        this.objectMapper = objectMapper;
     }
 
     public UserDashboardDto getUserDashboardSummary(AppUser user, boolean forceRefresh) {
@@ -64,12 +75,28 @@ public class UserDashboardService {
 
         String cacheKey = CACHE_KEY_PREFIX + tenantId + ":" + user.getId();
 
-        // Check cache first
+        String dbKey = DB_CACHE_KEY_PREFIX + user.getId();
+
+        // 1. Redis
         if (!forceRefresh) {
             Optional<UserDashboardDto> cached = redisCache.get(cacheKey, UserDashboardDto.class);
             if (cached.isPresent()) {
-                logger.info("Returning cached user dashboard data for user: {}", user.getUsername());
+                logger.info("Returning Redis-cached user dashboard for user: {}", user.getUsername());
                 return cached.get();
+            }
+            // 2. DB snapshot
+            try {
+                Optional<CachedData> dbEntry = cachedDataRepository.findById(dbKey);
+                if (dbEntry.isPresent()) {
+                    UserDashboardDto dbData = objectMapper.readValue(dbEntry.get().getJsonData(), UserDashboardDto.class);
+                    if (dbData != null) {
+                        redisCache.put(cacheKey, dbData, CACHE_TTL_MINUTES);
+                        logger.info("Returning DB-cached user dashboard for user {}, re-warmed Redis", user.getUsername());
+                        return dbData;
+                    }
+                }
+            } catch (Exception e) {
+                logger.warn("DB read failed for user dashboard {}: {}", user.getUsername(), e.getMessage());
             }
         }
 
@@ -184,34 +211,68 @@ public class UserDashboardService {
                 .collect(Collectors.toList());
         dashboard.setRecentTickets(recentTickets);
 
-        // Cache the result
+        // Cache in Redis + DB
         dashboard.setLastUpdated(System.currentTimeMillis());
         redisCache.put(cacheKey, dashboard, CACHE_TTL_MINUTES);
-        logger.info("User dashboard data cached for {} minutes", CACHE_TTL_MINUTES);
+        try {
+            CachedData entity = new CachedData();
+            entity.setCacheKey(dbKey);
+            entity.setJsonData(objectMapper.writeValueAsString(dashboard));
+            entity.setLastUpdated(java.time.LocalDateTime.now(java.time.ZoneId.of("Asia/Kolkata")));
+            cachedDataRepository.save(entity);
+        } catch (Exception e) {
+            logger.warn("DB save failed for user dashboard {}: {}", user.getUsername(), e.getMessage());
+        }
+        logger.info("User dashboard cached in Redis + DB for user: {}", user.getUsername());
 
         return dashboard;
     }
 
     private BigDecimal calculateAccountSpending(CloudAccount account, YearMonth month) {
-        try {
-            // Use BillingService to get accurate spend (matches Billing Page logic)
-            BillingDashboardDto billingData = billingService.getAccountBillingSummary(
-                    account,
-                    month.getYear(),
-                    month.getMonthValue());
+        String accountId = account.getAwsAccountId();
+        if (accountId == null) return BigDecimal.ZERO;
 
-            // Sum up costs from service breakdown
-            if (billingData.getServiceBreakdown() != null) {
+        // 1. Try xamops AWS_MONTHLY_TOTAL snapshot — zero CE API cost
+        String monthlyKey = "AWS_MONTHLY_TOTAL::" + accountId + "::" + month;
+        try {
+            Optional<CachedData> snap = cachedDataRepository.findById(monthlyKey);
+            if (snap.isPresent()) {
+                Double total = objectMapper.readValue(snap.get().getJsonData(), Double.class);
+                if (total != null) return BigDecimal.valueOf(total);
+            }
+        } catch (Exception e) {
+            logger.debug("AWS_MONTHLY_TOTAL read failed for {}/{}: {}", accountId, month, e.getMessage());
+        }
+
+        // 2. Try xamops AWS_COST_BREAKDOWN SERVICE snapshot (prefix search for current month)
+        String breakdownPrefix = "AWS_COST_BREAKDOWN::" + accountId + "::SERVICE::::" + month.atDay(1) + "::";
+        try {
+            Optional<CachedData> breakdown = cachedDataRepository.findFirstByCacheKeyStartingWith(breakdownPrefix);
+            if (breakdown.isPresent()) {
+                List<Map<String, Object>> costs = objectMapper.readValue(
+                        breakdown.get().getJsonData(), new TypeReference<List<Map<String, Object>>>() {});
+                double total = costs.stream()
+                        .mapToDouble(c -> ((Number) c.getOrDefault("amount", 0.0)).doubleValue())
+                        .sum();
+                return BigDecimal.valueOf(total);
+            }
+        } catch (Exception e) {
+            logger.debug("AWS_COST_BREAKDOWN prefix read failed for {}: {}", accountId, e.getMessage());
+        }
+
+        // 3. Fallback: BillingService (uses its own Redis/DB cache before CE API)
+        try {
+            BillingDashboardDto billingData = billingService.getAccountBillingSummary(
+                    account, month.getYear(), month.getMonthValue());
+            if (billingData != null && billingData.getServiceBreakdown() != null) {
                 return billingData.getServiceBreakdown().stream()
                         .map(s -> BigDecimal.valueOf(s.getCost()))
                         .reduce(BigDecimal.ZERO, BigDecimal::add);
             }
-
-            return BigDecimal.ZERO;
         } catch (Exception e) {
             logger.warn("Error calculating spending for account {}: {}", account.getAccountName(), e.getMessage());
-            return BigDecimal.ZERO;
         }
+        return BigDecimal.ZERO;
     }
 
     private BigDecimal calculateTotalSpending(List<CloudAccount> accounts) {

@@ -120,6 +120,15 @@ public class FinOpsService {
         return accounts.get(0); // Return the first one found
     }
 
+    /** Returns true if the date string falls within the current calendar month. */
+    private boolean isCurrentMonth(String dateStr) {
+        try {
+            return YearMonth.from(LocalDate.parse(dateStr)).equals(YearMonth.now());
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
     @Async("awsTaskExecutor")
     public CompletableFuture<FinOpsReportDto> getFinOpsReport(String accountId, boolean forceRefresh, String startDate,
             String endDate) {
@@ -869,11 +878,16 @@ public class FinOpsService {
     @Async("awsTaskExecutor")
     public CompletableFuture<List<DashboardData.BillingSummary>> getBillingSummary(CloudAccount account,
             boolean forceRefresh, String startDate, String endDate) {
+        // Stable cache key: normalise current-month end date to end-of-month so the
+        // key is the same every day of the month (matches the nightly scheduler key).
+        String normalizedEnd = (endDate != null && isCurrentMonth(endDate))
+                ? YearMonth.from(LocalDate.parse(endDate)).atEndOfMonth().toString()
+                : endDate;
         String cacheKey = "billingSummary-" + account.getAwsAccountId();
         String dbKey = "FINOPS_BILLING_SUMMARY::" + account.getAwsAccountId();
-        if (startDate != null && endDate != null) {
-            cacheKey += "-" + startDate + "-" + endDate;
-            dbKey += "::" + startDate + "::" + endDate;
+        if (startDate != null && normalizedEnd != null) {
+            cacheKey += "-" + startDate + "-" + normalizedEnd;
+            dbKey += "::" + startDate + "::" + normalizedEnd;
         }
 
         if (!forceRefresh) {
@@ -908,7 +922,10 @@ public class FinOpsService {
         // Delegate to CostService.getCostBreakdown("SERVICE") — shares the same CE call
         // and Redis/DB cache with the Cost Management page, avoiding a duplicate API charge.
         String effectiveStartDate = startDate != null ? startDate : LocalDate.now().withDayOfMonth(1).toString();
-        String effectiveEndDate = endDate != null ? endDate : LocalDate.now().toString();
+        // Use end-of-month so the downstream getCostBreakdown cache key is stable
+        // for the entire month (same key whether called WED, THU, FRI, or SUN).
+        String effectiveEndDate = normalizedEnd != null ? normalizedEnd
+                : YearMonth.now().atEndOfMonth().toString();
 
         logger.info("Fetching billing summary for account {} via getCostBreakdown ({} to {})...",
                 account.getAwsAccountId(), effectiveStartDate, effectiveEndDate);

@@ -380,15 +380,16 @@ export const useUnifiedDashboard = () => {
     }, 60000);
 
     intervalsRef.current.autoRefresh = setInterval(async () => {
-      console.log('Auto-refreshing dashboard data (silent force refresh)...');
+      console.log('Auto-refreshing dashboard data (silent cache refresh)...');
       const { fetchSummary, fetchProvider, fetchHealth, fetchTickets } = fetchFunctionsRef.current;
 
       // Await all fetches to ensure data is updated before timestamp changes
+      // force=false: serve from Redis/DB cache; only user-triggered refreshes use force=true
       const results = await Promise.allSettled([
-        fetchSummary(true, true),
-        fetchProvider('aws', true, true),
-        fetchProvider('gcp', true, true),
-        fetchProvider('azure', true, true),
+        fetchSummary(false, true),
+        fetchProvider('aws', false, true),
+        fetchProvider('gcp', false, true),
+        fetchProvider('azure', false, true),
         fetchHealth(),
         fetchTickets()
       ]);

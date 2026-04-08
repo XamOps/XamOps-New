@@ -104,7 +104,7 @@ public class SecurityService {
                     // Silent Refresh: If data is older than 24h, trigger a background scan
                     if (dbData.get().getLastUpdated().isBefore(LocalDateTime.now().minusHours(24))) {
                         logger.info("Data is stale (>24h). Triggering background refresh for {}", accountId);
-                        prowlerService.triggerScanAsync(accountId, configuredRegion, "s3", "ec2", "iam", "rds");
+                        triggerFullComplianceScan(accountId);
                     }
 
                     return CompletableFuture.completedFuture(findings);
@@ -118,9 +118,15 @@ public class SecurityService {
         // forceRefresh=true.
         logger.info("No valid cache found or refresh requested for {}. Initiating checks.", accountId);
 
-        // Fire and forget Prowler (Async) - DO NOT WAIT FOR THIS
+        // Fire and forget Prowler (Async) - only if not already completed/running
         if (forceRefresh || activeRegions != null) {
-            prowlerService.triggerScanAsync(account.getAwsAccountId(), configuredRegion, "s3", "ec2", "iam", "rds");
+            Map<String, Object> prowlerScanStatus = prowlerService.getScanStatus(account.getAwsAccountId());
+            String currentStatus = (String) prowlerScanStatus.get("status");
+            if (!"RUNNING".equals(currentStatus) && !"COMPLETED".equals(currentStatus)) {
+                triggerFullComplianceScan(account.getAwsAccountId());
+            } else {
+                logger.info("Skipping Prowler re-trigger: current status is {}", currentStatus);
+            }
         }
 
         // 3. Run Fast Manual AWS SDK Checks (These are usually < 10 seconds)
@@ -156,27 +162,76 @@ public class SecurityService {
                 });
     }
 
+    // --- Helper: Trigger Full Compliance Scan ---
+    private void triggerFullComplianceScan(String accountId) {
+        String[] services = {
+                "s3", "ec2", "iam", "rds", "cloudtrail", "cloudwatch",
+                "kms", "lambda", "vpc", "config", "sns", "sqs",
+                "efs", "elb", "elbv2", "secretsmanager", "guardduty"
+        };
+        String[] complianceFrameworks = {
+                "cis_3.0_aws", "soc2_aws", "pci_3.2.1_aws",
+                "hipaa_aws", "nist_csf_1.1_aws", "nist_800_53_revision_5_aws",
+                "gdpr_aws", "iso27001_2013_aws", "mitre_attack_aws",
+                "cisa_aws", "fedramp_moderate_revision_4_aws",
+                "ffiec_aws", "rbi_cyber_security_framework_aws",
+                "ens_rd2022_aws", "aws_well_architected_framework_security_pillar_aws",
+                "aws_foundational_security_best_practices_aws",
+                "gxp_21_cfr_part_11_aws"
+        };
+        prowlerService.triggerScanAsync(accountId, configuredRegion, services, complianceFrameworks);
+    }
+
     // --- Helper: Get Cached Prowler Findings ---
     private List<DashboardData.SecurityFinding> getCachedProwlerFindings(String accountId) {
         List<ProwlerFinding> rawFindings = prowlerService.getCachedFindings(accountId);
 
-        return rawFindings.stream()
-                .filter(f -> "FAIL".equalsIgnoreCase(f.getStatus()))
-                .map(pf -> {
-                    String severity = pf.getSeverity() != null
-                            ? pf.getSeverity().substring(0, 1).toUpperCase() + pf.getSeverity().substring(1)
-                            : "Medium";
+        List<DashboardData.SecurityFinding> results = new ArrayList<>();
 
-                    return new DashboardData.SecurityFinding(
+        for (ProwlerFinding pf : rawFindings) {
+            if (!"FAIL".equalsIgnoreCase(pf.getStatus())) {
+                continue;
+            }
+
+            String severity = pf.getSeverity() != null
+                    ? pf.getSeverity().substring(0, 1).toUpperCase() + pf.getSeverity().substring(1)
+                    : "Medium";
+            String service = pf.getServiceName() != null ? pf.getServiceName().toUpperCase() : "UNKNOWN";
+
+            // Extract compliance framework mappings from Prowler output
+            Map<String, List<String>> compliance = pf.getCompliance();
+            if (compliance != null && !compliance.isEmpty()) {
+                // Create one finding per compliance framework for proper framework-level grouping
+                for (Map.Entry<String, List<String>> entry : compliance.entrySet()) {
+                    String framework = entry.getKey();
+                    List<String> controls = entry.getValue();
+                    String controlId = (controls != null && !controls.isEmpty())
+                            ? String.join(", ", controls)
+                            : pf.getCheckId();
+
+                    results.add(new DashboardData.SecurityFinding(
                             pf.getResourceId(),
                             pf.getRegion(),
-                            pf.getServiceName() != null ? pf.getServiceName().toUpperCase() : "UNKNOWN",
+                            service,
                             severity,
                             pf.getDescription(),
-                            "Prowler (CIS/Best Practices)",
-                            pf.getCheckId());
-                })
-                .collect(Collectors.toList());
+                            framework,
+                            controlId));
+                }
+            } else {
+                // Fallback: no compliance data — use check ID as control
+                results.add(new DashboardData.SecurityFinding(
+                        pf.getResourceId(),
+                        pf.getRegion(),
+                        service,
+                        severity,
+                        pf.getDescription(),
+                        "Prowler Best Practices",
+                        pf.getCheckId()));
+            }
+        }
+
+        return results;
     }
 
     // --- Helper: Archive Findings to Database ---
