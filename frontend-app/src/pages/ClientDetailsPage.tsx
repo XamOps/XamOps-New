@@ -33,15 +33,13 @@ interface ClientDetails {
 }
 
 const CACHE_KEY = 'billops_clients_cache';
-const CACHE_TTL_MS = 60_000; // 1 minute
 const PAGE_SIZE = 10;
 
 function readCache(): ClientDetails[] | null {
     try {
         const raw = sessionStorage.getItem(CACHE_KEY);
         if (!raw) return null;
-        const { data, ts } = JSON.parse(raw);
-        if (Date.now() - ts > CACHE_TTL_MS) return null;
+        const { data } = JSON.parse(raw);
         return data as ClientDetails[];
     } catch {
         return null;

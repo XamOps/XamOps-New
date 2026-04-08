@@ -216,6 +216,28 @@ const BillOpsTicketDetailPage: React.FC = () => {
       }
     });
 
+    // Intercept pasted/dropped images via Quill's clipboard module so they
+    // become a proper file attachment instead of a base64 embed in the HTML.
+    const Delta = Quill.import('delta') as any;
+    const clipboard = quillInstance.current.getModule('clipboard') as any;
+    clipboard.addMatcher('IMG', (node: HTMLImageElement) => {
+      const src = node.getAttribute('src');
+      if (src && src.startsWith('data:')) {
+        fetch(src)
+          .then(res => res.blob())
+          .then(blob => {
+            const file = new File([blob], 'pasted-image.png', { type: blob.type });
+            if (file.size > 10 * 1024 * 1024) {
+              globalThis.alert('Pasted image is too large. Max size is 10MB.');
+              return;
+            }
+            setAttachment(file);
+            setFileName('pasted-image.png');
+          });
+      }
+      return new Delta(); // empty delta — block the image from entering the editor
+    });
+
     return () => {
       // Clean up toolbar DOM so re-mounting doesn't produce a double toolbar
       if (quillRef.current) {
@@ -535,11 +557,31 @@ const BillOpsTicketDetailPage: React.FC = () => {
     if (!quillInstance.current) return;
 
     const textContent = quillInstance.current.getText().trim();
-    if (!textContent && !attachment) return;
+    const rawHtml = quillInstance.current.root.innerHTML;
+    const hasEmbeddedImage = /<img[^>]+src="data:/i.test(rawHtml);
+    if (!textContent && !attachment && !hasEmbeddedImage) return;
 
     try {
-      const htmlMessage = textContent ? quillInstance.current.root.innerHTML : '';
-      await submitReply(htmlMessage, attachment, isInternalNote);
+      let htmlMessage = (textContent || hasEmbeddedImage) ? rawHtml : '';
+
+      // Extract any base64 image from the HTML and convert to a file attachment.
+      // This handles cases where Quill embeds a pasted image before our clipboard
+      // matcher can capture it, or when the async fetch hasn't completed yet.
+      let fileToSend = attachment;
+      const b64Match = htmlMessage.match(/<img[^>]+src="(data:image\/[^;]+;base64,[^"]+)"[^>]*>/i);
+      if (b64Match && !fileToSend) {
+        const dataUrl = b64Match[1];
+        const byteString = atob(dataUrl.split(',')[1]);
+        const mimeType = dataUrl.match(/data:([^;]+)/)?.[1] || 'image/png';
+        const ab = new ArrayBuffer(byteString.length);
+        const ia = new Uint8Array(ab);
+        for (let i = 0; i < byteString.length; i++) ia[i] = byteString.charCodeAt(i);
+        fileToSend = new File([ab], 'pasted-image.png', { type: mimeType });
+      }
+      // Always strip base64 images from the message HTML
+      htmlMessage = htmlMessage.replace(/<img[^>]+src="data:[^"]*"[^>]*>/gi, '');
+
+      await submitReply(htmlMessage, fileToSend, isInternalNote);
 
       quillInstance.current.root.innerHTML = '';
       setNewReplyHasContent(false);
