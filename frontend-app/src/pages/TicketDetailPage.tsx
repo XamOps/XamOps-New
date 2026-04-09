@@ -38,6 +38,9 @@ interface TicketReply {
   createdAt: string;
   attachmentUrl?: string;
   fileName?: string;
+  edited?: boolean;
+  editedAt?: string;
+  deleted?: boolean;
 }
 
 interface Ticket {
@@ -77,6 +80,10 @@ const TicketDetailPage: React.FC = () => {
 
   // Internal note toggle (admin only)
   const [isInternalNote, setIsInternalNote] = useState(false);
+
+  // Edit / Delete state
+  const [editingReplyId, setEditingReplyId] = useState<number | null>(null);
+  const [editContent, setEditContent] = useState('');
 
   // Assignment state
   const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
@@ -265,6 +272,45 @@ const TicketDetailPage: React.FC = () => {
       setIsSubmitting(false);
     }
   };
+
+  /**
+   * Edit a reply (within 15 min)
+   */
+  const editReply = useCallback(async (replyId: number, message: string) => {
+    try {
+      const res = await fetch(`/api/xamops/tickets/replies/${replyId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ message })
+      });
+      if (!res.ok) throw new Error('Edit failed');
+      await fetchTicket();
+    } catch (err) {
+      console.error('Error editing reply:', err);
+      throw err;
+    }
+  }, [fetchTicket]);
+
+  /**
+   * Delete a reply (soft-delete)
+   */
+  const deleteReply = useCallback(async (replyId: number) => {
+    try {
+      const res = await fetch(`/api/xamops/tickets/replies/${replyId}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      if (!res.ok) throw new Error('Delete failed');
+      // Optimistic update
+      setTicket(prev => prev ? {
+        ...prev,
+        replies: prev.replies.map(r => r.id === replyId ? { ...r, deleted: true } : r)
+      } : prev);
+    } catch (err) {
+      console.error('Error deleting reply:', err);
+    }
+  }, []);
 
   /**
    * Effects
@@ -567,9 +613,78 @@ const TicketDetailPage: React.FC = () => {
                           </span>
                         )}
                       </div>
-                      <div className={`p-4 rounded-[1.5rem] shadow-sm text-sm font-medium leading-relaxed ${isMe(reply) ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white text-slate-700 border border-slate-100 rounded-tl-none'}`}>
-                        <div dangerouslySetInnerHTML={{ __html: reply.message }} className="prose-chat" />
-                        {(reply.attachmentUrl || reply.fileName) && (
+                      <div className={`group/msg relative p-4 rounded-[1.5rem] shadow-sm text-sm font-medium leading-relaxed overflow-visible ${isMe(reply) ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white text-slate-700 border border-slate-100 rounded-tl-none'}`}>
+
+                        {/* ── Edit / Delete hover buttons ── */}
+                        {isMe(reply) && !reply.deleted && ticket.status !== 'CLOSED' && (
+                          <div className={`absolute top-2 ${isMe(reply) ? 'left-2' : 'right-2'} opacity-0 group-hover/msg:opacity-100 transition-opacity flex items-center gap-1 z-10`}>
+                            {(Date.now() - new Date(reply.createdAt).getTime()) < 15 * 60 * 1000 && (
+                              <button
+                                onClick={() => {
+                                  setEditingReplyId(reply.id);
+                                  const tmp = document.createElement('div');
+                                  tmp.innerHTML = reply.message;
+                                  setEditContent(tmp.textContent || tmp.innerText || '');
+                                }}
+                                className="p-1.5 rounded-lg bg-white/20 hover:bg-white/30 transition-colors"
+                                title="Edit (within 15 min)"
+                              >
+                                <i className="fas fa-pencil-alt text-[10px] text-white/70 hover:text-white"></i>
+                              </button>
+                            )}
+                            <button
+                              onClick={() => { if (globalThis.confirm('Delete this message?')) deleteReply(reply.id); }}
+                              className="p-1.5 rounded-lg bg-white/20 hover:bg-red-500/40 transition-colors"
+                              title="Delete message"
+                            >
+                              <i className="fas fa-trash text-[10px] text-white/70 hover:text-red-200"></i>
+                            </button>
+                          </div>
+                        )}
+
+                        {reply.deleted ? (
+                          <div className={`flex items-center gap-2 italic ${isMe(reply) ? 'text-white/50' : 'text-slate-400'}`}>
+                            <i className="fas fa-ban text-xs"></i>
+                            <span className="text-sm">This message was deleted</span>
+                          </div>
+                        ) : editingReplyId === reply.id ? (
+                          <div className="flex flex-col gap-2 min-w-[200px]">
+                            <textarea
+                              value={editContent}
+                              onChange={e => setEditContent(e.target.value)}
+                              className="w-full rounded-lg border border-indigo-300 p-2 text-sm text-gray-800 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                              rows={3}
+                              autoFocus
+                            />
+                            <div className="flex gap-2 justify-end">
+                              <button
+                                onClick={() => setEditingReplyId(null)}
+                                className="text-xs px-3 py-1 rounded-lg bg-white/20 hover:bg-white/30 text-white border border-white/30"
+                              >Cancel</button>
+                              <button
+                                onClick={async () => {
+                                  if (!editContent.trim()) return;
+                                  try {
+                                    const htmlMsg = editContent.split('\n').map(line => `<p>${line || '<br>'}</p>`).join('');
+                                    await editReply(reply.id, htmlMsg);
+                                    setEditingReplyId(null);
+                                  } catch { globalThis.alert('Failed to edit. The 15-minute window may have passed.'); }
+                                }}
+                                className="text-xs px-3 py-1 rounded-lg bg-white text-indigo-700 font-semibold hover:bg-indigo-50"
+                              >Save</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <div dangerouslySetInnerHTML={{ __html: reply.message }} className="prose-chat" />
+                            {reply.edited && (
+                              <span className={`text-[9px] font-bold italic mt-1 inline-block ${isMe(reply) ? 'text-white/40' : 'text-slate-400'}`}>Edited</span>
+                            )}
+                          </>
+                        )}
+
+                        {/* Attachments (only if not deleted) */}
+                        {!reply.deleted && (reply.attachmentUrl || reply.fileName) && (
                           <div
                             className={`mt-4 flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all ${isMe(reply) ? 'bg-white/10 border border-white/20 hover:bg-white/20' : 'bg-slate-50 border border-slate-100 hover:bg-slate-100'}`}
                             onClick={() => globalThis.open(reply.attachmentUrl as string, '_blank')}

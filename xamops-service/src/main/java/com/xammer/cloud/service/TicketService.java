@@ -322,6 +322,10 @@ public class TicketService {
             dto.setAttachmentUrl(presignedUrl);
         }
 
+        dto.setEdited(reply.isEdited());
+        dto.setEditedAt(reply.getEditedAt());
+        dto.setDeleted(reply.isDeleted());
+
         return dto;
     }
 

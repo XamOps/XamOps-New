@@ -54,13 +54,19 @@ const BillOpsTicketDetailPage: React.FC = () => {
     closeTicket,
     submitRCA,
     assignTicket,
-    sendEmailThread
+    sendEmailThread,
+    editReply,
+    deleteReply
   } = useBillOpsTicketDetail(ticketId);
 
   // Quill editor
   const quillRef = useRef<HTMLDivElement>(null);
   const quillInstance = useRef<Quill | null>(null);
   const [newReplyHasContent, setNewReplyHasContent] = useState(false);
+
+  // Edit / Delete state
+  const [editingReplyId, setEditingReplyId] = useState<number | null>(null);
+  const [editContent, setEditContent] = useState('');
 
   // Internal note toggle (kept for submit path only)
   const [isInternalNote, setIsInternalNote] = useState(false);
@@ -1014,11 +1020,79 @@ const BillOpsTicketDetailPage: React.FC = () => {
                           )}
                         </div>
 
-                        <div className={`p-4 rounded-[1.5rem] shadow-sm text-sm font-medium leading-relaxed overflow-hidden ${isMine ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white text-slate-700 border border-slate-100 rounded-tl-none'}`}>
-                          <div dangerouslySetInnerHTML={{ __html: reply.message }} className="prose-chat !p-0 break-words" />
+                        <div className={`group/msg relative p-4 rounded-[1.5rem] shadow-sm text-sm font-medium leading-relaxed overflow-visible ${isMine ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white text-slate-700 border border-slate-100 rounded-tl-none'}`}>
 
-                          {/* Attachments */}
-                          {(reply.attachmentUrl || reply.attachmentName) && (
+                          {/* ── Edit / Delete hover buttons ── */}
+                          {isMine && !reply.deleted && ticket.status !== 'CLOSED' && (
+                            <div className={`absolute top-2 ${isMine ? 'left-2' : 'right-2'} opacity-0 group-hover/msg:opacity-100 transition-opacity flex items-center gap-1 z-10`}>
+                              {/* Edit — only within 15 min */}
+                              {(Date.now() - new Date(reply.createdAt).getTime()) < 15 * 60 * 1000 && (
+                                <button
+                                  onClick={() => {
+                                    setEditingReplyId(reply.id);
+                                    const tmp = document.createElement('div');
+                                    tmp.innerHTML = reply.message;
+                                    setEditContent(tmp.textContent || tmp.innerText || '');
+                                  }}
+                                  className="p-1.5 rounded-lg bg-white/20 hover:bg-white/30 transition-colors"
+                                  title="Edit (within 15 min)"
+                                >
+                                  <i className="fas fa-pencil-alt text-[10px] text-white/70 hover:text-white"></i>
+                                </button>
+                              )}
+                              <button
+                                onClick={() => { if (globalThis.confirm('Delete this message?')) deleteReply(reply.id); }}
+                                className="p-1.5 rounded-lg bg-white/20 hover:bg-red-500/40 transition-colors"
+                                title="Delete message"
+                              >
+                                <i className="fas fa-trash text-[10px] text-white/70 hover:text-red-200"></i>
+                              </button>
+                            </div>
+                          )}
+
+                          {reply.deleted ? (
+                            <div className={`flex items-center gap-2 italic ${isMine ? 'text-white/50' : 'text-slate-400'}`}>
+                              <i className="fas fa-ban text-xs"></i>
+                              <span className="text-sm">This message was deleted</span>
+                            </div>
+                          ) : editingReplyId === reply.id ? (
+                            <div className="flex flex-col gap-2 min-w-[200px]">
+                              <textarea
+                                value={editContent}
+                                onChange={e => setEditContent(e.target.value)}
+                                className="w-full rounded-lg border border-indigo-300 p-2 text-sm text-gray-800 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                                rows={3}
+                                autoFocus
+                              />
+                              <div className="flex gap-2 justify-end">
+                                <button
+                                  onClick={() => setEditingReplyId(null)}
+                                  className="text-xs px-3 py-1 rounded-lg bg-white/20 hover:bg-white/30 text-white border border-white/30"
+                                >Cancel</button>
+                                <button
+                                  onClick={async () => {
+                                    if (!editContent.trim()) return;
+                                    try {
+                                      const htmlMsg = editContent.split('\n').map(line => `<p>${line || '<br>'}</p>`).join('');
+                                      await editReply(reply.id, htmlMsg);
+                                      setEditingReplyId(null);
+                                    } catch { globalThis.alert('Failed to edit. The 15-minute window may have passed.'); }
+                                  }}
+                                  className="text-xs px-3 py-1 rounded-lg bg-white text-indigo-700 font-semibold hover:bg-indigo-50"
+                                >Save</button>
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              <div dangerouslySetInnerHTML={{ __html: reply.message }} className="prose-chat !p-0 break-words" />
+                              {reply.edited && (
+                                <span className={`text-[9px] font-bold italic mt-1 inline-block ${isMine ? 'text-white/40' : 'text-slate-400'}`}>Edited</span>
+                              )}
+                            </>
+                          )}
+
+                          {/* Attachments (only if not deleted) */}
+                          {!reply.deleted && (reply.attachmentUrl || reply.attachmentName) && (
                             <div className="mt-4">
                               {reply.attachmentType?.startsWith('image/') && (
                                 <div
