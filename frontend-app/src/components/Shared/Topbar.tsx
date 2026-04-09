@@ -11,6 +11,7 @@ import LogoutModal from './LogoutModal';
 import NotificationDropdown from './NotificationDropdown';
 import BillOpsUserNotificationDropdown from '../BillOps/BillOpsUserNotificationDropdown';
 import { useTheme } from '../../contexts/ThemeContext';
+import { TooltipWrapper } from '../ui';
 
 const Topbar: React.FC = () => {
     const location = useLocation();
@@ -134,21 +135,24 @@ const Topbar: React.FC = () => {
                         {/* Notifications - Show for XamOps and BillOps users, but not BillOps Admin (they have their own on dashboard) */}
                         {!isBillOpsAdmin && (
                             <div className="relative" ref={notificationRef}>
-                                <button
-                                    onClick={toggleNotifications}
-                                    className={clsx(
-                                        'w-10 h-10 flex items-center justify-center rounded-xl transition-all relative',
-                                        theme === 'dark' ? 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-indigo-400' : 'bg-slate-100/50 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600'
-                                    )}
-                                >
-                                    <i className="fas fa-bell"></i>
-                                    {counts.total > 0 && (
-                                        <span className={clsx(
-                                            'absolute top-2 right-2 w-2 h-2 bg-rose-500 rounded-full border-2',
-                                            theme === 'dark' ? 'border-slate-800' : 'border-white'
-                                        )}></span>
-                                    )}
-                                </button>
+                                <TooltipWrapper tip={counts.total > 0 ? `You have ${counts.total} new notifications` : 'No new notifications'}>
+                                    <button
+                                        onClick={toggleNotifications}
+                                        aria-label="Toggle notifications"
+                                        className={clsx(
+                                            'w-10 h-10 flex items-center justify-center rounded-xl transition-all relative focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1',
+                                            theme === 'dark' ? 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-indigo-400 focus-visible:ring-indigo-500' : 'bg-slate-100/50 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 focus-visible:ring-indigo-600'
+                                        )}
+                                    >
+                                        <i className="fas fa-bell"></i>
+                                        {counts.total > 0 && (
+                                            <span className={clsx(
+                                                'absolute top-2 right-2 w-2 h-2 bg-rose-500 rounded-full border-2',
+                                                theme === 'dark' ? 'border-slate-800' : 'border-white'
+                                            )}></span>
+                                        )}
+                                    </button>
+                                </TooltipWrapper>
 
                                 {isNotificationOpen && (
                                     <>
@@ -173,16 +177,18 @@ const Topbar: React.FC = () => {
                         )}
 
                         {onHelpClick && (
-                            <button
-                                onClick={onHelpClick}
-                                className={clsx(
-                                    'w-10 h-10 flex items-center justify-center rounded-xl transition-all',
-                                    theme === 'dark' ? 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-indigo-400' : 'bg-slate-100/50 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600'
-                                )}
-                                aria-label="Open help guide"
-                            >
-                                <i className="fas fa-question-circle"></i>
-                            </button>
+                            <TooltipWrapper tip="Open help guide">
+                                <button
+                                    onClick={onHelpClick}
+                                    className={clsx(
+                                        'w-10 h-10 flex items-center justify-center rounded-xl transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1',
+                                        theme === 'dark' ? 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-indigo-400 focus-visible:ring-indigo-500' : 'bg-slate-100/50 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 focus-visible:ring-indigo-600'
+                                    )}
+                                    aria-label="Open help guide"
+                                >
+                                    <i className="fas fa-question-circle"></i>
+                                </button>
+                            </TooltipWrapper>
                         )}
                     </div>
 
@@ -196,8 +202,9 @@ const Topbar: React.FC = () => {
                         <button
                             onClick={toggleProfile}
                             className={clsx(
-                                'flex items-center gap-3 pl-2 p-1.5 rounded-2xl transition-all duration-200',
-                                isProfileOpen ? (theme === 'dark' ? 'bg-slate-800' : 'bg-indigo-50') : (theme === 'dark' ? 'hover:bg-slate-800/50' : 'hover:bg-slate-50')
+                                'flex items-center gap-3 pl-2 p-1.5 rounded-2xl transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1',
+                                isProfileOpen ? (theme === 'dark' ? 'bg-slate-800' : 'bg-indigo-50') : (theme === 'dark' ? 'hover:bg-slate-800/50' : 'hover:bg-slate-50'),
+                                theme === 'dark' ? 'focus-visible:ring-indigo-500' : 'focus-visible:ring-indigo-600'
                             )}
                         >
                             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-lg shadow-indigo-500/20">
