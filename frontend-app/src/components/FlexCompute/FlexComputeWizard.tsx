@@ -139,44 +139,7 @@ const FlexComputeWizard: React.FC<FlexComputeWizardProps> = ({
   };
 
   const handleConfigure = async () => {
-    // Configure is optional - only send if user provided actual AWS resource IDs
-    // Skip if values are "default" or "none" (CloudiDR auto-populates these)
-    console.log('=== handleConfigure called ===');
-    console.log('configureForm:', JSON.stringify(configureForm, null, 2));
-
-    const isRealValue = (value: string) => {
-      if (!value || value.trim() === '') return false;
-      const normalizedValue = value.trim().toLowerCase();
-      return normalizedValue !== 'default' && normalizedValue !== 'none';
-    };
-
-    const hasConfig = isRealValue(configureForm.vpcId) ||
-      isRealValue(configureForm.securityGroupId) ||
-      isRealValue(configureForm.sshKeyName) ||
-      isRealValue(configureForm.amiImageId) ||
-      (configureForm.ebsVolumeSize && configureForm.ebsVolumeSize !== 10); // Default is 10GB
-
-    console.log('hasConfig evaluation:', {
-      vpcId: configureForm.vpcId,
-      isRealVpc: isRealValue(configureForm.vpcId),
-      securityGroupId: configureForm.securityGroupId,
-      isRealSg: isRealValue(configureForm.securityGroupId),
-      sshKeyName: configureForm.sshKeyName,
-      isRealSsh: isRealValue(configureForm.sshKeyName),
-      amiImageId: configureForm.amiImageId,
-      isRealAmi: isRealValue(configureForm.amiImageId),
-      ebsVolumeSize: configureForm.ebsVolumeSize,
-      isNonDefaultEbs: (configureForm.ebsVolumeSize && configureForm.ebsVolumeSize !== 10),
-      hasConfig: hasConfig
-    });
-
-    if (hasConfig) {
-      console.log('✅ Calling configureCapacity API...');
-      await configureCapacity(configureForm);
-    } else {
-      console.log('⏭️  Skipping Configure API - using CloudiDR defaults');
-    }
-
+    // Just advance to review — configure is applied after purchase
     setStep('review');
   };
 
@@ -191,6 +154,7 @@ const FlexComputeWizard: React.FC<FlexComputeWizardProps> = ({
     setPurchaseError(null);
     const errMsg = await purchaseCapacity(pricing.capacityId);
     if (errMsg === null) {
+      await configureCapacity({ ...configureForm, capacityId: pricing.capacityId });
       if (searchForm.autoRenewal) {
         await renewCapacity(pricing.capacityId, true, searchForm.renewalFrequency);
       }

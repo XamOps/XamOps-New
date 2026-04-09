@@ -383,14 +383,18 @@ export const useFlexComputeData = () => {
     try {
       setError(null);
 
-      const requestBody = {
-        cidrId: form.capacityId,
-        vpc: form.vpcId,
-        securityGroups: form.securityGroupId,
-        sshPairKey: form.sshKeyName,
-        ebsVolumeSize: form.ebsVolumeSize,
-        amiImage: form.amiImageId,
+      const isCustom = (value: string) => {
+        if (!value || value.trim() === '') return false;
+        const v = value.trim().toLowerCase();
+        return v !== 'default' && v !== 'none';
       };
+
+      const requestBody: Record<string, unknown> = { cidrId: form.capacityId };
+      if (isCustom(form.vpcId))         requestBody.vpc = form.vpcId.trim();
+      if (isCustom(form.securityGroupId)) requestBody.securityGroups = form.securityGroupId.trim();
+      if (isCustom(form.sshKeyName))    requestBody.sshPairKey = form.sshKeyName.trim();
+      if (isCustom(form.amiImageId))    requestBody.amiImage = form.amiImageId.trim();
+      if (form.ebsVolumeSize && form.ebsVolumeSize !== 10) requestBody.ebsVolumeSize = form.ebsVolumeSize;
 
       console.log('[FlexCompute] Configure capacity request:', requestBody);
 

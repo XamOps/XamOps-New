@@ -1,7 +1,9 @@
 package com.xammer.cloud.controller;
 
+import com.xammer.cloud.domain.CapacityOwnership;
 import com.xammer.cloud.domain.User;
 import com.xammer.cloud.dto.flexcompute.*;
+import com.xammer.cloud.repository.CapacityOwnershipRepository;
 import com.xammer.cloud.repository.UserRepository;
 import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.service.CapacityMonitoringService;
@@ -33,6 +35,7 @@ public class FlexComputeController {
     private final EmailService emailService;
     private final CapacityNotificationEmailBuilder emailBuilder;
     private final UserRepository userRepository;
+    private final CapacityOwnershipRepository capacityOwnershipRepository;
 
     @Value("${cloudidr.cloudformation.template-url:}")
     private String cloudFormationTemplateUrl;
@@ -47,12 +50,14 @@ public class FlexComputeController {
                                  CapacityMonitoringService capacityMonitoringService,
                                  EmailService emailService,
                                  CapacityNotificationEmailBuilder emailBuilder,
-                                 UserRepository userRepository) {
+                                 UserRepository userRepository,
+                                 CapacityOwnershipRepository capacityOwnershipRepository) {
         this.flexComputeService = flexComputeService;
         this.capacityMonitoringService = capacityMonitoringService;
         this.emailService = emailService;
         this.emailBuilder = emailBuilder;
         this.userRepository = userRepository;
+        this.capacityOwnershipRepository = capacityOwnershipRepository;
     }
 
     /**
@@ -220,6 +225,9 @@ public class FlexComputeController {
         try {
             Long userId = userDetails.getId();
             SearchCapacityResponse response = flexComputeService.purchaseCapacity(userId, request);
+
+            // Record who purchased this capacity so deployment emails only go to the buyer
+            capacityOwnershipRepository.save(new CapacityOwnership(request.getCidrId(), userId));
 
             // Send purchase confirmation email asynchronously so the purchase response
             // is not blocked, and CloudiDR has time to propagate the new capacity to its list.
