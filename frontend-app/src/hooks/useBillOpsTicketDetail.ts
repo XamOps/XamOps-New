@@ -39,6 +39,8 @@ interface UseBillOpsTicketDetailReturn {
   submitRCA: (rcaData: RCAFormData) => Promise<void>;
   assignTicket: (adminId: number, adminUsername: string) => Promise<void>;
   sendEmailThread: (recipientEmails: string[], sendMode?: 'separate' | 'combined') => Promise<void>;
+  editReply: (replyId: number, message: string) => Promise<void>;
+  deleteReply: (replyId: number) => Promise<void>;
 }
 
 export const useBillOpsTicketDetail = (
@@ -292,6 +294,68 @@ export const useBillOpsTicketDetail = (
   );
 
   /**
+   * Edit a ticket reply (within 15 min of sending)
+   */
+  const editReply = useCallback(
+    async (replyId: number, message: string) => {
+      if (!ticketId) return;
+
+      try {
+        const response = await fetch(`/api/billops/tickets/replies/${replyId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ message })
+        });
+
+        if (!response.ok) throw new Error('Failed to edit reply');
+        await fetchTicketDetails();
+      } catch (err) {
+        console.error('Error editing reply:', err);
+        throw err;
+      }
+    },
+    [ticketId, fetchTicketDetails]
+  );
+
+  /**
+   * Delete a ticket reply (soft delete)
+   */
+  const deleteReply = useCallback(
+    async (replyId: number) => {
+      if (!ticketId) return;
+
+      // Optimistic update
+      setTicket(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          replies: prev.replies.map(r =>
+            r.id === replyId ? { ...r, deleted: true } : r
+          )
+        };
+      });
+
+      try {
+        const response = await fetch(`/api/billops/tickets/replies/${replyId}`, {
+          method: 'DELETE',
+          credentials: 'include'
+        });
+
+        if (!response.ok) {
+          await fetchTicketDetails(); // revert on failure
+          throw new Error('Failed to delete reply');
+        }
+        await fetchTicketDetails();
+      } catch (err) {
+        console.error('Error deleting reply:', err);
+        throw err;
+      }
+    },
+    [ticketId, fetchTicketDetails]
+  );
+
+  /**
    * Initialize: Fetch user and ticket on mount
    */
   useEffect(() => {
@@ -423,6 +487,8 @@ export const useBillOpsTicketDetail = (
     closeTicket,
     submitRCA,
     assignTicket,
-    sendEmailThread
+    sendEmailThread,
+    editReply,
+    deleteReply
   };
 };

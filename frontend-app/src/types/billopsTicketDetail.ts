@@ -19,6 +19,9 @@ export interface TicketReply {
   attachmentName?: string;
   attachmentType?: string;
   createdAt: string;
+  edited?: boolean;
+  editedAt?: string;
+  deleted?: boolean;
 }
 
 export interface Ticket {

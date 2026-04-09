@@ -38,6 +38,15 @@ public class TicketReply {
     private String attachmentType; // MIME type
     // ----------------------------------
 
+    @Column(name = "is_edited", columnDefinition = "boolean not null default false")
+    private boolean edited = false;
+
+    @Column(name = "edited_at")
+    private LocalDateTime editedAt;
+
+    @Column(name = "is_deleted", columnDefinition = "boolean not null default false")
+    private boolean deleted = false;
+
     // Getters and Setters
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -66,4 +75,13 @@ public class TicketReply {
 
     public String getAttachmentType() { return attachmentType; }
     public void setAttachmentType(String attachmentType) { this.attachmentType = attachmentType; }
+
+    public boolean isEdited() { return edited; }
+    public void setEdited(boolean edited) { this.edited = edited; }
+
+    public LocalDateTime getEditedAt() { return editedAt; }
+    public void setEditedAt(LocalDateTime editedAt) { this.editedAt = editedAt; }
+
+    public boolean isDeleted() { return deleted; }
+    public void setDeleted(boolean deleted) { this.deleted = deleted; }
 }

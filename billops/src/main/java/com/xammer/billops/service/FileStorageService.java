@@ -85,7 +85,10 @@ public class FileStorageService {
         }
     }
 
-    /** Strip non-ISO-8859-1 characters (e.g. macOS narrow no-break space U+202F) from filenames. */
+    /**
+     * Strip non-ISO-8859-1 characters (e.g. macOS narrow no-break space U+202F)
+     * from filenames.
+     */
     private String sanitizeFileName(String fileName) {
         return fileName.replaceAll("[^\\x00-\\xFF]", "_");
     }
@@ -102,11 +105,7 @@ public class FileStorageService {
             GetObjectRequest getObjectRequest = GetObjectRequest.builder()
                     .bucket(bucketName)
                     .key(key)
-<<<<<<< HEAD
                     .responseContentDisposition("inline; filename=\"" + safeFileName + "\"")
-=======
-                    .responseContentDisposition("inline; filename*=UTF-8''" + encodedFileName)
->>>>>>> 12adb541adafe26bff8ccb1b8b7063eb22e3bb24
                     .build();
 
             GetObjectPresignRequest presignRequest = GetObjectPresignRequest.builder()

@@ -218,7 +218,7 @@ public class SecurityConfig {
                                 "https://uat.xamops.com",
                                 "https://*.ngrok-free.dev",
                                 "https://*.ngrok.io"));
-                configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+                configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
                 configuration.setAllowedHeaders(Arrays.asList("*"));
                 configuration.setAllowCredentials(true);
 

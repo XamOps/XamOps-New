@@ -96,7 +96,11 @@ RUN echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.
     apt-get install -y google-cloud-cli && \
     rm -rf /var/lib/apt/lists/*
 
-# 5. Configuration (Port & Entrypoint)
+# 5. Install Prowler (Cloud Security Scanner for ComplianceOps)
+RUN pip3 install --no-cache-dir prowler
+ENV PROWLER_PATH=/usr/local/bin/prowler
+
+# 6. Configuration (Port & Entrypoint)
 ARG EXPOSE_PORT=8080
 EXPOSE ${EXPOSE_PORT}
 
