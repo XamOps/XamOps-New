@@ -1,233 +1,596 @@
-/**
- * AIOps Page
- *
- * Converted from: aiops.html
- *
- * This page displays the AIOps "Coming Soon" feature preview with:
- * - Modern gradient design
- * - Feature preview cards for Anomaly Detection and Auto-Remediation
- * - Animated elements and professional UI
- * - Account context integration
- *
- * Changes from original:
- * - Converted from Alpine.js to React functional component
- * - Added TypeScript for type safety
- * - Integrated with React Sidebar
- * - Enhanced UI with better animations and hover effects
- * - Added additional feature cards for a more comprehensive preview
- */
-
-import React from 'react';
-import { useAccounts } from '../contexts/AccountContext';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useTopbar } from '../contexts/TopbarContext';
+import { useAIOpsData } from '../hooks/useAIOpsData';
+import { useUsageAnalyticsData } from '../hooks/useUsageAnalyticsData';
+import { useBudgetData } from '../hooks/useBudgetData';
+import { AriaTabGroup } from '../components/ui/Tabs';
+import AIOpsKPISection from '../components/AIOps/AIOpsKPISection';
+import AIOpsCharts from '../components/AIOps/AIOpsCharts';
+import AIOpsModelTable from '../components/AIOps/AIOpsModelTable';
+import RequestLogsTable from '../components/AIOps/RequestLogsTable';
+import AgentBreakdownSection from '../components/AIOps/AgentBreakdownSection';
+import ModelComparisonSection from '../components/AIOps/ModelComparisonSection';
+import TokenHeatmap from '../components/AIOps/TokenHeatmap';
+import LLMProviderSetupModal from '../components/AIOps/LLMProviderSetupModal';
+import BudgetOverview from '../components/AIOps/BudgetOverview';
+import BudgetConfigModal from '../components/AIOps/BudgetConfigModal';
+import type { LlmProviderConfig, CostAnomaly, BudgetConfig } from '../types/aiops';
+import { PROVIDER_COLORS } from '../types/aiops';
+import '../styles/aiops.css';
 
-interface FeatureCard {
-  icon: string;
-  iconBg: string;
-  iconColor: string;
-  borderColor: string;
-  title: string;
-  description: string;
-}
+const PERIODS = [
+  { key: 'today', label: 'Today' },
+  { key: '7d', label: '7 Days' },
+  { key: '30d', label: '30 Days' },
+  { key: '90d', label: '90 Days' },
+] as const;
 
-const AIOpsPage: React.FC = () => {
-  const { selectedAccountIds } = useAccounts();
+const TOP_TABS = [
+  { id: 'dashboard', label: 'LLM Dashboard', icon: 'fas fa-chart-line' },
+  { id: 'usage-analytics', label: 'Usage Analytics', icon: 'fas fa-microscope' },
+  { id: 'budget-controls', label: 'Budget & Controls', icon: 'fas fa-wallet' },
+];
 
-  const features: FeatureCard[] = [
-    {
-      icon: 'fas fa-magic',
-      iconBg: 'bg-indigo-100',
-      iconColor: 'text-indigo-600',
-      borderColor: 'border-indigo-500',
-      title: 'Anomaly Detection',
-      description: 'AI-driven detection of unusual patterns in metrics, logs, and traces in real-time.',
-    },
-    {
-      icon: 'fas fa-robot',
-      iconBg: 'bg-purple-100',
-      iconColor: 'text-purple-600',
-      borderColor: 'border-purple-500',
-      title: 'Auto-Remediation',
-      description: 'Self-healing automation scripts for common operational incidents.',
-    },
-    {
-      icon: 'fas fa-chart-line',
-      iconBg: 'bg-blue-100',
-      iconColor: 'text-blue-600',
-      borderColor: 'border-blue-500',
-      title: 'Predictive Analytics',
-      description: 'Forecast resource needs and potential issues before they impact your systems.',
-    },
-    {
-      icon: 'fas fa-bell',
-      iconBg: 'bg-amber-100',
-      iconColor: 'text-amber-600',
-      borderColor: 'border-amber-500',
-      title: 'Intelligent Alerting',
-      description: 'Smart alert correlation and noise reduction to surface only critical issues.',
-    },
-    {
-      icon: 'fas fa-network-wired',
-      iconBg: 'bg-teal-100',
-      iconColor: 'text-teal-600',
-      borderColor: 'border-teal-500',
-      title: 'Root Cause Analysis',
-      description: 'Automated dependency mapping and root cause identification across services.',
-    },
-    {
-      icon: 'fas fa-brain',
-      iconBg: 'bg-pink-100',
-      iconColor: 'text-pink-600',
-      borderColor: 'border-pink-500',
-      title: 'ML-Powered Insights',
-      description: 'Continuous learning from your infrastructure to improve detection accuracy.',
-    },
-  ];
+const USAGE_SUB_TABS = [
+  { id: 'request-logs', label: 'Request Logs', icon: 'fas fa-list-alt' },
+  { id: 'agents', label: 'Agents', icon: 'fas fa-robot' },
+  { id: 'models', label: 'Models', icon: 'fas fa-balance-scale' },
+  { id: 'heatmap', label: 'Token Heatmap', icon: 'fas fa-th' },
+];
 
-  const upcomingCapabilities = [
-    { label: 'Log Pattern Recognition', icon: 'fas fa-file-alt' },
-    { label: 'Metric Forecasting', icon: 'fas fa-chart-area' },
-    { label: 'Event Correlation', icon: 'fas fa-project-diagram' },
-    { label: 'Runbook Automation', icon: 'fas fa-book-open' },
-    { label: 'ChatOps Integration', icon: 'fas fa-comments' },
-    { label: 'Custom ML Models', icon: 'fas fa-cogs' },
-  ];
-
-  // Topbar Integration
-  const { setActions, clearActions } = useTopbar();
-
-  React.useEffect(() => {
-    setActions(
-      <div className="flex items-center gap-4">
-        {selectedAccountIds.length > 0 && (
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-lg text-xs font-medium border border-indigo-100">
-            <i className="fas fa-cloud"></i>
-            <span>{selectedAccountIds.length} account{selectedAccountIds.length > 1 ? 's' : ''} selected</span>
-          </div>
-        )}
-      </div>
-    );
-    return () => clearActions();
-  }, [setActions, clearActions, selectedAccountIds]);
+// ─── Anomaly Alerts Component ────────────────────────────────
+function AnomalyAlerts({ anomalies }: { anomalies: CostAnomaly[] }) {
+  if (anomalies.length === 0) return null;
 
   return (
-    <main className="aiops-page flex-1 flex flex-col min-h-screen bg-gray-50">
-
-      {/* Main Content */}
-      <div className="flex-1 p-8">
-        <div className="max-w-7xl mx-auto">
-          {/* Hero Section */}
-          <div className="aiops-hero relative overflow-hidden bg-white rounded-2xl shadow-xl mb-8">
-            {/* Background Pattern */}
-            <div className="absolute inset-0 opacity-5">
-              <div
-                className="absolute inset-0"
-                style={{
-                  backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(99, 102, 241, 0.1) 10px, rgba(99, 102, 241, 0.1) 20px)'
-                }}
-              />
-            </div>
-
-            {/* Gradient Orbs */}
-            <div className="absolute -top-24 -right-24 w-64 h-64 bg-gradient-to-br from-indigo-400/20 to-purple-400/20 rounded-full blur-3xl"></div>
-            <div className="absolute -bottom-24 -left-24 w-64 h-64 bg-gradient-to-tr from-purple-400/20 to-pink-400/20 rounded-full blur-3xl"></div>
-
-            <div className="relative z-10 text-center py-16 px-8">
-              {/* Animated Icon */}
-              <div className="mb-8 flex justify-center">
-                <div className="relative">
-                  <div className="aiops-float-animation w-28 h-28 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center shadow-2xl">
-                    <i className="fas fa-brain text-white text-5xl"></i>
-                  </div>
-                  {/* Pulse rings */}
-                  <div className="absolute inset-0 w-28 h-28 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full animate-ping opacity-20"></div>
-                </div>
-              </div>
-
-              {/* Title */}
-              <h2 className="text-5xl font-bold text-gray-800 mb-4">
-                <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
-                  Coming Soon
-                </span>
-              </h2>
-              <p className="text-2xl text-gray-800 mb-3 font-semibold">AIOps - Intelligent Operations</p>
-              <p className="text-gray-600 mb-10 max-w-3xl mx-auto text-lg leading-relaxed">
-                Leverage Artificial Intelligence to automate IT operations. Predict issues, correlate
-                events, and auto-remediate incidents across your cloud infrastructure with machine
-                learning-powered insights.
-              </p>
-
-              {/* Launch Badge */}
-              <div className="inline-flex items-center px-8 py-4 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-full shadow-xl transform hover:scale-105 transition-all duration-300 cursor-default">
-                <i className="fas fa-rocket mr-3 text-lg"></i>
-                <span className="font-bold text-lg">Target Launch: Q1 2026</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Features Grid */}
-          <div className="mb-8">
-            <h3 className="text-xl font-bold text-gray-800 mb-6 flex items-center gap-3">
-              <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center">
-                <i className="fas fa-star text-white text-sm"></i>
-              </div>
-              Planned Features
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {features.map((feature, index) => (
-                <div
-                  key={index}
-                  className={`aiops-feature-card bg-white p-6 rounded-xl shadow-md border-l-4 ${feature.borderColor} hover:shadow-lg transition-all duration-300`}
-                >
-                  <div className="flex items-start space-x-4">
-                    <div className={`flex-shrink-0 w-14 h-14 ${feature.iconBg} rounded-xl flex items-center justify-center`}>
-                      <i className={`${feature.icon} ${feature.iconColor} text-2xl`}></i>
-                    </div>
-                    <div className="flex-1">
-                      <h4 className="font-bold text-gray-900 text-lg mb-2">{feature.title}</h4>
-                      <p className="text-sm text-gray-600 leading-relaxed">{feature.description}</p>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Upcoming Capabilities */}
-          <div className="bg-white rounded-2xl shadow-lg p-8">
-            <h3 className="text-xl font-bold text-gray-800 mb-6 flex items-center gap-3">
-              <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-pink-600 rounded-lg flex items-center justify-center">
-                <i className="fas fa-lightbulb text-white text-sm"></i>
-              </div>
-              Upcoming Capabilities
-            </h3>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-              {upcomingCapabilities.map((capability, index) => (
-                <div
-                  key={index}
-                  className="aiops-capability-card flex flex-col items-center p-4 bg-gray-50 rounded-xl hover:bg-gradient-to-br hover:from-indigo-50 hover:to-purple-50 transition-all duration-300 cursor-default"
-                >
-                  <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-md mb-3">
-                    <i className={`${capability.icon} text-indigo-600 text-lg`}></i>
-                  </div>
-                  <span className="text-sm font-medium text-gray-700 text-center">{capability.label}</span>
-                </div>
-              ))}
-            </div>
-
-            {/* Footer Note */}
-            <div className="mt-8 pt-6 border-t border-gray-100">
-              <div className="flex items-center justify-center gap-3 text-gray-500">
-                <i className="fas fa-info-circle text-indigo-500"></i>
-                <p className="text-sm">
-                  AIOps will integrate seamlessly with your existing cloud accounts and monitoring tools.
-                  Stay tuned for early access announcements.
+    <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+      <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
+        <div className="w-8 h-8 bg-gradient-to-br from-red-500 to-rose-600 rounded-lg flex items-center justify-center">
+          <i className="fas fa-exclamation-triangle text-white text-xs" />
+        </div>
+        <h3 className="text-sm font-bold text-gray-800">Cost Anomalies</h3>
+        <span className="text-xs text-red-500 bg-red-50 px-2 py-0.5 rounded-full font-semibold">
+          {anomalies.length} detected
+        </span>
+      </div>
+      <div className="divide-y divide-gray-100">
+        {anomalies.map((a, idx) => (
+          <div key={idx} className="px-6 py-3 flex items-center justify-between hover:bg-red-50/30 transition-colors">
+            <div className="flex items-center gap-4">
+              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold ${
+                a.severity === 'CRITICAL'
+                  ? 'bg-red-100 text-red-700'
+                  : 'bg-amber-100 text-amber-700'
+              }`}>
+                {a.severity}
+              </span>
+              <div>
+                <p className="text-sm font-medium text-gray-900">
+                  {a.provider} cost spike on {a.date}
+                </p>
+                <p className="text-xs text-gray-500">
+                  Actual: ${a.actualCost.toFixed(4)} | Expected: ${a.expectedCost.toFixed(4)} | +{a.deviationPct.toFixed(0)}% deviation
                 </p>
               </div>
             </div>
           </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Skeleton loader ─────────────────────────────────────────
+function Skeleton({ className = '' }: { className?: string }) {
+  return <div className={`animate-pulse bg-gray-200/60 rounded-2xl ${className}`} />;
+}
+
+// ─── Provider Badge ──────────────────────────────────────────
+function ProviderBadge({ config, onCopy }: { config: LlmProviderConfig; onCopy: (text: string) => void }) {
+  return (
+    <div className="aiops-provider-badge flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs shadow-sm">
+      <span
+        className="w-2 h-2 rounded-full"
+        style={{ backgroundColor: PROVIDER_COLORS[config.provider] || '#94a3b8' }}
+      />
+      <span className="font-medium text-gray-700">{config.displayName || config.provider}</span>
+      {config.trackingToken && (
+        <button
+          onClick={() => onCopy(config.trackingToken!)}
+          className="text-gray-400 hover:text-indigo-600 transition-colors"
+          title="Copy tracking key"
+        >
+          <i className="fas fa-key" />
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ─── Usage Analytics Filters ─────────────────────────────────
+function UsageAnalyticsFilters({
+  filterOptions,
+  filters,
+  onFiltersChange,
+}: {
+  filterOptions: { providers: string[]; models: string[]; agents: string[] } | null;
+  filters: { provider: string; model: string; agent: string };
+  onFiltersChange: (filters: { provider: string; model: string; agent: string }) => void;
+}) {
+  if (!filterOptions) return null;
+
+  return (
+    <div className="flex items-center gap-3 flex-wrap">
+      <span className="text-xs text-gray-500 font-medium">
+        <i className="fas fa-filter mr-1" />Filters:
+      </span>
+      <select
+        value={filters.provider}
+        onChange={e => onFiltersChange({ ...filters, provider: e.target.value })}
+        className="text-xs border border-gray-200 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+      >
+        <option value="">All Providers</option>
+        {filterOptions.providers.map(p => (
+          <option key={p} value={p}>{p}</option>
+        ))}
+      </select>
+      <select
+        value={filters.model}
+        onChange={e => onFiltersChange({ ...filters, model: e.target.value })}
+        className="text-xs border border-gray-200 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+      >
+        <option value="">All Models</option>
+        {filterOptions.models.map(m => (
+          <option key={m} value={m}>{m}</option>
+        ))}
+      </select>
+      <select
+        value={filters.agent}
+        onChange={e => onFiltersChange({ ...filters, agent: e.target.value })}
+        className="text-xs border border-gray-200 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+      >
+        <option value="">All Agents</option>
+        {filterOptions.agents.map(a => (
+          <option key={a} value={a}>{a}</option>
+        ))}
+      </select>
+      {(filters.provider || filters.model || filters.agent) && (
+        <button
+          onClick={() => onFiltersChange({ provider: '', model: '', agent: '' })}
+          className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
+        >
+          Clear all
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ─── Main Page ───────────────────────────────────────────────
+const AIOpsPage: React.FC = () => {
+  const [period, setPeriod] = useState('30d');
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeSubTab, setActiveSubTab] = useState('request-logs');
+  const [isProviderModalOpen, setIsProviderModalOpen] = useState(false);
+  const [copiedUrl, setCopiedUrl] = useState(false);
+
+  const {
+    kpis, costTrend, providerBreakdown, modelUsageTable,
+    anomalies, providers, sectionLoading, isLoading, error,
+    loadDashboard, addProvider, deleteProvider,
+  } = useAIOpsData({ period });
+
+  const analytics = useUsageAnalyticsData(period);
+  const budget = useBudgetData();
+  const [isBudgetModalOpen, setIsBudgetModalOpen] = useState(false);
+  const [editingBudget, setEditingBudget] = useState<BudgetConfig | null>(null);
+
+  // Load filter options when switching to Usage Analytics
+  useEffect(() => {
+    if (activeTab === 'usage-analytics') {
+      analytics.loadFilterOptions();
+    }
+  }, [activeTab]);
+
+  // Load budget summary when switching to Budget & Controls
+  useEffect(() => {
+    if (activeTab === 'budget-controls') {
+      budget.loadSummary();
+    }
+  }, [activeTab]);
+
+  // Load sub-tab data when switching sub-tabs or filters change
+  useEffect(() => {
+    if (activeTab !== 'usage-analytics') return;
+
+    switch (activeSubTab) {
+      case 'request-logs':
+        analytics.loadRequestLogs();
+        break;
+      case 'agents':
+        analytics.loadAgentBreakdown();
+        break;
+      case 'models':
+        analytics.loadModelComparison();
+        break;
+      case 'heatmap':
+        analytics.loadTokenHeatmap();
+        break;
+    }
+  }, [activeTab, activeSubTab, period, analytics.filters, analytics.logsPage, analytics.logsSize]);
+
+  // Topbar integration
+  const { setActions, clearActions } = useTopbar();
+  React.useEffect(() => {
+    setActions(
+      <div className="flex items-center gap-3">
+        {providers.length > 0 && (
+          <button
+            onClick={() => loadDashboard()}
+            disabled={isLoading}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+          >
+            <i className={`fas fa-sync-alt ${isLoading ? 'fa-spin' : ''}`} />
+            Refresh
+          </button>
+        )}
+      </div>
+    );
+    return () => clearActions();
+  }, [setActions, clearActions, providers.length, isLoading, loadDashboard]);
+
+  const handleCopyUrl = useCallback((url: string) => {
+    navigator.clipboard.writeText(url);
+    setCopiedUrl(true);
+    setTimeout(() => setCopiedUrl(false), 2000);
+  }, []);
+
+  const hasProviders = providers.length > 0;
+
+  return (
+    <main className="aiops-page flex-1 flex flex-col min-h-screen bg-gray-50">
+      {/* Header */}
+      <div className="sticky top-0 z-10 px-6 py-4 border-b border-gray-200 bg-white/80 backdrop-blur-md">
+        <div className="max-w-7xl mx-auto flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center shadow-sm">
+                <i className="fas fa-brain text-white text-sm" />
+              </div>
+              <div>
+                <h1 className="text-lg font-bold text-gray-900">AI Ops</h1>
+                <p className="text-xs text-gray-500">Monitor your AI API usage & costs</p>
+              </div>
+            </div>
+
+            {hasProviders && (
+              <div className="flex items-center bg-gray-100 rounded-lg p-0.5 ml-4">
+                {PERIODS.map(p => (
+                  <button
+                    key={p.key}
+                    onClick={() => setPeriod(p.key)}
+                    className={`aiops-period-btn px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
+                      period === p.key ? 'active' : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center gap-3">
+            {providers.map(p => (
+              <ProviderBadge key={p.id} config={p} onCopy={handleCopyUrl} />
+            ))}
+            <button
+              onClick={() => setIsProviderModalOpen(true)}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-indigo-500 to-purple-600 rounded-lg hover:from-indigo-600 hover:to-purple-700 transition-all shadow-sm hover:shadow-md"
+            >
+              <i className="fas fa-plus" />
+              Add Provider
+            </button>
+          </div>
         </div>
       </div>
+
+      {/* Top-Level Tabs */}
+      {hasProviders && (
+        <div className="px-6 bg-white border-b border-gray-200">
+          <div className="max-w-7xl mx-auto">
+            <AriaTabGroup
+              tabs={TOP_TABS}
+              selectedKey={activeTab}
+              onSelectionChange={setActiveTab}
+              variant="underline"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Copied toast */}
+      {copiedUrl && (
+        <div className="fixed top-20 right-6 z-50 flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg shadow-xl text-sm font-medium">
+          <i className="fas fa-check-circle" />
+          Copied to clipboard!
+        </div>
+      )}
+
+      {/* Main Content */}
+      <div className="flex-1 p-6">
+        <div className="max-w-7xl mx-auto space-y-6">
+          {/* Error State */}
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3">
+              <i className="fas fa-exclamation-circle text-red-500" />
+              <p className="text-sm text-red-700">{error}</p>
+              <button
+                onClick={() => loadDashboard()}
+                className="ml-auto text-sm text-red-600 hover:text-red-800 font-medium"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
+          {/* Empty State */}
+          {!hasProviders && !isLoading && !error && (
+            <div className="relative overflow-hidden bg-white rounded-2xl shadow-xl">
+              <div className="absolute inset-0 opacity-5">
+                <div className="absolute inset-0" style={{
+                  backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(99, 102, 241, 0.1) 10px, rgba(99, 102, 241, 0.1) 20px)'
+                }} />
+              </div>
+              <div className="absolute -top-24 -right-24 w-64 h-64 bg-gradient-to-br from-indigo-400/20 to-purple-400/20 rounded-full blur-3xl" />
+              <div className="absolute -bottom-24 -left-24 w-64 h-64 bg-gradient-to-tr from-purple-400/20 to-pink-400/20 rounded-full blur-3xl" />
+
+              <div className="relative z-10 text-center py-20 px-8">
+                <div className="mb-8 flex justify-center">
+                  <div className="w-24 h-24 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center shadow-2xl">
+                    <i className="fas fa-plug text-white text-4xl" />
+                  </div>
+                </div>
+                <h2 className="text-3xl font-bold text-gray-800 mb-3">
+                  Connect Your First LLM Provider
+                </h2>
+                <p className="text-gray-600 mb-8 max-w-2xl mx-auto text-lg leading-relaxed">
+                  Connect your OpenAI, Anthropic, Google Gemini, or AWS Bedrock provider to start
+                  tracking costs, tokens, and latency across all your AI applications.
+                  No API keys stored — just run a curl command.
+                </p>
+
+                <button
+                  onClick={() => setIsProviderModalOpen(true)}
+                  className="inline-flex items-center px-8 py-4 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl shadow-xl hover:shadow-2xl transform hover:scale-105 transition-all duration-300 text-lg font-semibold"
+                >
+                  <i className="fas fa-plus-circle mr-3 text-xl" />
+                  Add LLM Provider
+                </button>
+
+                <div className="mt-12 grid grid-cols-1 md:grid-cols-3 gap-6 max-w-3xl mx-auto">
+                  {[
+                    { icon: 'fas fa-key', title: '1. Get XamOps Key', desc: 'Select provider & get tracking key' },
+                    { icon: 'fas fa-terminal', title: '2. Run Curl Command', desc: 'Use our proxy + your API key' },
+                    { icon: 'fas fa-chart-bar', title: '3. See Insights', desc: 'Dashboard refreshes with usage' },
+                  ].map(step => (
+                    <div key={step.title} className="flex flex-col items-center p-4">
+                      <div className="w-12 h-12 bg-indigo-100 rounded-full flex items-center justify-center mb-3">
+                        <i className={`${step.icon} text-indigo-600`} />
+                      </div>
+                      <p className="font-semibold text-gray-900 text-sm">{step.title}</p>
+                      <p className="text-xs text-gray-500 mt-1">{step.desc}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ═══════════════════════════════════════════════════════
+              Tab 1: LLM Dashboard
+              ═══════════════════════════════════════════════════════ */}
+          {activeTab === 'dashboard' && (hasProviders || isLoading) && (
+            <>
+              {/* KPIs */}
+              {sectionLoading.kpis ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <Skeleton key={i} className="h-32" />
+                  ))}
+                </div>
+              ) : kpis && (
+                <AIOpsKPISection kpis={kpis} />
+              )}
+
+              {/* Charts */}
+              {sectionLoading.charts ? (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <Skeleton className="h-72" />
+                  <Skeleton className="h-72" />
+                </div>
+              ) : costTrend && (
+                <AIOpsCharts costTrend={costTrend} providerBreakdown={providerBreakdown} />
+              )}
+
+              {/* Model Usage Table */}
+              {sectionLoading.table ? (
+                <Skeleton className="h-64" />
+              ) : modelUsageTable.length > 0 && (
+                <AIOpsModelTable modelUsage={modelUsageTable} />
+              )}
+
+              {/* Anomaly Alerts */}
+              {!sectionLoading.anomalies && (
+                <AnomalyAlerts anomalies={anomalies} />
+              )}
+
+              {/* Proxy Endpoints Card */}
+              {hasProviders && !sectionLoading.kpis && (
+                <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-6 shadow-sm">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-emerald-600 rounded-lg flex items-center justify-center">
+                      <i className="fas fa-link text-white text-xs" />
+                    </div>
+                    <h3 className="text-sm font-bold text-gray-800">Your Providers</h3>
+                    <span className="text-xs text-gray-400">Use X-XamOps-Key header + Authorization: Bearer YOUR_KEY</span>
+                  </div>
+                  <div className="space-y-3">
+                    {providers.map(p => (
+                      <div key={p.id} className="p-3 bg-gray-50 rounded-lg border border-gray-100">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <span
+                              className="w-3 h-3 rounded-full"
+                              style={{ backgroundColor: PROVIDER_COLORS[p.provider] || '#94a3b8' }}
+                            />
+                            <span className="text-sm font-medium text-gray-700">{p.displayName || p.provider}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => handleCopyUrl(p.trackingToken!)}
+                              className="text-indigo-500 hover:text-indigo-700 transition-colors text-xs font-medium"
+                              title="Copy tracking key"
+                            >
+                              <i className="fas fa-key mr-1" />Copy Key
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (window.confirm(`Delete ${p.displayName || p.provider} provider?`)) {
+                                  deleteProvider(p.id!);
+                                }
+                              }}
+                              className="text-red-400 hover:text-red-600 transition-colors text-sm ml-1"
+                              title="Delete"
+                            >
+                              <i className="fas fa-trash" />
+                            </button>
+                          </div>
+                        </div>
+                        <div className="mt-2 flex items-center gap-2">
+                          <span className="text-xs text-gray-400">Key:</span>
+                          <code className="text-xs text-gray-500 bg-white px-2 py-1 rounded border border-gray-200 truncate flex-1 font-mono">
+                            {p.trackingToken}
+                          </code>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-100">
+                    <p className="text-xs text-blue-700">
+                      <i className="fas fa-info-circle mr-1" />
+                      Proxy URL: <code className="bg-blue-100 px-1 rounded font-mono">{providers[0]?.proxyBaseUrl}</code> — pass <code className="bg-blue-100 px-1 rounded">X-XamOps-Key</code> header and <code className="bg-blue-100 px-1 rounded">Authorization: Bearer YOUR_API_KEY</code> in every request.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* ═══════════════════════════════════════════════════════
+              Tab 2: Usage Analytics
+              ═══════════════════════════════════════════════════════ */}
+          {activeTab === 'usage-analytics' && hasProviders && (
+            <div className="space-y-4">
+              {/* Filters + Sub-tabs header */}
+              <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl shadow-sm p-4 space-y-3">
+                <UsageAnalyticsFilters
+                  filterOptions={analytics.filterOptions}
+                  filters={analytics.filters}
+                  onFiltersChange={analytics.setFilters}
+                />
+                <AriaTabGroup
+                  tabs={USAGE_SUB_TABS}
+                  selectedKey={activeSubTab}
+                  onSelectionChange={setActiveSubTab}
+                  variant="pill"
+                />
+              </div>
+
+              {/* Sub-tab Content */}
+              {activeSubTab === 'request-logs' && (
+                <RequestLogsTable
+                  data={analytics.requestLogs}
+                  loading={analytics.logsLoading}
+                  page={analytics.logsPage}
+                  size={analytics.logsSize}
+                  onPageChange={analytics.setLogsPage}
+                  onSizeChange={analytics.setLogsSize}
+                />
+              )}
+
+              {activeSubTab === 'agents' && (
+                <AgentBreakdownSection
+                  data={analytics.agentBreakdown}
+                  loading={analytics.agentLoading}
+                />
+              )}
+
+              {activeSubTab === 'models' && (
+                <ModelComparisonSection
+                  data={analytics.modelComparison}
+                  loading={analytics.modelLoading}
+                />
+              )}
+
+              {activeSubTab === 'heatmap' && (
+                <TokenHeatmap
+                  data={analytics.tokenHeatmap}
+                  loading={analytics.heatmapLoading}
+                />
+              )}
+            </div>
+          )}
+
+          {/* ═══════════════════════════════════════════════════════
+              Tab 3: Budget & Controls
+              ═══════════════════════════════════════════════════════ */}
+          {activeTab === 'budget-controls' && hasProviders && (
+            <BudgetOverview
+              summary={budget.summary}
+              loading={budget.summaryLoading}
+              onAdd={() => { setEditingBudget(null); setIsBudgetModalOpen(true); }}
+              onEdit={(budgetId) => {
+                const found = budget.summary?.budgets.find(b => b.budgetId === budgetId);
+                if (found) {
+                  setEditingBudget({
+                    id: found.budgetId,
+                    providerConfigId: found.providerConfigId ?? null,
+                    providerName: found.providerName ?? null,
+                    budgetName: found.budgetName,
+                    monthlyLimitUsd: found.monthlyLimitUsd,
+                    alertThresholds: found.thresholds.join(','),
+                    autoDisable: found.autoDisable,
+                    status: found.status,
+                    notificationEmail: null,
+                  });
+                  setIsBudgetModalOpen(true);
+                }
+              }}
+              onDelete={(budgetId) => budget.deleteBudget(budgetId)}
+              onDismissAlert={(alertId) => budget.dismissAlert(alertId)}
+            />
+          )}
+        </div>
+      </div>
+
+      {/* Provider Setup Modal */}
+      <LLMProviderSetupModal
+        isOpen={isProviderModalOpen}
+        onClose={() => setIsProviderModalOpen(false)}
+        onSave={addProvider}
+        existingProviders={providers}
+      />
+
+      {/* Budget Config Modal */}
+      <BudgetConfigModal
+        isOpen={isBudgetModalOpen}
+        onClose={() => { setIsBudgetModalOpen(false); setEditingBudget(null); }}
+        onSave={budget.createBudget}
+        onUpdate={budget.updateBudget}
+        editBudget={editingBudget}
+        providers={providers}
+      />
     </main>
   );
 };
