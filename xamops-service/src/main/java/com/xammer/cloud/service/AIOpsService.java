@@ -446,9 +446,12 @@ public class AIOpsService {
         return result;
     }
 
-    public List<AgentUsageStat> getAgentBreakdown(Long clientId, String period) {
+    public List<AgentUsageStat> getAgentBreakdown(Long clientId, String period,
+                                                   String provider, String model) {
         Instant since = parsePeriod(period);
-        List<Object[]> rows = usageLogRepo.agentUsageStatsSince(clientId, since);
+        String prov = (provider != null && !provider.isBlank()) ? provider : null;
+        String mod = (model != null && !model.isBlank()) ? model : null;
+        List<Object[]> rows = usageLogRepo.agentUsageStatsFiltered(clientId, since, prov, mod);
 
         return rows.stream()
                 .map(row -> new AgentUsageStat(
@@ -460,9 +463,12 @@ public class AIOpsService {
                 .collect(Collectors.toList());
     }
 
-    public List<ModelComparisonStat> getModelComparison(Long clientId, String period) {
+    public List<ModelComparisonStat> getModelComparison(Long clientId, String period,
+                                                        String provider, String agent) {
         Instant since = parsePeriod(period);
-        List<Object[]> rows = usageLogRepo.modelComparisonStatsSince(clientId, since);
+        String prov = (provider != null && !provider.isBlank()) ? provider : null;
+        String ag = (agent != null && !agent.isBlank()) ? agent : null;
+        List<Object[]> rows = usageLogRepo.modelComparisonStatsFiltered(clientId, since, prov, ag);
 
         return rows.stream()
                 .map(row -> {
@@ -482,9 +488,13 @@ public class AIOpsService {
                 .collect(Collectors.toList());
     }
 
-    public List<HeatmapCell> getTokenHeatmap(Long clientId, String period) {
+    public List<HeatmapCell> getTokenHeatmap(Long clientId, String period,
+                                              String provider, String model, String agent) {
         Instant since = parsePeriod(period);
-        List<Object[]> rows = usageLogRepo.tokenHeatmapSince(clientId, since);
+        String prov = (provider != null && !provider.isBlank()) ? provider : null;
+        String mod = (model != null && !model.isBlank()) ? model : null;
+        String ag = (agent != null && !agent.isBlank()) ? agent : null;
+        List<Object[]> rows = usageLogRepo.tokenHeatmapFiltered(clientId, since, prov, mod, ag);
 
         return rows.stream()
                 .map(row -> new HeatmapCell(
@@ -499,6 +509,17 @@ public class AIOpsService {
         List<String> models = usageLogRepo.findDistinctModels(clientId);
         List<String> agents = usageLogRepo.findDistinctAgentNames(clientId);
         return new FilterOptions(providers, models, agents);
+    }
+
+    // ─── All-Time Metrics ──────────────────────────────────────────
+
+    public AllTimeMetrics getAllTimeMetrics(Long clientId) {
+        Instant epoch = Instant.EPOCH;
+        double cost = usageLogRepo.sumCostSince(clientId, epoch);
+        long tokens = usageLogRepo.sumInputTokensSince(clientId, epoch)
+                    + usageLogRepo.sumOutputTokensSince(clientId, epoch);
+        long requests = usageLogRepo.countRequestsSince(clientId, epoch);
+        return new AllTimeMetrics(cost, tokens, requests);
     }
 
     // ─── Budget & Controls ────────────────────────────────────────
@@ -525,12 +546,21 @@ public class AIOpsService {
 
             String providerName = resolveProviderName(budget.getProviderConfigId());
 
+            int dayOfMonth = LocalDate.now().getDayOfMonth();
+            int daysInMonth = LocalDate.now().lengthOfMonth();
+            double burnRate = dayOfMonth > 0 ? spend / dayOfMonth : 0;
+            double projectedSpend = burnRate * daysInMonth;
+            int estimatedRunoutDay = (burnRate > 0 && spend < budget.getMonthlyLimitUsd())
+                    ? Math.min((int) Math.ceil(budget.getMonthlyLimitUsd() / burnRate), daysInMonth)
+                    : 0;
+
             statusList.add(new BudgetStatusDto(
                     budget.getId(), budget.getBudgetName(),
                     budget.getProviderConfigId(), providerName,
                     budget.getMonthlyLimitUsd(), spend, usagePct,
                     Boolean.TRUE.equals(budget.getAutoDisable()),
-                    budget.getStatus(), thresholds, breached));
+                    budget.getStatus(), thresholds, breached,
+                    projectedSpend, burnRate, estimatedRunoutDay));
 
             if ("ACTIVE".equals(budget.getStatus())) {
                 totalBudget += budget.getMonthlyLimitUsd();
@@ -642,6 +672,24 @@ public class AIOpsService {
         budgetAlertRepo.save(alert);
     }
 
+    public List<DailySpendEntry> getBudgetDailySpend(Long clientId, Long budgetId) {
+        LlmBudget budget = budgetRepo.findById(budgetId)
+                .orElseThrow(() -> new RuntimeException("Budget not found: " + budgetId));
+        if (!budget.getClientId().equals(clientId)) {
+            throw new SecurityException("Not authorized to view this budget.");
+        }
+        Instant monthStart = getCurrentMonthStart();
+        List<Object[]> rows;
+        if (budget.getProviderConfigId() != null) {
+            rows = usageLogRepo.dailyCostByProviderConfigSince(clientId, budget.getProviderConfigId(), monthStart);
+        } else {
+            rows = usageLogRepo.dailyCostSince(clientId, monthStart);
+        }
+        return rows.stream()
+                .map(r -> new DailySpendEntry(r[0].toString(), ((Number) r[1]).doubleValue()))
+                .collect(Collectors.toList());
+    }
+
     // ─── Budget Helpers ──────────────────────────────────────────
 
     private Instant getCurrentMonthStart() {
@@ -718,6 +766,8 @@ public class AIOpsService {
                 return Instant.now().minus(30, ChronoUnit.DAYS);
             case "90d":
                 return Instant.now().minus(90, ChronoUnit.DAYS);
+            case "365d":
+                return Instant.now().minus(365, ChronoUnit.DAYS);
             default:
                 return Instant.now().minus(30, ChronoUnit.DAYS);
         }

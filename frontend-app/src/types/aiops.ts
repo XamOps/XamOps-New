@@ -175,6 +175,21 @@ export interface FilterOptions {
   agents: string[];
 }
 
+// ─── All-Time Metrics ───────────────────────────────────────
+
+export interface AllTimeMetrics {
+  allTimeCost: number;
+  allTimeTokens: number;
+  allTimeRequests: number;
+}
+
+// ─── Daily Spend Entry ──────────────────────────────────────
+
+export interface DailySpendEntry {
+  date: string;
+  spend: number;
+}
+
 // ─── Budget & Controls Types ────────────────────────────────
 
 export interface BudgetConfig {
@@ -203,6 +218,9 @@ export interface BudgetStatus {
   status: string;
   thresholds: number[];
   breachedThresholds: number[];
+  projectedSpend: number;
+  burnRate: number;
+  estimatedRunoutDay: number;
 }
 
 export interface BudgetAlert {

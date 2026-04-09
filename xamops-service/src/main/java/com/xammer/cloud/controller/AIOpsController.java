@@ -134,10 +134,12 @@ public class AIOpsController {
     @GetMapping("/agent-breakdown")
     public ResponseEntity<List<AgentUsageStat>> getAgentBreakdown(
             @AuthenticationPrincipal ClientUserDetails userDetails,
-            @RequestParam(defaultValue = "30d") String period) {
+            @RequestParam(defaultValue = "30d") String period,
+            @RequestParam(required = false) String provider,
+            @RequestParam(required = false) String model) {
         try {
             Long clientId = userDetails.getClientId();
-            return ResponseEntity.ok(aiOpsService.getAgentBreakdown(clientId, period));
+            return ResponseEntity.ok(aiOpsService.getAgentBreakdown(clientId, period, provider, model));
         } catch (Exception e) {
             logger.error("Error fetching agent breakdown: {}", e.getMessage(), e);
             return ResponseEntity.internalServerError().build();
@@ -147,10 +149,12 @@ public class AIOpsController {
     @GetMapping("/model-comparison")
     public ResponseEntity<List<ModelComparisonStat>> getModelComparison(
             @AuthenticationPrincipal ClientUserDetails userDetails,
-            @RequestParam(defaultValue = "30d") String period) {
+            @RequestParam(defaultValue = "30d") String period,
+            @RequestParam(required = false) String provider,
+            @RequestParam(required = false) String agent) {
         try {
             Long clientId = userDetails.getClientId();
-            return ResponseEntity.ok(aiOpsService.getModelComparison(clientId, period));
+            return ResponseEntity.ok(aiOpsService.getModelComparison(clientId, period, provider, agent));
         } catch (Exception e) {
             logger.error("Error fetching model comparison: {}", e.getMessage(), e);
             return ResponseEntity.internalServerError().build();
@@ -160,10 +164,13 @@ public class AIOpsController {
     @GetMapping("/token-heatmap")
     public ResponseEntity<List<HeatmapCell>> getTokenHeatmap(
             @AuthenticationPrincipal ClientUserDetails userDetails,
-            @RequestParam(defaultValue = "30d") String period) {
+            @RequestParam(defaultValue = "30d") String period,
+            @RequestParam(required = false) String provider,
+            @RequestParam(required = false) String model,
+            @RequestParam(required = false) String agent) {
         try {
             Long clientId = userDetails.getClientId();
-            return ResponseEntity.ok(aiOpsService.getTokenHeatmap(clientId, period));
+            return ResponseEntity.ok(aiOpsService.getTokenHeatmap(clientId, period, provider, model, agent));
         } catch (Exception e) {
             logger.error("Error fetching token heatmap: {}", e.getMessage(), e);
             return ResponseEntity.internalServerError().build();
@@ -178,6 +185,18 @@ public class AIOpsController {
             return ResponseEntity.ok(aiOpsService.getFilterOptions(clientId));
         } catch (Exception e) {
             logger.error("Error fetching filter options: {}", e.getMessage(), e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    @GetMapping("/all-time-metrics")
+    public ResponseEntity<AllTimeMetrics> getAllTimeMetrics(
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        try {
+            Long clientId = userDetails.getClientId();
+            return ResponseEntity.ok(aiOpsService.getAllTimeMetrics(clientId));
+        } catch (Exception e) {
+            logger.error("Error fetching all-time metrics: {}", e.getMessage(), e);
             return ResponseEntity.internalServerError().build();
         }
     }
@@ -279,6 +298,21 @@ public class AIOpsController {
             return ResponseEntity.status(403).build();
         } catch (Exception e) {
             logger.error("Error dismissing alert: {}", e.getMessage(), e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    @GetMapping("/budgets/{id}/daily-spend")
+    public ResponseEntity<List<DailySpendEntry>> getBudgetDailySpend(
+            @AuthenticationPrincipal ClientUserDetails userDetails,
+            @PathVariable Long id) {
+        try {
+            Long clientId = userDetails.getClientId();
+            return ResponseEntity.ok(aiOpsService.getBudgetDailySpend(clientId, id));
+        } catch (SecurityException e) {
+            return ResponseEntity.status(403).build();
+        } catch (Exception e) {
+            logger.error("Error fetching budget daily spend: {}", e.getMessage(), e);
             return ResponseEntity.internalServerError().build();
         }
     }
