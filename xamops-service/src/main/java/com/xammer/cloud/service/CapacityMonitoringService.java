@@ -1,11 +1,13 @@
 package com.xammer.cloud.service;
 
 import com.xammer.cloud.domain.CapacityNotificationHistory;
+import com.xammer.cloud.domain.CapacityOwnership;
 import com.xammer.cloud.domain.CloudiDRCredentials;
 import com.xammer.cloud.domain.User;
 import com.xammer.cloud.dto.flexcompute.CapacityDescriptionResponse;
 import com.xammer.cloud.dto.flexcompute.CapacityListResponse;
 import com.xammer.cloud.repository.CapacityNotificationHistoryRepository;
+import com.xammer.cloud.repository.CapacityOwnershipRepository;
 import com.xammer.cloud.repository.CloudiDRCredentialsRepository;
 import com.xammer.cloud.repository.UserRepository;
 
@@ -41,6 +43,7 @@ public class CapacityMonitoringService {
     private final EmailService emailService;
     private final CapacityNotificationEmailBuilder emailBuilder;
     private final CapacityNotificationHistoryRepository notificationHistoryRepository;
+    private final CapacityOwnershipRepository capacityOwnershipRepository;
     private final CloudiDRCredentialsRepository credentialsRepository;
     private final UserRepository userRepository;
 
@@ -51,12 +54,14 @@ public class CapacityMonitoringService {
                                      EmailService emailService,
                                      CapacityNotificationEmailBuilder emailBuilder,
                                      CapacityNotificationHistoryRepository notificationHistoryRepository,
+                                     CapacityOwnershipRepository capacityOwnershipRepository,
                                      CloudiDRCredentialsRepository credentialsRepository,
                                      UserRepository userRepository) {
         this.flexComputeService = flexComputeService;
         this.emailService = emailService;
         this.emailBuilder = emailBuilder;
         this.notificationHistoryRepository = notificationHistoryRepository;
+        this.capacityOwnershipRepository = capacityOwnershipRepository;
         this.credentialsRepository = credentialsRepository;
         this.userRepository = userRepository;
     }
@@ -165,6 +170,13 @@ public class CapacityMonitoringService {
         // Check if we already sent a deployment notification for this capacity
         if (notificationHistoryRepository.hasDeploymentNotificationBeenSent(cidrId)) {
             logger.debug("Deployment notification already sent for capacity {}, skipping", cidrId);
+            return;
+        }
+
+        // Only send to the user who purchased this capacity
+        Optional<CapacityOwnership> ownership = capacityOwnershipRepository.findByCidrId(cidrId);
+        if (ownership.isPresent() && !ownership.get().getUserId().equals(userId)) {
+            logger.debug("User {} is not the owner of capacity {}, skipping deployment email", userId, cidrId);
             return;
         }
 
