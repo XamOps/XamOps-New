@@ -333,6 +333,73 @@ html.dark .aiops-page {
   background: rgba(99, 102, 241, 0.4);
 }
 
+/* ─── LLM Dashboard Styles ───────────────────────────────── */
+
+/* Period Selector */
+.aiops-period-btn {
+  transition: all 0.2s ease;
+}
+
+.aiops-period-btn.active {
+  background: linear-gradient(135deg, #6366f1, #a855f7);
+  color: white;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+}
+
+/* Provider Badge */
+.aiops-provider-badge {
+  transition: all 0.2s ease;
+}
+
+.aiops-provider-badge:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+/* Chart containers */
+.aiops-page canvas {
+  max-width: 100%;
+}
+
+/* Animate fade-in for toast */
+@keyframes aiops-fade-in {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.aiops-page .animate-fade-in {
+  animation: aiops-fade-in 0.3s ease;
+}
+
+/* Table hover effect */
+.aiops-page table tbody tr {
+  transition: background-color 0.15s ease;
+}
+
+/* Dark theme: ensure chart backgrounds are transparent */
+html.dark .aiops-page canvas {
+  filter: brightness(0.95);
+}
+
+/* Dark theme: input fields */
+html.dark .aiops-page input,
+html.dark .aiops-page select {
+  background-color: var(--neutral-100);
+  border-color: var(--border-color);
+  color: var(--neutral-800);
+}
+
+html.dark .aiops-page input::placeholder {
+  color: var(--neutral-800);
+  opacity: 0.4;
+}
+
 /* Print Styles */
 @media print {
   .aiops-page {

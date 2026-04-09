@@ -1,0 +1,408 @@
+package com.xammer.cloud.service;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.xammer.cloud.domain.LlmBudget;
+import com.xammer.cloud.domain.LlmProviderConfig;
+import com.xammer.cloud.domain.LlmUsageLog;
+import com.xammer.cloud.repository.LlmBudgetRepository;
+import com.xammer.cloud.repository.LlmProviderConfigRepository;
+import com.xammer.cloud.repository.LlmUsageLogRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.*;
+import org.springframework.scheduling.annotation.Async;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpStatusCodeException;
+import org.springframework.web.client.RestTemplate;
+
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+
+@Service
+public class LlmProxyService {
+
+    private static final Logger logger = LoggerFactory.getLogger(LlmProxyService.class);
+
+    private final LlmProviderConfigRepository configRepo;
+    private final LlmUsageLogRepository usageLogRepo;
+    private final LlmBudgetRepository budgetRepo;
+    private final EncryptionService encryptionService;
+    private final RestTemplate restTemplate;
+    private final ObjectMapper objectMapper;
+
+    // Budget spend cache: key = "clientId:providerConfigId", value = [spend, timestampMs]
+    private final ConcurrentHashMap<String, double[]> spendCache = new ConcurrentHashMap<>();
+    private static final long CACHE_TTL_MS = 60_000;
+
+    // Model pricing per million tokens (input, output) in USD
+    private static final Map<String, double[]> MODEL_PRICING = new HashMap<>();
+
+    static {
+        // OpenAI models
+        MODEL_PRICING.put("gpt-4o", new double[]{2.50, 10.00});
+        MODEL_PRICING.put("gpt-4o-mini", new double[]{0.15, 0.60});
+        MODEL_PRICING.put("gpt-4-turbo", new double[]{10.00, 30.00});
+        MODEL_PRICING.put("gpt-4", new double[]{30.00, 60.00});
+        MODEL_PRICING.put("gpt-3.5-turbo", new double[]{0.50, 1.50});
+        MODEL_PRICING.put("o1", new double[]{15.00, 60.00});
+        MODEL_PRICING.put("o1-mini", new double[]{3.00, 12.00});
+        MODEL_PRICING.put("o3-mini", new double[]{1.10, 4.40});
+
+        // Anthropic models
+        MODEL_PRICING.put("claude-opus-4-20250514", new double[]{15.00, 75.00});
+        MODEL_PRICING.put("claude-sonnet-4-20250514", new double[]{3.00, 15.00});
+        MODEL_PRICING.put("claude-3-5-sonnet-20241022", new double[]{3.00, 15.00});
+        MODEL_PRICING.put("claude-3-5-haiku-20241022", new double[]{0.80, 4.00});
+        MODEL_PRICING.put("claude-3-haiku-20240307", new double[]{0.25, 1.25});
+
+        // Google Gemini models
+        MODEL_PRICING.put("gemini-1.5-pro", new double[]{3.50, 10.50});
+        MODEL_PRICING.put("gemini-1.5-flash", new double[]{0.075, 0.30});
+        MODEL_PRICING.put("gemini-2.0-flash", new double[]{0.10, 0.40});
+        MODEL_PRICING.put("gemini-pro", new double[]{0.50, 1.50});
+    }
+
+    public LlmProxyService(
+            LlmProviderConfigRepository configRepo,
+            LlmUsageLogRepository usageLogRepo,
+            LlmBudgetRepository budgetRepo,
+            EncryptionService encryptionService,
+            RestTemplate restTemplate,
+            ObjectMapper objectMapper) {
+        this.configRepo = configRepo;
+        this.usageLogRepo = usageLogRepo;
+        this.budgetRepo = budgetRepo;
+        this.encryptionService = encryptionService;
+        this.restTemplate = restTemplate;
+        this.objectMapper = objectMapper;
+    }
+
+    public ResponseEntity<String> proxyRequest(
+            String proxyEndpointId,
+            String subPath,
+            HttpMethod method,
+            HttpHeaders incomingHeaders,
+            String body,
+            String agentName) {
+
+        // 1. Look up config
+        LlmProviderConfig config = configRepo.findByProxyEndpointId(proxyEndpointId)
+                .orElseThrow(() -> new RuntimeException("Invalid proxy endpoint"));
+
+        if (!"ACTIVE".equals(config.getStatus())) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body("{\"error\":\"Provider configuration is inactive\"}");
+        }
+
+        // 1.5 Budget enforcement
+        ResponseEntity<String> budgetBlock = checkBudget(config);
+        if (budgetBlock != null) {
+            return budgetBlock;
+        }
+
+        // 2. Extract API key from Authorization: Bearer header (unified for all providers)
+        String provider = config.getProvider().toUpperCase();
+        String apiKey = extractBearerToken(incomingHeaders);
+        if (apiKey == null || apiKey.isBlank()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body("{\"error\":\"API key is required. Pass your provider API key via Authorization: Bearer YOUR_KEY header.\"}");
+        }
+
+        // 3. Build real provider URL and headers
+        String targetUrl = buildTargetUrl(provider, subPath);
+        HttpHeaders targetHeaders = buildProviderHeaders(provider, apiKey, incomingHeaders);
+
+        // 4. Forward request and measure latency
+        long startTime = System.currentTimeMillis();
+        ResponseEntity<String> providerResponse;
+        boolean isError = false;
+        String errorMessage = null;
+
+        try {
+            HttpEntity<String> requestEntity = new HttpEntity<>(body, targetHeaders);
+            providerResponse = restTemplate.exchange(targetUrl, method, requestEntity, String.class);
+        } catch (HttpStatusCodeException e) {
+            long latency = System.currentTimeMillis() - startTime;
+            isError = true;
+            errorMessage = e.getResponseBodyAsString();
+
+            // Log the failed request
+            logUsageAsync(config, subPath, body, e.getResponseBodyAsString(),
+                    e.getStatusCode().value(), latency, true, errorMessage, agentName);
+
+            return ResponseEntity.status(e.getStatusCode())
+                    .headers(filterResponseHeaders(e.getResponseHeaders()))
+                    .body(e.getResponseBodyAsString());
+        } catch (Exception e) {
+            long latency = System.currentTimeMillis() - startTime;
+            logger.error("Proxy request failed: {}", e.getMessage());
+
+            logUsageAsync(config, subPath, body, null,
+                    500, latency, true, e.getMessage(), agentName);
+
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                    .body("{\"error\":\"Failed to reach LLM provider: " + e.getMessage() + "\"}");
+        }
+
+        long latency = System.currentTimeMillis() - startTime;
+
+        // 5. Log usage asynchronously
+        logUsageAsync(config, subPath, body,
+                providerResponse.getBody(),
+                providerResponse.getStatusCodeValue(),
+                latency, false, null, agentName);
+
+        // 6. Return provider response
+        return ResponseEntity.status(providerResponse.getStatusCode())
+                .headers(filterResponseHeaders(providerResponse.getHeaders()))
+                .body(providerResponse.getBody());
+    }
+
+    @Async
+    public void logUsageAsync(LlmProviderConfig config, String path, String requestBody,
+                              String responseBody, int statusCode, long latencyMs,
+                              boolean isError, String errorMessage, String agentName) {
+        try {
+            String model = extractModel(config.getProvider(), requestBody, responseBody);
+            int inputTokens = 0;
+            int outputTokens = 0;
+
+            if (responseBody != null && !isError) {
+                int[] tokens = extractTokens(config.getProvider(), responseBody);
+                inputTokens = tokens[0];
+                outputTokens = tokens[1];
+            }
+
+            double cost = calculateCost(model, inputTokens, outputTokens);
+
+            LlmUsageLog log = new LlmUsageLog();
+            log.setClientId(config.getClient().getId());
+            log.setProviderConfigId(config.getId());
+            log.setProvider(config.getProvider());
+            log.setModel(model != null ? model : "unknown");
+            log.setInputTokens(inputTokens);
+            log.setOutputTokens(outputTokens);
+            log.setTotalTokens(inputTokens + outputTokens);
+            log.setEstimatedCost(cost);
+            log.setLatencyMs(latencyMs);
+            log.setStatusCode(statusCode);
+            log.setIsError(isError);
+            log.setErrorMessage(errorMessage);
+            log.setRequestPath(path);
+            log.setAgentName(agentName);
+            log.setTimestamp(Instant.now());
+
+            usageLogRepo.save(log);
+
+            // Invalidate budget spend cache after logging
+            String cacheKey = config.getClient().getId() + ":" + config.getId();
+            spendCache.remove(cacheKey);
+            spendCache.remove(config.getClient().getId() + ":global");
+        } catch (Exception e) {
+            logger.error("Failed to log LLM usage: {}", e.getMessage());
+        }
+    }
+
+    // ─── Budget enforcement ─────────────────────────────────────
+
+    private ResponseEntity<String> checkBudget(LlmProviderConfig config) {
+        Long clientId = config.getClient().getId();
+        Long providerConfigId = config.getId();
+
+        List<LlmBudget> budgets = budgetRepo.findActiveBudgetsForProvider(clientId, providerConfigId);
+        if (budgets.isEmpty()) return null;
+
+        LlmBudget budget = budgets.get(0);
+        if (!Boolean.TRUE.equals(budget.getAutoDisable())) return null;
+
+        String cacheKey = clientId + ":" +
+                (budget.getProviderConfigId() != null ? budget.getProviderConfigId() : "global");
+        double[] cached = spendCache.get(cacheKey);
+        double currentSpend;
+
+        if (cached != null && (System.currentTimeMillis() - cached[1]) < CACHE_TTL_MS) {
+            currentSpend = cached[0];
+        } else {
+            Instant monthStart = LocalDate.now().withDayOfMonth(1)
+                    .atStartOfDay().toInstant(ZoneOffset.UTC);
+
+            if (budget.getProviderConfigId() == null) {
+                currentSpend = usageLogRepo.sumCostSince(clientId, monthStart);
+            } else {
+                currentSpend = usageLogRepo.sumCostByProviderConfigSince(
+                        clientId, budget.getProviderConfigId(), monthStart);
+            }
+            spendCache.put(cacheKey, new double[]{currentSpend, System.currentTimeMillis()});
+        }
+
+        if (currentSpend >= budget.getMonthlyLimitUsd()) {
+            logger.warn("Budget exceeded for client {} provider {}: ${} >= ${}",
+                    clientId, providerConfigId, currentSpend, budget.getMonthlyLimitUsd());
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                    .body("{\"error\":\"Monthly budget limit exceeded. Current spend: $"
+                            + String.format("%.2f", currentSpend)
+                            + ", Budget: $" + String.format("%.2f", budget.getMonthlyLimitUsd())
+                            + ". Contact your administrator or increase the budget in XamOps AIOps.\"}");
+        }
+
+        return null;
+    }
+
+    // ─── Extract API key from unified Authorization: Bearer header ──
+
+    private String extractBearerToken(HttpHeaders headers) {
+        String auth = headers.getFirst(HttpHeaders.AUTHORIZATION);
+        if (auth != null && auth.toLowerCase().startsWith("bearer ")) {
+            return auth.substring(7).trim();
+        }
+        return null;
+    }
+
+    // ─── Provider-specific URL building ──────────────────────────
+
+    private String buildTargetUrl(String provider, String subPath) {
+        String path = (subPath != null && !subPath.isEmpty()) ? "/" + subPath : "";
+        switch (provider) {
+            case "OPENAI":
+                return "https://api.openai.com" + path;
+            case "ANTHROPIC":
+                return "https://api.anthropic.com" + path;
+            case "GEMINI":
+                return "https://generativelanguage.googleapis.com" + path;
+            default:
+                throw new IllegalArgumentException("Unsupported provider: " + provider);
+        }
+    }
+
+    private HttpHeaders buildProviderHeaders(String provider, String apiKey, HttpHeaders incoming) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        switch (provider) {
+            case "OPENAI":
+                headers.setBearerAuth(apiKey);
+                break;
+            case "ANTHROPIC":
+                headers.set("x-api-key", apiKey);
+                // Forward anthropic-version from user's request, default to 2023-06-01
+                String anthropicVersion = incoming.getFirst("anthropic-version");
+                headers.set("anthropic-version", anthropicVersion != null ? anthropicVersion : "2023-06-01");
+                // Forward anthropic-beta if present
+                String anthropicBeta = incoming.getFirst("anthropic-beta");
+                if (anthropicBeta != null) {
+                    headers.set("anthropic-beta", anthropicBeta);
+                }
+                break;
+            case "GEMINI":
+                headers.set("x-goog-api-key", apiKey);
+                break;
+        }
+
+        // Forward Accept header if present
+        if (incoming.containsKey(HttpHeaders.ACCEPT)) {
+            headers.setAccept(incoming.getAccept());
+        }
+
+        return headers;
+    }
+
+    private HttpHeaders filterResponseHeaders(HttpHeaders responseHeaders) {
+        HttpHeaders filtered = new HttpHeaders();
+        if (responseHeaders == null) return filtered;
+
+        // Forward content type and relevant headers
+        if (responseHeaders.getContentType() != null) {
+            filtered.setContentType(responseHeaders.getContentType());
+        }
+        return filtered;
+    }
+
+    // ─── Token extraction (provider-specific) ────────────────────
+
+    private String extractModel(String provider, String requestBody, String responseBody) {
+        try {
+            // Try from response first
+            if (responseBody != null) {
+                JsonNode resp = objectMapper.readTree(responseBody);
+                if (resp.has("model")) return resp.get("model").asText();
+            }
+            // Fall back to request body
+            if (requestBody != null) {
+                JsonNode req = objectMapper.readTree(requestBody);
+                if (req.has("model")) return req.get("model").asText();
+            }
+        } catch (Exception e) {
+            logger.debug("Could not extract model name: {}", e.getMessage());
+        }
+        return null;
+    }
+
+    private int[] extractTokens(String provider, String responseBody) {
+        try {
+            JsonNode resp = objectMapper.readTree(responseBody);
+
+            switch (provider.toUpperCase()) {
+                case "OPENAI": {
+                    JsonNode usage = resp.get("usage");
+                    if (usage != null) {
+                        int input = usage.has("prompt_tokens") ? usage.get("prompt_tokens").asInt() : 0;
+                        int output = usage.has("completion_tokens") ? usage.get("completion_tokens").asInt() : 0;
+                        return new int[]{input, output};
+                    }
+                    break;
+                }
+                case "ANTHROPIC": {
+                    JsonNode usage = resp.get("usage");
+                    if (usage != null) {
+                        int input = usage.has("input_tokens") ? usage.get("input_tokens").asInt() : 0;
+                        int output = usage.has("output_tokens") ? usage.get("output_tokens").asInt() : 0;
+                        return new int[]{input, output};
+                    }
+                    break;
+                }
+                case "GEMINI": {
+                    JsonNode meta = resp.get("usageMetadata");
+                    if (meta != null) {
+                        int input = meta.has("promptTokenCount") ? meta.get("promptTokenCount").asInt() : 0;
+                        int output = meta.has("candidatesTokenCount") ? meta.get("candidatesTokenCount").asInt() : 0;
+                        return new int[]{input, output};
+                    }
+                    break;
+                }
+            }
+        } catch (Exception e) {
+            logger.debug("Could not extract token counts: {}", e.getMessage());
+        }
+        return new int[]{0, 0};
+    }
+
+    private double calculateCost(String model, int inputTokens, int outputTokens) {
+        if (model == null) return 0.0;
+
+        // Try exact match first, then prefix match
+        double[] pricing = MODEL_PRICING.get(model);
+        if (pricing == null) {
+            // Try prefix match for versioned model names
+            for (Map.Entry<String, double[]> entry : MODEL_PRICING.entrySet()) {
+                if (model.startsWith(entry.getKey())) {
+                    pricing = entry.getValue();
+                    break;
+                }
+            }
+        }
+
+        if (pricing == null) {
+            logger.debug("No pricing found for model: {}", model);
+            return 0.0;
+        }
+
+        // Pricing is per million tokens
+        double inputCost = (inputTokens / 1_000_000.0) * pricing[0];
+        double outputCost = (outputTokens / 1_000_000.0) * pricing[1];
+        return Math.round((inputCost + outputCost) * 1_000_000.0) / 1_000_000.0;
+    }
+}
