@@ -15,6 +15,7 @@ import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.service.AwsAccountService;
 import com.xammer.cloud.service.MasterDatabaseService;
 import com.xammer.cloud.service.gcp.GcpDataService;
+import com.xammer.cloud.util.SecurityUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -227,9 +228,13 @@ public class AccountManagerController {
     }
 
     @DeleteMapping("/accounts/{id}")
-    public ResponseEntity<?> deleteAccount(@PathVariable Long id) {
+    public ResponseEntity<?> deleteAccount(@PathVariable Long id,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
         return cloudAccountRepository.findById(id)
                 .map(account -> {
+                    if (!SecurityUtils.isAuthorizedForAccount(account, userDetails)) {
+                        return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+                    }
                     String accountName = account.getAccountName();
                     awsAccountService.deleteAccountById(id);
                     return ResponseEntity
@@ -308,6 +313,11 @@ public class AccountManagerController {
             if (existingAccountOpt.isPresent()) {
                 // UPDATE existing account
                 account = existingAccountOpt.get();
+
+                if (!SecurityUtils.isAuthorizedForAccount(account, userDetails)) {
+                    return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+                }
+
                 logger.info("Updating existing Azure account: {}", account.getAccountName());
 
                 account.setAccountName(request.getAccountName());
@@ -369,7 +379,17 @@ public class AccountManagerController {
 
     @PutMapping("/accounts/{accountId}/billing-table")
     public ResponseEntity<?> updateBillingTable(@PathVariable Long accountId,
-            @RequestBody Map<String, String> payload) {
+            @RequestBody Map<String, String> payload,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+
+        Optional<CloudAccount> accountOpt = cloudAccountRepository.findById(accountId);
+        if (accountOpt.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        if (!SecurityUtils.isAuthorizedForAccount(accountOpt.get(), userDetails)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+
         String billingExportTable = payload.get("billingExportTable");
         if (billingExportTable == null || billingExportTable.trim().isEmpty()) {
             return ResponseEntity.badRequest()
@@ -401,7 +421,8 @@ public class AccountManagerController {
 
     @PostMapping("/accounts/{accountId}/monitoring")
     public ResponseEntity<?> updateMonitoringEndpoint(@PathVariable String accountId,
-            @RequestBody Map<String, String> payload) {
+            @RequestBody Map<String, String> payload,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
         String grafanaIp = payload.get("grafanaIp");
         if (grafanaIp == null || grafanaIp.trim().isEmpty()) {
             return ResponseEntity.badRequest().body(Map.of("message", "grafanaIp is required in the request body."));
@@ -414,6 +435,10 @@ public class AccountManagerController {
         if (account == null) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
                     .body(Map.of("message", "Account not found with ID: " + accountId));
+        }
+
+        if (!SecurityUtils.isAuthorizedForAccount(account, userDetails)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
 
         account.setGrafanaIp(grafanaIp);
