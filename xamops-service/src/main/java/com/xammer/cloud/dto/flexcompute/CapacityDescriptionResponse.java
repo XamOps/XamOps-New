@@ -95,12 +95,14 @@ public class CapacityDescriptionResponse {
 
     @JsonGetter("totalSavings")
     public Double getTotalSavings() {
-        return pricing != null ? pricing.getSavings() : 0.0;
+        Double awsPrice = getAwsPrice();
+        return awsPrice != null ? awsPrice * 0.25 : 0.0;
     }
 
     @JsonGetter("totalCost")
     public Double getTotalCost() {
-        return pricing != null ? pricing.getOurPrice() : 0.0;
+        Double awsPrice = getAwsPrice();
+        return awsPrice != null ? awsPrice * 0.75 : 0.0;
     }
 
     @JsonGetter("startDate")
@@ -235,7 +237,8 @@ public class CapacityDescriptionResponse {
 
     @JsonGetter("ourPrice")
     public Double getOurPrice() {
-        return pricing != null ? pricing.getOurPrice() : null;
+        Double awsPrice = getAwsPrice();
+        return awsPrice != null ? awsPrice * 0.75 : null;
     }
 
     @JsonGetter("awsPrice")
@@ -245,7 +248,7 @@ public class CapacityDescriptionResponse {
 
     @JsonGetter("savingsPercent")
     public Double getSavingsPercent() {
-        return pricing != null ? pricing.getSavingsPercentage() : null;
+        return 25.0;
     }
 
     @JsonGetter("vpc")

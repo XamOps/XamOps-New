@@ -39,6 +39,7 @@ interface FlexComputeWizardProps {
   reserveCapacity: (form: SearchCapacityForm) => Promise<any>;
   configureCapacity: (form: ConfigureCapacityForm) => Promise<boolean>;
   purchaseCapacity: (capacityId: string) => Promise<string | null>;
+  renewCapacity: (cidrId: string, autoRenewalEnabled: boolean, frequency: '24hrs' | '1week' | '1month') => Promise<boolean>;
   isSearching: boolean;
   isPurchasing: boolean;
   onComplete: () => void;
@@ -51,6 +52,7 @@ const FlexComputeWizard: React.FC<FlexComputeWizardProps> = ({
   reserveCapacity,
   configureCapacity,
   purchaseCapacity,
+  renewCapacity,
   isSearching,
   isPurchasing,
   onComplete,
@@ -104,11 +106,11 @@ const FlexComputeWizard: React.FC<FlexComputeWizardProps> = ({
             quantity: reservation.myPolicy.policyInstance?.qty || searchForm.quantity,
             platform: reservation.myPolicy.policyInstance?.platformCode || searchForm.platform,
             tenancy: reservation.myPolicy.policyInstance?.tenancyCode || searchForm.tenancy,
-            ourPrice: reservePricing.ourPrice || 0,
+            ourPrice: (reservePricing.cspProviderPrice || 0) * 0.75,
             awsPrice: reservePricing.cspProviderPrice || 0,
-            savingsPercent: (reservePricing.savingsPercentage || 0) * 100, // Convert to percentage
+            savingsPercent: 25,
             fees: reservePricing.creditCardProcessingFee || reservePricing.bankAccountProcessingFee || 0,
-            total: (reservePricing.ourPrice || 0) + (reservePricing.creditCardProcessingFee || reservePricing.bankAccountProcessingFee || 0),
+            total: (reservePricing.cspProviderPrice || 0) * 0.75 + (reservePricing.creditCardProcessingFee || reservePricing.bankAccountProcessingFee || 0),
             startDate: searchForm.startDate,
             endDate: searchForm.endDate,
             status: reservation.myPolicy.policyStatus || 'READY_FOR_PURCHASE',
@@ -181,9 +183,17 @@ const FlexComputeWizard: React.FC<FlexComputeWizardProps> = ({
   const handlePurchase = async () => {
     if (!pricing?.capacityId) return;
 
+    if ((pricing.ourPrice ?? 0) < 1.00) {
+      setPurchaseError('Purchase not allowed: minimum order value is $1.00.');
+      return;
+    }
+
     setPurchaseError(null);
     const errMsg = await purchaseCapacity(pricing.capacityId);
     if (errMsg === null) {
+      if (searchForm.autoRenewal) {
+        await renewCapacity(pricing.capacityId, true, searchForm.renewalFrequency);
+      }
       setStep('complete');
     } else {
       setPurchaseError(errMsg);
