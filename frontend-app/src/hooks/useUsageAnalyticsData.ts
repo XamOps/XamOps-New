@@ -110,44 +110,48 @@ export function useUsageAnalyticsData(period: string): UseUsageAnalyticsReturn {
   const loadAgentBreakdown = useCallback(async () => {
     setAgentLoading(true);
     try {
-      const data = await apiFetchJson<AgentUsageStat[]>(
-        `/api/xamops/aiops/agent-breakdown?period=${period}`
-      );
+      let url = `/api/xamops/aiops/agent-breakdown?period=${period}`;
+      if (filters.provider) url += `&provider=${encodeURIComponent(filters.provider)}`;
+      if (filters.model) url += `&model=${encodeURIComponent(filters.model)}`;
+      const data = await apiFetchJson<AgentUsageStat[]>(url);
       setAgentBreakdown(data);
     } catch (e: any) {
       console.error('Failed to load agent breakdown:', e);
     } finally {
       setAgentLoading(false);
     }
-  }, [period]);
+  }, [period, filters.provider, filters.model]);
 
   const loadModelComparison = useCallback(async () => {
     setModelLoading(true);
     try {
-      const data = await apiFetchJson<ModelComparisonStat[]>(
-        `/api/xamops/aiops/model-comparison?period=${period}`
-      );
+      let url = `/api/xamops/aiops/model-comparison?period=${period}`;
+      if (filters.provider) url += `&provider=${encodeURIComponent(filters.provider)}`;
+      if (filters.agent) url += `&agent=${encodeURIComponent(filters.agent)}`;
+      const data = await apiFetchJson<ModelComparisonStat[]>(url);
       setModelComparison(data);
     } catch (e: any) {
       console.error('Failed to load model comparison:', e);
     } finally {
       setModelLoading(false);
     }
-  }, [period]);
+  }, [period, filters.provider, filters.agent]);
 
   const loadTokenHeatmap = useCallback(async () => {
     setHeatmapLoading(true);
     try {
-      const data = await apiFetchJson<HeatmapCell[]>(
-        `/api/xamops/aiops/token-heatmap?period=${period}`
-      );
+      let url = `/api/xamops/aiops/token-heatmap?period=${period}`;
+      if (filters.provider) url += `&provider=${encodeURIComponent(filters.provider)}`;
+      if (filters.model) url += `&model=${encodeURIComponent(filters.model)}`;
+      if (filters.agent) url += `&agent=${encodeURIComponent(filters.agent)}`;
+      const data = await apiFetchJson<HeatmapCell[]>(url);
       setTokenHeatmap(data);
     } catch (e: any) {
       console.error('Failed to load token heatmap:', e);
     } finally {
       setHeatmapLoading(false);
     }
-  }, [period]);
+  }, [period, filters.provider, filters.model, filters.agent]);
 
   return {
     requestLogs,

@@ -107,6 +107,59 @@ public interface LlmUsageLogRepository extends JpaRepository<LlmUsageLog, Long>,
            nativeQuery = true)
     List<Object[]> tokenHeatmapSince(@Param("clientId") Long clientId, @Param("since") Instant since);
 
+    // ─── Usage Analytics: Filtered agent breakdown ───────────────
+    @Query("SELECT COALESCE(l.agentName, 'unknown'), COUNT(l), " +
+           "COALESCE(SUM(l.inputTokens), 0) + COALESCE(SUM(l.outputTokens), 0), " +
+           "COALESCE(SUM(l.estimatedCost), 0), COALESCE(AVG(l.latencyMs), 0) " +
+           "FROM LlmUsageLog l WHERE l.clientId = :clientId AND l.timestamp >= :since " +
+           "AND (:provider IS NULL OR l.provider = :provider) " +
+           "AND (:model IS NULL OR l.model = :model) " +
+           "GROUP BY l.agentName ORDER BY SUM(l.estimatedCost) DESC")
+    List<Object[]> agentUsageStatsFiltered(@Param("clientId") Long clientId,
+                                           @Param("since") Instant since,
+                                           @Param("provider") String provider,
+                                           @Param("model") String model);
+
+    // ─── Usage Analytics: Filtered model comparison ────────────
+    @Query("SELECT l.model, l.provider, COUNT(l), " +
+           "COALESCE(SUM(l.inputTokens), 0), COALESCE(SUM(l.outputTokens), 0), " +
+           "COALESCE(SUM(l.estimatedCost), 0), COALESCE(AVG(l.latencyMs), 0), " +
+           "SUM(CASE WHEN l.isError = true THEN 1 ELSE 0 END) " +
+           "FROM LlmUsageLog l WHERE l.clientId = :clientId AND l.timestamp >= :since " +
+           "AND (:provider IS NULL OR l.provider = :provider) " +
+           "AND (:agent IS NULL OR l.agentName = :agent) " +
+           "GROUP BY l.model, l.provider ORDER BY SUM(l.estimatedCost) DESC")
+    List<Object[]> modelComparisonStatsFiltered(@Param("clientId") Long clientId,
+                                                @Param("since") Instant since,
+                                                @Param("provider") String provider,
+                                                @Param("agent") String agent);
+
+    // ─── Usage Analytics: Filtered token heatmap (PostgreSQL) ──
+    @Query(value = "SELECT EXTRACT(DOW FROM l.timestamp)::int as dow, " +
+                   "EXTRACT(HOUR FROM l.timestamp)::int as hr, " +
+                   "COALESCE(SUM(l.total_tokens), 0) as tokens " +
+                   "FROM llm_usage_log l WHERE l.client_id = :clientId AND l.timestamp >= :since " +
+                   "AND (:provider IS NULL OR l.provider = CAST(:provider AS VARCHAR)) " +
+                   "AND (:model IS NULL OR l.model = CAST(:model AS VARCHAR)) " +
+                   "AND (:agent IS NULL OR l.agent_name = CAST(:agent AS VARCHAR)) " +
+                   "GROUP BY dow, hr ORDER BY dow, hr",
+           nativeQuery = true)
+    List<Object[]> tokenHeatmapFiltered(@Param("clientId") Long clientId,
+                                        @Param("since") Instant since,
+                                        @Param("provider") String provider,
+                                        @Param("model") String model,
+                                        @Param("agent") String agent);
+
+    // ─── Budget: Daily cost by provider config ──────────────────
+    @Query(value = "SELECT CAST(l.timestamp AS DATE) as dt, COALESCE(SUM(l.estimated_cost), 0) " +
+                   "FROM llm_usage_log l WHERE l.client_id = :clientId " +
+                   "AND l.provider_config_id = :providerConfigId AND l.timestamp >= :since " +
+                   "GROUP BY dt ORDER BY dt",
+           nativeQuery = true)
+    List<Object[]> dailyCostByProviderConfigSince(@Param("clientId") Long clientId,
+                                                   @Param("providerConfigId") Long providerConfigId,
+                                                   @Param("since") Instant since);
+
     // ─── Usage Analytics: Filter options ─────────────────────────
     @Query("SELECT DISTINCT l.provider FROM LlmUsageLog l WHERE l.clientId = :clientId")
     List<String> findDistinctProviders(@Param("clientId") Long clientId);

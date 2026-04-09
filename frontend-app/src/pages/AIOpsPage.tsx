@@ -23,6 +23,7 @@ const PERIODS = [
   { key: '7d', label: '7 Days' },
   { key: '30d', label: '30 Days' },
   { key: '90d', label: '90 Days' },
+  { key: '365d', label: '1 Year' },
 ] as const;
 
 const TOP_TABS = [
@@ -175,7 +176,7 @@ const AIOpsPage: React.FC = () => {
   const [copiedUrl, setCopiedUrl] = useState(false);
 
   const {
-    kpis, costTrend, providerBreakdown, modelUsageTable,
+    kpis, allTimeMetrics, costTrend, providerBreakdown, modelUsageTable,
     anomalies, providers, sectionLoading, isLoading, error,
     loadDashboard, addProvider, deleteProvider,
   } = useAIOpsData({ period });
@@ -198,6 +199,17 @@ const AIOpsPage: React.FC = () => {
       budget.loadSummary();
     }
   }, [activeTab]);
+
+  // Load daily spend sparklines for each budget
+  useEffect(() => {
+    if (activeTab === 'budget-controls' && budget.summary) {
+      budget.summary.budgets.forEach(b => {
+        if (!budget.dailySpend[b.budgetId]) {
+          budget.loadDailySpend(b.budgetId);
+        }
+      });
+    }
+  }, [activeTab, budget.summary]);
 
   // Load sub-tab data when switching sub-tabs or filters change
   useEffect(() => {
@@ -244,6 +256,40 @@ const AIOpsPage: React.FC = () => {
     setCopiedUrl(true);
     setTimeout(() => setCopiedUrl(false), 2000);
   }, []);
+
+  // Agent drill-down: click agent → switch to request-logs filtered by that agent
+  const handleAgentClick = useCallback((agentName: string) => {
+    analytics.setFilters({ ...analytics.filters, agent: agentName });
+    setActiveSubTab('request-logs');
+  }, [analytics.filters, analytics.setFilters]);
+
+  // CSV export for request logs
+  const handleExportCsv = useCallback(() => {
+    const logs = analytics.requestLogs?.content;
+    if (!logs || logs.length === 0) return;
+
+    const headers = ['Timestamp', 'Provider', 'Model', 'Agent', 'Input Tokens', 'Output Tokens', 'Cost', 'Latency (ms)', 'Status'];
+    const rows = logs.map(l => [
+      l.timestamp,
+      l.provider,
+      l.model,
+      l.agentName || '',
+      l.inputTokens,
+      l.outputTokens,
+      l.cost,
+      l.latencyMs,
+      l.statusCode,
+    ]);
+
+    const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `llm-request-logs-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [analytics.requestLogs]);
 
   const hasProviders = providers.length > 0;
 
@@ -400,7 +446,7 @@ const AIOpsPage: React.FC = () => {
                   ))}
                 </div>
               ) : kpis && (
-                <AIOpsKPISection kpis={kpis} />
+                <AIOpsKPISection kpis={kpis} allTimeMetrics={allTimeMetrics} />
               )}
 
               {/* Charts */}
@@ -516,6 +562,7 @@ const AIOpsPage: React.FC = () => {
                   size={analytics.logsSize}
                   onPageChange={analytics.setLogsPage}
                   onSizeChange={analytics.setLogsSize}
+                  onExport={handleExportCsv}
                 />
               )}
 
@@ -523,6 +570,7 @@ const AIOpsPage: React.FC = () => {
                 <AgentBreakdownSection
                   data={analytics.agentBreakdown}
                   loading={analytics.agentLoading}
+                  onAgentClick={handleAgentClick}
                 />
               )}
 
@@ -569,6 +617,8 @@ const AIOpsPage: React.FC = () => {
               }}
               onDelete={(budgetId) => budget.deleteBudget(budgetId)}
               onDismissAlert={(alertId) => budget.dismissAlert(alertId)}
+              onToggleStatus={(budgetId, newStatus) => budget.toggleBudgetStatus(budgetId, newStatus)}
+              dailySpend={budget.dailySpend}
             />
           )}
         </div>

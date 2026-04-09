@@ -1,5 +1,8 @@
-import React from 'react';
-import type { BudgetSummary, BudgetStatus, BudgetAlert } from '../../types/aiops';
+import React, { useRef, useEffect } from 'react';
+import { Chart, registerables } from 'chart.js';
+import type { BudgetSummary, BudgetStatus, BudgetAlert, DailySpendEntry } from '../../types/aiops';
+
+Chart.register(...registerables);
 
 interface BudgetOverviewProps {
   summary: BudgetSummary | null;
@@ -8,6 +11,8 @@ interface BudgetOverviewProps {
   onDelete: (budgetId: number) => void;
   onAdd: () => void;
   onDismissAlert: (alertId: number) => void;
+  onToggleStatus?: (budgetId: number, newStatus: string) => void;
+  dailySpend?: Record<number, DailySpendEntry[]>;
 }
 
 function formatCurrency(value: number): string {
@@ -36,7 +41,7 @@ function formatTimestamp(ts: string): string {
 }
 
 const BudgetOverview: React.FC<BudgetOverviewProps> = ({
-  summary, loading, onEdit, onDelete, onAdd, onDismissAlert,
+  summary, loading, onEdit, onDelete, onAdd, onDismissAlert, onToggleStatus, dailySpend,
 }) => {
   if (loading) {
     return (
@@ -112,7 +117,14 @@ const BudgetOverview: React.FC<BudgetOverviewProps> = ({
         ) : (
           <div className="divide-y divide-gray-100">
             {summary.budgets.map(b => (
-              <BudgetCard key={b.budgetId} budget={b} onEdit={onEdit} onDelete={onDelete} />
+              <BudgetCard
+                key={b.budgetId}
+                budget={b}
+                onEdit={onEdit}
+                onDelete={onDelete}
+                onToggleStatus={onToggleStatus}
+                sparklineData={dailySpend?.[b.budgetId]}
+              />
             ))}
           </div>
         )}
@@ -141,10 +153,68 @@ const BudgetOverview: React.FC<BudgetOverviewProps> = ({
   );
 };
 
+// ─── Sparkline ──────────────────────────────────────────────
+function BudgetSparkline({ data }: { data: DailySpendEntry[] }) {
+  const chartRef = useRef<HTMLCanvasElement>(null);
+  const chartInstance = useRef<Chart | null>(null);
+
+  useEffect(() => {
+    if (!chartRef.current || data.length === 0) return;
+    if (chartInstance.current) chartInstance.current.destroy();
+
+    const ctx = chartRef.current.getContext('2d');
+    if (!ctx) return;
+
+    chartInstance.current = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: data.map(d => d.date.slice(5)),
+        datasets: [{
+          data: data.map(d => d.spend),
+          borderColor: '#6366f1',
+          backgroundColor: 'rgba(99,102,241,0.1)',
+          fill: true,
+          tension: 0.3,
+          borderWidth: 1.5,
+          pointRadius: 0,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { enabled: false } },
+        scales: {
+          x: { display: false },
+          y: { display: false, beginAtZero: true },
+        },
+      },
+    });
+
+    return () => { chartInstance.current?.destroy(); chartInstance.current = null; };
+  }, [data]);
+
+  if (data.length === 0) return null;
+
+  return (
+    <div className="h-10 w-28">
+      <canvas ref={chartRef} />
+    </div>
+  );
+}
+
 // ─── Budget Card ─────────────────────────────────────────────
-function BudgetCard({ budget, onEdit, onDelete }: { budget: BudgetStatus; onEdit: (id: number) => void; onDelete: (id: number) => void }) {
+function BudgetCard({
+  budget, onEdit, onDelete, onToggleStatus, sparklineData,
+}: {
+  budget: BudgetStatus;
+  onEdit: (id: number) => void;
+  onDelete: (id: number) => void;
+  onToggleStatus?: (id: number, newStatus: string) => void;
+  sparklineData?: DailySpendEntry[];
+}) {
   const badge = getStatusBadge(budget.status, budget.usagePct);
   const pctClamped = Math.min(budget.usagePct, 100);
+  const daysInMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
 
   return (
     <div className="px-6 py-4 hover:bg-gray-50/50 transition-colors">
@@ -164,6 +234,20 @@ function BudgetCard({ budget, onEdit, onDelete }: { budget: BudgetStatus; onEdit
           )}
         </div>
         <div className="flex items-center gap-2">
+          {onToggleStatus && (
+            <button
+              onClick={() => onToggleStatus(budget.budgetId, budget.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE')}
+              className={`text-xs px-2 py-0.5 rounded-md transition-colors ${
+                budget.status === 'ACTIVE'
+                  ? 'text-amber-600 hover:bg-amber-50'
+                  : 'text-emerald-600 hover:bg-emerald-50'
+              }`}
+              title={budget.status === 'ACTIVE' ? 'Pause budget' : 'Resume budget'}
+            >
+              <i className={`fas ${budget.status === 'ACTIVE' ? 'fa-pause' : 'fa-play'} mr-1`} />
+              {budget.status === 'ACTIVE' ? 'Pause' : 'Resume'}
+            </button>
+          )}
           <button onClick={() => onEdit(budget.budgetId)} className="text-gray-400 hover:text-indigo-600 text-xs transition-colors" title="Edit">
             <i className="fas fa-edit" />
           </button>
@@ -183,7 +267,6 @@ function BudgetCard({ budget, onEdit, onDelete }: { budget: BudgetStatus; onEdit
       <div className="flex items-center gap-4">
         <div className="flex-1">
           <div className="relative w-full bg-gray-100 rounded-full h-3">
-            {/* Threshold markers */}
             {budget.thresholds.map(t => (
               <div
                 key={t}
@@ -205,6 +288,29 @@ function BudgetCard({ budget, onEdit, onDelete }: { budget: BudgetStatus; onEdit
             {budget.usagePct.toFixed(1)}%
           </span>
         </div>
+      </div>
+
+      {/* Forecast + Sparkline row */}
+      <div className="flex items-center justify-between mt-2">
+        <div className="flex items-center gap-4 text-[11px] text-gray-500">
+          {budget.projectedSpend > 0 && (
+            <span>
+              <i className="fas fa-chart-line mr-1 text-indigo-400" />
+              Projected: <strong className={budget.projectedSpend > budget.monthlyLimitUsd ? 'text-red-600' : 'text-gray-700'}>
+                {formatCurrency(budget.projectedSpend)}
+              </strong> by month end
+            </span>
+          )}
+          {budget.estimatedRunoutDay > 0 && budget.estimatedRunoutDay <= daysInMonth && budget.usagePct < 100 && (
+            <span className="text-amber-600">
+              <i className="fas fa-exclamation-triangle mr-1" />
+              Limit hit ~Day {budget.estimatedRunoutDay}
+            </span>
+          )}
+        </div>
+        {sparklineData && sparklineData.length > 0 && (
+          <BudgetSparkline data={sparklineData} />
+        )}
       </div>
     </div>
   );

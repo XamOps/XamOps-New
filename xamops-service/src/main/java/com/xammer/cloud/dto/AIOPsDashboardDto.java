@@ -149,6 +149,29 @@ public class AIOPsDashboardDto implements Serializable {
         private List<String> agents;
     }
 
+    // ─── All-Time Metrics DTO ──────────────────────────────────
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class AllTimeMetrics implements Serializable {
+        private static final long serialVersionUID = 1L;
+        private double allTimeCost;
+        private long allTimeTokens;
+        private long allTimeRequests;
+    }
+
+    // ─── Daily Spend Entry DTO ──────────────────────────────────
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class DailySpendEntry implements Serializable {
+        private static final long serialVersionUID = 1L;
+        private String date;
+        private double spend;
+    }
+
     // ─── Budget & Controls DTOs ─────────────────────────────────
 
     @Data
@@ -185,6 +208,9 @@ public class AIOPsDashboardDto implements Serializable {
         private String status;
         private List<Integer> thresholds;
         private List<Integer> breachedThresholds;
+        private double projectedSpend;
+        private double burnRate;
+        private int estimatedRunoutDay;
     }
 
     @Data
