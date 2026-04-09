@@ -185,7 +185,10 @@ public class SecurityConfig {
                                                                 new AntPathRequestMatcher("/api/flexcompute/**"),
                                                                 new AntPathRequestMatcher("/api/dev_ops_script/**"),
                                                                 // ✅ TEAM CODE: Preserved AWS Calculator API
-                                                                new AntPathRequestMatcher("/api/aws/**"))
+                                                                new AntPathRequestMatcher("/api/aws/**"),
+
+                                                                // LLM Proxy — user apps call this with provider API key, not session
+                                                                new AntPathRequestMatcher("/api/llm-proxy/**"))
                                                 .permitAll()
                                                 .anyRequest().authenticated())
                                 .formLogin((form) -> form
