@@ -7,6 +7,7 @@ import com.xammer.billops.dto.TicketDto;
 import com.xammer.billops.dto.TicketReplyDto;
 import com.xammer.billops.repository.ClientRepository;
 import com.xammer.billops.repository.CloudAccountRepository;
+import com.xammer.billops.repository.TicketReplyRepository;
 import com.xammer.billops.service.RcaService;
 import com.xammer.billops.service.TicketService;
 import com.xammer.cloud.security.ClientUserDetails;
@@ -21,6 +22,8 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -39,6 +42,9 @@ public class TicketController {
 
     @Autowired
     private CloudAccountRepository cloudAccountRepository;
+
+    @Autowired
+    private TicketReplyRepository ticketReplyRepository;
 
     public TicketController(TicketService ticketService, RcaService rcaService) {
         this.ticketService = ticketService;
@@ -189,6 +195,78 @@ public class TicketController {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
         }
     }
+
+    // ─── EDIT / DELETE REPLY ────────────────────────────────────────────────
+
+    @PatchMapping("/tickets/replies/{replyId}")
+    public ResponseEntity<?> editReply(
+            @PathVariable Long replyId,
+            @RequestBody Map<String, String> payload,
+            Authentication authentication) {
+        try {
+            if (authentication == null || !(authentication.getPrincipal() instanceof ClientUserDetails)) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+            }
+            Long userId = ((ClientUserDetails) authentication.getPrincipal()).getId();
+
+            return ticketReplyRepository.findById(replyId).map(reply -> {
+                // Only the author can edit their own message
+                if (!reply.getAuthor().getId().equals(userId)) {
+                    return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+                }
+                if (reply.isDeleted()) {
+                    return ResponseEntity.status(HttpStatus.GONE).build();
+                }
+                // 15-minute edit window
+                LocalDateTime cutoff = LocalDateTime.now(ZoneId.of("Asia/Kolkata")).minusMinutes(15);
+                if (reply.getCreatedAt().isBefore(cutoff)) {
+                    return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+                }
+
+                reply.setMessage(payload.getOrDefault("message", reply.getMessage()));
+                reply.setEdited(true);
+                reply.setEditedAt(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
+                ticketReplyRepository.save(reply);
+                return ResponseEntity.ok().build();
+            }).orElse(ResponseEntity.notFound().build());
+        } catch (Exception e) {
+            logger.error("Error editing reply {}: {}", replyId, e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    @DeleteMapping("/tickets/replies/{replyId}")
+    public ResponseEntity<?> deleteReply(
+            @PathVariable Long replyId,
+            Authentication authentication) {
+        try {
+            if (authentication == null || !(authentication.getPrincipal() instanceof ClientUserDetails)) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+            }
+            Long userId = ((ClientUserDetails) authentication.getPrincipal()).getId();
+            boolean isAdmin = authentication.getAuthorities().stream()
+                    .anyMatch(a -> a.getAuthority().equals("ROLE_BILLOPS_ADMIN"));
+
+            return ticketReplyRepository.findById(replyId).map(reply -> {
+                // Author can delete own message, admin can delete any
+                if (!reply.getAuthor().getId().equals(userId) && !isAdmin) {
+                    return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+                }
+                if (reply.isDeleted()) {
+                    return ResponseEntity.ok().build();
+                }
+
+                reply.setDeleted(true);
+                ticketReplyRepository.save(reply);
+                return ResponseEntity.ok().build();
+            }).orElse(ResponseEntity.notFound().build());
+        } catch (Exception e) {
+            logger.error("Error deleting reply {}: {}", replyId, e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    // ───────────────────────────────────────────────────────────────────────
 
     @PostMapping("/tickets/{id}/close")
     @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")

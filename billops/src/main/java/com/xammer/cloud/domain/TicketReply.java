@@ -38,6 +38,15 @@ public class TicketReply {
     @Column(name = "is_internal", nullable = false)
     private boolean isInternal = false; // Admin-only internal note, not visible to customers
 
+    @Column(name = "is_edited", columnDefinition = "boolean not null default false")
+    private boolean edited = false;
+
+    @Column(name = "edited_at")
+    private LocalDateTime editedAt;
+
+    @Column(name = "is_deleted", columnDefinition = "boolean not null default false")
+    private boolean deleted = false;
+
     // Getters and Setters
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -66,4 +75,13 @@ public class TicketReply {
 
     public boolean isInternal() { return isInternal; }
     public void setInternal(boolean isInternal) { this.isInternal = isInternal; }
+
+    public boolean isEdited() { return edited; }
+    public void setEdited(boolean edited) { this.edited = edited; }
+
+    public LocalDateTime getEditedAt() { return editedAt; }
+    public void setEditedAt(LocalDateTime editedAt) { this.editedAt = editedAt; }
+
+    public boolean isDeleted() { return deleted; }
+    public void setDeleted(boolean deleted) { this.deleted = deleted; }
 }

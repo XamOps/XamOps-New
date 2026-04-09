@@ -22,6 +22,20 @@ public class TicketReplyDto {
     private String attachmentName;
     private String attachmentType;
 
+    // --- EDIT / DELETE FIELDS ---
+    private boolean edited;
+    private LocalDateTime editedAt;
+    private boolean deleted;
+
     public boolean isInternal() { return isInternal; }
     public void setInternal(boolean isInternal) { this.isInternal = isInternal; }
+
+    public boolean isEdited() { return edited; }
+    public void setEdited(boolean edited) { this.edited = edited; }
+
+    public LocalDateTime getEditedAt() { return editedAt; }
+    public void setEditedAt(LocalDateTime editedAt) { this.editedAt = editedAt; }
+
+    public boolean isDeleted() { return deleted; }
+    public void setDeleted(boolean deleted) { this.deleted = deleted; }
 }

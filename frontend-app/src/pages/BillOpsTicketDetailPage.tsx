@@ -54,13 +54,19 @@ const BillOpsTicketDetailPage: React.FC = () => {
     closeTicket,
     submitRCA,
     assignTicket,
-    sendEmailThread
+    sendEmailThread,
+    editReply,
+    deleteReply
   } = useBillOpsTicketDetail(ticketId);
 
   // Quill editor
   const quillRef = useRef<HTMLDivElement>(null);
   const quillInstance = useRef<Quill | null>(null);
   const [newReplyHasContent, setNewReplyHasContent] = useState(false);
+
+  // Edit / Delete state
+  const [editingReplyId, setEditingReplyId] = useState<number | null>(null);
+  const [editContent, setEditContent] = useState('');
 
   // Internal note toggle (kept for submit path only)
   const [isInternalNote, setIsInternalNote] = useState(false);
@@ -214,6 +220,28 @@ const BillOpsTicketDetailPage: React.FC = () => {
         const text = quillInstance.current.getText().trim();
         setNewReplyHasContent(text.length > 0);
       }
+    });
+
+    // Intercept pasted/dropped images via Quill's clipboard module so they
+    // become a proper file attachment instead of a base64 embed in the HTML.
+    const Delta = Quill.import('delta') as any;
+    const clipboard = quillInstance.current.getModule('clipboard') as any;
+    clipboard.addMatcher('IMG', (node: HTMLImageElement) => {
+      const src = node.getAttribute('src');
+      if (src && src.startsWith('data:')) {
+        fetch(src)
+          .then(res => res.blob())
+          .then(blob => {
+            const file = new File([blob], 'pasted-image.png', { type: blob.type });
+            if (file.size > 10 * 1024 * 1024) {
+              globalThis.alert('Pasted image is too large. Max size is 10MB.');
+              return;
+            }
+            setAttachment(file);
+            setFileName('pasted-image.png');
+          });
+      }
+      return new Delta(); // empty delta — block the image from entering the editor
     });
 
     return () => {
@@ -535,11 +563,31 @@ const BillOpsTicketDetailPage: React.FC = () => {
     if (!quillInstance.current) return;
 
     const textContent = quillInstance.current.getText().trim();
-    if (!textContent && !attachment) return;
+    const rawHtml = quillInstance.current.root.innerHTML;
+    const hasEmbeddedImage = /<img[^>]+src="data:/i.test(rawHtml);
+    if (!textContent && !attachment && !hasEmbeddedImage) return;
 
     try {
-      const htmlMessage = textContent ? quillInstance.current.root.innerHTML : '';
-      await submitReply(htmlMessage, attachment, isInternalNote);
+      let htmlMessage = (textContent || hasEmbeddedImage) ? rawHtml : '';
+
+      // Extract any base64 image from the HTML and convert to a file attachment.
+      // This handles cases where Quill embeds a pasted image before our clipboard
+      // matcher can capture it, or when the async fetch hasn't completed yet.
+      let fileToSend = attachment;
+      const b64Match = htmlMessage.match(/<img[^>]+src="(data:image\/[^;]+;base64,[^"]+)"[^>]*>/i);
+      if (b64Match && !fileToSend) {
+        const dataUrl = b64Match[1];
+        const byteString = atob(dataUrl.split(',')[1]);
+        const mimeType = dataUrl.match(/data:([^;]+)/)?.[1] || 'image/png';
+        const ab = new ArrayBuffer(byteString.length);
+        const ia = new Uint8Array(ab);
+        for (let i = 0; i < byteString.length; i++) ia[i] = byteString.charCodeAt(i);
+        fileToSend = new File([ab], 'pasted-image.png', { type: mimeType });
+      }
+      // Always strip base64 images from the message HTML
+      htmlMessage = htmlMessage.replace(/<img[^>]+src="data:[^"]*"[^>]*>/gi, '');
+
+      await submitReply(htmlMessage, fileToSend, isInternalNote);
 
       quillInstance.current.root.innerHTML = '';
       setNewReplyHasContent(false);
@@ -972,11 +1020,79 @@ const BillOpsTicketDetailPage: React.FC = () => {
                           )}
                         </div>
 
-                        <div className={`p-4 rounded-[1.5rem] shadow-sm text-sm font-medium leading-relaxed overflow-hidden ${isMine ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white text-slate-700 border border-slate-100 rounded-tl-none'}`}>
-                          <div dangerouslySetInnerHTML={{ __html: reply.message }} className="prose-chat !p-0 break-words" />
+                        <div className={`group/msg relative p-4 rounded-[1.5rem] shadow-sm text-sm font-medium leading-relaxed overflow-visible ${isMine ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white text-slate-700 border border-slate-100 rounded-tl-none'}`}>
 
-                          {/* Attachments */}
-                          {(reply.attachmentUrl || reply.attachmentName) && (
+                          {/* ── Edit / Delete hover buttons ── */}
+                          {isMine && !reply.deleted && ticket.status !== 'CLOSED' && (
+                            <div className={`absolute top-2 ${isMine ? 'left-2' : 'right-2'} opacity-0 group-hover/msg:opacity-100 transition-opacity flex items-center gap-1 z-10`}>
+                              {/* Edit — only within 15 min */}
+                              {(Date.now() - new Date(reply.createdAt).getTime()) < 15 * 60 * 1000 && (
+                                <button
+                                  onClick={() => {
+                                    setEditingReplyId(reply.id);
+                                    const tmp = document.createElement('div');
+                                    tmp.innerHTML = reply.message;
+                                    setEditContent(tmp.textContent || tmp.innerText || '');
+                                  }}
+                                  className="p-1.5 rounded-lg bg-white/20 hover:bg-white/30 transition-colors"
+                                  title="Edit (within 15 min)"
+                                >
+                                  <i className="fas fa-pencil-alt text-[10px] text-white/70 hover:text-white"></i>
+                                </button>
+                              )}
+                              <button
+                                onClick={() => { if (globalThis.confirm('Delete this message?')) deleteReply(reply.id); }}
+                                className="p-1.5 rounded-lg bg-white/20 hover:bg-red-500/40 transition-colors"
+                                title="Delete message"
+                              >
+                                <i className="fas fa-trash text-[10px] text-white/70 hover:text-red-200"></i>
+                              </button>
+                            </div>
+                          )}
+
+                          {reply.deleted ? (
+                            <div className={`flex items-center gap-2 italic ${isMine ? 'text-white/50' : 'text-slate-400'}`}>
+                              <i className="fas fa-ban text-xs"></i>
+                              <span className="text-sm">This message was deleted</span>
+                            </div>
+                          ) : editingReplyId === reply.id ? (
+                            <div className="flex flex-col gap-2 min-w-[200px]">
+                              <textarea
+                                value={editContent}
+                                onChange={e => setEditContent(e.target.value)}
+                                className="w-full rounded-lg border border-indigo-300 p-2 text-sm text-gray-800 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                                rows={3}
+                                autoFocus
+                              />
+                              <div className="flex gap-2 justify-end">
+                                <button
+                                  onClick={() => setEditingReplyId(null)}
+                                  className="text-xs px-3 py-1 rounded-lg bg-white/20 hover:bg-white/30 text-white border border-white/30"
+                                >Cancel</button>
+                                <button
+                                  onClick={async () => {
+                                    if (!editContent.trim()) return;
+                                    try {
+                                      const htmlMsg = editContent.split('\n').map(line => `<p>${line || '<br>'}</p>`).join('');
+                                      await editReply(reply.id, htmlMsg);
+                                      setEditingReplyId(null);
+                                    } catch { globalThis.alert('Failed to edit. The 15-minute window may have passed.'); }
+                                  }}
+                                  className="text-xs px-3 py-1 rounded-lg bg-white text-indigo-700 font-semibold hover:bg-indigo-50"
+                                >Save</button>
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              <div dangerouslySetInnerHTML={{ __html: reply.message }} className="prose-chat !p-0 break-words" />
+                              {reply.edited && (
+                                <span className={`text-[9px] font-bold italic mt-1 inline-block ${isMine ? 'text-white/40' : 'text-slate-400'}`}>Edited</span>
+                              )}
+                            </>
+                          )}
+
+                          {/* Attachments (only if not deleted) */}
+                          {!reply.deleted && (reply.attachmentUrl || reply.attachmentName) && (
                             <div className="mt-4">
                               {reply.attachmentType?.startsWith('image/') && (
                                 <div

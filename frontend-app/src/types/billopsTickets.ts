@@ -75,6 +75,9 @@ export interface TicketReply {
   attachmentName?: string;
   attachmentType?: string;
   isInternal?: boolean;
+  edited?: boolean;
+  editedAt?: string;
+  deleted?: boolean;
 }
 
 export interface AdminUser {

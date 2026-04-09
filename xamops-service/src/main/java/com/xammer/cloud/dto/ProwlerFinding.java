@@ -1,5 +1,6 @@
 package com.xammer.cloud.dto;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
@@ -45,12 +46,14 @@ public class ProwlerFinding {
     @JsonProperty("unmapped")
     private Unmapped unmapped;
 
-    // --- Convenience Accessors ---
+    // --- Convenience Accessors (hidden from Jackson to avoid serialization conflicts) ---
 
+    @JsonIgnore
     public String getStatus() {
         return statusCode;
     }
 
+    @JsonIgnore
     public String getResourceId() {
         if (resources != null && !resources.isEmpty()) {
             return resources.get(0).getUid();
@@ -58,6 +61,7 @@ public class ProwlerFinding {
         return null;
     }
 
+    @JsonIgnore
     public String getRegion() {
         if (resources != null && !resources.isEmpty() && resources.get(0).getRegion() != null) {
             return resources.get(0).getRegion();
@@ -68,6 +72,7 @@ public class ProwlerFinding {
         return null;
     }
 
+    @JsonIgnore
     public String getServiceName() {
         if (resources != null && !resources.isEmpty() && resources.get(0).getGroup() != null) {
             return resources.get(0).getGroup().getName();
@@ -75,6 +80,7 @@ public class ProwlerFinding {
         return null;
     }
 
+    @JsonIgnore
     public String getCheckId() {
         if (metadata != null) {
             return metadata.getEventCode();
@@ -82,6 +88,7 @@ public class ProwlerFinding {
         return null;
     }
 
+    @JsonIgnore
     public String getCheckTitle() {
         if (findingInfo != null) {
             return findingInfo.getTitle();
@@ -89,6 +96,7 @@ public class ProwlerFinding {
         return null;
     }
 
+    @JsonIgnore
     public String getDescription() {
         if (findingInfo != null) {
             return findingInfo.getDesc();
@@ -96,6 +104,7 @@ public class ProwlerFinding {
         return message;
     }
 
+    @JsonIgnore
     public Map<String, List<String>> getCompliance() {
         if (unmapped != null) {
             return unmapped.getCompliance();

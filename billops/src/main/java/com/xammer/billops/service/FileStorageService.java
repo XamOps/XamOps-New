@@ -46,8 +46,7 @@ public class FileStorageService {
             originalFilename = "attachment";
         }
 
-        // Create a unique key
-        String key = "tickets/" + UUID.randomUUID() + "/" + originalFilename;
+        String key = "tickets/" + UUID.randomUUID() + "/" + sanitizeFileName(originalFilename);
 
         try {
             PutObjectRequest putOb = PutObjectRequest.builder()
@@ -86,20 +85,27 @@ public class FileStorageService {
         }
     }
 
+    /**
+     * Strip non-ISO-8859-1 characters (e.g. macOS narrow no-break space U+202F)
+     * from filenames.
+     */
+    private String sanitizeFileName(String fileName) {
+        return fileName.replaceAll("[^\\x00-\\xFF]", "_");
+    }
+
     public String generatePresignedUrl(String key) {
         if (key == null || key.isBlank())
             return null;
 
         try {
-            // Extract filename to ensure the browser names it correctly if saved,
-            // but more importantly, set disposition to 'inline' for viewing.
             String fileName = key.substring(key.lastIndexOf("/") + 1);
+            String safeFileName = sanitizeFileName(fileName);
 
             String encodedFileName = URLEncoder.encode(fileName, StandardCharsets.UTF_8).replace("+", "%20");
             GetObjectRequest getObjectRequest = GetObjectRequest.builder()
                     .bucket(bucketName)
                     .key(key)
-                    .responseContentDisposition("inline; filename*=UTF-8''" + encodedFileName)
+                    .responseContentDisposition("inline; filename=\"" + safeFileName + "\"")
                     .build();
 
             GetObjectPresignRequest presignRequest = GetObjectPresignRequest.builder()
