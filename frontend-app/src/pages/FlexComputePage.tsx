@@ -35,6 +35,7 @@ const FlexComputePage: React.FC = () => {
     purchaseCapacity,
     cancelCapacity,
     extendCapacity,
+    renewCapacity,
     currentPage,
     pageSize,
     totalElements,
@@ -204,6 +205,7 @@ const FlexComputePage: React.FC = () => {
               reserveCapacity={reserveCapacity}
               configureCapacity={configureCapacity}
               purchaseCapacity={purchaseCapacity}
+              renewCapacity={renewCapacity}
               isSearching={isSearching}
               isPurchasing={isPurchasing}
               initialPricing={continuePricing}

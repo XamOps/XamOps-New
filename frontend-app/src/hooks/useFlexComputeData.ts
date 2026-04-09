@@ -301,11 +301,11 @@ export const useFlexComputeData = () => {
         quantity: data.quantity || form.quantity,
         platform: data.platform || form.platform,
         tenancy: data.tenancy || form.tenancy,
-        ourPrice: data.our_price || data.ourPrice || 0,
         awsPrice: data.aws_price || data.awsPrice || 0,
-        savingsPercent: data.savings_percent || data.savingsPercent || 0,
+        ourPrice: (data.aws_price || data.awsPrice || 0) * 0.75,
+        savingsPercent: 25,
         fees: data.fees || 0,
-        total: data.total || 0,
+        total: (data.aws_price || data.awsPrice || 0) * 0.75,
         startDate: data.start_date || data.startDate || form.startDate,
         endDate: data.end_date || data.endDate || form.endDate,
         status: data.status || 'available',
@@ -491,6 +491,48 @@ export const useFlexComputeData = () => {
   }, [fetchCapacities, fetchKpis]);
 
   /**
+   * Update auto-renewal settings for a capacity
+   */
+  const renewCapacity = useCallback(async (
+    cidrId: string,
+    autoRenewalEnabled: boolean,
+    frequency: '24hrs' | '1week' | '1month',
+  ): Promise<boolean> => {
+    const frequencyMap: Record<string, string> = {
+      '24hrs': 'one-day',
+      '1week': 'one-week',
+      '1month': 'one-month',
+    };
+    try {
+      setError(null);
+      const requestBody = {
+        cidrId,
+        autoRenewalEnabled,
+        frequency: frequencyMap[frequency] ?? 'one-day',
+      };
+      console.log('[FlexCompute] Renew capacity request:', requestBody);
+
+      const response = await fetch('/api/flexcompute/capacity/auto-renewal', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(requestBody),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(parseApiError(response.status, errorData, 'auto-renewal'));
+      }
+
+      return true;
+    } catch (err) {
+      console.error('[FlexCompute] Renew capacity failed:', err);
+      setError(err instanceof Error ? err.message : 'Auto-renewal update failed');
+      return false;
+    }
+  }, []);
+
+  /**
    * Cancel capacity (dashboard action)
    */
   const cancelCapacity = useCallback(async (cidrId: string): Promise<boolean> => {
@@ -553,6 +595,7 @@ export const useFlexComputeData = () => {
     purchaseCapacity,
     cancelCapacity,
     extendCapacity,
+    renewCapacity,
     setSearchResult,
 
     // Error
