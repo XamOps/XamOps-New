@@ -16,6 +16,9 @@ public class TicketReplyDto {
     private String attachmentName;
     private String attachmentType;
     private boolean isInternal; // Admin-only internal note
+    private boolean edited;
+    private LocalDateTime editedAt;
+    private boolean deleted;
 
     public TicketReplyDto() {
     }
@@ -119,5 +122,29 @@ public class TicketReplyDto {
 
     public void setInternal(boolean isInternal) {
         this.isInternal = isInternal;
+    }
+
+    public boolean isEdited() {
+        return edited;
+    }
+
+    public void setEdited(boolean edited) {
+        this.edited = edited;
+    }
+
+    public LocalDateTime getEditedAt() {
+        return editedAt;
+    }
+
+    public void setEditedAt(LocalDateTime editedAt) {
+        this.editedAt = editedAt;
+    }
+
+    public boolean isDeleted() {
+        return deleted;
+    }
+
+    public void setDeleted(boolean deleted) {
+        this.deleted = deleted;
     }
 }

@@ -95,7 +95,22 @@ public class ProwlerService {
             List<ProwlerFinding> findings = runInternalScan(region, credentials, serviceGroups, complianceFrameworks);
 
             // 4. Save Results & Update Status
-            redisCacheService.put(findingsKey, findings, 1440); // Cache findings for 24 hours
+            redisCacheService.put(findingsKey, findings, 1440); // Cache findings for 24 hours in Redis
+
+            // Persist to DB so findings survive Redis restarts
+            try {
+                String prowlerJson = objectMapper.writeValueAsString(findings);
+                String dbProwlerKey = "PROWLER::" + accountId + "::LATEST";
+                com.xammer.cloud.domain.CachedData prowlerData = cachedDataRepository.findById(dbProwlerKey)
+                        .orElse(new com.xammer.cloud.domain.CachedData());
+                prowlerData.setCacheKey(dbProwlerKey);
+                prowlerData.setJsonData(prowlerJson);
+                prowlerData.setLastUpdated(LocalDateTime.now());
+                cachedDataRepository.save(prowlerData);
+                logger.info("Persisted {} Prowler findings to DB for account {}", findings.size(), accountId);
+            } catch (Exception dbEx) {
+                logger.warn("Failed to persist Prowler findings to DB: {}", dbEx.getMessage());
+            }
 
             // Force refresh of combined security findings (Redis + DB snapshots)
             redisCacheService.evict(securityServiceCacheKey);
@@ -134,9 +149,36 @@ public class ProwlerService {
 
     public List<ProwlerFinding> getCachedFindings(String accountId) {
         String findingsKey = "prowler_findings_" + accountId;
-        return redisCacheService.get(findingsKey, new TypeReference<List<ProwlerFinding>>() {
-        })
-                .orElse(Collections.emptyList());
+
+        // 1. Try Redis first (fastest)
+        Optional<List<ProwlerFinding>> redisFindings = redisCacheService.get(findingsKey,
+                new TypeReference<List<ProwlerFinding>>() {
+                });
+        if (redisFindings.isPresent()) {
+            logger.info("Loaded {} Prowler findings from Redis for account {}", redisFindings.get().size(), accountId);
+            return redisFindings.get();
+        }
+
+        // 2. Fall back to DB (survives Redis/app restarts)
+        String dbProwlerKey = "PROWLER::" + accountId + "::LATEST";
+        Optional<com.xammer.cloud.domain.CachedData> dbData = cachedDataRepository.findById(dbProwlerKey);
+        if (dbData.isPresent()) {
+            try {
+                List<ProwlerFinding> findings = objectMapper.readValue(
+                        dbData.get().getJsonData(),
+                        new TypeReference<List<ProwlerFinding>>() {
+                        });
+                logger.info("Loaded {} Prowler findings from DB for account {} (Redis miss)", findings.size(),
+                        accountId);
+                // Re-populate Redis for future calls
+                redisCacheService.put(findingsKey, findings, 1440);
+                return findings;
+            } catch (Exception e) {
+                logger.error("Failed to parse Prowler findings from DB for account {}: {}", accountId, e.getMessage());
+            }
+        }
+
+        return Collections.emptyList();
     }
 
     public List<ProwlerFinding> runScan(String accountId, String region, String... serviceGroups) {

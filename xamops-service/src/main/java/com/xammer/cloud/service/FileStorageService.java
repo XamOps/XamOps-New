@@ -15,6 +15,8 @@ import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
 
 import java.io.IOException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.UUID;
 
@@ -43,7 +45,7 @@ public class FileStorageService {
             originalFilename = "attachment";
         }
 
-        String key = "tickets/" + UUID.randomUUID() + "/" + originalFilename;
+        String key = "tickets/" + UUID.randomUUID() + "/" + sanitizeFileName(originalFilename);
 
         try {
             PutObjectRequest putOb = PutObjectRequest.builder()
@@ -66,11 +68,12 @@ public class FileStorageService {
 
         try {
             String fileName = key.substring(key.lastIndexOf("/") + 1);
+            String safeFileName = sanitizeFileName(fileName);
 
             GetObjectRequest getObjectRequest = GetObjectRequest.builder()
                     .bucket(bucketName)
                     .key(key)
-                    .responseContentDisposition("inline; filename=\"" + fileName + "\"")
+                    .responseContentDisposition("inline; filename=\"" + safeFileName + "\"")
                     .build();
 
             GetObjectPresignRequest presignRequest = GetObjectPresignRequest.builder()
@@ -107,11 +110,12 @@ public class FileStorageService {
 
         try {
             String fileName = key.substring(key.lastIndexOf("/") + 1);
+            String safeFileName = sanitizeFileName(fileName);
 
             GetObjectRequest getObjectRequest = GetObjectRequest.builder()
                     .bucket(bucketName)
                     .key(key)
-                    .responseContentDisposition("attachment; filename=\"" + fileName + "\"")
+                    .responseContentDisposition("attachment; filename=\"" + safeFileName + "\"")
                     .build();
 
             GetObjectPresignRequest presignRequest = GetObjectPresignRequest.builder()
@@ -124,6 +128,12 @@ public class FileStorageService {
             logger.error("Failed to generate presigned URL with expiry for key {}: {}", key, e.getMessage());
             return null;
         }
+    }
+
+    /** Strip non-ISO-8859-1 characters (e.g. macOS narrow no-break space U+202F) from filenames. */
+    private String sanitizeFileName(String fileName) {
+        // Replace any non-ASCII characters with an underscore to stay ISO-8859-1 safe
+        return fileName.replaceAll("[^\\x00-\\xFF]", "_");
     }
 
     /** Check whether a key exists in S3 without downloading the object. */
