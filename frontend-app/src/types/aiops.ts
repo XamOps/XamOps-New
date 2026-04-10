@@ -262,3 +262,229 @@ export interface BudgetUpdateRequest {
   status?: string;
   notificationEmail?: string;
 }
+
+// ─── Team Analytics Types ────────────────────────────────────
+
+export interface TeamUsageStat {
+  teamName: string;
+  requests: number;
+  totalTokens: number;
+  cost: number;
+  avgLatencyMs: number;
+  modelsUsed: number;
+  costPct: number;
+}
+
+export interface TeamCostTrend {
+  labels: string[];
+  seriesByTeam: Record<string, number[]>;
+}
+
+export interface TeamAnalyticsSummary {
+  teams: TeamUsageStat[];
+  costTrend: TeamCostTrend;
+  totalTeams: number;
+  totalCost: number;
+}
+
+// ─── Performance Monitoring Types ────────────────────────────
+
+export interface LatencyPercentiles {
+  model: string;
+  provider: string;
+  p50: number;
+  p95: number;
+  p99: number;
+  avgLatencyMs: number;
+  totalRequests: number;
+}
+
+export interface ErrorRateTrendPoint {
+  date: string;
+  totalRequests: number;
+  errors: number;
+  errorRate: number;
+}
+
+export interface LatencyBucket {
+  bucket: string;
+  count: number;
+}
+
+export interface ModelReliability {
+  model: string;
+  provider: string;
+  totalRequests: number;
+  errorCount: number;
+  errorRate: number;
+  avgLatencyMs: number;
+  reliabilityScore: number;
+}
+
+export interface PerformanceMetrics {
+  latencyByModel: LatencyPercentiles[];
+  errorRateTrend: ErrorRateTrendPoint[];
+  latencyDistribution: LatencyBucket[];
+  modelReliability: ModelReliability[];
+}
+
+// ─── AI Insights Types ───────────────────────────────────────
+
+export interface InsightCard {
+  id: string;
+  type: 'COST_OPTIMIZATION' | 'USAGE_PATTERN' | 'ANOMALY' | 'PERFORMANCE' | 'TREND';
+  severity: 'INFO' | 'WARNING' | 'ACTIONABLE';
+  title: string;
+  description: string;
+  impact: string | null;
+  actionable: boolean;
+  actionLabel: string | null;
+  metadata: Record<string, unknown>;
+}
+
+export interface InsightsSummary {
+  insights: InsightCard[];
+  totalInsights: number;
+  actionableCount: number;
+  estimatedSavingsUsd: number;
+  generatedAt: string;
+}
+
+// ─── Routing / Cost Optimizer Types ─────────────────────────
+
+export interface RoutingRule {
+  id: number;
+  ruleName: string;
+  sourceModel: string;
+  targetModel: string;
+  conditionType: string;
+  conditionValue: string;
+  priority: number;
+  enabled: boolean;
+  createdAt: string | null;
+}
+
+export interface RoutingRuleCreateRequest {
+  ruleName: string;
+  sourceModel: string;
+  targetModel: string;
+  conditionType: string;
+  conditionValue: string;
+  priority: number;
+}
+
+export interface RoutingSavingsEntry {
+  sourceModel: string;
+  targetModel: string;
+  routedCount: number;
+  actualCost: number;
+}
+
+export interface RoutingStats {
+  totalRoutedRequests: number;
+  estimatedSavingsUsd: number;
+  actualSpendUsd: number;
+  wouldHaveSpentUsd: number;
+  rules: RoutingRule[];
+  savingsByRule: RoutingSavingsEntry[];
+}
+
+export interface RoutingHistoryEntry {
+  id: number;
+  timestamp: string;
+  routedFrom: string;
+  routedTo: string;
+  agentName: string | null;
+  inputTokens: number;
+  outputTokens: number;
+  cost: number;
+}
+
+// ─── API Key Management Types ───────────────────────────────
+
+export interface ApiKeyStats {
+  id: number;
+  provider: string;
+  displayName: string | null;
+  maskedKey: string;
+  status: string;
+  healthStatus: string; // HEALTHY, DEGRADED, ERROR, UNKNOWN
+  requestCount: number;
+  errorCount: number;
+  lastUsedAt: string | null;
+  lastErrorAt: string | null;
+  lastErrorMessage: string | null;
+  usageLimit: number | null;
+  createdAt: string | null;
+}
+
+export interface ApiKeyRotateRequest {
+  newApiKey?: string;
+  newAwsAccessKey?: string;
+  newAwsSecretKey?: string;
+}
+
+// ─── Compute / GPU Metrics Types ────────────────────────────
+
+export interface ComputeUsageByProvider {
+  provider: string;
+  totalRequests: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCost: number;
+  avgLatencyMs: number;
+  computeTimeSec: number;
+}
+
+export interface ComputeDailyTrend {
+  labels: string[];
+  inputTokens: number[];
+  outputTokens: number[];
+  computeTimeSec: number[];
+}
+
+export interface ModelComputeAllocation {
+  model: string;
+  provider: string;
+  requests: number;
+  totalTokens: number;
+  cost: number;
+  computeTimeSec: number;
+  pctOfTotalCompute: number;
+}
+
+export interface ComputeMetricsSummary {
+  totalRequests: number;
+  totalTokens: number;
+  totalComputeTimeSec: number;
+  totalCost: number;
+  providerBreakdown: ComputeUsageByProvider[];
+  dailyTrend: ComputeDailyTrend;
+  modelAllocation: ModelComputeAllocation[];
+}
+
+// ─── Managed Inference Types ────────────────────────────────
+
+export interface InferenceEndpoint {
+  id: number;
+  provider: string;
+  model: string;
+  displayName: string;
+  status: string; // ACTIVE, DEGRADED, DOWN, INACTIVE
+  totalRequests: number;
+  totalCost: number;
+  avgLatencyMs: number;
+  errorRate: number;
+  uptimePct: number;
+  lastRequestAt: string | null;
+  createdAt: string | null;
+}
+
+export interface InferenceOverview {
+  totalEndpoints: number;
+  activeEndpoints: number;
+  degradedEndpoints: number;
+  totalCost: number;
+  avgLatency: number;
+  endpoints: InferenceEndpoint[];
+}
