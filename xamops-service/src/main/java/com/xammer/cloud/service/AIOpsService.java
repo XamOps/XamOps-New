@@ -4,6 +4,7 @@ import com.xammer.cloud.domain.Client;
 import com.xammer.cloud.domain.LlmBudget;
 import com.xammer.cloud.domain.LlmBudgetAlert;
 import com.xammer.cloud.domain.LlmProviderConfig;
+import com.xammer.cloud.domain.LlmRoutingRule;
 import com.xammer.cloud.domain.LlmUsageLog;
 import com.xammer.cloud.dto.AIOPsDashboardDto;
 import com.xammer.cloud.dto.AIOPsDashboardDto.*;
@@ -12,6 +13,7 @@ import com.xammer.cloud.repository.ClientRepository;
 import com.xammer.cloud.repository.LlmBudgetAlertRepository;
 import com.xammer.cloud.repository.LlmBudgetRepository;
 import com.xammer.cloud.repository.LlmProviderConfigRepository;
+import com.xammer.cloud.repository.LlmRoutingRuleRepository;
 import com.xammer.cloud.repository.LlmUsageLogRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -42,6 +44,7 @@ public class AIOpsService {
     private final LlmUsageLogRepository usageLogRepo;
     private final LlmBudgetRepository budgetRepo;
     private final LlmBudgetAlertRepository budgetAlertRepo;
+    private final LlmRoutingRuleRepository routingRuleRepo;
     private final EncryptionService encryptionService;
     private final ClientRepository clientRepository;
     private final RestTemplate restTemplate;
@@ -54,6 +57,7 @@ public class AIOpsService {
             LlmUsageLogRepository usageLogRepo,
             LlmBudgetRepository budgetRepo,
             LlmBudgetAlertRepository budgetAlertRepo,
+            LlmRoutingRuleRepository routingRuleRepo,
             EncryptionService encryptionService,
             ClientRepository clientRepository,
             RestTemplate restTemplate) {
@@ -61,6 +65,7 @@ public class AIOpsService {
         this.usageLogRepo = usageLogRepo;
         this.budgetRepo = budgetRepo;
         this.budgetAlertRepo = budgetAlertRepo;
+        this.routingRuleRepo = routingRuleRepo;
         this.encryptionService = encryptionService;
         this.clientRepository = clientRepository;
         this.restTemplate = restTemplate;
@@ -756,7 +761,7 @@ public class AIOpsService {
 
     // ─── Helpers ─────────────────────────────────────────────────
 
-    private Instant parsePeriod(String period) {
+    Instant parsePeriod(String period) {
         switch (period) {
             case "today":
                 return LocalDate.now().atStartOfDay().toInstant(ZoneOffset.UTC);
@@ -772,6 +777,456 @@ public class AIOpsService {
                 return Instant.now().minus(30, ChronoUnit.DAYS);
         }
     }
+
+    // ─── Team Analytics ──────────────────────────────────────────
+
+    public TeamAnalyticsSummary getTeamAnalytics(Long clientId, String period, String provider) {
+        Instant since = parsePeriod(period);
+        String prov = (provider != null && !provider.isBlank()) ? provider : null;
+
+        List<Object[]> rows = usageLogRepo.teamUsageStats(clientId, since, prov);
+        double totalCost = rows.stream().mapToDouble(r -> ((Number) r[3]).doubleValue()).sum();
+
+        List<TeamUsageStat> teams = rows.stream()
+                .map(row -> new TeamUsageStat(
+                        (String) row[0],
+                        ((Number) row[1]).longValue(),
+                        ((Number) row[2]).longValue(),
+                        ((Number) row[3]).doubleValue(),
+                        ((Number) row[4]).doubleValue(),
+                        ((Number) row[5]).intValue(),
+                        totalCost > 0 ? (((Number) row[3]).doubleValue() / totalCost) * 100 : 0))
+                .collect(Collectors.toList());
+
+        // Build cost trend
+        List<Object[]> trendRows = usageLogRepo.dailyCostByAgentSince(clientId, since);
+        Map<String, Map<String, Double>> agentDayMap = new LinkedHashMap<>();
+        Set<String> allDates = new LinkedHashSet<>();
+        for (Object[] r : trendRows) {
+            String date = r[0].toString();
+            String agent = (String) r[1];
+            double cost = ((Number) r[2]).doubleValue();
+            allDates.add(date);
+            agentDayMap.computeIfAbsent(agent, k -> new LinkedHashMap<>()).put(date, cost);
+        }
+        List<String> labels = new ArrayList<>(allDates);
+        Map<String, List<Double>> seriesByTeam = new LinkedHashMap<>();
+        for (Map.Entry<String, Map<String, Double>> entry : agentDayMap.entrySet()) {
+            List<Double> series = labels.stream()
+                    .map(d -> entry.getValue().getOrDefault(d, 0.0))
+                    .collect(Collectors.toList());
+            seriesByTeam.put(entry.getKey(), series);
+        }
+        TeamCostTrend costTrend = new TeamCostTrend(labels, seriesByTeam);
+
+        return new TeamAnalyticsSummary(teams, costTrend, teams.size(), totalCost);
+    }
+
+    // ─── Performance Monitoring ──────────────────────────────────
+
+    public PerformanceMetrics getPerformanceMetrics(Long clientId, String period,
+                                                     String provider, String model) {
+        Instant since = parsePeriod(period);
+        String prov = (provider != null && !provider.isBlank()) ? provider : null;
+        String mod = (model != null && !model.isBlank()) ? model : null;
+
+        // Latency percentiles
+        List<Object[]> latencyRows = usageLogRepo.latencyPercentilesByModel(clientId, since, prov);
+        List<LatencyPercentiles> latencyByModel = latencyRows.stream()
+                .map(r -> new LatencyPercentiles(
+                        (String) r[0], (String) r[1],
+                        ((Number) r[2]).doubleValue(), ((Number) r[3]).doubleValue(),
+                        ((Number) r[4]).doubleValue(), ((Number) r[5]).doubleValue(),
+                        ((Number) r[6]).longValue()))
+                .collect(Collectors.toList());
+
+        // Error rate trend
+        List<Object[]> errorRows = usageLogRepo.dailyErrorRateTrend(clientId, since, prov, mod);
+        List<ErrorRateTrendPoint> errorTrend = errorRows.stream()
+                .map(r -> {
+                    long total = ((Number) r[1]).longValue();
+                    long errors = ((Number) r[2]).longValue();
+                    double rate = total > 0 ? (double) errors / total * 100 : 0;
+                    return new ErrorRateTrendPoint(r[0].toString(), total, errors, rate);
+                })
+                .collect(Collectors.toList());
+
+        // Latency distribution
+        List<Object[]> distRows = usageLogRepo.latencyDistribution(clientId, since, mod);
+        List<LatencyBucket> distribution = distRows.stream()
+                .map(r -> new LatencyBucket((String) r[0], ((Number) r[1]).longValue()))
+                .collect(Collectors.toList());
+
+        // Model reliability
+        List<Object[]> relRows = usageLogRepo.modelReliabilityStats(clientId, since);
+        List<ModelReliability> reliability = relRows.stream()
+                .map(r -> {
+                    long total = ((Number) r[2]).longValue();
+                    long errors = ((Number) r[3]).longValue();
+                    double errRate = total > 0 ? (double) errors / total * 100 : 0;
+                    double avgLat = ((Number) r[4]).doubleValue();
+                    double latencyPenalty = Math.min(avgLat / 1000.0, 10.0);
+                    double score = Math.max(0, 100 - errRate - latencyPenalty);
+                    return new ModelReliability((String) r[0], (String) r[1],
+                            total, errors, errRate, avgLat, Math.round(score * 10.0) / 10.0);
+                })
+                .collect(Collectors.toList());
+
+        return new PerformanceMetrics(latencyByModel, errorTrend, distribution, reliability);
+    }
+
+    // ─── Routing / Cost Optimizer ────────────────────────────────
+
+    public List<RoutingRuleDto> getRoutingRules(Long clientId) {
+        return routingRuleRepo.findByClientIdOrderByPriorityAsc(clientId).stream()
+                .map(this::toRoutingRuleDto)
+                .collect(Collectors.toList());
+    }
+
+    public RoutingRuleDto createRoutingRule(Long clientId, RoutingRuleCreateRequest req) {
+        LlmRoutingRule rule = new LlmRoutingRule();
+        rule.setClientId(clientId);
+        rule.setRuleName(req.getRuleName());
+        rule.setSourceModel(req.getSourceModel());
+        rule.setTargetModel(req.getTargetModel());
+        rule.setConditionType(req.getConditionType());
+        rule.setConditionValue(req.getConditionValue());
+        rule.setPriority(req.getPriority());
+        rule.setEnabled(true);
+        rule = routingRuleRepo.save(rule);
+        return toRoutingRuleDto(rule);
+    }
+
+    public RoutingRuleDto updateRoutingRule(Long clientId, Long ruleId, RoutingRuleCreateRequest req) {
+        LlmRoutingRule rule = routingRuleRepo.findById(ruleId)
+                .orElseThrow(() -> new RuntimeException("Routing rule not found"));
+        if (!rule.getClientId().equals(clientId)) throw new SecurityException("Access denied");
+        if (req.getRuleName() != null) rule.setRuleName(req.getRuleName());
+        if (req.getTargetModel() != null) rule.setTargetModel(req.getTargetModel());
+        if (req.getConditionType() != null) rule.setConditionType(req.getConditionType());
+        if (req.getConditionValue() != null) rule.setConditionValue(req.getConditionValue());
+        rule.setPriority(req.getPriority());
+        rule = routingRuleRepo.save(rule);
+        return toRoutingRuleDto(rule);
+    }
+
+    public void toggleRoutingRule(Long clientId, Long ruleId, boolean enabled) {
+        LlmRoutingRule rule = routingRuleRepo.findById(ruleId)
+                .orElseThrow(() -> new RuntimeException("Routing rule not found"));
+        if (!rule.getClientId().equals(clientId)) throw new SecurityException("Access denied");
+        rule.setEnabled(enabled);
+        routingRuleRepo.save(rule);
+    }
+
+    public void deleteRoutingRule(Long clientId, Long ruleId) {
+        LlmRoutingRule rule = routingRuleRepo.findById(ruleId)
+                .orElseThrow(() -> new RuntimeException("Routing rule not found"));
+        if (!rule.getClientId().equals(clientId)) throw new SecurityException("Access denied");
+        routingRuleRepo.delete(rule);
+    }
+
+    public RoutingStatsDto getRoutingStats(Long clientId, String period) {
+        Instant since = parsePeriod(period);
+        Long routedCount = usageLogRepo.countRoutedRequestsSince(clientId, since);
+        List<Object[]> statsRows = usageLogRepo.routingStats(clientId, since);
+
+        double actualSpend = 0;
+        List<RoutingSavingsEntry> savingsList = new ArrayList<>();
+        for (Object[] row : statsRows) {
+            String from = (String) row[0];
+            String to = (String) row[1];
+            long count = ((Number) row[2]).longValue();
+            double cost = ((Number) row[3]).doubleValue();
+            actualSpend += cost;
+            savingsList.add(new RoutingSavingsEntry(from, to, count, cost));
+        }
+
+        List<RoutingRuleDto> rules = getRoutingRules(clientId);
+
+        return new RoutingStatsDto(
+                routedCount != null ? routedCount : 0,
+                0, // estimated savings calculated separately if needed
+                actualSpend,
+                0, // would-have-spent requires original model pricing lookup
+                rules,
+                savingsList
+        );
+    }
+
+    public List<RoutingHistoryEntry> getRoutingHistory(Long clientId, int page, int size) {
+        List<LlmUsageLog> logs = usageLogRepo.findRecentRoutedRequests(clientId, PageRequest.of(page, size));
+        return logs.stream()
+                .map(l -> new RoutingHistoryEntry(
+                        l.getId(),
+                        l.getTimestamp().toString(),
+                        l.getRoutedFrom(),
+                        l.getModel(),
+                        l.getAgentName(),
+                        l.getInputTokens() != null ? l.getInputTokens() : 0,
+                        l.getOutputTokens() != null ? l.getOutputTokens() : 0,
+                        l.getEstimatedCost() != null ? l.getEstimatedCost() : 0))
+                .collect(Collectors.toList());
+    }
+
+    private RoutingRuleDto toRoutingRuleDto(LlmRoutingRule rule) {
+        return new RoutingRuleDto(
+                rule.getId(),
+                rule.getRuleName(),
+                rule.getSourceModel(),
+                rule.getTargetModel(),
+                rule.getConditionType(),
+                rule.getConditionValue(),
+                rule.getPriority(),
+                rule.getEnabled(),
+                rule.getCreatedAt() != null ? rule.getCreatedAt().toString() : null
+        );
+    }
+
+    // ─── API Key Management ────────────────────────────────────
+
+    public List<ApiKeyStats> getApiKeyStats(Long clientId) {
+        List<LlmProviderConfig> configs = providerConfigRepo.findByClientIdOrderByCreatedAtDesc(clientId);
+        return configs.stream().map(c -> {
+            String maskedKey = "••••••••";
+            if (c.getApiKeyEncrypted() != null && !c.getApiKeyEncrypted().isBlank()) {
+                try {
+                    String decrypted = encryptionService.decrypt(c.getApiKeyEncrypted());
+                    if (decrypted.length() >= 4) {
+                        maskedKey = "••••" + decrypted.substring(decrypted.length() - 4);
+                    }
+                } catch (Exception ignored) {
+                    maskedKey = "••••????";
+                }
+            } else {
+                maskedKey = "Not configured";
+            }
+
+            String healthStatus = "UNKNOWN";
+            long reqCount = c.getRequestCount() != null ? c.getRequestCount() : 0;
+            long errCount = c.getErrorCount() != null ? c.getErrorCount() : 0;
+            if (reqCount == 0) {
+                healthStatus = "UNKNOWN";
+            } else {
+                double errRate = (double) errCount / reqCount * 100;
+                if (errRate < 1) healthStatus = "HEALTHY";
+                else if (errRate < 10) healthStatus = "DEGRADED";
+                else healthStatus = "ERROR";
+            }
+
+            return new ApiKeyStats(
+                    c.getId(),
+                    c.getProvider(),
+                    c.getDisplayName(),
+                    maskedKey,
+                    c.getStatus(),
+                    healthStatus,
+                    reqCount,
+                    errCount,
+                    c.getLastUsedAt() != null ? c.getLastUsedAt().toString() : null,
+                    c.getLastErrorAt() != null ? c.getLastErrorAt().toString() : null,
+                    c.getLastErrorMessage(),
+                    c.getUsageLimit(),
+                    c.getCreatedAt() != null ? c.getCreatedAt().toString() : null
+            );
+        }).collect(Collectors.toList());
+    }
+
+    @Transactional
+    public void rotateKey(Long clientId, Long configId, ApiKeyRotateRequest request) {
+        LlmProviderConfig config = providerConfigRepo.findById(configId)
+                .orElseThrow(() -> new RuntimeException("Provider config not found"));
+        if (!config.getClient().getId().equals(clientId)) {
+            throw new SecurityException("Access denied");
+        }
+        if (request.getNewApiKey() != null && !request.getNewApiKey().isBlank()) {
+            config.setApiKeyEncrypted(encryptionService.encrypt(request.getNewApiKey()));
+        }
+        if ("BEDROCK".equalsIgnoreCase(config.getProvider())) {
+            if (request.getNewAwsAccessKey() != null && !request.getNewAwsAccessKey().isBlank()) {
+                config.setAwsAccessKeyEncrypted(encryptionService.encrypt(request.getNewAwsAccessKey()));
+            }
+            if (request.getNewAwsSecretKey() != null && !request.getNewAwsSecretKey().isBlank()) {
+                config.setAwsSecretKeyEncrypted(encryptionService.encrypt(request.getNewAwsSecretKey()));
+            }
+        }
+        // Reset error state after key rotation
+        config.setLastErrorAt(null);
+        config.setLastErrorMessage(null);
+        config.setErrorCount(0L);
+        providerConfigRepo.save(config);
+        logger.info("Rotated API key for provider {} (client {})", config.getProvider(), clientId);
+    }
+
+    @Transactional
+    public void updateUsageLimit(Long clientId, Long configId, Long limit) {
+        LlmProviderConfig config = providerConfigRepo.findById(configId)
+                .orElseThrow(() -> new RuntimeException("Provider config not found"));
+        if (!config.getClient().getId().equals(clientId)) {
+            throw new SecurityException("Access denied");
+        }
+        config.setUsageLimit(limit);
+        providerConfigRepo.save(config);
+    }
+
+    // ─── Compute / GPU Metrics ────────────────────────────────────
+
+    public ComputeMetricsSummary getComputeMetrics(Long clientId, String period, String provider) {
+        Instant since = parsePeriod(period);
+
+        Specification<LlmUsageLog> spec = (root, query, cb) -> {
+            List<javax.persistence.criteria.Predicate> preds = new ArrayList<>();
+            preds.add(cb.equal(root.get("clientId"), clientId));
+            preds.add(cb.greaterThanOrEqualTo(root.get("timestamp"), since));
+            if (provider != null && !provider.isBlank()) {
+                preds.add(cb.equal(root.get("provider"), provider));
+            }
+            return cb.and(preds.toArray(new javax.persistence.criteria.Predicate[0]));
+        };
+
+        List<LlmUsageLog> allLogs = usageLogRepo.findAll(spec, PageRequest.of(0, Integer.MAX_VALUE)).getContent();
+
+        // Provider breakdown
+        Map<String, List<LlmUsageLog>> byProvider = allLogs.stream()
+                .collect(Collectors.groupingBy(LlmUsageLog::getProvider));
+
+        List<ComputeUsageByProvider> providerBreakdown = byProvider.entrySet().stream()
+                .map(e -> {
+                    List<LlmUsageLog> logs = e.getValue();
+                    long reqs = logs.size();
+                    long inTok = logs.stream().mapToLong(l -> l.getInputTokens() != null ? l.getInputTokens() : 0).sum();
+                    long outTok = logs.stream().mapToLong(l -> l.getOutputTokens() != null ? l.getOutputTokens() : 0).sum();
+                    double cost = logs.stream().mapToDouble(l -> l.getEstimatedCost() != null ? l.getEstimatedCost() : 0).sum();
+                    double avgLat = logs.stream().mapToLong(l -> l.getLatencyMs() != null ? l.getLatencyMs() : 0).average().orElse(0);
+                    double computeTime = logs.stream().mapToDouble(l -> (l.getLatencyMs() != null ? l.getLatencyMs() : 0) / 1000.0).sum();
+                    return new ComputeUsageByProvider(e.getKey(), reqs, inTok, outTok, cost, avgLat, computeTime);
+                })
+                .sorted((a, b) -> Double.compare(b.getTotalCost(), a.getTotalCost()))
+                .collect(Collectors.toList());
+
+        // Daily trend
+        Map<String, List<LlmUsageLog>> byDay = allLogs.stream()
+                .collect(Collectors.groupingBy(l ->
+                        l.getTimestamp().atZone(ZoneOffset.UTC).toLocalDate().toString()
+                ));
+        List<String> sortedDays = byDay.keySet().stream().sorted().collect(Collectors.toList());
+        List<Long> dailyInput = new ArrayList<>();
+        List<Long> dailyOutput = new ArrayList<>();
+        List<Double> dailyCompute = new ArrayList<>();
+        for (String day : sortedDays) {
+            List<LlmUsageLog> dayLogs = byDay.get(day);
+            dailyInput.add(dayLogs.stream().mapToLong(l -> l.getInputTokens() != null ? l.getInputTokens() : 0).sum());
+            dailyOutput.add(dayLogs.stream().mapToLong(l -> l.getOutputTokens() != null ? l.getOutputTokens() : 0).sum());
+            dailyCompute.add(dayLogs.stream().mapToDouble(l -> (l.getLatencyMs() != null ? l.getLatencyMs() : 0) / 1000.0).sum());
+        }
+        ComputeDailyTrend dailyTrend = new ComputeDailyTrend(sortedDays, dailyInput, dailyOutput, dailyCompute);
+
+        // Model allocation
+        double totalCompute = allLogs.stream().mapToDouble(l -> (l.getLatencyMs() != null ? l.getLatencyMs() : 0) / 1000.0).sum();
+        Map<String, List<LlmUsageLog>> byModel = allLogs.stream()
+                .collect(Collectors.groupingBy(l -> l.getModel() + "|" + l.getProvider()));
+
+        List<ModelComputeAllocation> modelAllocation = byModel.entrySet().stream()
+                .map(e -> {
+                    String[] parts = e.getKey().split("\\|", 2);
+                    List<LlmUsageLog> logs = e.getValue();
+                    long reqs = logs.size();
+                    long tokens = logs.stream().mapToLong(l -> (l.getInputTokens() != null ? l.getInputTokens() : 0) + (l.getOutputTokens() != null ? l.getOutputTokens() : 0)).sum();
+                    double cost = logs.stream().mapToDouble(l -> l.getEstimatedCost() != null ? l.getEstimatedCost() : 0).sum();
+                    double ct = logs.stream().mapToDouble(l -> (l.getLatencyMs() != null ? l.getLatencyMs() : 0) / 1000.0).sum();
+                    double pct = totalCompute > 0 ? (ct / totalCompute) * 100 : 0;
+                    return new ModelComputeAllocation(parts[0], parts.length > 1 ? parts[1] : "", reqs, tokens, cost, ct, pct);
+                })
+                .sorted((a, b) -> Double.compare(b.getComputeTimeSec(), a.getComputeTimeSec()))
+                .collect(Collectors.toList());
+
+        long totalReqs = allLogs.size();
+        long totalTokens = allLogs.stream().mapToLong(l -> (l.getInputTokens() != null ? l.getInputTokens() : 0) + (l.getOutputTokens() != null ? l.getOutputTokens() : 0)).sum();
+        double totalCost = allLogs.stream().mapToDouble(l -> l.getEstimatedCost() != null ? l.getEstimatedCost() : 0).sum();
+
+        return new ComputeMetricsSummary(totalReqs, totalTokens, totalCompute, totalCost,
+                providerBreakdown, dailyTrend, modelAllocation);
+    }
+
+    // ─── Managed Inference ──────────────────────────────────────
+
+    public InferenceOverview getManagedInference(Long clientId, String period) {
+        Instant since = parsePeriod(period);
+        List<LlmProviderConfig> configs = providerConfigRepo.findByClientIdOrderByCreatedAtDesc(clientId);
+
+        // Get usage grouped by provider+model
+        Specification<LlmUsageLog> spec = (root, query, cb) -> {
+            List<javax.persistence.criteria.Predicate> preds = new ArrayList<>();
+            preds.add(cb.equal(root.get("clientId"), clientId));
+            preds.add(cb.greaterThanOrEqualTo(root.get("timestamp"), since));
+            return cb.and(preds.toArray(new javax.persistence.criteria.Predicate[0]));
+        };
+
+        List<LlmUsageLog> allLogs = usageLogRepo.findAll(spec, PageRequest.of(0, Integer.MAX_VALUE)).getContent();
+
+        // Group by provider+model to create virtual endpoints
+        Map<String, List<LlmUsageLog>> byEndpoint = allLogs.stream()
+                .collect(Collectors.groupingBy(l -> l.getProvider() + "|" + l.getModel()));
+
+        List<InferenceEndpoint> endpoints = new ArrayList<>();
+        long idCounter = 1;
+
+        for (Map.Entry<String, List<LlmUsageLog>> entry : byEndpoint.entrySet()) {
+            String[] parts = entry.getKey().split("\\|", 2);
+            String prov = parts[0];
+            String model = parts.length > 1 ? parts[1] : "";
+            List<LlmUsageLog> logs = entry.getValue();
+
+            long reqs = logs.size();
+            double cost = logs.stream().mapToDouble(l -> l.getEstimatedCost() != null ? l.getEstimatedCost() : 0).sum();
+            double avgLat = logs.stream().mapToLong(l -> l.getLatencyMs() != null ? l.getLatencyMs() : 0).average().orElse(0);
+            long errors = logs.stream().filter(l -> Boolean.TRUE.equals(l.getIsError())).count();
+            double errRate = reqs > 0 ? (double) errors / reqs * 100 : 0;
+
+            // Determine health status
+            String status;
+            if (errRate > 20) status = "DOWN";
+            else if (errRate > 5) status = "DEGRADED";
+            else status = "ACTIVE";
+
+            // Uptime approximation: percentage of non-error requests
+            double uptimePct = reqs > 0 ? ((double) (reqs - errors) / reqs) * 100 : 100;
+
+            Instant lastReq = logs.stream().map(LlmUsageLog::getTimestamp).max(Instant::compareTo).orElse(null);
+
+            endpoints.add(new InferenceEndpoint(
+                    idCounter++, prov, model,
+                    prov + " / " + model,
+                    status, reqs, cost, avgLat, errRate, uptimePct,
+                    lastReq != null ? lastReq.toString() : null,
+                    null
+            ));
+        }
+
+        // Also add provider configs with zero usage
+        for (LlmProviderConfig config : configs) {
+            boolean hasUsage = endpoints.stream().anyMatch(e -> e.getProvider().equals(config.getProvider()));
+            if (!hasUsage) {
+                endpoints.add(new InferenceEndpoint(
+                        idCounter++, config.getProvider(), "—",
+                        config.getDisplayName() != null ? config.getDisplayName() : config.getProvider(),
+                        "INACTIVE", 0, 0, 0, 0, 100, null,
+                        config.getCreatedAt() != null ? config.getCreatedAt().toString() : null
+                ));
+            }
+        }
+
+        endpoints.sort((a, b) -> Long.compare(b.getTotalRequests(), a.getTotalRequests()));
+
+        int total = endpoints.size();
+        int active = (int) endpoints.stream().filter(e -> "ACTIVE".equals(e.getStatus())).count();
+        int degraded = (int) endpoints.stream().filter(e -> "DEGRADED".equals(e.getStatus()) || "DOWN".equals(e.getStatus())).count();
+        double totalCost = endpoints.stream().mapToDouble(InferenceEndpoint::getTotalCost).sum();
+        double avgLatency = endpoints.stream().filter(e -> e.getTotalRequests() > 0).mapToDouble(InferenceEndpoint::getAvgLatencyMs).average().orElse(0);
+
+        return new InferenceOverview(total, active, degraded, totalCost, avgLatency, endpoints);
+    }
+
+    // ─── Helper: toDto ───────────────────────────────────────────
 
     private LlmProviderConfigDto toDto(LlmProviderConfig config) {
         LlmProviderConfigDto dto = new LlmProviderConfigDto();

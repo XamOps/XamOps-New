@@ -546,6 +546,13 @@ public class TicketService {
                 + "<tr><td style=\"padding:4px 12px 4px 0;color:#6b7280;font-weight:600;\">Category</td><td style=\"color:#111827;\">" + escapeHtml(ticket.getCategory() != null ? ticket.getCategory() : "") + "</td></tr>"
                 + "<tr><td style=\"padding:4px 12px 4px 0;color:#6b7280;font-weight:600;\">Service</td><td style=\"color:#111827;\">" + escapeHtml(ticket.getService() != null ? ticket.getService() : "") + "</td></tr>"
                 + "</table></div>"
+                + (ticket.getDescription() != null && !ticket.getDescription().isBlank()
+                    ? "<div style=\"padding:20px 24px;border-bottom:1px solid #e5e7eb;\">"
+                    + "<h2 style=\"margin:0 0 10px 0;font-size:14px;font-weight:800;color:#374151;text-transform:uppercase;letter-spacing:0.05em;\">Description</h2>"
+                    + "<div style=\"font-size:14px;color:#374151;line-height:1.6;background:#f9fafb;padding:14px 18px;border-radius:8px;border-left:4px solid #667eea;\">"
+                    + escapeHtml(ticket.getDescription())
+                    + "</div></div>"
+                    : "")
                 + "<div style=\"padding:24px;\">"
                 + "<h2 style=\"margin:0 0 16px 0;font-size:14px;font-weight:800;color:#374151;text-transform:uppercase;letter-spacing:0.05em;\">Conversation</h2>"
                 + replies.toString()
