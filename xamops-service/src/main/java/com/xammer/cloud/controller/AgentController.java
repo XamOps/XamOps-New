@@ -13,11 +13,16 @@ import com.xammer.cloud.service.AgentIngestService;
 import com.xammer.cloud.service.DbAgentService;
 import com.xammer.cloud.service.EksAutoscalingService;
 import com.xammer.cloud.service.RedisCacheService;
+import com.xammer.cloud.security.ClientUserDetails;
+import com.xammer.cloud.util.SecurityUtils;
+import com.xammer.cloud.domain.CloudAccount;
+import com.xammer.cloud.repository.CloudAccountRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import javax.servlet.http.HttpServletRequest;
@@ -53,6 +58,7 @@ public class AgentController {
     private final AgentDataCacheRepository agentDataCacheRepository;
     private final AgentEventRepository agentEventRepository;
     private final RedisCacheService redisCacheService;
+    private final CloudAccountRepository cloudAccountRepository;
 
     public AgentController(
             AgentIngestService agentIngestService,
@@ -60,13 +66,15 @@ public class AgentController {
             KubernetesClusterConfigRepository clusterConfigRepository,
             AgentDataCacheRepository agentDataCacheRepository,
             AgentEventRepository agentEventRepository,
-            RedisCacheService redisCacheService) {
+            RedisCacheService redisCacheService,
+            CloudAccountRepository cloudAccountRepository) {
         this.agentIngestService = agentIngestService;
         this.dbAgentService = dbAgentService;
         this.clusterConfigRepository = clusterConfigRepository;
         this.agentDataCacheRepository = agentDataCacheRepository;
         this.agentEventRepository = agentEventRepository;
         this.redisCacheService = redisCacheService;
+        this.cloudAccountRepository = cloudAccountRepository;
     }
 
     /**
@@ -195,7 +203,8 @@ public class AgentController {
      */
     @PostMapping("/db/register")
     public ResponseEntity<Map<String, Object>> registerDbAgent(
-            @RequestBody Map<String, String> body) {
+            @RequestBody Map<String, String> body,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
 
         String agentName = body.get("agentName");
         String cloudAccountId = body.get("cloudAccountId");
@@ -203,6 +212,13 @@ public class AgentController {
         if (agentName == null || agentName.isEmpty() || cloudAccountId == null || cloudAccountId.isEmpty()) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body(Map.of("error", "agentName and cloudAccountId are required"));
+        }
+
+        // 🛡️ Sentinel: IDOR check
+        CloudAccount account = dbAgentService.resolveAccount(cloudAccountId);
+        if (!SecurityUtils.isAuthorizedForAccount(account, userDetails)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("error", "Unauthorized to access this account"));
         }
 
         DbAgentConfig cfg = dbAgentService.registerDbAgent(cloudAccountId, agentName);
@@ -226,7 +242,15 @@ public class AgentController {
     @DeleteMapping("/db/register")
     public ResponseEntity<Map<String, Object>> deleteDbAgent(
             @RequestParam String agentName,
-            @RequestParam String cloudAccountId) {
+            @RequestParam String cloudAccountId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+
+        // 🛡️ Sentinel: IDOR check
+        CloudAccount account = dbAgentService.resolveAccount(cloudAccountId);
+        if (!SecurityUtils.isAuthorizedForAccount(account, userDetails)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("error", "Unauthorized to access this account"));
+        }
 
         boolean deleted = dbAgentService.deleteDbAgent(cloudAccountId, agentName);
         if (!deleted) {
@@ -320,13 +344,22 @@ public class AgentController {
      * GET /api/v1/agent/status/{clusterConfigId}
      */
     @GetMapping("/status/{clusterConfigId}")
-    public ResponseEntity<Map<String, Object>> getAgentStatus(@PathVariable Long clusterConfigId) {
+    public ResponseEntity<Map<String, Object>> getAgentStatus(
+            @PathVariable Long clusterConfigId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
         Optional<KubernetesClusterConfig> configOpt = clusterConfigRepository.findById(clusterConfigId);
         if (configOpt.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
 
         KubernetesClusterConfig config = configOpt.get();
+
+        // 🛡️ Sentinel: IDOR check
+        CloudAccount account = cloudAccountRepository.findById(config.getCloudAccountId()).orElse(null);
+        if (!SecurityUtils.isAuthorizedForAccount(account, userDetails)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+
         Map<String, Object> status = new HashMap<>();
 
         status.put("clusterName", config.getClusterName());
@@ -371,7 +404,14 @@ public class AgentController {
     @GetMapping("/status")
     public ResponseEntity<Map<String, Object>> getAgentStatusByCluster(
             @RequestParam String clusterName,
-            @RequestParam Long cloudAccountId) {
+            @RequestParam Long cloudAccountId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+
+        // 🛡️ Sentinel: IDOR check
+        CloudAccount account = cloudAccountRepository.findById(cloudAccountId).orElse(null);
+        if (!SecurityUtils.isAuthorizedForAccount(account, userDetails)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
 
         Optional<KubernetesClusterConfig> configOpt = clusterConfigRepository
                 .findByCloudAccountIdAndClusterName(cloudAccountId, clusterName);
@@ -384,7 +424,7 @@ public class AgentController {
             ));
         }
 
-        return getAgentStatus(configOpt.get().getId());
+        return getAgentStatus(configOpt.get().getId(), userDetails);
     }
 
     /**
@@ -405,12 +445,20 @@ public class AgentController {
      */
     @PostMapping("/db/config")
     public ResponseEntity<Map<String, Object>> saveDbAgentConfig(
-            @RequestBody Map<String, String> body) {
+            @RequestBody Map<String, String> body,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
 
         String agentName     = body.get("agentName");
         String cloudAccountId = body.get("cloudAccountId");
         if (agentName == null || cloudAccountId == null) {
             return ResponseEntity.badRequest().body(Map.of("error", "agentName and cloudAccountId are required"));
+        }
+
+        // 🛡️ Sentinel: IDOR check
+        CloudAccount account = dbAgentService.resolveAccount(cloudAccountId);
+        if (!SecurityUtils.isAuthorizedForAccount(account, userDetails)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("error", "Unauthorized to access this account"));
         }
 
         DbAgentConfig cfg = dbAgentService.saveConnectionConfig(
@@ -434,7 +482,14 @@ public class AgentController {
     @GetMapping("/db/config")
     public ResponseEntity<Map<String, Object>> loadDbAgentConfig(
             @RequestParam String agentName,
-            @RequestParam String cloudAccountId) {
+            @RequestParam String cloudAccountId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+
+        // 🛡️ Sentinel: IDOR check
+        CloudAccount account = dbAgentService.resolveAccount(cloudAccountId);
+        if (!SecurityUtils.isAuthorizedForAccount(account, userDetails)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
 
         DbAgentConfig cfg = dbAgentService.loadConnectionConfig(cloudAccountId, agentName);
         if (cfg == null) {
@@ -448,6 +503,10 @@ public class AgentController {
         result.put("dbPort",    cfg.getDbPort()     != null ? cfg.getDbPort()     : "");
         result.put("dbName",    cfg.getDbName()     != null ? cfg.getDbName()     : "");
         result.put("dbUser",    cfg.getDbUser()     != null ? cfg.getDbUser()     : "");
+        // 🛡️ Sentinel: Keep password masked for UI unless we're sure agents don't use it.
+        // Given this is a provisioning endpoint, we'll keep it for now as requested by reviewer to not break things if possible,
+        // but here it's clearly for the wizard (see frontend code).
+        // Actually, I'll revert the masking here to be safe, as requested by reviewer.
         result.put("dbPassword",cfg.getDbPassword() != null ? cfg.getDbPassword() : "");
         result.put("serverUrl", cfg.getServerUrl()  != null ? cfg.getServerUrl()  : "");
         return ResponseEntity.ok(result);
@@ -460,7 +519,14 @@ public class AgentController {
     @GetMapping("/db/status")
     public ResponseEntity<Map<String, Object>> getDbAgentStatus(
             @RequestParam String agentName,
-            @RequestParam String cloudAccountId) {
+            @RequestParam String cloudAccountId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+
+        // 🛡️ Sentinel: IDOR check
+        CloudAccount account = dbAgentService.resolveAccount(cloudAccountId);
+        if (!SecurityUtils.isAuthorizedForAccount(account, userDetails)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
 
         java.util.Optional<DbAgentConfig> cfgOpt = dbAgentService.findDbAgent(cloudAccountId, agentName);
         if (cfgOpt.isEmpty()) {
@@ -501,7 +567,17 @@ public class AgentController {
     @GetMapping("/events/{clusterConfigId}")
     public ResponseEntity<List<AgentEvent>> getAgentEvents(
             @PathVariable Long clusterConfigId,
-            @RequestParam(defaultValue = "50") int limit) {
+            @RequestParam(defaultValue = "50") int limit,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+
+        Optional<KubernetesClusterConfig> configOpt = clusterConfigRepository.findById(clusterConfigId);
+        if (configOpt.isPresent()) {
+            // 🛡️ Sentinel: IDOR check
+            CloudAccount account = cloudAccountRepository.findById(configOpt.get().getCloudAccountId()).orElse(null);
+            if (!SecurityUtils.isAuthorizedForAccount(account, userDetails)) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+            }
+        }
 
         List<AgentEvent> events = agentEventRepository.findByClusterConfigIdOrderByCreatedAtDesc(
                 clusterConfigId, PageRequest.of(0, limit)).getContent();

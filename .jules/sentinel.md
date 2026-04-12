@@ -1,0 +1,4 @@
+## 2026-04-12 - [Hardening Agent Management Endpoints]
+**Vulnerability:** Broad security permitAll whitelist for `/api/v1/agent/**` allowed public access to sensitive management endpoints like `/install-info` (leaking global API key) and `/db/config` (allowing unauthorized configuration reading/writing).
+**Learning:** Whitelisting with broad wildcards (e.g., `/path/**`) can accidentally expose management sub-resources intended only for authenticated UI users. These endpoints also often lack internal ownership checks, leading to IDOR vulnerabilities.
+**Prevention:** Use specific matchers for publicly accessible endpoints (e.g., ingest, heartbeat) and ensure management endpoints require session authentication. Additionally, implement explicit ownership validation in the controller using `SecurityUtils.isAuthorizedForAccount`.
