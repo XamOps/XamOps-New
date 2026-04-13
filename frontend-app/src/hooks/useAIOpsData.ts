@@ -8,6 +8,7 @@ import type {
   CostAnomaly,
   AIOPsSectionLoading,
   LlmProviderConfig,
+  AllTimeMetrics,
 } from '../types/aiops';
 
 interface UseAIOpsDataOptions {
@@ -16,6 +17,7 @@ interface UseAIOpsDataOptions {
 
 export interface UseAIOpsDataReturn {
   kpis: LlmKpis | null;
+  allTimeMetrics: AllTimeMetrics | null;
   costTrend: CostTrend | null;
   providerBreakdown: ProviderCostBreakdown[];
   modelUsageTable: ModelUsageStat[];
@@ -48,6 +50,8 @@ export function useAIOpsData({ period }: UseAIOpsDataOptions): UseAIOpsDataRetur
     anomalies: false,
   });
 
+  const [allTimeMetrics, setAllTimeMetrics] = useState<AllTimeMetrics | null>(null);
+
   const requestVersion = useRef(0);
 
   const loadProviders = useCallback(async () => {
@@ -77,6 +81,11 @@ export function useAIOpsData({ period }: UseAIOpsDataOptions): UseAIOpsDataRetur
       setProviders(providersData);
       setSectionLoading(prev => ({ ...prev, kpis: false }));
       setIsLoading(false); // critical path done
+
+      // Fetch all-time metrics (not period-dependent, fire-and-forget)
+      apiFetchJson<AllTimeMetrics>('/api/xamops/aiops/all-time-metrics')
+        .then(data => { if (version === requestVersion.current) setAllTimeMetrics(data); })
+        .catch(() => {});
 
       // ── Group 2: Medium — charts ──
       const [costTrendData, breakdownData] = await Promise.all([
@@ -149,6 +158,7 @@ export function useAIOpsData({ period }: UseAIOpsDataOptions): UseAIOpsDataRetur
 
   return {
     kpis,
+    allTimeMetrics,
     costTrend,
     providerBreakdown,
     modelUsageTable,

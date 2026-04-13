@@ -63,6 +63,9 @@ public class LlmUsageLog {
     @Column(name = "agent_name")
     private String agentName;
 
+    @Column(name = "routed_from")
+    private String routedFrom;
+
     @Column(nullable = false)
     private Instant timestamp;
 

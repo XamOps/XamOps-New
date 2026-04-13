@@ -245,74 +245,74 @@ html.dark .aiops-page {
 }
 
 /* Dark Theme Text Color Overrides */
-.aiops-page .text-gray-900 {
+html.dark .aiops-page .text-gray-900 {
   color: #f1f5f9 !important;
 }
 
-.aiops-page .text-gray-800 {
+html.dark .aiops-page .text-gray-800 {
   color: #e2e8f0 !important;
 }
 
-.aiops-page .text-gray-700 {
+html.dark .aiops-page .text-gray-700 {
   color: #cbd5e1 !important;
 }
 
-.aiops-page .text-gray-600 {
+html.dark .aiops-page .text-gray-600 {
   color: #94a3b8 !important;
 }
 
-.aiops-page .text-gray-500 {
+html.dark .aiops-page .text-gray-500 {
   color: #64748b !important;
 }
 
-.aiops-page .text-gray-400 {
+html.dark .aiops-page .text-gray-400 {
   color: #475569 !important;
 }
 
 /* Dark Theme Background Overrides */
-.aiops-page .bg-white {
+html.dark .aiops-page .bg-white {
   background-color: var(--bg-card) !important;
 }
 
-.aiops-page .bg-gray-50 {
+html.dark .aiops-page .bg-gray-50 {
   background-color: rgba(99, 102, 241, 0.05) !important;
 }
 
-.aiops-page .bg-gray-100 {
+html.dark .aiops-page .bg-gray-100 {
   background-color: rgba(99, 102, 241, 0.08) !important;
 }
 
 /* Dark Theme Border Overrides */
-.aiops-page .border-gray-200 {
+html.dark .aiops-page .border-gray-200 {
   border-color: rgba(99, 102, 241, 0.15) !important;
 }
 
-.aiops-page .border-gray-100 {
+html.dark .aiops-page .border-gray-100 {
   border-color: rgba(99, 102, 241, 0.1) !important;
 }
 
-.aiops-page .border-gray-300 {
+html.dark .aiops-page .border-gray-300 {
   border-color: rgba(99, 102, 241, 0.2) !important;
 }
 
 /* Dark Theme Colored Backgrounds */
-.aiops-page .bg-indigo-50 {
+html.dark .aiops-page .bg-indigo-50 {
   background-color: rgba(99, 102, 241, 0.15) !important;
 }
 
-.aiops-page .bg-purple-50 {
+html.dark .aiops-page .bg-purple-50 {
   background-color: rgba(139, 92, 246, 0.15) !important;
 }
 
-.aiops-page .text-indigo-600 {
+html.dark .aiops-page .text-indigo-600 {
   color: #818cf8 !important;
 }
 
-.aiops-page .text-purple-600 {
+html.dark .aiops-page .text-purple-600 {
   color: #a78bfa !important;
 }
 
-/* Custom Scrollbar - Dark Theme */
+/* Custom Scrollbar */
 .aiops-page ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
