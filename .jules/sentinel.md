@@ -1,0 +1,4 @@
+## 2026-04-01 - Parameterized BigQuery Queries for GCP Cost Service
+**Vulnerability:** SQL Injection in BigQuery queries via `String.format` with user-controlled parameters (dates, service names, tag keys).
+**Learning:** BigQuery queries in `xamops-service` were constructed using string interpolation, exposing the application to injection attacks. While dates and string values can be parameterized using `QueryParameterValue`, architectural elements like table names and column dimensions/aliases cannot be parameterized in BigQuery and must be handled via strict internal logic or allow-listing.
+**Prevention:** Always use `QueryJobConfiguration` with named parameters and `QueryParameterValue` for all dynamic data in BigQuery queries. Refactor common query execution logic to accept `QueryJobConfiguration` objects rather than raw SQL strings.
