@@ -1,9 +1,12 @@
 package com.xammer.cloud.util;
 
 import com.xammer.cloud.config.multitenancy.ImpersonationContext;
+import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.security.ClientUserDetails;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+
+import java.util.Objects;
 
 public class SecurityUtils {
 
@@ -29,5 +32,12 @@ public class SecurityUtils {
     public static boolean isSuperAdmin() {
         return getPrincipal().getAuthorities().stream()
                 .anyMatch(a -> a.getAuthority().equals("ROLE_SUPER_ADMIN"));
+    }
+
+    public static boolean isAuthorizedForAccount(CloudAccount account, ClientUserDetails userDetails) {
+        if (userDetails.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_SUPER_ADMIN"))) {
+            return true;
+        }
+        return account.getClient() != null && Objects.equals(account.getClient().getId(), userDetails.getClientId());
     }
 }

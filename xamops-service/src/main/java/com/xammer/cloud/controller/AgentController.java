@@ -4,15 +4,19 @@ import com.xammer.cloud.domain.AgentDataCache;
 import com.xammer.cloud.domain.AgentEvent;
 import com.xammer.cloud.domain.DbAgentConfig;
 import com.xammer.cloud.domain.KubernetesClusterConfig;
+import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.agent.AgentIngestPayload;
 import com.xammer.cloud.dto.agent.AgentIngestResponse;
 import com.xammer.cloud.repository.AgentDataCacheRepository;
 import com.xammer.cloud.repository.AgentEventRepository;
+import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.KubernetesClusterConfigRepository;
+import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.service.AgentIngestService;
 import com.xammer.cloud.service.DbAgentService;
 import com.xammer.cloud.service.EksAutoscalingService;
 import com.xammer.cloud.service.RedisCacheService;
+import com.xammer.cloud.util.SecurityUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
@@ -50,6 +54,7 @@ public class AgentController {
     private final AgentIngestService agentIngestService;
     private final DbAgentService dbAgentService;
     private final KubernetesClusterConfigRepository clusterConfigRepository;
+    private final CloudAccountRepository cloudAccountRepository;
     private final AgentDataCacheRepository agentDataCacheRepository;
     private final AgentEventRepository agentEventRepository;
     private final RedisCacheService redisCacheService;
@@ -58,12 +63,14 @@ public class AgentController {
             AgentIngestService agentIngestService,
             DbAgentService dbAgentService,
             KubernetesClusterConfigRepository clusterConfigRepository,
+            CloudAccountRepository cloudAccountRepository,
             AgentDataCacheRepository agentDataCacheRepository,
             AgentEventRepository agentEventRepository,
             RedisCacheService redisCacheService) {
         this.agentIngestService = agentIngestService;
         this.dbAgentService = dbAgentService;
         this.clusterConfigRepository = clusterConfigRepository;
+        this.cloudAccountRepository = cloudAccountRepository;
         this.agentDataCacheRepository = agentDataCacheRepository;
         this.agentEventRepository = agentEventRepository;
         this.redisCacheService = redisCacheService;
@@ -205,11 +212,19 @@ public class AgentController {
                     .body(Map.of("error", "agentName and cloudAccountId are required"));
         }
 
-        DbAgentConfig cfg = dbAgentService.registerDbAgent(cloudAccountId, agentName);
-        if (cfg == null) {
+        CloudAccount account = dbAgentService.resolveAccount(cloudAccountId);
+        if (account == null) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
                     .body(Map.of("error", "Cloud account not found. Add account to XamOps first."));
         }
+
+        ClientUserDetails user = SecurityUtils.getPrincipal();
+        if (!SecurityUtils.isAuthorizedForAccount(account, user)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("error", "You are not authorized to access this cloud account"));
+        }
+
+        DbAgentConfig cfg = dbAgentService.registerDbAgent(cloudAccountId, agentName);
 
         return ResponseEntity.ok(Map.of(
                 "success", true,
@@ -227,6 +242,18 @@ public class AgentController {
     public ResponseEntity<Map<String, Object>> deleteDbAgent(
             @RequestParam String agentName,
             @RequestParam String cloudAccountId) {
+
+        CloudAccount account = dbAgentService.resolveAccount(cloudAccountId);
+        if (account == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("error", "Cloud account not found"));
+        }
+
+        ClientUserDetails user = SecurityUtils.getPrincipal();
+        if (!SecurityUtils.isAuthorizedForAccount(account, user)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("error", "You are not authorized to access this cloud account"));
+        }
 
         boolean deleted = dbAgentService.deleteDbAgent(cloudAccountId, agentName);
         if (!deleted) {
@@ -327,6 +354,16 @@ public class AgentController {
         }
 
         KubernetesClusterConfig config = configOpt.get();
+
+        // IDOR Check
+        Optional<CloudAccount> accountOpt = cloudAccountRepository.findById(config.getCloudAccountId());
+        if (accountOpt.isEmpty()) return ResponseEntity.notFound().build();
+
+        ClientUserDetails user = SecurityUtils.getPrincipal();
+        if (!SecurityUtils.isAuthorizedForAccount(accountOpt.get(), user)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+
         Map<String, Object> status = new HashMap<>();
 
         status.put("clusterName", config.getClusterName());
@@ -413,16 +450,23 @@ public class AgentController {
             return ResponseEntity.badRequest().body(Map.of("error", "agentName and cloudAccountId are required"));
         }
 
+        CloudAccount account = dbAgentService.resolveAccount(cloudAccountId);
+        if (account == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("error", "Cloud account not found"));
+        }
+
+        ClientUserDetails user = SecurityUtils.getPrincipal();
+        if (!SecurityUtils.isAuthorizedForAccount(account, user)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("error", "You are not authorized to access this cloud account"));
+        }
+
         DbAgentConfig cfg = dbAgentService.saveConnectionConfig(
                 cloudAccountId, agentName,
                 body.get("dbEngine"), body.get("dbHost"), body.get("dbPort"),
                 body.get("dbName"), body.get("dbUser"), body.get("dbPassword"),
                 body.get("serverUrl"));
-
-        if (cfg == null) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(Map.of("error", "Cloud account not found"));
-        }
 
         return ResponseEntity.ok(Map.of("success", true, "agentId", cfg.getId()));
     }
@@ -435,6 +479,18 @@ public class AgentController {
     public ResponseEntity<Map<String, Object>> loadDbAgentConfig(
             @RequestParam String agentName,
             @RequestParam String cloudAccountId) {
+
+        CloudAccount account = dbAgentService.resolveAccount(cloudAccountId);
+        if (account == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("error", "Cloud account not found"));
+        }
+
+        ClientUserDetails user = SecurityUtils.getPrincipal();
+        if (!SecurityUtils.isAuthorizedForAccount(account, user)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("error", "You are not authorized to access this cloud account"));
+        }
 
         DbAgentConfig cfg = dbAgentService.loadConnectionConfig(cloudAccountId, agentName);
         if (cfg == null) {
@@ -461,6 +517,18 @@ public class AgentController {
     public ResponseEntity<Map<String, Object>> getDbAgentStatus(
             @RequestParam String agentName,
             @RequestParam String cloudAccountId) {
+
+        CloudAccount account = dbAgentService.resolveAccount(cloudAccountId);
+        if (account == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("error", "Cloud account not found"));
+        }
+
+        ClientUserDetails user = SecurityUtils.getPrincipal();
+        if (!SecurityUtils.isAuthorizedForAccount(account, user)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("error", "You are not authorized to access this cloud account"));
+        }
 
         java.util.Optional<DbAgentConfig> cfgOpt = dbAgentService.findDbAgent(cloudAccountId, agentName);
         if (cfgOpt.isEmpty()) {
