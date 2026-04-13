@@ -14,6 +14,20 @@ import TokenHeatmap from '../components/AIOps/TokenHeatmap';
 import LLMProviderSetupModal from '../components/AIOps/LLMProviderSetupModal';
 import BudgetOverview from '../components/AIOps/BudgetOverview';
 import BudgetConfigModal from '../components/AIOps/BudgetConfigModal';
+import TeamBreakdownSection from '../components/AIOps/TeamBreakdownSection';
+import PerformanceSection from '../components/AIOps/PerformanceSection';
+import InsightsDashboard from '../components/AIOps/InsightsDashboard';
+import CostOptimizerTab from '../components/AIOps/CostOptimizerTab';
+import ApiKeyManagement from '../components/AIOps/ApiKeyManagement';
+import { useTeamAnalyticsData } from '../hooks/useTeamAnalyticsData';
+import { usePerformanceMonitoringData } from '../hooks/usePerformanceMonitoringData';
+import { useInsightsData } from '../hooks/useInsightsData';
+import { useRoutingData } from '../hooks/useRoutingData';
+import { useApiKeysData } from '../hooks/useApiKeysData';
+import { useComputeMetricsData } from '../hooks/useComputeMetricsData';
+import ComputeMetricsSection from '../components/AIOps/ComputeMetricsSection';
+import ManagedInferenceTab from '../components/AIOps/ManagedInferenceTab';
+import { useManagedInferenceData } from '../hooks/useManagedInferenceData';
 import type { LlmProviderConfig, CostAnomaly, BudgetConfig } from '../types/aiops';
 import { PROVIDER_COLORS } from '../types/aiops';
 import '../styles/aiops.css';
@@ -23,12 +37,17 @@ const PERIODS = [
   { key: '7d', label: '7 Days' },
   { key: '30d', label: '30 Days' },
   { key: '90d', label: '90 Days' },
+  { key: '365d', label: '1 Year' },
 ] as const;
 
 const TOP_TABS = [
   { id: 'dashboard', label: 'LLM Dashboard', icon: 'fas fa-chart-line' },
   { id: 'usage-analytics', label: 'Usage Analytics', icon: 'fas fa-microscope' },
   { id: 'budget-controls', label: 'Budget & Controls', icon: 'fas fa-wallet' },
+  { id: 'cost-optimizer', label: 'Cost Optimizer', icon: 'fas fa-route' },
+  { id: 'api-keys', label: 'API Keys', icon: 'fas fa-key' },
+  { id: 'managed-inference', label: 'Inference', icon: 'fas fa-server' },
+  { id: 'insights', label: 'Insights', icon: 'fas fa-lightbulb' },
 ];
 
 const USAGE_SUB_TABS = [
@@ -36,6 +55,9 @@ const USAGE_SUB_TABS = [
   { id: 'agents', label: 'Agents', icon: 'fas fa-robot' },
   { id: 'models', label: 'Models', icon: 'fas fa-balance-scale' },
   { id: 'heatmap', label: 'Token Heatmap', icon: 'fas fa-th' },
+  { id: 'teams', label: 'Teams', icon: 'fas fa-users' },
+  { id: 'performance', label: 'Performance', icon: 'fas fa-tachometer-alt' },
+  { id: 'compute', label: 'Compute', icon: 'fas fa-microchip' },
 ];
 
 // ─── Anomaly Alerts Component ────────────────────────────────
@@ -175,7 +197,7 @@ const AIOpsPage: React.FC = () => {
   const [copiedUrl, setCopiedUrl] = useState(false);
 
   const {
-    kpis, costTrend, providerBreakdown, modelUsageTable,
+    kpis, allTimeMetrics, costTrend, providerBreakdown, modelUsageTable,
     anomalies, providers, sectionLoading, isLoading, error,
     loadDashboard, addProvider, deleteProvider,
   } = useAIOpsData({ period });
@@ -184,6 +206,13 @@ const AIOpsPage: React.FC = () => {
   const budget = useBudgetData();
   const [isBudgetModalOpen, setIsBudgetModalOpen] = useState(false);
   const [editingBudget, setEditingBudget] = useState<BudgetConfig | null>(null);
+  const teamAnalytics = useTeamAnalyticsData(period, analytics.filters.provider);
+  const perfMetrics = usePerformanceMonitoringData(period, analytics.filters.provider, analytics.filters.model);
+  const insights = useInsightsData(period);
+  const routing = useRoutingData(period);
+  const apiKeys = useApiKeysData();
+  const computeMetrics = useComputeMetricsData(period, analytics.filters.provider);
+  const inference = useManagedInferenceData(period);
 
   // Load filter options when switching to Usage Analytics
   useEffect(() => {
@@ -198,6 +227,47 @@ const AIOpsPage: React.FC = () => {
       budget.loadSummary();
     }
   }, [activeTab]);
+
+  // Load insights when switching to Insights tab
+  useEffect(() => {
+    if (activeTab === 'insights') {
+      insights.loadInsights();
+    }
+  }, [activeTab, period]);
+
+  // Load routing data when switching to Cost Optimizer tab
+  useEffect(() => {
+    if (activeTab === 'cost-optimizer') {
+      routing.loadRules();
+      routing.loadStats();
+      routing.loadHistory();
+    }
+  }, [activeTab, period]);
+
+  // Load managed inference when switching to Inference tab
+  useEffect(() => {
+    if (activeTab === 'managed-inference') {
+      inference.loadInference();
+    }
+  }, [activeTab, period]);
+
+  // Load API keys when switching to API Keys tab
+  useEffect(() => {
+    if (activeTab === 'api-keys') {
+      apiKeys.loadKeys();
+    }
+  }, [activeTab]);
+
+  // Load daily spend sparklines for each budget
+  useEffect(() => {
+    if (activeTab === 'budget-controls' && budget.summary) {
+      budget.summary.budgets.forEach(b => {
+        if (!budget.dailySpend[b.budgetId]) {
+          budget.loadDailySpend(b.budgetId);
+        }
+      });
+    }
+  }, [activeTab, budget.summary]);
 
   // Load sub-tab data when switching sub-tabs or filters change
   useEffect(() => {
@@ -215,6 +285,15 @@ const AIOpsPage: React.FC = () => {
         break;
       case 'heatmap':
         analytics.loadTokenHeatmap();
+        break;
+      case 'teams':
+        teamAnalytics.loadTeamAnalytics();
+        break;
+      case 'performance':
+        perfMetrics.loadPerformanceMetrics();
+        break;
+      case 'compute':
+        computeMetrics.loadComputeMetrics();
         break;
     }
   }, [activeTab, activeSubTab, period, analytics.filters, analytics.logsPage, analytics.logsSize]);
@@ -244,6 +323,40 @@ const AIOpsPage: React.FC = () => {
     setCopiedUrl(true);
     setTimeout(() => setCopiedUrl(false), 2000);
   }, []);
+
+  // Agent drill-down: click agent → switch to request-logs filtered by that agent
+  const handleAgentClick = useCallback((agentName: string) => {
+    analytics.setFilters({ ...analytics.filters, agent: agentName });
+    setActiveSubTab('request-logs');
+  }, [analytics.filters, analytics.setFilters]);
+
+  // CSV export for request logs
+  const handleExportCsv = useCallback(() => {
+    const logs = analytics.requestLogs?.content;
+    if (!logs || logs.length === 0) return;
+
+    const headers = ['Timestamp', 'Provider', 'Model', 'Agent', 'Input Tokens', 'Output Tokens', 'Cost', 'Latency (ms)', 'Status'];
+    const rows = logs.map(l => [
+      l.timestamp,
+      l.provider,
+      l.model,
+      l.agentName || '',
+      l.inputTokens,
+      l.outputTokens,
+      l.cost,
+      l.latencyMs,
+      l.statusCode,
+    ]);
+
+    const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `llm-request-logs-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [analytics.requestLogs]);
 
   const hasProviders = providers.length > 0;
 
@@ -400,7 +513,7 @@ const AIOpsPage: React.FC = () => {
                   ))}
                 </div>
               ) : kpis && (
-                <AIOpsKPISection kpis={kpis} />
+                <AIOpsKPISection kpis={kpis} allTimeMetrics={allTimeMetrics} />
               )}
 
               {/* Charts */}
@@ -516,6 +629,7 @@ const AIOpsPage: React.FC = () => {
                   size={analytics.logsSize}
                   onPageChange={analytics.setLogsPage}
                   onSizeChange={analytics.setLogsSize}
+                  onExport={handleExportCsv}
                 />
               )}
 
@@ -523,6 +637,7 @@ const AIOpsPage: React.FC = () => {
                 <AgentBreakdownSection
                   data={analytics.agentBreakdown}
                   loading={analytics.agentLoading}
+                  onAgentClick={handleAgentClick}
                 />
               )}
 
@@ -537,6 +652,27 @@ const AIOpsPage: React.FC = () => {
                 <TokenHeatmap
                   data={analytics.tokenHeatmap}
                   loading={analytics.heatmapLoading}
+                />
+              )}
+
+              {activeSubTab === 'teams' && (
+                <TeamBreakdownSection
+                  data={teamAnalytics.data}
+                  loading={teamAnalytics.loading}
+                />
+              )}
+
+              {activeSubTab === 'performance' && (
+                <PerformanceSection
+                  data={perfMetrics.data}
+                  loading={perfMetrics.loading}
+                />
+              )}
+
+              {activeSubTab === 'compute' && (
+                <ComputeMetricsSection
+                  data={computeMetrics.data}
+                  loading={computeMetrics.loading}
                 />
               )}
             </div>
@@ -569,6 +705,59 @@ const AIOpsPage: React.FC = () => {
               }}
               onDelete={(budgetId) => budget.deleteBudget(budgetId)}
               onDismissAlert={(alertId) => budget.dismissAlert(alertId)}
+              onToggleStatus={(budgetId, newStatus) => budget.toggleBudgetStatus(budgetId, newStatus)}
+              dailySpend={budget.dailySpend}
+            />
+          )}
+
+          {/* ═══════════════════════════════════════════════════════
+              Tab 4: Cost Optimizer
+              ═══════════════════════════════════════════════════════ */}
+          {activeTab === 'cost-optimizer' && hasProviders && (
+            <CostOptimizerTab
+              rules={routing.rules}
+              stats={routing.stats}
+              history={routing.history}
+              rulesLoading={routing.rulesLoading}
+              statsLoading={routing.statsLoading}
+              historyLoading={routing.historyLoading}
+              saving={routing.saving}
+              onCreateRule={routing.createRule}
+              onUpdateRule={routing.updateRule}
+              onToggleRule={routing.toggleRule}
+              onDeleteRule={routing.deleteRule}
+            />
+          )}
+
+          {/* ═══════════════════════════════════════════════════════
+              Tab 5: API Keys
+              ═══════════════════════════════════════════════════════ */}
+          {activeTab === 'api-keys' && hasProviders && (
+            <ApiKeyManagement
+              keys={apiKeys.keys}
+              loading={apiKeys.loading}
+              onRotateKey={apiKeys.rotateKey}
+              onUpdateUsageLimit={apiKeys.updateUsageLimit}
+            />
+          )}
+
+          {/* ═══════════════════════════════════════════════════════
+              Tab 6: Managed Inference
+              ═══════════════════════════════════════════════════════ */}
+          {activeTab === 'managed-inference' && hasProviders && (
+            <ManagedInferenceTab
+              data={inference.data}
+              loading={inference.loading}
+            />
+          )}
+
+          {/* ═══════════════════════════════════════════════════════
+              Tab 7: Insights
+              ═══════════════════════════════════════════════════════ */}
+          {activeTab === 'insights' && hasProviders && (
+            <InsightsDashboard
+              data={insights.data}
+              loading={insights.loading}
             />
           )}
         </div>

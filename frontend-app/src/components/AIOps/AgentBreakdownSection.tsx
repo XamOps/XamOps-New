@@ -7,6 +7,7 @@ Chart.register(...registerables);
 interface AgentBreakdownSectionProps {
   data: AgentUsageStat[];
   loading: boolean;
+  onAgentClick?: (agentName: string) => void;
 }
 
 function formatCurrency(value: number): string {
@@ -26,7 +27,7 @@ const AGENT_COLORS = [
   '#818cf8', '#6d28d9', '#5b21b6', '#4c1d95', '#7c3aed',
 ];
 
-const AgentBreakdownSection: React.FC<AgentBreakdownSectionProps> = ({ data, loading }) => {
+const AgentBreakdownSection: React.FC<AgentBreakdownSectionProps> = ({ data, loading, onAgentClick }) => {
   const chartRef = useRef<HTMLCanvasElement>(null);
   const chartInstance = useRef<Chart | null>(null);
 
@@ -159,7 +160,17 @@ const AgentBreakdownSection: React.FC<AgentBreakdownSectionProps> = ({ data, loa
                         className="w-3 h-3 rounded-full"
                         style={{ backgroundColor: AGENT_COLORS[i % AGENT_COLORS.length] }}
                       />
-                      <span className="text-sm font-medium text-gray-900">{row.agentName}</span>
+                      {onAgentClick ? (
+                        <button
+                          onClick={() => onAgentClick(row.agentName)}
+                          className="text-sm font-medium text-indigo-600 hover:text-indigo-800 hover:underline transition-colors text-left"
+                          title="View request logs for this agent"
+                        >
+                          {row.agentName}
+                        </button>
+                      ) : (
+                        <span className="text-sm font-medium text-gray-900">{row.agentName}</span>
+                      )}
                     </div>
                   </td>
                   <td className="px-6 py-3 text-sm text-gray-700">{formatNumber(row.requests)}</td>

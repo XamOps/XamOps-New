@@ -9,6 +9,7 @@ interface RequestLogsTableProps {
   size: number;
   onPageChange: (page: number) => void;
   onSizeChange: (size: number) => void;
+  onExport?: () => void;
 }
 
 function formatCurrency(value: number): string {
@@ -41,6 +42,7 @@ const RequestLogsTable: React.FC<RequestLogsTableProps> = ({
   size,
   onPageChange,
   onSizeChange,
+  onExport,
 }) => {
   const logs = data?.content ?? [];
 
@@ -59,7 +61,16 @@ const RequestLogsTable: React.FC<RequestLogsTableProps> = ({
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          {onExport && (
+            <button
+              onClick={onExport}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+            >
+              <i className="fas fa-download" />
+              Export CSV
+            </button>
+          )}
           <span className="text-xs text-gray-500">Rows:</span>
           <select
             value={size}

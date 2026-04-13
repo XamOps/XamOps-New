@@ -1,8 +1,9 @@
 import React from 'react';
-import type { LlmKpis } from '../../types/aiops';
+import type { LlmKpis, AllTimeMetrics } from '../../types/aiops';
 
 interface AIOpsKPISectionProps {
   kpis: LlmKpis;
+  allTimeMetrics?: AllTimeMetrics | null;
 }
 
 function formatCurrency(value: number): string {
@@ -21,7 +22,7 @@ function formatLatency(ms: number): string {
   return Math.round(ms) + 'ms';
 }
 
-const AIOpsKPISection: React.FC<AIOpsKPISectionProps> = ({ kpis }) => {
+const AIOpsKPISection: React.FC<AIOpsKPISectionProps> = ({ kpis, allTimeMetrics }) => {
   const cards = [
     {
       label: 'Total LLM Spend',
@@ -66,49 +67,73 @@ const AIOpsKPISection: React.FC<AIOpsKPISectionProps> = ({ kpis }) => {
     },
   ];
 
+  const allTimeCards = allTimeMetrics ? [
+    { label: 'All Time Cost', value: formatCurrency(allTimeMetrics.allTimeCost), icon: 'fas fa-coins', gradient: 'from-gray-500 to-slate-600' },
+    { label: 'All Time Tokens', value: formatNumber(allTimeMetrics.allTimeTokens), icon: 'fas fa-database', gradient: 'from-gray-500 to-slate-600' },
+    { label: 'All Time Requests', value: formatNumber(allTimeMetrics.allTimeRequests), icon: 'fas fa-server', gradient: 'from-gray-500 to-slate-600' },
+  ] : [];
+
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-      {cards.map((card, idx) => (
-        <div
-          key={card.label}
-          className={`bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-6 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 relative overflow-hidden group border-l-4 ${card.accent}`}
-          style={{ animationDelay: `${idx * 60}ms` }}
-          onMouseEnter={e => {
-            (e.currentTarget as HTMLDivElement).style.boxShadow = `0 12px 28px -4px ${card.glow}`;
-          }}
-          onMouseLeave={e => {
-            (e.currentTarget as HTMLDivElement).style.boxShadow = '';
-          }}
-        >
-          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-indigo-500 to-purple-500 transform scale-x-0 group-hover:scale-x-100 transition-transform duration-300" />
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {cards.map((card, idx) => (
+          <div
+            key={card.label}
+            className={`bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-6 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 relative overflow-hidden group border-l-4 ${card.accent}`}
+            style={{ animationDelay: `${idx * 60}ms` }}
+            onMouseEnter={e => {
+              (e.currentTarget as HTMLDivElement).style.boxShadow = `0 12px 28px -4px ${card.glow}`;
+            }}
+            onMouseLeave={e => {
+              (e.currentTarget as HTMLDivElement).style.boxShadow = '';
+            }}
+          >
+            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-indigo-500 to-purple-500 transform scale-x-0 group-hover:scale-x-100 transition-transform duration-300" />
 
-          <div className="flex justify-between items-start mb-4">
-            <h3 className="text-gray-500 text-xs font-semibold uppercase tracking-wider">
-              {card.label}
-            </h3>
-            <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${card.iconBg} flex items-center justify-center shadow-sm`}>
-              <i className={`${card.icon} text-white text-sm`} />
+            <div className="flex justify-between items-start mb-4">
+              <h3 className="text-gray-500 text-xs font-semibold uppercase tracking-wider">
+                {card.label}
+              </h3>
+              <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${card.iconBg} flex items-center justify-center shadow-sm`}>
+                <i className={`${card.icon} text-white text-sm`} />
+              </div>
             </div>
+
+            <p className="text-2xl font-bold text-gray-900 mb-1">{card.value}</p>
+
+            {'subValue' in card && card.subValue && (
+              <p className="text-xs text-gray-500 mb-2">{card.subValue}</p>
+            )}
+
+            {card.trend && (
+              <div className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${
+                card.trend.pct >= 0
+                  ? 'bg-red-50 text-red-600'
+                  : 'bg-green-50 text-green-600'
+              }`}>
+                <i className={`fas ${card.trend.pct >= 0 ? 'fa-arrow-up' : 'fa-arrow-down'} mr-1 text-[10px]`} />
+                <span>{Math.abs(card.trend.pct).toFixed(1)}% {card.trend.label}</span>
+              </div>
+            )}
           </div>
+        ))}
+      </div>
 
-          <p className="text-2xl font-bold text-gray-900 mb-1">{card.value}</p>
-
-          {'subValue' in card && card.subValue && (
-            <p className="text-xs text-gray-500 mb-2">{card.subValue}</p>
-          )}
-
-          {card.trend && (
-            <div className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${
-              card.trend.pct >= 0
-                ? 'bg-red-50 text-red-600'
-                : 'bg-green-50 text-green-600'
-            }`}>
-              <i className={`fas ${card.trend.pct >= 0 ? 'fa-arrow-up' : 'fa-arrow-down'} mr-1 text-[10px]`} />
-              <span>{Math.abs(card.trend.pct).toFixed(1)}% {card.trend.label}</span>
+      {allTimeCards.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {allTimeCards.map(card => (
+            <div key={card.label} className="bg-white/80 border border-gray-100 rounded-xl px-5 py-3 shadow-sm flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{card.label}</span>
+                <p className="text-lg font-bold text-gray-800">{card.value}</p>
+              </div>
+              <div className={`w-8 h-8 bg-gradient-to-br ${card.gradient} rounded-lg flex items-center justify-center`}>
+                <i className={`${card.icon} text-white text-[10px]`} />
+              </div>
             </div>
-          )}
+          ))}
         </div>
-      ))}
+      )}
     </div>
   );
 };

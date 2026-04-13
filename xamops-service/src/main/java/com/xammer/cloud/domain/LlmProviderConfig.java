@@ -48,6 +48,24 @@ public class LlmProviderConfig {
     @Column(name = "proxy_endpoint_id", unique = true, nullable = false)
     private String proxyEndpointId;
 
+    @Column(name = "last_used_at")
+    private Instant lastUsedAt;
+
+    @Column(name = "last_error_at")
+    private Instant lastErrorAt;
+
+    @Column(name = "last_error_message", columnDefinition = "TEXT")
+    private String lastErrorMessage;
+
+    @Column(name = "request_count")
+    private Long requestCount = 0L;
+
+    @Column(name = "error_count")
+    private Long errorCount = 0L;
+
+    @Column(name = "usage_limit")
+    private Long usageLimit;
+
     @Column(name = "created_at")
     private Instant createdAt;
 
