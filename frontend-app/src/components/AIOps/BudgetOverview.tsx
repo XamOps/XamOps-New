@@ -1,6 +1,7 @@
 import React, { useRef, useEffect } from 'react';
 import { Chart, registerables } from 'chart.js';
 import type { BudgetSummary, BudgetStatus, BudgetAlert, DailySpendEntry } from '../../types/aiops';
+import { InfoTooltip } from '../ui/Tooltip';
 
 Chart.register(...registerables);
 
@@ -59,10 +60,10 @@ const BudgetOverview: React.FC<BudgetOverviewProps> = ({
   if (!summary) return null;
 
   const kpis = [
-    { label: 'Total Budget', value: formatCurrency(summary.totalBudgetUsd), icon: 'fas fa-wallet', gradient: 'from-green-500 to-emerald-600' },
-    { label: 'Current Spend', value: formatCurrency(summary.totalSpendUsd), icon: 'fas fa-credit-card', gradient: 'from-blue-500 to-indigo-600' },
-    { label: 'Usage', value: summary.overallUsagePct.toFixed(1) + '%', icon: 'fas fa-tachometer-alt', gradient: summary.overallUsagePct >= 80 ? 'from-red-500 to-rose-600' : summary.overallUsagePct >= 50 ? 'from-amber-500 to-orange-600' : 'from-emerald-500 to-green-600' },
-    { label: 'Active / Alerts', value: `${summary.activeBudgetCount} / ${summary.alertsThisMonth}`, icon: 'fas fa-bell', gradient: 'from-purple-500 to-violet-600' },
+    { label: 'Total Budget', value: formatCurrency(summary.totalBudgetUsd), icon: 'fas fa-wallet', gradient: 'from-green-500 to-emerald-600', tip: 'Sum of all monthly budget limits across providers.' },
+    { label: 'Current Spend', value: formatCurrency(summary.totalSpendUsd), icon: 'fas fa-credit-card', gradient: 'from-blue-500 to-indigo-600', tip: 'Total spend across all budgets this month.' },
+    { label: 'Usage', value: summary.overallUsagePct.toFixed(1) + '%', icon: 'fas fa-tachometer-alt', gradient: summary.overallUsagePct >= 80 ? 'from-red-500 to-rose-600' : summary.overallUsagePct >= 50 ? 'from-amber-500 to-orange-600' : 'from-emerald-500 to-green-600', tip: 'Overall spend as a percentage of total budget.' },
+    { label: 'Active / Alerts', value: `${summary.activeBudgetCount} / ${summary.alertsThisMonth}`, icon: 'fas fa-bell', gradient: 'from-purple-500 to-violet-600', tip: 'Active budgets / alert threshold breaches this month.' },
   ];
 
   return (
@@ -72,7 +73,7 @@ const BudgetOverview: React.FC<BudgetOverviewProps> = ({
         {kpis.map(kpi => (
           <div key={kpi.label} className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-5 shadow-sm">
             <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{kpi.label}</span>
+              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider inline-flex items-center gap-1">{kpi.label} <InfoTooltip placement="bottom">{kpi.tip}</InfoTooltip></span>
               <div className={`w-8 h-8 bg-gradient-to-br ${kpi.gradient} rounded-lg flex items-center justify-center`}>
                 <i className={`${kpi.icon} text-white text-xs`} />
               </div>
@@ -90,6 +91,7 @@ const BudgetOverview: React.FC<BudgetOverviewProps> = ({
               <i className="fas fa-shield-alt text-white text-xs" />
             </div>
             <h3 className="text-sm font-bold text-gray-800">Budget Controls</h3>
+            <InfoTooltip placement="right">Set spending limits per provider with alerts at custom thresholds.</InfoTooltip>
             <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
               {summary.budgets.length} budgets
             </span>
@@ -138,6 +140,7 @@ const BudgetOverview: React.FC<BudgetOverviewProps> = ({
               <i className="fas fa-bell text-white text-xs" />
             </div>
             <h3 className="text-sm font-bold text-gray-800">Recent Alerts</h3>
+            <InfoTooltip placement="right">Budget threshold breach notifications. Dismiss to acknowledge.</InfoTooltip>
             <span className="text-xs text-red-500 bg-red-50 px-2 py-0.5 rounded-full font-semibold">
               {summary.recentAlerts.length}
             </span>

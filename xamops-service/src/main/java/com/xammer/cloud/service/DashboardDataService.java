@@ -166,7 +166,7 @@ public class DashboardDataService {
      * time.
      * No immediate execution on startup - waits until scheduled time.
      */
-    @Scheduled(cron = "0 0 1 * * ?") // Daily at 1:00 AM
+    @Scheduled(cron = "0 0 1 * * WED,SUN") // Wed + Sun at 1:00 AM — matches ProactiveCacheRefreshService cadence
     public void runBackgroundAggregation() {
         logger.info("⚡ [Async-Aggregator] Starting global dashboard aggregation...");
         long totalStart = System.currentTimeMillis();
@@ -326,151 +326,92 @@ public class DashboardDataService {
     }
 
     private int aggregateTenantData(String tenantId) {
-        // 1. Fetch all accounts for this tenant (System Admin View)
+        // 1. Fetch all accounts for this tenant
         List<CloudAccount> allAccounts = cloudAccountRepository.findAll();
         if (allAccounts.isEmpty()) {
             logger.info("No accounts found for tenant {}. Skipping.", tenantId);
             return 0;
         }
-
         logger.info("Found {} total accounts for tenant {}", allAccounts.size(), tenantId);
 
-        // 2. AWS Aggregation
-        try {
-            List<String> awsIds = allAccounts.stream()
-                    .filter(a -> "AWS".equalsIgnoreCase(a.getProvider()))
-                    .map(CloudAccount::getAwsAccountId)
-                    .collect(Collectors.toList());
+        // Build a map of clientId → accounts for that client (for per-client cache keys).
+        // Also include a "system" entry (null key) for admin/global view using all accounts.
+        Map<String, List<CloudAccount>> scopeMap = new LinkedHashMap<>();
+        scopeMap.put("system", allAccounts); // admins / background jobs
 
-            if (!awsIds.isEmpty()) {
-                logger.info("Aggregating {} AWS accounts for tenant {}...", awsIds.size(), tenantId);
-                DashboardData awsData = getMultiAccountAwsDashboardData(awsIds, true, null); // null user = system
-                // FIX: Save with SCOPED KEY
-                saveSnapshot(SNAPSHOT_KEY_AWS + "::" + tenantId, awsData);
-            }
-        } catch (Exception e) {
-            logger.error("AWS Aggregation failed for {}", tenantId, e);
-        }
-
-        // 3. GCP Aggregation
-        try {
-            List<String> gcpIds = allAccounts.stream()
-                    .filter(a -> "GCP".equalsIgnoreCase(a.getProvider()))
-                    .map(CloudAccount::getGcpProjectId)
-                    .collect(Collectors.toList());
-
-            if (!gcpIds.isEmpty()) {
-                logger.info("Aggregating {} GCP projects for tenant {}...", gcpIds.size(), tenantId);
-                DashboardData gcpData = getMultiAccountGcpDashboardData(gcpIds, true, null);
-                // FIX: Save with SCOPED KEY
-                saveSnapshot(SNAPSHOT_KEY_GCP + "::" + tenantId, gcpData);
-            }
-        } catch (Exception e) {
-            logger.error("GCP Aggregation failed for {}", tenantId, e);
-        }
-
-        // 4. Azure Aggregation
-        try {
-            List<String> azureIds = allAccounts.stream()
-                    .filter(a -> "Azure".equalsIgnoreCase(a.getProvider()))
-                    .map(CloudAccount::getAzureSubscriptionId)
-                    .collect(Collectors.toList());
-
-            if (!azureIds.isEmpty()) {
-                logger.info("Aggregating {} Azure subscriptions for tenant {}...", azureIds.size(), tenantId);
-                DashboardData azureData = getMultiAccountAzureDashboardData(azureIds, true, null);
-                if (azureData != null) {
-                    // FIX: Save with SCOPED KEY
-                    saveSnapshot(SNAPSHOT_KEY_AZURE + "::" + tenantId, azureData);
-                }
-            }
-        } catch (Exception e) {
-            logger.error("Azure Aggregation failed for {}", tenantId, e);
-        }
-
-        // 5. Standard Dashboard: Pre-cache granular endpoints AND full dashboard for
-        // individual accounts
-        logger.info("Pre-caching dashboard data for {} accounts...", allAccounts.size());
         for (CloudAccount account : allAccounts) {
-            // If the per-tenant timeout fired (cancel(true) called), stop early
-            // so the main aggregation thread can move on to the next tenant.
-            if (Thread.currentThread().isInterrupted()) {
-                logger.warn("[Aggregator] Thread interrupted — stopping per-account loop early for tenant {}", tenantId);
-                break;
-            }
-            if (!"CONNECTED".equalsIgnoreCase(account.getStatus())) {
-                continue; // Skip non-connected accounts
-            }
-
-            try {
-                // FIX: Use actual cloud account ID, not database ID
-                String accountId;
-                if ("AWS".equalsIgnoreCase(account.getProvider())) {
-                    accountId = account.getAwsAccountId();
-                } else if ("GCP".equalsIgnoreCase(account.getProvider())) {
-                    accountId = account.getGcpProjectId();
-                } else if ("Azure".equalsIgnoreCase(account.getProvider())) {
-                    accountId = account.getAzureSubscriptionId();
-                } else {
-                    logger.warn("Unknown provider {} for account {}, skipping", account.getProvider(), account.getId());
-                    continue;
-                }
-
-                if (accountId == null || accountId.isEmpty()) {
-                    logger.warn("Account ID is null or empty for account {}, skipping", account.getId());
-                    continue;
-                }
-
-                logger.debug("Pre-caching data for account: {} ({})", accountId, account.getProvider());
-
-                // Cache the FULL dashboard data (this contains everything needed!)
-                try {
-                    getDashboardData(accountId, true, null);
-                    logger.info("✓ Full Dashboard cached for {} ({})", accountId, account.getProvider());
-                } catch (Exception e) {
-                    logger.error("Failed to cache dashboard for {}: {}", accountId, e.getMessage());
-                }
-
-                // ⭐ NEW: Cache Cloud List for AWS accounts (Grouped & Flat)
-                if ("AWS".equalsIgnoreCase(account.getProvider())) {
-                    try {
-                        cloudListService.getAllResourcesGrouped(accountId, true);
-                        logger.info("✓ Cloud List (Grouped) pre-cached for {} (AWS)", accountId);
-                    } catch (Exception e) {
-                        logger.error("Failed to pre-cache Cloud List for {}: {}", accountId, e.getMessage());
-                    }
-                }
-
-                // ⭐ NEW: Cache FinOps data for AWS accounts
-                if ("AWS".equalsIgnoreCase(account.getProvider())) {
-                    try {
-                        FinOpsReportDto finopsData = finOpsService.getFinOpsReport(accountId, true, null, null).join();
-                        String finopsKey = "finops-" + accountId;
-                        saveFinOpsSnapshot(finopsKey, finopsData);
-                        logger.info("✓ FinOps cached for {} (AWS)", accountId);
-                    } catch (Exception e) {
-                        logger.error("Failed to cache FinOps for {}: {}", accountId, e.getMessage());
-                    }
-                }
-
-                // ⭐ NEW: Cache FinOps data for GCP projects
-                if ("GCP".equalsIgnoreCase(account.getProvider())) {
-                    try {
-                        GcpFinOpsReportDto gcpFinopsData = gcpFinOpsReportService.generateFinOpsReport(accountId)
-                                .join();
-                        String gcpFinopsKey = "gcp-finops-" + accountId;
-                        saveGcpFinOpsSnapshot(gcpFinopsKey, gcpFinopsData);
-                        logger.info("✓ GCP FinOps cached for {} (GCP)", accountId);
-                    } catch (Exception e) {
-                        logger.error("Failed to cache GCP FinOps for {}: {}", accountId, e.getMessage());
-                    }
-                }
-
-            } catch (Exception e) {
-                logger.warn("Failed to pre-cache data for account {}: {}", account.getId(), e.getMessage());
+            if (account.getClient() != null && account.getClient().getId() != null) {
+                String clientKey = account.getClient().getId().toString();
+                scopeMap.computeIfAbsent(clientKey, k -> new ArrayList<>()).add(account);
             }
         }
-        logger.info("✅ Dashboard pre-caching complete for tenant {}", tenantId);
+
+        logger.info("Aggregating {} cache scopes (1 system + {} clients) for tenant {}",
+                scopeMap.size(), scopeMap.size() - 1, tenantId);
+
+        for (Map.Entry<String, List<CloudAccount>> entry : scopeMap.entrySet()) {
+            String scope = entry.getKey();
+            List<CloudAccount> accounts = entry.getValue();
+
+            // 2. AWS Aggregation for this scope
+            try {
+                List<String> awsIds = accounts.stream()
+                        .filter(a -> "AWS".equalsIgnoreCase(a.getProvider()))
+                        .map(CloudAccount::getAwsAccountId)
+                        .filter(id -> id != null && !id.isEmpty())
+                        .collect(Collectors.toList());
+
+                if (!awsIds.isEmpty()) {
+                    logger.info("Aggregating {} AWS accounts for tenant {} scope {}...", awsIds.size(), tenantId, scope);
+                    DashboardData awsData = getMultiAccountAwsDashboardData(awsIds, true, null);
+                    saveSnapshot(SNAPSHOT_KEY_AWS + "::" + tenantId + "::" + scope, awsData);
+                }
+            } catch (Exception e) {
+                logger.error("AWS Aggregation failed for tenant {} scope {}", tenantId, scope, e);
+            }
+
+            // 3. GCP Aggregation for this scope
+            try {
+                List<String> gcpIds = accounts.stream()
+                        .filter(a -> "GCP".equalsIgnoreCase(a.getProvider()))
+                        .map(CloudAccount::getGcpProjectId)
+                        .filter(id -> id != null && !id.isEmpty())
+                        .collect(Collectors.toList());
+
+                if (!gcpIds.isEmpty()) {
+                    logger.info("Aggregating {} GCP projects for tenant {} scope {}...", gcpIds.size(), tenantId, scope);
+                    DashboardData gcpData = getMultiAccountGcpDashboardData(gcpIds, true, null);
+                    saveSnapshot(SNAPSHOT_KEY_GCP + "::" + tenantId + "::" + scope, gcpData);
+                }
+            } catch (Exception e) {
+                logger.error("GCP Aggregation failed for tenant {} scope {}", tenantId, scope, e);
+            }
+
+            // 4. Azure Aggregation for this scope
+            try {
+                List<String> azureIds = accounts.stream()
+                        .filter(a -> "Azure".equalsIgnoreCase(a.getProvider()))
+                        .map(CloudAccount::getAzureSubscriptionId)
+                        .filter(id -> id != null && !id.isEmpty())
+                        .collect(Collectors.toList());
+
+                if (!azureIds.isEmpty()) {
+                    logger.info("Aggregating {} Azure subscriptions for tenant {} scope {}...", azureIds.size(), tenantId, scope);
+                    DashboardData azureData = getMultiAccountAzureDashboardData(azureIds, true, null);
+                    if (azureData != null) {
+                        saveSnapshot(SNAPSHOT_KEY_AZURE + "::" + tenantId + "::" + scope, azureData);
+                    }
+                }
+            } catch (Exception e) {
+                logger.error("Azure Aggregation failed for tenant {} scope {}", tenantId, scope, e);
+            }
+        }
+
+        // Per-account getDashboardData / cloudListService / getFinOpsReport / gcpFinOpsReport calls
+        // have been intentionally removed. ProactiveCacheRefreshService already handles all of these
+        // on the same WED+SUN schedule (refreshAwsDashboardData, refreshFinOps, etc.) — keeping them
+        // here would double the CE API calls and is the root cause of the $1/day bill.
+        logger.info("✅ Multi-account aggregation complete for tenant {}", tenantId);
         return allAccounts.size();
     }
 

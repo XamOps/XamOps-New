@@ -42,12 +42,9 @@ public class AzureBillingDataIngestionService {
     }
 
     /**
-     * Runs periodically to check for new billing data.
-     * Changed to 60000ms (1 minute) temporarily for debugging so you don't have to
-     * wait.
-     * Revert to 14400000 (4 hours) later.
+     * Runs every 4 hours to fetch and cache Azure billing data.
      */
-    @Scheduled(fixedRate = 60000)
+    @Scheduled(fixedRate = 14400000)
     public void runDailyBillingIngestion() {
         log.info("🔄 Starting scheduled job: Ingest Azure billing data...");
 

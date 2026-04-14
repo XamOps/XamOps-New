@@ -15,7 +15,17 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestTemplate;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
+import software.amazon.awssdk.auth.signer.Aws4Signer;
+import software.amazon.awssdk.auth.signer.params.Aws4SignerParams;
+import software.amazon.awssdk.http.SdkHttpFullRequest;
+import software.amazon.awssdk.http.SdkHttpMethod;
+import software.amazon.awssdk.regions.Region;
 
+import java.io.ByteArrayInputStream;
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
@@ -64,6 +74,19 @@ public class LlmProxyService {
         MODEL_PRICING.put("gemini-1.5-flash", new double[]{0.075, 0.30});
         MODEL_PRICING.put("gemini-2.0-flash", new double[]{0.10, 0.40});
         MODEL_PRICING.put("gemini-pro", new double[]{0.50, 1.50});
+
+        // AWS Bedrock — Claude models via Bedrock
+        MODEL_PRICING.put("anthropic.claude-3-haiku-20240307-v1:0", new double[]{0.25, 1.25});
+        MODEL_PRICING.put("anthropic.claude-3-5-haiku-20241022-v1:0", new double[]{0.80, 4.00});
+        MODEL_PRICING.put("anthropic.claude-3-5-sonnet-20241022-v2:0", new double[]{3.00, 15.00});
+        MODEL_PRICING.put("anthropic.claude-3-sonnet-20240229-v1:0", new double[]{3.00, 15.00});
+        MODEL_PRICING.put("anthropic.claude-3-opus-20240229-v1:0", new double[]{15.00, 75.00});
+        MODEL_PRICING.put("amazon.titan-text-express-v1", new double[]{0.20, 0.60});
+        MODEL_PRICING.put("amazon.titan-text-lite-v1", new double[]{0.15, 0.20});
+        MODEL_PRICING.put("meta.llama3-8b-instruct-v1:0", new double[]{0.30, 0.60});
+        MODEL_PRICING.put("meta.llama3-70b-instruct-v1:0", new double[]{2.65, 3.50});
+        MODEL_PRICING.put("mistral.mistral-7b-instruct-v0:2", new double[]{0.15, 0.20});
+        MODEL_PRICING.put("mistral.mixtral-8x7b-instruct-v0:1", new double[]{0.45, 0.70});
     }
 
     public LlmProxyService(
@@ -104,8 +127,12 @@ public class LlmProxyService {
             return budgetBlock;
         }
 
-        // 2. Extract API key from Authorization: Bearer header (unified for all providers)
+        // 2. Route BEDROCK separately — uses SigV4 with stored credentials
         String provider = config.getProvider().toUpperCase();
+        if ("BEDROCK".equals(provider)) {
+            return forwardBedrockRequest(config, subPath, method, body, agentName);
+        }
+
         String apiKey = extractBearerToken(incomingHeaders);
         if (apiKey == null || apiKey.isBlank()) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
@@ -262,6 +289,97 @@ public class LlmProxyService {
         return null;
     }
 
+    // ─── Bedrock: SigV4-signed forwarding ────────────────────────
+
+    private ResponseEntity<String> forwardBedrockRequest(
+            LlmProviderConfig config, String subPath,
+            HttpMethod method, String body, String agentName) {
+
+        String region = config.getAwsRegion();
+        if (region == null || region.isBlank()) {
+            return ResponseEntity.badRequest()
+                    .body("{\"error\":\"Bedrock provider is missing AWS region configuration.\"}");
+        }
+
+        String accessKey = null;
+        String secretKey = null;
+        try {
+            if (config.getAwsAccessKeyEncrypted() != null && !config.getAwsAccessKeyEncrypted().isBlank()) {
+                accessKey = encryptionService.decrypt(config.getAwsAccessKeyEncrypted());
+            }
+            if (config.getAwsSecretKeyEncrypted() != null && !config.getAwsSecretKeyEncrypted().isBlank()) {
+                secretKey = encryptionService.decrypt(config.getAwsSecretKeyEncrypted());
+            }
+        } catch (Exception e) {
+            logger.error("Failed to decrypt Bedrock credentials: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body("{\"error\":\"Failed to decrypt Bedrock credentials.\"}");
+        }
+
+        if (accessKey == null || secretKey == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body("{\"error\":\"Bedrock provider credentials not configured. Add your AWS Access Key and Secret Key via API Keys → Rotate Key.\"}");
+        }
+
+        String targetUrl = buildBedrockUrl(region, subPath);
+        long startTime = System.currentTimeMillis();
+
+        try {
+            // Build the unsigned SDK request
+            byte[] bodyBytes = body != null ? body.getBytes(StandardCharsets.UTF_8) : new byte[0];
+            SdkHttpFullRequest.Builder reqBuilder = SdkHttpFullRequest.builder()
+                    .method(SdkHttpMethod.fromValue(method.name()))
+                    .uri(URI.create(targetUrl))
+                    .putHeader("Content-Type", "application/json")
+                    .putHeader("Accept", "application/json")
+                    .contentStreamProvider(() -> new ByteArrayInputStream(bodyBytes));
+
+            SdkHttpFullRequest unsignedRequest = reqBuilder.build();
+
+            // Sign with SigV4
+            AwsBasicCredentials credentials = AwsBasicCredentials.create(accessKey, secretKey);
+            Aws4Signer signer = Aws4Signer.create();
+            Aws4SignerParams signerParams = Aws4SignerParams.builder()
+                    .signingRegion(Region.of(region))
+                    .signingName("bedrock")
+                    .awsCredentials(credentials)
+                    .build();
+
+            SdkHttpFullRequest signedRequest = signer.sign(unsignedRequest, signerParams);
+
+            // Copy signed headers to Spring HttpHeaders
+            HttpHeaders signedHeaders = new HttpHeaders();
+            signedRequest.headers().forEach((k, v) -> v.forEach(val -> signedHeaders.add(k, val)));
+            signedHeaders.setContentType(MediaType.APPLICATION_JSON);
+            signedHeaders.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
+
+            HttpEntity<String> entity = new HttpEntity<>(body, signedHeaders);
+            ResponseEntity<String> response = restTemplate.exchange(targetUrl, method, entity, String.class);
+
+            long latency = System.currentTimeMillis() - startTime;
+            logUsageAsync(config, subPath, body, response.getBody(),
+                    response.getStatusCodeValue(), latency, false, null, agentName);
+
+            return ResponseEntity.status(response.getStatusCode())
+                    .headers(filterResponseHeaders(response.getHeaders()))
+                    .body(response.getBody());
+
+        } catch (HttpStatusCodeException e) {
+            long latency = System.currentTimeMillis() - startTime;
+            logUsageAsync(config, subPath, body, e.getResponseBodyAsString(),
+                    e.getStatusCode().value(), latency, true, e.getResponseBodyAsString(), agentName);
+            return ResponseEntity.status(e.getStatusCode())
+                    .headers(filterResponseHeaders(e.getResponseHeaders()))
+                    .body(e.getResponseBodyAsString());
+        } catch (Exception e) {
+            long latency = System.currentTimeMillis() - startTime;
+            logger.error("Bedrock proxy request failed: {}", e.getMessage());
+            logUsageAsync(config, subPath, body, null, 500, latency, true, e.getMessage(), agentName);
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                    .body("{\"error\":\"Failed to reach Bedrock: " + e.getMessage() + "\"}");
+        }
+    }
+
     // ─── Provider-specific URL building ──────────────────────────
 
     private String buildTargetUrl(String provider, String subPath) {
@@ -276,6 +394,11 @@ public class LlmProxyService {
             default:
                 throw new IllegalArgumentException("Unsupported provider: " + provider);
         }
+    }
+
+    private String buildBedrockUrl(String region, String subPath) {
+        String path = (subPath != null && !subPath.isEmpty()) ? "/" + subPath : "";
+        return "https://bedrock-runtime." + region + ".amazonaws.com" + path;
     }
 
     private HttpHeaders buildProviderHeaders(String provider, String apiKey, HttpHeaders incoming) {
@@ -369,6 +492,24 @@ public class LlmProxyService {
                     if (meta != null) {
                         int input = meta.has("promptTokenCount") ? meta.get("promptTokenCount").asInt() : 0;
                         int output = meta.has("candidatesTokenCount") ? meta.get("candidatesTokenCount").asInt() : 0;
+                        return new int[]{input, output};
+                    }
+                    break;
+                }
+                case "BEDROCK": {
+                    // Claude on Bedrock uses same usage format as Anthropic
+                    JsonNode usage = resp.get("usage");
+                    if (usage != null) {
+                        int input = usage.has("input_tokens") ? usage.get("input_tokens").asInt() : 0;
+                        int output = usage.has("output_tokens") ? usage.get("output_tokens").asInt() : 0;
+                        return new int[]{input, output};
+                    }
+                    // Amazon Titan / other Bedrock models
+                    JsonNode inputTokenCount = resp.get("inputTextTokenCount");
+                    JsonNode results = resp.get("results");
+                    if (inputTokenCount != null && results != null && results.isArray() && results.size() > 0) {
+                        int input = inputTokenCount.asInt();
+                        int output = results.get(0).has("tokenCount") ? results.get(0).get("tokenCount").asInt() : 0;
                         return new int[]{input, output};
                     }
                     break;

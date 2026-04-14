@@ -26,11 +26,9 @@ public class GcpBillingDataIngestionService {
     }
 
     /**
-     * Runs periodically to fetch and cache GCP billing data.
-     * Changed to 60000ms (1 minute) temporarily for debugging.
-     * Revert to 14400000 (4 hours) later for production.
+     * Runs every 4 hours to fetch and cache GCP billing data.
      */
-    @Scheduled(fixedRate = 60000)
+    @Scheduled(fixedRate = 14400000)
     public void runDailyBillingIngestion() {
         log.info("🔄 [Scheduler] Starting GCP Billing Ingestion (Single DB Mode)...");
         try {

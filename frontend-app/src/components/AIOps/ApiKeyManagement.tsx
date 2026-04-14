@@ -2,12 +2,15 @@ import React, { useState } from 'react';
 import { DialogRoot, DialogPanel } from '../ui/Dialog';
 import type { ApiKeyStats, ApiKeyRotateRequest } from '../../types/aiops';
 import { PROVIDER_COLORS } from '../../types/aiops';
+import { InfoTooltip } from '../ui/Tooltip';
 
 interface ApiKeyManagementProps {
   keys: ApiKeyStats[];
   loading: boolean;
   onRotateKey: (id: number, req: ApiKeyRotateRequest) => Promise<void>;
   onUpdateUsageLimit: (id: number, limit: number | null) => Promise<void>;
+  onDeleteProvider?: (id: number) => Promise<void>;
+  onCleanupOrphanedLogs?: () => Promise<{ deleted: number; message: string }>;
 }
 
 const HEALTH_BADGE: Record<string, { bg: string; text: string; icon: string }> = {
@@ -141,11 +144,15 @@ function RotateKeyModal({
 
 // ─── Main Component ──────────────────────────────────────────
 const ApiKeyManagement: React.FC<ApiKeyManagementProps> = ({
-  keys, loading, onRotateKey, onUpdateUsageLimit,
+  keys, loading, onRotateKey, onUpdateUsageLimit, onDeleteProvider, onCleanupOrphanedLogs,
 }) => {
   const [rotatingKey, setRotatingKey] = useState<ApiKeyStats | null>(null);
   const [editingLimit, setEditingLimit] = useState<number | null>(null);
   const [limitValue, setLimitValue] = useState('');
+  const [deletingKey, setDeletingKey] = useState<ApiKeyStats | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [cleanupMsg, setCleanupMsg] = useState<string | null>(null);
+  const [cleaning, setCleaning] = useState(false);
 
   if (loading) {
     return (
@@ -171,11 +178,43 @@ const ApiKeyManagement: React.FC<ApiKeyManagementProps> = ({
 
   return (
     <div className="space-y-4">
+      {/* Cleanup banner */}
+      {onCleanupOrphanedLogs && (
+        <div className="flex items-center justify-between bg-amber-50 border border-amber-200 rounded-xl px-5 py-3">
+          <div className="flex items-center gap-2 text-sm text-amber-800">
+            <i className="fas fa-broom" />
+            <span>If you see data from a deleted provider, run a cleanup to remove orphaned log entries.</span>
+          </div>
+          <div className="flex items-center gap-3">
+            {cleanupMsg && (
+              <span className="text-xs font-medium text-emerald-700">
+                <i className="fas fa-check-circle mr-1" />{cleanupMsg}
+              </span>
+            )}
+            <button
+              disabled={cleaning}
+              onClick={async () => {
+                setCleaning(true);
+                setCleanupMsg(null);
+                const res = await onCleanupOrphanedLogs();
+                setCleanupMsg(res.message);
+                setCleaning(false);
+                setTimeout(() => setCleanupMsg(null), 5000);
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-700 bg-amber-100 border border-amber-300 rounded-lg hover:bg-amber-200 transition-colors disabled:opacity-50"
+            >
+              <i className={`fas fa-broom ${cleaning ? 'fa-spin' : ''}`} />
+              {cleaning ? 'Cleaning...' : 'Clean Up Orphaned Logs'}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Summary KPIs */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Total Keys</span>
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider inline-flex items-center gap-1">Total Keys <InfoTooltip placement="bottom">Number of API keys configured across all providers.</InfoTooltip></span>
             <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center">
               <i className="fas fa-key text-white text-xs" />
             </div>
@@ -184,7 +223,7 @@ const ApiKeyManagement: React.FC<ApiKeyManagementProps> = ({
         </div>
         <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Active</span>
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider inline-flex items-center gap-1">Active <InfoTooltip placement="bottom">Keys with ACTIVE status that can receive requests.</InfoTooltip></span>
             <div className="w-8 h-8 bg-gradient-to-br from-emerald-500 to-green-600 rounded-lg flex items-center justify-center">
               <i className="fas fa-check-circle text-white text-xs" />
             </div>
@@ -193,7 +232,7 @@ const ApiKeyManagement: React.FC<ApiKeyManagementProps> = ({
         </div>
         <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Healthy</span>
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider inline-flex items-center gap-1">Healthy <InfoTooltip placement="bottom">Keys that responded without errors recently.</InfoTooltip></span>
             <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-emerald-600 rounded-lg flex items-center justify-center">
               <i className="fas fa-heartbeat text-white text-xs" />
             </div>
@@ -202,7 +241,7 @@ const ApiKeyManagement: React.FC<ApiKeyManagementProps> = ({
         </div>
         <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Errors</span>
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider inline-flex items-center gap-1">Errors <InfoTooltip placement="bottom">Keys in ERROR or DEGRADED health state.</InfoTooltip></span>
             <div className="w-8 h-8 bg-gradient-to-br from-red-500 to-rose-600 rounded-lg flex items-center justify-center">
               <i className="fas fa-exclamation-circle text-white text-xs" />
             </div>
@@ -253,17 +292,17 @@ const ApiKeyManagement: React.FC<ApiKeyManagementProps> = ({
                 <div className="grid grid-cols-3 gap-3">
                   <div className="text-center">
                     <p className="text-lg font-bold text-gray-900">{key.requestCount.toLocaleString()}</p>
-                    <p className="text-xs text-gray-400">Requests</p>
+                    <p className="text-xs text-gray-400 inline-flex items-center gap-1">Requests <InfoTooltip placement="bottom">Total API calls made with this key.</InfoTooltip></p>
                   </div>
                   <div className="text-center">
                     <p className="text-lg font-bold text-gray-900">{key.errorCount.toLocaleString()}</p>
-                    <p className="text-xs text-gray-400">Errors</p>
+                    <p className="text-xs text-gray-400 inline-flex items-center gap-1">Errors <InfoTooltip placement="bottom">Failed requests (4xx/5xx responses).</InfoTooltip></p>
                   </div>
                   <div className="text-center">
                     <p className="text-lg font-bold text-gray-900">
                       {key.requestCount > 0 ? ((key.errorCount / key.requestCount) * 100).toFixed(1) : '0.0'}%
                     </p>
-                    <p className="text-xs text-gray-400">Error Rate</p>
+                    <p className="text-xs text-gray-400 inline-flex items-center gap-1">Error Rate <InfoTooltip placement="bottom">Percentage of requests that returned errors.</InfoTooltip></p>
                   </div>
                 </div>
 
@@ -317,6 +356,15 @@ const ApiKeyManagement: React.FC<ApiKeyManagementProps> = ({
                   <i className="fas fa-sync-alt" />
                   Rotate Key
                 </button>
+                {onDeleteProvider && (
+                  <button
+                    onClick={() => setDeletingKey(key)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-700 bg-red-100 rounded-lg hover:bg-red-200 transition-colors"
+                  >
+                    <i className="fas fa-trash-alt" />
+                    Remove
+                  </button>
+                )}
                 {editingLimit === key.id ? (
                   <div className="flex items-center gap-1 ml-auto">
                     <input
@@ -367,6 +415,45 @@ const ApiKeyManagement: React.FC<ApiKeyManagementProps> = ({
         keyInfo={rotatingKey}
         onSave={onRotateKey}
       />
+
+      {/* Delete Confirmation Modal */}
+      <DialogRoot isOpen={!!deletingKey} onClose={() => setDeletingKey(null)}>
+        <DialogPanel title="Remove Provider">
+          <div className="space-y-4">
+            <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700">
+              <i className="fas fa-exclamation-triangle mr-1" />
+              This will permanently remove <strong>{deletingKey?.displayName || deletingKey?.provider}</strong> along with its API key,
+              tracking token, and all associated usage logs.
+            </div>
+            <p className="text-sm text-gray-600">
+              Are you sure you want to remove this provider? This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeletingKey(null)}
+                className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deleting}
+                onClick={async () => {
+                  if (!deletingKey || !onDeleteProvider) return;
+                  setDeleting(true);
+                  await onDeleteProvider(deletingKey.id);
+                  setDeleting(false);
+                  setDeletingKey(null);
+                }}
+                className="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-red-500 to-red-600 rounded-lg hover:from-red-600 hover:to-red-700 transition-all disabled:opacity-50"
+              >
+                {deleting ? 'Removing...' : 'Remove Provider'}
+              </button>
+            </div>
+          </div>
+        </DialogPanel>
+      </DialogRoot>
     </div>
   );
 };

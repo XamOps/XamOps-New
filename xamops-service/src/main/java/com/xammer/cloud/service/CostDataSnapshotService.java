@@ -233,6 +233,7 @@ public class CostDataSnapshotService {
             String accountId = account.getAwsAccountId();
             int accountSuccess = 0;
             int accountFail = 0;
+            boolean accountPermanentlyFailed = false;
 
             for (YearMonth ym : months) {
                 // Use CF_USAGE (last saved) as sentinel — skip only if all 7 types are present
@@ -245,14 +246,28 @@ public class CostDataSnapshotService {
                     successCount.incrementAndGet();
                     accountSuccess++;
                 } catch (Exception e) {
+                    String msg = e.getMessage() != null ? e.getMessage() : "";
+                    // Permanent errors: CE not enabled, IAM/STS access denied, historical data limit.
+                    // No point retrying remaining months — they will all fail the same way.
+                    boolean permanent = msg.contains("not enabled for cost explorer")
+                            || msg.contains("historical data beyond")
+                            || msg.contains("not authorized to perform")
+                            || msg.contains("AccessDenied")
+                            || msg.contains("Status Code: 403");
                     failCount.incrementAndGet();
                     accountFail++;
-                    logger.warn("[Snapshot] Failed {} / {}: {}", accountId, ym, e.getMessage());
+                    logger.warn("[Snapshot] Failed {} / {}: {}", accountId, ym, msg);
+                    if (permanent) {
+                        logger.warn("[Snapshot] Permanent error for account {} — skipping remaining {} months to avoid redundant CE calls",
+                                accountId, months.size() - months.indexOf(ym) - 1);
+                        accountPermanentlyFailed = true;
+                        break; // skip all remaining months for this account
+                    }
                 }
             }
             summary.put(accountId, accountFail == 0
                     ? "OK (" + accountSuccess + " months snapshotted)"
-                    : accountSuccess + " OK, " + accountFail + " failed");
+                    : accountSuccess + " OK, " + accountFail + " failed" + (accountPermanentlyFailed ? " (permanent error — skipped remaining months)" : ""));
         }
 
         logger.info("[Snapshot] Bulk extraction complete — success={}, skipped={}, failed={}",

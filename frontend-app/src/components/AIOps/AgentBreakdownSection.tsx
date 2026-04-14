@@ -1,6 +1,7 @@
 import React, { useRef, useEffect } from 'react';
 import { Chart, registerables } from 'chart.js';
 import type { AgentUsageStat } from '../../types/aiops';
+import { InfoTooltip } from '../ui/Tooltip';
 
 Chart.register(...registerables);
 
@@ -129,6 +130,7 @@ const AgentBreakdownSection: React.FC<AgentBreakdownSectionProps> = ({ data, loa
             <i className="fas fa-robot text-white text-xs" />
           </div>
           <h3 className="text-sm font-bold text-gray-800">Cost by Agent</h3>
+          <InfoTooltip placement="right">Cost breakdown by agent/app identified via X-XamOps-Agent header.</InfoTooltip>
           <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
             {data.length} agents
           </span>
@@ -144,9 +146,15 @@ const AgentBreakdownSection: React.FC<AgentBreakdownSectionProps> = ({ data, loa
           <table className="w-full">
             <thead>
               <tr className="bg-gray-50/80">
-                {['Agent', 'Requests', 'Total Tokens', 'Cost', 'Avg Latency'].map(col => (
+                {[
+                  { col: 'Agent', tip: 'Agent or app name from X-XamOps-Agent header' },
+                  { col: 'Requests', tip: 'Total API calls from this agent' },
+                  { col: 'Total Tokens', tip: 'Combined input + output tokens' },
+                  { col: 'Cost', tip: 'Estimated total cost for this agent' },
+                  { col: 'Avg Latency', tip: 'Average response time per request' },
+                ].map(({ col, tip }) => (
                   <th key={col} className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                    {col}
+                    <span className="inline-flex items-center gap-1">{col} <InfoTooltip placement="bottom">{tip}</InfoTooltip></span>
                   </th>
                 ))}
               </tr>

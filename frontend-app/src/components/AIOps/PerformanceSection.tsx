@@ -1,6 +1,7 @@
 import React, { useRef, useEffect } from 'react';
 import { Chart, registerables } from 'chart.js';
 import type { PerformanceMetrics } from '../../types/aiops';
+import { InfoTooltip } from '../ui/Tooltip';
 
 Chart.register(...registerables);
 
@@ -254,6 +255,7 @@ const PerformanceSection: React.FC<PerformanceSectionProps> = ({ data, loading }
                 <i className="fas fa-stopwatch text-white text-xs" />
               </div>
               <h3 className="text-sm font-bold text-gray-800">Latency Percentiles by Model</h3>
+              <InfoTooltip placement="right">p50 = median, p95 = 95th percentile, p99 = 99th percentile response times.</InfoTooltip>
             </div>
             <div className="p-4" style={{ height: 280 }}>
               <LatencyPercentilesChart data={data} />
@@ -268,6 +270,7 @@ const PerformanceSection: React.FC<PerformanceSectionProps> = ({ data, loading }
                 <i className="fas fa-exclamation-triangle text-white text-xs" />
               </div>
               <h3 className="text-sm font-bold text-gray-800">Error Rate Trend</h3>
+              <InfoTooltip placement="right">Daily error rate percentage vs request volume over time.</InfoTooltip>
             </div>
             <div className="p-4" style={{ height: 280 }}>
               <ErrorRateTrendChart data={data} />
@@ -284,6 +287,7 @@ const PerformanceSection: React.FC<PerformanceSectionProps> = ({ data, loading }
               <i className="fas fa-chart-bar text-white text-xs" />
             </div>
             <h3 className="text-sm font-bold text-gray-800">Latency Distribution</h3>
+            <InfoTooltip placement="right">How requests are distributed across latency buckets.</InfoTooltip>
           </div>
           <div className="p-4" style={{ height: Math.max(180, data.latencyDistribution.length * 36 + 40) }}>
             <LatencyDistributionChart data={data} />
@@ -299,6 +303,7 @@ const PerformanceSection: React.FC<PerformanceSectionProps> = ({ data, loading }
               <i className="fas fa-shield-alt text-white text-xs" />
             </div>
             <h3 className="text-sm font-bold text-gray-800">Model Reliability</h3>
+            <InfoTooltip placement="right">Reliability score based on error rate and latency. Higher = more reliable.</InfoTooltip>
             <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
               {data.modelReliability.length} models
             </span>

@@ -1,6 +1,7 @@
 import React, { useRef, useEffect } from 'react';
 import { Chart, registerables } from 'chart.js';
 import type { TeamAnalyticsSummary } from '../../types/aiops';
+import { InfoTooltip } from '../ui/Tooltip';
 
 Chart.register(...registerables);
 
@@ -161,15 +162,15 @@ const TeamBreakdownSection: React.FC<TeamBreakdownSectionProps> = ({ data, loadi
       {/* Summary KPIs */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-5 shadow-sm">
-          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Total Teams</span>
+          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider inline-flex items-center gap-1">Total Teams <InfoTooltip placement="bottom">Distinct teams/agents identified via request headers.</InfoTooltip></span>
           <p className="text-2xl font-bold text-gray-900 mt-1">{data.totalTeams}</p>
         </div>
         <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-5 shadow-sm">
-          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Total Cost</span>
+          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider inline-flex items-center gap-1">Total Cost <InfoTooltip placement="bottom">Combined spend across all teams for the period.</InfoTooltip></span>
           <p className="text-2xl font-bold text-gray-900 mt-1">{formatCurrency(data.totalCost)}</p>
         </div>
         <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-5 shadow-sm">
-          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Total Requests</span>
+          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider inline-flex items-center gap-1">Total Requests <InfoTooltip placement="bottom">Total API requests across all teams.</InfoTooltip></span>
           <p className="text-2xl font-bold text-gray-900 mt-1">{formatNumber(data.teams.reduce((s, t) => s + t.requests, 0))}</p>
         </div>
       </div>
@@ -182,6 +183,7 @@ const TeamBreakdownSection: React.FC<TeamBreakdownSectionProps> = ({ data, loadi
               <i className="fas fa-chart-bar text-white text-xs" />
             </div>
             <h3 className="text-sm font-bold text-gray-800">Cost by Team</h3>
+            <InfoTooltip placement="right">Total cost per team for the selected period.</InfoTooltip>
           </div>
           <div className="p-4" style={{ height: Math.max(200, data.teams.length * 40 + 40) }}>
             <TeamCostBarChart data={data} />
@@ -194,6 +196,7 @@ const TeamBreakdownSection: React.FC<TeamBreakdownSectionProps> = ({ data, loadi
               <i className="fas fa-chart-line text-white text-xs" />
             </div>
             <h3 className="text-sm font-bold text-gray-800">Daily Cost Trend by Team</h3>
+            <InfoTooltip placement="right">Daily cost over time broken down by team.</InfoTooltip>
           </div>
           <div className="p-4" style={{ height: 280 }}>
             <TeamCostTrendChart data={data} />
@@ -208,6 +211,7 @@ const TeamBreakdownSection: React.FC<TeamBreakdownSectionProps> = ({ data, loadi
             <i className="fas fa-table text-white text-xs" />
           </div>
           <h3 className="text-sm font-bold text-gray-800">Team Breakdown</h3>
+          <InfoTooltip placement="right">Detailed per-team metrics including cost share, models used, and latency.</InfoTooltip>
           <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
             {data.teams.length} teams
           </span>
