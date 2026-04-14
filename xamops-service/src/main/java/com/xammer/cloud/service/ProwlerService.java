@@ -77,7 +77,7 @@ public class ProwlerService {
             status.put("status", "RUNNING");
             status.put("startTime", LocalDateTime.now().toString());
             status.put("message", "Initializing Prowler scan for ALL regions...");
-            redisCacheService.put(statusKey, status, 60);
+            redisCacheService.put(statusKey, status, 1440); // 1440 min (24 hrs)
 
             logger.info("Async Prowler scan started for account {}", accountId);
 
@@ -126,7 +126,7 @@ public class ProwlerService {
             status.put("endTime", LocalDateTime.now().toString());
             status.put("message", "Scan completed. Found " + findings.size() + " issues.");
             status.put("findingsCount", findings.size());
-            redisCacheService.put(statusKey, status, 60);
+            redisCacheService.put(statusKey, status, 1440); // 1440 min (24 hrs)
 
             logger.info("Async Prowler scan finished for account {}. Findings: {}", accountId, findings.size());
 
@@ -136,7 +136,7 @@ public class ProwlerService {
             status.put("status", "FAILED");
             status.put("error", e.getMessage());
             status.put("endTime", LocalDateTime.now().toString());
-            redisCacheService.put(statusKey, status, 60);
+            redisCacheService.put(statusKey, status, 1440); // 1440 min (24 hrs)
         }
     }
 

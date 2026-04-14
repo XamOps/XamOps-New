@@ -14,6 +14,43 @@ import type {
   CapacityPricing,
 } from '../types/flexCompute';
 
+/**
+ * Converts a wall-clock datetime string ("YYYY-MM-DDTHH:mm") in the given IANA timezone
+ * to a UTC date and time.
+ * Returns { date: "YYYY-MM-DD", time: "HH:mm" } in UTC.
+ */
+function wallClockToUtc(datetime: string, timezone?: string): { date: string; time: string } {
+  const tz = timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const parts = datetime.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/);
+  if (!parts) {
+    throw new Error(`Invalid datetime format: ${datetime}. Expected "YYYY-MM-DDTHH:mm".`);
+  }
+  const [, year, month, day, hour, minute] = parts;
+  // Treat the datetime as UTC temporarily to compute the timezone offset at that moment
+  const assumedUtc = new Date(`${year}-${month}-${day}T${hour}:${minute}:00Z`);
+  // Re-format in the target timezone to find what local time corresponds to that UTC instant
+  const localParts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(assumedUtc);
+  const get = (type: string) => Number(localParts.find(p => p.type === type)?.value ?? 0);
+  const localMs = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour'), get('minute'));
+  const offsetMs = localMs - assumedUtc.getTime();
+  // Wall-clock ms (treated as UTC) minus offset gives true UTC
+  const wallMs = Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute));
+  const utcDate = new Date(wallMs - offsetMs);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return {
+    date: `${utcDate.getUTCFullYear()}-${pad(utcDate.getUTCMonth() + 1)}-${pad(utcDate.getUTCDate())}`,
+    time: `${pad(utcDate.getUTCHours())}:${pad(utcDate.getUTCMinutes())}`,
+  };
+}
+
 const defaultKPIs: FlexComputeKPIs = {
   totalSavings: 0,
   totalCost: 0,

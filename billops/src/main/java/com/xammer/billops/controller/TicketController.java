@@ -316,6 +316,23 @@ public class TicketController {
         }
     }
 
+    @PostMapping("/tickets/{id}/meeting")
+    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
+    public ResponseEntity<Void> sendMeetingInvite(
+            @PathVariable Long id,
+            @RequestBody com.xammer.billops.dto.MeetingInviteRequest req) {
+        try {
+            if (req.getRecipientEmails() == null || req.getRecipientEmails().isEmpty()) {
+                return ResponseEntity.badRequest().build();
+            }
+            ticketService.sendMeetingInviteEmail(id, req);
+            return ResponseEntity.ok().build();
+        } catch (RuntimeException e) {
+            logger.error("Error sending meeting invite for ticket {}: {}", id, e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
     // ─── ADMIN TICKET INITIATION ─────────────────────────────────────────────
 
     /**
