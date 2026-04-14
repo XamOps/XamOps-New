@@ -4,9 +4,7 @@ import { useAIOpsData } from '../hooks/useAIOpsData';
 import { useUsageAnalyticsData } from '../hooks/useUsageAnalyticsData';
 import { useBudgetData } from '../hooks/useBudgetData';
 import { AriaTabGroup } from '../components/ui/Tabs';
-import AIOpsKPISection from '../components/AIOps/AIOpsKPISection';
-import AIOpsCharts from '../components/AIOps/AIOpsCharts';
-import AIOpsModelTable from '../components/AIOps/AIOpsModelTable';
+import LLMDashboardTab from '../components/AIOps/LLMDashboardTab';
 import RequestLogsTable from '../components/AIOps/RequestLogsTable';
 import AgentBreakdownSection from '../components/AIOps/AgentBreakdownSection';
 import ModelComparisonSection from '../components/AIOps/ModelComparisonSection';
@@ -28,7 +26,8 @@ import { useComputeMetricsData } from '../hooks/useComputeMetricsData';
 import ComputeMetricsSection from '../components/AIOps/ComputeMetricsSection';
 import ManagedInferenceTab from '../components/AIOps/ManagedInferenceTab';
 import { useManagedInferenceData } from '../hooks/useManagedInferenceData';
-import type { LlmProviderConfig, CostAnomaly, BudgetConfig } from '../types/aiops';
+import { useDashboardEnhancedData } from '../hooks/useDashboardEnhancedData';
+import type { LlmProviderConfig, BudgetConfig } from '../types/aiops';
 import { PROVIDER_COLORS } from '../types/aiops';
 import '../styles/aiops.css';
 
@@ -59,53 +58,6 @@ const USAGE_SUB_TABS = [
   { id: 'performance', label: 'Performance', icon: 'fas fa-tachometer-alt' },
   { id: 'compute', label: 'Compute', icon: 'fas fa-microchip' },
 ];
-
-// ─── Anomaly Alerts Component ────────────────────────────────
-function AnomalyAlerts({ anomalies }: { anomalies: CostAnomaly[] }) {
-  if (anomalies.length === 0) return null;
-
-  return (
-    <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
-      <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
-        <div className="w-8 h-8 bg-gradient-to-br from-red-500 to-rose-600 rounded-lg flex items-center justify-center">
-          <i className="fas fa-exclamation-triangle text-white text-xs" />
-        </div>
-        <h3 className="text-sm font-bold text-gray-800">Cost Anomalies</h3>
-        <span className="text-xs text-red-500 bg-red-50 px-2 py-0.5 rounded-full font-semibold">
-          {anomalies.length} detected
-        </span>
-      </div>
-      <div className="divide-y divide-gray-100">
-        {anomalies.map((a, idx) => (
-          <div key={idx} className="px-6 py-3 flex items-center justify-between hover:bg-red-50/30 transition-colors">
-            <div className="flex items-center gap-4">
-              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold ${
-                a.severity === 'CRITICAL'
-                  ? 'bg-red-100 text-red-700'
-                  : 'bg-amber-100 text-amber-700'
-              }`}>
-                {a.severity}
-              </span>
-              <div>
-                <p className="text-sm font-medium text-gray-900">
-                  {a.provider} cost spike on {a.date}
-                </p>
-                <p className="text-xs text-gray-500">
-                  Actual: ${a.actualCost.toFixed(4)} | Expected: ${a.expectedCost.toFixed(4)} | +{a.deviationPct.toFixed(0)}% deviation
-                </p>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ─── Skeleton loader ─────────────────────────────────────────
-function Skeleton({ className = '' }: { className?: string }) {
-  return <div className={`animate-pulse bg-gray-200/60 rounded-2xl ${className}`} />;
-}
 
 // ─── Provider Badge ──────────────────────────────────────────
 function ProviderBadge({ config, onCopy }: { config: LlmProviderConfig; onCopy: (text: string) => void }) {
@@ -213,6 +165,14 @@ const AIOpsPage: React.FC = () => {
   const apiKeys = useApiKeysData();
   const computeMetrics = useComputeMetricsData(period, analytics.filters.provider);
   const inference = useManagedInferenceData(period);
+  const dashEnhanced = useDashboardEnhancedData(period);
+
+  // Load enhanced dashboard data when switching to Dashboard
+  useEffect(() => {
+    if (activeTab === 'dashboard') {
+      dashEnhanced.loadAllDashboardData();
+    }
+  }, [activeTab, period]);
 
   // Load filter options when switching to Usage Analytics
   useEffect(() => {
@@ -298,25 +258,52 @@ const AIOpsPage: React.FC = () => {
     }
   }, [activeTab, activeSubTab, period, analytics.filters, analytics.logsPage, analytics.logsSize]);
 
-  // Topbar integration
+  const hasProviders = providers.length > 0;
+
+  // Topbar integration — period selector, provider badges, Add Provider, Refresh
   const { setActions, clearActions } = useTopbar();
   React.useEffect(() => {
     setActions(
       <div className="flex items-center gap-3">
-        {providers.length > 0 && (
+        {hasProviders && (
+          <div className="flex items-center bg-gray-100 rounded-lg p-0.5">
+            {PERIODS.map(p => (
+              <button
+                key={p.key}
+                onClick={() => setPeriod(p.key)}
+                className={`aiops-period-btn px-2.5 py-1 text-[11px] font-medium rounded-md transition-all ${
+                  period === p.key ? 'active' : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        )}
+        {providers.map(p => (
+          <ProviderBadge key={p.id} config={p} onCopy={handleCopyUrl} />
+        ))}
+        <button
+          onClick={() => setIsProviderModalOpen(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-gradient-to-r from-indigo-500 to-purple-600 rounded-lg hover:from-indigo-600 hover:to-purple-700 transition-all shadow-sm"
+        >
+          <i className="fas fa-plus" />
+          Add Provider
+        </button>
+        {hasProviders && (
           <button
             onClick={() => loadDashboard()}
             disabled={isLoading}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+            className="flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+            title="Refresh"
           >
             <i className={`fas fa-sync-alt ${isLoading ? 'fa-spin' : ''}`} />
-            Refresh
           </button>
         )}
       </div>
     );
     return () => clearActions();
-  }, [setActions, clearActions, providers.length, isLoading, loadDashboard]);
+  }, [setActions, clearActions, providers, isLoading, loadDashboard, period, hasProviders]);
 
   const handleCopyUrl = useCallback((url: string) => {
     navigator.clipboard.writeText(url);
@@ -358,56 +345,8 @@ const AIOpsPage: React.FC = () => {
     URL.revokeObjectURL(url);
   }, [analytics.requestLogs]);
 
-  const hasProviders = providers.length > 0;
-
   return (
     <main className="aiops-page flex-1 flex flex-col min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="sticky top-0 z-10 px-6 py-4 border-b border-gray-200 bg-white/80 backdrop-blur-md">
-        <div className="max-w-7xl mx-auto flex items-center justify-between flex-wrap gap-3">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center shadow-sm">
-                <i className="fas fa-brain text-white text-sm" />
-              </div>
-              <div>
-                <h1 className="text-lg font-bold text-gray-900">AI Ops</h1>
-                <p className="text-xs text-gray-500">Monitor your AI API usage & costs</p>
-              </div>
-            </div>
-
-            {hasProviders && (
-              <div className="flex items-center bg-gray-100 rounded-lg p-0.5 ml-4">
-                {PERIODS.map(p => (
-                  <button
-                    key={p.key}
-                    onClick={() => setPeriod(p.key)}
-                    className={`aiops-period-btn px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
-                      period === p.key ? 'active' : 'text-gray-600 hover:text-gray-900'
-                    }`}
-                  >
-                    {p.label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="flex items-center gap-3">
-            {providers.map(p => (
-              <ProviderBadge key={p.id} config={p} onCopy={handleCopyUrl} />
-            ))}
-            <button
-              onClick={() => setIsProviderModalOpen(true)}
-              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-indigo-500 to-purple-600 rounded-lg hover:from-indigo-600 hover:to-purple-700 transition-all shadow-sm hover:shadow-md"
-            >
-              <i className="fas fa-plus" />
-              Add Provider
-            </button>
-          </div>
-        </div>
-      </div>
-
       {/* Top-Level Tabs */}
       {hasProviders && (
         <div className="px-6 bg-white border-b border-gray-200">
@@ -501,103 +440,24 @@ const AIOpsPage: React.FC = () => {
           )}
 
           {/* ═══════════════════════════════════════════════════════
-              Tab 1: LLM Dashboard
+              Tab 1: LLM Dashboard (Enhanced - CloudIDR style)
               ═══════════════════════════════════════════════════════ */}
           {activeTab === 'dashboard' && (hasProviders || isLoading) && (
-            <>
-              {/* KPIs */}
-              {sectionLoading.kpis ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                  {Array.from({ length: 4 }).map((_, i) => (
-                    <Skeleton key={i} className="h-32" />
-                  ))}
-                </div>
-              ) : kpis && (
-                <AIOpsKPISection kpis={kpis} allTimeMetrics={allTimeMetrics} />
-              )}
-
-              {/* Charts */}
-              {sectionLoading.charts ? (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  <Skeleton className="h-72" />
-                  <Skeleton className="h-72" />
-                </div>
-              ) : costTrend && (
-                <AIOpsCharts costTrend={costTrend} providerBreakdown={providerBreakdown} />
-              )}
-
-              {/* Model Usage Table */}
-              {sectionLoading.table ? (
-                <Skeleton className="h-64" />
-              ) : modelUsageTable.length > 0 && (
-                <AIOpsModelTable modelUsage={modelUsageTable} />
-              )}
-
-              {/* Anomaly Alerts */}
-              {!sectionLoading.anomalies && (
-                <AnomalyAlerts anomalies={anomalies} />
-              )}
-
-              {/* Proxy Endpoints Card */}
-              {hasProviders && !sectionLoading.kpis && (
-                <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-6 shadow-sm">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-emerald-600 rounded-lg flex items-center justify-center">
-                      <i className="fas fa-link text-white text-xs" />
-                    </div>
-                    <h3 className="text-sm font-bold text-gray-800">Your Providers</h3>
-                    <span className="text-xs text-gray-400">Use X-XamOps-Key header + Authorization: Bearer YOUR_KEY</span>
-                  </div>
-                  <div className="space-y-3">
-                    {providers.map(p => (
-                      <div key={p.id} className="p-3 bg-gray-50 rounded-lg border border-gray-100">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <span
-                              className="w-3 h-3 rounded-full"
-                              style={{ backgroundColor: PROVIDER_COLORS[p.provider] || '#94a3b8' }}
-                            />
-                            <span className="text-sm font-medium text-gray-700">{p.displayName || p.provider}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => handleCopyUrl(p.trackingToken!)}
-                              className="text-indigo-500 hover:text-indigo-700 transition-colors text-xs font-medium"
-                              title="Copy tracking key"
-                            >
-                              <i className="fas fa-key mr-1" />Copy Key
-                            </button>
-                            <button
-                              onClick={() => {
-                                if (window.confirm(`Delete ${p.displayName || p.provider} provider?`)) {
-                                  deleteProvider(p.id!);
-                                }
-                              }}
-                              className="text-red-400 hover:text-red-600 transition-colors text-sm ml-1"
-                              title="Delete"
-                            >
-                              <i className="fas fa-trash" />
-                            </button>
-                          </div>
-                        </div>
-                        <div className="mt-2 flex items-center gap-2">
-                          <span className="text-xs text-gray-400">Key:</span>
-                          <code className="text-xs text-gray-500 bg-white px-2 py-1 rounded border border-gray-200 truncate flex-1 font-mono">
-                            {p.trackingToken}
-                          </code>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-100">
-                    <p className="text-xs text-blue-700">
-                      <i className="fas fa-info-circle mr-1" />
-                      Proxy URL: <code className="bg-blue-100 px-1 rounded font-mono">{providers[0]?.proxyBaseUrl}</code> — pass <code className="bg-blue-100 px-1 rounded">X-XamOps-Key</code> header and <code className="bg-blue-100 px-1 rounded">Authorization: Bearer YOUR_API_KEY</code> in every request.
-                    </p>
-                  </div>
-                </div>
-              )}
-            </>
+            <LLMDashboardTab
+              kpis={kpis}
+              allTimeMetrics={allTimeMetrics}
+              costTrend={costTrend}
+              providerBreakdown={providerBreakdown}
+              modelUsageTable={modelUsageTable}
+              anomalies={anomalies}
+              dashInsights={dashEnhanced.dashInsights}
+              dashRoutingStats={dashEnhanced.dashRoutingStats}
+              dashTeamData={dashEnhanced.dashTeamData}
+              modelAnalysis={dashEnhanced.modelAnalysis}
+              dashRecentLogs={dashEnhanced.dashRecentLogs}
+              kpisLoading={sectionLoading.kpis}
+              chartsLoading={sectionLoading.charts}
+            />
           )}
 
           {/* ═══════════════════════════════════════════════════════
@@ -738,6 +598,11 @@ const AIOpsPage: React.FC = () => {
               loading={apiKeys.loading}
               onRotateKey={apiKeys.rotateKey}
               onUpdateUsageLimit={apiKeys.updateUsageLimit}
+              onDeleteProvider={async (id: number) => {
+                await deleteProvider(id);
+                apiKeys.loadKeys();
+              }}
+              onCleanupOrphanedLogs={apiKeys.cleanupOrphanedLogs}
             />
           )}
 

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { DialogRoot, DialogPanel } from '../ui/Dialog';
 import type { RoutingRule, RoutingRuleCreateRequest, RoutingStats, RoutingHistoryEntry } from '../../types/aiops';
+import { InfoTooltip } from '../ui/Tooltip';
 
 interface CostOptimizerTabProps {
   rules: RoutingRule[];
@@ -206,7 +207,7 @@ const CostOptimizerTab: React.FC<CostOptimizerTabProps> = ({
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Active Rules</span>
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider inline-flex items-center gap-1">Active Rules <InfoTooltip placement="bottom">Number of routing rules currently enabled.</InfoTooltip></span>
             <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center">
               <i className="fas fa-route text-white text-xs" />
             </div>
@@ -216,7 +217,7 @@ const CostOptimizerTab: React.FC<CostOptimizerTabProps> = ({
         </div>
         <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Routed Requests</span>
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider inline-flex items-center gap-1">Routed Requests <InfoTooltip placement="bottom">Total requests redirected to cheaper models by routing rules.</InfoTooltip></span>
             <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-cyan-600 rounded-lg flex items-center justify-center">
               <i className="fas fa-exchange-alt text-white text-xs" />
             </div>
@@ -225,7 +226,7 @@ const CostOptimizerTab: React.FC<CostOptimizerTabProps> = ({
         </div>
         <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Actual Spend</span>
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider inline-flex items-center gap-1">Actual Spend <InfoTooltip placement="bottom">Real cost of routed requests using the cheaper target model.</InfoTooltip></span>
             <div className="w-8 h-8 bg-gradient-to-br from-emerald-500 to-green-600 rounded-lg flex items-center justify-center">
               <i className="fas fa-dollar-sign text-white text-xs" />
             </div>
@@ -234,7 +235,7 @@ const CostOptimizerTab: React.FC<CostOptimizerTabProps> = ({
         </div>
         <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Est. Savings</span>
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider inline-flex items-center gap-1">Est. Savings <InfoTooltip placement="bottom">Estimated savings vs original model pricing.</InfoTooltip></span>
             <div className="w-8 h-8 bg-gradient-to-br from-amber-500 to-orange-600 rounded-lg flex items-center justify-center">
               <i className="fas fa-piggy-bank text-white text-xs" />
             </div>
@@ -251,6 +252,7 @@ const CostOptimizerTab: React.FC<CostOptimizerTabProps> = ({
               <i className="fas fa-list text-white text-xs" />
             </div>
             <h3 className="text-sm font-bold text-gray-800">Routing Rules</h3>
+            <InfoTooltip placement="right">Rules that automatically redirect requests from expensive models to cheaper alternatives.</InfoTooltip>
             <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
               {rules.length} rules
             </span>
@@ -356,6 +358,7 @@ const CostOptimizerTab: React.FC<CostOptimizerTabProps> = ({
               <i className="fas fa-chart-pie text-white text-xs" />
             </div>
             <h3 className="text-sm font-bold text-gray-800">Routing Breakdown</h3>
+            <InfoTooltip placement="right">Cost and count breakdown for each source-to-target routing path.</InfoTooltip>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -393,6 +396,7 @@ const CostOptimizerTab: React.FC<CostOptimizerTabProps> = ({
             <i className="fas fa-history text-white text-xs" />
           </div>
           <h3 className="text-sm font-bold text-gray-800">Recent Routed Requests</h3>
+          <InfoTooltip placement="right">Individual requests that were rerouted by active routing rules.</InfoTooltip>
         </div>
 
         {historyLoading ? (

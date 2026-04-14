@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import type { HeatmapCell } from '../../types/aiops';
+import { InfoTooltip } from '../ui/Tooltip';
 
 interface TokenHeatmapProps {
   data: HeatmapCell[];
@@ -69,6 +70,7 @@ const TokenHeatmap: React.FC<TokenHeatmapProps> = ({ data, loading }) => {
             <i className="fas fa-th text-white text-xs" />
           </div>
           <h3 className="text-sm font-bold text-gray-800">Token Usage Heatmap</h3>
+          <InfoTooltip placement="right">Token consumption by day of week and hour. Darker cells = more tokens used.</InfoTooltip>
         </div>
         {hoveredCell !== null && hoveredValue !== null && (
           <span className="text-xs text-gray-500 bg-gray-100 px-3 py-1 rounded-full">

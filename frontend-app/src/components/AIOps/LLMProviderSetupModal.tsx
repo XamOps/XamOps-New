@@ -40,7 +40,6 @@ const CURL_SNIPPETS: Record<string, string> = {
   }'`,
   BEDROCK: `curl {{PROXY_URL}}/model/anthropic.claude-3-haiku-20240307-v1:0/invoke \\
   -H "Content-Type: application/json" \\
-  -H "Authorization: Bearer YOUR_AWS_KEY" \\
   -H "X-XamOps-Key: {{TRACKING_TOKEN}}" \\
   -d '{
     "messages": [{"role": "user", "content": "Hello!"}],
@@ -79,6 +78,9 @@ const LLMProviderSetupModal: React.FC<LLMProviderSetupModalProps> = ({
   const [step, setStep] = useState<Step>('select');
   const [selectedProvider, setSelectedProvider] = useState<LlmProvider | null>(null);
   const [displayName, setDisplayName] = useState('');
+  const [awsRegion, setAwsRegion] = useState('');
+  const [awsAccessKey, setAwsAccessKey] = useState('');
+  const [awsSecretKey, setAwsSecretKey] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
   const [savedConfig, setSavedConfig] = useState<LlmProviderConfig | null>(null);
@@ -88,6 +90,9 @@ const LLMProviderSetupModal: React.FC<LLMProviderSetupModalProps> = ({
     setStep('select');
     setSelectedProvider(null);
     setDisplayName('');
+    setAwsRegion('');
+    setAwsAccessKey('');
+    setAwsSecretKey('');
     setIsSaving(false);
     setError('');
     setSavedConfig(null);
@@ -104,14 +109,25 @@ const LLMProviderSetupModal: React.FC<LLMProviderSetupModalProps> = ({
       setError('Please select a provider');
       return;
     }
+    if (selectedProvider === 'BEDROCK') {
+      if (!awsRegion.trim()) { setError('AWS Region is required for Bedrock'); return; }
+      if (!awsAccessKey.trim()) { setError('AWS Access Key is required for Bedrock'); return; }
+      if (!awsSecretKey.trim()) { setError('AWS Secret Key is required for Bedrock'); return; }
+    }
     setIsSaving(true);
     setError('');
     try {
-      const result = await onSave({
+      const config: LlmProviderConfig = {
         provider: selectedProvider,
         displayName: displayName || selectedProvider,
         status: 'ACTIVE',
-      });
+      };
+      if (selectedProvider === 'BEDROCK') {
+        config.awsRegion = awsRegion.trim();
+        config.awsAccessKey = awsAccessKey.trim();
+        config.awsSecretKey = awsSecretKey.trim();
+      }
+      const result = await onSave(config);
       setSavedConfig(result);
       setActiveSnippetProvider(selectedProvider);
       setStep('success');
@@ -120,9 +136,12 @@ const LLMProviderSetupModal: React.FC<LLMProviderSetupModalProps> = ({
     } finally {
       setIsSaving(false);
     }
-  }, [selectedProvider, displayName, onSave]);
+  }, [selectedProvider, displayName, awsRegion, awsAccessKey, awsSecretKey, onSave]);
 
-  const alreadyConfigured = existingProviders.map(p => p.provider);
+  const configuredCountByProvider = existingProviders.reduce<Record<string, number>>((acc, p) => {
+    acc[p.provider] = (acc[p.provider] || 0) + 1;
+    return acc;
+  }, {});
 
   const getCurlSnippet = (provider: string) => {
     if (!savedConfig) return '';
@@ -193,29 +212,22 @@ const LLMProviderSetupModal: React.FC<LLMProviderSetupModalProps> = ({
                 </label>
                 <div className="grid grid-cols-2 gap-3">
                   {LLM_PROVIDERS.map(provider => {
-                    const isConfigured = alreadyConfigured.includes(provider.key);
+                    const keyCount = configuredCountByProvider[provider.key] || 0;
                     const isSelected = selectedProvider === provider.key;
 
                     return (
                       <button
                         key={provider.key}
-                        onClick={() => {
-                          if (!isConfigured) {
-                            setSelectedProvider(provider.key);
-                          }
-                        }}
-                        disabled={isConfigured}
-                        className={`relative p-4 rounded-xl border-2 text-left transition-all ${
+                        onClick={() => setSelectedProvider(provider.key)}
+                        className={`relative p-4 rounded-xl border-2 text-left transition-all cursor-pointer ${
                           isSelected
                             ? 'border-indigo-500 bg-indigo-50 shadow-md'
-                            : isConfigured
-                            ? 'border-gray-200 bg-gray-50 opacity-60 cursor-not-allowed'
-                            : 'border-gray-200 hover:border-indigo-300 hover:bg-gray-50 cursor-pointer'
+                            : 'border-gray-200 hover:border-indigo-300 hover:bg-gray-50'
                         }`}
                       >
-                        {isConfigured && (
+                        {keyCount > 0 && (
                           <span className="absolute top-2 right-2 text-xs bg-green-100 text-green-600 px-2 py-0.5 rounded-full font-medium">
-                            Connected
+                            {keyCount} key{keyCount > 1 ? 's' : ''}
                           </span>
                         )}
                         <div className={`w-10 h-10 rounded-lg ${provider.bgColor} flex items-center justify-center mb-2`}>
@@ -229,12 +241,16 @@ const LLMProviderSetupModal: React.FC<LLMProviderSetupModalProps> = ({
                 </div>
               </div>
 
-              {/* Step 2: Display Name */}
+              {/* Step 2: Display Name + provider-specific fields */}
               {selectedProvider && (
                 <div className="space-y-4 pt-2 border-t border-gray-100">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Display Name <span className="text-gray-400">(optional)</span>
+                      Display Name{' '}
+                      {(configuredCountByProvider[selectedProvider] || 0) > 0
+                        ? <span className="text-amber-600 text-xs">(recommended — you already have a key for this provider)</span>
+                        : <span className="text-gray-400">(optional)</span>
+                      }
                     </label>
                     <input
                       type="text"
@@ -244,6 +260,57 @@ const LLMProviderSetupModal: React.FC<LLMProviderSetupModalProps> = ({
                       className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
                     />
                   </div>
+
+                  {/* Bedrock-specific fields */}
+                  {selectedProvider === 'BEDROCK' && (
+                    <div className="space-y-3 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+                      <div className="flex items-center gap-2 text-xs font-semibold text-amber-800 mb-2">
+                        <i className="fab fa-aws" />
+                        AWS Bedrock Credentials
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">
+                          AWS Region <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={awsRegion}
+                          onChange={e => setAwsRegion(e.target.value)}
+                          placeholder="e.g., us-east-1, ap-south-1"
+                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">
+                          AWS Access Key ID <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          type="password"
+                          value={awsAccessKey}
+                          onChange={e => setAwsAccessKey(e.target.value)}
+                          placeholder="AKIA..."
+                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">
+                          AWS Secret Access Key <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          type="password"
+                          value={awsSecretKey}
+                          onChange={e => setAwsSecretKey(e.target.value)}
+                          placeholder="wJal..."
+                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none font-mono"
+                        />
+                      </div>
+                      <p className="text-[11px] text-amber-700">
+                        <i className="fas fa-shield-alt mr-1" />
+                        Credentials are encrypted at rest and used only to sign requests to Bedrock.
+                        No Authorization header needed in your curl commands.
+                      </p>
+                    </div>
+                  )}
 
                   {error && (
                     <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-red-50 text-red-700 text-sm">
@@ -255,8 +322,17 @@ const LLMProviderSetupModal: React.FC<LLMProviderSetupModalProps> = ({
                   <div className="flex items-start gap-3 p-4 bg-green-50/50 rounded-xl border border-green-100">
                     <i className="fas fa-lock text-green-500 mt-0.5" />
                     <div className="text-xs text-green-700 space-y-1">
-                      <p className="font-semibold">No API key needed here</p>
-                      <p>Your API key is <strong>never stored</strong> on XamOps servers. After saving, you'll get a tracking key and a curl command to test. Your API key passes through in each request and is only held in memory for ~1-2 seconds.</p>
+                      {selectedProvider === 'BEDROCK' ? (
+                        <>
+                          <p className="font-semibold">Credentials stored encrypted</p>
+                          <p>Your AWS credentials are encrypted with AES-256 and used to sign Bedrock requests server-side. You won't need to pass any auth headers in your curl commands.</p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="font-semibold">No API key needed here</p>
+                          <p>Your API key is <strong>never stored</strong> on XamOps servers. After saving, you'll get a tracking key and a curl command to test. Your API key passes through in each request and is only held in memory for ~1-2 seconds.</p>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -315,8 +391,8 @@ const LLMProviderSetupModal: React.FC<LLMProviderSetupModalProps> = ({
                 </p>
 
                 {/* Provider tabs */}
-                <div className="flex items-center gap-2 mb-3">
-                  {(['ANTHROPIC', 'OPENAI', 'GEMINI'] as const).map(p => (
+                <div className="flex items-center gap-2 mb-3 flex-wrap">
+                  {(['ANTHROPIC', 'OPENAI', 'GEMINI', 'BEDROCK'] as const).map(p => (
                     <button
                       key={p}
                       onClick={() => setActiveSnippetProvider(p)}
@@ -326,7 +402,7 @@ const LLMProviderSetupModal: React.FC<LLMProviderSetupModalProps> = ({
                           : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                       }`}
                     >
-                      {p === 'OPENAI' ? 'OpenAI' : p === 'ANTHROPIC' ? 'Anthropic' : 'Google Gemini'}
+                      {p === 'OPENAI' ? 'OpenAI' : p === 'ANTHROPIC' ? 'Anthropic' : p === 'GEMINI' ? 'Google Gemini' : 'AWS Bedrock'}
                     </button>
                   ))}
                 </div>
@@ -352,12 +428,24 @@ const LLMProviderSetupModal: React.FC<LLMProviderSetupModalProps> = ({
                 <i className="fas fa-info-circle text-blue-500 mt-0.5" />
                 <div className="text-xs text-blue-700 space-y-1">
                   <p className="font-semibold">How it works</p>
-                  <p>Send requests to the XamOps proxy URL with two headers:</p>
-                  <ul className="list-disc list-inside space-y-0.5 ml-1">
-                    <li><code className="bg-blue-100 px-1 rounded">Authorization: Bearer YOUR_KEY</code> — your provider API key</li>
-                    <li><code className="bg-blue-100 px-1 rounded">X-XamOps-Key: {savedConfig.trackingToken?.substring(0, 12)}...</code> — your tracking key</li>
-                  </ul>
-                  <p>XamOps logs usage metadata (tokens, cost, latency) and forwards your request. Your API key is <strong>never stored</strong>.</p>
+                  {selectedProvider === 'BEDROCK' ? (
+                    <>
+                      <p>Send requests to the XamOps proxy with just one header:</p>
+                      <ul className="list-disc list-inside space-y-0.5 ml-1">
+                        <li><code className="bg-blue-100 px-1 rounded">X-XamOps-Key: {savedConfig.trackingToken?.substring(0, 12)}...</code> — your tracking key</li>
+                      </ul>
+                      <p>XamOps signs the request with your stored AWS credentials using SigV4, forwards to Bedrock, and logs usage. No Authorization header needed.</p>
+                    </>
+                  ) : (
+                    <>
+                      <p>Send requests to the XamOps proxy URL with two headers:</p>
+                      <ul className="list-disc list-inside space-y-0.5 ml-1">
+                        <li><code className="bg-blue-100 px-1 rounded">Authorization: Bearer YOUR_KEY</code> — your provider API key</li>
+                        <li><code className="bg-blue-100 px-1 rounded">X-XamOps-Key: {savedConfig.trackingToken?.substring(0, 12)}...</code> — your tracking key</li>
+                      </ul>
+                      <p>XamOps logs usage metadata (tokens, cost, latency) and forwards your request. Your API key is <strong>never stored</strong>.</p>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
