@@ -162,46 +162,30 @@ export const useFlexComputeData = () => {
 
 
   /**
-   * Convert a wall-clock datetime string ("YYYY-MM-DDTHH:mm") entered in the given
-   * IANA timezone into UTC date ("MM/DD/YYYY") and time ("HH:mm") strings.
-   *
-   * The backend compares startTime directly against server UTC — so we must
-   * send UTC, not local wall-clock time.
-   *
-   * Algorithm: treat wall-clock as provisional UTC → ask Intl what the target
-   * timezone would show at that moment → shift by the difference to reach actual UTC.
+   * Returns the exact UTC offset in decimal hours for an IANA timezone at the current moment.
+   * Handles fractional-hour zones (e.g. IST = +5.5, Nepal = +5.75) and DST automatically.
+   * Used as a string in the reserve request so CloudiDR can do the conversion itself.
    */
-  const wallClockToUtc = (datetimeStr: string, timezone: string): { date: string; time: string } => {
+  const getUtcOffsetDecimal = (timezone: string): number => {
+    const now = new Date();
+    const utcStr = now.toLocaleString('sv-SE', { timeZone: 'UTC' });
+    const tzStr = now.toLocaleString('sv-SE', { timeZone: timezone });
+    const utcDate = new Date(utcStr.replace(' ', 'T') + 'Z');
+    const tzDate = new Date(tzStr.replace(' ', 'T') + 'Z');
+    return (tzDate.getTime() - utcDate.getTime()) / 3600000;
+  };
+
+  /**
+   * Extract wall-clock date ("MM/DD/YYYY") and time ("HH:mm") from a datetime string
+   * ("YYYY-MM-DDTHH:mm") without any timezone conversion.
+   * CloudiDR handles the conversion using the utcOffset we send alongside.
+   */
+  const wallClockParts = (datetimeStr: string): { date: string; time: string } => {
     const [datePart, timePart] = datetimeStr.split('T');
-    const [year, month, day] = datePart.split('-').map(Number);
-    const [hours, minutes] = (timePart || '00:00').split(':').map(Number);
-
-    // Step 1: provisional UTC using wall-clock components
-    const provisional = new Date(Date.UTC(year, month - 1, day, hours, minutes));
-
-    // Step 2: what does the target timezone show at this provisional UTC?
-    const tzStr = provisional.toLocaleString('sv-SE', { timeZone: timezone });
-    const [tzDatePart, tzTimePart] = tzStr.split(' ');
-    const [ty, tm, td] = tzDatePart.split('-').map(Number);
-    const [th, tmin] = tzTimePart.split(':').map(Number);
-
-    // Step 3: correction = (what we want) − (what timezone currently shows)
-    const wantedMs = Date.UTC(year, month - 1, day, hours, minutes);
-    const gotMs = Date.UTC(ty, tm - 1, td, th, tmin);
-    const actualUtc = new Date(provisional.getTime() + (wantedMs - gotMs));
-
-    // Step 4: round to nearest 15-min interval in UTC
-    const r = Math.round(actualUtc.getUTCMinutes() / 15) * 15;
-    if (r === 60) {
-      actualUtc.setUTCHours(actualUtc.getUTCHours() + 1);
-      actualUtc.setUTCMinutes(0);
-    } else {
-      actualUtc.setUTCMinutes(r);
-    }
-
+    const [year, month, day] = datePart.split('-');
     return {
-      date: `${String(actualUtc.getUTCMonth() + 1).padStart(2, '0')}/${String(actualUtc.getUTCDate()).padStart(2, '0')}/${actualUtc.getUTCFullYear()}`,
-      time: `${String(actualUtc.getUTCHours()).padStart(2, '0')}:${String(actualUtc.getUTCMinutes()).padStart(2, '0')}`,
+      date: `${month}/${day}/${year}`,
+      time: timePart || '00:00',
     };
   };
 
@@ -265,9 +249,9 @@ export const useFlexComputeData = () => {
       setError(null);
       setSearchResult(null);
 
-      // Convert wall-clock times to UTC before sending — backend validates against server UTC
-      const startUtc = wallClockToUtc(form.startDate, form.timeZone);
-      const endUtc = wallClockToUtc(form.endDate, form.timeZone);
+      const startParts = wallClockParts(form.startDate);
+      const endParts = wallClockParts(form.endDate);
+      const utcOffset = Math.round(getUtcOffsetDecimal(form.timeZone)); // Integer for search API
 
       const response = await fetch('/api/flexcompute/capacity/search', {
         method: 'POST',
@@ -277,9 +261,9 @@ export const useFlexComputeData = () => {
           instanceType: form.instanceType,
           platform: form.platform,
           zoneId: form.zoneId,
-          startDate: startUtc.date,
-          endDate: endUtc.date,
-          utcOffsetHours: 0,
+          startDate: startParts.date,
+          endDate: endParts.date,
+          utcOffsetHours: utcOffset,
           quantity: form.quantity,
           region: form.region,
           capacityName: form.capacityName,
@@ -410,13 +394,14 @@ export const useFlexComputeData = () => {
         throw new Error(parseApiError(response.status, errorData, 'configure'));
       }
 
+      await fetchCapacities();
       return true;
     } catch (err) {
       console.error('[FlexCompute] Configure capacity failed:', err);
       setError(err instanceof Error ? err.message : 'Configuration failed');
       return false;
     }
-  }, []);
+  }, [fetchCapacities]);
 
   /**
    * Purchase capacity (wizard step 3)

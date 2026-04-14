@@ -4,7 +4,7 @@
  * Form for searching available capacity: name, account, region, instance type, etc.
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import type { SearchCapacityForm } from '../../types/flexCompute';
 import { INSTANCE_TYPES, TIME_ZONES } from '../../types/flexCompute';
 import { RadioGroup, Radio } from 'react-aria-components';
@@ -56,6 +56,13 @@ const WizardStep1Search: React.FC<WizardStep1SearchProps> = ({
     return `${datePart}T${String(hours).padStart(2, '0')}:${String(roundedMinutes).padStart(2, '0')}`;
   };
 
+  // Tick every minute so minStartTime stays fresh even if the form is left open.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 60000);
+    return () => clearInterval(id);
+  }, []);
+
   // Minimum start time = 30 min from now, rounded up to next 15-min slot,
   // expressed as wall-clock time in the USER-SELECTED timezone (not browser local time).
   // Uses Intl API with the IANA timezone name so DST is handled automatically.
@@ -75,7 +82,8 @@ const WizardStep1Search: React.FC<WizardStep1SearchProps> = ({
     const finalM = roundedUp >= 60 ? 0 : roundedUp;
 
     return `${datePart}T${String(finalH).padStart(2, '0')}:${String(finalM).padStart(2, '0')}`;
-  }, [form.timeZone]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.timeZone, Math.floor(Date.now() / 60000)]);
 
   const handleStartDateChange = (rawValue: string) => {
     setStartDateError('');
@@ -101,11 +109,31 @@ const WizardStep1Search: React.FC<WizardStep1SearchProps> = ({
       setEndDateError('End date/time must be strictly after the start date/time.');
       return;
     }
+    if (form.startDate) {
+      const startMs = new Date(form.startDate).getTime();
+      const endMs = new Date(rounded).getTime();
+      if (endMs - startMs < 60 * 60 * 1000) {
+        setEndDateError('Minimum capacity duration is 1 hour.');
+        return;
+      }
+    }
     onChange({ endDate: rounded });
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (form.startDate && form.startDate < minStartTime) {
+      setStartDateError('Start time is now in the past. Please select a new start time.');
+      return;
+    }
+    if (form.startDate && form.endDate) {
+      const startMs = new Date(form.startDate).getTime();
+      const endMs = new Date(form.endDate).getTime();
+      if (endMs - startMs < 60 * 60 * 1000) {
+        setEndDateError('Minimum capacity duration is 1 hour.');
+        return;
+      }
+    }
     if (startDateError || endDateError) return;
     onSearch();
   };
