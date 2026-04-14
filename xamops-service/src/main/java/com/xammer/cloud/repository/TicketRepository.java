@@ -26,6 +26,9 @@ public interface TicketRepository extends JpaRepository<Ticket, Long> {
     // Optional<Ticket> findByIdWithRepliesAndAuthors(@Param("ticketId") Long ticketId);
     @Query("SELECT DISTINCT t FROM Ticket t LEFT JOIN FETCH t.replies r LEFT JOIN FETCH r.author WHERE t.category = :category")
     List<Ticket> findAllByCategoryWithRepliesAndAuthors(@Param("category") String category);
+
+    @Query("SELECT COUNT(t) FROM Ticket t WHERE t.category = :category AND t.status != 'CLOSED'")
+    long countActiveByCategoryName(@Param("category") String category);
     @Query("SELECT t FROM Ticket t LEFT JOIN FETCH t.replies r LEFT JOIN FETCH r.author WHERE t.id = :id")
 Optional<Ticket> findByIdWithRepliesAndAuthors(@Param("id") Long id);
 
