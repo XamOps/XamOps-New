@@ -722,7 +722,7 @@ type SetupType = 'eks-helm' | 'ec2' | 'eks-manual';
 function SetupTab() {
   const { theme } = useTheme();
   const { fetchSetupConfig, fetchClusters } = useObservabilityData();
-  const [activeSetup, setActiveSetup] = useState<SetupType>('eks-helm');
+  const [activeSetup, setActiveSetup] = useState<SetupType>('ec2');
 
   // EKS Helm
   const [helmCmd, setHelmCmd] = useState('');
@@ -778,23 +778,26 @@ function SetupTab() {
     ? `aws eks update-kubeconfig --name ${selectedCluster.clusterName} --region ${selectedCluster.region}`
     : `aws eks update-kubeconfig --name <YOUR_CLUSTER_NAME> --region <YOUR_REGION>`;
 
-  const setups: { id: SetupType; label: string; icon: string; badge?: string; description: string }[] = [
-    {
-      id: 'eks-helm',
-      label: 'EKS — Helm',
-      icon: 'fas fa-dharmachakra',
-      description: 'One Helm command deploys the full OpenObserve collector — logs + metrics + events',
-    },
+  const setups: { id: SetupType; label: string; icon: string; badge?: string; comingSoon?: boolean; description: string }[] = [
     {
       id: 'ec2',
       label: 'EC2 / Linux VM',
       icon: 'fas fa-server',
+      badge: 'Available',
       description: 'Install OTel Collector as a systemd service on any EC2 or Linux host',
+    },
+    {
+      id: 'eks-helm',
+      label: 'EKS — Helm',
+      icon: 'fas fa-dharmachakra',
+      comingSoon: true,
+      description: 'One Helm command deploys the full OpenObserve collector — logs + metrics + events',
     },
     {
       id: 'eks-manual',
       label: 'EKS — Manual',
       icon: 'fas fa-file-code',
+      comingSoon: true,
       description: 'Step-by-step kubectl apply for advanced setups or air-gapped clusters',
     },
   ];
@@ -830,36 +833,83 @@ function SetupTab() {
       {/* Setup type selector */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         {setups.map(s => (
-          <button key={s.id} onClick={() => setActiveSetup(s.id)}
-            className={clsx('rounded-2xl border p-4 text-left transition-all',
-              activeSetup === s.id
-                ? 'border-violet-500 bg-violet-50 dark:bg-violet-900/20 shadow-md'
-                : theme === 'dark'
-                  ? 'border-slate-700 bg-slate-800/80 hover:border-slate-600'
-                  : 'border-gray-200 bg-white hover:border-gray-300')}>
-            <div className="flex items-center gap-2 mb-1.5">
-              <div className={clsx('w-7 h-7 rounded-lg flex items-center justify-center text-xs flex-shrink-0',
-                activeSetup === s.id ? 'bg-violet-600 text-white' : theme === 'dark' ? 'bg-slate-700 text-slate-300' : 'bg-gray-100 text-gray-500')}>
-                <i className={s.icon} />
-              </div>
-              <span className={clsx('font-semibold text-sm', theme === 'dark' ? 'text-white' : 'text-gray-800')}>
-                {s.label}
-              </span>
-              {s.badge && (
-                <span className="ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400">
-                  {s.badge}
+          <div key={s.id} className="relative">
+            <button
+              onClick={() => !s.comingSoon && setActiveSetup(s.id)}
+              disabled={s.comingSoon}
+              className={clsx('w-full rounded-2xl border p-4 text-left transition-all',
+                s.comingSoon
+                  ? 'cursor-not-allowed opacity-60'
+                  : activeSetup === s.id
+                    ? 'border-violet-500 bg-violet-50 dark:bg-violet-900/20 shadow-md'
+                    : theme === 'dark'
+                      ? 'border-slate-700 bg-slate-800/80 hover:border-slate-600'
+                      : 'border-gray-200 bg-white hover:border-gray-300')}>
+              <div className="flex items-center gap-2 mb-1.5">
+                <div className={clsx('w-7 h-7 rounded-lg flex items-center justify-center text-xs flex-shrink-0',
+                  s.comingSoon
+                    ? theme === 'dark' ? 'bg-slate-700 text-slate-500' : 'bg-gray-100 text-gray-400'
+                    : activeSetup === s.id ? 'bg-violet-600 text-white' : theme === 'dark' ? 'bg-slate-700 text-slate-300' : 'bg-gray-100 text-gray-500')}>
+                  <i className={s.icon} />
+                </div>
+                <span className={clsx('font-semibold text-sm', s.comingSoon
+                  ? theme === 'dark' ? 'text-slate-500' : 'text-gray-400'
+                  : theme === 'dark' ? 'text-white' : 'text-gray-800')}>
+                  {s.label}
                 </span>
-              )}
-            </div>
-            <p className={clsx('text-xs leading-snug', theme === 'dark' ? 'text-slate-400' : 'text-gray-500')}>
-              {s.description}
-            </p>
-          </button>
+                {s.comingSoon && (
+                  <span className="ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 whitespace-nowrap">
+                    Coming Soon
+                  </span>
+                )}
+                {s.badge && !s.comingSoon && (
+                  <span className="ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400">
+                    {s.badge}
+                  </span>
+                )}
+              </div>
+              <p className={clsx('text-xs leading-snug', s.comingSoon
+                ? theme === 'dark' ? 'text-slate-600' : 'text-gray-400'
+                : theme === 'dark' ? 'text-slate-400' : 'text-gray-500')}>
+                {s.description}
+              </p>
+            </button>
+          </div>
         ))}
       </div>
 
-      {/* ── EKS Helm ──────────────────────────────────────────────────────────── */}
-      {activeSetup === 'eks-helm' && (
+      {/* ── Coming Soon overlay for EKS setups ───────────────────────────────── */}
+      {(activeSetup === 'eks-helm' || activeSetup === 'eks-manual') && (
+        <div className={clsx('rounded-2xl border p-10 flex flex-col items-center justify-center text-center gap-4',
+          theme === 'dark' ? 'bg-slate-800/80 border-slate-700' : 'bg-white border-gray-200')}>
+          <div className={clsx('w-14 h-14 rounded-2xl flex items-center justify-center text-2xl',
+            theme === 'dark' ? 'bg-slate-700 text-slate-400' : 'bg-gray-100 text-gray-400')}>
+            <i className={activeSetup === 'eks-helm' ? 'fas fa-dharmachakra' : 'fas fa-file-code'} />
+          </div>
+          <div>
+            <div className="flex items-center justify-center gap-2 mb-2">
+              <span className={clsx('font-bold text-base', theme === 'dark' ? 'text-white' : 'text-gray-800')}>
+                {activeSetup === 'eks-helm' ? 'EKS — Helm Setup' : 'EKS — Manual Setup'}
+              </span>
+              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400">
+                Coming Soon
+              </span>
+            </div>
+            <p className={clsx('text-xs max-w-sm leading-relaxed', theme === 'dark' ? 'text-slate-400' : 'text-gray-500')}>
+              EKS observability setup is currently under development and has not been tested yet.
+              In the meantime, use the <strong>EC2 / Linux VM</strong> setup for node-level observability.
+            </p>
+          </div>
+          <button
+            onClick={() => setActiveSetup('ec2')}
+            className="mt-2 px-4 py-2 rounded-xl text-xs font-semibold bg-violet-600 hover:bg-violet-700 text-white transition-colors">
+            Switch to EC2 Setup
+          </button>
+        </div>
+      )}
+
+      {/* ── EKS Helm (hidden until ready) ─────────────────────────────────────── */}
+      {false && activeSetup === 'eks-helm' && (
         <div className={cardCls}>
           <div className="flex items-center gap-2">
             <i className="fas fa-dharmachakra text-violet-500" />
@@ -990,8 +1040,8 @@ function SetupTab() {
         </div>
       )}
 
-      {/* ── EKS Manual ────────────────────────────────────────────────────────── */}
-      {activeSetup === 'eks-manual' && (
+      {/* ── EKS Manual (hidden until ready) ───────────────────────────────────── */}
+      {false && activeSetup === 'eks-manual' && (
         <div className={cardCls}>
           <div className="flex items-center gap-2">
             <i className="fas fa-file-code text-violet-500" />
