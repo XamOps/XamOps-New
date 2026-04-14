@@ -11,12 +11,9 @@ public class DashboardStartupRunner implements ApplicationListener<ApplicationRe
 
     private static final Logger logger = LoggerFactory.getLogger(DashboardStartupRunner.class);
 
-    private final DashboardDataService dashboardDataService;
     private final ProactiveCacheRefreshService proactiveCacheRefreshService;
 
-    public DashboardStartupRunner(DashboardDataService dashboardDataService,
-            ProactiveCacheRefreshService proactiveCacheRefreshService) {
-        this.dashboardDataService = dashboardDataService;
+    public DashboardStartupRunner(ProactiveCacheRefreshService proactiveCacheRefreshService) {
         this.proactiveCacheRefreshService = proactiveCacheRefreshService;
     }
 
@@ -24,17 +21,11 @@ public class DashboardStartupRunner implements ApplicationListener<ApplicationRe
     public void onApplicationEvent(ApplicationReadyEvent event) {
         logger.info("🚀 [DashboardStartup] Application ready! Triggering initial dashboard data aggregation...");
 
-        // Run in a separate thread to not block the main thread if it takes time
-        new Thread(() -> {
-            try {
-                // Initial delay to allow other services to fully initialize if needed
-                Thread.sleep(5000);
-                dashboardDataService.runBackgroundAggregation();
-                // Note: BillOps dashboards now have their own startup cache warming in billops module
-            } catch (Exception e) {
-                logger.error("❌ [DashboardStartup] Failed to run initial aggregation", e);
-            }
-        }).start();
+        // Note: runBackgroundAggregation() is intentionally NOT triggered here.
+        // It runs on a WED+SUN schedule only. Triggering it on every startup was
+        // causing CE API calls (and ~$1/day cost) on every redeploy.
+        // ProactiveCacheRefreshService.warmUpCacheOnStartup() handles startup warming
+        // using forceRefresh=false (reads DB → warms Redis, no CE calls).
 
         // Run Azure dashboard refresh in a separate thread (billing ingestion + DB cache update)
         new Thread(() -> {

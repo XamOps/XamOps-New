@@ -9,12 +9,27 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import org.springframework.data.jpa.repository.Modifying;
+
 import java.time.Instant;
 import java.util.List;
 
 @Repository
 public interface LlmUsageLogRepository extends JpaRepository<LlmUsageLog, Long>,
         JpaSpecificationExecutor<LlmUsageLog> {
+
+    // ─── Cleanup: Delete logs by provider config ──────────────────
+    @Modifying
+    @Query("DELETE FROM LlmUsageLog l WHERE l.providerConfigId = :providerConfigId")
+    void deleteByProviderConfigId(@Param("providerConfigId") Long providerConfigId);
+
+    // ─── Cleanup: Delete orphaned logs (provider config no longer exists) ──
+    @Modifying
+    @Query(value = "DELETE FROM llm_usage_log l WHERE l.client_id = :clientId " +
+                   "AND l.provider_config_id IS NOT NULL " +
+                   "AND l.provider_config_id NOT IN (SELECT c.id FROM llm_provider_config c WHERE c.client_id = :clientId)",
+           nativeQuery = true)
+    int deleteOrphanedLogs(@Param("clientId") Long clientId);
 
     // KPI: Total spend in period
     @Query("SELECT COALESCE(SUM(l.estimatedCost), 0) FROM LlmUsageLog l " +
@@ -48,8 +63,8 @@ public interface LlmUsageLogRepository extends JpaRepository<LlmUsageLog, Long>,
            nativeQuery = true)
     List<Object[]> dailyCostSince(@Param("clientId") Long clientId, @Param("since") Instant since);
 
-    // Chart: Cost by provider
-    @Query("SELECT l.provider, SUM(l.estimatedCost) FROM LlmUsageLog l " +
+    // Chart: Cost by provider (with request count)
+    @Query("SELECT l.provider, SUM(l.estimatedCost), COUNT(l) FROM LlmUsageLog l " +
            "WHERE l.clientId = :clientId AND l.timestamp >= :since " +
            "GROUP BY l.provider ORDER BY SUM(l.estimatedCost) DESC")
     List<Object[]> costByProviderSince(@Param("clientId") Long clientId, @Param("since") Instant since);
@@ -247,6 +262,16 @@ public interface LlmUsageLogRepository extends JpaRepository<LlmUsageLog, Long>,
            "GROUP BY l.model, l.provider ORDER BY COUNT(l) DESC")
     List<Object[]> modelReliabilityStats(@Param("clientId") Long clientId,
                                           @Param("since") Instant since);
+
+    // ─── Model Daily Analysis ──────────────────────────────────
+
+    @Query(value = "SELECT DATE(l.timestamp) as day, l.model, " +
+                   "COALESCE(SUM(l.estimated_cost), 0) as cost, " +
+                   "COALESCE(SUM(l.input_tokens), 0) + COALESCE(SUM(l.output_tokens), 0) as tokens " +
+                   "FROM llm_usage_log l WHERE l.client_id = :clientId AND l.timestamp >= :since " +
+                   "GROUP BY DATE(l.timestamp), l.model ORDER BY day",
+           nativeQuery = true)
+    List<Object[]> dailyCostByModelSince(@Param("clientId") Long clientId, @Param("since") Instant since);
 
     // ─── Routing / Cost Optimizer ────────────────────────────────
 

@@ -591,6 +591,37 @@ public class AIOpsController {
         }
     }
 
+    // ─── Cleanup: Orphaned Logs ────────────────────────────────────
+
+    @PostMapping("/cleanup-orphaned-logs")
+    public ResponseEntity<Map<String, Object>> cleanupOrphanedLogs(
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        try {
+            Long clientId = userDetails.getClientId();
+            int deleted = aiOpsService.cleanupOrphanedLogs(clientId);
+            return ResponseEntity.ok(Map.of("deleted", deleted, "message",
+                    deleted > 0 ? "Removed " + deleted + " orphaned log(s)" : "No orphaned logs found"));
+        } catch (Exception e) {
+            logger.error("Error cleaning up orphaned logs: {}", e.getMessage(), e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    // ─── Model Daily Analysis Endpoint ────────────────────────────
+
+    @GetMapping("/model-daily-analysis")
+    public ResponseEntity<ModelDailyAnalysis> getModelDailyAnalysis(
+            @AuthenticationPrincipal ClientUserDetails userDetails,
+            @RequestParam(defaultValue = "30d") String period) {
+        try {
+            Long clientId = userDetails.getClientId();
+            return ResponseEntity.ok(aiOpsService.getModelDailyAnalysis(clientId, period));
+        } catch (Exception e) {
+            logger.error("Error fetching model daily analysis: {}", e.getMessage(), e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
     // ─── Compute / GPU Metrics Endpoints ─────────────────────────
 
     @GetMapping("/compute-metrics")

@@ -400,6 +400,24 @@ html.dark .aiops-page input::placeholder {
   opacity: 0.4;
 }
 
+/* ─── Alert Ticker Scroll Animation ────────────────────────── */
+@keyframes scroll-left {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.animate-scroll-left {
+  animation: scroll-left 30s linear infinite;
+}
+
+.animate-scroll-left:hover {
+  animation-play-state: paused;
+}
+
 /* Print Styles */
 @media print {
   .aiops-page {

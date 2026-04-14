@@ -8,9 +8,7 @@ import javax.persistence.*;
 import java.time.Instant;
 
 @Entity
-@Table(name = "llm_provider_config", uniqueConstraints = {
-    @UniqueConstraint(columnNames = {"client_id", "provider"})
-})
+@Table(name = "llm_provider_config")
 @Data
 @NoArgsConstructor
 public class LlmProviderConfig {

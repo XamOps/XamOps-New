@@ -129,7 +129,8 @@ public class AIOpsService {
         return rows.stream()
                 .map(row -> new ProviderCostBreakdown(
                         (String) row[0],
-                        ((Number) row[1]).doubleValue()))
+                        ((Number) row[1]).doubleValue(),
+                        ((Number) row[2]).longValue()))
                 .collect(Collectors.toList());
     }
 
@@ -174,10 +175,6 @@ public class AIOpsService {
 
     @Transactional
     public LlmProviderConfigDto addProvider(Long clientId, LlmProviderConfigDto dto) {
-        if (providerConfigRepo.existsByClientIdAndProvider(clientId, dto.getProvider())) {
-            throw new IllegalArgumentException("Provider " + dto.getProvider() + " is already configured.");
-        }
-
         Client client = clientRepository.findById(clientId)
                 .orElseThrow(() -> new RuntimeException("Client not found: " + clientId));
 
@@ -247,8 +244,11 @@ public class AIOpsService {
             throw new SecurityException("Not authorized to delete this provider config");
         }
 
+        // Delete associated usage logs so stale data doesn't show up after re-adding
+        usageLogRepo.deleteByProviderConfigId(configId);
+
         providerConfigRepo.delete(config);
-        logger.info("Deleted LLM provider {} for client {}", config.getProvider(), clientId);
+        logger.info("Deleted LLM provider {} (and associated usage logs) for client {}", config.getProvider(), clientId);
     }
 
     // ─── Test Connection ─────────────────────────────────────────
@@ -1068,6 +1068,15 @@ public class AIOpsService {
         providerConfigRepo.save(config);
     }
 
+    // ─── Cleanup: Orphaned Logs ────────────────────────────────────
+
+    @Transactional
+    public int cleanupOrphanedLogs(Long clientId) {
+        int deleted = usageLogRepo.deleteOrphanedLogs(clientId);
+        logger.info("Cleaned up {} orphaned usage logs for client {}", deleted, clientId);
+        return deleted;
+    }
+
     // ─── Compute / GPU Metrics ────────────────────────────────────
 
     public ComputeMetricsSummary getComputeMetrics(Long clientId, String period, String provider) {
@@ -1224,6 +1233,47 @@ public class AIOpsService {
         double avgLatency = endpoints.stream().filter(e -> e.getTotalRequests() > 0).mapToDouble(InferenceEndpoint::getAvgLatencyMs).average().orElse(0);
 
         return new InferenceOverview(total, active, degraded, totalCost, avgLatency, endpoints);
+    }
+
+    // ─── Model Daily Analysis ──────────────────────────────────
+
+    public ModelDailyAnalysis getModelDailyAnalysis(Long clientId, String period) {
+        Instant since = parsePeriod(period);
+        List<Object[]> rows = usageLogRepo.dailyCostByModelSince(clientId, since);
+
+        Set<String> dateSet = new LinkedHashSet<>();
+        Set<String> modelSet = new LinkedHashSet<>();
+        Map<String, Map<String, Double>> costMap = new LinkedHashMap<>();
+        Map<String, Map<String, Long>> tokenMap = new LinkedHashMap<>();
+
+        for (Object[] row : rows) {
+            String date = row[0].toString();
+            String model = (String) row[1];
+            double cost = ((Number) row[2]).doubleValue();
+            long tokens = ((Number) row[3]).longValue();
+
+            dateSet.add(date);
+            modelSet.add(model);
+            costMap.computeIfAbsent(model, k -> new LinkedHashMap<>()).put(date, cost);
+            tokenMap.computeIfAbsent(model, k -> new LinkedHashMap<>()).put(date, tokens);
+        }
+
+        List<String> labels = new ArrayList<>(dateSet);
+        List<String> models = new ArrayList<>(modelSet);
+
+        Map<String, List<Double>> costByModel = new LinkedHashMap<>();
+        Map<String, List<Long>> tokensByModel = new LinkedHashMap<>();
+
+        for (String model : models) {
+            costByModel.put(model, labels.stream()
+                .map(d -> costMap.getOrDefault(model, Collections.emptyMap()).getOrDefault(d, 0.0))
+                .collect(Collectors.toList()));
+            tokensByModel.put(model, labels.stream()
+                .map(d -> tokenMap.getOrDefault(model, Collections.emptyMap()).getOrDefault(d, 0L))
+                .collect(Collectors.toList()));
+        }
+
+        return new ModelDailyAnalysis(labels, models, costByModel, tokensByModel);
     }
 
     // ─── Helper: toDto ───────────────────────────────────────────

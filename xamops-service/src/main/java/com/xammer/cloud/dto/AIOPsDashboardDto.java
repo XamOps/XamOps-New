@@ -55,6 +55,7 @@ public class AIOPsDashboardDto implements Serializable {
         private static final long serialVersionUID = 1L;
         private String provider;
         private double cost;
+        private long requestCount;
     }
 
     @Data
@@ -586,5 +587,18 @@ public class AIOPsDashboardDto implements Serializable {
         private double totalCost;
         private double avgLatency;
         private List<InferenceEndpoint> endpoints;
+    }
+
+    // ─── Model Daily Analysis DTOs ──────────────────────────────
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ModelDailyAnalysis implements Serializable {
+        private static final long serialVersionUID = 1L;
+        private List<String> labels;
+        private List<String> models;
+        private Map<String, List<Double>> costByModel;
+        private Map<String, List<Long>> tokensByModel;
     }
 }

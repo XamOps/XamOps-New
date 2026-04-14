@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import type { InsightsSummary, InsightCard as InsightCardType } from '../../types/aiops';
+import { InfoTooltip } from '../ui/Tooltip';
 
 interface InsightsDashboardProps {
   data: InsightsSummary | null;
@@ -124,7 +125,7 @@ const InsightsDashboard: React.FC<InsightsDashboardProps> = ({ data, loading }) 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Total Insights</span>
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider inline-flex items-center gap-1">Total Insights <InfoTooltip placement="bottom">AI-generated insights based on your usage patterns.</InfoTooltip></span>
             <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center">
               <i className="fas fa-lightbulb text-white text-xs" />
             </div>
@@ -133,7 +134,7 @@ const InsightsDashboard: React.FC<InsightsDashboardProps> = ({ data, loading }) 
         </div>
         <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Actionable</span>
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider inline-flex items-center gap-1">Actionable <InfoTooltip placement="bottom">Insights with concrete recommendations you can act on.</InfoTooltip></span>
             <div className="w-8 h-8 bg-gradient-to-br from-emerald-500 to-green-600 rounded-lg flex items-center justify-center">
               <i className="fas fa-check-circle text-white text-xs" />
             </div>
@@ -142,7 +143,7 @@ const InsightsDashboard: React.FC<InsightsDashboardProps> = ({ data, loading }) 
         </div>
         <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Est. Savings</span>
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider inline-flex items-center gap-1">Est. Savings <InfoTooltip placement="bottom">Potential cost reduction if all actionable recommendations are implemented.</InfoTooltip></span>
             <div className="w-8 h-8 bg-gradient-to-br from-amber-500 to-orange-600 rounded-lg flex items-center justify-center">
               <i className="fas fa-dollar-sign text-white text-xs" />
             </div>

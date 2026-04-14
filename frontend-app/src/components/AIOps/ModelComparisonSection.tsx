@@ -1,6 +1,7 @@
 import React from 'react';
 import type { ModelComparisonStat } from '../../types/aiops';
 import { PROVIDER_COLORS } from '../../types/aiops';
+import { InfoTooltip } from '../ui/Tooltip';
 
 interface ModelComparisonSectionProps {
   data: ModelComparisonStat[];
@@ -48,6 +49,7 @@ const ModelComparisonSection: React.FC<ModelComparisonSectionProps> = ({ data, l
           <i className="fas fa-balance-scale text-white text-xs" />
         </div>
         <h3 className="text-sm font-bold text-gray-800">Model Comparison</h3>
+        <InfoTooltip placement="right">Side-by-side comparison of all models used, sorted by cost.</InfoTooltip>
         <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
           {data.length} models
         </span>
@@ -58,9 +60,18 @@ const ModelComparisonSection: React.FC<ModelComparisonSectionProps> = ({ data, l
         <table className="w-full">
           <thead>
             <tr className="bg-gray-50/80">
-              {['Model', 'Provider', 'Requests', 'Input Tokens', 'Output Tokens', 'Cost', 'Avg Latency', 'Error Rate'].map(col => (
+              {[
+                { col: 'Model', tip: 'AI model name' },
+                { col: 'Provider', tip: 'LLM provider serving this model' },
+                { col: 'Requests', tip: 'Total API calls to this model' },
+                { col: 'Input Tokens', tip: 'Total prompt tokens sent' },
+                { col: 'Output Tokens', tip: 'Total completion tokens received' },
+                { col: 'Cost', tip: 'Estimated total cost based on model pricing' },
+                { col: 'Avg Latency', tip: 'Average round-trip response time' },
+                { col: 'Error Rate', tip: 'Percentage of requests that returned errors' },
+              ].map(({ col, tip }) => (
                 <th key={col} className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider whitespace-nowrap">
-                  {col}
+                  <span className="inline-flex items-center gap-1">{col} <InfoTooltip placement="bottom">{tip}</InfoTooltip></span>
                 </th>
               ))}
             </tr>
