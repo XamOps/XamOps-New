@@ -13,6 +13,7 @@ import {
   ResponsiveContainer, Cell,
 } from 'recharts';
 import { useAccounts } from '../contexts/AccountContext';
+import { useTopbarActions } from '../contexts/TopbarContext';
 import {
   useSubscriptions,
   useMeterBilling,
@@ -638,49 +639,40 @@ const MarketplacePurchasesPage: React.FC = () => {
       active ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
     }`;
 
+  const { setTitle, setActions, clearActions } = useTopbarActions();
+
+  useEffect(() => {
+    setTitle('MarketOps');
+    setActions(
+      <div className="flex items-center gap-3">
+        <div className="flex items-center bg-gray-100 rounded-xl p-1 gap-0.5">
+          <button onClick={() => setPageTab('marketops')} className={tabCls(pageTab === 'marketops')}>
+            <i className="fas fa-store mr-1.5" />Marketplace Purchases
+          </button>
+          <button onClick={() => setPageTab('isv')} className={tabCls(pageTab === 'isv')}>
+            <i className="fas fa-plug mr-1.5" />ISV Metering
+          </button>
+        </div>
+        {pageTab === 'marketops' && cloudAccountId && isAwsAccount && (
+          <button
+            onClick={handleSync}
+            disabled={syncing}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            <i className={`fas fa-sync-alt ${syncing ? 'animate-spin' : ''}`} />
+            {syncing ? 'Syncing…' : 'Sync from AWS'}
+          </button>
+        )}
+      </div>
+    );
+    return () => {
+      clearActions();
+      setTitle(null);
+    };
+  }, [setTitle, setActions, clearActions, pageTab, cloudAccountId, isAwsAccount, syncing, handleSync]);
+
   return (
     <main className="flex-1 p-6 bg-transparent space-y-6">
-
-      {/* ── Page Header ── */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-800">MarketOps</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            {pageTab === 'isv'
-              ? 'Register and manage ISV products for metered billing on AWS Marketplace'
-              : <>Subscribed marketplace products for{' '}
-                  <span className="font-semibold text-gray-700">
-                    {selectedAccountDisplay?.name ?? cloudAccountId ?? 'no account selected'}
-                  </span>
-                </>
-            }
-          </p>
-        </div>
-
-        <div className="flex items-center gap-3">
-          {/* Page-level tab toggle */}
-          <div className="flex items-center bg-gray-100 rounded-xl p-1 gap-0.5">
-            <button onClick={() => setPageTab('marketops')} className={tabCls(pageTab === 'marketops')}>
-              <i className="fas fa-store mr-1.5" />Marketplace Purchases
-            </button>
-            <button onClick={() => setPageTab('isv')} className={tabCls(pageTab === 'isv')}>
-              <i className="fas fa-plug mr-1.5" />ISV Metering
-            </button>
-          </div>
-
-          {/* Sync button — marketops tab + AWS account only */}
-          {pageTab === 'marketops' && cloudAccountId && isAwsAccount && (
-            <button
-              onClick={handleSync}
-              disabled={syncing}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              <i className={`fas fa-sync-alt ${syncing ? 'animate-spin' : ''}`} />
-              {syncing ? 'Syncing…' : 'Sync from AWS'}
-            </button>
-          )}
-        </div>
-      </div>
 
       {/* ══ ISV Metering Tab ══ */}
       {pageTab === 'isv' && <IsvMeteringTab />}
