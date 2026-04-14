@@ -50,6 +50,14 @@ public class CapacityDescriptionResponse {
     @JsonProperty("pricing")
     private Pricing pricing;
 
+    @JsonProperty("policyActivity")
+    private java.util.List<ActivityEntry> policyActivity;
+
+    @JsonGetter("activityLog")
+    public java.util.List<ActivityEntry> getActivityLog() {
+        return policyActivity;
+    }
+
     // Helper methods for backward compatibility and frontend mapping
     @JsonGetter("id")
     public String getId() {
@@ -357,6 +365,18 @@ public class CapacityDescriptionResponse {
 
         @JsonProperty("ebsVolumeSize")
         private Integer ebsVolumeSize;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class ActivityEntry {
+        @JsonProperty("createdDate")
+        private String createdDate;
+
+        @JsonProperty("message")
+        private String message;
     }
 
     @Data
