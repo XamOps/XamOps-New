@@ -4,7 +4,7 @@
  * Displays comprehensive capacity information matching the CloudiDR detail view
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import type { FlexComputeCapacity } from '../../types/flexCompute';
 import { DialogRoot, DialogPanel } from '../ui';
 import ExtendUsageModal from './ExtendUsageModal';
@@ -64,6 +64,11 @@ const CAPACITY_TRACKER_STEPS = [
   { label: 'Completed', states: ['COMPLETED', 'EXPIRED', 'CANCELED'] },
 ];
 
+const isFailed = (instanceState?: string): boolean => {
+  const s = (instanceState || '').toUpperCase();
+  return s.includes('FAILED') || s.includes('ERROR');
+};
+
 const getActiveStep = (instanceState?: string): number => {
   const state = (instanceState || '').toUpperCase().replace(/ /g, '_');
   const idx = CAPACITY_TRACKER_STEPS.findIndex((s) =>
@@ -74,6 +79,16 @@ const getActiveStep = (instanceState?: string): number => {
 
 const ViewCapacityDetailModal: React.FC<ViewCapacityDetailModalProps> = ({ capacity, onClose, onExtend }) => {
   const [showExtendModal, setShowExtendModal] = useState(false);
+  const [activityLog, setActivityLog] = useState<{ createdDate: string; message: string }[]>([]);
+
+  useEffect(() => {
+    if (!capacity?.id) return;
+    setActivityLog(capacity.activityLog || []);
+    fetch(`/api/flexcompute/capacity/${capacity.id}`, { credentials: 'include' })
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => { if (data?.activityLog) setActivityLog(data.activityLog); })
+      .catch(() => {});
+  }, [capacity?.id]);
 
   if (!capacity) return null;
 
@@ -354,22 +369,37 @@ const ViewCapacityDetailModal: React.FC<ViewCapacityDetailModalProps> = ({ capac
                       </div>
                     ) : (
                       <>
+                        {/* Failure banner */}
+                        {isFailed(capacity.instanceState) && (
+                          <div className="mb-4 flex items-start gap-3 bg-red-50 border border-red-200 rounded-lg px-4 py-3">
+                            <i className="fas fa-times-circle text-red-500 mt-0.5 flex-shrink-0"></i>
+                            <div>
+                              <p className="text-sm font-semibold text-red-700">Capacity failed to start</p>
+                              <p className="text-xs text-red-600 mt-0.5">
+                                State: {capacity.instanceState}. Please check your VPC, subnet, and security group settings for the selected availability zone, then try scheduling again.
+                              </p>
+                            </div>
+                          </div>
+                        )}
                         {CAPACITY_TRACKER_STEPS.map((step, index) => {
                           const isActive = index === activeStep;
                           const isCompleted = index < activeStep;
+                          const isFail = isActive && isFailed(capacity.instanceState);
 
                           return (
                             <div key={index} className="flex gap-4">
                               {/* Timeline line + circle */}
                               <div className="flex flex-col items-center">
                                 <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 ${
-                                  isCompleted
+                                  isFail
+                                    ? 'bg-red-500 text-white'
+                                    : isCompleted
                                     ? 'bg-blue-600 text-white'
                                     : isActive
                                     ? 'bg-blue-600 text-white'
                                     : 'bg-gray-200 text-gray-500'
                                 }`}>
-                                  {isCompleted ? <i className="fas fa-check text-xs"></i> : index + 1}
+                                  {isFail ? <i className="fas fa-times text-xs"></i> : isCompleted ? <i className="fas fa-check text-xs"></i> : index + 1}
                                 </div>
                                 {index < CAPACITY_TRACKER_STEPS.length - 1 && (
                                   <div className={`w-0.5 h-8 my-1 ${isCompleted ? 'bg-blue-500' : 'bg-gray-200'}`} />
@@ -378,7 +408,7 @@ const ViewCapacityDetailModal: React.FC<ViewCapacityDetailModalProps> = ({ capac
 
                               {/* Step label */}
                               <div className="pt-2 pb-4 flex-1 min-w-0">
-                                <p className={`text-sm font-medium ${isActive ? 'text-blue-600' : isCompleted ? 'text-gray-700' : 'text-gray-400'}`}>
+                                <p className={`text-sm font-medium ${isFail ? 'text-red-600' : isActive ? 'text-blue-600' : isCompleted ? 'text-gray-700' : 'text-gray-400'}`}>
                                   {step.label}
                                 </p>
                                 <p className="text-xs text-gray-400">STEP {index + 1}</p>
@@ -393,6 +423,27 @@ const ViewCapacityDetailModal: React.FC<ViewCapacityDetailModalProps> = ({ capac
 
               </div>
             </div>
+
+            {/* Activity Log */}
+            {activityLog.length > 0 && (
+              <div className="mt-6 rounded-xl border border-gray-200 overflow-hidden">
+                <div className="bg-gray-50 px-5 py-3 border-b border-gray-200">
+                  <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Activity</h3>
+                </div>
+                <div className="divide-y divide-gray-100">
+                  {activityLog.map((entry, i) => (
+                    <div key={i} className="flex items-start gap-4 px-5 py-3">
+                      <span className="text-xs text-gray-400 whitespace-nowrap pt-0.5 w-44 flex-shrink-0">
+                        {entry.createdDate ? new Date(entry.createdDate).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZoneName: 'short' }) : '-'}
+                      </span>
+                      <span className={`text-sm ${entry.message?.toLowerCase().includes('fail') || entry.message?.toLowerCase().includes('error') ? 'text-red-600 font-medium' : 'text-gray-700'}`}>
+                        {entry.message}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </DialogPanel>
       </DialogRoot>

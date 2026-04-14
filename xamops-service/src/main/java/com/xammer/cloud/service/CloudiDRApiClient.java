@@ -408,6 +408,33 @@ public class CloudiDRApiClient {
     }
 
     /**
+     * GET /external/api/v1/flexcompute/capacities/{cidrId} - Get single capacity detail with activity log
+     */
+    public CapacityDescriptionResponse getCapacityDetail(String token, String cidrId) {
+        logger.info("CloudiDR API: GET /external/api/v1/flexcompute/capacities/{}", cidrId);
+
+        try {
+            String url = baseUrl + "/external/api/v1/flexcompute/capacities/" + cidrId;
+
+            HttpHeaders headers = createAuthHeaders(token);
+            HttpEntity<Void> entity = new HttpEntity<>(headers);
+
+            ResponseEntity<CapacityDescriptionResponse> response = restTemplate.exchange(
+                    url, HttpMethod.GET, entity, CapacityDescriptionResponse.class);
+
+            logger.info("CloudiDR get-capacity-detail successful for id: {}", cidrId);
+            return response.getBody();
+
+        } catch (HttpClientErrorException e) {
+            logger.error("CloudiDR get-capacity-detail failed: HTTP {} - {}", e.getStatusCode(), e.getResponseBodyAsString());
+            throw new RuntimeException("Get capacity detail failed: " + e.getStatusCode(), e);
+        } catch (Exception e) {
+            logger.error("CloudiDR get-capacity-detail error: {}", e.getMessage(), e);
+            throw new RuntimeException("Get capacity detail failed: " + e.getMessage(), e);
+        }
+    }
+
+    /**
      * DELETE /external/api/v1/flexcompute/capacity/{cidrId} - Cancel/Delete capacity
      */
     public void cancelCapacity(String token, String cidrId) {
