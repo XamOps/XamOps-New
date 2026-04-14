@@ -184,6 +184,21 @@ public class FlexComputeController {
     }
 
     /**
+     * GET /api/flexcompute/capacity/{cidrId} - Get single capacity detail with activity log
+     */
+    @GetMapping("/capacity/{cidrId}")
+    public ResponseEntity<?> getCapacityDetail(@PathVariable String cidrId,
+                                               @AuthenticationPrincipal ClientUserDetails userDetails) {
+        try {
+            Long userId = userDetails.getId();
+            return ResponseEntity.ok(flexComputeService.getCapacityDetail(userId, cidrId));
+        } catch (Exception e) {
+            logger.error("FlexCompute get-capacity-detail failed: {}", e.getMessage());
+            return handleError(e);
+        }
+    }
+
+    /**
      * POST /api/flexcompute/capacity/reserve - Reserve capacity
      * Creates a temporary 15-minute reservation with cidrId and pricing
      */

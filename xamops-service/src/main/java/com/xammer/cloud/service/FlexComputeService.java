@@ -247,6 +247,12 @@ public class FlexComputeService {
         return apiClient.describeCapacity(token, page, pageSize, sort, statuses);
     }
 
+    public CapacityDescriptionResponse getCapacityDetail(Long userId, String cidrId) {
+        logger.info("Getting capacity detail for user {} - cidrId: {}", userId, cidrId);
+        String token = getValidToken(userId);
+        return apiClient.getCapacityDetail(token, cidrId);
+    }
+
     /**
      * Get linked cloud accounts for the user (from CloudiDR API with accountRegions)
      * SECURITY: Only returns accounts that are ACTIVE in CloudiDR AND user has access to in XamOps
