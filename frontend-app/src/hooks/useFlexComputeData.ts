@@ -199,17 +199,16 @@ export const useFlexComputeData = () => {
 
 
   /**
-   * Returns the exact UTC offset in decimal hours for an IANA timezone at the current moment.
-   * Handles fractional-hour zones (e.g. IST = +5.5, Nepal = +5.75) and DST automatically.
-   * Used as a string in the reserve request so CloudiDR can do the conversion itself.
+   * Returns the UTC offset in whole hours for an IANA timezone (rounded to nearest integer).
+   * CloudiDR only accepts integer offsets. Fractional zones (e.g. IST +5:30) are rounded.
    */
-  const getUtcOffsetDecimal = (timezone: string): number => {
+  const getUtcOffsetHours = (timezone: string): number => {
     const now = new Date();
     const utcStr = now.toLocaleString('sv-SE', { timeZone: 'UTC' });
     const tzStr = now.toLocaleString('sv-SE', { timeZone: timezone });
     const utcDate = new Date(utcStr.replace(' ', 'T') + 'Z');
     const tzDate = new Date(tzStr.replace(' ', 'T') + 'Z');
-    return (tzDate.getTime() - utcDate.getTime()) / 3600000;
+    return Math.round((tzDate.getTime() - utcDate.getTime()) / 3600000);
   };
 
   /**
@@ -288,7 +287,7 @@ export const useFlexComputeData = () => {
 
       const startParts = wallClockParts(form.startDate);
       const endParts = wallClockParts(form.endDate);
-      const utcOffset = Math.round(getUtcOffsetDecimal(form.timeZone)); // Integer for search API
+      const utcOffset = getUtcOffsetHours(form.timeZone);
 
       const response = await fetch('/api/flexcompute/capacity/search', {
         method: 'POST',
@@ -354,9 +353,9 @@ export const useFlexComputeData = () => {
         throw new Error('Missing required fields for reservation');
       }
 
-      // Convert wall-clock times to UTC — backend validates startTime against server UTC
-      const startUtc = wallClockToUtc(form.startDate, form.timeZone);
-      const endUtc = wallClockToUtc(form.endDate, form.timeZone);
+      const startParts = wallClockParts(form.startDate);
+      const endParts = wallClockParts(form.endDate);
+      const utcOffset = getUtcOffsetHours(form.timeZone);
 
       const requestBody = {
         accountId: form.cspAccount,
@@ -364,11 +363,11 @@ export const useFlexComputeData = () => {
         policyName: form.capacityName,
         instanceType: form.instanceType,
         platform: form.platform,
-        startDate: startUtc.date,
-        endDate: endUtc.date,
-        startTime: startUtc.time,
-        endTime: endUtc.time,
-        utcOffsetHours: 0,
+        startDate: startParts.date,
+        endDate: endParts.date,
+        startTime: startParts.time,
+        endTime: endParts.time,
+        utcOffsetHours: String(utcOffset),
         quantity: form.quantity,
       };
 
@@ -490,8 +489,8 @@ export const useFlexComputeData = () => {
     try {
       setError(null);
 
-      const utc = wallClockToUtc(datetime, timezone);
-      const requestBody = { cidrId, endDate: utc.date, endTime: utc.time, utcOffset: '0' };
+      const parts = wallClockParts(datetime);
+      const requestBody = { cidrId, endDate: parts.date, endTime: parts.time, utcOffset: String(getUtcOffsetHours(timezone)) };
       console.log('[FlexCompute] Extend capacity request:', requestBody);
 
       const response = await fetch('/api/flexcompute/capacity/extend', {

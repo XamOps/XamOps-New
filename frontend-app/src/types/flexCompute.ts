@@ -40,6 +40,7 @@ export interface FlexComputeCapacity {
   ebsVolumeSize?: number;
   createdDate?: string;
   frequency?: string;
+  activityLog?: { createdDate: string; message: string }[];
 }
 
 export interface FlexComputeKPIs {

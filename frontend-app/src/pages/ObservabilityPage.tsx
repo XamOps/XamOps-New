@@ -61,6 +61,7 @@ function OverviewTab({ config, overview, instances }: {
       icon: 'fas fa-stream',
       color: 'from-violet-500 to-purple-600',
       border: 'border-l-violet-500',
+      tooltip: 'Total number of data streams in your org — includes log, metric, and trace streams.',
     },
     {
       label: 'Log Streams',
@@ -68,6 +69,7 @@ function OverviewTab({ config, overview, instances }: {
       icon: 'fas fa-file-alt',
       color: (overview?.logStreamCount ?? 0) > 0 ? 'from-emerald-500 to-teal-600' : 'from-gray-400 to-gray-500',
       border: (overview?.logStreamCount ?? 0) > 0 ? 'border-l-emerald-500' : 'border-l-gray-400',
+      tooltip: 'Streams receiving log records — e.g. application logs, syslog, Docker container logs.',
     },
     {
       label: 'Metric Streams',
@@ -75,6 +77,7 @@ function OverviewTab({ config, overview, instances }: {
       icon: 'fas fa-tachometer-alt',
       color: (overview?.metricStreamCount ?? 0) > 0 ? 'from-emerald-500 to-teal-600' : 'from-gray-400 to-gray-500',
       border: (overview?.metricStreamCount ?? 0) > 0 ? 'border-l-emerald-500' : 'border-l-gray-400',
+      tooltip: 'Streams receiving time-series metrics — e.g. CPU, memory, disk, network from your hosts.',
     },
     {
       label: 'Trace Streams',
@@ -82,6 +85,7 @@ function OverviewTab({ config, overview, instances }: {
       icon: 'fas fa-project-diagram',
       color: (overview?.traceStreamCount ?? 0) > 0 ? 'from-emerald-500 to-teal-600' : 'from-gray-400 to-gray-500',
       border: (overview?.traceStreamCount ?? 0) > 0 ? 'border-l-emerald-500' : 'border-l-gray-400',
+      tooltip: 'Streams receiving distributed traces — spans from your services via OTLP. Used to track request flows across microservices.',
     },
     {
       label: 'Retention',
@@ -89,6 +93,7 @@ function OverviewTab({ config, overview, instances }: {
       icon: 'fas fa-clock',
       color: 'from-sky-500 to-blue-600',
       border: 'border-l-sky-500',
+      tooltip: 'How long your data is stored before being automatically deleted. Configurable under the Setup tab.',
     },
     {
       label: 'Org ID',
@@ -96,6 +101,7 @@ function OverviewTab({ config, overview, instances }: {
       icon: 'fas fa-building',
       color: 'from-pink-500 to-rose-600',
       border: 'border-l-pink-500',
+      tooltip: 'Your unique organisation identifier in OpenObserve. Used in the collector endpoint URL when sending data.',
     },
   ];
 
@@ -105,12 +111,16 @@ function OverviewTab({ config, overview, instances }: {
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
         {statCards.map((c, i) => (
           <div key={i} className={clsx(
-            'rounded-2xl border border-l-4 p-4 shadow-sm flex flex-col gap-2',
+            'group relative rounded-2xl border border-l-4 p-4 shadow-sm flex flex-col gap-2',
             c.border,
             theme === 'dark' ? 'bg-slate-800/80 border-slate-700' : 'bg-white border-gray-200'
           )}>
-            <div className={clsx('w-9 h-9 rounded-xl bg-gradient-to-br flex items-center justify-center shadow-sm', c.color)}>
-              <i className={clsx(c.icon, 'text-white text-xs')} />
+            <div className="flex items-start justify-between">
+              <div className={clsx('w-9 h-9 rounded-xl bg-gradient-to-br flex items-center justify-center shadow-sm', c.color)}>
+                <i className={clsx(c.icon, 'text-white text-xs')} />
+              </div>
+              <i className={clsx('fas fa-info-circle text-[11px] mt-1 opacity-0 group-hover:opacity-100 transition-opacity',
+                theme === 'dark' ? 'text-slate-500' : 'text-gray-400')} />
             </div>
             <p className={clsx('text-[10px] font-semibold uppercase tracking-wider',
               theme === 'dark' ? 'text-slate-400' : 'text-gray-500')}>
@@ -120,6 +130,17 @@ function OverviewTab({ config, overview, instances }: {
               theme === 'dark' ? 'text-white' : 'text-gray-900')}>
               {String(c.value)}
             </p>
+            {/* Tooltip */}
+            <div className={clsx(
+              'absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-52 rounded-xl px-3 py-2 text-[11px] leading-snug shadow-lg z-50',
+              'opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-150',
+              theme === 'dark' ? 'bg-slate-700 text-slate-200 border border-slate-600' : 'bg-gray-900 text-white'
+            )}>
+              {c.tooltip}
+              <div className={clsx('absolute top-full left-1/2 -translate-x-1/2 w-0 h-0',
+                'border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent',
+                theme === 'dark' ? 'border-t-slate-700' : 'border-t-gray-900')} />
+            </div>
           </div>
         ))}
       </div>
@@ -134,15 +155,15 @@ function OverviewTab({ config, overview, instances }: {
           </p>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {[
-              { label: 'Events', value: fmtEvents(overview.totalEvents), icon: 'fas fa-database', color: 'text-violet-500' },
-              { label: 'Ingested Size', value: fmtMb(overview.ingestedSizeMb), icon: 'fas fa-arrow-down', color: 'text-sky-500' },
-              { label: 'Compressed Size', value: fmtMb(overview.compressedSizeMb), icon: 'fas fa-compress-alt', color: 'text-emerald-500' },
-              { label: 'Index Size', value: fmtMb(overview.indexSizeMb), icon: 'fas fa-search', color: 'text-amber-500' },
+              { label: 'Events', value: fmtEvents(overview.totalEvents), icon: 'fas fa-database', color: 'text-violet-500', tooltip: 'Total number of individual log records, metric data points, and trace spans ingested across all streams.' },
+              { label: 'Ingested Size', value: fmtMb(overview.ingestedSizeMb), icon: 'fas fa-arrow-down', color: 'text-sky-500', tooltip: 'Raw uncompressed size of all data received. This is what your agents sent over the network.' },
+              { label: 'Compressed Size', value: fmtMb(overview.compressedSizeMb), icon: 'fas fa-compress-alt', color: 'text-emerald-500', tooltip: 'Actual disk space used after compression. Typically 10–20x smaller than the ingested size.' },
+              { label: 'Index Size', value: fmtMb(overview.indexSizeMb), icon: 'fas fa-search', color: 'text-amber-500', tooltip: 'Size of the search index. Larger indexes improve query speed but use more storage.' },
             ].map((k, i) => (
-              <div key={i} className={clsx('rounded-xl p-4 flex items-center gap-3',
+              <div key={i} className={clsx('group relative rounded-xl p-4 flex items-center gap-3',
                 theme === 'dark' ? 'bg-slate-700/50' : 'bg-gray-50')}>
-                <i className={clsx(k.icon, k.color, 'text-lg w-5 text-center')} />
-                <div>
+                <i className={clsx(k.icon, k.color, 'text-lg w-5 text-center flex-shrink-0')} />
+                <div className="min-w-0">
                   <p className={clsx('text-[11px] font-medium', theme === 'dark' ? 'text-slate-400' : 'text-gray-500')}>
                     {k.label}
                   </p>
@@ -150,6 +171,17 @@ function OverviewTab({ config, overview, instances }: {
                     theme === 'dark' ? 'text-white' : 'text-gray-900')}>
                     {k.value}
                   </p>
+                </div>
+                {/* Tooltip */}
+                <div className={clsx(
+                  'absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 rounded-xl px-3 py-2 text-[11px] leading-snug shadow-lg z-50',
+                  'opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-150',
+                  theme === 'dark' ? 'bg-slate-700 text-slate-200 border border-slate-600' : 'bg-gray-900 text-white'
+                )}>
+                  {k.tooltip}
+                  <div className={clsx('absolute top-full left-1/2 -translate-x-1/2 w-0 h-0',
+                    'border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent',
+                    theme === 'dark' ? 'border-t-slate-700' : 'border-t-gray-900')} />
                 </div>
               </div>
             ))}
@@ -722,7 +754,7 @@ type SetupType = 'eks-helm' | 'ec2' | 'eks-manual';
 function SetupTab() {
   const { theme } = useTheme();
   const { fetchSetupConfig, fetchClusters } = useObservabilityData();
-  const [activeSetup, setActiveSetup] = useState<SetupType>('eks-helm');
+  const [activeSetup, setActiveSetup] = useState<SetupType>('ec2');
 
   // EKS Helm
   const [helmCmd, setHelmCmd] = useState('');
@@ -778,23 +810,26 @@ function SetupTab() {
     ? `aws eks update-kubeconfig --name ${selectedCluster.clusterName} --region ${selectedCluster.region}`
     : `aws eks update-kubeconfig --name <YOUR_CLUSTER_NAME> --region <YOUR_REGION>`;
 
-  const setups: { id: SetupType; label: string; icon: string; badge?: string; description: string }[] = [
-    {
-      id: 'eks-helm',
-      label: 'EKS — Helm',
-      icon: 'fas fa-dharmachakra',
-      description: 'One Helm command deploys the full OpenObserve collector — logs + metrics + events',
-    },
+  const setups: { id: SetupType; label: string; icon: string; badge?: string; comingSoon?: boolean; description: string }[] = [
     {
       id: 'ec2',
       label: 'EC2 / Linux VM',
       icon: 'fas fa-server',
+      badge: 'Available',
       description: 'Install OTel Collector as a systemd service on any EC2 or Linux host',
+    },
+    {
+      id: 'eks-helm',
+      label: 'EKS — Helm',
+      icon: 'fas fa-dharmachakra',
+      comingSoon: true,
+      description: 'One Helm command deploys the full OpenObserve collector — logs + metrics + events',
     },
     {
       id: 'eks-manual',
       label: 'EKS — Manual',
       icon: 'fas fa-file-code',
+      comingSoon: true,
       description: 'Step-by-step kubectl apply for advanced setups or air-gapped clusters',
     },
   ];
@@ -830,36 +865,83 @@ function SetupTab() {
       {/* Setup type selector */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         {setups.map(s => (
-          <button key={s.id} onClick={() => setActiveSetup(s.id)}
-            className={clsx('rounded-2xl border p-4 text-left transition-all',
-              activeSetup === s.id
-                ? 'border-violet-500 bg-violet-50 dark:bg-violet-900/20 shadow-md'
-                : theme === 'dark'
-                  ? 'border-slate-700 bg-slate-800/80 hover:border-slate-600'
-                  : 'border-gray-200 bg-white hover:border-gray-300')}>
-            <div className="flex items-center gap-2 mb-1.5">
-              <div className={clsx('w-7 h-7 rounded-lg flex items-center justify-center text-xs flex-shrink-0',
-                activeSetup === s.id ? 'bg-violet-600 text-white' : theme === 'dark' ? 'bg-slate-700 text-slate-300' : 'bg-gray-100 text-gray-500')}>
-                <i className={s.icon} />
-              </div>
-              <span className={clsx('font-semibold text-sm', theme === 'dark' ? 'text-white' : 'text-gray-800')}>
-                {s.label}
-              </span>
-              {s.badge && (
-                <span className="ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400">
-                  {s.badge}
+          <div key={s.id} className="relative">
+            <button
+              onClick={() => !s.comingSoon && setActiveSetup(s.id)}
+              disabled={s.comingSoon}
+              className={clsx('w-full rounded-2xl border p-4 text-left transition-all',
+                s.comingSoon
+                  ? 'cursor-not-allowed opacity-60'
+                  : activeSetup === s.id
+                    ? 'border-violet-500 bg-violet-50 dark:bg-violet-900/20 shadow-md'
+                    : theme === 'dark'
+                      ? 'border-slate-700 bg-slate-800/80 hover:border-slate-600'
+                      : 'border-gray-200 bg-white hover:border-gray-300')}>
+              <div className="flex items-center gap-2 mb-1.5">
+                <div className={clsx('w-7 h-7 rounded-lg flex items-center justify-center text-xs flex-shrink-0',
+                  s.comingSoon
+                    ? theme === 'dark' ? 'bg-slate-700 text-slate-500' : 'bg-gray-100 text-gray-400'
+                    : activeSetup === s.id ? 'bg-violet-600 text-white' : theme === 'dark' ? 'bg-slate-700 text-slate-300' : 'bg-gray-100 text-gray-500')}>
+                  <i className={s.icon} />
+                </div>
+                <span className={clsx('font-semibold text-sm', s.comingSoon
+                  ? theme === 'dark' ? 'text-slate-500' : 'text-gray-400'
+                  : theme === 'dark' ? 'text-white' : 'text-gray-800')}>
+                  {s.label}
                 </span>
-              )}
-            </div>
-            <p className={clsx('text-xs leading-snug', theme === 'dark' ? 'text-slate-400' : 'text-gray-500')}>
-              {s.description}
-            </p>
-          </button>
+                {s.comingSoon && (
+                  <span className="ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 whitespace-nowrap">
+                    Coming Soon
+                  </span>
+                )}
+                {s.badge && !s.comingSoon && (
+                  <span className="ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400">
+                    {s.badge}
+                  </span>
+                )}
+              </div>
+              <p className={clsx('text-xs leading-snug', s.comingSoon
+                ? theme === 'dark' ? 'text-slate-600' : 'text-gray-400'
+                : theme === 'dark' ? 'text-slate-400' : 'text-gray-500')}>
+                {s.description}
+              </p>
+            </button>
+          </div>
         ))}
       </div>
 
-      {/* ── EKS Helm ──────────────────────────────────────────────────────────── */}
-      {activeSetup === 'eks-helm' && (
+      {/* ── Coming Soon overlay for EKS setups ───────────────────────────────── */}
+      {(activeSetup === 'eks-helm' || activeSetup === 'eks-manual') && (
+        <div className={clsx('rounded-2xl border p-10 flex flex-col items-center justify-center text-center gap-4',
+          theme === 'dark' ? 'bg-slate-800/80 border-slate-700' : 'bg-white border-gray-200')}>
+          <div className={clsx('w-14 h-14 rounded-2xl flex items-center justify-center text-2xl',
+            theme === 'dark' ? 'bg-slate-700 text-slate-400' : 'bg-gray-100 text-gray-400')}>
+            <i className={activeSetup === 'eks-helm' ? 'fas fa-dharmachakra' : 'fas fa-file-code'} />
+          </div>
+          <div>
+            <div className="flex items-center justify-center gap-2 mb-2">
+              <span className={clsx('font-bold text-base', theme === 'dark' ? 'text-white' : 'text-gray-800')}>
+                {activeSetup === 'eks-helm' ? 'EKS — Helm Setup' : 'EKS — Manual Setup'}
+              </span>
+              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400">
+                Coming Soon
+              </span>
+            </div>
+            <p className={clsx('text-xs max-w-sm leading-relaxed', theme === 'dark' ? 'text-slate-400' : 'text-gray-500')}>
+              EKS observability setup is currently under development and has not been tested yet.
+              In the meantime, use the <strong>EC2 / Linux VM</strong> setup for node-level observability.
+            </p>
+          </div>
+          <button
+            onClick={() => setActiveSetup('ec2')}
+            className="mt-2 px-4 py-2 rounded-xl text-xs font-semibold bg-violet-600 hover:bg-violet-700 text-white transition-colors">
+            Switch to EC2 Setup
+          </button>
+        </div>
+      )}
+
+      {/* ── EKS Helm (hidden until ready) ─────────────────────────────────────── */}
+      {false && activeSetup === 'eks-helm' && (
         <div className={cardCls}>
           <div className="flex items-center gap-2">
             <i className="fas fa-dharmachakra text-violet-500" />
@@ -990,8 +1072,8 @@ function SetupTab() {
         </div>
       )}
 
-      {/* ── EKS Manual ────────────────────────────────────────────────────────── */}
-      {activeSetup === 'eks-manual' && (
+      {/* ── EKS Manual (hidden until ready) ───────────────────────────────────── */}
+      {false && activeSetup === 'eks-manual' && (
         <div className={cardCls}>
           <div className="flex items-center gap-2">
             <i className="fas fa-file-code text-violet-500" />
