@@ -1,6 +1,7 @@
 import React from 'react';
 import type { RequestLogEntry, PagedResponse } from '../../types/aiops';
 import { PROVIDER_COLORS } from '../../types/aiops';
+import { InfoTooltip } from '../ui/Tooltip';
 
 interface RequestLogsTableProps {
   data: PagedResponse<RequestLogEntry> | null;
@@ -55,6 +56,7 @@ const RequestLogsTable: React.FC<RequestLogsTableProps> = ({
             <i className="fas fa-list-alt text-white text-xs" />
           </div>
           <h3 className="text-sm font-bold text-gray-800">Request Logs</h3>
+          <InfoTooltip placement="right">Detailed log of every API request through the proxy with filtering and export.</InfoTooltip>
           {data && (
             <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
               {data.totalElements.toLocaleString()} total
@@ -99,9 +101,19 @@ const RequestLogsTable: React.FC<RequestLogsTableProps> = ({
           <table className="w-full">
             <thead>
               <tr className="bg-gray-50/80">
-                {['Timestamp', 'Provider', 'Model', 'Agent', 'Input', 'Output', 'Cost', 'Latency', 'Status'].map(col => (
+                {[
+                  { col: 'Timestamp', tip: 'When the request was made' },
+                  { col: 'Provider', tip: 'LLM provider that handled the request' },
+                  { col: 'Model', tip: 'AI model used for this request' },
+                  { col: 'Agent', tip: 'Agent/app name from X-XamOps-Agent header' },
+                  { col: 'Input', tip: 'Prompt tokens sent to the model' },
+                  { col: 'Output', tip: 'Completion tokens received from the model' },
+                  { col: 'Cost', tip: 'Estimated cost based on model pricing' },
+                  { col: 'Latency', tip: 'Round-trip response time from the provider' },
+                  { col: 'Status', tip: 'HTTP status code — 2xx success, 4xx/5xx error' },
+                ].map(({ col, tip }) => (
                   <th key={col} className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider whitespace-nowrap">
-                    {col}
+                    <span className="inline-flex items-center gap-1">{col} <InfoTooltip placement="bottom">{tip}</InfoTooltip></span>
                   </th>
                 ))}
               </tr>

@@ -43,5 +43,14 @@ export function useApiKeysData() {
     }
   }, []);
 
-  return { keys, loading, loadKeys, rotateKey, updateUsageLimit };
+  const cleanupOrphanedLogs = useCallback(async (): Promise<{ deleted: number; message: string }> => {
+    const result = await apiFetchJson<{ deleted: number; message: string }>(
+      '/api/xamops/aiops/cleanup-orphaned-logs',
+      { method: 'POST' }
+    );
+    await loadKeys();
+    return result;
+  }, [loadKeys]);
+
+  return { keys, loading, loadKeys, rotateKey, updateUsageLimit, cleanupOrphanedLogs };
 }

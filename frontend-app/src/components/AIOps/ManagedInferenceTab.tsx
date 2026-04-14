@@ -1,6 +1,7 @@
 import React from 'react';
 import type { InferenceOverview } from '../../types/aiops';
 import { PROVIDER_COLORS } from '../../types/aiops';
+import { InfoTooltip } from '../ui/Tooltip';
 
 interface ManagedInferenceTabProps {
   data: InferenceOverview | null;
@@ -54,7 +55,7 @@ const ManagedInferenceTab: React.FC<ManagedInferenceTabProps> = ({ data, loading
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
         <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Total Endpoints</span>
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider inline-flex items-center gap-1">Total Endpoints <InfoTooltip placement="bottom">Model endpoints tracked through the proxy.</InfoTooltip></span>
             <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center">
               <i className="fas fa-server text-white text-xs" />
             </div>
@@ -63,7 +64,7 @@ const ManagedInferenceTab: React.FC<ManagedInferenceTabProps> = ({ data, loading
         </div>
         <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Active</span>
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider inline-flex items-center gap-1">Active <InfoTooltip placement="bottom">Endpoints responding successfully to requests.</InfoTooltip></span>
             <div className="w-8 h-8 bg-gradient-to-br from-emerald-500 to-green-600 rounded-lg flex items-center justify-center">
               <i className="fas fa-check-circle text-white text-xs" />
             </div>
@@ -72,7 +73,7 @@ const ManagedInferenceTab: React.FC<ManagedInferenceTabProps> = ({ data, loading
         </div>
         <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Degraded/Down</span>
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider inline-flex items-center gap-1">Degraded/Down <InfoTooltip placement="bottom">Endpoints with high error rates or not responding.</InfoTooltip></span>
             <div className="w-8 h-8 bg-gradient-to-br from-amber-500 to-red-600 rounded-lg flex items-center justify-center">
               <i className="fas fa-exclamation-circle text-white text-xs" />
             </div>
@@ -81,7 +82,7 @@ const ManagedInferenceTab: React.FC<ManagedInferenceTabProps> = ({ data, loading
         </div>
         <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Total Cost</span>
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider inline-flex items-center gap-1">Total Cost <InfoTooltip placement="bottom">Combined cost across all endpoints.</InfoTooltip></span>
             <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-emerald-600 rounded-lg flex items-center justify-center">
               <i className="fas fa-dollar-sign text-white text-xs" />
             </div>
@@ -90,7 +91,7 @@ const ManagedInferenceTab: React.FC<ManagedInferenceTabProps> = ({ data, loading
         </div>
         <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Avg Latency</span>
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider inline-flex items-center gap-1">Avg Latency <InfoTooltip placement="bottom">Average response time across all endpoints.</InfoTooltip></span>
             <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-lg flex items-center justify-center">
               <i className="fas fa-tachometer-alt text-white text-xs" />
             </div>
@@ -142,21 +143,21 @@ const ManagedInferenceTab: React.FC<ManagedInferenceTabProps> = ({ data, loading
                   <div className="grid grid-cols-4 gap-4 mb-3">
                     <div className="text-center">
                       <p className="text-lg font-bold text-gray-900">{ep.totalRequests.toLocaleString()}</p>
-                      <p className="text-xs text-gray-400">Requests</p>
+                      <p className="text-xs text-gray-400 inline-flex items-center gap-1">Requests <InfoTooltip placement="bottom">Total API calls to this endpoint.</InfoTooltip></p>
                     </div>
                     <div className="text-center">
                       <p className="text-lg font-bold text-gray-900">{formatCurrency(ep.totalCost)}</p>
-                      <p className="text-xs text-gray-400">Cost</p>
+                      <p className="text-xs text-gray-400 inline-flex items-center gap-1">Cost <InfoTooltip placement="bottom">Cumulative spend on this endpoint.</InfoTooltip></p>
                     </div>
                     <div className="text-center">
                       <p className="text-lg font-bold text-gray-900">{ep.avgLatencyMs.toFixed(0)}ms</p>
-                      <p className="text-xs text-gray-400">Avg Latency</p>
+                      <p className="text-xs text-gray-400 inline-flex items-center gap-1">Avg Latency <InfoTooltip placement="bottom">Mean response time for this endpoint.</InfoTooltip></p>
                     </div>
                     <div className="text-center">
                       <p className={`text-lg font-bold ${ep.errorRate > 5 ? 'text-red-600' : ep.errorRate > 1 ? 'text-amber-600' : 'text-emerald-600'}`}>
                         {ep.errorRate.toFixed(1)}%
                       </p>
-                      <p className="text-xs text-gray-400">Error Rate</p>
+                      <p className="text-xs text-gray-400 inline-flex items-center gap-1">Error Rate <InfoTooltip placement="bottom">Percentage of failed requests.</InfoTooltip></p>
                     </div>
                   </div>
 

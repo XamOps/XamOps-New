@@ -2,6 +2,7 @@ import React, { useRef, useEffect } from 'react';
 import { Chart, registerables } from 'chart.js';
 import type { ComputeMetricsSummary } from '../../types/aiops';
 import { PROVIDER_COLORS } from '../../types/aiops';
+import { InfoTooltip } from '../ui/Tooltip';
 
 Chart.register(...registerables);
 
@@ -155,7 +156,7 @@ const ComputeMetricsSection: React.FC<ComputeMetricsSectionProps> = ({ data, loa
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Total Requests</span>
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider inline-flex items-center gap-1">Total Requests <InfoTooltip placement="bottom">Total API requests processed in the selected period.</InfoTooltip></span>
             <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center">
               <i className="fas fa-server text-white text-xs" />
             </div>
@@ -164,7 +165,7 @@ const ComputeMetricsSection: React.FC<ComputeMetricsSectionProps> = ({ data, loa
         </div>
         <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Total Tokens</span>
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider inline-flex items-center gap-1">Total Tokens <InfoTooltip placement="bottom">Combined input + output tokens processed.</InfoTooltip></span>
             <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-cyan-600 rounded-lg flex items-center justify-center">
               <i className="fas fa-microchip text-white text-xs" />
             </div>
@@ -173,7 +174,7 @@ const ComputeMetricsSection: React.FC<ComputeMetricsSectionProps> = ({ data, loa
         </div>
         <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Compute Time</span>
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider inline-flex items-center gap-1">Compute Time <InfoTooltip placement="bottom">Total GPU/inference time used by LLM providers.</InfoTooltip></span>
             <div className="w-8 h-8 bg-gradient-to-br from-amber-500 to-orange-600 rounded-lg flex items-center justify-center">
               <i className="fas fa-clock text-white text-xs" />
             </div>
@@ -182,7 +183,7 @@ const ComputeMetricsSection: React.FC<ComputeMetricsSectionProps> = ({ data, loa
         </div>
         <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Total Cost</span>
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider inline-flex items-center gap-1">Total Cost <InfoTooltip placement="bottom">Estimated total cost for all compute in the period.</InfoTooltip></span>
             <div className="w-8 h-8 bg-gradient-to-br from-emerald-500 to-green-600 rounded-lg flex items-center justify-center">
               <i className="fas fa-dollar-sign text-white text-xs" />
             </div>
@@ -200,6 +201,7 @@ const ComputeMetricsSection: React.FC<ComputeMetricsSectionProps> = ({ data, loa
               <i className="fas fa-chart-area text-white text-xs" />
             </div>
             <h3 className="text-sm font-bold text-gray-800">Daily Compute Trend</h3>
+            <InfoTooltip placement="right">Daily token volumes and compute time. Left axis = tokens, right axis = compute seconds.</InfoTooltip>
           </div>
           <div className="p-4" style={{ height: 280 }}>
             <DailyTrendChart data={data} />
@@ -213,6 +215,7 @@ const ComputeMetricsSection: React.FC<ComputeMetricsSectionProps> = ({ data, loa
               <i className="fas fa-chart-pie text-white text-xs" />
             </div>
             <h3 className="text-sm font-bold text-gray-800">Compute by Provider</h3>
+            <InfoTooltip placement="right">Share of total compute time used by each provider.</InfoTooltip>
           </div>
           <div className="p-4" style={{ height: 280 }}>
             <ProviderBreakdownChart data={data} />
@@ -228,6 +231,7 @@ const ComputeMetricsSection: React.FC<ComputeMetricsSectionProps> = ({ data, loa
               <i className="fas fa-cloud text-white text-xs" />
             </div>
             <h3 className="text-sm font-bold text-gray-800">Provider Compute Usage</h3>
+            <InfoTooltip placement="right">Detailed compute metrics broken down by provider.</InfoTooltip>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -273,6 +277,7 @@ const ComputeMetricsSection: React.FC<ComputeMetricsSectionProps> = ({ data, loa
               <i className="fas fa-cubes text-white text-xs" />
             </div>
             <h3 className="text-sm font-bold text-gray-800">Model Compute Allocation</h3>
+            <InfoTooltip placement="right">How compute time is distributed across models. % of Total = share of total compute.</InfoTooltip>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">

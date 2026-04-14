@@ -19,6 +19,7 @@ export interface CostTrend {
 export interface ProviderCostBreakdown {
   provider: string;
   cost: number;
+  requestCount: number;
 }
 
 // ─── Table Types ─────────────────────────────────────────────
@@ -52,6 +53,10 @@ export interface LlmProviderConfig {
   proxyBaseUrl?: string;
   trackingToken?: string;
   createdAt?: string;
+  // Bedrock-specific (write-only, never returned from backend)
+  awsRegion?: string;
+  awsAccessKey?: string;
+  awsSecretKey?: string;
 }
 
 // ─── Section Loading State ───────────────────────────────────
@@ -487,4 +492,13 @@ export interface InferenceOverview {
   totalCost: number;
   avgLatency: number;
   endpoints: InferenceEndpoint[];
+}
+
+// ─── Model Daily Analysis Types ──────────────────────────────
+
+export interface ModelDailyAnalysis {
+  labels: string[];
+  models: string[];
+  costByModel: Record<string, number[]>;
+  tokensByModel: Record<string, number[]>;
 }
