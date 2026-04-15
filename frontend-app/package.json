@@ -36,6 +36,7 @@
     "chart.js": "^3.9.1",
     "chartjs-adapter-date-fns": "^2.0.1",
     "clsx": "^2.1.1",
+    "cmdk": "^1.1.1",
     "cobe": "^2.0.1",
     "cytoscape": "^3.28.1",
     "cytoscape-dagre": "^2.5.0",
