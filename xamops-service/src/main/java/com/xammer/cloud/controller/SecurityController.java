@@ -9,6 +9,7 @@ import com.xammer.cloud.service.DashboardDataService;
 import com.xammer.cloud.service.ExcelExportService;
 import com.xammer.cloud.service.ProwlerService;
 import com.xammer.cloud.service.SecurityService;
+import com.xammer.cloud.util.SecurityUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
@@ -84,6 +85,13 @@ public class SecurityController {
 
         CloudAccount account = accounts.get(0);
 
+        // Ownership check to prevent IDOR
+        if (!SecurityUtils.isAuthorizedForAccount(account)) {
+            logger.warn("Unauthorized access attempt to findings for account: {}", accountId);
+            return CompletableFuture.completedFuture(
+                    ResponseEntity.status(403).body(Collections.emptyList()));
+        }
+
         // Fallback: Fetch fresh data
         logger.info("Fetching fresh security findings for account {}", accountId);
         return cloudListService.getRegionStatusForAccount(account, forceRefresh)
@@ -112,6 +120,12 @@ public class SecurityController {
             throw new RuntimeException("Account not found: " + accountId);
         }
         CloudAccount account = accounts.get(0);
+
+        // Ownership check to prevent IDOR
+        if (!SecurityUtils.isAuthorizedForAccount(account)) {
+            logger.warn("Unauthorized access attempt to export findings for account: {}", accountId);
+            throw new RuntimeException("Access Denied");
+        }
 
         return cloudListService.getRegionStatusForAccount(account, true)
                 .thenCompose((List<DashboardData.RegionStatus> activeRegions) -> securityService
@@ -143,6 +157,13 @@ public class SecurityController {
             return ResponseEntity.badRequest().body(Map.of(
                     "status", "ERROR",
                     "message", "Account not found: " + accountId));
+        }
+
+        CloudAccount account = accounts.get(0);
+        // Ownership check to prevent IDOR
+        if (!SecurityUtils.isAuthorizedForAccount(account)) {
+            logger.warn("Unauthorized access attempt to trigger scan for account: {}", accountId);
+            return ResponseEntity.status(403).body(Map.of("error", "Access Denied"));
         }
 
         // Check if a scan is already running
@@ -180,6 +201,13 @@ public class SecurityController {
     // ✅ Endpoint for Polling Status
     @GetMapping("/prowler/status")
     public ResponseEntity<Map<String, Object>> getProwlerStatus(@RequestParam String accountId) {
+        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
+        if (!accounts.isEmpty()) {
+            if (!SecurityUtils.isAuthorizedForAccount(accounts.get(0))) {
+                logger.warn("Unauthorized access attempt to get scan status for account: {}", accountId);
+                return ResponseEntity.status(403).body(Map.of("error", "Access Denied"));
+            }
+        }
         return ResponseEntity.ok(prowlerService.getScanStatus(accountId));
     }
 }
