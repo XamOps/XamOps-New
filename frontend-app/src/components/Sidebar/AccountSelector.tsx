@@ -144,6 +144,9 @@ const AccountSelector: React.FC<AccountSelectorProps> = ({ isOpen, onToggle, onC
       {/* Selector Button */}
       <button
         onClick={onToggle}
+        aria-label="Select Cloud Account"
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
         className={clsx(
           'w-full flex items-center justify-between p-3 border rounded-xl transition-all duration-300 shadow-sm',
           isOpen
