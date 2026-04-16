@@ -11,6 +11,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -47,11 +48,28 @@ public class AppUserService {
             throw new RuntimeException("Username already exists: " + dto.getUsername());
         }
 
+        // Resolve the caller to detect ROLE_BILLOPS_ADMIN_SUB (for client ownership tagging)
+        String callerUsername = SecurityContextHolder.getContext().getAuthentication() != null
+                ? SecurityContextHolder.getContext().getAuthentication().getName()
+                : null;
+        AppUser callerUser = (callerUsername != null)
+                ? appUserRepository.findByUsername(callerUsername).orElse(null)
+                : null;
+        boolean callerIsSubAdmin = callerUser != null && "ROLE_BILLOPS_ADMIN_SUB".equals(callerUser.getRole());
+
         // Handle client
         Client client = clientRepository.findByName(dto.getClientName());
         if (client == null) {
             client = new Client(dto.getClientName());
+            // If a ROLE_BILLOPS_ADMIN_SUB is creating this client, tag it with their ID
+            if (callerIsSubAdmin && callerUser != null) {
+                client.setOwnerAdminId(callerUser.getId());
+            }
             client = clientRepository.save(client); // DB generates ID
+        } else if (callerIsSubAdmin && callerUser != null && client.getOwnerAdminId() == null) {
+            // Existing client not yet owned — claim it for this sub-admin
+            client.setOwnerAdminId(callerUser.getId());
+            client = clientRepository.save(client);
         }
 
         // Create user
@@ -78,7 +96,36 @@ public class AppUserService {
     }
 
     public List<UserDTO> getAllUsers() {
-        List<AppUser> users = appUserRepository.findAll();
+        // Scope to owned clients for ROLE_BILLOPS_ADMIN_SUB
+        org.springframework.security.core.Authentication auth =
+                SecurityContextHolder.getContext().getAuthentication();
+        boolean isSubAdmin = auth != null && auth.getAuthorities().stream()
+                .anyMatch(a -> "ROLE_BILLOPS_ADMIN_SUB".equals(a.getAuthority()));
+
+        List<AppUser> users;
+        if (isSubAdmin && auth != null) {
+            // Find sub-admin by username (JWT ID may differ from tenant DB ID)
+            AppUser subAdmin = appUserRepository.findByUsername(auth.getName()).orElse(null);
+            if (subAdmin == null) {
+                log.warn("SUB_ADMIN '{}' not found in app_user table — returning empty user list", auth.getName());
+                return java.util.Collections.emptyList();
+            }
+            List<Client> ownedClients = clientRepository.findByOwnerAdminId(subAdmin.getId());
+            if (ownedClients.isEmpty()) {
+                return java.util.Collections.emptyList();
+            }
+            java.util.Set<Long> ownedClientIds = ownedClients.stream()
+                    .map(Client::getId)
+                    .collect(java.util.stream.Collectors.toSet());
+            users = appUserRepository.findAll().stream()
+                    .filter(u -> u.getClient() != null && ownedClientIds.contains(u.getClient().getId()))
+                    .collect(java.util.stream.Collectors.toList());
+            log.info("SUB_ADMIN {} — returning {} scoped users from {} owned clients",
+                    subAdmin.getUsername(), users.size(), ownedClients.size());
+        } else {
+            users = appUserRepository.findAll();
+        }
+
         return users.stream().map(user -> {
             UserDTO dto = new UserDTO();
             dto.setId(user.getId());

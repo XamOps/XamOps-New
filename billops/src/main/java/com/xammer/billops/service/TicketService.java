@@ -18,6 +18,8 @@ import com.xammer.billops.repository.UserCloudAccountAccessRepository;
 import com.xammer.billops.repository.UserRepository;
 import com.xammer.billops.util.SecurityUtils;
 import org.slf4j.Logger;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -233,6 +235,44 @@ public class TicketService {
      */
     private List<TicketDto> applyAccountFilter(List<TicketDto> tickets) {
         Long userId = SecurityUtils.getCurrentUserId();
+
+        // Resolve effective role from Security context first (authoritative)
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        String effectiveRole = (auth != null) ? auth.getAuthorities().stream()
+                .map(a -> a.getAuthority())
+                .filter(a -> a.startsWith("ROLE_"))
+                .findFirst().orElse(null) : null;
+
+        // ROLE_BILLOPS_ADMIN_SUB — scope to tickets from their owned clients' cloud accounts
+        // Checked BEFORE createdBy lookup to handle users whose DB role field is null
+        if ("ROLE_BILLOPS_ADMIN_SUB".equals(effectiveRole)) {
+            // Try findById first, fall back to username if ID doesn't match tenant DB
+            AppUser subAdmin = appUserRepository.findById(userId).orElse(null);
+            if (subAdmin == null && auth != null) {
+                subAdmin = appUserRepository.findByUsername(auth.getName()).orElse(null);
+            }
+            if (subAdmin == null) {
+                return java.util.Collections.emptyList();
+            }
+            List<Client> ownedClients = clientRepository.findByOwnerAdminId(subAdmin.getId());
+            if (ownedClients.isEmpty()) {
+                return java.util.Collections.emptyList();
+            }
+            Set<Long> ownedClientIds = ownedClients.stream()
+                    .map(Client::getId)
+                    .collect(Collectors.toSet());
+            List<CloudAccount> ownedAccounts = cloudAccountRepository.findAll().stream()
+                    .filter(a -> a.getClient() != null && ownedClientIds.contains(a.getClient().getId()))
+                    .collect(Collectors.toList());
+            Set<String> ownedProviderIds = ownedAccounts.stream()
+                    .map(this::resolveProviderAccountId)
+                    .filter(id -> id != null && !id.isEmpty())
+                    .collect(Collectors.toSet());
+            return tickets.stream()
+                    .filter(t -> t.getAccountId() != null && ownedProviderIds.contains(t.getAccountId()))
+                    .collect(Collectors.toList());
+        }
+
         AppUser currentUser = appUserRepository.findById(userId).orElse(null);
 
         // Primary admin — no restriction
@@ -434,7 +474,8 @@ public class TicketService {
 
     public List<User> getAdminUsers() {
         return userRepository.findAll().stream()
-                .filter(u -> u.getRole() != null && u.getRole().contains("ROLE_BILLOPS_ADMIN"))
+                .filter(u -> u.getRole() != null &&
+                        (u.getRole().contains("ROLE_BILLOPS_ADMIN") || u.getRole().equals("ROLE_BILLOPS_ADMIN_SUB")))
                 .collect(Collectors.toList());
     }
 

@@ -12,6 +12,7 @@ import com.xammer.billops.repository.SupportMessageRepository;
 import com.xammer.billops.repository.SupportTicketStatusRepository;
 import com.xammer.billops.repository.UserCloudAccountAccessRepository;
 import com.xammer.billops.service.EmailService;
+import com.xammer.billops.service.ExternalMessagingService;
 import com.xammer.cloud.domain.AppUser;
 
 import org.springframework.beans.factory.annotation.Value;
@@ -50,6 +51,7 @@ public class SupportAdminController {
     private final UserCloudAccountAccessRepository userCloudAccountAccessRepository;
     private final SupportTicketStatusRepository ticketStatusRepository;
     private final EmailService emailService;
+    private final ExternalMessagingService externalMessagingService;
 
     @Value("${support.upload.dir:${user.home}/billops-uploads}")
     private String uploadDir;
@@ -60,7 +62,8 @@ public class SupportAdminController {
                                    AppUserRepository appUserRepository,
                                    UserCloudAccountAccessRepository userCloudAccountAccessRepository,
                                    SupportTicketStatusRepository ticketStatusRepository,
-                                   EmailService emailService) {
+                                   EmailService emailService,
+                                   ExternalMessagingService externalMessagingService) {
         this.messageRepository = messageRepository;
         this.cloudAccountRepository = cloudAccountRepository;
         this.clientRepository = clientRepository;
@@ -68,6 +71,33 @@ public class SupportAdminController {
         this.userCloudAccountAccessRepository = userCloudAccountAccessRepository;
         this.ticketStatusRepository = ticketStatusRepository;
         this.emailService = emailService;
+        this.externalMessagingService = externalMessagingService;
+    }
+
+    // ── helper: build support notification email HTML ──
+    private String buildSupportEmailHtml(String adminName, String message, String accountName, String portalUrl) {
+        String escapedMessage = message
+                .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                .replace("\n", "<br>");
+        return "<!DOCTYPE html><html><body style='margin:0;padding:0;background:#f4f6fb;font-family:Arial,sans-serif;'>"
+            + "<table width='100%' cellpadding='0' cellspacing='0' style='background:#f4f6fb;padding:32px 0;'>"
+            + "<tr><td align='center'>"
+            + "<table width='560' cellpadding='0' cellspacing='0' style='background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.08);'>"
+            + "<tr><td style='background:linear-gradient(135deg,#4f46e5,#7c3aed);padding:28px 32px;'>"
+            + "<h1 style='margin:0;color:#ffffff;font-size:20px;font-weight:700;'>XamOps Support</h1>"
+            + "<p style='margin:4px 0 0;color:rgba(255,255,255,0.75);font-size:13px;'>New message from your support team</p>"
+            + "</td></tr>"
+            + "<tr><td style='padding:28px 32px;'>"
+            + "<p style='margin:0 0 6px;font-size:13px;color:#6b7280;'>Message from <strong style='color:#1f2937;'>" + adminName + "</strong> regarding <strong style='color:#1f2937;'>" + accountName + "</strong>:</p>"
+            + "<div style='background:#f8faff;border-left:4px solid #4f46e5;border-radius:6px;padding:16px 20px;margin:16px 0;'>"
+            + "<p style='margin:0;font-size:15px;color:#1f2937;line-height:1.6;'>" + escapedMessage + "</p>"
+            + "</div>"
+            + "<a href='" + portalUrl + "' style='display:inline-block;margin-top:8px;background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#ffffff;text-decoration:none;font-size:14px;font-weight:600;padding:12px 28px;border-radius:8px;'>Reply in XamOps Portal →</a>"
+            + "</td></tr>"
+            + "<tr><td style='padding:16px 32px 24px;border-top:1px solid #f3f4f6;'>"
+            + "<p style='margin:0;font-size:11px;color:#9ca3af;'>This is an automated notification from XamOps Support. Reply directly in the portal.</p>"
+            + "</td></tr>"
+            + "</table></td></tr></table></body></html>";
     }
 
     // ── helper: current admin username ──
@@ -84,15 +114,37 @@ public class SupportAdminController {
     }
 
     /**
-     * Returns the set of client IDs accessible to the current user.
-     * Primary admins (createdBy == null) → returns null (no restriction, see all).
-     * Sub-users → derives client IDs from their assigned cloud accounts.
-     *   e.g. assigned accounts [2, 3, 5] belong to clients [A, B]
-     *   → returns {clientId_A, clientId_B}
+     * Returns the set of client IDs accessible to the current user, or null = "no restriction / see all".
+     *
+     * ROLE_BILLOPS_ADMIN (primary, createdBy == null)  → null (see ALL clients)
+     * ROLE_BILLOPS_ADMIN_SUB with allAccountsAccess    → null (explicitly given full access)
+     * ROLE_BILLOPS_ADMIN_SUB (no account access)       → only clients where ownerAdminId = their ID
+     * ROLE_BILLOPS_ADMIN sub-user (createdBy != null)  → clients derived from assigned cloud accounts
      */
     private Set<Long> getAllowedClientIds(AppUser currentUser) {
-        if (currentUser == null || currentUser.getCreatedBy() == null) {
-            return null; // Primary admin — no restriction
+        if (currentUser == null) return null;
+
+        // ROLE_BILLOPS_ADMIN_SUB — isolated sub-admin scope
+        if ("ROLE_BILLOPS_ADMIN_SUB".equals(currentUser.getRole())) {
+            if (currentUser.isAllAccountsAccess()) {
+                return null; // explicitly granted full access by the primary admin
+            }
+            // Scope to clients owned by this sub-admin
+            List<Client> ownedClients = clientRepository.findByOwnerAdminId(currentUser.getId());
+            if (ownedClients.isEmpty()) return Collections.emptySet();
+            Set<Long> clientIds = new HashSet<>();
+            for (Client c : ownedClients) clientIds.add(c.getId());
+            return clientIds;
+        }
+
+        // Primary ROLE_BILLOPS_ADMIN (createdBy == null) — see everything
+        if (currentUser.getCreatedBy() == null) {
+            return null;
+        }
+
+        // ROLE_BILLOPS_ADMIN sub-user (createdBy != null) — derive from assigned accounts
+        if (currentUser.isAllAccountsAccess()) {
+            return null; // sub-user was given all-accounts access
         }
         List<Long> accountIds = userCloudAccountAccessRepository.findCloudAccountIdsByUserId(currentUser.getId());
         if (accountIds.isEmpty()) return Collections.emptySet();
@@ -107,7 +159,7 @@ public class SupportAdminController {
     }
 
     // 1. Get Inbox — one entry per user (keyed by userId, not accountId)
-    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
+    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
     @GetMapping("/inbox")
     public List<Map<String, Object>> getInbox() {
         AppUser currentUser = getCurrentUser();
@@ -172,7 +224,7 @@ public class SupportAdminController {
     }
 
     // Get Chat Sessions (for notification system) — now userId-based
-    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
+    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
     @GetMapping("/chat-sessions")
     public List<Map<String, String>> getChatSessions() {
         List<Object[]> results = messageRepository.findDistinctUserConversations();
@@ -189,7 +241,7 @@ public class SupportAdminController {
     }
 
     // 2a. Get Chat History by userId (primary — user-based conversations)
-    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
+    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
     @GetMapping("/chat/user/{userId}")
     public List<SupportMessage> getChatHistoryByUser(@PathVariable Long userId) {
         // Mark all unread user messages as read
@@ -220,7 +272,7 @@ public class SupportAdminController {
     }
 
     // 3. Send Reply (Admin -> User)
-    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
+    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
     @PostMapping("/reply")
     public SupportMessage sendReply(@RequestBody Map<String, String> payload) {
         String accountId = payload.get("accountId"); // may be null for user-based conversations
@@ -295,6 +347,40 @@ public class SupportAdminController {
 
         SupportMessage saved = messageRepository.save(reply);
 
+        // Look up user's email (used for email notification + Slack auto-discovery)
+        String userEmail = appUserRepository.findById(userId)
+                .map(AppUser::getEmail)
+                .orElse(null);
+
+        // Route to external platform (Slack / Teams / Google Chat) if requested
+        String externalPlatform = payload.get("externalPlatform");
+        if (externalPlatform != null && !externalPlatform.isBlank()) {
+            String externalMsgId = externalMessagingService.sendMessage(
+                    userId, externalPlatform.toUpperCase(), messageContent, adminUsername, userEmail);
+            if (externalMsgId != null) {
+                saved.setExternalPlatform(externalPlatform.toUpperCase());
+                saved.setExternalMessageId(externalMsgId);
+                messageRepository.save(saved);
+            }
+        }
+
+        // Auto-send email notification to user if they have an email on file
+        if (userEmail != null && !userEmail.isBlank()) {
+            try {
+                String portalUrl = "https://live.xamops.com/";
+                String displayName = saved.getAccountName() != null ? saved.getAccountName() : "your account";
+                String htmlBody = buildSupportEmailHtml(adminUsername, messageContent, displayName, portalUrl);
+                emailService.sendHtmlEmail(
+                        userEmail,
+                        "New message from XamOps Support – " + adminUsername,
+                        htmlBody
+                );
+            } catch (Exception e) {
+                // Don't fail the reply if email notification fails
+                System.err.println("Failed to send email notification to " + userEmail + ": " + e.getMessage());
+            }
+        }
+
         // Auto-assign ticket to this admin and set status to IN_PROGRESS
         SupportTicketStatus ticketStatus = ticketStatusRepository.findByUserId(userId)
                 .orElse(new SupportTicketStatus());
@@ -312,7 +398,7 @@ public class SupportAdminController {
     }
 
     // 11. Get ticket status for a user conversation
-    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
+    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
     @GetMapping("/ticket/{userId}/status")
     public Map<String, Object> getTicketStatus(@PathVariable Long userId) {
         SupportTicketStatus ts = ticketStatusRepository.findByUserId(userId).orElse(null);
@@ -326,7 +412,7 @@ public class SupportAdminController {
     }
 
     // 12. Update ticket status (OPEN / IN_PROGRESS / CLOSED)
-    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
+    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
     @PatchMapping("/ticket/{userId}/status")
     public Map<String, Object> updateTicketStatus(@PathVariable Long userId,
                                                    @RequestBody Map<String, String> payload) {
@@ -356,7 +442,7 @@ public class SupportAdminController {
     }
 
     // 13. Send full chat thread as email (multi-recipient + send mode)
-    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
+    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
     @PostMapping("/ticket/{userId}/email")
     public ResponseEntity<Map<String, Object>> sendTicketEmail(@PathVariable Long userId,
                                                                 @RequestBody Map<String, Object> payload) {
@@ -414,7 +500,7 @@ public class SupportAdminController {
     }
 
     // 4. Get all cloud accounts available for admin to start conversations with
-    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
+    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
     @GetMapping("/accounts")
     public List<Map<String, Object>> getAvailableAccounts() {
         AppUser currentUser = getCurrentUser();
@@ -451,7 +537,7 @@ public class SupportAdminController {
     }
 
     // 5. Upload file attachment
-    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
+    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
     @PostMapping("/upload")
     public ResponseEntity<Map<String, Object>> uploadAttachment(
             @RequestParam("file") MultipartFile file) throws IOException {
@@ -507,7 +593,7 @@ public class SupportAdminController {
     }
 
     // 7. Get all clients
-    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
+    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
     @GetMapping("/clients")
     public List<Map<String, Object>> getClients() {
         AppUser currentUser = getCurrentUser();
@@ -534,7 +620,7 @@ public class SupportAdminController {
     }
 
     // 8. Get profiles (users + their accessible accounts) for a client
-    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
+    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
     @GetMapping("/clients/{clientId}/profiles")
     public List<Map<String, Object>> getClientProfiles(@PathVariable Long clientId) {
         // Sub-user access guard: deny if this client is not derived from their assigned accounts
@@ -593,7 +679,7 @@ public class SupportAdminController {
     }
 
     // 9. Edit an admin message (within 15 minutes of sending)
-    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
+    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
     @PatchMapping("/messages/{id}")
     public ResponseEntity<SupportMessage> editMessage(
             @PathVariable Long id,
@@ -613,7 +699,7 @@ public class SupportAdminController {
     }
 
     // 10. Delete an admin message (within 60 minutes of sending — soft delete)
-    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
+    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
     @DeleteMapping("/messages/{id}")
     public ResponseEntity<SupportMessage> deleteMessage(@PathVariable Long id) {
 
@@ -684,5 +770,98 @@ public class SupportAdminController {
         if ("GCP".equalsIgnoreCase(provider)) return account.getGcpProjectId();
         if ("Azure".equalsIgnoreCase(provider)) return account.getAzureSubscriptionId();
         return account.getExternalId();
+    }
+
+    // ── Sub-admin client assignment ──
+
+    /**
+     * GET /api/billops/support/sub-admins
+     * Lists all ROLE_BILLOPS_ADMIN_SUB users created under the current primary admin.
+     * Only accessible by the primary ROLE_BILLOPS_ADMIN.
+     */
+    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
+    @GetMapping("/sub-admins")
+    public ResponseEntity<List<Map<String, Object>>> getSubAdmins() {
+        AppUser currentUser = getCurrentUser();
+        if (currentUser == null || currentUser.getCreatedBy() != null) {
+            return ResponseEntity.status(403).build(); // only primary admin
+        }
+        List<AppUser> subAdmins = appUserRepository.findByCreatedBy(currentUser.getId())
+                .stream()
+                .filter(u -> "ROLE_BILLOPS_ADMIN_SUB".equals(u.getRole()))
+                .collect(java.util.stream.Collectors.toList());
+
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (AppUser sub : subAdmins) {
+            Map<String, Object> item = new HashMap<>();
+            item.put("id", sub.getId());
+            item.put("username", sub.getUsername());
+            item.put("email", sub.getEmail());
+            item.put("allAccountsAccess", sub.isAllAccountsAccess());
+            // Clients already assigned to this sub-admin
+            List<Long> assignedClientIds = clientRepository.findByOwnerAdminId(sub.getId())
+                    .stream().map(Client::getId).collect(java.util.stream.Collectors.toList());
+            item.put("assignedClientIds", assignedClientIds);
+            result.add(item);
+        }
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * PUT /api/billops/support/sub-admins/{subAdminId}/clients
+     * Assigns the given client IDs to a ROLE_BILLOPS_ADMIN_SUB user.
+     * Replaces any previous assignment (pass empty list to clear).
+     * Only the primary ROLE_BILLOPS_ADMIN may call this.
+     *
+     * Request body: { "clientIds": [1, 2, 3] }
+     */
+    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
+    @PutMapping("/sub-admins/{subAdminId}/clients")
+    @org.springframework.transaction.annotation.Transactional
+    public ResponseEntity<Map<String, Object>> assignClientsToSubAdmin(
+            @PathVariable Long subAdminId,
+            @RequestBody Map<String, Object> payload) {
+
+        AppUser currentUser = getCurrentUser();
+        if (currentUser == null || currentUser.getCreatedBy() != null) {
+            return ResponseEntity.status(403).body(Map.of("error", "Only the primary ROLE_BILLOPS_ADMIN can assign clients."));
+        }
+
+        AppUser subAdmin = appUserRepository.findById(subAdminId).orElse(null);
+        if (subAdmin == null || !"ROLE_BILLOPS_ADMIN_SUB".equals(subAdmin.getRole())) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Target user is not a ROLE_BILLOPS_ADMIN_SUB."));
+        }
+        if (!currentUser.getId().equals(subAdmin.getCreatedBy())) {
+            return ResponseEntity.status(403).body(Map.of("error", "You can only manage sub-admins you created."));
+        }
+
+        // Parse incoming clientIds
+        Object rawIds = payload.get("clientIds");
+        List<Long> newClientIds = new ArrayList<>();
+        if (rawIds instanceof List) {
+            for (Object id : (List<?>) rawIds) {
+                if (id instanceof Number) newClientIds.add(((Number) id).longValue());
+            }
+        }
+
+        // Clear existing ownership by this sub-admin
+        List<Client> previouslyOwned = clientRepository.findByOwnerAdminId(subAdminId);
+        for (Client c : previouslyOwned) {
+            c.setOwnerAdminId(null);
+        }
+        clientRepository.saveAll(previouslyOwned);
+
+        // Assign new clients
+        List<Client> toAssign = clientRepository.findAllById(newClientIds);
+        for (Client c : toAssign) {
+            c.setOwnerAdminId(subAdminId);
+        }
+        clientRepository.saveAll(toAssign);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("subAdminId", subAdminId);
+        response.put("assignedClientIds", newClientIds);
+        response.put("message", "Client assignments updated successfully.");
+        return ResponseEntity.ok(response);
     }
 }

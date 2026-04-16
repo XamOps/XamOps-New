@@ -82,6 +82,7 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
      */
     const getRoleBadgeClass = (role: BillOpsRole): string => {
         if (role === 'ROLE_BILLOPS_ADMIN') return 'admin';
+        if (role === 'ROLE_BILLOPS_ADMIN_SUB') return 'admin';
         if (role === 'ROLE_XAMOPS') return 'xamops';
         return 'user';
     };
@@ -196,7 +197,7 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
      */
     const stats = useMemo(() => ({
         total: users.length,
-        admin: users.filter(u => u.role === 'ROLE_BILLOPS_ADMIN').length,
+        admin: users.filter(u => u.role === 'ROLE_BILLOPS_ADMIN' || u.role === 'ROLE_BILLOPS_ADMIN_SUB').length,
         billops: users.filter(u => u.role === 'ROLE_BILLOPS').length,
         xamops: users.filter(u => u.role === 'ROLE_XAMOPS').length,
     }), [users]);
@@ -600,7 +601,7 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
                                                                     <td className="px-4 py-2.5 text-sm text-slate-600">{primary.designation || <span className="text-gray-400">—</span>}</td>
                                                                     <td className="px-4 py-2.5">
                                                                         <span className={`user-manager-role-badge ${getRoleBadgeClass(primary.role)}`}>
-                                                                            <i className={`fas ${primary.role === 'ROLE_BILLOPS_ADMIN' ? 'fa-crown' : primary.role === 'ROLE_XAMOPS' ? 'fa-cloud' : 'fa-user'}`}></i>
+                                                                            <i className={`fas ${primary.role === 'ROLE_BILLOPS_ADMIN' ? 'fa-crown' : primary.role === 'ROLE_BILLOPS_ADMIN_SUB' ? 'fa-user-shield' : primary.role === 'ROLE_XAMOPS' ? 'fa-cloud' : 'fa-user'}`}></i>
                                                                             {formatRole(primary.role)}
                                                                         </span>
                                                                     </td>
@@ -640,7 +641,7 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
                                                                         <td className="px-4 py-2 text-sm text-slate-500">{sub.designation || <span className="text-gray-400">—</span>}</td>
                                                                         <td className="px-4 py-2">
                                                                             <span className={`user-manager-role-badge ${getRoleBadgeClass(sub.role)}`}>
-                                                                                <i className={`fas ${sub.role === 'ROLE_BILLOPS_ADMIN' ? 'fa-crown' : sub.role === 'ROLE_XAMOPS' ? 'fa-cloud' : 'fa-user'}`}></i>
+                                                                                <i className={`fas ${sub.role === 'ROLE_BILLOPS_ADMIN' ? 'fa-crown' : sub.role === 'ROLE_BILLOPS_ADMIN_SUB' ? 'fa-user-shield' : sub.role === 'ROLE_XAMOPS' ? 'fa-cloud' : 'fa-user'}`}></i>
                                                                                 {formatRole(sub.role)}
                                                                             </span>
                                                                         </td>

@@ -15,7 +15,7 @@ const POLL_INTERVAL = 5000; // 5 seconds for background polling (faster response
  */
 const AdminSupportNotificationListener: React.FC = () => {
     const { hasAnyRole } = useAuth();
-    const isBillOpsAdmin = hasAnyRole('ROLE_BILLOPS_ADMIN');
+    const isBillOpsAdmin = hasAnyRole('ROLE_BILLOPS_ADMIN') || hasAnyRole('ROLE_BILLOPS_ADMIN_SUB');
 
     // Refs to track state between polls
     const intervalRef = useRef<NodeJS.Timeout | null>(null);

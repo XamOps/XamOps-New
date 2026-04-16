@@ -295,7 +295,7 @@ const DashboardGuard: React.FC = () => {
   const [billopsRedirect, setBillopsRedirect] = React.useState<string | null>(null);
 
   React.useEffect(() => {
-    if (isLoading || !hasAnyRole('ROLE_BILLOPS_ADMIN') || hasAnyRole('ROLE_SUPER_ADMIN')) return;
+    if (isLoading || (!hasAnyRole('ROLE_BILLOPS_ADMIN') && !hasAnyRole('ROLE_BILLOPS_ADMIN_SUB')) || hasAnyRole('ROLE_SUPER_ADMIN')) return;
 
     fetch('/api/billops/team/profile', { credentials: 'include' })
       .then(r => r.ok ? r.json() : null)
@@ -320,7 +320,7 @@ const DashboardGuard: React.FC = () => {
     );
   }
 
-  if (hasAnyRole('ROLE_BILLOPS_ADMIN') && !hasAnyRole('ROLE_SUPER_ADMIN')) {
+  if ((hasAnyRole('ROLE_BILLOPS_ADMIN') || hasAnyRole('ROLE_BILLOPS_ADMIN_SUB')) && !hasAnyRole('ROLE_SUPER_ADMIN')) {
     if (!billopsRedirect) {
       // Profile fetch still in-flight — show spinner to avoid flash to wrong page
       return (
