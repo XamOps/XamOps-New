@@ -65,18 +65,18 @@ public class SecurityConfig {
                                 // Add public API endpoints if needed
                                 new AntPathRequestMatcher("/api/admin/cloudfront/**"))
                         .permitAll()
-                        // BillOps Admin Dashboard - only ROLE_BILLOPS_ADMIN
+                        // BillOps Admin Dashboard - ROLE_BILLOPS_ADMIN and ROLE_BILLOPS_ADMIN_SUB
                         .requestMatchers(new AntPathRequestMatcher("/billops/dashboard_admin.html"))
-                        .hasAuthority("ROLE_BILLOPS_ADMIN")
+                        .hasAnyAuthority("ROLE_BILLOPS_ADMIN", "ROLE_BILLOPS_ADMIN_SUB")
                         // BillOps User Dashboard - ROLE_BILLOPS and ROLE_BILLOPS_ADMIN
                         .requestMatchers(new AntPathRequestMatcher("/billops/dashboard_user.html"))
-                        .hasAnyAuthority("ROLE_BILLOPS", "ROLE_BILLOPS_ADMIN")
+                        .hasAnyAuthority("ROLE_BILLOPS", "ROLE_BILLOPS_ADMIN", "ROLE_BILLOPS_ADMIN_SUB")
                         // Unified Dashboard - ROLE_XAMOPS
                         .requestMatchers(new AntPathRequestMatcher("/unified-dashboard.html"))
                         .hasAuthority("ROLE_XAMOPS")
-                        // All other BillOps pages - ROLE_BILLOPS and ROLE_BILLOPS_ADMIN
+                        // All other BillOps pages - ROLE_BILLOPS, ROLE_BILLOPS_ADMIN, ROLE_BILLOPS_ADMIN_SUB
                         .requestMatchers(new AntPathRequestMatcher("/billops/**"))
-                        .hasAnyAuthority("ROLE_BILLOPS", "ROLE_BILLOPS_ADMIN")
+                        .hasAnyAuthority("ROLE_BILLOPS", "ROLE_BILLOPS_ADMIN", "ROLE_BILLOPS_ADMIN_SUB")
                         .anyRequest().authenticated())
                 .exceptionHandling(ex -> ex
                         .defaultAuthenticationEntryPointFor(

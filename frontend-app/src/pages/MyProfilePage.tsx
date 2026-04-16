@@ -359,18 +359,39 @@ const MyProfilePage: React.FC = () => {
                           <i className="fas fa-user-tag mr-2"></i>
                           Role
                         </label>
-                        <input
-                          type="text"
-                          value={profile.role}
-                          disabled
-                          className="form-input-disabled"
-                        />
-                        <p className="form-helper-text">Role is inherited from your account</p>
+                        {profile.role === 'ROLE_BILLOPS_ADMIN' ? (
+                          <>
+                            <select
+                              value={selectedUser.role || profile.role}
+                              onChange={(e) => updateSelectedUser('role', e.target.value)}
+                              className="form-input"
+                            >
+                              <option value="ROLE_BILLOPS_ADMIN">BILLOPS ADMIN (sub-user, scoped to accounts)</option>
+                              <option value="ROLE_BILLOPS_ADMIN_SUB">BILLOPS ADMIN SUB (sub-admin, scoped to assigned clients)</option>
+                            </select>
+                            {(selectedUser.role || profile.role) === 'ROLE_BILLOPS_ADMIN_SUB' && (
+                              <p className="form-helper-text text-amber-600">
+                                <i className="fas fa-info-circle mr-1"></i>
+                                Sub-admin will only see clients assigned to them. Assign clients after creation via Support → Sub-Admin Clients.
+                              </p>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            <input
+                              type="text"
+                              value={profile.role}
+                              disabled
+                              className="form-input-disabled"
+                            />
+                            <p className="form-helper-text">Role is inherited from your account</p>
+                          </>
+                        )}
                       </div>
                     </div>
 
-                    {/* Cloud Account Access Selection */}
-                    {profile.cloudAccounts && profile.cloudAccounts.length > 0 && (
+                    {/* Cloud Account Access Selection — hidden for ROLE_BILLOPS_ADMIN_SUB (uses client scoping instead) */}
+                    {(selectedUser.role || profile.role) !== 'ROLE_BILLOPS_ADMIN_SUB' && profile.cloudAccounts && profile.cloudAccounts.length > 0 && (
                       <div className="mt-6">
                         <label className="form-label mb-3 block">
                           <i className="fas fa-cloud mr-2"></i>
