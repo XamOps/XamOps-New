@@ -75,7 +75,7 @@ public class DataInitializer implements CommandLineRunner {
             superAdmin.setClient(client);
             superAdmin.setEmail("superadmin@xamops.com");
             userRepository.save(superAdmin);
-            logger.info(">>> SUPERADMIN CREATED | User: superadmin | Pass: SuperAdmin@123 <<<");
+            logger.info(">>> SUPERADMIN CREATED | User: superadmin <<<");
         }
     }
 
