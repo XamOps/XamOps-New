@@ -1,11 +1,26 @@
 package com.xammer.cloud.util;
 
 import com.xammer.cloud.config.multitenancy.ImpersonationContext;
+import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.security.ClientUserDetails;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 
+import java.util.Objects;
+
 public class SecurityUtils {
+
+    public static boolean isAuthorizedForAccount(CloudAccount account, ClientUserDetails userDetails) {
+        if (account == null || userDetails == null) {
+            return false;
+        }
+        // SuperAdmins can access any account
+        if (userDetails.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_SUPER_ADMIN"))) {
+            return true;
+        }
+        // Regular users can only access accounts belonging to their client
+        return account.getClient() != null && Objects.equals(account.getClient().getId(), userDetails.getClientId());
+    }
 
     public static Long getCurrentUserId() {
         // 1. Check if Impersonation is active (Only valid if real user is SuperAdmin)
