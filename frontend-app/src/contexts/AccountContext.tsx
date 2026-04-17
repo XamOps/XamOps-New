@@ -318,7 +318,7 @@ export const AccountProvider: React.FC<{ children: ReactNode }> = ({ children })
 
     // Check if user is ROLE_BILLOPS (and not ROLE_XAMOPS) or ROLE_BILLOPS_ADMIN
     const isBillOpsOnly = hasAnyRole('ROLE_BILLOPS') && !hasAnyRole('ROLE_XAMOPS');
-    const isBillOpsAdmin = hasAnyRole('ROLE_BILLOPS_ADMIN') || hasAnyRole('ROLE_BILLOPS_ADMIN_SUB');
+    const isBillOpsAdmin = hasAnyRole('ROLE_BILLOPS_ADMIN');
 
     if (isBillOpsAdmin) {
       targetPage = '/billops-admin-dashboard';

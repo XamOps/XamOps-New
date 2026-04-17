@@ -43,7 +43,7 @@ public class DashboardController {
      * Only accessible by users with ROLE_BILLOPS_ADMIN
      */
     @GetMapping("/admin")
-    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
+    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
     public ResponseEntity<AdminDashboardDto> getAdminDashboard(
             @RequestParam(required = false, defaultValue = "false") boolean forceRefresh,
             Authentication authentication) {

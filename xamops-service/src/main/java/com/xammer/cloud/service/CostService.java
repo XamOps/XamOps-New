@@ -322,24 +322,15 @@ public class CostService {
 
                 // Stable cache key: use end-of-month for current-month queries.
                 LocalDate normalizedEnd = normalizeEndDate(endDate);
-                YearMonth startYm = YearMonth.from(startDate);
-                YearMonth endYm   = YearMonth.from(endDate);
-
-                // Normalize startDate to first-of-month when the entire query is within the
-                // current month. Collapses "yesterday→yesterday" (daily email scheduler) and
-                // "first-of-month→today" (Wed/Sun scheduler) onto the same cache key and CE
-                // query, eliminating a guaranteed daily CE hit from the email scheduler.
-                LocalDate effectiveStart = (startYm.equals(endYm) && startYm.equals(YearMonth.now()))
-                        ? startYm.atDay(1)
-                        : startDate;
-
-                String cacheKey = "costBreakdownServiceRegion-" + accountId + "-" + effectiveStart + "-" + normalizedEnd;
-                String dbKey = "AWS_COST_BREAKDOWN_SVC_REGION::" + accountId + "::" + effectiveStart + "::" + normalizedEnd;
+                String cacheKey = "costBreakdownServiceRegion-" + accountId + "-" + startDate + "-" + normalizedEnd;
+                String dbKey = "AWS_COST_BREAKDOWN_SVC_REGION::" + accountId + "::" + startDate + "::" + normalizedEnd;
 
                 // ── Closed-month snapshot check ──────────────────────────────────────────
                 // When the entire date range falls within a single closed month, serve from
                 // the permanent monthly snapshot. Immutable — check regardless of forceRefresh
                 // so the nightly scheduler never wastes a CE call here.
+                YearMonth startYm = YearMonth.from(startDate);
+                YearMonth endYm   = YearMonth.from(endDate);
                 if (startYm.equals(endYm) && CostDataSnapshotService.isClosedMonth(startYm)) {
                         Optional<List<DetailedCostDto>> snap = snapshotService.readSvcRegion(accountId, startYm);
                         if (snap.isPresent()) {
@@ -376,7 +367,7 @@ public class CostService {
                 // Return mock data if mock mode is enabled
                 if (useMockData) {
                         List<DetailedCostDto> mockResult = costMockService
-                                        .getMockCostBreakdownByServiceAndRegion(accountId, effectiveStart, normalizedEnd);
+                                        .getMockCostBreakdownByServiceAndRegion(accountId, startDate, normalizedEnd);
                         redisCache.put(cacheKey, mockResult, 60 * 24);
                         return CompletableFuture.completedFuture(mockResult);
                 }
@@ -387,7 +378,7 @@ public class CostService {
                 return CompletableFuture.supplyAsync(() -> {
                         try {
                                 DateInterval dateInterval = DateInterval.builder()
-                                                .start(effectiveStart.toString())
+                                                .start(startDate.toString())
                                                 .end(normalizedEnd.plusDays(1).toString()) // CE is exclusive of end date
                                                 .build();
 
@@ -470,7 +461,7 @@ public class CostService {
                                         if (snap.isPresent()) {
                                                 logger.info("✅ Monthly snapshot hit for {} breakdown ({}) — account {}",
                                                         groupBy, startYm, accountId);
-                                                redisCache.put(cacheKey, snap.get(), 60 * 24);
+                                                redisCache.put(cacheKey, snap.get(), 60);
                                                 return CompletableFuture.completedFuture(snap.get());
                                         }
                                 }
@@ -495,7 +486,7 @@ public class CostService {
                                         List<CostDto> dbData = objectMapper.readValue(dbCached.get().getJsonData(),
                                                         new TypeReference<List<CostDto>>() {});
                                         logger.info("✅ DB snapshot hit for cost breakdown — repopulating Redis: {}", dbKey);
-                                        redisCache.put(cacheKey, dbData, 60 * 24); // re-warm Redis so next request skips DB
+                                        redisCache.put(cacheKey, dbData, 60); // re-warm Redis so next request skips DB
                                         return CompletableFuture.completedFuture(dbData);
                                 } catch (Exception e) {
                                         logger.warn("Failed to deserialize cost DB snapshot {}: {}", dbKey, e.getMessage());
@@ -507,7 +498,7 @@ public class CostService {
                 if (useMockData) {
                         List<CostDto> mockResult = costMockService.getMockCostBreakdown(accountId, groupBy, tag,
                                         startDate, endDate);
-                        redisCache.put(cacheKey, mockResult, 60 * 24);
+                        redisCache.put(cacheKey, mockResult, 60);
                         return CompletableFuture.completedFuture(mockResult);
                 }
 
@@ -554,7 +545,7 @@ public class CostService {
                                                 .sorted((a, b) -> Double.compare(b.getAmount(), a.getAmount()))
                                                 .collect(Collectors.toList());
 
-                                redisCache.put(cacheKey, costs, 60 * 24);
+                                redisCache.put(cacheKey, costs, 60);
                                 try {
                                         CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
                                         snapshot.setCacheKey(dbKey);
@@ -1067,9 +1058,8 @@ public class CostService {
                         ? resourceIds.stream().sorted().collect(Collectors.joining(","))
                         : "empty";
                 int idsHash = sortedIds.hashCode();
-                String normalizedEndLabel = normalizeEndDate(endDate);
-                String cacheKey = "costLabelResources-" + accountId + "-" + idsHash + "-" + startDate + "-" + normalizedEndLabel;
-                String dbKey = "AWS_COST_LABEL_RESOURCES::" + accountId + "::" + idsHash + "::" + startDate + "::" + normalizedEndLabel;
+                String cacheKey = "costLabelResources-" + accountId + "-" + idsHash + "-" + startDate + "-" + endDate;
+                String dbKey = "AWS_COST_LABEL_RESOURCES::" + accountId + "::" + idsHash + "::" + startDate + "::" + endDate;
 
                 Optional<Map<String, Object>> cached = redisCache.get(cacheKey, new TypeReference<>() {});
                 if (cached.isPresent()) {
@@ -1082,7 +1072,7 @@ public class CostService {
                                 Map<String, Object> dbData = objectMapper.readValue(
                                         dbCached.get().getJsonData(), new TypeReference<Map<String, Object>>() {});
                                 if (dbData != null) {
-                                        redisCache.put(cacheKey, dbData, 60 * 24);
+                                        redisCache.put(cacheKey, dbData, 60);
                                         logger.info("✅ DB snapshot hit for label resources cost — re-warmed Redis: {}", dbKey);
                                         return CompletableFuture.completedFuture(dbData);
                                 }
@@ -1161,7 +1151,7 @@ public class CostService {
                                 result.put("resourceLevel", true);
                                 logger.info("✅ Resource-level label cost fetched: {} items for {} resources",
                                                 costs.size(), resourceIds.size());
-                                redisCache.put(cacheKey, result, 60 * 24);
+                                redisCache.put(cacheKey, result, 60);
                                 try {
                                         CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
                                         snapshot.setCacheKey(dbKey);
@@ -1661,7 +1651,7 @@ public class CostService {
                                 hasEc2Estimates ? "estimated" : "none",
                                 hasRdsEstimates ? "estimated" : "none",
                                 approximationWarnings.isEmpty() ? "none" : approximationWarnings);
-                        redisCache.put(cacheKey, fallbackResult, 60 * 24);
+                        redisCache.put(cacheKey, fallbackResult, 60);
                         try {
                                 CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
                                 snapshot.setCacheKey(dbKey);

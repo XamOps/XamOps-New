@@ -35,7 +35,6 @@ export interface TeamUserForm {
   username: string;
   email: string;
   password: string;
-  role: string; // 'ROLE_BILLOPS_ADMIN' (sub-user) or 'ROLE_BILLOPS_ADMIN_SUB' (sub-admin)
   accountIds: number[];
   allowedTabs: string[];
   allAccountsAccess: boolean;

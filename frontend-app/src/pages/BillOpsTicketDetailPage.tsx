@@ -55,7 +55,6 @@ const BillOpsTicketDetailPage: React.FC = () => {
     submitRCA,
     assignTicket,
     sendEmailThread,
-    sendMeetingInvite,
     editReply,
     deleteReply
   } = useBillOpsTicketDetail(ticketId);
@@ -110,18 +109,6 @@ const BillOpsTicketDetailPage: React.FC = () => {
   const [emailInput, setEmailInput] = useState('');
   const [isSendingEmail, setIsSendingEmail] = useState(false);
   const [sendMode, setSendMode] = useState<'separate' | 'combined'>('separate');
-
-  // Google Meet scheduling modal
-  const [showMeetModal, setShowMeetModal] = useState(false);
-  const [meetTitle, setMeetTitle] = useState('');
-  const [meetDate, setMeetDate] = useState('');
-  const [meetTime, setMeetTime] = useState('10:00');
-  const [meetDuration, setMeetDuration] = useState('60');
-  const [meetLink, setMeetLink] = useState('');
-  const [meetEmailRecipients, setMeetEmailRecipients] = useState<string[]>([]);
-  const [meetEmailInput, setMeetEmailInput] = useState('');
-  const [isSendingMeetEmail, setIsSendingMeetEmail] = useState(false);
-  const [isSharingMeet, setIsSharingMeet] = useState(false);
 
   // RCA Modal
   const [showRcaModal, setShowRcaModal] = useState(false);
@@ -392,39 +379,6 @@ const BillOpsTicketDetailPage: React.FC = () => {
     if (!ticketId) navigate('/billops-tickets');
   }, [ticketId, navigate]);
 
-  const openMeetModal = useCallback(() => {
-    if (!ticket) return;
-    setMeetTitle(ticket.subject);
-    const nowUtc = Date.now();
-    const istMs = nowUtc + 5.5 * 3600 * 1000;
-    const istDate = new Date(istMs);
-    const yyyy = istDate.getUTCFullYear();
-    const mm = String(istDate.getUTCMonth() + 1).padStart(2, '0');
-    const dd = String(istDate.getUTCDate()).padStart(2, '0');
-    const h = istDate.getUTCHours();
-    const mins = istDate.getUTCMinutes();
-    const nextMins = mins < 30 ? 30 : 0;
-    const nextH = mins < 30 ? h : (h + 1) % 24;
-    setMeetDate(`${yyyy}-${mm}-${dd}`);
-    setMeetTime(`${String(nextH).padStart(2, '0')}:${String(nextMins).padStart(2, '0')}`);
-    setMeetDuration('60');
-    setMeetLink('');
-    setMeetEmailRecipients([]);
-    setMeetEmailInput('');
-    setShowMeetModal(true);
-  }, [ticket]);
-
-  const closeMeetModal = useCallback(() => {
-    setShowMeetModal(false);
-    setMeetTitle('');
-    setMeetDate('');
-    setMeetTime('10:00');
-    setMeetDuration('60');
-    setMeetLink('');
-    setMeetEmailRecipients([]);
-    setMeetEmailInput('');
-  }, []);
-
   /**
    * Set Topbar Actions
    */
@@ -526,17 +480,6 @@ const BillOpsTicketDetailPage: React.FC = () => {
             </button>
           )}
 
-          {isAdmin && ticket.status !== 'CLOSED' && (
-            <button
-              onClick={openMeetModal}
-              title="Schedule Google Meet"
-              className="flex items-center gap-2 px-3 py-2 lg:px-4 bg-emerald-50 text-emerald-700 rounded-xl text-xs font-bold border border-emerald-200 hover:bg-emerald-100 transition-all active:scale-95"
-            >
-              <i className="fas fa-video"></i>
-              <span className="hidden lg:inline">Schedule Meet</span>
-            </button>
-          )}
-
           {isAdmin && (ticket.replies?.length ?? 0) > 0 && (
             <button
               onClick={() => setShowEmailModal(true)}
@@ -564,7 +507,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
 
     return () => clearActions();
   }, [setActions, clearActions, ticket, isAdmin, handleCloseTicket, goBackToTickets,
-      adminUsers, showAssignDropdown, isAssigning, handleAssign, showEmailModal, openMeetModal]);
+      adminUsers, showAssignDropdown, isAssigning, handleAssign, showEmailModal]);
 
   const addEmailRecipient = (email: string) => {
     const trimmed = email.trim().toLowerCase();
@@ -614,119 +557,6 @@ const BillOpsTicketDetailPage: React.FC = () => {
       setIsSendingEmail(false);
     }
   };
-
-  // ── Google Meet helpers ──────────────────────────────────────────────────
-
-  const generateGoogleCalendarUrl = useCallback(() => {
-    if (!meetDate || !meetTime) return 'https://calendar.google.com';
-    const [year, month, day] = meetDate.split('-').map(Number);
-    const [hours, minutes] = meetTime.split(':').map(Number);
-    // IST = UTC+5:30 — convert to UTC for Google Calendar
-    const istMs = Date.UTC(year, month - 1, day, hours, minutes);
-    const utcMs = istMs - (5 * 60 + 30) * 60 * 1000;
-    const endMs = utcMs + parseInt(meetDuration) * 60 * 1000;
-    const fmt = (ms: number) =>
-      new Date(ms).toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
-    const title = encodeURIComponent(
-      meetTitle || `Support Meeting — Ticket #${ticket?.id}`
-    );
-    const desc = encodeURIComponent(
-      `Meeting regarding support ticket #${ticket?.id}: ${ticket?.subject}`
-    );
-    return (
-      `https://calendar.google.com/calendar/render?action=TEMPLATE` +
-      `&text=${title}&dates=${fmt(utcMs)}/${fmt(endMs)}` +
-      `&details=${desc}&ctz=Asia%2FKolkata`
-    );
-  }, [meetDate, meetTime, meetDuration, meetTitle, ticket]);
-
-  const handleShareMeetInChat = useCallback(async () => {
-    if (!meetLink.trim()) {
-      globalThis.alert('Please paste the Google Meet link first.');
-      return;
-    }
-    const [year, month, day] = meetDate.split('-').map(Number);
-    const [hours, minutes] = meetTime.split(':').map(Number);
-    const dispDate = new Date(year, month - 1, day).toLocaleDateString('en-IN', {
-      day: 'numeric', month: 'long', year: 'numeric'
-    });
-    const h12 = hours % 12 || 12;
-    const ampm = hours >= 12 ? 'PM' : 'AM';
-    const dispTime = `${h12}:${String(minutes).padStart(2, '0')} ${ampm} IST`;
-    const durMins = parseInt(meetDuration);
-    const durLabel = durMins === 30 ? '30 min'
-      : durMins === 45 ? '45 min'
-      : durMins === 60 ? '1 hour'
-      : durMins === 90 ? '1.5 hours'
-      : '2 hours';
-    const title = meetTitle || `Support Meeting — Ticket #${ticket?.id}`;
-    const html =
-      `<div style="border:1.5px solid #a5b4fc;border-radius:14px;padding:18px 22px;background:linear-gradient(135deg,#f5f3ff 0%,#ede9fe 100%);max-width:480px;">` +
-      `<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">` +
-      `<span style="font-size:20px;">📅</span>` +
-      `<strong style="color:#4f46e5;font-size:15px;">Google Meet Scheduled</strong></div>` +
-      `<div style="font-size:13px;color:#374151;line-height:2;">` +
-      `<div><strong style="color:#6b7280;">Meeting:</strong> ${title}</div>` +
-      `<div><strong style="color:#6b7280;">Date:</strong> ${dispDate}</div>` +
-      `<div><strong style="color:#6b7280;">Time:</strong> ${dispTime}</div>` +
-      `<div><strong style="color:#6b7280;">Duration:</strong> ${durLabel}</div></div>` +
-      `<a href="${meetLink}" style="display:inline-flex;align-items:center;gap:6px;margin-top:14px;` +
-      `padding:9px 18px;background:#4f46e5;color:white;border-radius:8px;text-decoration:none;` +
-      `font-size:13px;font-weight:700;letter-spacing:0.2px;">🎥 Join Google Meet</a></div>`;
-    setIsSharingMeet(true);
-    try {
-      await submitReply(html, null, false);
-      closeMeetModal();
-    } catch {
-      globalThis.alert('Failed to share in chat. Please try again.');
-    } finally {
-      setIsSharingMeet(false);
-    }
-  }, [meetLink, meetDate, meetTime, meetDuration, meetTitle, ticket, submitReply, closeMeetModal]);
-
-  const addMeetEmailRecipient = (email: string) => {
-    const t = email.trim().toLowerCase();
-    if (t && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(t) && !meetEmailRecipients.includes(t)) {
-      setMeetEmailRecipients(prev => [...prev, t]);
-    }
-    setMeetEmailInput('');
-  };
-
-  const handleMeetEmailKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' || e.key === ',') {
-      e.preventDefault();
-      addMeetEmailRecipient(meetEmailInput);
-    } else if (e.key === 'Backspace' && !meetEmailInput && meetEmailRecipients.length > 0) {
-      setMeetEmailRecipients(prev => prev.slice(0, -1));
-    }
-  };
-
-  const handleSendMeetEmail = useCallback(async () => {
-    const all = meetEmailInput.trim()
-      ? [...meetEmailRecipients, meetEmailInput.trim()]
-      : meetEmailRecipients;
-    if (all.length === 0) {
-      globalThis.alert('Please add at least one recipient email.');
-      return;
-    }
-    setIsSendingMeetEmail(true);
-    try {
-      await sendMeetingInvite({
-        meetTitle: meetTitle || `Support Meeting — Ticket #${ticket?.id}`,
-        meetDateTime: `${meetDate}T${meetTime}`,
-        meetDuration,
-        meetLink,
-        recipientEmails: all
-      });
-      globalThis.alert(`Meeting invite sent to ${all.length} recipient${all.length > 1 ? 's' : ''}!`);
-      closeMeetModal();
-    } catch {
-      globalThis.alert('Failed to send meeting invite. Please try again.');
-    } finally {
-      setIsSendingMeetEmail(false);
-    }
-  }, [meetEmailInput, meetEmailRecipients, meetTitle, meetDate, meetTime, meetDuration,
-      meetLink, ticket, sendMeetingInvite, closeMeetModal]);
 
   const handleSubmitReply = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1673,273 +1503,6 @@ const BillOpsTicketDetailPage: React.FC = () => {
           </div>
         </DialogPanel>
       </DialogRoot>
-
-      {/* ── Google Meet Scheduling Modal ──────────────────────────────────────── */}
-      {showMeetModal && ReactDOM.createPortal(
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-          {/* Backdrop */}
-          <div
-            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-            onClick={closeMeetModal}
-          />
-
-          <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-            {/* Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-emerald-50 to-teal-50 flex-shrink-0">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-emerald-500 flex items-center justify-center shadow-lg shadow-emerald-200">
-                  <i className="fas fa-video text-white text-sm"></i>
-                </div>
-                <div>
-                  <h2 className="text-sm font-black text-slate-900 uppercase tracking-widest">Schedule Google Meet</h2>
-                  <p className="text-[10px] text-slate-500 font-medium mt-0.5">Admin only · Ticket #{ticket?.id}</p>
-                </div>
-              </div>
-              <button
-                onClick={closeMeetModal}
-                className="w-8 h-8 flex items-center justify-center rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
-              >
-                <i className="fas fa-times text-sm"></i>
-              </button>
-            </div>
-
-            {/* Body */}
-            <div className="overflow-y-auto flex-1 custom-scrollbar">
-              <div className="px-6 py-5 space-y-4">
-
-                {/* Meeting Title */}
-                <div>
-                  <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-widest">Meeting Title</label>
-                  <input
-                    type="text"
-                    value={meetTitle}
-                    onChange={e => setMeetTitle(e.target.value)}
-                    placeholder={`Support Meeting — Ticket #${ticket?.id}`}
-                    className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-transparent bg-slate-50"
-                  />
-                </div>
-
-                {/* Date + Time (IST) */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-widest">Date (IST)</label>
-                    <input
-                      type="date"
-                      value={meetDate}
-                      onChange={e => setMeetDate(e.target.value)}
-                      min={new Date().toISOString().substring(0, 10)}
-                      className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-transparent bg-slate-50"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-widest">Time (IST)</label>
-                    <input
-                      type="time"
-                      value={meetTime}
-                      onChange={e => setMeetTime(e.target.value)}
-                      className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-transparent bg-slate-50"
-                    />
-                  </div>
-                </div>
-
-                {/* Duration */}
-                <div>
-                  <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-widest">Duration</label>
-                  <div className="flex gap-2 flex-wrap">
-                    {[{ v: '30', l: '30 min' }, { v: '45', l: '45 min' }, { v: '60', l: '1 hour' }, { v: '90', l: '1.5 hrs' }, { v: '120', l: '2 hrs' }].map(opt => (
-                      <button
-                        key={opt.v}
-                        type="button"
-                        onClick={() => setMeetDuration(opt.v)}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${
-                          meetDuration === opt.v
-                            ? 'bg-emerald-500 text-white border-emerald-500 shadow-sm shadow-emerald-200'
-                            : 'bg-white text-slate-600 border-slate-200 hover:border-emerald-300 hover:text-emerald-600'
-                        }`}
-                      >
-                        {opt.l}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Meet Link — create via Google then paste back */}
-                <div className="space-y-3">
-                  {/* Step 1 — Create the real meeting */}
-                  <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4">
-                    <p className="text-xs font-bold text-emerald-800 mb-1">
-                      Step 1 — Create a Google Meet
-                    </p>
-                    <p className="text-[11px] text-emerald-700 mb-3">
-                      Click below to open Google Meet. A real meeting link will be created instantly — copy it from the browser address bar.
-                    </p>
-                    <a
-                      href="https://meet.google.com/new"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-200 hover:bg-emerald-700 transition-colors"
-                    >
-                      <i className="fas fa-video text-[10px]"></i>
-                      Open Google Meet
-                    </a>
-                  </div>
-
-                  {/* Step 2 — Paste the link */}
-                  <div>
-                    <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-widest">
-                      Step 2 — Paste the Meet Link
-                    </label>
-                    <div className="flex gap-2 items-center">
-                      <input
-                        type="url"
-                        value={meetLink}
-                        onChange={e => setMeetLink(e.target.value)}
-                        placeholder="https://meet.google.com/xxx-xxxx-xxx"
-                        className="flex-1 px-3 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-transparent bg-slate-50 font-mono"
-                      />
-                      {meetLink && (
-                        <button type="button" onClick={() => setMeetLink('')}
-                          className="px-3 py-2.5 text-slate-400 hover:text-slate-600 transition-colors">
-                          <i className="fas fa-times text-xs"></i>
-                        </button>
-                      )}
-                    </div>
-                    {meetLink && !/^https:\/\/meet\.google\.com\//.test(meetLink) && (
-                      <p className="text-[10px] text-amber-600 mt-1 font-medium flex items-center gap-1">
-                        <i className="fas fa-exclamation-triangle text-[9px]"></i>
-                        Should start with https://meet.google.com/
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="flex justify-end">
-                    <a
-                      href={generateGoogleCalendarUrl()}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[10px] text-slate-400 hover:text-indigo-500 font-medium underline underline-offset-2 transition-colors"
-                    >
-                      Add to Google Calendar ↗
-                    </a>
-                  </div>
-                </div>
-
-                {/* Share options — always visible once link exists */}
-                {meetLink && (
-                  <div className="space-y-3 pt-1">
-                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
-                      <i className="fas fa-share-alt text-slate-400 text-[10px]"></i>
-                      Share the Link
-                    </p>
-
-                    {/* Share in Chat */}
-                    {ticket?.status !== 'CLOSED' && (
-                      <button
-                        type="button"
-                        onClick={handleShareMeetInChat}
-                        disabled={isSharingMeet || !meetDate || !meetTime}
-                        className="w-full flex items-center gap-3 px-4 py-3 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-xl text-sm font-bold hover:bg-indigo-100 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {isSharingMeet
-                          ? <i className="fas fa-circle-notch fa-spin text-indigo-500"></i>
-                          : <i className="fas fa-comment-dots text-indigo-500"></i>
-                        }
-                        <div className="text-left">
-                          <div className="text-xs font-black">{isSharingMeet ? 'Sharing…' : 'Share in Chat'}</div>
-                          <div className="text-[10px] font-medium text-indigo-500">Posts meeting card in ticket thread</div>
-                        </div>
-                      </button>
-                    )}
-
-                    {/* Email recipients */}
-                    <div className="border border-slate-200 rounded-xl overflow-hidden">
-                      <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-100">
-                        <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
-                          <i className="fas fa-envelope text-slate-400 text-[10px]"></i>
-                          Send Invite via Email
-                        </p>
-                      </div>
-                      <div className="p-4 space-y-3">
-                        {/* Recipient pills */}
-                        <div className="flex flex-wrap gap-1.5 min-h-[36px] px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 cursor-text"
-                          onClick={() => document.getElementById('meet-email-input')?.focus()}
-                        >
-                          {meetEmailRecipients.map(email => (
-                            <span key={email} className="inline-flex items-center gap-1 px-2 py-0.5 bg-white border border-slate-200 text-slate-700 rounded-lg text-[11px] font-bold shadow-sm">
-                              {email}
-                              <button
-                                type="button"
-                                onClick={e => { e.stopPropagation(); setMeetEmailRecipients(prev => prev.filter(r => r !== email)); }}
-                                className="text-slate-400 hover:text-rose-500 transition-colors ml-0.5"
-                              >
-                                <i className="fas fa-times text-[9px]"></i>
-                              </button>
-                            </span>
-                          ))}
-                          <input
-                            id="meet-email-input"
-                            type="email"
-                            value={meetEmailInput}
-                            onChange={e => setMeetEmailInput(e.target.value)}
-                            onKeyDown={handleMeetEmailKeyDown}
-                            onBlur={() => meetEmailInput.trim() && addMeetEmailRecipient(meetEmailInput)}
-                            placeholder={meetEmailRecipients.length === 0 ? 'Enter email and press Enter…' : ''}
-                            className="flex-1 min-w-[160px] bg-transparent text-xs outline-none text-slate-700 placeholder-slate-400"
-                          />
-                        </div>
-
-                        {/* Admin quick-add */}
-                        {adminUsers.filter(a => a.email).length > 0 && (
-                          <div className="flex flex-wrap gap-1.5">
-                            {adminUsers.filter(a => a.email).map(admin => (
-                              <button
-                                key={admin.id}
-                                type="button"
-                                onClick={() => !meetEmailRecipients.includes(admin.email!.toLowerCase()) && addMeetEmailRecipient(admin.email!)}
-                                disabled={meetEmailRecipients.includes(admin.email!.toLowerCase())}
-                                className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-bold border rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed bg-white text-slate-600 border-slate-200 hover:border-emerald-300 hover:text-emerald-600"
-                              >
-                                {meetEmailRecipients.includes(admin.email!.toLowerCase())
-                                  ? <><i className="fas fa-check text-emerald-500"></i> {admin.username}</>
-                                  : <><i className="fas fa-plus text-[9px]"></i> {admin.username}</>
-                                }
-                              </button>
-                            ))}
-                          </div>
-                        )}
-
-                        <button
-                          type="button"
-                          onClick={handleSendMeetEmail}
-                          disabled={isSendingMeetEmail || (meetEmailRecipients.length === 0 && !meetEmailInput.trim())}
-                          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-sky-600 text-white rounded-xl text-xs font-bold shadow-lg shadow-sky-500/20 hover:bg-sky-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed active:scale-95"
-                        >
-                          {isSendingMeetEmail
-                            ? <><i className="fas fa-circle-notch fa-spin"></i> Sending…</>
-                            : <><i className="fas fa-paper-plane"></i> Send Meeting Invite</>
-                          }
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Footer */}
-            <div className="px-6 py-3 border-t border-slate-100 bg-slate-50/50 flex justify-end flex-shrink-0">
-              <button
-                type="button"
-                onClick={closeMeetModal}
-                className="px-4 py-2 text-sm font-semibold text-slate-600 bg-white border border-slate-200 hover:bg-slate-100 rounded-xl transition-colors"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
 
       {/* ── Sticky Note Panel (enhanced) ─────────────────────────────────────── */}
       {showNotePanel && ReactDOM.createPortal(

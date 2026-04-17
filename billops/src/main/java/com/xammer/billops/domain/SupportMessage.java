@@ -64,13 +64,6 @@ public class SupportMessage {
     @Column(name = "is_deleted", nullable = false)
     private boolean isDeleted = false;
 
-    // External platform routing (set when admin sends via Slack/Teams/Google Chat)
-    @Column(name = "external_platform", length = 20)
-    private String externalPlatform; // SLACK, TEAMS, GOOGLE_CHAT
-
-    @Column(name = "external_message_id", length = 500)
-    private String externalMessageId; // Message TS (Slack) / activity ID (Teams) / message name (GChat)
-
     // Auto-ping settings (set by admin when initiating a conversation)
     @Column(name = "auto_ping_enabled", nullable = false)
     private boolean autoPingEnabled = false;
@@ -110,10 +103,6 @@ public class SupportMessage {
     public void setAttachmentType(String attachmentType) { this.attachmentType = attachmentType; }
     public Long getAttachmentSize() { return attachmentSize; }
     public void setAttachmentSize(Long attachmentSize) { this.attachmentSize = attachmentSize; }
-    public String getExternalPlatform() { return externalPlatform; }
-    public void setExternalPlatform(String externalPlatform) { this.externalPlatform = externalPlatform; }
-    public String getExternalMessageId() { return externalMessageId; }
-    public void setExternalMessageId(String externalMessageId) { this.externalMessageId = externalMessageId; }
     public boolean isAutoPingEnabled() { return autoPingEnabled; }
     public void setAutoPingEnabled(boolean autoPingEnabled) { this.autoPingEnabled = autoPingEnabled; }
     public String getAutoPingChannels() { return autoPingChannels; }

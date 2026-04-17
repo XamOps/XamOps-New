@@ -116,11 +116,6 @@ public class TicketController {
         return ResponseEntity.ok(ticketService.getTicketsByCategory(category));
     }
 
-    @GetMapping("/tickets/category/{category}/count")
-    public ResponseEntity<Map<String, Long>> getActiveTicketCount(@PathVariable String category) {
-        return ResponseEntity.ok(Map.of("count", ticketService.getActiveTicketCount(category)));
-    }
-
     // ─── EDIT / DELETE REPLY ────────────────────────────────────────────────
 
     @PatchMapping("/tickets/replies/{replyId}")

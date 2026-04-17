@@ -1,19 +1,12 @@
 package com.xammer.billops.service;
 
-import com.xammer.billops.domain.Client;
 import com.xammer.billops.domain.CloudAccount;
 import com.xammer.cloud.domain.AppUser;
 import com.xammer.billops.repository.AppUserRepository;
-import com.xammer.billops.repository.ClientRepository;
 import com.xammer.billops.repository.CloudAccountRepository;
 import com.xammer.billops.repository.UserCloudAccountAccessRepository;
 import com.xammer.billops.util.SecurityUtils;
-import javax.annotation.PostConstruct;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
 import java.util.Collections;
@@ -34,18 +27,8 @@ import java.util.stream.Collectors;
 @Service
 public class AccountAccessHelper {
 
-    private static final Logger log = LoggerFactory.getLogger(AccountAccessHelper.class);
-
-    @PostConstruct
-    public void init() {
-        log.info("✅ AccountAccessHelper v2 (ROLE_BILLOPS_ADMIN_SUB scoping) initialized");
-    }
-
     @Autowired
     private AppUserRepository appUserRepository;
-
-    @Autowired
-    private ClientRepository clientRepository;
 
     @Autowired
     private UserCloudAccountAccessRepository userCloudAccountAccessRepository;
@@ -60,64 +43,8 @@ public class AccountAccessHelper {
     public Set<Long> getAllowedDbIds() {
         try {
             Long userId = SecurityUtils.getCurrentUserId();
-
-            // Resolve effective role from Security context — always authoritative
-            Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-            String effectiveRole = (auth != null) ? auth.getAuthorities().stream()
-                    .map(a -> a.getAuthority())
-                    .filter(a -> a.startsWith("ROLE_"))
-                    .findFirst().orElse(null) : null;
-
-            // ROLE_BILLOPS_ADMIN_SUB — handle BEFORE looking up the AppUser by ID,
-            // because these users may not have a record in the tenant app_user table.
-            if ("ROLE_BILLOPS_ADMIN_SUB".equals(effectiveRole)) {
-                // Try to find the AppUser by ID first, then fall back to username
-                AppUser subAdmin = appUserRepository.findById(userId).orElse(null);
-                if (subAdmin == null && auth != null) {
-                    subAdmin = appUserRepository.findByUsername(auth.getName()).orElse(null);
-                    log.debug("[AccountAccessHelper] SUB_ADMIN not found by ID {}, username lookup: {}",
-                            userId, subAdmin != null ? "found id=" + subAdmin.getId() : "not found");
-                }
-
-                if (subAdmin != null && subAdmin.isAllAccountsAccess()) {
-                    log.debug("[AccountAccessHelper] SUB_ADMIN has allAccountsAccess → no restriction");
-                    return null;
-                }
-
-                if (subAdmin == null) {
-                    log.debug("[AccountAccessHelper] SUB_ADMIN not found in app_user table → restricting to empty");
-                    return Collections.emptySet();
-                }
-
-                List<Client> ownedClients = clientRepository.findByOwnerAdminId(subAdmin.getId());
-                log.debug("[AccountAccessHelper] SUB_ADMIN userId={} ownedClients count={}", subAdmin.getId(), ownedClients.size());
-                if (ownedClients.isEmpty()) {
-                    return Collections.emptySet();
-                }
-                Set<Long> ownedClientIds = ownedClients.stream()
-                        .map(Client::getId)
-                        .collect(Collectors.toSet());
-                List<Long> accountIds = cloudAccountRepository.findAll().stream()
-                        .filter(a -> a.getClient() != null && ownedClientIds.contains(a.getClient().getId()))
-                        .map(CloudAccount::getId)
-                        .collect(Collectors.toList());
-                return new HashSet<>(accountIds);
-            }
-
-            // For all other roles: look up the AppUser
             AppUser currentUser = appUserRepository.findById(userId).orElse(null);
-            log.debug("[AccountAccessHelper] userId={} effectiveRole={} dbRole={} createdBy={} allAccess={}",
-                    userId, effectiveRole,
-                    currentUser != null ? currentUser.getRole() : "null",
-                    currentUser != null ? currentUser.getCreatedBy() : "null",
-                    currentUser != null ? currentUser.isAllAccountsAccess() : "null");
-
-            if (currentUser == null) {
-                log.debug("[AccountAccessHelper] user not found → no restriction");
-                return null;
-            }
-
-            if (currentUser.getCreatedBy() == null) {
+            if (currentUser == null || currentUser.getCreatedBy() == null) {
                 return null; // Primary admin — no restriction
             }
             if (currentUser.isAllAccountsAccess()) {
@@ -126,8 +53,7 @@ public class AccountAccessHelper {
             List<Long> ids = userCloudAccountAccessRepository.findCloudAccountIdsByUserId(userId);
             return new HashSet<>(ids);
         } catch (Exception e) {
-            log.error("[AccountAccessHelper] getAllowedDbIds failed — defaulting to no restriction. Cause: {}", e.getMessage(), e);
-            return null;
+            return null; // Security context not available — no restriction
         }
     }
 

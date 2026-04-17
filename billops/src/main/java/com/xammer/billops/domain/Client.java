@@ -38,14 +38,6 @@ public class Client {
     @Column(length = 25)
     private String cin;
 
-    /**
-     * When set, this client is "owned" by the ROLE_BILLOPS_ADMIN_SUB user with this ID.
-     * NULL = belongs to the primary ROLE_BILLOPS_ADMIN pool (visible to all primary admins).
-     * Only the owning sub-admin (and primary admins) can see/manage this client.
-     */
-    @Column(name = "owner_admin_id")
-    private Long ownerAdminId;
-
     @OneToMany(mappedBy = "client", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonIgnore
     private List<User> users;
@@ -139,13 +131,5 @@ public class Client {
 
     public void setCloudAccounts(List<CloudAccount> cloudAccounts) {
         this.cloudAccounts = cloudAccounts;
-    }
-
-    public Long getOwnerAdminId() {
-        return ownerAdminId;
-    }
-
-    public void setOwnerAdminId(Long ownerAdminId) {
-        this.ownerAdminId = ownerAdminId;
     }
 }

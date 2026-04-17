@@ -18,19 +18,12 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { apiFetch } from '../utils/apiClient';
-import { useAuth } from '../contexts/AuthContext';
 import type { BillOpsAdminDashboardData, UseBillOpsAdminDashboardReturn } from '../types/billopsAdminDashboard';
 
+const CACHE_KEY = 'billops_admin_dashboard_data';
 const POLL_INTERVAL = 30000; // 30 seconds
 
 export const useBillOpsAdminDashboard = (): UseBillOpsAdminDashboardReturn => {
-  const { userProfile } = useAuth();
-  // Key by username so different users never share cached dashboard data.
-  // Stored in a ref so the stable loadDashboard callback always reads the latest value.
-  const cacheKeyRef = useRef(`billops_admin_dashboard_data:${userProfile?.username ?? 'unknown'}`);
-  useEffect(() => {
-    cacheKeyRef.current = `billops_admin_dashboard_data:${userProfile?.username ?? 'unknown'}`;
-  }, [userProfile?.username]);
   const [data, setData] = useState<BillOpsAdminDashboardData | null>(null);
   const [loading, setLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -71,7 +64,7 @@ export const useBillOpsAdminDashboard = (): UseBillOpsAdminDashboardReturn => {
       const newData: BillOpsAdminDashboardData = await response.json();
 
       // Persist to localStorage for next page visit
-      localStorage.setItem(cacheKeyRef.current, JSON.stringify(newData));
+      localStorage.setItem(CACHE_KEY, JSON.stringify(newData));
 
       if (isMountedRef.current) {
         hasLoadedRef.current = true;
@@ -107,7 +100,7 @@ export const useBillOpsAdminDashboard = (): UseBillOpsAdminDashboardReturn => {
     isMountedRef.current = true;
 
     // 1. Load from localStorage immediately (instant display, no skeleton)
-    const cached = localStorage.getItem(cacheKeyRef.current);
+    const cached = localStorage.getItem(CACHE_KEY);
     if (cached) {
       try {
         const cachedData = JSON.parse(cached) as BillOpsAdminDashboardData;

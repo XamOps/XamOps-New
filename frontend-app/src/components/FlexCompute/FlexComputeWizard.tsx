@@ -146,7 +146,7 @@ const FlexComputeWizard: React.FC<FlexComputeWizardProps> = ({
   const handlePurchase = async () => {
     if (!pricing?.capacityId) return;
 
-    if ((pricing.ourPrice ?? 0) < 1.00) {
+    if ((pricing.total ?? pricing.ourPrice ?? 0) < 1.00) {
       setPurchaseError('Purchase not allowed: minimum order value is $1.00.');
       return;
     }

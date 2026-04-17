@@ -52,8 +52,6 @@ export interface ChatMessage {
   isEdited?: boolean;
   isDeleted?: boolean;
   status?: string;  // 'UNREAD' | 'READ' | 'DELIVERED'
-  externalPlatform?: string;    // 'SLACK' | 'TEAMS' | 'GOOGLE_CHAT' — set when sent/received via a platform
-  externalMessageId?: string;   // Message ID/TS from the external platform
 }
 
 /**
@@ -110,35 +108,6 @@ export interface ReplyPayload {
   attachmentName?: string;
   attachmentType?: string;
   attachmentSize?: string;   // String because backend uses Map<String, String>
-  externalPlatform?: string; // 'SLACK' | 'TEAMS' | 'GOOGLE_CHAT' — routes message to that platform
-}
-
-/**
- * Per-user platform connection (webhook URL stored for Slack/Teams/Google Chat)
- */
-export interface UserPlatformConnection {
-  id?: number;
-  userId: number;
-  platform: string;          // 'SLACK' | 'TEAMS' | 'GOOGLE_CHAT'
-  webhookUrl?: string;
-  channelId?: string;
-  platformUserId?: string;
-  active: boolean;
-  createdAt?: string;
-  updatedAt?: string;
-}
-
-/**
- * Admin integration config for a platform (bot token etc. — tokens are masked)
- */
-export interface IntegrationConfig {
-  id?: number;
-  platform: string;
-  label?: string;
-  enabled: boolean;
-  botTokenConfigured: boolean;
-  signingSecretConfigured: boolean;
-  updatedAt?: string;
 }
 
 /**

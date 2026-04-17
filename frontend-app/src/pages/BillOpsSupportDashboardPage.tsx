@@ -7,7 +7,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useSupportDashboard } from '../hooks/useSupportDashboard';
 import { useTopbarActions } from '../contexts/TopbarContext';
-import { SupportConversation, SupportClient, SupportProfile, AttachmentInfo, ChatMessage, CloudProvider, IntegrationConfig } from '../types/supportDashboard';
+import { SupportConversation, SupportClient, SupportProfile, AttachmentInfo, ChatMessage, CloudProvider } from '../types/supportDashboard';
 
 /* ─── pending attachment (before send) ─── */
 interface PendingAttachment extends AttachmentInfo {
@@ -77,14 +77,6 @@ const BillOpsSupportDashboardPage: React.FC = () => {
     loadingProfiles,
     searchQuery,
     setSearchQuery,
-    selectedPlatform,
-    setSelectedPlatform,
-    userConnections,
-    integrationConfigs,
-    saveUserConnection,
-    removeUserConnection,
-    loadIntegrationConfigs,
-    saveIntegrationConfig,
     selectConversation,
     sendReply,
     startConversation,
@@ -150,19 +142,6 @@ const BillOpsSupportDashboardPage: React.FC = () => {
   const [inboxSort, setInboxSort] = useState<'default' | 'unread' | 'name'>('default');
   /* ── textarea ref ── */
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  /* ── integrations modal ── */
-  const [showIntegrationsModal, setShowIntegrationsModal] = useState(false);
-  const [integrationTab, setIntegrationTab] = useState<'SLACK' | 'TEAMS' | 'GOOGLE_CHAT'>('SLACK');
-  const [slackBotToken, setSlackBotToken] = useState('');
-  const [slackSigningSecret, setSlackSigningSecret] = useState('');
-  const [savingIntegration, setSavingIntegration] = useState(false);
-
-  /* ── connect platform modal (per user) ── */
-  const [showConnectModal, setShowConnectModal] = useState(false);
-  const [connectWebhooks, setConnectWebhooks] = useState<Record<string, string>>({ SLACK: '', TEAMS: '', GOOGLE_CHAT: '' });
-  const [connectChannelIds, setConnectChannelIds] = useState<Record<string, string>>({ SLACK: '' });
-  const [savingConnect, setSavingConnect] = useState(false);
 
   /* ── email modal ── */
   const [showEmailModal, setShowEmailModal] = useState(false);
@@ -261,13 +240,13 @@ const BillOpsSupportDashboardPage: React.FC = () => {
       type: pendingAttachment.type,
       size: pendingAttachment.size,
     } : undefined;
-    const success = await sendReply(replyText, attachment, selectedPlatform || undefined);
+    const success = await sendReply(replyText, attachment);
     if (success) {
       setReplyText('');
       setShowTyping(false);
       if (pendingAttachment) clearPendingAttachment();
     }
-  }, [replyText, pendingAttachment, sending, uploading, sendReply, clearPendingAttachment, selectedPlatform]);
+  }, [replyText, pendingAttachment, sending, uploading, sendReply, clearPendingAttachment]);
 
   const handleKeyPress = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -456,65 +435,6 @@ const BillOpsSupportDashboardPage: React.FC = () => {
   }, []);
 
   /* ─── topbar actions ─── */
-  const openIntegrationsModal = useCallback(() => {
-    setSlackBotToken('');
-    setSlackSigningSecret('');
-    setIntegrationTab('SLACK');
-    loadIntegrationConfigs();
-    setShowIntegrationsModal(true);
-  }, [loadIntegrationConfigs]);
-
-  const handleSaveIntegration = useCallback(async () => {
-    setSavingIntegration(true);
-    const ok = await saveIntegrationConfig(integrationTab, slackBotToken || undefined, slackSigningSecret || undefined);
-    setSavingIntegration(false);
-    if (ok) { setSlackBotToken(''); setSlackSigningSecret(''); }
-  }, [integrationTab, slackBotToken, slackSigningSecret, saveIntegrationConfig]);
-
-  const openConnectModal = useCallback(() => {
-    const prefill: Record<string, string> = { SLACK: '', TEAMS: '', GOOGLE_CHAT: '' };
-    const channelPrefill: Record<string, string> = { SLACK: '' };
-    userConnections.forEach(c => {
-      if (c.webhookUrl) prefill[c.platform] = c.webhookUrl;
-      if (c.channelId && c.platform === 'SLACK') channelPrefill.SLACK = c.channelId;
-    });
-    setConnectWebhooks(prefill);
-    setConnectChannelIds(channelPrefill);
-    setShowConnectModal(true);
-  }, [userConnections]);
-
-  const handleSaveConnections = useCallback(async () => {
-    if (!activeAccount?.userId) return;
-    setSavingConnect(true);
-    const platforms = ['SLACK', 'TEAMS', 'GOOGLE_CHAT'] as const;
-    for (const p of platforms) {
-      const webhookUrl = connectWebhooks[p]?.trim();
-      const channelId = p === 'SLACK' ? connectChannelIds['SLACK']?.trim() : '';
-      if (webhookUrl || channelId) {
-        await saveUserConnection(activeAccount.userId, p, webhookUrl || undefined, channelId || undefined);
-      }
-    }
-    setSavingConnect(false);
-    setShowConnectModal(false);
-  }, [activeAccount, connectWebhooks, connectChannelIds, saveUserConnection]);
-
-  const getIntegrationConfig = useCallback((platform: string): IntegrationConfig | undefined =>
-    integrationConfigs.find(c => c.platform === platform), [integrationConfigs]);
-
-  const hasConnection = useCallback((platform: string): boolean => {
-    // Slack: auto-enabled when bot token is configured + user has an email (backend will auto-discover via users.lookupByEmail)
-    if (platform === 'SLACK'
-        && integrationConfigs.some(c => c.platform === 'SLACK' && c.enabled && c.botTokenConfigured)
-        && !!activeAccount?.email) {
-      return true;
-    }
-    return userConnections.some(c => c.platform === platform && c.active && (!!c.webhookUrl || !!c.channelId));
-  }, [userConnections, integrationConfigs, activeAccount]);
-
-  const platformLabel = (p: string) => p === 'GOOGLE_CHAT' ? 'Google Chat' : p.charAt(0) + p.slice(1).toLowerCase();
-  const platformIcon  = (p: string) => p === 'SLACK' ? 'fab fa-slack' : p === 'TEAMS' ? 'fab fa-microsoft' : 'fab fa-google';
-  const platformColor = (p: string) => p === 'SLACK' ? '#4A154B' : p === 'TEAMS' ? '#464EB8' : '#1A73E8';
-
   useEffect(() => {
     setActions(
       <div className="flex items-center gap-3">
@@ -524,13 +444,6 @@ const BillOpsSupportDashboardPage: React.FC = () => {
         >
           <i className="fas fa-plus"></i>
           <span>New Chat</span>
-        </button>
-        <button
-          onClick={openIntegrationsModal}
-          className="flex items-center gap-2 px-4 py-2 bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-50 rounded-xl text-xs font-bold shadow-sm transition-all"
-        >
-          <i className="fas fa-plug text-xs"></i>
-          <span>Integrations</span>
         </button>
         <button
           onClick={() => refreshInbox()}
@@ -546,7 +459,7 @@ const BillOpsSupportDashboardPage: React.FC = () => {
       </div>
     );
     return () => clearActions();
-  }, [setActions, clearActions, loading, refreshInbox, openNewChatModal, openIntegrationsModal]);
+  }, [setActions, clearActions, loading, refreshInbox, openNewChatModal]);
 
   /* ════════════════════════════ render helpers ══════════════════ */
 
@@ -681,22 +594,11 @@ const BillOpsSupportDashboardPage: React.FC = () => {
     <div key={msg.id} className={`flex flex-col ${msg.userMessage ? 'items-start' : 'items-end'}`}>
       {/* Sender label — admin sees real usernames; user-facing widget always shows "Support Team" */}
       {!msg.isDeleted && (
-        <span className={`text-[10px] font-semibold mb-1 px-1 flex items-center gap-1.5 ${msg.userMessage ? 'text-gray-400' : 'text-purple-500'}`}>
+        <span className={`text-[10px] font-semibold mb-1 px-1 flex items-center gap-1 ${msg.userMessage ? 'text-gray-400' : 'text-purple-500'}`}>
           {msg.userMessage
             ? <><i className="fas fa-user text-[8px]"></i>{activeAccount?.username || 'User'}</>
             : <><i className="fas fa-user-shield text-[8px]"></i>{msg.senderUsername || 'Support Team'}</>
           }
-          {/* Platform badge */}
-          {msg.externalPlatform && (
-            <span
-              className="text-[8px] px-1.5 py-0.5 rounded-full text-white font-bold"
-              style={{ background: platformColor(msg.externalPlatform) }}
-              title={msg.userMessage ? `Reply received via ${platformLabel(msg.externalPlatform)}` : `Sent via ${platformLabel(msg.externalPlatform)}`}
-            >
-              <i className={`${platformIcon(msg.externalPlatform)} mr-0.5`}></i>
-              {platformLabel(msg.externalPlatform)}
-            </span>
-          )}
         </span>
       )}
       <div className={`max-w-[75%] rounded-2xl px-5 py-3 shadow-sm text-sm relative group ${msg.userMessage
@@ -946,29 +848,8 @@ const BillOpsSupportDashboardPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* Right side: platform pills + email + refresh */}
-              <div className="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end">
-                {/* Connected platform pills */}
-                {userConnections.map(conn => (
-                  <span
-                    key={conn.platform}
-                    className="text-[9px] px-2 py-0.5 rounded-full font-bold text-white"
-                    style={{ background: platformColor(conn.platform) }}
-                    title={`Connected via ${platformLabel(conn.platform)}`}
-                  >
-                    <i className={`${platformIcon(conn.platform)} mr-1`}></i>
-                    {platformLabel(conn.platform)}
-                  </span>
-                ))}
-                <button
-                  onClick={openConnectModal}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 bg-indigo-50 border border-dashed border-indigo-300 text-indigo-500 hover:bg-indigo-100 rounded-lg text-[10px] font-bold transition-all"
-                  title="Connect a messaging platform for this user"
-                >
-                  <i className="fas fa-plug text-[9px]"></i>
-                  Connect Platform
-                </button>
-
+              {/* Right side: email + refresh */}
+              <div className="flex items-center gap-2 flex-shrink-0">
                 {/* Send Email button */}
                 <button
                   onClick={openEmailModal}
@@ -1078,49 +959,6 @@ const BillOpsSupportDashboardPage: React.FC = () => {
 
               {/* Reply Input */}
               <div className="p-4 bg-white border-t border-gray-100 flex-shrink-0">
-                {/* Platform selector */}
-                <div className="flex items-center gap-1.5 mb-2 flex-wrap">
-                  <span className="text-[10px] text-gray-400 font-semibold mr-1">Send via:</span>
-                  {/* Dashboard (default) */}
-                  <button
-                    onClick={() => setSelectedPlatform('')}
-                    className={`flex items-center gap-1 text-[10px] px-2.5 py-1 rounded-lg border font-semibold transition-all ${selectedPlatform === '' ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'}`}
-                  >
-                    <i className="fas fa-comments text-[9px]"></i> Dashboard
-                  </button>
-                  {/* Slack */}
-                  <button
-                    onClick={() => hasConnection('SLACK') && setSelectedPlatform('SLACK')}
-                    className={`flex items-center gap-1 text-[10px] px-2.5 py-1 rounded-lg border font-semibold transition-all ${selectedPlatform === 'SLACK' ? 'text-white border-[#4A154B]' : hasConnection('SLACK') ? 'bg-white border-[#4A154B]/40 hover:border-[#4A154B]' : 'bg-gray-50 text-gray-300 border-gray-200 cursor-not-allowed'}`}
-                    style={selectedPlatform === 'SLACK' ? { background: '#4A154B', color: '#fff' } : hasConnection('SLACK') ? { color: '#4A154B' } : {}}
-                    title={hasConnection('SLACK') ? (activeAccount?.email ? `Send via Slack (auto-discover: ${activeAccount.email})` : 'Send via Slack') : 'Slack not configured — add bot token in Integrations'}
-                  >
-                    <i className="fab fa-slack text-[10px]"></i> Slack
-                  </button>
-                  {/* Teams */}
-                  <button
-                    onClick={() => hasConnection('TEAMS') && setSelectedPlatform('TEAMS')}
-                    className={`flex items-center gap-1 text-[10px] px-2.5 py-1 rounded-lg border font-semibold transition-all ${selectedPlatform === 'TEAMS' ? 'text-white border-[#464EB8]' : hasConnection('TEAMS') ? 'bg-white border-[#464EB8]/40 hover:border-[#464EB8]' : 'bg-gray-50 text-gray-300 border-gray-200 cursor-not-allowed'}`}
-                    style={selectedPlatform === 'TEAMS' ? { background: '#464EB8', color: '#fff' } : hasConnection('TEAMS') ? { color: '#464EB8' } : {}}
-                    title={hasConnection('TEAMS') ? 'Send via Teams' : 'No Teams webhook configured for this user'}
-                  >
-                    <i className="fab fa-microsoft text-[10px]"></i> Teams
-                  </button>
-                  {/* Google Chat */}
-                  <button
-                    onClick={() => hasConnection('GOOGLE_CHAT') && setSelectedPlatform('GOOGLE_CHAT')}
-                    className={`flex items-center gap-1 text-[10px] px-2.5 py-1 rounded-lg border font-semibold transition-all ${selectedPlatform === 'GOOGLE_CHAT' ? 'text-white border-[#1A73E8]' : hasConnection('GOOGLE_CHAT') ? 'bg-white border-[#1A73E8]/40 hover:border-[#1A73E8]' : 'bg-gray-50 text-gray-300 border-gray-200 cursor-not-allowed'}`}
-                    style={selectedPlatform === 'GOOGLE_CHAT' ? { background: '#1A73E8', color: '#fff' } : hasConnection('GOOGLE_CHAT') ? { color: '#1A73E8' } : {}}
-                    title={hasConnection('GOOGLE_CHAT') ? 'Send via Google Chat' : 'No Google Chat webhook configured for this user'}
-                  >
-                    <i className="fab fa-google text-[10px]"></i> G.Chat
-                  </button>
-                  {userConnections.length === 0 && (
-                    <button onClick={openConnectModal} className="text-[10px] text-indigo-500 hover:underline ml-1">
-                      + Connect a platform
-                    </button>
-                  )}
-                </div>
                 <div className="flex gap-2 items-end">
                   {/* File attachment button */}
                   <label className={`cursor-pointer p-2.5 rounded-xl transition-all flex-shrink-0 ${uploading ? 'text-indigo-400 bg-indigo-50' : 'text-gray-400 hover:text-indigo-600 hover:bg-indigo-50'}`} title="Attach file">
@@ -1170,25 +1008,16 @@ const BillOpsSupportDashboardPage: React.FC = () => {
                     style={{ minHeight: '44px', maxHeight: '120px' }}
                   />
 
-                  {/* Send button — color reflects selected platform */}
+                  {/* Send button */}
                   <button
                     onClick={handleSendReply}
                     disabled={sending || uploading || (!replyText.trim() && !pendingAttachment)}
-                    className="text-white px-5 py-3 rounded-xl font-bold text-sm shadow-md hover:shadow-lg transition-all active:scale-95 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 flex-shrink-0"
-                    style={{
-                      background: selectedPlatform === 'SLACK'       ? '#4A154B' :
-                                  selectedPlatform === 'TEAMS'       ? '#464EB8' :
-                                  selectedPlatform === 'GOOGLE_CHAT' ? '#1A73E8' :
-                                  'linear-gradient(to right, #4f46e5, #7c3aed)',
-                    }}
+                    className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white px-5 py-3 rounded-xl font-bold text-sm shadow-md hover:shadow-lg transition-all active:scale-95 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 flex-shrink-0"
                   >
                     {sending ? (
                       <><i className="fas fa-circle-notch fa-spin text-xs"></i><span className="hidden sm:inline">Sending</span></>
                     ) : (
-                      <>
-                        <span className="hidden sm:inline">Send</span>
-                        <i className={`text-xs ${selectedPlatform === 'SLACK' ? 'fab fa-slack' : selectedPlatform === 'TEAMS' ? 'fab fa-microsoft' : selectedPlatform === 'GOOGLE_CHAT' ? 'fab fa-google' : 'fas fa-paper-plane'}`}></i>
-                      </>
+                      <><span className="hidden sm:inline">Send</span><i className="fas fa-paper-plane text-xs"></i></>
                     )}
                   </button>
                 </div>
@@ -1202,141 +1031,6 @@ const BillOpsSupportDashboardPage: React.FC = () => {
           )}
         </div>
       </div>
-
-      {/* ─── Integrations Modal ─── */}
-      {showIntegrationsModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
-            <div className="px-6 py-4 bg-gradient-to-r from-indigo-600 to-purple-600 flex items-center justify-between">
-              <div>
-                <h3 className="text-base font-bold text-white flex items-center gap-2"><i className="fas fa-plug"></i> Messaging Integrations</h3>
-                <p className="text-xs text-indigo-200 mt-0.5">One-time admin setup for each platform</p>
-              </div>
-              <button onClick={() => setShowIntegrationsModal(false)} className="text-white/70 hover:text-white transition"><i className="fas fa-times text-lg"></i></button>
-            </div>
-            {/* Tabs */}
-            <div className="flex border-b border-gray-200 px-6 pt-3 gap-1">
-              {(['SLACK', 'TEAMS', 'GOOGLE_CHAT'] as const).map(tab => (
-                <button key={tab} onClick={() => setIntegrationTab(tab)}
-                  className={`px-4 py-2 text-xs font-semibold rounded-t-lg transition-all ${integrationTab === tab ? 'bg-indigo-50 text-indigo-700 border-b-2 border-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}>
-                  <i className={`${platformIcon(tab)} mr-1.5`} style={{ color: integrationTab === tab ? platformColor(tab) : undefined }}></i>
-                  {platformLabel(tab)}
-                  {getIntegrationConfig(tab)?.enabled && <span className="ml-1.5 w-1.5 h-1.5 bg-green-500 rounded-full inline-block"></span>}
-                </button>
-              ))}
-            </div>
-            <div className="p-6 space-y-4">
-              {integrationTab === 'SLACK' ? (
-                <>
-                  <div className="bg-purple-50 border border-purple-200 rounded-xl p-3 text-xs text-purple-800">
-                    <p className="font-semibold mb-1"><i className="fab fa-slack mr-1"></i> Slack — Bot Token</p>
-                    <p className="text-purple-700">Create a Slack App → OAuth &amp; Permissions → add scopes: <code className="bg-purple-100 px-1 rounded">chat:write, incoming-webhook</code> → Install → copy Bot Token &amp; Signing Secret.</p>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-600 mb-1">Bot Token <span className="text-gray-400 font-normal">(xoxb-...)</span></label>
-                    <input type="password" value={slackBotToken} onChange={e => setSlackBotToken(e.target.value)}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                      placeholder={getIntegrationConfig('SLACK')?.botTokenConfigured ? '●●●●●●●● (already configured)' : 'xoxb-...'} />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-600 mb-1">Signing Secret <span className="text-gray-400 font-normal">(for verifying inbound events)</span></label>
-                    <input type="password" value={slackSigningSecret} onChange={e => setSlackSigningSecret(e.target.value)}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                      placeholder={getIntegrationConfig('SLACK')?.signingSecretConfigured ? '●●●●●●●● (already configured)' : 'Enter signing secret'} />
-                  </div>
-                  <div className="flex items-center justify-between pt-1">
-                    <span className="text-xs text-gray-500 flex items-center gap-1.5">
-                      <span className={`w-2 h-2 rounded-full inline-block ${getIntegrationConfig('SLACK')?.enabled ? 'bg-green-500' : 'bg-gray-300'}`}></span>
-                      {getIntegrationConfig('SLACK')?.enabled ? 'Connected' : 'Not configured'}
-                    </span>
-                    <button onClick={handleSaveIntegration} disabled={savingIntegration || (!slackBotToken && !slackSigningSecret)}
-                      className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-lg text-sm font-semibold transition disabled:opacity-50">
-                      {savingIntegration ? <i className="fas fa-circle-notch fa-spin mr-1"></i> : null} Save Slack Config
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <div className="bg-gray-50 border border-gray-200 rounded-xl p-5 text-center text-sm text-gray-500 space-y-2">
-                  <i className={`${platformIcon(integrationTab)} text-3xl`} style={{ color: platformColor(integrationTab) }}></i>
-                  <p className="font-semibold text-gray-700">{platformLabel(integrationTab)} — Webhook URL per user</p>
-                  <p className="text-xs">{integrationTab === 'TEAMS' ? 'In user\'s Teams channel → Apps → Incoming Webhooks → Add → copy URL.' : 'In user\'s Google Chat space → Apps & Integrations → Webhooks → Add → copy URL.'}</p>
-                  <p className="text-xs">Paste the webhook URL using <strong>Connect Platform</strong> button in the chat header.</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ─── Connect Platform Modal (per user) ─── */}
-      {showConnectModal && activeAccount && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
-            <div className="px-6 py-4 bg-gradient-to-r from-purple-600 to-indigo-600 flex items-center justify-between">
-              <div>
-                <h3 className="text-base font-bold text-white flex items-center gap-2"><i className="fas fa-link"></i> Connect Platform</h3>
-                <p className="text-xs text-purple-200 mt-0.5">Paste webhook URLs for <strong>{activeAccount.username}</strong></p>
-              </div>
-              <button onClick={() => setShowConnectModal(false)} className="text-white/70 hover:text-white transition"><i className="fas fa-times text-lg"></i></button>
-            </div>
-            <div className="p-6 space-y-4">
-              <p className="text-xs text-gray-500">Paste the user's Incoming Webhook URL for each platform. Messages sent from this dashboard will be delivered to their channel/space.</p>
-              {(['SLACK', 'TEAMS', 'GOOGLE_CHAT'] as const).map(platform => (
-                <div key={platform} className="border border-gray-200 rounded-xl p-4 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <i className={platformIcon(platform)} style={{ color: platformColor(platform) }}></i>
-                      <span className="font-semibold text-sm">{platformLabel(platform)}</span>
-                      {userConnections.some(c => c.platform === platform && c.active) && (
-                        <span className="text-[10px] px-2 py-0.5 bg-green-100 text-green-700 rounded-full font-bold">Connected</span>
-                      )}
-                    </div>
-                    {userConnections.some(c => c.platform === platform && c.active) && (
-                      <button onClick={() => activeAccount.userId && removeUserConnection(activeAccount.userId, platform)}
-                        className="text-xs text-red-400 hover:text-red-600 transition">Remove</button>
-                    )}
-                  </div>
-                  <label className="block text-[10px] font-semibold text-gray-500 mb-0.5">
-                    Incoming Webhook URL
-                    {platform === 'SLACK' && <span className="text-gray-400 font-normal"> (cross-org / external user)</span>}
-                  </label>
-                  <input type="url"
-                    value={connectWebhooks[platform] || ''}
-                    onChange={e => setConnectWebhooks(prev => ({ ...prev, [platform]: e.target.value }))}
-                    placeholder={platform === 'SLACK' ? 'https://hooks.slack.com/services/...' : platform === 'TEAMS' ? 'https://xxx.webhook.office.com/...' : 'https://chat.googleapis.com/v1/spaces/.../messages?key=...'}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono" />
-                  {/* Slack: also allow Channel ID when bot token is configured */}
-                  {platform === 'SLACK' && getIntegrationConfig('SLACK')?.botTokenConfigured && (
-                    <>
-                      <div className="flex items-center gap-2 mt-1">
-                        <div className="flex-1 h-px bg-gray-200"></div>
-                        <span className="text-[10px] text-gray-400 font-medium">OR (same workspace via Bot Token)</span>
-                        <div className="flex-1 h-px bg-gray-200"></div>
-                      </div>
-                      <label className="block text-[10px] font-semibold text-gray-500 mb-0.5">
-                        Channel ID
-                        <span className="text-gray-400 font-normal"> (right-click channel → Copy Link → last segment)</span>
-                      </label>
-                      <input type="text"
-                        value={connectChannelIds['SLACK'] || ''}
-                        onChange={e => setConnectChannelIds(prev => ({ ...prev, SLACK: e.target.value }))}
-                        placeholder="C0123456789"
-                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono" />
-                    </>
-                  )}
-                </div>
-              ))}
-              <div className="flex justify-end gap-3 pt-1">
-                <button onClick={() => setShowConnectModal(false)} className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition">Cancel</button>
-                <button onClick={handleSaveConnections} disabled={savingConnect}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-lg text-sm font-semibold transition disabled:opacity-50">
-                  {savingConnect ? <i className="fas fa-circle-notch fa-spin mr-1"></i> : null} Save Connections
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ─── New Chat Modal ─── */}
       {showNewChatModal && (

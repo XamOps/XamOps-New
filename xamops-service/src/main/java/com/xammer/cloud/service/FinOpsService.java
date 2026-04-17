@@ -133,12 +133,8 @@ public class FinOpsService {
     public CompletableFuture<FinOpsReportDto> getFinOpsReport(String accountId, boolean forceRefresh, String startDate,
             String endDate) {
         // Build cache key including date range if provided
-        // Normalize endDate to end-of-month for current month so key stays stable all month
-        final String normalizedEndFinops = (endDate != null && isCurrentMonth(endDate))
-                ? YearMonth.from(LocalDate.parse(endDate)).atEndOfMonth().toString()
-                : endDate;
-        final String cacheKey = (startDate != null && normalizedEndFinops != null)
-                ? "finopsReport-" + accountId + "-" + startDate + "-" + normalizedEndFinops
+        final String cacheKey = (startDate != null && endDate != null)
+                ? "finopsReport-" + accountId + "-" + startDate + "-" + endDate
                 : "finopsReport-" + accountId;
         final String dbKey = "finops-" + accountId; // stable key used by ProactiveCacheRefreshService
 
@@ -754,14 +750,11 @@ public class FinOpsService {
     @Async("awsTaskExecutor")
     public CompletableFuture<List<Map<String, Object>>> getCostByRegion(CloudAccount account, boolean forceRefresh,
             String startDate, String endDate) {
-        String normalizedEndRegion = (endDate != null && isCurrentMonth(endDate))
-                ? YearMonth.from(LocalDate.parse(endDate)).atEndOfMonth().toString()
-                : endDate;
         String cacheKey = "costByRegion-" + account.getAwsAccountId();
         String dbKey = "FINOPS_COST_REGION::" + account.getAwsAccountId();
-        if (startDate != null && normalizedEndRegion != null) {
-            cacheKey += "-" + startDate + "-" + normalizedEndRegion;
-            dbKey += "::" + startDate + "::" + normalizedEndRegion;
+        if (startDate != null && endDate != null) {
+            cacheKey += "-" + startDate + "-" + endDate;
+            dbKey += "::" + startDate + "::" + endDate;
         }
 
         if (!forceRefresh) {
@@ -969,14 +962,11 @@ public class FinOpsService {
     @Async("awsTaskExecutor")
     public CompletableFuture<DashboardData.CostHistory> getCostHistory(CloudAccount account, boolean forceRefresh,
             String startDate, String endDate) {
-        String normalizedEndHistory = (endDate != null && isCurrentMonth(endDate))
-                ? YearMonth.from(LocalDate.parse(endDate)).atEndOfMonth().toString()
-                : endDate;
         String cacheKey = "costHistory-" + account.getAwsAccountId();
         String dbKey = "FINOPS_COST_HISTORY::" + account.getAwsAccountId();
-        if (startDate != null && normalizedEndHistory != null) {
-            cacheKey += "-" + startDate + "-" + normalizedEndHistory;
-            dbKey += "::" + startDate + "::" + normalizedEndHistory;
+        if (startDate != null && endDate != null) {
+            cacheKey += "-" + startDate + "-" + endDate;
+            dbKey += "::" + startDate + "::" + endDate;
         }
 
         if (!forceRefresh) {

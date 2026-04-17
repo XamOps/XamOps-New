@@ -28,7 +28,7 @@ const getApiBase = (): string => {
   const roles = JSON.parse(sessionStorage.getItem('cached_user_roles') || '[]');
   if (roles.includes('ROLE_XAMOPS')) {
     return '/api/xamops/team';
-  } else if (roles.includes('ROLE_BILLOPS') || roles.includes('ROLE_BILLOPS_ADMIN') || roles.includes('ROLE_BILLOPS_ADMIN_SUB')) {
+  } else if (roles.includes('ROLE_BILLOPS') || roles.includes('ROLE_BILLOPS_ADMIN')) {
     return '/api/billops/team';
   }
   // Default to xamops
@@ -52,7 +52,6 @@ export const useMyProfile = () => {
     username: '',
     email: '',
     password: '',
-    role: '',
     accountIds: [],
     allowedTabs: [],
     allAccountsAccess: false
@@ -140,7 +139,6 @@ export const useMyProfile = () => {
       username: '',
       email: '',
       password: '',
-      role: '',        // caller (MyProfilePage) will pre-fill the default
       accountIds: [],
       allowedTabs: [],
       allAccountsAccess: false
@@ -157,7 +155,6 @@ export const useMyProfile = () => {
       username: user.username,
       email: user.email,
       password: '',
-      role: user.role || '',
       accountIds: user.accountIds || [],
       allowedTabs: user.allowedTabs || [],
       allAccountsAccess: user.allAccountsAccess ?? false
@@ -175,7 +172,6 @@ export const useMyProfile = () => {
       username: '',
       email: '',
       password: '',
-      role: '',
       accountIds: [],
       allowedTabs: [],
       allAccountsAccess: false

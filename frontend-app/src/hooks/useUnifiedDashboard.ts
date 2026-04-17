@@ -179,10 +179,14 @@ export const useUnifiedDashboard = () => {
   // Fetch ticket counts
   const fetchTickets = useCallback(async () => {
     try {
-      const res = await fetch('/api/xamops/tickets/category/Technical/count');
+      const res = await fetch('/api/xamops/tickets/category/Technical');
       if (res.ok) {
         const data = await res.json();
-        setTicketCount(data.count ?? 0);
+        // Count only open or in_progress tickets if needed, or just total
+        // The user asked for "Active" support tickets, assuming any returned from this category are relevant
+        // or filtering for !Closed
+        const activeTickets = data.filter((t: any) => t.status !== 'Closed' && t.status !== 'CLOSED');
+        setTicketCount(activeTickets.length);
       }
     } catch (e) {
       console.error('Error fetching tickets:', e);
@@ -390,7 +394,6 @@ export const useUnifiedDashboard = () => {
         fetchTickets()
       ]);
 
-
       const failed = results.filter(r => r.status === 'rejected' || (r.status === 'fulfilled' && (r.value as any)?.error));
       if (failed.length > 0) {
         setNotification({
@@ -404,7 +407,7 @@ export const useUnifiedDashboard = () => {
         console.log('✅ Auto-refresh complete, updating lastUpdated timestamp');
         setLastUpdated(new Date());
       }
-    }, 24 * 60 * 60 * 1000); // 24 hours
+    }, 60000);
 
     // Cleanup
     return () => {

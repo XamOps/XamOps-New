@@ -407,7 +407,7 @@ public class BillopsController {
     }
 
     @GetMapping("/credits/admin/all/cached")
-    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
+    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
     public ResponseEntity<List<CreditRequestDto>> getCachedAllCreditRequests() {
         logger.debug("GET /credits/admin/all/cached called");
         return creditRequestService.getCachedAllCreditRequests()
@@ -416,7 +416,7 @@ public class BillopsController {
     }
 
     @GetMapping("/credits/admin/all")
-    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
+    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
     public ResponseEntity<List<CreditRequestDto>> getFreshAllCreditRequests() {
         logger.debug("GET /credits/admin/all (fresh) called");
         List<CreditRequestDto> all = creditRequestService.getAllCreditRequestsAndCache();
@@ -438,7 +438,7 @@ public class BillopsController {
     }
 
     @PutMapping("/credits/{id}/status")
-    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
+    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
     public ResponseEntity<CreditRequestDto> updateRequestStatus(@PathVariable Long id,
             @RequestBody Map<String, String> statusUpdate) {
         String status = statusUpdate.get("status");

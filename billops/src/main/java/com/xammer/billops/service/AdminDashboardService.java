@@ -185,17 +185,6 @@ public class AdminDashboardService {
         AdminDashboardDto dashboard = new AdminDashboardDto();
         dashboard.setTotalAccounts((long) allAccounts.size());
 
-        // Collect account IDs and client IDs visible to this user
-        Set<Long> visibleAccountIds = allAccounts.stream()
-                .map(CloudAccount::getId)
-                .collect(Collectors.toSet());
-        Set<Long> visibleClientIds = allAccounts.stream()
-                .filter(a -> a.getClient() != null)
-                .map(a -> a.getClient().getId())
-                .collect(Collectors.toSet());
-        // null = primary admin (no restriction — use full DB counts)
-        boolean isRestricted = accountAccessHelper.getAllowedDbIds() != null;
-
         // Count by provider
         long awsCount = allAccounts.stream().filter(a -> "AWS".equalsIgnoreCase(a.getProvider())).count();
         long gcpCount = allAccounts.stream().filter(a -> "GCP".equalsIgnoreCase(a.getProvider())).count();
@@ -212,36 +201,26 @@ public class AdminDashboardService {
                         Collectors.counting()));
         dashboard.setAccountsByStatus(accountsByStatus);
 
-        // Get invoice counts — scoped to visible accounts for sub-admins
+        // Get invoice counts — load once, reuse across all counts
         List<Invoice> allInvoices = invoiceRepository.findAll();
-        List<Invoice> scopedInvoices = isRestricted
-                ? allInvoices.stream()
-                        .filter(inv -> inv.getCloudAccount() != null && visibleAccountIds.contains(inv.getCloudAccount().getId()))
-                        .collect(Collectors.toList())
-                : allInvoices;
-        long pendingInvoices = scopedInvoices.stream()
+        long pendingInvoices = allInvoices.stream()
                 .filter(inv -> inv.getStatus() == Invoice.InvoiceStatus.DRAFT)
                 .count();
-        long finalizedInvoices = scopedInvoices.stream()
+        long finalizedInvoices = allInvoices.stream()
                 .filter(inv -> inv.getStatus() == Invoice.InvoiceStatus.FINALIZED)
                 .count();
         dashboard.setPendingInvoices(pendingInvoices);
         dashboard.setFinalizedInvoices(finalizedInvoices);
 
-        // Get open tickets count — scoped to visible clients for sub-admins
+        // Get open tickets count
         List<Ticket> allTickets = ticketRepository.findAll();
-        List<Ticket> scopedTickets = isRestricted
-                ? allTickets.stream()
-                        .filter(t -> t.getClient() != null && visibleClientIds.contains(t.getClient().getId()))
-                        .collect(Collectors.toList())
-                : allTickets;
-        long openTickets = scopedTickets.stream()
+        long openTickets = allTickets.stream()
                 .filter(t -> "OPEN".equals(t.getStatus()) || "IN_PROGRESS".equals(t.getStatus()))
                 .count();
         dashboard.setOpenTickets(openTickets);
 
-        // Get total clients — scoped to visible clients for sub-admins
-        long totalClients = isRestricted ? visibleClientIds.size() : clientRepository.count();
+        // Get total clients
+        Long totalClients = clientRepository.count();
         dashboard.setTotalClients(totalClients);
 
         // Calculate spending for all accounts

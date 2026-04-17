@@ -130,7 +130,7 @@ public class AccountManagerController {
         // 4. Check Roles
         boolean isAdmin = userDetails.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
-                .anyMatch(role -> "ROLE_BILLOPS_ADMIN".equals(role) || "ROLE_BILLOPS_ADMIN_SUB".equals(role) || "ROLE_XAMOPS_ADMIN".equals(role));
+                .anyMatch(role -> "ROLE_BILLOPS_ADMIN".equals(role) || "ROLE_XAMOPS_ADMIN".equals(role));
 
         List<CloudAccount> accounts;
 

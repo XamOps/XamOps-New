@@ -22,15 +22,14 @@ const Sidebar: React.FC = () => {
   const { theme } = useTheme();
   const location = useLocation();
 
-  // Fetch billops team profile to get isPrimaryUser + allowedTabs for ROLE_BILLOPS_ADMIN / ROLE_BILLOPS_ADMIN_SUB
+  // Fetch billops team profile to get isPrimaryUser + allowedTabs for ROLE_BILLOPS_ADMIN
   // undefined = still loading, null = loaded (primary user / no restrictions), object = loaded sub-user
-  const isBillopsAdminAny = hasAnyRole('ROLE_BILLOPS_ADMIN') || hasAnyRole('ROLE_BILLOPS_ADMIN_SUB');
   const [billopsProfile, setBillopsProfile] = useState<{ isPrimaryUser: boolean; allowedTabs: string[] } | null | undefined>(
-    isBillopsAdminAny ? undefined : null
+    hasAnyRole('ROLE_BILLOPS_ADMIN') ? undefined : null
   );
 
   useEffect(() => {
-    if (isBillopsAdminAny) {
+    if (hasAnyRole('ROLE_BILLOPS_ADMIN')) {
       fetch('/api/billops/team/profile', { credentials: 'include' })
         .then(r => r.ok ? r.json() : null)
         .then(data => {
@@ -46,8 +45,7 @@ const Sidebar: React.FC = () => {
   // undefined = profile still loading; hide all admin tabs until resolved
   const billopsProfileLoading = billopsProfile === undefined;
   // Only restrict tabs for confirmed BILLOPS_ADMIN sub-users (isPrimaryUser explicitly false)
-  // ROLE_BILLOPS_ADMIN_SUB users are always treated as primary (full admin nav, data scoped at backend)
-  const isAdminSubUser = hasAnyRole('ROLE_BILLOPS_ADMIN') && !hasAnyRole('ROLE_BILLOPS_ADMIN_SUB') && billopsProfile !== null && billopsProfile !== undefined && !billopsProfile.isPrimaryUser;
+  const isAdminSubUser = hasAnyRole('ROLE_BILLOPS_ADMIN') && billopsProfile !== null && billopsProfile !== undefined && !billopsProfile.isPrimaryUser;
   const isTabAllowed = (tabKey: string): boolean => {
     if (billopsProfileLoading) return false; // hide everything until we know access
     if (!isAdminSubUser) return true;
@@ -198,8 +196,8 @@ const Sidebar: React.FC = () => {
           </Link>
         </div>
 
-        {/* Account Selection Section — hidden for ROLE_BILLOPS_ADMIN / ROLE_BILLOPS_ADMIN_SUB */}
-        {!isBillopsAdminAny && (
+        {/* Account Selection Section — hidden for ROLE_BILLOPS_ADMIN */}
+        {!hasAnyRole('ROLE_BILLOPS_ADMIN') && (
           <div className={clsx(
             'p-4 border-b transition-colors duration-300',
             theme === 'dark' ? 'border-slate-800' : 'border-gray-200'
@@ -227,8 +225,8 @@ const Sidebar: React.FC = () => {
             </>
           )}
 
-          {/* ROLE_BILLOPS_ADMIN / ROLE_BILLOPS_ADMIN_SUB Specific Items */}
-          {isBillopsAdminAny && (
+          {/* ROLE_BILLOPS_ADMIN Specific Items */}
+          {hasAnyRole('ROLE_BILLOPS_ADMIN') && (
             <>
               {billopsProfileLoading ? (
                 /* Skeleton nav items while profile loads — prevents flash of all-then-filtered tabs */
@@ -398,10 +396,10 @@ const Sidebar: React.FC = () => {
             {hasAnyRole(['ROLE_XAMOPS', 'ROLE_BILLOPS', 'ROLE_SUPER_ADMIN']) && (
               <NavItem href="/user-management" icon="fas fa-users-cog" label="User Management" isActive={isActive('/user-management')} />
             )}
-            {(isBillopsAdminAny || hasAnyRole('ROLE_SUPER_ADMIN')) && (!isAdminSubUser || isTabAllowed('user-manager')) && (
+            {(hasAnyRole('ROLE_BILLOPS_ADMIN') || hasAnyRole('ROLE_SUPER_ADMIN')) && (!isAdminSubUser || isTabAllowed('user-manager')) && (
               <NavItem href="/billops-admin-user-manager" icon="fas fa-user-cog" label="User Manager" isActive={isActive('/billops-admin-user-manager')} />
             )}
-            {isBillopsAdminAny && !isAdminSubUser && (
+            {hasAnyRole('ROLE_BILLOPS_ADMIN') && !isAdminSubUser && (
               <NavItem href="/my-profile" icon="fas fa-users-gear" label="My Team" isActive={isActive('/my-profile')} />
             )}
           </NavSection>

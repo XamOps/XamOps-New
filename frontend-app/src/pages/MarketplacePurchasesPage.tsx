@@ -601,7 +601,7 @@ type PageTab = 'marketops' | 'isv';
 
 const MarketplacePurchasesPage: React.FC = () => {
   const [pageTab, setPageTab] = useState<PageTab>('marketops');
-  const { selectedAccountIds, accounts } = useAccounts();
+  const { selectedAccountIds, selectedAccountDisplay, accounts } = useAccounts();
   const cloudAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
 
   const selectedAccount = accounts.find(a => a.id === cloudAccountId);

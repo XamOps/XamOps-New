@@ -18,8 +18,6 @@ import com.xammer.billops.repository.UserCloudAccountAccessRepository;
 import com.xammer.billops.repository.UserRepository;
 import com.xammer.billops.util.SecurityUtils;
 import org.slf4j.Logger;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -235,44 +233,6 @@ public class TicketService {
      */
     private List<TicketDto> applyAccountFilter(List<TicketDto> tickets) {
         Long userId = SecurityUtils.getCurrentUserId();
-
-        // Resolve effective role from Security context first (authoritative)
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        String effectiveRole = (auth != null) ? auth.getAuthorities().stream()
-                .map(a -> a.getAuthority())
-                .filter(a -> a.startsWith("ROLE_"))
-                .findFirst().orElse(null) : null;
-
-        // ROLE_BILLOPS_ADMIN_SUB — scope to tickets from their owned clients' cloud accounts
-        // Checked BEFORE createdBy lookup to handle users whose DB role field is null
-        if ("ROLE_BILLOPS_ADMIN_SUB".equals(effectiveRole)) {
-            // Try findById first, fall back to username if ID doesn't match tenant DB
-            AppUser subAdmin = appUserRepository.findById(userId).orElse(null);
-            if (subAdmin == null && auth != null) {
-                subAdmin = appUserRepository.findByUsername(auth.getName()).orElse(null);
-            }
-            if (subAdmin == null) {
-                return java.util.Collections.emptyList();
-            }
-            List<Client> ownedClients = clientRepository.findByOwnerAdminId(subAdmin.getId());
-            if (ownedClients.isEmpty()) {
-                return java.util.Collections.emptyList();
-            }
-            Set<Long> ownedClientIds = ownedClients.stream()
-                    .map(Client::getId)
-                    .collect(Collectors.toSet());
-            List<CloudAccount> ownedAccounts = cloudAccountRepository.findAll().stream()
-                    .filter(a -> a.getClient() != null && ownedClientIds.contains(a.getClient().getId()))
-                    .collect(Collectors.toList());
-            Set<String> ownedProviderIds = ownedAccounts.stream()
-                    .map(this::resolveProviderAccountId)
-                    .filter(id -> id != null && !id.isEmpty())
-                    .collect(Collectors.toSet());
-            return tickets.stream()
-                    .filter(t -> t.getAccountId() != null && ownedProviderIds.contains(t.getAccountId()))
-                    .collect(Collectors.toList());
-        }
-
         AppUser currentUser = appUserRepository.findById(userId).orElse(null);
 
         // Primary admin — no restriction
@@ -423,16 +383,28 @@ public class TicketService {
                 User ticketCreator = ticket.getCreator();
                 String subject = String.format("New Reply on Ticket [ID: %d]: %s", ticket.getId(), ticket.getSubject());
 
-                String htmlBody = buildReplyNotificationEmailTemplate(ticket, author, reply);
+                String displayMessage = (reply.getMessage() == null || reply.getMessage().isBlank())
+                        ? "(Attachment only)"
+                        : reply.getMessage();
+
+                String text = String.format(
+                        "%s has replied to ticket %d:\n\n---\n%s\n---",
+                        author.getUsername(),
+                        ticket.getId(),
+                        displayMessage);
+
+                if (reply.getAttachmentName() != null) {
+                    text += "\n\n[Attachment: " + reply.getAttachmentName() + "]";
+                }
 
                 if (isAdminReply) {
                     if (ticketCreator != null && ticketCreator.getEmail() != null) {
-                        emailService.sendHtmlEmail(ticketCreator.getEmail(), subject, htmlBody);
+                        emailService.sendSimpleMessage(ticketCreator.getEmail(), subject, text);
                     }
                 } else {
                     String adminEmail = "Account and Billing".equalsIgnoreCase(ticket.getCategory()) ? ADMIN_BILLING_EMAIL
                             : ADMIN_TECHNICAL_EMAIL;
-                    emailService.sendHtmlEmail(adminEmail, subject, htmlBody);
+                    emailService.sendSimpleMessage(adminEmail, subject, text);
                 }
             } catch (Exception e) {
                 logger.error("Failed to send reply notification email for ticket {}", ticket.getId(), e);
@@ -474,8 +446,7 @@ public class TicketService {
 
     public List<User> getAdminUsers() {
         return userRepository.findAll().stream()
-                .filter(u -> u.getRole() != null &&
-                        (u.getRole().contains("ROLE_BILLOPS_ADMIN") || u.getRole().equals("ROLE_BILLOPS_ADMIN_SUB")))
+                .filter(u -> u.getRole() != null && u.getRole().contains("ROLE_BILLOPS_ADMIN"))
                 .collect(Collectors.toList());
     }
 
@@ -507,72 +478,6 @@ public class TicketService {
                 emailService.sendHtmlEmail(email, subject, htmlBody);
             }
         }
-    }
-
-    /**
-     * Builds a branded HTML email for a new reply notification.
-     * The reply body (from Quill) is rendered as-is so HTML cards
-     * (e.g. meeting invites) display correctly.
-     */
-    private String buildReplyNotificationEmailTemplate(Ticket ticket, User author, TicketReply reply) {
-        boolean isAdmin = author.getRole() != null && author.getRole().contains("ADMIN");
-        String senderLabel = isAdmin ? "Support Team" : escapeHtml(author.getUsername());
-        String senderColor = isAdmin ? "#4f46e5" : "#0ea5e9";
-        String badgeBg    = isAdmin ? "#eef2ff"  : "#f0f9ff";
-        String badgeBorder = isAdmin ? "#6366f1" : "#38bdf8";
-
-        // The message body — already HTML from Quill (or a meeting-invite card)
-        String messageHtml = (reply.getMessage() == null || reply.getMessage().isBlank())
-                ? "<em style=\"color:#9ca3af;\">(No message — see attachment)</em>"
-                : reply.getMessage();
-
-        String attachmentHtml = "";
-        if (reply.getAttachmentName() != null && !reply.getAttachmentName().isBlank()) {
-            attachmentHtml = "<div style=\"margin-top:12px;padding:10px 14px;background:#f9fafb;"
-                    + "border:1px solid #e5e7eb;border-radius:8px;font-size:12px;color:#6b7280;\">"
-                    + "📎 <strong>" + escapeHtml(reply.getAttachmentName()) + "</strong></div>";
-        }
-
-        return "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"></head>"
-                + "<body style=\"margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f3f4f6;\">"
-                + "<div style=\"max-width:620px;margin:32px auto;background:white;border-radius:16px;"
-                + "overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,0.08);\">"
-                // Header
-                + "<div style=\"background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);"
-                + "padding:24px;\">"
-                + "<p style=\"margin:0;color:rgba(255,255,255,.75);font-size:12px;font-weight:600;"
-                + "text-transform:uppercase;letter-spacing:.06em;\">Ticket #" + ticket.getId() + "</p>"
-                + "<h1 style=\"margin:4px 0 0;color:white;font-size:18px;font-weight:700;\">"
-                + escapeHtml(ticket.getSubject()) + "</h1>"
-                + "</div>"
-                // Sender badge
-                + "<div style=\"padding:20px 24px 0;\">"
-                + "<div style=\"display:inline-flex;align-items:center;gap:8px;padding:6px 14px;"
-                + "background:" + badgeBg + ";border:1px solid " + badgeBorder + ";"
-                + "border-radius:20px;\">"
-                + "<div style=\"width:28px;height:28px;border-radius:50%;background:" + senderColor + ";"
-                + "display:flex;align-items:center;justify-content:center;"
-                + "color:white;font-size:12px;font-weight:700;\">"
-                + senderLabel.substring(0, 1).toUpperCase() + "</div>"
-                + "<span style=\"font-size:13px;font-weight:700;color:" + senderColor + ";\">"
-                + senderLabel + "</span>"
-                + "<span style=\"font-size:11px;color:#9ca3af;\">replied</span>"
-                + "</div>"
-                + "</div>"
-                // Message body — render Quill HTML directly
-                + "<div style=\"padding:16px 24px 20px;border-bottom:1px solid #f3f4f6;\">"
-                + "<div style=\"font-size:14px;color:#374151;line-height:1.7;\">"
-                + messageHtml
-                + "</div>"
-                + attachmentHtml
-                + "</div>"
-                // Footer
-                + "<div style=\"padding:14px 24px;background:#f9fafb;text-align:center;\">"
-                + "<p style=\"margin:0;font-size:11px;color:#9ca3af;\">This notification was sent from "
-                + "<strong style=\"color:#667eea;\">XamOps Support</strong>. "
-                + "Please do not reply directly to this email.</p>"
-                + "</div>"
-                + "</div></body></html>";
     }
 
     /**
@@ -654,105 +559,6 @@ public class TicketService {
                 + "</div>"
                 + "<div style=\"padding:16px 24px;background:#f9fafb;border-top:1px solid #e5e7eb;text-align:center;\">"
                 + "<p style=\"margin:0;font-size:11px;color:#9ca3af;\">This conversation was exported from <strong style=\"color:#667eea;\">XamOps Support</strong></p>"
-                + "</div>"
-                + "</div></body></html>";
-    }
-
-    /**
-     * Send a Google Meet invitation email for a scheduled meeting linked to a ticket.
-     * meetDateTime is in "YYYY-MM-DDTHH:mm" format (IST).
-     * meetDuration is in minutes (as a string).
-     */
-    @Transactional(readOnly = true)
-    public void sendMeetingInviteEmail(Long ticketId, com.xammer.billops.dto.MeetingInviteRequest req) {
-        Ticket ticket = ticketRepository.findById(ticketId)
-                .orElseThrow(() -> new RuntimeException("Ticket not found"));
-
-        List<String> validEmails = req.getRecipientEmails() == null ? java.util.Collections.emptyList()
-                : req.getRecipientEmails().stream()
-                        .filter(e -> e != null && !e.isBlank())
-                        .map(String::trim)
-                        .collect(Collectors.toList());
-
-        if (validEmails.isEmpty()) return;
-
-        String title = (req.getMeetTitle() != null && !req.getMeetTitle().isBlank())
-                ? req.getMeetTitle()
-                : "Support Meeting — Ticket #" + ticket.getId();
-
-        // Parse and format the IST datetime for display
-        String displayDate = "";
-        String displayTime = "";
-        try {
-            java.time.LocalDateTime ldt = java.time.LocalDateTime.parse(req.getMeetDateTime(),
-                    java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm"));
-            displayDate = ldt.format(java.time.format.DateTimeFormatter.ofPattern("d MMMM yyyy",
-                    java.util.Locale.ENGLISH));
-            displayTime = ldt.format(java.time.format.DateTimeFormatter.ofPattern("h:mm a")) + " IST";
-        } catch (Exception e) {
-            displayDate = req.getMeetDateTime() != null ? req.getMeetDateTime().replace("T", " ") : "";
-            displayTime = "IST";
-        }
-
-        int durationMins = 60;
-        try { durationMins = Integer.parseInt(req.getMeetDuration()); } catch (Exception ignored) {}
-        String durationLabel = durationMins == 30 ? "30 minutes"
-                : durationMins == 45 ? "45 minutes"
-                : durationMins == 60 ? "1 hour"
-                : durationMins == 90 ? "1.5 hours"
-                : durationMins == 120 ? "2 hours"
-                : durationMins + " minutes";
-
-        String meetLink = req.getMeetLink() != null ? req.getMeetLink() : "";
-        String subject = "Meeting Invitation: " + title + " (Ticket #" + ticket.getId() + ")";
-        String htmlBody = buildMeetingInviteEmailTemplate(ticket, title, displayDate, displayTime,
-                durationLabel, meetLink);
-
-        for (String email : validEmails) {
-            emailService.sendHtmlEmail(email, subject, htmlBody);
-        }
-    }
-
-    private String buildMeetingInviteEmailTemplate(Ticket ticket, String meetTitle,
-            String displayDate, String displayTime, String durationLabel, String meetLink) {
-        return "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"></head>"
-                + "<body style=\"margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f3f4f6;\">"
-                + "<div style=\"max-width:600px;margin:32px auto;background:white;border-radius:16px;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,0.08);\">"
-                + "<div style=\"background:linear-gradient(135deg,#10b981 0%,#059669 100%);padding:28px 24px;text-align:center;\">"
-                + "<div style=\"font-size:36px;margin-bottom:8px;\">📅</div>"
-                + "<h1 style=\"margin:0;color:white;font-size:20px;font-weight:700;\">Google Meet Invitation</h1>"
-                + "<p style=\"margin:6px 0 0 0;color:rgba(255,255,255,0.85);font-size:13px;\">You have been invited to a support meeting</p>"
-                + "</div>"
-                + "<div style=\"padding:28px 24px;\">"
-                + "<div style=\"background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:20px 24px;margin-bottom:20px;\">"
-                + "<h2 style=\"margin:0 0 16px 0;font-size:18px;font-weight:700;color:#065f46;\">" + escapeHtml(meetTitle) + "</h2>"
-                + "<table style=\"width:100%;border-collapse:collapse;font-size:14px;\">"
-                + "<tr><td style=\"padding:6px 16px 6px 0;color:#6b7280;font-weight:600;white-space:nowrap;\">📅 Date</td>"
-                + "<td style=\"color:#111827;font-weight:500;\">" + escapeHtml(displayDate) + "</td></tr>"
-                + "<tr><td style=\"padding:6px 16px 6px 0;color:#6b7280;font-weight:600;white-space:nowrap;\">🕐 Time</td>"
-                + "<td style=\"color:#111827;font-weight:500;\">" + escapeHtml(displayTime) + "</td></tr>"
-                + "<tr><td style=\"padding:6px 16px 6px 0;color:#6b7280;font-weight:600;white-space:nowrap;\">⏱ Duration</td>"
-                + "<td style=\"color:#111827;font-weight:500;\">" + escapeHtml(durationLabel) + "</td></tr>"
-                + "<tr><td style=\"padding:6px 16px 6px 0;color:#6b7280;font-weight:600;white-space:nowrap;\">🎫 Ticket</td>"
-                + "<td style=\"color:#111827;font-weight:500;\">#" + ticket.getId() + " — " + escapeHtml(ticket.getSubject()) + "</td></tr>"
-                + "</table>"
-                + "</div>"
-                + (meetLink != null && !meetLink.isBlank()
-                    ? "<div style=\"text-align:center;margin:24px 0;\">"
-                    + "<a href=\"" + meetLink + "\" style=\"display:inline-block;background:#4f46e5;color:white;text-decoration:none;"
-                    + "padding:14px 32px;border-radius:10px;font-size:15px;font-weight:700;letter-spacing:0.3px;"
-                    + "box-shadow:0 4px 12px rgba(79,70,229,0.3);\">🎥 Join Google Meet</a>"
-                    + "<p style=\"margin:10px 0 0 0;font-size:11px;color:#9ca3af;\">Or copy link: "
-                    + "<a href=\"" + meetLink + "\" style=\"color:#4f46e5;word-break:break-all;\">" + escapeHtml(meetLink) + "</a></p>"
-                    + "</div>"
-                    : "")
-                + "<div style=\"background:#fafafa;border:1px solid #f3f4f6;border-radius:10px;padding:14px 18px;margin-top:4px;\">"
-                + "<p style=\"margin:0;font-size:12px;color:#6b7280;line-height:1.6;\">This meeting was scheduled by the <strong style=\"color:#374151;\">XamOps Support Team</strong> "
-                + "in relation to your support ticket. Please join at the specified time.</p>"
-                + "</div>"
-                + "</div>"
-                + "<div style=\"padding:14px 24px;background:#f9fafb;border-top:1px solid #e5e7eb;text-align:center;\">"
-                + "<p style=\"margin:0;font-size:11px;color:#9ca3af;\">Sent from <strong style=\"color:#667eea;\">XamOps Support</strong></p>"
                 + "</div>"
                 + "</div></body></html>";
     }

@@ -59,7 +59,7 @@ export const useBillOpsAdminTickets = (): UseBillOpsAdminTicketsReturn => {
   const [isUpdating, setIsUpdating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
-  const [activeTab, setActiveTab] = useState<AdminTicketTab>('All');
+  const [activeTab, setActiveTab] = useState<AdminTicketTab>('Account and Billing');
   const [search, setSearch] = useState('');
   const [filters, setFilters] = useState<TicketFilters>(DEFAULT_FILTERS);
 

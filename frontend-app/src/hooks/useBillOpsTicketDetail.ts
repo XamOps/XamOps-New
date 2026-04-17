@@ -25,14 +25,6 @@ import {
   notifyTicketStatusChange
 } from '../utils/notificationService';
 
-export interface MeetingInviteData {
-  meetTitle: string;
-  meetDateTime: string; // "YYYY-MM-DDTHH:mm" IST
-  meetDuration: string; // minutes as string
-  meetLink: string;
-  recipientEmails: string[];
-}
-
 interface UseBillOpsTicketDetailReturn {
   ticket: BillOpsTicketDetail | null;
   currentUser: BillOpsUserProfile | null;
@@ -47,7 +39,6 @@ interface UseBillOpsTicketDetailReturn {
   submitRCA: (rcaData: RCAFormData) => Promise<void>;
   assignTicket: (adminId: number, adminUsername: string) => Promise<void>;
   sendEmailThread: (recipientEmails: string[], sendMode?: 'separate' | 'combined') => Promise<void>;
-  sendMeetingInvite: (data: MeetingInviteData) => Promise<void>;
   editReply: (replyId: number, message: string) => Promise<void>;
   deleteReply: (replyId: number) => Promise<void>;
 }
@@ -263,22 +254,6 @@ export const useBillOpsTicketDetail = (
 
       if (!response.ok) {
         throw new Error('Failed to send email thread');
-      }
-    },
-    [ticketId]
-  );
-
-  const sendMeetingInvite = useCallback(
-    async (data: MeetingInviteData) => {
-      if (!ticketId) return;
-      const response = await fetch(`/api/billops/tickets/${ticketId}/meeting`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify(data)
-      });
-      if (!response.ok) {
-        throw new Error('Failed to send meeting invite');
       }
     },
     [ticketId]
@@ -513,7 +488,6 @@ export const useBillOpsTicketDetail = (
     submitRCA,
     assignTicket,
     sendEmailThread,
-    sendMeetingInvite,
     editReply,
     deleteReply
   };

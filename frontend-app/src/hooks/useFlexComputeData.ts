@@ -14,7 +14,6 @@ import type {
   CapacityPricing,
 } from '../types/flexCompute';
 
-
 const defaultKPIs: FlexComputeKPIs = {
   totalSavings: 0,
   totalCost: 0,
@@ -196,7 +195,13 @@ export const useFlexComputeData = () => {
     // CloudiDR nested error format:
     // { error: { code, message, details: { description, timestamp } } }
     const cloudidrDesc = errorData?.error?.details?.description;
-    if (typeof cloudidrDesc === 'string' && cloudidrDesc.trim()) return cloudidrDesc;
+    if (typeof cloudidrDesc === 'string' && cloudidrDesc.trim()) {
+      // Map internal CloudiDR messages to user-friendly text
+      if (cloudidrDesc.toLowerCase().includes('payment method') || cloudidrDesc.toLowerCase().includes('payment methods not found')) {
+        return 'No payment method is configured for this account. Please contact XamOps support to complete setup before purchasing capacity.';
+      }
+      return cloudidrDesc;
+    }
 
     // CloudiDR simple error string
     if (typeof errorData?.error === 'string') return errorData.error;

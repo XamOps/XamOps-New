@@ -20,9 +20,6 @@ public class Client {
     @Column(nullable = true)
     private String email;
 
-    @Column(nullable = true)
-    private Long ownerAdminId;
-
     // Establishes a one-to-many relationship with users
     @OneToMany(mappedBy = "client", cascade = CascadeType.ALL, orphanRemoval = true)
     @lombok.ToString.Exclude

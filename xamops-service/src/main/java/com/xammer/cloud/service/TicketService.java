@@ -21,7 +21,6 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.util.Comparator;
 import java.util.List;
-import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Service
@@ -43,14 +42,6 @@ public class TicketService {
     private UserRepository userRepository;
     @Autowired
     private FileStorageService fileStorageService;
-    @Autowired
-    private RedisCacheService redisCacheService;
-
-    private void evictCountCache(String category) {
-        if (category != null) {
-            redisCacheService.evict("ticket_count_" + category);
-        }
-    }
 
     @Transactional
     @CacheEvict(value = "tickets", allEntries = true)
@@ -92,7 +83,6 @@ public class TicketService {
         ticket.setCreator(creator);
 
         Ticket savedTicket = ticketRepository.save(ticket);
-        evictCountCache(savedTicket.getCategory());
 
         // 5. Send Notification Email
         try {
@@ -213,7 +203,6 @@ public class TicketService {
         }
 
         Ticket updatedTicket = ticketRepository.save(ticket);
-        evictCountCache(updatedTicket.getCategory());
 
         try {
             User ticketCreator = ticket.getCreator();
@@ -263,7 +252,6 @@ public class TicketService {
         ticket.setStatus("CLOSED");
         ticket.setClosedAt(java.time.LocalDateTime.now());
         Ticket updatedTicket = ticketRepository.save(ticket);
-        evictCountCache(updatedTicket.getCategory());
         return convertToDto(updatedTicket);
     }
 
@@ -273,20 +261,6 @@ public class TicketService {
         return ticketRepository.findAllByCategoryWithRepliesAndAuthors(category).stream()
                 .map(this::convertToDto)
                 .collect(Collectors.toList());
-    }
-
-    @Transactional(readOnly = true)
-    public long getActiveTicketCount(String category) {
-        String cacheKey = "ticket_count_" + category;
-        Optional<Long> cached = redisCacheService.get(cacheKey, Long.class);
-        if (cached.isPresent()) {
-            logger.info("Active ticket count for '{}' served from Redis cache", category);
-            return cached.get();
-        }
-        long count = ticketRepository.countActiveByCategoryName(category);
-        redisCacheService.put(cacheKey, count, 1440); // 24 hours TTL
-        logger.info("Active ticket count for '{}' cached in Redis: {}", category, count);
-        return count;
     }
 
     private TicketDto convertToDto(Ticket ticket) {

@@ -11,7 +11,7 @@
  * - /finops - FinOps report page (requires auth)
  */
 
-import React, { lazy, Suspense } from 'react';
+import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, Outlet } from 'react-router-dom';
 import clsx from 'clsx';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -23,127 +23,102 @@ import { Sidebar } from './components/Sidebar';
 import { TopbarProvider } from './contexts/TopbarContext';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 import Topbar from './components/Shared/Topbar';
+import LoginPage from './pages/LoginPage';
+import { UnifiedDashboard } from './pages/UnifiedDashboard';
+import Dashboard from './pages/Dashboard';
+import FinOpsPage from './pages/FinOpsPage';
+import CostPage from './pages/CostPage';
+import WastePage from './pages/WastePage';
+import RightsizingPage from './pages/RightsizingPage';
+import ReservationPage from './pages/ReservationPage';
+import CloudSitterPage from './pages/CloudSitterPage';
+import SpotAutomationPage from './pages/SpotAutomationPage';
+import ASGDetailPage from './pages/ASGDetailPage';
+import ASGConfigPage from './pages/ASGConfigPage';
+import GrafanaDashboardPage from './pages/GrafanaDashboardPage';
+import CloudK8sPage from './pages/CloudK8sPage';
+import EksDetailsPage from './pages/EksDetailsPage';
+import GkeDetailsPage from './pages/GkeDetailsPage';
+import AksDetailsPage from './pages/AksDetailsPage';
+import SecurityPage from './pages/SecurityPage';
+import PerformancePage from './pages/PerformancePage';
+import AlertsPage from './pages/AlertsPage';
+import TicketsPage from './pages/TicketsPage';
+import TicketDetailPage from './pages/TicketDetailPage';
+import CloudListPage from './pages/CloudListPage';
+import ResourceLabelsPage from './pages/ResourceLabelsPage';
+import CloudShellPage from './pages/CloudShellPage';
+import AccountManagerPage from './pages/AccountManagerPage';
+import AddAccountPage from './pages/AddAccountPage';
+import AddGcpAccountPage from './pages/AddGcpAccountPage';
+import GitHubConfigPage from './pages/GitHubConfigPage';
+import DevOpsInTheBoxPage from './pages/DevOpsInTheBoxPage';
+import CICDPipelinesPage from './pages/CICDPipelinesPage';
+import SonarQubePage from './pages/SonarQubePage';
+import AIOpsPage from './pages/AIOpsPage';
+import DataOpsPage from './pages/DataOpsPage';
+import GcpDataOpsPage from './pages/GcpDataOpsPage';
+import BillOpsUserDashboardPage from './pages/BillOpsUserDashboardPage';
+import BillingPage from './pages/BillingPage';
+import InvoicesPage from './pages/InvoicesPage';
+import CreditsPage from './pages/CreditsPage';
+import BillOpsTicketsPage from './pages/BillOpsTicketsPage';
+import BillOpsTicketDetailPage from './pages/BillOpsTicketDetailPage';
+import BillOpsSupportDashboardPage from './pages/BillOpsSupportDashboardPage';
+import BillOpsAdminDashboardPage from './pages/BillOpsAdminDashboardPage';
+import BillOpsAdminMarketplaceBillingPage from './pages/BillOpsAdminMarketplaceBillingPage';
+import AutoSpottingAdminDashboardPage from './pages/AutoSpottingAdminDashboardPage';
+import BillOpsAdminInvoicesPage from './pages/BillOpsAdminInvoicesPage';
+import BillOpsAdminInvoiceDetailPage from './pages/BillOpsAdminInvoiceDetailPage';
+import BillOpsAdminCreditsPage from './pages/BillOpsAdminCreditsPage';
+import BillOpsAdminTicketsPage from './pages/BillOpsAdminTicketsPage';
+import AgreementsPage from './pages/AgreementsPage';
+import BillOpsAdminAgreementsPage from './pages/BillOpsAdminAgreementsPage';
+import MarketplacePurchasesPage from './pages/MarketplacePurchasesPage';
+import WorkspaceLicensesPage from './pages/WorkspaceLicensesPage';
+import UserManagementPage from './pages/UserManagementPage';
+import MyProfilePage from './pages/MyProfilePage';
+import ComplianceOpsPage from './pages/ComplianceOpsPage';
+import BillOpsAdminUserManagerPage from './pages/BillOpsAdminUserManagerPage';
+import ClientDetailsPage from './pages/ClientDetailsPage';
+import GcpDashboard from './pages/GcpDashboard';
+import GcpFinOpsPage from './pages/GcpFinOpsPage';
+import GcpCostPage from './pages/GcpCostPage';
+import GcpWastePage from './pages/GcpWastePage';
+import GcpRightsizingPage from './pages/GcpRightsizingPage';
+import AzureRightsizingPage from './pages/AzureRightsizingPage';
+import AzureWastePage from './pages/AzureWastePage';
+import GcpReservationsPage from './pages/GcpReservationsPage';
+import AzureReservationsPage from './pages/AzureReservationsPage';
+import GcpCloudK8sPage from './pages/GcpCloudK8sPage';
+import GcpSecurityPage from './pages/GcpSecurityPage';
+import AzureSecurityPage from './pages/AzureSecurityPage';
+import GcpPerformancePage from './pages/GcpPerformancePage';
+import AzurePerformancePage from './pages/AzurePerformancePage';
+import GcpAlertsPage from './pages/GcpAlertsPage';
+import AzureAlertsPage from './pages/AzureAlertsPage';
+import GcpBillingPage from './pages/GcpBillingPage';
+import GcpSpotAutomationPage from './pages/GcpSpotAutomationPage';
+import AzureSpotAutomationPage from './pages/AzureSpotAutomationPage';
+import CalculatorPage from './pages/CalculatorPage';
+import GcpCloudListPage from './pages/GcpCloudListPage';
+import CloudMapPage from './pages/CloudMapPage';
+import GcpCloudMapPage from './pages/GcpCloudMapPage';
+import AzureDashboard from './pages/AzureDashboard';
+import AzureCloudList from './pages/AzureCloudList';
+import AzureFinOpsPage from './pages/AzureFinOpsPage';
+import AzureCostPage from './pages/AzureCostPage';
+import FlexComputePage from './pages/FlexComputePage';
+import EbsRightsizingPage from './pages/EbsRightsizingPage';
+import AzureCloudK8sPage from './pages/AzureCloudK8sPage';
+import ObservabilityPage from './pages/ObservabilityPage';
 import { SupportChatWidget } from './components/SupportChat';
 import AdminSupportNotificationListener from './components/Shared/AdminSupportNotificationListener';
 import UserSupportNotificationListener from './components/Shared/UserSupportNotificationListener';
 import ErrorBoundary from './components/Shared/ErrorBoundary';
 import RouteChangeHandler from './components/Shared/RouteChangeHandler';
-import { CommandPalette } from './components/Shared/CommandPalette';
 import { GooeyToaster } from 'goey-toast';
 import 'goey-toast/styles.css';
-
-// ─── Lazy page imports ────────────────────────────────────────────────────────
-// Login is kept eager — it's the entry point, always needed immediately.
-import LoginPage from './pages/LoginPage';
-
-// Dashboards
-const UnifiedDashboard          = lazy(() => import('./pages/UnifiedDashboard').then(m => ({ default: m.UnifiedDashboard })));
-const Dashboard                 = lazy(() => import('./pages/Dashboard'));
-const GcpDashboard              = lazy(() => import('./pages/GcpDashboard'));
-const AzureDashboard            = lazy(() => import('./pages/AzureDashboard'));
-
-// AWS — FinOps & Cost
-const FinOpsPage                = lazy(() => import('./pages/FinOpsPage'));
-const CostPage                  = lazy(() => import('./pages/CostPage'));
-const WastePage                 = lazy(() => import('./pages/WastePage'));
-const RightsizingPage           = lazy(() => import('./pages/RightsizingPage'));
-const ReservationPage           = lazy(() => import('./pages/ReservationPage'));
-const EbsRightsizingPage        = lazy(() => import('./pages/EbsRightsizingPage'));
-const FlexComputePage           = lazy(() => import('./pages/FlexComputePage'));
-
-// AWS — Infrastructure
-const CloudSitterPage           = lazy(() => import('./pages/CloudSitterPage'));
-const SpotAutomationPage        = lazy(() => import('./pages/SpotAutomationPage'));
-const ASGDetailPage             = lazy(() => import('./pages/ASGDetailPage'));
-const ASGConfigPage             = lazy(() => import('./pages/ASGConfigPage'));
-const CloudK8sPage              = lazy(() => import('./pages/CloudK8sPage'));
-const EksDetailsPage            = lazy(() => import('./pages/EksDetailsPage'));
-const CloudListPage             = lazy(() => import('./pages/CloudListPage'));
-const CloudMapPage              = lazy(() => import('./pages/CloudMapPage'));
-const CloudShellPage            = lazy(() => import('./pages/CloudShellPage'));
-const ResourceLabelsPage        = lazy(() => import('./pages/ResourceLabelsPage'));
-const GrafanaDashboardPage      = lazy(() => import('./pages/GrafanaDashboardPage'));
-
-// AWS — Security & Monitoring
-const SecurityPage              = lazy(() => import('./pages/SecurityPage'));
-const PerformancePage           = lazy(() => import('./pages/PerformancePage'));
-const AlertsPage                = lazy(() => import('./pages/AlertsPage'));
-
-// GCP
-const GcpFinOpsPage             = lazy(() => import('./pages/GcpFinOpsPage'));
-const GcpCostPage               = lazy(() => import('./pages/GcpCostPage'));
-const GcpWastePage              = lazy(() => import('./pages/GcpWastePage'));
-const GcpRightsizingPage        = lazy(() => import('./pages/GcpRightsizingPage'));
-const GcpReservationsPage       = lazy(() => import('./pages/GcpReservationsPage'));
-const GcpCloudK8sPage           = lazy(() => import('./pages/GcpCloudK8sPage'));
-const GkeDetailsPage            = lazy(() => import('./pages/GkeDetailsPage'));
-const GcpCloudListPage          = lazy(() => import('./pages/GcpCloudListPage'));
-const GcpCloudMapPage           = lazy(() => import('./pages/GcpCloudMapPage'));
-const GcpSecurityPage           = lazy(() => import('./pages/GcpSecurityPage'));
-const GcpPerformancePage        = lazy(() => import('./pages/GcpPerformancePage'));
-const GcpAlertsPage             = lazy(() => import('./pages/GcpAlertsPage'));
-const GcpBillingPage            = lazy(() => import('./pages/GcpBillingPage'));
-const GcpSpotAutomationPage     = lazy(() => import('./pages/GcpSpotAutomationPage'));
-const GcpDataOpsPage            = lazy(() => import('./pages/GcpDataOpsPage'));
-
-// Azure
-const AzureFinOpsPage           = lazy(() => import('./pages/AzureFinOpsPage'));
-const AzureCostPage             = lazy(() => import('./pages/AzureCostPage'));
-const AzureWastePage            = lazy(() => import('./pages/AzureWastePage'));
-const AzureRightsizingPage      = lazy(() => import('./pages/AzureRightsizingPage'));
-const AzureReservationsPage     = lazy(() => import('./pages/AzureReservationsPage'));
-const AzureCloudK8sPage         = lazy(() => import('./pages/AzureCloudK8sPage'));
-const AksDetailsPage            = lazy(() => import('./pages/AksDetailsPage'));
-const AzureCloudList            = lazy(() => import('./pages/AzureCloudList'));
-const AzureSecurityPage         = lazy(() => import('./pages/AzureSecurityPage'));
-const AzurePerformancePage      = lazy(() => import('./pages/AzurePerformancePage'));
-const AzureAlertsPage           = lazy(() => import('./pages/AzureAlertsPage'));
-const AzureSpotAutomationPage   = lazy(() => import('./pages/AzureSpotAutomationPage'));
-
-// DevOps & Tools
-const AccountManagerPage        = lazy(() => import('./pages/AccountManagerPage'));
-const AddAccountPage            = lazy(() => import('./pages/AddAccountPage'));
-const AddGcpAccountPage         = lazy(() => import('./pages/AddGcpAccountPage'));
-const GitHubConfigPage          = lazy(() => import('./pages/GitHubConfigPage'));
-const DevOpsInTheBoxPage        = lazy(() => import('./pages/DevOpsInTheBoxPage'));
-const CICDPipelinesPage         = lazy(() => import('./pages/CICDPipelinesPage'));
-const SonarQubePage             = lazy(() => import('./pages/SonarQubePage'));
-const AIOpsPage                 = lazy(() => import('./pages/AIOpsPage'));
-const DataOpsPage               = lazy(() => import('./pages/DataOpsPage'));
-const ObservabilityPage         = lazy(() => import('./pages/ObservabilityPage'));
-const ComplianceOpsPage         = lazy(() => import('./pages/ComplianceOpsPage'));
-const CalculatorPage            = lazy(() => import('./pages/CalculatorPage'));
-
-// BillOps — User
-const BillOpsUserDashboardPage  = lazy(() => import('./pages/BillOpsUserDashboardPage'));
-const BillingPage               = lazy(() => import('./pages/BillingPage'));
-const InvoicesPage              = lazy(() => import('./pages/InvoicesPage'));
-const CreditsPage               = lazy(() => import('./pages/CreditsPage'));
-const BillOpsTicketsPage        = lazy(() => import('./pages/BillOpsTicketsPage'));
-const BillOpsTicketDetailPage   = lazy(() => import('./pages/BillOpsTicketDetailPage'));
-const AgreementsPage            = lazy(() => import('./pages/AgreementsPage'));
-const MarketplacePurchasesPage  = lazy(() => import('./pages/MarketplacePurchasesPage'));
-const WorkspaceLicensesPage     = lazy(() => import('./pages/WorkspaceLicensesPage'));
-
-// BillOps — Admin
-const BillOpsSupportDashboardPage       = lazy(() => import('./pages/BillOpsSupportDashboardPage'));
-const BillOpsAdminDashboardPage         = lazy(() => import('./pages/BillOpsAdminDashboardPage'));
-const AutoSpottingAdminDashboardPage    = lazy(() => import('./pages/AutoSpottingAdminDashboardPage'));
-const BillOpsAdminInvoicesPage          = lazy(() => import('./pages/BillOpsAdminInvoicesPage'));
-const BillOpsAdminInvoiceDetailPage     = lazy(() => import('./pages/BillOpsAdminInvoiceDetailPage'));
-const BillOpsAdminCreditsPage           = lazy(() => import('./pages/BillOpsAdminCreditsPage'));
-const BillOpsAdminTicketsPage           = lazy(() => import('./pages/BillOpsAdminTicketsPage'));
-const BillOpsAdminAgreementsPage        = lazy(() => import('./pages/BillOpsAdminAgreementsPage'));
-const BillOpsAdminMarketplaceBillingPage = lazy(() => import('./pages/BillOpsAdminMarketplaceBillingPage'));
-const BillOpsAdminUserManagerPage       = lazy(() => import('./pages/BillOpsAdminUserManagerPage'));
-const ClientDetailsPage                 = lazy(() => import('./pages/ClientDetailsPage'));
-
-// Settings & Profile
-const TicketsPage               = lazy(() => import('./pages/TicketsPage'));
-const TicketDetailPage          = lazy(() => import('./pages/TicketDetailPage'));
-const UserManagementPage        = lazy(() => import('./pages/UserManagementPage'));
-const MyProfilePage             = lazy(() => import('./pages/MyProfilePage'));
-// ─────────────────────────────────────────────────────────────────────────────
 
 
 // Import styles
@@ -295,7 +270,7 @@ const DashboardGuard: React.FC = () => {
   const [billopsRedirect, setBillopsRedirect] = React.useState<string | null>(null);
 
   React.useEffect(() => {
-    if (isLoading || (!hasAnyRole('ROLE_BILLOPS_ADMIN') && !hasAnyRole('ROLE_BILLOPS_ADMIN_SUB')) || hasAnyRole('ROLE_SUPER_ADMIN')) return;
+    if (isLoading || !hasAnyRole('ROLE_BILLOPS_ADMIN') || hasAnyRole('ROLE_SUPER_ADMIN')) return;
 
     fetch('/api/billops/team/profile', { credentials: 'include' })
       .then(r => r.ok ? r.json() : null)
@@ -320,7 +295,7 @@ const DashboardGuard: React.FC = () => {
     );
   }
 
-  if ((hasAnyRole('ROLE_BILLOPS_ADMIN') || hasAnyRole('ROLE_BILLOPS_ADMIN_SUB')) && !hasAnyRole('ROLE_SUPER_ADMIN')) {
+  if (hasAnyRole('ROLE_BILLOPS_ADMIN') && !hasAnyRole('ROLE_SUPER_ADMIN')) {
     if (!billopsRedirect) {
       // Profile fetch still in-flight — show spinner to avoid flash to wrong page
       return (
@@ -376,21 +351,10 @@ const AuthenticatedLayout: React.FC = () => {
           style={{ WebkitOverflowScrolling: 'touch' }}
         >
           <Topbar />
-          <div className="flex-1 pt-6">
-            <Suspense fallback={
-              <div className="flex items-center justify-center h-full min-h-[60vh]">
-                <div className="flex flex-col items-center gap-3">
-                  <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-                  <span className="text-sm text-gray-400">Loading...</span>
-                </div>
-              </div>
-            }>
-              <Outlet />
-            </Suspense>
+          <div className="flex-1 pt-6 flex flex-col">
+            <Outlet />
           </div>
         </div>
-        {/* Global Command Palette — open with Cmd+K / Ctrl+K */}
-        <CommandPalette />
         {/* Support Chat Widget - Visible on all authenticated pages for ROLE_XAMOPS users */}
         <SupportChatWidget />
         {/* Admin Support Notifications - Background listener for ROLE_BILLOPS_ADMIN */}

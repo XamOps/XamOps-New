@@ -23,7 +23,7 @@ public class AgreementController {
     }
 
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
+    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
     public ResponseEntity<AgreementDto> uploadAgreement(
             @RequestParam("accountId") String accountIdentifier, // CHANGED from Long to String
             @RequestParam("file") MultipartFile file,
@@ -34,13 +34,13 @@ public class AgreementController {
     }
 
     @PutMapping("/{id}/finalize")
-    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
+    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
     public ResponseEntity<AgreementDto> finalizeAgreement(@PathVariable Long id) {
         return ResponseEntity.ok(agreementService.finalizeAgreement(id));
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
+    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
     public ResponseEntity<Void> deleteAgreement(@PathVariable Long id) {
         agreementService.deleteAgreement(id);
         return ResponseEntity.noContent().build();
@@ -52,7 +52,7 @@ public class AgreementController {
             Authentication authentication) {
 
         boolean isAdmin = authentication.getAuthorities().stream()
-                .anyMatch(a -> a.getAuthority().equals("ROLE_BILLOPS_ADMIN") || a.getAuthority().equals("ROLE_BILLOPS_ADMIN_SUB"));
+                .anyMatch(a -> a.getAuthority().equals("ROLE_BILLOPS_ADMIN"));
 
         return ResponseEntity.ok(agreementService.getAgreementsForAccount(accountIdentifier, isAdmin));
     }

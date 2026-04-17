@@ -7,8 +7,7 @@ export type UserRole =
   | 'ROLE_ADMIN'
   | 'ROLE_SUPER_ADMIN'
   | 'ROLE_BILLOPS'
-  | 'ROLE_BILLOPS_ADMIN'
-  | 'ROLE_BILLOPS_ADMIN_SUB';
+  | 'ROLE_BILLOPS_ADMIN';
 
 export interface UserProfile {
   id?: number;

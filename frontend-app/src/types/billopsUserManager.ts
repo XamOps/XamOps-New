@@ -8,7 +8,7 @@
 /**
  * Available roles for BillOps users
  */
-export type BillOpsRole = 'ROLE_BILLOPS' | 'ROLE_BILLOPS_ADMIN' | 'ROLE_BILLOPS_ADMIN_SUB' | 'ROLE_XAMOPS';
+export type BillOpsRole = 'ROLE_BILLOPS' | 'ROLE_BILLOPS_ADMIN' | 'ROLE_XAMOPS';
 
 /**
  * BillOps User entity
