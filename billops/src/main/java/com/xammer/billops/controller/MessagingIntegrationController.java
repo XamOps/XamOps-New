@@ -21,14 +21,16 @@ import java.util.*;
  * Admin API for managing messaging platform integrations.
  *
  * Platform config (admin, one-time):
- *   GET    /api/billops/messaging/config              → list all platform configs (tokens masked)
- *   POST   /api/billops/messaging/config              → save / update a platform config
- *   DELETE /api/billops/messaging/config/{platform}   → disable a platform
+ * GET /api/billops/messaging/config → list all platform configs (tokens masked)
+ * POST /api/billops/messaging/config → save / update a platform config
+ * DELETE /api/billops/messaging/config/{platform} → disable a platform
  *
  * Per-user connections (admin sets per conversation):
- *   GET    /api/billops/messaging/users/{userId}/connections               → user's connections
- *   POST   /api/billops/messaging/users/{userId}/connections               → add / update connection
- *   DELETE /api/billops/messaging/users/{userId}/connections/{platform}    → remove connection
+ * GET /api/billops/messaging/users/{userId}/connections → user's connections
+ * POST /api/billops/messaging/users/{userId}/connections → add / update
+ * connection
+ * DELETE /api/billops/messaging/users/{userId}/connections/{platform} → remove
+ * connection
  */
 @RestController
 @RequestMapping("/api/billops/messaging")
@@ -44,8 +46,8 @@ public class MessagingIntegrationController {
     private final RestTemplate restTemplate = new RestTemplate();
 
     public MessagingIntegrationController(MessagingIntegrationConfigRepository configRepo,
-                                          UserPlatformConnectionRepository connectionRepo,
-                                          AppUserRepository appUserRepository) {
+            UserPlatformConnectionRepository connectionRepo,
+            AppUserRepository appUserRepository) {
         this.configRepo = configRepo;
         this.connectionRepo = connectionRepo;
         this.appUserRepository = appUserRepository;
@@ -89,7 +91,6 @@ public class MessagingIntegrationController {
         if (payload.containsKey("signingSecret") && !payload.get("signingSecret").isBlank()) {
             config.setSigningSecret(payload.get("signingSecret"));
         }
-<<<<<<< HEAD
         if (payload.containsKey("clientId") && !payload.get("clientId").isBlank()) {
             config.setClientId(payload.get("clientId"));
         }
@@ -99,8 +100,6 @@ public class MessagingIntegrationController {
         if (payload.containsKey("serviceAccountJson") && !payload.get("serviceAccountJson").isBlank()) {
             config.setServiceAccountJson(payload.get("serviceAccountJson"));
         }
-=======
->>>>>>> 85fe1571bf128933040aa0ac925b377cef6782e2
         if (payload.containsKey("label")) {
             config.setLabel(payload.get("label"));
         }
@@ -167,9 +166,12 @@ public class MessagingIntegrationController {
         conn.setUpdatedAt(LocalDateTime.now(IST));
         conn.setActive(true);
 
-        if (payload.containsKey("webhookUrl")) conn.setWebhookUrl(payload.get("webhookUrl"));
-        if (payload.containsKey("channelId"))  conn.setChannelId(payload.get("channelId"));
-        if (payload.containsKey("platformUserId")) conn.setPlatformUserId(payload.get("platformUserId"));
+        if (payload.containsKey("webhookUrl"))
+            conn.setWebhookUrl(payload.get("webhookUrl"));
+        if (payload.containsKey("channelId"))
+            conn.setChannelId(payload.get("channelId"));
+        if (payload.containsKey("platformUserId"))
+            conn.setPlatformUserId(payload.get("platformUserId"));
 
         UserPlatformConnection saved = connectionRepo.save(conn);
         return ResponseEntity.ok(connectionToMap(saved));
@@ -251,8 +253,10 @@ public class MessagingIntegrationController {
                             "https://slack.com/api/conversations.open",
                             HttpMethod.POST, req2, Map.class);
                     Map<?, ?> openBody = openResp.getBody();
-                    result.put("step4_conversationsOpen_ok", openBody != null && Boolean.TRUE.equals(openBody.get("ok")));
-                    result.put("step4_conversationsOpen_error", openBody != null ? openBody.get("error") : "no response");
+                    result.put("step4_conversationsOpen_ok",
+                            openBody != null && Boolean.TRUE.equals(openBody.get("ok")));
+                    result.put("step4_conversationsOpen_error",
+                            openBody != null ? openBody.get("error") : "no response");
                     if (openBody != null && Boolean.TRUE.equals(openBody.get("ok"))) {
                         Map<?, ?> channel = (Map<?, ?>) openBody.get("channel");
                         result.put("step4_dmChannelId", channel != null ? channel.get("id") : null);
@@ -279,13 +283,10 @@ public class MessagingIntegrationController {
         // Mask sensitive values — only show whether they are configured
         m.put("botTokenConfigured", c.getBotToken() != null && !c.getBotToken().isBlank());
         m.put("signingSecretConfigured", c.getSigningSecret() != null && !c.getSigningSecret().isBlank());
-<<<<<<< HEAD
         m.put("clientIdConfigured", c.getClientId() != null && !c.getClientId().isBlank());
         m.put("clientSecretConfigured", c.getClientSecret() != null && !c.getClientSecret().isBlank());
         m.put("clientId", c.getClientId());
         m.put("serviceAccountConfigured", c.getServiceAccountJson() != null && !c.getServiceAccountJson().isBlank());
-=======
->>>>>>> 85fe1571bf128933040aa0ac925b377cef6782e2
         return m;
     }
 
@@ -297,12 +298,9 @@ public class MessagingIntegrationController {
         m.put("webhookUrl", c.getWebhookUrl());
         m.put("channelId", c.getChannelId());
         m.put("platformUserId", c.getPlatformUserId());
-<<<<<<< HEAD
         m.put("workspaceId", c.getWorkspaceId());
         // Don't expose the token itself — only whether OAuth has been completed
         m.put("oauthConnected", c.getUserBotToken() != null && !c.getUserBotToken().isBlank());
-=======
->>>>>>> 85fe1571bf128933040aa0ac925b377cef6782e2
         m.put("active", c.isActive());
         m.put("createdAt", c.getCreatedAt() != null ? c.getCreatedAt().toString() : null);
         m.put("updatedAt", c.getUpdatedAt() != null ? c.getUpdatedAt().toString() : null);
