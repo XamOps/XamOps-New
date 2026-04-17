@@ -48,14 +48,16 @@ public class AppUserService {
             throw new RuntimeException("Username already exists: " + dto.getUsername());
         }
 
-        // Resolve the caller to detect ROLE_BILLOPS_ADMIN_SUB (for client ownership tagging)
-        String callerUsername = SecurityContextHolder.getContext().getAuthentication() != null
-                ? SecurityContextHolder.getContext().getAuthentication().getName()
-                : null;
+        // Resolve the caller to detect ROLE_BILLOPS_ADMIN_SUB (for client ownership + createdBy tagging)
+        // Use SecurityContext authority as authoritative role (DB role field may be null for sub-admins)
+        org.springframework.security.core.Authentication callerAuth =
+                SecurityContextHolder.getContext().getAuthentication();
+        String callerUsername = callerAuth != null ? callerAuth.getName() : null;
+        boolean callerIsSubAdmin = callerAuth != null && callerAuth.getAuthorities().stream()
+                .anyMatch(a -> "ROLE_BILLOPS_ADMIN_SUB".equals(a.getAuthority()));
         AppUser callerUser = (callerUsername != null)
                 ? appUserRepository.findByUsername(callerUsername).orElse(null)
                 : null;
-        boolean callerIsSubAdmin = callerUser != null && "ROLE_BILLOPS_ADMIN_SUB".equals(callerUser.getRole());
 
         // Handle client
         Client client = clientRepository.findByName(dto.getClientName());
@@ -77,9 +79,14 @@ public class AppUserService {
                 dto.getRole(), client);
         user.setContact(dto.getContact());
         user.setDesignation(dto.getDesignation());
-        // Set parent relationship if this is a sub-user
+        // Set parent relationship: use explicit parentId from form, or auto-derive from calling sub-admin
         if (dto.getParentId() != null) {
             user.setCreatedBy(dto.getParentId());
+        } else if (callerIsSubAdmin && callerUser != null) {
+            // Sub-admin is creating this user — auto-tag createdBy so ticket/data scoping works
+            user.setCreatedBy(callerUser.getId());
+            log.info("Auto-set createdBy={} for new user '{}' created by SUB_ADMIN '{}'",
+                    callerUser.getId(), dto.getUsername(), callerUser.getUsername());
         }
         AppUser savedUser = appUserRepository.save(user);
 

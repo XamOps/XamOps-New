@@ -9,7 +9,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.builders.WebSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configuration.WebSecurityCustomizer;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
@@ -18,6 +20,7 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import org.springframework.core.annotation.Order;
 import java.util.Arrays;
 import static org.springframework.security.config.Customizer.withDefaults;
 
@@ -47,6 +50,15 @@ public class SecurityConfig {
         return authProvider;
     }
 
+    /** Completely bypass Spring Security for webhook + OAuth callback endpoints — no auth, no filters */
+    @Bean
+    public WebSecurityCustomizer webSecurityCustomizer() {
+        return (web) -> web.ignoring()
+                .antMatchers("/api/billops/webhook/**")
+                .antMatchers("/api/billops/slack/oauth/callback")
+                .antMatchers("/api/billops/teams/app/manifest.zip");
+    }
+
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
@@ -62,8 +74,9 @@ public class SecurityConfig {
                                 new AntPathRequestMatcher("/css/**"),
                                 new AntPathRequestMatcher("/js/**"),
                                 new AntPathRequestMatcher("/icons/**"),
-                                // Add public API endpoints if needed
-                                new AntPathRequestMatcher("/api/admin/cloudfront/**"))
+                                new AntPathRequestMatcher("/api/admin/cloudfront/**"),
+                                // External platform webhooks — must be public (no session/auth)
+                                new AntPathRequestMatcher("/api/billops/webhook/**"))
                         .permitAll()
                         // BillOps Admin Dashboard - ROLE_BILLOPS_ADMIN and ROLE_BILLOPS_ADMIN_SUB
                         .requestMatchers(new AntPathRequestMatcher("/billops/dashboard_admin.html"))

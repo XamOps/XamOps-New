@@ -21,6 +21,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { apiFetch } from '../utils/apiClient';
 import { useAccounts } from '../contexts/AccountContext';
+import { useAuth } from '../contexts/AuthContext';
 import type {
   CreditRequest,
   NewCreditRequest,
@@ -31,7 +32,8 @@ import type {
 const POLL_INTERVAL = 5000; // 5 seconds (same as original)
 
 export const useCredits = (): UseCreditsReturn => {
-  const { selectedAccountIds } = useAccounts();
+  const { selectedAccountIds, accounts, isLoading: accountsLoading } = useAccounts();
+  const { userProfile } = useAuth();
   const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
 
   const [creditRequests, setCreditRequests] = useState<CreditRequest[]>([]);
@@ -50,8 +52,7 @@ export const useCredits = (): UseCreditsReturn => {
   const pollingIntervalRef = useRef<number | null>(null);
   const isMountedRef = useRef(true);
 
-  // TODO: Get actual userId from auth context
-  const userId = 1;
+  const userId = userProfile?.id ?? 0;
 
   /**
    * Fetch credit requests from API
@@ -195,6 +196,13 @@ export const useCredits = (): UseCreditsReturn => {
   useEffect(() => {
     isMountedRef.current = true;
 
+    // Don't fetch if accounts are still loading or user has no accounts
+    if (accountsLoading) return;
+    if (accounts.length === 0) {
+      setLoading(false);
+      return () => { isMountedRef.current = false; };
+    }
+
     // Initial fetch
     fetchRequests();
 
@@ -211,7 +219,7 @@ export const useCredits = (): UseCreditsReturn => {
         clearInterval(pollingIntervalRef.current);
       }
     };
-  }, [fetchRequests]);
+  }, [fetchRequests, accounts.length, accountsLoading]);
 
   return {
     creditRequests,

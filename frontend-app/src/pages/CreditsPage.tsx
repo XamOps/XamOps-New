@@ -29,10 +29,14 @@
 import React, { useEffect } from 'react';
 import { useCredits } from '../hooks/useCredits';
 import { useTopbar } from '../contexts/TopbarContext';
+import { useAccounts } from '../contexts/AccountContext';
 import type { CreditRequest, CreditFilter } from '../types/credits';
 import { DialogRoot, DialogPanel } from '../components/ui';
 
 const CreditsPage: React.FC = () => {
+  const { accounts, isLoading: accountsLoading } = useAccounts();
+  const hasAccounts = accounts.length > 0;
+
   const {
     filteredRequests,
     loading,
@@ -172,8 +176,28 @@ const CreditsPage: React.FC = () => {
           </div>
         </div>
 
+        {/* No Accounts Empty State */}
+        {!accountsLoading && !hasAccounts && (
+          <div className="text-center py-24 bg-white border border-amber-100 rounded-2xl shadow-sm">
+            <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-amber-50 mb-6">
+              <i className="fas fa-plug text-amber-400 text-4xl" />
+            </div>
+            <h3 className="text-xl font-bold text-gray-900 mb-2">No Accounts Connected</h3>
+            <p className="text-gray-500 max-w-sm mx-auto mb-6">
+              Connect a cloud account to manage credit requests.
+            </p>
+            <a
+              href="/account-manager"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-500/20"
+            >
+              <i className="fas fa-plus" />
+              Add Account
+            </a>
+          </div>
+        )}
+
         {/* Credit Requests List */}
-        {loading ? (
+        {(accountsLoading || hasAccounts) && (loading ? (
           <div className="space-y-6">
             {[1, 2, 3].map((i) => (
               <div key={i} className="bg-white border border-gray-200 rounded-2xl h-64 overflow-hidden shadow-sm">
@@ -205,7 +229,7 @@ const CreditsPage: React.FC = () => {
               </div>
             ))}
           </div>
-        )}
+        ))}
       </main>
 
       {/* New Request Form Modal */}

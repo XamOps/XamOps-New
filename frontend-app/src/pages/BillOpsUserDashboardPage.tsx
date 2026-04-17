@@ -29,9 +29,13 @@ import Chart from 'chart.js/auto';
 import { useBillOpsUserDashboard } from '../hooks/useBillOpsUserDashboard';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useCurrency } from '../hooks/useCurrency';
+import { useAccounts } from '../contexts/AccountContext';
 import type { CloudAccount, Invoice, Ticket, SpendingTrendItem } from '../types/billopsUserDashboard';
 
 const BillOpsUserDashboardPage: React.FC = () => {
+  const { accounts, isLoading: accountsLoading } = useAccounts();
+  const hasAccounts = accounts.length > 0;
+
   const { data, loading, isRefreshing, error, refreshDashboard } = useBillOpsUserDashboard();
   const { setActions, clearActions } = useTopbar();
   const { loadRates, convert } = useCurrency();
@@ -393,8 +397,29 @@ const BillOpsUserDashboardPage: React.FC = () => {
 
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto p-8 space-y-6 billops-scrollbar">
+
+        {/* No Accounts Empty State */}
+        {!accountsLoading && !hasAccounts && (
+          <div className="text-center py-24 bg-white border border-amber-100 rounded-2xl shadow-sm">
+            <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-amber-50 mb-6">
+              <i className="fas fa-plug text-amber-400 text-4xl" />
+            </div>
+            <h3 className="text-xl font-bold text-gray-900 mb-2">No Accounts Connected</h3>
+            <p className="text-gray-500 max-w-sm mx-auto mb-6">
+              Connect a cloud account to view your dashboard.
+            </p>
+            <a
+              href="/account-manager"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-500/20"
+            >
+              <i className="fas fa-plus" />
+              Add Account
+            </a>
+          </div>
+        )}
+
         {/* Error State */}
-        {error && (
+        {(accountsLoading || hasAccounts) && error && (
           <div className="billops-error-alert p-4 rounded-r shadow-sm">
             <div className="flex items-center gap-3">
               <i className="fas fa-exclamation-circle text-red-500 text-xl" />
@@ -402,6 +427,9 @@ const BillOpsUserDashboardPage: React.FC = () => {
             </div>
           </div>
         )}
+
+        {/* Main dashboard content — only when accounts exist */}
+        {(accountsLoading || hasAccounts) && <>
 
         {/* Stats Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -759,6 +787,9 @@ const BillOpsUserDashboardPage: React.FC = () => {
             </div>
           </div>
         </div>
+
+        </> /* end accountsLoading || hasAccounts */
+        }
       </main>
     </div>
   );

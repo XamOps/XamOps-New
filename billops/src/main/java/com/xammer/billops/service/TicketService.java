@@ -273,15 +273,22 @@ public class TicketService {
                     .collect(Collectors.toList());
         }
 
-        AppUser currentUser = appUserRepository.findById(userId).orElse(null);
-
-        // Primary admin — no restriction
-        if (currentUser == null || currentUser.getCreatedBy() == null) {
+        // Only BILLOPS_ADMIN (primary) sees all tickets — any non-admin role is filtered
+        boolean isAdmin = effectiveRole != null && effectiveRole.contains("BILLOPS_ADMIN");
+        if (isAdmin) {
             return tickets;
         }
 
-        // Sub-user: resolve allowed provider account ID strings
-        List<Long> allowedDbIds = userCloudAccountAccessRepository.findCloudAccountIdsByUserId(userId);
+        AppUser currentUser = appUserRepository.findById(userId).orElse(null);
+        if (currentUser == null && auth != null) {
+            currentUser = appUserRepository.findByUsername(auth.getName()).orElse(null);
+        }
+        if (currentUser == null) {
+            return java.util.Collections.emptyList();
+        }
+
+        // Non-admin: resolve allowed provider account ID strings
+        List<Long> allowedDbIds = userCloudAccountAccessRepository.findCloudAccountIdsByUserId(currentUser.getId());
         if (allowedDbIds.isEmpty()) {
             return java.util.Collections.emptyList();
         }
@@ -292,7 +299,7 @@ public class TicketService {
                 .filter(id -> id != null && !id.isEmpty())
                 .collect(java.util.stream.Collectors.toSet());
 
-        logger.debug("Sub-user {} allowed provider account IDs: {}", userId, allowedProviderIds);
+        logger.debug("Sub-user {} allowed provider account IDs: {}", currentUser.getId(), allowedProviderIds);
 
         return tickets.stream()
                 .filter(t -> t.getAccountId() != null && allowedProviderIds.contains(t.getAccountId()))

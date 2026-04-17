@@ -27,11 +27,15 @@
 import React, { useEffect } from 'react';
 import { useInvoices } from '../hooks/useInvoices';
 import { useTopbar } from '../contexts/TopbarContext';
+import { useAccounts } from '../contexts/AccountContext';
 import Big from 'big.js';
 import type { InvoiceDiscount } from '../types/invoices';
 import '../styles/invoices.css';
 
 const InvoicesPage: React.FC = () => {
+  const { accounts, isLoading: accountsLoading } = useAccounts();
+  const hasAccounts = accounts.length > 0;
+
   const {
     filteredInvoices,
     selectedInvoice,
@@ -183,6 +187,29 @@ const InvoicesPage: React.FC = () => {
       >
         <div className="w-full space-y-8">
 
+          {/* No Accounts Empty State */}
+          {!accountsLoading && !hasAccounts && (
+            <div className="text-center py-24 bg-white border border-amber-100 rounded-2xl shadow-sm">
+              <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-amber-50 mb-6">
+                <i className="fas fa-plug text-amber-400 text-4xl" />
+              </div>
+              <h3 className="text-xl font-bold text-gray-900 mb-2">No Accounts Connected</h3>
+              <p className="text-gray-500 max-w-sm mx-auto mb-6">
+                Connect a cloud account to view your invoices.
+              </p>
+              <a
+                href="/account-manager"
+                className="inline-flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-500/20"
+              >
+                <i className="fas fa-plus" />
+                Add Account
+              </a>
+            </div>
+          )}
+
+          {/* Filters & Controls — only show when accounts exist */}
+          {(accountsLoading || hasAccounts) && (
+          <>
 
           {/* Filters & Controls */}
           <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex flex-col md:flex-row items-center justify-between gap-4">
@@ -640,6 +667,9 @@ const InvoicesPage: React.FC = () => {
                 </div>
               </div>
             </div>
+          )}
+
+          </>
           )}
         </div>
       </main>

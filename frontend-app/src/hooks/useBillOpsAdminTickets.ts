@@ -13,8 +13,7 @@ import {
   AdminTicketCacheData,
   AdminTicketTab
 } from '../types/billopsAdminTickets';
-
-const CACHE_KEY = 'xamops_admin_tickets_v1';
+import { useAuth } from '../contexts/AuthContext';
 
 export interface TicketFilters {
   statuses: string[];       // [] = all, or ['OPEN', 'IN_PROGRESS', 'CLOSED']
@@ -54,6 +53,12 @@ interface UseBillOpsAdminTicketsReturn {
 }
 
 export const useBillOpsAdminTickets = (): UseBillOpsAdminTicketsReturn => {
+  const { userProfile } = useAuth();
+  const cacheKeyRef = useRef(`xamops_admin_tickets_v1:${userProfile?.username ?? 'unknown'}`);
+  useEffect(() => {
+    cacheKeyRef.current = `xamops_admin_tickets_v1:${userProfile?.username ?? 'unknown'}`;
+  }, [userProfile?.username]);
+
   const [tickets, setTickets] = useState<AdminTicket[]>([]);
   const [loading, setLoading] = useState(true);
   const [isUpdating, setIsUpdating] = useState(false);
@@ -163,7 +168,7 @@ export const useBillOpsAdminTickets = (): UseBillOpsAdminTicketsReturn => {
    */
   const loadFromCache = useCallback((): boolean => {
     try {
-      const cached = localStorage.getItem(CACHE_KEY);
+      const cached = localStorage.getItem(cacheKeyRef.current);
       if (cached) {
         let cacheData: AdminTicketCacheData;
         const parsed = JSON.parse(cached);
@@ -204,7 +209,7 @@ export const useBillOpsAdminTickets = (): UseBillOpsAdminTicketsReturn => {
     if (forceRefresh) {
       console.log('🖱️ Manual refresh triggered');
       // Clear local cache so force refresh starts truly fresh
-      localStorage.removeItem(CACHE_KEY);
+      localStorage.removeItem(cacheKeyRef.current);
     }
 
     const currentHasData = hasDataRef.current;
@@ -241,7 +246,7 @@ export const useBillOpsAdminTickets = (): UseBillOpsAdminTicketsReturn => {
         data: sortedTickets,
         timestamp: now
       };
-      localStorage.setItem(CACHE_KEY, JSON.stringify(cacheData));
+      localStorage.setItem(cacheKeyRef.current, JSON.stringify(cacheData));
 
       setLastUpdated(now);
       setTickets(sortedTickets);

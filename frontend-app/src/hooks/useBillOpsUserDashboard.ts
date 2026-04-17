@@ -19,11 +19,19 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { apiFetch } from '../utils/apiClient';
 import type { BillOpsUserDashboardData, UseBillOpsUserDashboardReturn } from '../types/billopsUserDashboard';
+import { useAccounts } from '../contexts/AccountContext';
+import { useAuth } from '../contexts/AuthContext';
 
-const CACHE_KEY = 'billops_user_dashboard_data';
 const POLL_INTERVAL = 30000; // 30 seconds
 
 export const useBillOpsUserDashboard = (): UseBillOpsUserDashboardReturn => {
+  const { accounts, isLoading: accountsLoading } = useAccounts();
+  const { userProfile } = useAuth();
+  const cacheKeyRef = useRef(`billops_user_dashboard_data:${userProfile?.username ?? 'unknown'}`);
+  useEffect(() => {
+    cacheKeyRef.current = `billops_user_dashboard_data:${userProfile?.username ?? 'unknown'}`;
+  }, [userProfile?.username]);
+
   const [data, setData] = useState<BillOpsUserDashboardData | null>(null);
   const [loading, setLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -55,7 +63,7 @@ export const useBillOpsUserDashboard = (): UseBillOpsUserDashboardReturn => {
       const newData: BillOpsUserDashboardData = await response.json();
 
       // Store in LocalStorage for next time
-      localStorage.setItem(CACHE_KEY, JSON.stringify(newData));
+      localStorage.setItem(cacheKeyRef.current, JSON.stringify(newData));
 
       // Smoothly update data if changed
       if (isMountedRef.current) {
@@ -90,27 +98,21 @@ export const useBillOpsUserDashboard = (): UseBillOpsUserDashboardReturn => {
   }, [loadDashboard]);
 
   /**
-   * Initialize: Load from cache, then fetch fresh data
+   * Initialize: Fetch fresh data and start polling (only when accounts are available)
    */
   useEffect(() => {
     isMountedRef.current = true;
 
-    // 1. Load from LocalStorage immediately (Instant Load)
-    const cached = localStorage.getItem(CACHE_KEY);
-    if (cached) {
-      try {
-        const cachedData = JSON.parse(cached) as BillOpsUserDashboardData;
-        setData(cachedData);
-        console.log('✅ Loaded BillOps dashboard data from LocalStorage');
-      } catch (e) {
-        console.error('Failed to parse cached dashboard data', e);
-      }
+    if (accountsLoading) return;
+    if (accounts.length === 0) {
+      setLoading(false);
+      return () => { isMountedRef.current = false; };
     }
 
-    // 2. Fetch fresh data from backend (Background)
+    // Fetch fresh data from backend
     loadDashboard(false);
 
-    // 3. Start background polling every 30 seconds
+    // Start background polling every 30 seconds
     pollingIntervalRef.current = window.setInterval(() => {
       console.log('🔄 Auto-refreshing BillOps dashboard...');
       loadDashboard(false);
@@ -123,7 +125,7 @@ export const useBillOpsUserDashboard = (): UseBillOpsUserDashboardReturn => {
         clearInterval(pollingIntervalRef.current);
       }
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [accounts.length, accountsLoading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return {
     data,

@@ -123,6 +123,9 @@ export interface UserPlatformConnection {
   webhookUrl?: string;
   channelId?: string;
   platformUserId?: string;
+  workspaceId?: string;
+  /** true when the user has completed the Slack OAuth install flow */
+  oauthConnected?: boolean;
   active: boolean;
   createdAt?: string;
   updatedAt?: string;
@@ -138,6 +141,14 @@ export interface IntegrationConfig {
   enabled: boolean;
   botTokenConfigured: boolean;
   signingSecretConfigured: boolean;
+  /** true when Client ID has been saved (OAuth distributed app flow) */
+  clientIdConfigured: boolean;
+  /** true when Client Secret has been saved */
+  clientSecretConfigured: boolean;
+  /** Slack App Client ID — safe to expose (not the secret) */
+  clientId?: string;
+  /** true when Google Chat service account JSON has been saved */
+  serviceAccountConfigured: boolean;
   updatedAt?: string;
 }
 

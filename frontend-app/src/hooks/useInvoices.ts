@@ -33,11 +33,15 @@ import {
   notifyNewInvoice
 } from '../utils/notificationService';
 import { useAccounts } from '../contexts/AccountContext';
-
-const CACHE_KEY = 'invoices_list_admin';
+import { useAuth } from '../contexts/AuthContext';
 
 export const useInvoices = (): UseInvoicesReturn => {
-  const { selectedAccountIds } = useAccounts();
+  const { selectedAccountIds, accounts, isLoading: accountsLoading } = useAccounts();
+  const { userProfile } = useAuth();
+  const cacheKeyRef = useRef(`invoices_list_admin:${userProfile?.username ?? 'unknown'}`);
+  useEffect(() => {
+    cacheKeyRef.current = `invoices_list_admin:${userProfile?.username ?? 'unknown'}`;
+  }, [userProfile?.username]);
 
   // Data state
   const [allInvoices, setAllInvoices] = useState<Invoice[]>([]);
@@ -106,25 +110,6 @@ export const useInvoices = (): UseInvoicesReturn => {
     updateLastUpdatedDisplay();
   }, [lastUpdated, updateLastUpdatedDisplay]);
 
-  /**
-   * Load from cache
-   */
-  const loadFromCache = useCallback(() => {
-    const cached = localStorage.getItem(CACHE_KEY);
-    if (cached) {
-      try {
-        const { data, timestamp } = JSON.parse(cached);
-        if (data && Array.isArray(data)) {
-          console.log('⚡ [Invoices] Loaded from cache.');
-          setAllInvoices(data);
-          setLastUpdated(timestamp);
-          setListLoading(false);
-        }
-      } catch (e) {
-        console.warn('Failed to parse cached invoices', e);
-      }
-    }
-  }, []);
 
   /**
    * Fetch data from API
@@ -158,7 +143,7 @@ export const useInvoices = (): UseInvoicesReturn => {
         setLastUpdated(now);
 
         localStorage.setItem(
-          CACHE_KEY,
+          cacheKeyRef.current,
           JSON.stringify({
             data: data,
             timestamp: now,
@@ -368,16 +353,22 @@ export const useInvoices = (): UseInvoicesReturn => {
   }, []);
 
   /**
-   * Initialize on mount — load cache then background-refresh
+   * Initialize on mount — fetch fresh data (no stale cache shown)
    */
   useEffect(() => {
     isMountedRef.current = true;
-    loadFromCache();
+
+    if (accountsLoading) return;
+    if (accounts.length === 0) {
+      setListLoading(false);
+      return () => { isMountedRef.current = false; };
+    }
+
     fetchData(false);
     return () => {
       isMountedRef.current = false;
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [accounts.length, accountsLoading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /**
    * React to sidebar account changes (same pattern as useBillOpsTickets)

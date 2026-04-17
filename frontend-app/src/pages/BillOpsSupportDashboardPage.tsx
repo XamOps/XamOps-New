@@ -85,6 +85,9 @@ const BillOpsSupportDashboardPage: React.FC = () => {
     removeUserConnection,
     loadIntegrationConfigs,
     saveIntegrationConfig,
+    sendSlackInstallLink,
+    setupGoogleChat,
+    sendTeamsInvite,
     selectConversation,
     sendReply,
     startConversation,
@@ -156,7 +159,28 @@ const BillOpsSupportDashboardPage: React.FC = () => {
   const [integrationTab, setIntegrationTab] = useState<'SLACK' | 'TEAMS' | 'GOOGLE_CHAT'>('SLACK');
   const [slackBotToken, setSlackBotToken] = useState('');
   const [slackSigningSecret, setSlackSigningSecret] = useState('');
+  const [slackClientId, setSlackClientId] = useState('');
+  const [slackClientSecret, setSlackClientSecret] = useState('');
   const [savingIntegration, setSavingIntegration] = useState(false);
+
+  /* ── Slack OAuth install link ── */
+  const [sendingInstallLink, setSendingInstallLink] = useState(false);
+  const [installLinkResult, setInstallLinkResult] = useState<{ sent: boolean; email?: string; error?: string } | null>(null);
+
+  /* ── Google Chat service account JSON (integrations modal) ── */
+  const [gchatServiceAccountJson, setGchatServiceAccountJson] = useState('');
+
+  /* ── Google Chat per-user setup ── */
+  const [settingUpGChat, setSettingUpGChat] = useState(false);
+  const [gchatSetupResult, setGchatSetupResult] = useState<{ invited?: boolean; connected: boolean; spaceName?: string; error?: string; message?: string } | null>(null);
+
+  /* ── Teams per-user invite ── */
+  const [sendingTeamsInvite, setSendingTeamsInvite] = useState(false);
+  const [teamsInviteResult, setTeamsInviteResult] = useState<{ invited: boolean; email?: string; error?: string; message?: string } | null>(null);
+
+  /* ── Teams integration config (modal) ── */
+  const [teamsAppId, setTeamsAppId] = useState('');
+  const [teamsAppSecret, setTeamsAppSecret] = useState('');
 
   /* ── connect platform modal (per user) ── */
   const [showConnectModal, setShowConnectModal] = useState(false);
@@ -466,10 +490,54 @@ const BillOpsSupportDashboardPage: React.FC = () => {
 
   const handleSaveIntegration = useCallback(async () => {
     setSavingIntegration(true);
-    const ok = await saveIntegrationConfig(integrationTab, slackBotToken || undefined, slackSigningSecret || undefined);
+    let ok = false;
+    if (integrationTab === 'TEAMS') {
+      ok = await saveIntegrationConfig('TEAMS', teamsAppSecret || undefined, undefined, teamsAppId || undefined);
+    } else {
+      ok = await saveIntegrationConfig(
+        integrationTab,
+        slackBotToken || undefined,
+        slackSigningSecret || undefined,
+        slackClientId || undefined,
+        slackClientSecret || undefined,
+      );
+    }
     setSavingIntegration(false);
-    if (ok) { setSlackBotToken(''); setSlackSigningSecret(''); }
-  }, [integrationTab, slackBotToken, slackSigningSecret, saveIntegrationConfig]);
+    if (ok) {
+      if (integrationTab === 'TEAMS') { setTeamsAppId(''); setTeamsAppSecret(''); }
+      else { setSlackBotToken(''); setSlackSigningSecret(''); setSlackClientId(''); setSlackClientSecret(''); }
+    }
+  }, [integrationTab, slackBotToken, slackSigningSecret, slackClientId, slackClientSecret, teamsAppId, teamsAppSecret, saveIntegrationConfig]);
+
+  const handleSendInstallLink = useCallback(async () => {
+    if (!activeAccount?.userId) return;
+    setSendingInstallLink(true);
+    setInstallLinkResult(null);
+    const result = await sendSlackInstallLink(activeAccount.userId);
+    setSendingInstallLink(false);
+    setInstallLinkResult(result);
+    if (result.sent) setTimeout(() => setInstallLinkResult(null), 5000);
+  }, [activeAccount, sendSlackInstallLink]);
+
+  const handleSetupGoogleChat = useCallback(async () => {
+    if (!activeAccount?.userId) return;
+    setSettingUpGChat(true);
+    setGchatSetupResult(null);
+    const result = await setupGoogleChat(activeAccount.userId);
+    setSettingUpGChat(false);
+    setGchatSetupResult(result);
+    if (result.invited || result.connected) setTimeout(() => setGchatSetupResult(null), 6000);
+  }, [activeAccount, setupGoogleChat]);
+
+  const handleSendTeamsInvite = useCallback(async () => {
+    if (!activeAccount?.userId) return;
+    setSendingTeamsInvite(true);
+    setTeamsInviteResult(null);
+    const result = await sendTeamsInvite(activeAccount.userId);
+    setSendingTeamsInvite(false);
+    setTeamsInviteResult(result);
+    if (result.invited) setTimeout(() => setTeamsInviteResult(null), 6000);
+  }, [activeAccount, sendTeamsInvite]);
 
   const openConnectModal = useCallback(() => {
     const prefill: Record<string, string> = { SLACK: '', TEAMS: '', GOOGLE_CHAT: '' };
@@ -502,11 +570,13 @@ const BillOpsSupportDashboardPage: React.FC = () => {
     integrationConfigs.find(c => c.platform === platform), [integrationConfigs]);
 
   const hasConnection = useCallback((platform: string): boolean => {
-    // Slack: auto-enabled when bot token is configured + user has an email (backend will auto-discover via users.lookupByEmail)
-    if (platform === 'SLACK'
-        && integrationConfigs.some(c => c.platform === 'SLACK' && c.enabled && c.botTokenConfigured)
-        && !!activeAccount?.email) {
-      return true;
+    if (platform === 'SLACK') {
+      if (userConnections.some(c => c.platform === 'SLACK' && c.active && c.oauthConnected)) return true;
+      if (integrationConfigs.some(c => c.platform === 'SLACK' && c.enabled && c.botTokenConfigured) && !!activeAccount?.email) return true;
+    }
+    if (platform === 'GOOGLE_CHAT') {
+      // Service account + DM space already created for this user
+      if (userConnections.some(c => c.platform === 'GOOGLE_CHAT' && c.active && c.channelId?.startsWith('spaces/'))) return true;
     }
     return userConnections.some(c => c.platform === platform && c.active && (!!c.webhookUrl || !!c.channelId));
   }, [userConnections, integrationConfigs, activeAccount]);
@@ -969,6 +1039,76 @@ const BillOpsSupportDashboardPage: React.FC = () => {
                   Connect Platform
                 </button>
 
+                {/* Slack OAuth Connect Link */}
+                {integrationConfigs.some(c => c.platform === 'SLACK' && c.clientIdConfigured) && (
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={handleSendInstallLink}
+                      disabled={sendingInstallLink || !activeAccount?.email}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[#4A154B]/10 border border-[#4A154B]/30 text-[#4A154B] hover:bg-[#4A154B]/20 rounded-lg text-[10px] font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                      title={activeAccount?.email ? `Send Slack "Add to Slack" install link to ${activeAccount.email}` : 'User has no email address'}
+                    >
+                      {sendingInstallLink
+                        ? <i className="fas fa-circle-notch fa-spin text-[9px]"></i>
+                        : <i className="fab fa-slack text-[10px]"></i>}
+                      {userConnections.some(c => c.platform === 'SLACK' && c.oauthConnected) ? 'Slack Connected ✓' : 'Send Slack Link'}
+                    </button>
+                    {installLinkResult && (
+                      <span className={`text-[10px] font-semibold px-2 py-1 rounded-lg ${installLinkResult.sent ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>
+                        {installLinkResult.sent ? `Sent to ${installLinkResult.email}` : installLinkResult.error}
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {/* Teams Invite Button */}
+                {integrationConfigs.some(c => c.platform === 'TEAMS' && c.botTokenConfigured && c.clientIdConfigured) && (
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={handleSendTeamsInvite}
+                      disabled={sendingTeamsInvite || !activeAccount?.email}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[#6264A7]/10 border border-[#6264A7]/30 text-[#6264A7] hover:bg-[#6264A7]/20 rounded-lg text-[10px] font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                      title={activeAccount?.email ? `Send Teams invite to ${activeAccount.email}` : 'User has no email address'}
+                    >
+                      {sendingTeamsInvite
+                        ? <i className="fas fa-circle-notch fa-spin text-[9px]"></i>
+                        : <i className="fab fa-microsoft text-[10px]"></i>}
+                      {userConnections.some(c => c.platform === 'TEAMS' && c.channelId && c.webhookUrl)
+                        ? 'Teams Connected ✓'
+                        : 'Send Teams Invite'}
+                    </button>
+                    {teamsInviteResult && (
+                      <span className={`text-[10px] font-semibold px-2 py-1 rounded-lg ${teamsInviteResult.invited ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>
+                        {teamsInviteResult.invited ? 'Invite sent ✓' : teamsInviteResult.error}
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {/* Google Chat Setup Button */}
+                {integrationConfigs.some(c => c.platform === 'GOOGLE_CHAT' && c.serviceAccountConfigured) && (
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={handleSetupGoogleChat}
+                      disabled={settingUpGChat || !activeAccount?.email}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[#1A73E8]/10 border border-[#1A73E8]/30 text-[#1A73E8] hover:bg-[#1A73E8]/20 rounded-lg text-[10px] font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                      title={activeAccount?.email ? `Send Google Chat invite to ${activeAccount.email}` : 'User has no email address'}
+                    >
+                      {settingUpGChat
+                        ? <i className="fas fa-circle-notch fa-spin text-[9px]"></i>
+                        : <i className="fab fa-google text-[10px]"></i>}
+                      {userConnections.some(c => c.platform === 'GOOGLE_CHAT' && c.channelId?.startsWith('spaces/'))
+                        ? 'G.Chat Connected ✓'
+                        : 'Send G.Chat Invite'}
+                    </button>
+                    {gchatSetupResult && (
+                      <span className={`text-[10px] font-semibold px-2 py-1 rounded-lg ${gchatSetupResult.invited || gchatSetupResult.connected ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>
+                        {gchatSetupResult.invited ? 'Invite sent ✓' : gchatSetupResult.connected ? 'DM space ready ✓' : gchatSetupResult.error}
+                      </span>
+                    )}
+                  </div>
+                )}
+
                 {/* Send Email button */}
                 <button
                   onClick={openEmailModal}
@@ -1232,35 +1372,156 @@ const BillOpsSupportDashboardPage: React.FC = () => {
                     <p className="font-semibold mb-1"><i className="fab fa-slack mr-1"></i> Slack — Bot Token</p>
                     <p className="text-purple-700">Create a Slack App → OAuth &amp; Permissions → add scopes: <code className="bg-purple-100 px-1 rounded">chat:write, incoming-webhook</code> → Install → copy Bot Token &amp; Signing Secret.</p>
                   </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-600 mb-1">Bot Token <span className="text-gray-400 font-normal">(xoxb-...)</span></label>
-                    <input type="password" value={slackBotToken} onChange={e => setSlackBotToken(e.target.value)}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                      placeholder={getIntegrationConfig('SLACK')?.botTokenConfigured ? '●●●●●●●● (already configured)' : 'xoxb-...'} />
+                  {/* ── OAuth Distributed App (cross-org) ── */}
+                  <div className="bg-purple-50 border border-purple-200 rounded-xl p-4 space-y-3">
+                    <p className="text-xs font-bold text-purple-800 flex items-center gap-1.5">
+                      <i className="fas fa-link"></i> Cross-Org OAuth (Recommended)
+                    </p>
+                    <p className="text-xs text-purple-700">Users install your Slack App into their own workspace. Works for any Slack organization — no shared workspace required.</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-600 mb-1">Client ID</label>
+                        <input type="text" value={slackClientId} onChange={e => setSlackClientId(e.target.value)}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                          placeholder={getIntegrationConfig('SLACK')?.clientIdConfigured ? '●●●● (configured)' : 'From api.slack.com'} />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-600 mb-1">Client Secret</label>
+                        <input type="password" value={slackClientSecret} onChange={e => setSlackClientSecret(e.target.value)}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                          placeholder={getIntegrationConfig('SLACK')?.clientSecretConfigured ? '●●●●●●●● (configured)' : 'From api.slack.com'} />
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-600 mb-1">Signing Secret <span className="text-gray-400 font-normal">(for verifying inbound events)</span></label>
-                    <input type="password" value={slackSigningSecret} onChange={e => setSlackSigningSecret(e.target.value)}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                      placeholder={getIntegrationConfig('SLACK')?.signingSecretConfigured ? '●●●●●●●● (already configured)' : 'Enter signing secret'} />
+
+                  {/* ── Same-workspace bot token ── */}
+                  <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-3">
+                    <p className="text-xs font-bold text-gray-700 flex items-center gap-1.5">
+                      <i className="fas fa-robot"></i> Same-Workspace Bot Token (Optional)
+                    </p>
+                    <p className="text-xs text-gray-500">Only needed if users are in your Slack workspace. The cross-org OAuth above is preferred.</p>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">Bot Token <span className="text-gray-400 font-normal">(xoxb-...)</span></label>
+                      <input type="password" value={slackBotToken} onChange={e => setSlackBotToken(e.target.value)}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        placeholder={getIntegrationConfig('SLACK')?.botTokenConfigured ? '●●●●●●●● (already configured)' : 'xoxb-...'} />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">Signing Secret <span className="text-gray-400 font-normal">(for verifying inbound events)</span></label>
+                      <input type="password" value={slackSigningSecret} onChange={e => setSlackSigningSecret(e.target.value)}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        placeholder={getIntegrationConfig('SLACK')?.signingSecretConfigured ? '●●●●●●●● (already configured)' : 'Enter signing secret'} />
+                    </div>
                   </div>
+
                   <div className="flex items-center justify-between pt-1">
                     <span className="text-xs text-gray-500 flex items-center gap-1.5">
                       <span className={`w-2 h-2 rounded-full inline-block ${getIntegrationConfig('SLACK')?.enabled ? 'bg-green-500' : 'bg-gray-300'}`}></span>
-                      {getIntegrationConfig('SLACK')?.enabled ? 'Connected' : 'Not configured'}
+                      {getIntegrationConfig('SLACK')?.clientIdConfigured ? 'OAuth ready' : getIntegrationConfig('SLACK')?.enabled ? 'Bot configured' : 'Not configured'}
                     </span>
-                    <button onClick={handleSaveIntegration} disabled={savingIntegration || (!slackBotToken && !slackSigningSecret)}
+                    <button onClick={handleSaveIntegration} disabled={savingIntegration || (!slackBotToken && !slackSigningSecret && !slackClientId && !slackClientSecret)}
                       className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-lg text-sm font-semibold transition disabled:opacity-50">
                       {savingIntegration ? <i className="fas fa-circle-notch fa-spin mr-1"></i> : null} Save Slack Config
                     </button>
                   </div>
                 </>
+              ) : integrationTab === 'GOOGLE_CHAT' ? (
+                <div className="space-y-4">
+                  {/* Service Account (bot DM approach) */}
+                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 space-y-3">
+                    <p className="text-xs font-bold text-blue-800 flex items-center gap-1.5">
+                      <i className="fab fa-google"></i> Google Chat Bot (Recommended — no user action needed)
+                    </p>
+                    <p className="text-xs text-blue-700">
+                      Create a Google Cloud project, enable Chat API, create a service account, download the JSON key, and paste it below.
+                      The bot will automatically create a DM space with each user.
+                    </p>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">
+                        Service Account JSON Key
+                        {getIntegrationConfig('GOOGLE_CHAT')?.serviceAccountConfigured && (
+                          <span className="ml-2 text-green-600 font-normal">✓ configured</span>
+                        )}
+                      </label>
+                      <textarea
+                        value={gchatServiceAccountJson}
+                        onChange={e => setGchatServiceAccountJson(e.target.value)}
+                        rows={4}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                        placeholder={getIntegrationConfig('GOOGLE_CHAT')?.serviceAccountConfigured
+                          ? '{ "type": "service_account", ... } (already configured — paste new to update)'
+                          : 'Paste the contents of your service account JSON key file here'}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between pt-1">
+                    <span className="text-xs text-gray-500 flex items-center gap-1.5">
+                      <span className={`w-2 h-2 rounded-full inline-block ${getIntegrationConfig('GOOGLE_CHAT')?.serviceAccountConfigured ? 'bg-green-500' : 'bg-gray-300'}`}></span>
+                      {getIntegrationConfig('GOOGLE_CHAT')?.serviceAccountConfigured ? 'Service account configured' : 'Not configured'}
+                    </span>
+                    <button
+                      onClick={async () => {
+                        if (!gchatServiceAccountJson.trim()) return;
+                        setSavingIntegration(true);
+                        const body: Record<string, string> = { platform: 'GOOGLE_CHAT', enabled: 'true', serviceAccountJson: gchatServiceAccountJson };
+                        try {
+                          await (await import('../utils/apiClient')).default.post('/api/billops/messaging/config', body);
+                          await loadIntegrationConfigs();
+                          setGchatServiceAccountJson('');
+                        } catch (e) { console.error(e); }
+                        setSavingIntegration(false);
+                      }}
+                      disabled={savingIntegration || !gchatServiceAccountJson.trim()}
+                      className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-lg text-sm font-semibold transition disabled:opacity-50"
+                    >
+                      {savingIntegration ? <i className="fas fa-circle-notch fa-spin mr-1"></i> : null} Save Google Chat Config
+                    </button>
+                  </div>
+                </div>
+              ) : integrationTab === 'TEAMS' ? (
+                <div className="space-y-4">
+                  <div className="bg-[#6264A7]/10 border border-[#6264A7]/30 rounded-xl p-3 text-xs text-[#3d3f7a]">
+                    <p className="font-semibold mb-1"><i className="fab fa-microsoft mr-1"></i> Microsoft Teams — Cross-Org Bot</p>
+                    <p>Register a bot in <strong>Azure Bot Service</strong>, get the App ID and App Secret, then paste them below. Works for users in <strong>any Teams organization</strong> — no shared tenant needed.</p>
+                  </div>
+                  <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-3">
+                    <p className="text-xs font-bold text-gray-700 flex items-center gap-1.5">
+                      <i className="fas fa-robot"></i> Azure Bot Credentials
+                    </p>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">
+                        Microsoft App ID
+                        {getIntegrationConfig('TEAMS')?.clientIdConfigured && <span className="ml-2 text-green-600 font-normal">✓ configured</span>}
+                      </label>
+                      <input type="text" value={teamsAppId} onChange={e => setTeamsAppId(e.target.value)}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#6264A7]"
+                        placeholder={getIntegrationConfig('TEAMS')?.clientIdConfigured ? '●●●● (configured)' : 'e.g. xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'} />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">
+                        App Secret (Client Secret)
+                        {getIntegrationConfig('TEAMS')?.botTokenConfigured && <span className="ml-2 text-green-600 font-normal">✓ configured</span>}
+                      </label>
+                      <input type="password" value={teamsAppSecret} onChange={e => setTeamsAppSecret(e.target.value)}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#6264A7]"
+                        placeholder={getIntegrationConfig('TEAMS')?.botTokenConfigured ? '●●●●●●●● (configured)' : 'From Azure → App registrations → Certificates & secrets'} />
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between pt-1">
+                    <span className="text-xs text-gray-500 flex items-center gap-1.5">
+                      <span className={`w-2 h-2 rounded-full inline-block ${getIntegrationConfig('TEAMS')?.clientIdConfigured && getIntegrationConfig('TEAMS')?.botTokenConfigured ? 'bg-green-500' : 'bg-gray-300'}`}></span>
+                      {getIntegrationConfig('TEAMS')?.clientIdConfigured && getIntegrationConfig('TEAMS')?.botTokenConfigured ? 'Bot credentials configured' : 'Not configured'}
+                    </span>
+                    <button onClick={handleSaveIntegration}
+                      disabled={savingIntegration || (!teamsAppId && !teamsAppSecret)}
+                      className="bg-[#6264A7] hover:bg-[#4f5190] text-white px-5 py-2 rounded-lg text-sm font-semibold transition disabled:opacity-50">
+                      {savingIntegration ? <i className="fas fa-circle-notch fa-spin mr-1"></i> : null} Save Teams Config
+                    </button>
+                  </div>
+                </div>
               ) : (
-                <div className="bg-gray-50 border border-gray-200 rounded-xl p-5 text-center text-sm text-gray-500 space-y-2">
-                  <i className={`${platformIcon(integrationTab)} text-3xl`} style={{ color: platformColor(integrationTab) }}></i>
-                  <p className="font-semibold text-gray-700">{platformLabel(integrationTab)} — Webhook URL per user</p>
-                  <p className="text-xs">{integrationTab === 'TEAMS' ? 'In user\'s Teams channel → Apps → Incoming Webhooks → Add → copy URL.' : 'In user\'s Google Chat space → Apps & Integrations → Webhooks → Add → copy URL.'}</p>
-                  <p className="text-xs">Paste the webhook URL using <strong>Connect Platform</strong> button in the chat header.</p>
+                <div className="bg-gray-50 border border-gray-200 rounded-xl p-5 text-center text-sm text-gray-500">
+                  <p>No configuration needed.</p>
                 </div>
               )}
             </div>

@@ -4,6 +4,7 @@ import com.xammer.billops.domain.MessagingIntegrationConfig;
 import com.xammer.billops.domain.UserPlatformConnection;
 import com.xammer.billops.repository.MessagingIntegrationConfigRepository;
 import com.xammer.billops.repository.UserPlatformConnectionRepository;
+import com.xammer.billops.service.TeamsMessagingService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -37,14 +38,20 @@ public class ExternalMessagingService {
     private final RestTemplate restTemplate = new RestTemplate();
     private final MessagingIntegrationConfigRepository configRepo;
     private final UserPlatformConnectionRepository connectionRepo;
+    private final GoogleChatService googleChatService;
+    private final TeamsMessagingService teamsMessagingService;
 
     @Value("${messaging.portal.base-url:https://app.xamops.com}")
     private String portalBaseUrl;
 
     public ExternalMessagingService(MessagingIntegrationConfigRepository configRepo,
-                                    UserPlatformConnectionRepository connectionRepo) {
+                                    UserPlatformConnectionRepository connectionRepo,
+                                    GoogleChatService googleChatService,
+                                    TeamsMessagingService teamsMessagingService) {
         this.configRepo = configRepo;
         this.connectionRepo = connectionRepo;
+        this.googleChatService = googleChatService;
+        this.teamsMessagingService = teamsMessagingService;
     }
 
     /**
@@ -104,7 +111,27 @@ public class ExternalMessagingService {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
 
-        // ── Priority 1: Incoming Webhook URL (cross-org, no bot token needed) ──
+        // ── Priority 1: Per-user OAuth bot token (cross-org, distributed app) ──
+        if (conn.getUserBotToken() != null && !conn.getUserBotToken().isBlank()) {
+            String channelId = conn.getChannelId();
+
+            // Re-open DM if channelId was lost (shouldn't happen often)
+            if ((channelId == null || channelId.isBlank()) && conn.getPlatformUserId() != null) {
+                channelId = openSlackDM(conn.getUserBotToken(), conn.getPlatformUserId());
+                if (channelId != null) {
+                    conn.setChannelId(channelId);
+                    conn.setUpdatedAt(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
+                    connectionRepo.save(conn);
+                }
+            }
+
+            if (channelId != null && !channelId.isBlank()) {
+                log.info("Sending via per-user OAuth token for userId={}", conn.getUserId());
+                return postSlackMessage(conn.getUserBotToken(), channelId, message, adminName);
+            }
+        }
+
+        // ── Priority 2: Incoming Webhook URL (cross-org, no bot token needed) ──
         if (conn.getWebhookUrl() != null && !conn.getWebhookUrl().isBlank()) {
             Map<String, Object> body = buildSlackWebhookPayload(message, adminName);
             HttpEntity<Map<String, Object>> req = new HttpEntity<>(body, headers);
@@ -116,24 +143,22 @@ public class ExternalMessagingService {
             return null;
         }
 
-        // ── Priority 2 & 3 both need bot token ──
+        // ── Priority 3 & 4: Global bot token ──
         MessagingIntegrationConfig config = configRepo.findByPlatform("SLACK").orElse(null);
         if (config == null || !config.isEnabled() || config.getBotToken() == null) {
-            log.warn("Slack bot token not configured");
+            log.warn("Slack: no per-user OAuth token, no webhook URL, and no global bot token configured for userId={}", conn.getUserId());
             return null;
         }
-        headers.setBearerAuth(config.getBotToken());
 
         String channelId = conn.getChannelId();
 
-        // ── Priority 2: Auto-discover DM channel via user email ──
+        // ── Priority 3: Auto-discover DM channel via user email (same workspace) ──
         if ((channelId == null || channelId.isBlank()) && userEmail != null && !userEmail.isBlank()) {
             log.info("Auto-discovering Slack user by email: {}", userEmail);
             String slackUserId = lookupSlackUserByEmail(config.getBotToken(), userEmail);
             if (slackUserId != null) {
                 channelId = openSlackDM(config.getBotToken(), slackUserId);
                 if (channelId != null) {
-                    // Cache discovered IDs so next send is instant
                     conn.setChannelId(channelId);
                     conn.setPlatformUserId(slackUserId);
                     conn.setUpdatedAt(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
@@ -144,18 +169,24 @@ public class ExternalMessagingService {
         }
 
         if (channelId == null || channelId.isBlank()) {
-            log.warn("No Slack channel available for userId={} (no webhook, no channelId, email lookup failed)", conn.getUserId());
+            log.warn("No Slack channel available for userId={} (no OAuth token, no webhook, no channelId, email lookup failed)", conn.getUserId());
             return null;
         }
 
-        // ── Send via bot token + channel ──
+        return postSlackMessage(config.getBotToken(), channelId, message, adminName);
+    }
+
+    /** Calls chat.postMessage with the given token and channel. */
+    private String postSlackMessage(String botToken, String channelId, String message, String adminName) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.setBearerAuth(botToken);
         Map<String, Object> body = buildSlackWebhookPayload(message, adminName);
         body.put("channel", channelId);
         HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
         ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
                 "https://slack.com/api/chat.postMessage", HttpMethod.POST, request,
                 new org.springframework.core.ParameterizedTypeReference<Map<String, Object>>() {});
-
         if (response.getStatusCode().is2xxSuccessful()) {
             Map<String, Object> resp = response.getBody();
             if (resp != null && Boolean.TRUE.equals(resp.get("ok"))) {
@@ -285,8 +316,29 @@ public class ExternalMessagingService {
     // ── MICROSOFT TEAMS ───────────────────────────────────────────────────────
 
     private String sendToTeams(UserPlatformConnection conn, String message, String adminName) {
-        if (conn.getWebhookUrl() == null || conn.getWebhookUrl().isBlank()) {
-            log.warn("No Teams webhook URL for userId={}", conn.getUserId());
+        // ── Priority 1: Bot Framework REST API (cross-org, two-way) ──────────
+        // serviceUrl stored as webhookUrl, conversationId stored as channelId
+        MessagingIntegrationConfig teamsConfig = configRepo.findByPlatform("TEAMS").orElse(null);
+        if (teamsConfig != null && teamsConfig.isEnabled()
+                && teamsConfig.getClientId() != null && !teamsConfig.getClientId().isBlank()
+                && teamsConfig.getBotToken() != null && !teamsConfig.getBotToken().isBlank()
+                && conn.getChannelId() != null && !conn.getChannelId().isBlank()
+                && conn.getWebhookUrl() != null && !conn.getWebhookUrl().isBlank()) {
+            log.info("Teams: sending via Bot Framework for userId={}", conn.getUserId());
+            String result = teamsMessagingService.sendMessage(
+                    conn.getWebhookUrl(),   // serviceUrl
+                    conn.getChannelId(),    // conversationId
+                    teamsConfig.getClientId(),   // App ID
+                    teamsConfig.getBotToken(),   // App Secret
+                    message, adminName);
+            if (result != null) return result;
+            log.warn("Teams: Bot Framework send failed for userId={}, falling through to webhook", conn.getUserId());
+        }
+
+        // ── Priority 2: Incoming Webhook URL (one-way, legacy) ───────────────
+        if (conn.getWebhookUrl() == null || conn.getWebhookUrl().isBlank()
+                || !conn.getWebhookUrl().startsWith("https://")) {
+            log.warn("Teams: no usable webhook URL for userId={}", conn.getUserId());
             return null;
         }
 
@@ -363,55 +415,33 @@ public class ExternalMessagingService {
     // ── GOOGLE CHAT ───────────────────────────────────────────────────────────
 
     private String sendToGoogleChat(UserPlatformConnection conn, String message, String adminName) {
+        MessagingIntegrationConfig config = configRepo.findByPlatform("GOOGLE_CHAT").orElse(null);
+
+        // ── Priority 1: Service Account API (bot DM — auto-setup, no webhook URL needed) ──
+        if (config != null && config.getServiceAccountJson() != null && !config.getServiceAccountJson().isBlank()) {
+            String spaceName = conn.getChannelId();
+            if (spaceName != null && spaceName.startsWith("spaces/")) {
+                String result = googleChatService.sendMessage(
+                        config.getServiceAccountJson(), spaceName, message, adminName);
+                if (result != null) return result;
+                log.warn("GChat: service account send failed for userId={}, falling back to webhook", conn.getUserId());
+            } else {
+                log.warn("GChat: service account configured but no space set up for userId={} — use 'Setup Google Chat' button", conn.getUserId());
+            }
+        }
+
+        // ── Priority 2: Incoming Webhook URL (legacy / cross-org fallback) ──
         if (conn.getWebhookUrl() == null || conn.getWebhookUrl().isBlank()) {
-            log.warn("No Google Chat webhook URL for userId={}", conn.getUserId());
+            log.warn("GChat: no space ID and no webhook URL for userId={}", conn.getUserId());
             return null;
         }
 
-        String portalLink = portalBaseUrl + "/billops/support";
-
-        // Google Chat Card v2 format
-        Map<String, Object> cardHeader = new LinkedHashMap<>();
-        cardHeader.put("title", "XamOps Support Message");
-        cardHeader.put("subtitle", "From: " + adminName);
-        cardHeader.put("imageUrl", "https://app.xamops.com/logo-square.png");
-        cardHeader.put("imageType", "CIRCLE");
-
-        Map<String, Object> textWidget = new LinkedHashMap<>();
-        Map<String, Object> textParagraph = new LinkedHashMap<>();
-        textParagraph.put("text", message);
-        textWidget.put("textParagraph", textParagraph);
-
-        Map<String, Object> buttonWidget = new LinkedHashMap<>();
-        Map<String, Object> buttonList = new LinkedHashMap<>();
-        Map<String, Object> btn = new LinkedHashMap<>();
-        btn.put("text", "Reply in XamOps Portal");
-        Map<String, Object> onClickAction = new LinkedHashMap<>();
-        Map<String, Object> openLink = new LinkedHashMap<>();
-        openLink.put("url", portalLink);
-        onClickAction.put("openLink", openLink);
-        btn.put("onClick", onClickAction);
-        buttonList.put("buttons", List.of(btn));
-        buttonWidget.put("buttonList", buttonList);
-
-        Map<String, Object> section = new LinkedHashMap<>();
-        section.put("widgets", List.of(textWidget, buttonWidget));
-
-        Map<String, Object> card = new LinkedHashMap<>();
-        card.put("header", cardHeader);
-        card.put("sections", List.of(section));
-
-        Map<String, Object> cardV2 = new LinkedHashMap<>();
-        cardV2.put("cardId", "support-msg-" + System.currentTimeMillis());
-        cardV2.put("card", card);
-
-        Map<String, Object> gchatPayload = new LinkedHashMap<>();
-        gchatPayload.put("cardsV2", List.of(cardV2));
-
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        HttpEntity<Map<String, Object>> request = new HttpEntity<>(gchatPayload, headers);
+        Map<String, Object> gchatPayload = new LinkedHashMap<>();
+        gchatPayload.put("text", "*" + adminName + "*: " + message);
 
+        HttpEntity<Map<String, Object>> request = new HttpEntity<>(gchatPayload, headers);
         ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
                 conn.getWebhookUrl(), HttpMethod.POST, request,
                 new org.springframework.core.ParameterizedTypeReference<Map<String, Object>>() {});
@@ -420,7 +450,7 @@ public class ExternalMessagingService {
             if (resp != null && resp.get("name") != null) return resp.get("name").toString();
             return "sent";
         }
-        log.error("Google Chat webhook returned {}", response.getStatusCode());
+        log.error("GChat webhook returned {}", response.getStatusCode());
         return null;
     }
 

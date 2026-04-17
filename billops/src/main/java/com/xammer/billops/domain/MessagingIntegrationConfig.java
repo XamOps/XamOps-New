@@ -40,6 +40,28 @@ public class MessagingIntegrationConfig {
     private String signingSecret;
 
     /**
+     * Google Chat service account JSON key — downloaded from Google Cloud Console.
+     * Used for server-to-server calls to the Google Chat REST API (create DM spaces, send messages).
+     * Stored as TEXT because JSON keys are large (~2KB).
+     */
+    @Column(name = "service_account_json", columnDefinition = "TEXT")
+    private String serviceAccountJson;
+
+    /**
+     * Slack App Client ID — from api.slack.com → Your App → Basic Information.
+     * Required for the OAuth 2.0 distributed app install flow.
+     */
+    @Column(name = "client_id", length = 200)
+    private String clientId;
+
+    /**
+     * Slack App Client Secret — from api.slack.com → Your App → Basic Information.
+     * Used to exchange the OAuth code for a bot token (never exposed to frontend).
+     */
+    @Column(name = "client_secret", length = 300)
+    private String clientSecret;
+
+    /**
      * Human-readable label/description for this integration (e.g. "XamOps Workspace").
      */
     @Column(name = "label", length = 200)
@@ -62,6 +84,12 @@ public class MessagingIntegrationConfig {
     public void setBotToken(String botToken) { this.botToken = botToken; }
     public String getSigningSecret() { return signingSecret; }
     public void setSigningSecret(String signingSecret) { this.signingSecret = signingSecret; }
+    public String getServiceAccountJson() { return serviceAccountJson; }
+    public void setServiceAccountJson(String serviceAccountJson) { this.serviceAccountJson = serviceAccountJson; }
+    public String getClientId() { return clientId; }
+    public void setClientId(String clientId) { this.clientId = clientId; }
+    public String getClientSecret() { return clientSecret; }
+    public void setClientSecret(String clientSecret) { this.clientSecret = clientSecret; }
     public String getLabel() { return label; }
     public void setLabel(String label) { this.label = label; }
     public boolean isEnabled() { return enabled; }

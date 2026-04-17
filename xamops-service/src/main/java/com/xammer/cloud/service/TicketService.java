@@ -10,11 +10,14 @@ import com.xammer.cloud.repository.ClientRepository;
 import com.xammer.cloud.repository.TicketReplyRepository;
 import com.xammer.cloud.repository.TicketRepository;
 import com.xammer.cloud.repository.UserRepository;
+import com.xammer.cloud.util.SecurityUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -122,11 +125,53 @@ public class TicketService {
     }
 
     @Transactional(readOnly = true)
-    @Cacheable("tickets")
     public List<TicketDto> getAllTickets() {
-        return ticketRepository.findAll().stream()
-                .map(this::convertToDto)
-                .collect(Collectors.toList());
+        List<Ticket> allTickets = ticketRepository.findAll();
+
+        // Scope tickets for regular users (ROLE_XAMOPS / ROLE_BILLOPS with createdBy set)
+        // Admins and primary users (createdBy == null) see everything
+        try {
+            Long userId = SecurityUtils.getCurrentUserId();
+            Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+            String effectiveRole = (auth != null) ? auth.getAuthorities().stream()
+                    .map(a -> a.getAuthority()).filter(a -> a.startsWith("ROLE_"))
+                    .findFirst().orElse(null) : null;
+
+            // Primary admins see all tickets
+            if (effectiveRole != null && (effectiveRole.contains("SUPER_ADMIN") || effectiveRole.contains("BILLOPS_ADMIN"))) {
+                return allTickets.stream().map(this::convertToDto).collect(Collectors.toList());
+            }
+
+            // Look up the user — fall back to username if ID doesn't match
+            User currentUser = userRepository.findById(userId).orElse(null);
+            if (currentUser == null && auth != null) {
+                currentUser = userRepository.findByUsername(auth.getName()).orElse(null);
+                logger.debug("[TicketService] getAllTickets — user not found by ID {}, username fallback: {}",
+                        userId, currentUser != null ? "found id=" + currentUser.getId() : "not found");
+            }
+
+            if (currentUser == null) {
+                return java.util.Collections.emptyList();
+            }
+
+            // Non-admin users (ROLE_XAMOPS, ROLE_BILLOPS) always see only their own tickets
+            boolean isAdmin = effectiveRole != null && effectiveRole.contains("ADMIN");
+            if (isAdmin) {
+                return allTickets.stream().map(this::convertToDto).collect(Collectors.toList());
+            }
+
+            // Regular user: only their own tickets
+            final Long creatorId = currentUser.getId();
+            logger.debug("[TicketService] getAllTickets — non-admin id={} scoping to own tickets only", creatorId);
+            return allTickets.stream()
+                    .filter(t -> t.getCreator() != null && creatorId.equals(t.getCreator().getId()))
+                    .map(this::convertToDto)
+                    .collect(Collectors.toList());
+
+        } catch (Exception e) {
+            logger.error("[TicketService] getAllTickets scoping failed, returning empty list: {}", e.getMessage(), e);
+            return java.util.Collections.emptyList();
+        }
     }
 
     @Transactional(readOnly = true)
@@ -268,11 +313,45 @@ public class TicketService {
     }
 
     @Transactional(readOnly = true)
-    @Cacheable(value = "tickets", key = "#category")
     public List<TicketDto> getTicketsByCategory(String category) {
-        return ticketRepository.findAllByCategoryWithRepliesAndAuthors(category).stream()
-                .map(this::convertToDto)
-                .collect(Collectors.toList());
+        List<Ticket> allTickets = ticketRepository.findAllByCategoryWithRepliesAndAuthors(category);
+
+        // Apply same scoping as getAllTickets()
+        try {
+            Long userId = SecurityUtils.getCurrentUserId();
+            Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+            String effectiveRole = (auth != null) ? auth.getAuthorities().stream()
+                    .map(a -> a.getAuthority()).filter(a -> a.startsWith("ROLE_"))
+                    .findFirst().orElse(null) : null;
+
+            if (effectiveRole != null && (effectiveRole.contains("SUPER_ADMIN") || effectiveRole.contains("BILLOPS_ADMIN"))) {
+                return allTickets.stream().map(this::convertToDto).collect(Collectors.toList());
+            }
+
+            User currentUser = userRepository.findById(userId).orElse(null);
+            if (currentUser == null && auth != null) {
+                currentUser = userRepository.findByUsername(auth.getName()).orElse(null);
+            }
+
+            if (currentUser == null) {
+                return java.util.Collections.emptyList();
+            }
+
+            boolean isAdmin = effectiveRole != null && effectiveRole.contains("ADMIN");
+            if (isAdmin) {
+                return allTickets.stream().map(this::convertToDto).collect(Collectors.toList());
+            }
+
+            final Long creatorId = currentUser.getId();
+            return allTickets.stream()
+                    .filter(t -> t.getCreator() != null && creatorId.equals(t.getCreator().getId()))
+                    .map(this::convertToDto)
+                    .collect(Collectors.toList());
+
+        } catch (Exception e) {
+            logger.error("[TicketService] getTicketsByCategory scoping failed: {}", e.getMessage(), e);
+            return java.util.Collections.emptyList();
+        }
     }
 
     @Transactional(readOnly = true)

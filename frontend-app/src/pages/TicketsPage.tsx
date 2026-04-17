@@ -52,7 +52,8 @@ const SEVERITY_OPTIONS = ['Info', 'Low', 'Normal', 'High', 'Urgent'];
 
 const TicketsPage: React.FC = () => {
   const { userProfile } = useAuth();
-  const { selectedAccountIds, accounts } = useAccounts();
+  const { selectedAccountIds, accounts, isLoading: accountsLoading } = useAccounts();
+  const hasAccounts = accounts.length > 0;
 
   const getAccountName = (accountId?: string): string | null => {
     if (!accountId) return null;
@@ -78,32 +79,7 @@ const TicketsPage: React.FC = () => {
     region: ''
   });
 
-  const CACHE_KEY = 'xamops_technical_tickets_v1';
-
-  /**
-   * Load tickets from localStorage cache
-   */
-  const loadFromCache = useCallback((): boolean => {
-    try {
-      const cached = localStorage.getItem(CACHE_KEY);
-      if (cached) {
-        let allTickets = JSON.parse(cached);
-        // Filter by selected accounts
-        if (selectedAccountIds.length > 0) {
-          setTickets(allTickets.filter((t: Ticket) =>
-            t.accountId && selectedAccountIds.includes(t.accountId)
-          ));
-        } else {
-          setTickets(allTickets);
-        }
-        setLoading(false);
-        return true;
-      }
-    } catch (e) {
-      console.error('Error loading cache:', e);
-    }
-    return false;
-  }, [selectedAccountIds]);
+  const CACHE_KEY = `xamops_technical_tickets_v1:${userProfile?.username ?? 'unknown'}`;
 
   /**
    * Fetch tickets from API
@@ -169,14 +145,14 @@ const TicketsPage: React.FC = () => {
    * Initialize component and listen for account changes
    */
   useEffect(() => {
-    console.log('🔍 Filtering tickets for selected accounts:', selectedAccountIds);
-
-    // Load from cache first
-    if (loadFromCache()) {
-      console.log('✅ Loaded tickets from cache');
+    // Don't fetch tickets if user has no accounts
+    if (!accountsLoading && !hasAccounts) {
+      setLoading(false);
+      return;
     }
+    if (accountsLoading) return;
 
-    // Fetch fresh data
+    // Always fetch from backend — never show stale cached data on load
     fetchTickets();
 
     // Listen for account changes from sidebar
@@ -190,7 +166,7 @@ const TicketsPage: React.FC = () => {
     return () => {
       globalThis.removeEventListener('account-changed', handleAccountChanged);
     };
-  }, [selectedAccountIds, loadFromCache, fetchTickets]);
+  }, [selectedAccountIds, fetchTickets, hasAccounts, accountsLoading]);
 
   /**
    * Open create modal
@@ -477,8 +453,28 @@ const TicketsPage: React.FC = () => {
             </div>
           )}
 
-          {/* Empty State — full-width, outside the space-y-2 list */}
-          {!loading && tickets.length === 0 && !error && (
+          {/* No Accounts State */}
+          {!loading && !hasAccounts && !accountsLoading && (
+            <div className="max-w-md mx-auto text-center py-20 bg-white/50 backdrop-blur-xl border border-white rounded-[3rem] shadow-xl shadow-indigo-500/5">
+              <div className="w-24 h-24 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-8 shadow-inner border border-amber-100/50">
+                <i className="fas fa-plug text-amber-300 text-4xl"></i>
+              </div>
+              <h3 className="text-2xl font-black text-slate-800 mb-3 tracking-tight">No Accounts Connected</h3>
+              <p className="text-slate-500 text-sm px-10 leading-relaxed mb-10">
+                You don't have any cloud accounts linked yet. Add an account to start creating support tickets.
+              </p>
+              <a
+                href="/account-manager"
+                className="inline-flex items-center gap-3 px-8 py-4 bg-amber-500 text-white rounded-2xl text-sm font-bold shadow-xl shadow-amber-500/20 hover:bg-amber-600 transition-all hover:-translate-y-1 active:scale-95"
+              >
+                <i className="fas fa-plus"></i>
+                Add Account
+              </a>
+            </div>
+          )}
+
+          {/* Empty State — has accounts but no tickets */}
+          {!loading && hasAccounts && tickets.length === 0 && !error && (
             <div className="max-w-md mx-auto text-center py-20 bg-white/50 backdrop-blur-xl border border-white rounded-[3rem] shadow-xl shadow-indigo-500/5">
               <div className="w-24 h-24 bg-indigo-50 rounded-full flex items-center justify-center mx-auto mb-8 shadow-inner border border-indigo-100/50">
                 <i className="fas fa-ticket-alt text-indigo-300 text-4xl"></i>
@@ -487,7 +483,7 @@ const TicketsPage: React.FC = () => {
               <p className="text-slate-500 text-sm px-10 leading-relaxed mb-10">
                 {selectedAccountIds.length > 0
                   ? `No technical tickets found for the selected account${selectedAccountIds.length > 1 ? 's' : ''}. Support is just a click away.`
-                  : 'Select an account from the sidebar or create a new ticket to get started.'}
+                  : 'No tickets yet. Create a new ticket to get technical support.'}
               </p>
               <button
                 onClick={openCreateModal}
