@@ -122,8 +122,7 @@ const EksIntegrationModal: React.FC<EksIntegrationModalProps> = ({ isOpen, onClo
     { id: 'part1', label: 'Part 1: Monitoring Stack', icon: 'fas fa-chart-line' },
     { id: 'part2', label: 'Part 2: Security Tools', icon: 'fas fa-shield-alt' },
     { id: 'part3', label: 'Part 3: XamOps Agent', icon: 'fas fa-robot' },
-    { id: 'part4', label: 'Part 4: Automation Agent', icon: 'fas fa-cogs' },
-    { id: 'part5', label: 'Part 5: Verification', icon: 'fas fa-check-circle' },
+    { id: 'part5', label: 'Part 4: Verification', icon: 'fas fa-check-circle' },
   ];
 
   return (
@@ -166,7 +165,7 @@ const EksIntegrationModal: React.FC<EksIntegrationModalProps> = ({ isOpen, onClo
           {activeTab === 'part1' && <Part1Tab />}
           {activeTab === 'part2' && <Part2Tab />}
           {activeTab === 'part3' && <Part3Tab />}
-          {activeTab === 'part4' && <Part4Tab />}
+          {/* {activeTab === 'part4' && <Part4Tab />} */}
           {activeTab === 'part5' && <Part5Tab />}
         </div>
       </DialogPanel>
@@ -208,13 +207,7 @@ const OverviewTab: React.FC = () => (
 │           ├── trivy            ← vuln reports (CRDs)
 │           ├── kubescape        ← compliance (CRDs)
 │           └── karpenter        ← node provisioner data
-└── xamops-automation namespace (optional)
-    └── xamops-automation        ← polls policy from XamOps UI
-        │                           PUSH → live.xamops.com:443
-        └── controllers (all DRY_RUN by default):
-            ├── evictor, rightsizer, rebalancer
-            ├── hpa-manager, vpa-manager
-            └── node-optimizer`}</pre>
+`}</pre>
     </div>
 
     {/* How it works */}
@@ -227,8 +220,7 @@ const OverviewTab: React.FC = () => (
           { n: '1', color: 'bg-blue-500', text: 'Prometheus scrapes KSM, node-exporter, cadvisor, Falco, OpenCost, cost-exporter — all inside the cluster.' },
           { n: '2', color: 'bg-green-500', text: 'XamOps Agent queries Prometheus in-cluster and reads the Kubernetes API (nodes, pods, deployments, HPAs, PVCs, events…).' },
           { n: '3', color: 'bg-purple-500', text: 'Agent POSTs a JSON payload to live.xamops.com/api/v1/agent/ingest (HTTPS, outbound port 443).' },
-          { n: '4', color: 'bg-orange-500', text: 'XamOps backend stores data in agent_data_cache table, keyed by cluster. Dashboard reads from cache — no direct cluster access.' },
-          { n: '5', color: 'bg-red-500', text: '(Optional) Automation Agent polls your policy settings from XamOps and applies HPA/VPA/node actions inside the cluster.' },
+          { n: '4', color: 'bg-orange-500', text: 'XamOps backend stores data in agent_data_cache table, keyed by cluster. Dashboard reads from cache — no direct cluster access needed.' },
         ].map(({ n, color, text }) => (
           <div key={n} className="flex items-start gap-3">
             <div className={`${color} text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5`}>{n}</div>
@@ -268,14 +260,13 @@ const OverviewTab: React.FC = () => (
       </div>
     </div>
 
-    {/* 5-step overview cards */}
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+    {/* 4-step overview cards */}
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
       {[
-        { part: 'Part 1', color: 'blue', icon: 'fas fa-chart-line', title: 'Monitoring Stack', desc: 'Prometheus + KSM + Falco + Cost Exporter + OpenCost (all in-cluster)' },
-        { part: 'Part 2', color: 'purple', icon: 'fas fa-shield-alt', title: 'Security Tools', desc: 'Trivy (vuln scanning) + Kubescape (compliance)' },
-        { part: 'Part 3', color: 'green', icon: 'fas fa-robot', title: 'XamOps Agent', desc: 'Read-only observability agent — pushes cluster data to XamOps' },
-        { part: 'Part 4', color: 'orange', icon: 'fas fa-cogs', title: 'Automation Agent', desc: 'Optional write-permission agent for HPA/VPA/node automation from UI' },
-        { part: 'Part 5', color: 'teal', icon: 'fas fa-check-circle', title: 'Verification', desc: 'Confirm all pods are running and data appears in XamOps dashboard' },
+        { part: 'Part 1', color: 'blue', icon: 'fas fa-chart-line', title: 'Monitoring Stack', desc: 'Prometheus + KSM + Metrics Server + Falco + Cost Exporter + OpenCost (all in-cluster)' },
+        { part: 'Part 2', color: 'purple', icon: 'fas fa-shield-alt', title: 'Security Tools', desc: 'Trivy (image vuln scanning) + Kubescape (compliance)' },
+        { part: 'Part 3', color: 'green', icon: 'fas fa-robot', title: 'XamOps Agent', desc: 'Read-only observability agent — pushes cluster data to XamOps every 5 min' },
+        { part: 'Part 4', color: 'teal', icon: 'fas fa-check-circle', title: 'Verification', desc: 'Confirm all pods are running and data appears in XamOps dashboard' },
       ].map(({ part, color, icon, title, desc }) => (
         <div key={part} className={`bg-gradient-to-br from-${color}-50 to-${color}-100 border border-${color}-200 rounded-lg p-4`}>
           <div className="flex items-center gap-2 mb-1">
@@ -327,8 +318,18 @@ kubectl create namespace opencost   --dry-run=client -o yaml | kubectl apply -f 
       </div>
 
       <p className="text-sm text-gray-700 font-semibold mb-1">Step A — Attach IAM policy to your node group role</p>
+      <div className="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-800 mb-3">
+        <i className="fas fa-shield-alt mr-2"></i>
+        <strong>What access does this grant?</strong> <code>AmazonEBSCSIDriverPolicy</code> only allows the EBS CSI driver to manage EBS volumes as Kubernetes PersistentVolumes — it can create/attach/detach/delete EBS volumes on behalf of PVC requests. It does <strong>not</strong> grant access to your workload data, application secrets, or any other AWS services. Without it, PVCs will stay in <code>Pending</code> state permanently.
+        <br /><br />
+        <i className="fas fa-info-circle mr-2"></i>
+        <strong>Production alternative (IRSA):</strong> Instead of attaching to the node role, you can create a dedicated IAM role with IRSA (IAM Roles for Service Accounts) and annotate the <code>ebs-csi-controller-sa</code> ServiceAccount. This is more secure — only the CSI driver pod gets the permission, not all pods on the node. See AWS docs for IRSA setup.
+      </div>
       <VariableNote variables={['<NODEGROUP_ROLE_NAME>']} />
-      <CodeBlock code={`# Replace with your node group IAM role name (e.g. xamops-prod-nodegroup-role)
+      <CodeBlock code={`# Find your node group IAM role name:
+# AWS Console → EKS → your cluster → Compute → Node groups → IAM role ARN
+# Or: aws eks describe-nodegroup --cluster-name <CLUSTER_NAME> --nodegroup-name <NODEGROUP_NAME> --query "nodegroup.nodeRole"
+
 aws iam attach-role-policy \\
   --role-name <NODEGROUP_ROLE_NAME> \\
   --policy-arn arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy`} />
@@ -350,13 +351,25 @@ aws eks wait addon-active \\
 # Verify controller pods are 6/6 Running
 kubectl get pods -n kube-system -l app=ebs-csi-controller`} />
 
-      <p className="text-sm text-gray-700 font-semibold mt-4 mb-1">Step C — Create gp2 StorageClass as cluster default</p>
+      <p className="text-sm text-gray-700 font-semibold mt-4 mb-1">Step C — Create gp3 StorageClass as cluster default</p>
       <div className="bg-amber-50 border border-amber-200 rounded p-3 text-sm text-amber-800 mb-2">
-        <i className="fas fa-info-circle mr-2"></i>
-        If a <code className="bg-amber-100 px-1 rounded">gp2</code> StorageClass already exists with provisioner <code className="bg-amber-100 px-1 rounded">kubernetes.io/aws-ebs</code>, delete it first:
-        <code className="block bg-amber-100 px-2 py-1 rounded mt-1">kubectl delete storageclass gp2</code>
+        <i className="fas fa-exclamation-triangle mr-2"></i>
+        <strong>Safe approach — never delete existing StorageClasses.</strong> If you already have a default StorageClass (e.g. <code className="bg-amber-100 px-1 rounded">gp2</code>), existing PVCs and workloads continue to use it unchanged. We only remove its <em>default</em> annotation so Kubernetes won't have two defaults — the gp2 StorageClass itself stays intact.
       </div>
-      <CodeBlock code={`kubectl apply -f - <<'EOF'
+      <CodeBlock code={`# Step 1: Remove the "default" annotation from any existing default StorageClass
+# This is safe — it does NOT delete the StorageClass or affect existing PVCs/workloads.
+# If no default exists this is a no-op (|| true suppresses the error).
+kubectl patch storageclass gp2 \\
+  -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"false"}}}' \\
+  2>/dev/null || true
+
+# Also patch gp3 if it already exists with the old in-tree provisioner
+kubectl patch storageclass gp3 \\
+  -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"false"}}}' \\
+  2>/dev/null || true
+
+# Step 2: Create the new gp3 StorageClass backed by the EBS CSI driver
+kubectl apply -f - <<'EOF'
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
@@ -367,17 +380,19 @@ provisioner: ebs.csi.aws.com
 parameters:
   type: gp3
   fsType: ext4
+  encrypted: "true"
 volumeBindingMode: WaitForFirstConsumer
 reclaimPolicy: Delete
+allowVolumeExpansion: true
 EOF`} />
 
       <div className="bg-green-50 border border-green-200 rounded p-3 text-sm text-green-800 mt-2">
         <i className="fas fa-check-circle mr-2"></i>
-        Verify: <code className="bg-green-100 px-1 rounded">kubectl get storageclass</code> — gp3 should show <code>(default)</code> with provisioner <code>ebs.csi.aws.com</code>.
+        Verify: <code className="bg-green-100 px-1 rounded">kubectl get storageclass</code> — <code>gp3</code> should show <code>(default)</code> with provisioner <code>ebs.csi.aws.com</code>. Existing <code>gp2</code> StorageClass remains listed (non-default) and all current PVCs using it are unaffected.
       </div>
       <div className="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-800 mt-2">
         <i className="fas fa-info-circle mr-2"></i>
-        <strong>Why gp3?</strong> gp3 provides 3000 IOPS baseline regardless of volume size (gp2 only gives 3 IOPS/GB — a 20Gi volume gets just 60 IOPS). gp3 is also ~20% cheaper. Both work with <code>ebs.csi.aws.com</code> on all EKS regions.
+        <strong>Why gp3?</strong> gp3 provides 3,000 IOPS and 125 MB/s throughput baseline at no extra cost (gp2 only gives 3 IOPS/GB — a 20Gi volume gets just 60 IOPS). gp3 is also ~20% cheaper. <code>allowVolumeExpansion: true</code> lets you resize PVCs without recreating them. <code>encrypted: "true"</code> ensures data at rest is encrypted by default.
       </div>
     </CollapsibleSection>
 
@@ -443,13 +458,13 @@ EOF`}
       <div className="bg-green-50 border border-green-200 rounded p-3 text-sm text-green-800 mt-2">
         <i className="fas fa-check-circle mr-2"></i>
         Wait ~60s then verify: <code className="bg-green-100 px-1 rounded">kubectl get pods -n monitoring</code> and <code className="bg-green-100 px-1 rounded">kubectl get pvc -n monitoring</code>.
-        Expect <code>prometheus-server-*</code> as <code>2/2 Running</code> and PVC as <code>Bound</code> with storageClass <code>gp2</code>.
+        Expect <code>prometheus-server-*</code> as <code>2/2 Running</code> and PVC as <code>Bound</code> with storageClass <code>gp3</code>.
       </div>
     </CollapsibleSection>
 
-    <CollapsibleSection title="Step 1.3: Install Metrics Server (for kubectl top + HPA/VPA)" icon="fas fa-tachometer-alt" iconColor="text-blue-500">
+    <CollapsibleSection title="Step 1.4: Install Metrics Server" icon="fas fa-tachometer-alt" iconColor="text-blue-500">
       <p className="text-sm text-gray-600 mb-3">
-        Required for <code>kubectl top nodes/pods</code> and for the Automation Agent's NodeOptimizer and HPA analysis.
+        Enables <code>kubectl top nodes/pods</code> and provides real-time CPU/memory resource usage to the XamOps agent via the metrics-server API.
         Skip if already installed (check: <code>kubectl get apiservice v1beta1.metrics.k8s.io</code>).
       </p>
       <CodeBlock code={`helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/
@@ -461,9 +476,9 @@ helm upgrade --install metrics-server metrics-server/metrics-server \\
       <p className="text-xs text-gray-500 mt-1">Or via manifest: <code>kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml</code></p>
     </CollapsibleSection>
 
-    <CollapsibleSection title="Step 1.4: Install Falco + FalcoSidekick" icon="fas fa-eye" iconColor="text-purple-500">
+    <CollapsibleSection title="Step 1.5: Install Falco + FalcoSidekick" icon="fas fa-eye" iconColor="text-purple-500">
       <p className="text-sm text-gray-600 mb-3">
-        Falco detects runtime security events. FalcoSidekick exposes them as Prometheus metrics (<code>falco_events_total</code>).
+        Falco is a CNCF runtime security tool — it detects syscall-level threats in real time (container escapes, privilege escalations, unexpected network connections). FalcoSidekick exposes events as Prometheus metrics (<code>falco_events_total</code>) which the XamOps agent collects.
       </p>
       <CodeBlock code={`helm repo add falcosecurity https://falcosecurity.github.io/charts
 helm repo update
@@ -472,16 +487,37 @@ helm upgrade --install falco falcosecurity/falco \\
   --namespace falco \\
   --set driver.kind=ebpf \\
   --set falco.json_output=true \\
+  --set falco.grpc.enabled=false \\
+  --set falco.grpc_output.enabled=false \\
   --set falcosidekick.enabled=true \\
   --set falcosidekick.webui.enabled=false \\
-  --set falcosidekick.config.prometheus.enabled=true`} />
+  --set falcosidekick.config.prometheus.enabled=true \\
+  --set falcosidekick.service.port=2801 \\
+  --set tolerations[0].operator=Exists`} />
+
       <div className="bg-amber-50 border border-amber-200 rounded p-3 text-sm text-amber-800 mt-2">
         <i className="fas fa-info-circle mr-2"></i>
-        If eBPF is not supported, try <code className="bg-amber-100 px-1 rounded">--set driver.kind=module</code> instead.
+        <strong>Driver compatibility:</strong>
+        <ul className="list-disc list-inside mt-1 space-y-1">
+          <li><strong>EKS with AL2 (kernel 5.10+) or AL2023 (kernel 6.1+):</strong> <code>--set driver.kind=ebpf</code> works</li>
+          <li><strong>Older kernels / custom AMIs:</strong> try <code>--set driver.kind=modern_ebpf</code></li>
+          <li><strong>If both fail:</strong> use <code>--set driver.kind=module</code> (requires kernel headers on nodes)</li>
+        </ul>
       </div>
+
+      <p className="text-sm text-gray-600 mt-3 mb-1">Verify Falco is running on all nodes:</p>
+      <CodeBlock code={`# Falco runs as a DaemonSet — one pod per node
+kubectl get pods -n falco -o wide   # all should be Running
+
+# FalcoSidekick should be Running (1-2 replicas)
+kubectl get pods -n falco -l app.kubernetes.io/name=falcosidekick
+
+# Verify Prometheus metrics endpoint is reachable from within cluster
+kubectl run -it --rm debug --image=curlimages/curl:latest --restart=Never -- \\
+  curl -s http://falco-falcosidekick.falco.svc.cluster.local:2801/metrics | grep falco_events | head -5`} />
     </CollapsibleSection>
 
-    <CollapsibleSection title="Step 1.5: Install Cost Exporter" icon="fas fa-dollar-sign" iconColor="text-green-500">
+    <CollapsibleSection title="Step 1.6: Install Cost Exporter" icon="fas fa-dollar-sign" iconColor="text-green-500">
       <p className="text-sm text-gray-600 mb-3">
         Runs a CronJob that exports hourly node costs as <code>xamops_eks_*</code> Prometheus metrics using EC2 Spot/On-Demand pricing.
       </p>
@@ -592,7 +628,7 @@ EOF`}
       />
     </CollapsibleSection>
 
-    <CollapsibleSection title="Step 1.6: Install OpenCost" icon="fas fa-coins" iconColor="text-yellow-500">
+    <CollapsibleSection title="Step 1.7: Install OpenCost" icon="fas fa-coins" iconColor="text-yellow-500">
       <p className="text-sm text-gray-600 mb-3">
         OpenCost provides namespace-level cost allocation. It reads Prometheus in-cluster for efficiency data.
       </p>
@@ -637,27 +673,65 @@ const Part2Tab: React.FC = () => (
     </div>
 
     <CollapsibleSection title="Step 2.1: Install Trivy Operator" icon="fas fa-bug" iconColor="text-red-500">
+      <p className="text-sm text-gray-600 mb-3">
+        Trivy Operator continuously scans all workload images and generates <code>VulnerabilityReport</code> CRDs in each namespace. The XamOps agent reads these CRDs and pushes CVE data to your dashboard.
+      </p>
       <CodeBlock code={`helm repo add aquasecurity https://aquasecurity.github.io/helm-charts/
 helm repo update
 
 helm upgrade --install trivy-operator aquasecurity/trivy-operator \\
   --namespace trivy-system --create-namespace \\
-  --set trivy.ignoreUnfixed=true \\
-  --set operator.scanJobTimeout=5m`} />
-      <p className="text-sm text-gray-600 mt-2">Verify after 2–3 minutes:</p>
-      <CodeBlock code={`kubectl get vulnerabilityreports -A --no-headers | head -20`} />
+  --set trivy.ignoreUnfixed=false \\
+  --set trivy.severity=UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL \\
+  --set operator.scanJobTimeout=10m \\
+  --set operator.vulnerabilityScanner.enabled=true \\
+  --set operator.configAuditScannerEnabled=true \\
+  --set operator.rbacAssessmentScannerEnabled=true`} />
+
+      <div className="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-800 mt-3">
+        <i className="fas fa-info-circle mr-2"></i>
+        Trivy scans images automatically as new pods are scheduled. Initial scan of all existing workloads takes 5–15 minutes depending on cluster size.
+        <code className="block bg-blue-100 px-2 py-1 rounded mt-1">kubectl get pods -n trivy-system   # trivy-operator-* should be Running</code>
+      </div>
+      <p className="text-sm text-gray-600 mt-3 mb-1">Verify reports are being generated (wait 5–10 min after install):</p>
+      <CodeBlock code={`# Should list VulnerabilityReports for each workload
+kubectl get vulnerabilityreports -A --no-headers | head -20
+
+# Check a specific report
+kubectl get vulnerabilityreports -A -o wide | head -5
+
+# See CVE count summary
+kubectl get vulnerabilityreports -A -o jsonpath='{range .items[*]}{.metadata.name}{": C="}{.report.summary.criticalCount}{" H="}{.report.summary.highCount}{"\n"}{end}' | head -10`} />
     </CollapsibleSection>
 
     <CollapsibleSection title="Step 2.2: Install Kubescape" icon="fas fa-clipboard-check" iconColor="text-blue-500">
+      <p className="text-sm text-gray-600 mb-3">
+        Kubescape continuously scans your cluster against NSA-CISA, MITRE ATT&CK, and CIS Benchmark frameworks. It writes <code>ConfigurationScanSummary</code> CRDs that the XamOps agent reads for the compliance dashboard.
+      </p>
+      <VariableNote variables={['<CLUSTER_NAME>']} />
       <CodeBlock code={`helm repo add kubescape https://kubescape.github.io/helm-charts/
 helm repo update
 
 helm upgrade --install kubescape kubescape/kubescape-operator \\
   --namespace kubescape --create-namespace \\
-  --set clusterName=$(kubectl config current-context) \\
-  --set capabilities.continuousScan=enable`} />
-      <p className="text-sm text-gray-600 mt-2">Verify after 2–3 minutes:</p>
-      <CodeBlock code={`kubectl get configurationscansummaries -A --no-headers | head -20`} />
+  --set clusterName=<CLUSTER_NAME> \\
+  --set capabilities.continuousScan=enable \\
+  --set capabilities.relevancyEnabled=false \\
+  --set storage.enabled=true`} />
+
+      <div className="bg-amber-50 border border-amber-200 rounded p-3 text-sm text-amber-800 mt-3">
+        <i className="fas fa-exclamation-triangle mr-2"></i>
+        <strong>Important:</strong> <code>&lt;CLUSTER_NAME&gt;</code> must match exactly what you use in the XamOps agent ConfigMap — use the plain cluster name (e.g. <code>my-eks-cluster</code>), not the full ARN or kubectl context name.
+      </div>
+
+      <p className="text-sm text-gray-600 mt-3 mb-1">Verify pods are running and scans are complete (wait 3–5 min):</p>
+      <CodeBlock code={`kubectl get pods -n kubescape   # all pods should be Running/Completed
+
+# Should show scan summaries per namespace
+kubectl get configurationscansummaries -A --no-headers | head -10
+
+# Check compliance score
+kubectl get configurationscansummaries -A -o jsonpath='{range .items[*]}{.metadata.name}{": "}{.spec.summaryDetails.frameworks[0].name}{" score="}{.spec.summaryDetails.frameworks[0].complianceScore}{"\n"}{end}' | head -5`} />
     </CollapsibleSection>
   </div>
 );
@@ -1149,12 +1223,12 @@ kubectl set env deployment/xamops-automation \\
   </div>
 );
 
-// ─── Part 5: Verification ─────────────────────────────────────────────────────
+// ─── Part 4: Verification ─────────────────────────────────────────────────────
 const Part5Tab: React.FC = () => (
   <div className="space-y-6">
-    <h3 className="text-xl font-bold text-gray-800 mb-2">Part 5: Verification</h3>
+    <h3 className="text-xl font-bold text-gray-800 mb-2">Part 4: Verification</h3>
 
-    <CollapsibleSection title="Step 5.1: Verify All Pods Are Running" icon="fas fa-check-circle" iconColor="text-green-500">
+    <CollapsibleSection title="Step 4.1: Verify All Pods Are Running" icon="fas fa-check-circle" iconColor="text-green-500">
       <CodeBlock code={`# Monitoring stack
 kubectl get pods -n monitoring
 
@@ -1168,9 +1242,8 @@ kubectl get pods -n opencost
 kubectl get pods -n trivy-system
 kubectl get pods -n kubescape
 
-# XamOps agents
-kubectl get pods -n xamops-system
-kubectl get pods -n xamops-automation  # if installed`} />
+# XamOps agent
+kubectl get pods -n xamops-system`} />
       <div className="bg-green-50 border border-green-200 rounded-lg p-4 mt-4">
         <h5 className="font-semibold text-green-800 mb-2">Expected pods:</h5>
         <ul className="space-y-1 text-sm text-green-700">
@@ -1186,7 +1259,7 @@ kubectl get pods -n xamops-automation  # if installed`} />
       </div>
     </CollapsibleSection>
 
-    <CollapsibleSection title="Step 5.2: Verify Prometheus Has Data" icon="fas fa-fire" iconColor="text-orange-500">
+    <CollapsibleSection title="Step 4.2: Verify Prometheus Has Data" icon="fas fa-fire" iconColor="text-orange-500">
       <p className="text-sm text-gray-600 mb-3">Port-forward Prometheus UI to check metrics are being scraped:</p>
       <CodeBlock code={`kubectl port-forward -n monitoring svc/prometheus-server 9090:80`} />
       <p className="text-sm text-gray-600 mt-3 mb-1">Then open <code>http://localhost:9090</code> and query these metrics:</p>
@@ -1208,7 +1281,7 @@ kubectl get pods -n xamops-automation  # if installed`} />
       </div>
     </CollapsibleSection>
 
-    <CollapsibleSection title="Step 5.3: Verify Agent Is Pushing Data" icon="fas fa-robot" iconColor="text-blue-500">
+    <CollapsibleSection title="Step 4.3: Verify Agent Is Pushing Data" icon="fas fa-robot" iconColor="text-blue-500">
       <CodeBlock code={`# Check agent logs for successful pushes
 kubectl logs -n xamops-system -l app=xamops-agent --tail=100 | grep -i "push\\|ingest\\|success"
 
@@ -1225,16 +1298,15 @@ kubectl logs -n xamops-system -l app=xamops-agent --tail=100 | grep -i "push\\|i
       </div>
     </CollapsibleSection>
 
-    <CollapsibleSection title="Step 5.4: Check XamOps Dashboard" icon="fas fa-tachometer-alt" iconColor="text-indigo-500">
+    <CollapsibleSection title="Step 4.4: Check XamOps Dashboard" icon="fas fa-tachometer-alt" iconColor="text-indigo-500">
       <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
         <h5 className="font-semibold text-indigo-800 mb-3">After agent pushes, check these dashboard sections:</h5>
         <ul className="space-y-2 text-sm text-indigo-700">
           <li className="flex items-center gap-2"><input type="checkbox" className="rounded" readOnly /> <strong>Cluster Overview</strong> — Node count, pod count, CPU/memory %</li>
           <li className="flex items-center gap-2"><input type="checkbox" className="rounded" readOnly /> <strong>Nodes tab</strong> — Per-node utilization, spot vs on-demand, ready status</li>
           <li className="flex items-center gap-2"><input type="checkbox" className="rounded" readOnly /> <strong>Pods tab</strong> — Pod list with status, restarts, resource usage</li>
-          <li className="flex items-center gap-2"><input type="checkbox" className="rounded" readOnly /> <strong>Security tab</strong> — Trivy vulnerability reports + Kubescape compliance + Falco events</li>
+          <li className="flex items-center gap-2"><input type="checkbox" className="rounded" readOnly /> <strong>Security tab</strong> — Trivy vulnerability reports + Kubescape compliance + Falco runtime events</li>
           <li className="flex items-center gap-2"><input type="checkbox" className="rounded" readOnly /> <strong>Cost tab</strong> — Per-node cost, namespace cost allocation (OpenCost), cluster total</li>
-          <li className="flex items-center gap-2"><input type="checkbox" className="rounded" readOnly /> <strong>Autoscaling tab</strong> — HPA recommendations, VPA suggestions, node optimizer report</li>
         </ul>
         <div className="bg-indigo-100 rounded p-2 mt-3 text-xs text-indigo-800">
           <i className="fas fa-clock mr-1"></i>
@@ -1259,32 +1331,32 @@ kubectl logs -n xamops-system -l app=xamops-agent --tail=100 | grep -i "push\\|i
           </div>
           <div>
             <h6 className="font-semibold text-gray-700 mb-2 flex items-center gap-2">
-              <i className="fas fa-dollar-sign text-green-500"></i> Cost Exporter (Part 1, Step 1.5)
+              <i className="fas fa-clipboard-check text-blue-500"></i> Kubescape (Part 2, Step 2.2)
             </h6>
             <ul className="list-disc list-inside space-y-1 text-gray-700 text-sm ml-4">
-              <li><code className="bg-gray-100 px-1 rounded">cost-exporter CronJob</code>: <span className="text-amber-600 font-medium">&lt;CLUSTER_NAME&gt;</span>, <span className="text-amber-600 font-medium">&lt;REGION&gt;</span>, <span className="text-amber-600 font-medium">&lt;AWS_ACCOUNT_ID&gt;</span></li>
+              <li>Helm <code className="bg-gray-100 px-1 rounded">--set clusterName=</code>: <span className="text-amber-600 font-medium">&lt;CLUSTER_NAME&gt;</span> — must match XamOps agent ConfigMap exactly</li>
+            </ul>
+          </div>
+          <div>
+            <h6 className="font-semibold text-gray-700 mb-2 flex items-center gap-2">
+              <i className="fas fa-dollar-sign text-green-500"></i> Cost Exporter (Part 1, Step 1.6)
+            </h6>
+            <ul className="list-disc list-inside space-y-1 text-gray-700 text-sm ml-4">
+              <li><code className="bg-gray-100 px-1 rounded">cost-exporter deployment</code>: <span className="text-amber-600 font-medium">&lt;CLUSTER_NAME&gt;</span>, <span className="text-amber-600 font-medium">&lt;REGION&gt;</span>, <span className="text-amber-600 font-medium">&lt;AWS_ACCOUNT_ID&gt;</span></li>
               <li><code className="bg-gray-100 px-1 rounded">IAM trust policy</code>: <span className="text-amber-600 font-medium">&lt;AWS_ACCOUNT_ID&gt;</span></li>
             </ul>
           </div>
           <div>
             <h6 className="font-semibold text-gray-700 mb-2 flex items-center gap-2">
-              <i className="fas fa-coins text-yellow-500"></i> OpenCost (Part 1, Step 1.6)
+              <i className="fas fa-coins text-yellow-500"></i> OpenCost (Part 1, Step 1.7)
             </h6>
             <ul className="list-disc list-inside space-y-1 text-gray-700 text-sm ml-4">
               <li><code className="bg-gray-100 px-1 rounded">opencost-values.yaml</code>: <span className="text-amber-600 font-medium">&lt;REGION&gt;</span></li>
             </ul>
           </div>
-          <div>
-            <h6 className="font-semibold text-gray-700 mb-2 flex items-center gap-2">
-              <i className="fas fa-cogs text-orange-500"></i> Automation Agent (Part 4, optional)
-            </h6>
-            <ul className="list-disc list-inside space-y-1 text-gray-700 text-sm ml-4">
-              <li><code className="bg-gray-100 px-1 rounded">xamops-automation-config.yaml</code>: <span className="text-amber-600 font-medium">&lt;CLUSTER_NAME&gt;</span>, <span className="text-amber-600 font-medium">&lt;CLOUD_ACCOUNT_ID&gt;</span></li>
-            </ul>
-          </div>
-          <div className="bg-green-50 border border-green-200 rounded p-3 text-sm text-green-800">
-            <i className="fas fa-check-circle mr-2"></i>
-            <strong>Removed from old guide:</strong> <code>&lt;MONITORING_INSTANCE_PRIVATE_IP&gt;</code> — no longer needed. Prometheus runs in-cluster.
+          <div className="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-800">
+            <i className="fas fa-info-circle mr-2"></i>
+            <strong>Tip:</strong> Use the same <code>&lt;CLUSTER_NAME&gt;</code> value across all steps — agent ConfigMap, Kubescape install, and cost-exporter. Mismatches will cause data to appear under the wrong cluster.
           </div>
         </div>
       </div>

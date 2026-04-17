@@ -179,16 +179,29 @@ func collectK8sResources(ctx context.Context, k8s kubernetes.Interface, mc metri
 					Protocol:   string(p.Protocol),
 				})
 			}
-			resources.Services = append(resources.Services, ServiceDetail{
-				Name:        svc.Name,
-				Namespace:   svc.Namespace,
-				Labels:      svc.Labels,
-				Type:        string(svc.Spec.Type),
-				ClusterIP:   svc.Spec.ClusterIP,
-				ExternalIPs: svc.Spec.ExternalIPs,
-				Ports:       ports,
-				Age:         svc.CreationTimestamp.UTC().Format(time.RFC3339),
-			})
+			sd := ServiceDetail{
+				Name:         svc.Name,
+				Namespace:    svc.Namespace,
+				Labels:       svc.Labels,
+				Type:         string(svc.Spec.Type),
+				ClusterIP:    svc.Spec.ClusterIP,
+				ExternalIPs:  svc.Spec.ExternalIPs,
+				ExternalName: svc.Spec.ExternalName,
+				Ports:        ports,
+				Age:          svc.CreationTimestamp.UTC().Format(time.RFC3339),
+			}
+			// Capture LoadBalancer hostname/IP from service status
+			for _, ing := range svc.Status.LoadBalancer.Ingress {
+				if ing.Hostname != "" {
+					sd.LoadBalancerHostname = ing.Hostname
+					break
+				}
+				if ing.IP != "" {
+					sd.LoadBalancerIP = ing.IP
+					break
+				}
+			}
+			resources.Services = append(resources.Services, sd)
 			resources.Summary.TotalServices++
 		}
 	}

@@ -42,13 +42,14 @@ type TrivySummary struct {
 }
 
 type TrivyVulnerability struct {
-	VulnerabilityID  string `json:"vulnerabilityID"`
-	Severity         string `json:"severity"`
-	PkgName          string `json:"pkgName"`
-	InstalledVersion string `json:"installedVersion"`
-	FixedVersion     string `json:"fixedVersion,omitempty"`
-	Title            string `json:"title,omitempty"`
-	PrimaryLink      string `json:"primaryLink,omitempty"`
+	VulnerabilityID  string  `json:"vulnerabilityID"`
+	Severity         string  `json:"severity"`
+	PkgName          string  `json:"pkgName"`
+	InstalledVersion string  `json:"installedVersion"`
+	FixedVersion     string  `json:"fixedVersion,omitempty"`
+	Title            string  `json:"title,omitempty"`
+	PrimaryLink      string  `json:"primaryLink,omitempty"`
+	Score            float64 `json:"score,omitempty"`
 }
 
 // KubescapeScan represents a Kubescape configuration scan
@@ -452,14 +453,17 @@ type DaemonSetDetail struct {
 }
 
 type ServiceDetail struct {
-	Name        string            `json:"name"`
-	Namespace   string            `json:"namespace"`
-	Labels      map[string]string `json:"labels,omitempty"`
-	Type        string            `json:"type"` // ClusterIP | NodePort | LoadBalancer | ExternalName
-	ClusterIP   string            `json:"clusterIp,omitempty"`
-	ExternalIPs []string          `json:"externalIps,omitempty"`
-	Ports       []ServicePort     `json:"ports,omitempty"`
-	Age         string            `json:"age"`
+	Name                string            `json:"name"`
+	Namespace           string            `json:"namespace"`
+	Labels              map[string]string `json:"labels,omitempty"`
+	Type                string            `json:"type"` // ClusterIP | NodePort | LoadBalancer | ExternalName
+	ClusterIP           string            `json:"clusterIp,omitempty"`
+	ExternalIPs         []string          `json:"externalIps,omitempty"`
+	LoadBalancerHostname string           `json:"loadBalancerHostname,omitempty"`
+	LoadBalancerIP       string           `json:"loadBalancerIp,omitempty"`
+	ExternalName        string            `json:"externalName,omitempty"`
+	Ports               []ServicePort     `json:"ports,omitempty"`
+	Age                 string            `json:"age"`
 }
 
 type ServicePort struct {

@@ -42,17 +42,10 @@ const EksSecurityTab: React.FC<EksSecurityTabProps> = ({ eksData }) => {
   const totalLow = trivyData?.summary?.totalLow || 0;
   const totalVulns = totalCritical + totalHigh + totalMedium + totalLow;
   const securityScore = Math.max(0, 100 - (totalCritical * 10 + totalHigh * 3 + totalMedium * 1));
-  const riskLevel = totalCritical > 0 ? 'Critical' : totalHigh > 5 ? 'High' : totalHigh > 0 ? 'Medium' : 'Low';
-  const riskConfig = {
-    Critical: { text: 'text-red-300', bg: 'bg-red-500/20', border: 'border-red-400/30', badge: 'bg-red-100 text-red-700' },
-    High:     { text: 'text-orange-300', bg: 'bg-orange-500/20', border: 'border-orange-400/30', badge: 'bg-orange-100 text-orange-700' },
-    Medium:   { text: 'text-amber-300', bg: 'bg-amber-500/20', border: 'border-amber-400/30', badge: 'bg-amber-100 text-amber-700' },
-    Low:      { text: 'text-emerald-300', bg: 'bg-emerald-500/20', border: 'border-emerald-400/30', badge: 'bg-emerald-100 text-emerald-700' },
-  }[riskLevel];
-
-  const falcoTotal = (dashboard.securityMetrics?.criticalAlerts || 0) +
-    (dashboard.securityMetrics?.highAlerts || 0) +
-    (dashboard.securityMetrics?.mediumAlerts || 0);
+  // securityMetrics uses totalEvents + eventsByPriority (not criticalAlerts/highAlerts)
+  const falcoTotal = dashboard.securityMetrics?.totalEvents ||
+    Object.values(dashboard.securityMetrics?.eventsByPriority || {})
+      .reduce((sum: number, v: any) => sum + (Number(v) || 0), 0);
   const kubescapeScore = dashboard.kubescape?.complianceScore || 0;
 
   return (

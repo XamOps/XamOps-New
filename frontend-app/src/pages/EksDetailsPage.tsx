@@ -41,6 +41,13 @@ const EksDetailsPage: React.FC = () => {
   const [showIntegrationGuide, setShowIntegrationGuide] = useState(false);
   const { setTitle, setActions, clearActions } = useTopbar();
 
+  // Listen for the custom event dispatched by child tabs (e.g. EksAutoscalingTab)
+  useEffect(() => {
+    const handler = () => setShowIntegrationGuide(true);
+    document.addEventListener('open-integration-guide', handler);
+    return () => document.removeEventListener('open-integration-guide', handler);
+  }, []);
+
   // Get params from URL
   const clusterName = searchParams.get('name');
   const region = searchParams.get('region') || 'us-east-1';

@@ -59,7 +59,10 @@ const EksPerformanceTab: React.FC<EksPerformanceTabProps> = ({ eksData }) => {
 
   const readyNodes = allUtilizationNodes.filter((utilNode: any) => {
     const nodeInfo = nodeMetrics.find((n: any) => n.name === utilNode.nodeName);
-    return nodeInfo?.ready === true;
+    // nodeMetrics may be empty in agent-only mode; fall back to condition string from resourceUtilization
+    return nodeInfo?.ready === true ||
+           utilNode.condition === 'Ready' ||
+           utilNode.condition === 'ready';
   });
 
   const getCpuColor = () => {
@@ -72,12 +75,6 @@ const EksPerformanceTab: React.FC<EksPerformanceTabProps> = ({ eksData }) => {
     if (memoryUsagePercent >= 80) return '#ef4444';
     if (memoryUsagePercent >= 60) return '#f59e0b';
     return '#6366f1';
-  };
-
-  const getUsageColor = (pct: number) => {
-    if (pct >= 80) return { text: 'text-red-600', bg: 'bg-red-500', light: 'bg-red-50', badge: 'bg-red-100 text-red-700' };
-    if (pct >= 60) return { text: 'text-amber-600', bg: 'bg-amber-500', light: 'bg-amber-50', badge: 'bg-amber-100 text-amber-700' };
-    return { text: 'text-emerald-600', bg: 'bg-emerald-500', light: 'bg-emerald-50', badge: 'bg-emerald-100 text-emerald-700' };
   };
 
   const formatBytes = (bytes: number) => `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
@@ -94,8 +91,6 @@ const EksPerformanceTab: React.FC<EksPerformanceTabProps> = ({ eksData }) => {
   const avgNodeMemUsage = readyNodes.length > 0
     ? (readyNodes.reduce((s: number, n: any) => s + (n.memoryUsagePercent || 0), 0) / readyNodes.length).toFixed(1) : '0';
 
-  const cpuColors = getUsageColor(cpuUsagePercent);
-  const memColors = getUsageColor(memoryUsagePercent);
 
   return (
     <div className="space-y-5">
@@ -216,9 +211,9 @@ const EksPerformanceTab: React.FC<EksPerformanceTabProps> = ({ eksData }) => {
 
         <div className="divide-y divide-[#e8ecf0]">
           {readyNodes.map((node: any, index: number) => {
-            const cpuReqPercent = node.cpuRequestsPercent !== undefined ? node.cpuRequestsPercent
+            const cpuReqPercent = node.cpuRequestsPercent != null ? node.cpuRequestsPercent
               : (node.cpuCapacity ? (node.cpuRequests / (node.cpuCapacity * 1000)) * 100 : 0);
-            const memReqPercent = node.memoryRequestsPercent !== undefined ? node.memoryRequestsPercent
+            const memReqPercent = node.memoryRequestsPercent != null ? node.memoryRequestsPercent
               : (node.memoryCapacity ? (node.memoryRequests / (node.memoryCapacity * 1024)) * 100 : 0);
             const cpu = node.cpuUsagePercent || 0;
             const mem = node.memoryUsagePercent || 0;
@@ -256,7 +251,7 @@ const EksPerformanceTab: React.FC<EksPerformanceTabProps> = ({ eksData }) => {
                     <div key={bi}>
                       <div className="flex items-center justify-between text-[11px] mb-1">
                         <span className="text-[#8b949e]">{bar.label}</span>
-                        <span className="font-semibold" style={{ color: bar.color }}>{bar.pct.toFixed(1)}%</span>
+                        <span className="font-semibold" style={{ color: bar.color }}>{(bar.pct || 0).toFixed(1)}%</span>
                       </div>
                       <div className="h-1.5 bg-[#e8ecf0] rounded-full overflow-hidden">
                         <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, bar.pct)}%`, background: bar.color }} />

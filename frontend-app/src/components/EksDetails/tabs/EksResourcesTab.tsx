@@ -353,7 +353,9 @@ const ServicesSection: React.FC<{ services: any[] }> = ({ services }) => {
             {filtered.length === 0 ? (
               <tr><td colSpan={6} className="py-12 text-center text-gray-400 text-sm">No services found</td></tr>
             ) : filtered.map((svc: any, i: number) => {
-              const externalIp = svc.externalIp || svc.loadBalancerIngress || svc.externalName || '—';
+              const externalIp = svc.loadBalancerHostname || svc.loadBalancerIp
+                || (Array.isArray(svc.externalIps) && svc.externalIps[0])
+                || svc.externalIp || svc.externalName || '—';
               const ports = Array.isArray(svc.ports)
                 ? svc.ports.map((p: any) => typeof p === 'object' ? `${p.port || p.targetPort}/${p.protocol || 'TCP'}` : p).join(', ')
                 : (svc.ports || '—');
@@ -672,7 +674,7 @@ const ResourceSummary: React.FC<{ dashboard: any }> = ({ dashboard }) => {
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-      {stats.map(({ label, value, icon, color, bg }) => (
+      {stats.map(({ label, value }) => (
         <div key={label} className="bg-white rounded-lg border border-[#d0d7de] px-4 py-3">
           <div className="text-[11px] font-medium text-[#8b949e] uppercase tracking-wider mb-1">{label}</div>
           <div className="text-[22px] font-semibold text-[#1a1f2e]">{value}</div>

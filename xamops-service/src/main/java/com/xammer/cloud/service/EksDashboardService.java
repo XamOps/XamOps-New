@@ -396,9 +396,49 @@ public class EksDashboardService {
                                             dashboard.setFalcoEvents(promMetrics.getFalcoEvents());
                                         }
                                         dashboard.setNodeUtilization(promMetrics.getNodeUtilization());
-                                        dashboard.setNamespaceUtilization(promMetrics.getNamespaceUtilization());
-                                        dashboard.setTopCpuPods(promMetrics.getTopCpuPods());
-                                        dashboard.setTopMemoryPods(promMetrics.getTopMemoryPods());
+
+                                        // Enrich namespaceUtilization with cpuUsagePct/memUsagePct
+                                        // UI reads these fields for the bar charts. Agent pushes cpuCores/memGb (absolute).
+                                        // Normalize relative to the largest namespace so bars show relative scale.
+                                        List<Map<String, Object>> rawNsUtil = promMetrics.getNamespaceUtilization();
+                                        if (!rawNsUtil.isEmpty()) {
+                                            double maxCpu = rawNsUtil.stream()
+                                                    .mapToDouble(n -> ((Number) n.getOrDefault("cpuCores", 0.0)).doubleValue())
+                                                    .max().orElse(1.0);
+                                            double maxMem = rawNsUtil.stream()
+                                                    .mapToDouble(n -> ((Number) n.getOrDefault("memGb", 0.0)).doubleValue())
+                                                    .max().orElse(1.0);
+                                            if (maxCpu == 0) maxCpu = 1.0;
+                                            if (maxMem == 0) maxMem = 1.0;
+                                            for (Map<String, Object> ns : rawNsUtil) {
+                                                double cpu = ((Number) ns.getOrDefault("cpuCores", 0.0)).doubleValue();
+                                                double mem = ((Number) ns.getOrDefault("memGb", 0.0)).doubleValue();
+                                                ns.put("cpuUsagePct", Math.round((cpu / maxCpu) * 100.0 * 10) / 10.0);
+                                                ns.put("memUsagePct", Math.round((mem / maxMem) * 100.0 * 10) / 10.0);
+                                                ns.put("cpuCoresDisplay", String.format("%.3f", cpu));
+                                                ns.put("memGbDisplay", String.format("%.2f", mem));
+                                            }
+                                        }
+                                        dashboard.setNamespaceUtilization(rawNsUtil);
+
+                                        // Enrich topCpuPods: add `name` and `cpuMillicores` fields the UI reads
+                                        List<Map<String, Object>> rawCpuPods = promMetrics.getTopCpuPods();
+                                        for (Map<String, Object> p : rawCpuPods) {
+                                            p.put("name", p.get("podName"));
+                                            double cores = ((Number) p.getOrDefault("value", 0.0)).doubleValue();
+                                            p.put("cpuMillicores", Math.round(cores * 1000));
+                                        }
+                                        dashboard.setTopCpuPods(rawCpuPods);
+
+                                        // Enrich topMemoryPods: add `name` and `memoryMB` fields the UI reads
+                                        // Agent pushes value in bytes (container_memory_working_set_bytes)
+                                        List<Map<String, Object>> rawMemPods = promMetrics.getTopMemoryPods();
+                                        for (Map<String, Object> p : rawMemPods) {
+                                            p.put("name", p.get("podName"));
+                                            double bytes = ((Number) p.getOrDefault("value", 0.0)).doubleValue();
+                                            p.put("memoryMB", bytes / (1024.0 * 1024.0));
+                                        }
+                                        dashboard.setTopMemoryPods(rawMemPods);
                                         dashboard.setNetworkMetrics(promMetrics.getNetworkMetrics());
                                         logger.info("📊 prometheus-metrics from agent: cpu={}% mem={}% falco={} nodeUtil={}",
                                                 promMetrics.getClusterCpuUsagePct(), promMetrics.getClusterMemUsagePct(),
@@ -440,12 +480,12 @@ public class EksDashboardService {
                                                 }
 
                                                 // Set absolute values on clusterOverview
-                                                ClusterOverview overview = dashboard.getClusterOverview();
-                                                if (overview != null) {
-                                                    overview.setCpuUsageMillicores(totalCpuUsedCores * 1000);
-                                                    overview.setCpuCapacityMillicores(totalCpuCapacityCores * 1000);
-                                                    overview.setMemoryUsageBytes(totalMemUsedGb * 1024 * 1024 * 1024);
-                                                    overview.setMemoryCapacityBytes(totalMemCapacityGb * 1024 * 1024 * 1024);
+                                                ClusterOverview overview2 = dashboard.getClusterOverview();
+                                                if (overview2 != null) {
+                                                    overview2.setCpuUsageMillicores(totalCpuUsedCores * 1000);
+                                                    overview2.setCpuCapacityMillicores(totalCpuCapacityCores * 1000);
+                                                    overview2.setMemoryUsageBytes(totalMemUsedGb * 1024 * 1024 * 1024);
+                                                    overview2.setMemoryCapacityBytes(totalMemCapacityGb * 1024 * 1024 * 1024);
                                                 }
                                                 logger.info("📊 Enriched {} nodes with prometheus utilization, totalCpu={}m/{}m totalMem={:.1f}GB/{:.1f}GB",
                                                         resUtil.getNodes().size(), (long)(totalCpuUsedCores*1000), (long)(totalCpuCapacityCores*1000),
@@ -462,20 +502,44 @@ public class EksDashboardService {
                                             WorkloadHealth agentWorkloadHealth = dashboard.getWorkloadHealth();
                                             if (agentWorkloadHealth == null) agentWorkloadHealth = new WorkloadHealth();
 
+                                            // Build pod CPU/memory lookup from prometheus topCpuPods/topMemoryPods
+                                            // so pods can show real usage in the Pods tab and Cost tab
+                                            Map<String, Double> podCpuMillicores = new HashMap<>();
+                                            Map<String, Double> podMemBytes = new HashMap<>();
+                                            for (Map<String, Object> e : promMetrics.getTopCpuPods()) {
+                                                String pn = (String) e.get("podName");
+                                                if (pn != null) {
+                                                    double cores = ((Number) e.getOrDefault("value", 0.0)).doubleValue();
+                                                    podCpuMillicores.merge(pn, cores * 1000, Double::sum);
+                                                }
+                                            }
+                                            for (Map<String, Object> e : promMetrics.getTopMemoryPods()) {
+                                                String pn = (String) e.get("podName");
+                                                if (pn != null) {
+                                                    double bytes = ((Number) e.getOrDefault("value", 0.0)).doubleValue();
+                                                    podMemBytes.merge(pn, bytes, Double::sum);
+                                                }
+                                            }
+
                                             List<WorkloadHealth.PodHealth> podHealthList = new ArrayList<>();
                                             for (Map<String, Object> podMap : k8sResForWh.getPods()) {
                                                 WorkloadHealth.PodHealth pod = new WorkloadHealth.PodHealth();
-                                                pod.setName((String) podMap.get("name"));
+                                                String podName = (String) podMap.get("name");
+                                                pod.setName(podName);
                                                 pod.setNamespace((String) podMap.get("namespace"));
                                                 pod.setPhase((String) podMap.getOrDefault("phase", "Unknown"));
                                                 pod.setNode((String) podMap.get("nodeName"));
                                                 pod.setReady(Boolean.TRUE.equals(podMap.get("ready")));
-                                                pod.setRestarts(getIntFromMap(podMap, "restarts"));
                                                 pod.setAge((String) podMap.getOrDefault("age", "N/A"));
 
-                                                // Extract containers as ContainerStatus list
+                                                // Enrich with prometheus usage
+                                                pod.setCpuUsage(podCpuMillicores.getOrDefault(podName, 0.0));
+                                                pod.setMemoryUsage(podMemBytes.getOrDefault(podName, 0.0));
+
+                                                // Extract containers and aggregate restart count from them
                                                 @SuppressWarnings("unchecked")
                                                 List<Map<String, Object>> containers = (List<Map<String, Object>>) podMap.get("containers");
+                                                int totalRestarts = 0;
                                                 if (containers != null) {
                                                     List<WorkloadHealth.PodHealth.ContainerStatus> containerStatusList = new ArrayList<>();
                                                     for (Map<String, Object> c : containers) {
@@ -483,12 +547,15 @@ public class EksDashboardService {
                                                         cs.setName((String) c.get("name"));
                                                         cs.setImage((String) c.get("image"));
                                                         cs.setReady(Boolean.TRUE.equals(c.get("ready")));
-                                                        cs.setRestartCount(getIntFromMap(c, "restartCount"));
+                                                        int rc = getIntFromMap(c, "restartCount");
+                                                        cs.setRestartCount(rc);
+                                                        totalRestarts += rc;
                                                         cs.setState((String) c.getOrDefault("state", "running"));
                                                         containerStatusList.add(cs);
                                                     }
                                                     pod.setContainerStatuses(containerStatusList);
                                                 }
+                                                pod.setRestarts(totalRestarts);
                                                 podHealthList.add(pod);
                                             }
                                             agentWorkloadHealth.setPods(podHealthList);
@@ -500,6 +567,234 @@ public class EksDashboardService {
                                     }
                                 } catch (Exception promEx) {
                                     logger.warn("⚠️ Error getting prometheus-metrics from agent: {}", promEx.getMessage());
+                                }
+
+                                // 8. Build containerMetrics from prometheus-metrics topCpuPods/topMemoryPods
+                                // Fills the gap when no external Prometheus URL is configured (agent-only mode)
+                                try {
+                                    ContainerMetrics existingCm = dashboard.getContainerMetrics();
+                                    boolean needsContainers = existingCm == null
+                                            || existingCm.getContainers() == null
+                                            || existingCm.getContainers().isEmpty();
+                                    if (needsContainers) {
+                                        AgentDataTransformerService.PrometheusMetricsResult pm2 =
+                                                agentDataTransformerService.transformPrometheusMetrics(config.getId());
+                                        List<Map<String, Object>> topCpu = pm2.getTopCpuPods();
+                                        List<Map<String, Object>> topMem = pm2.getTopMemoryPods();
+                                        if (!topCpu.isEmpty() || !topMem.isEmpty()) {
+                                            Map<String, ContainerMetrics.ContainerInfo> ciMap = new LinkedHashMap<>();
+                                            for (Map<String, Object> e : topCpu) {
+                                                String podName = (String) e.get("podName");
+                                                String ctrName = (String) e.get("containerName");
+                                                if (podName == null || ctrName == null) continue;
+                                                String key = podName + "/" + ctrName;
+                                                ContainerMetrics.ContainerInfo ci = ciMap.computeIfAbsent(key, k -> {
+                                                    ContainerMetrics.ContainerInfo c = new ContainerMetrics.ContainerInfo();
+                                                    c.setId(k); c.setPod(podName); c.setName(ctrName); c.setRunning(true);
+                                                    return c;
+                                                });
+                                                double cores = ((Number) e.getOrDefault("value", 0.0)).doubleValue();
+                                                ci.setCpuUsage(cores * 1000); // cores → millicores
+                                            }
+                                            for (Map<String, Object> e : topMem) {
+                                                String podName = (String) e.get("podName");
+                                                String ctrName = (String) e.get("containerName");
+                                                if (podName == null || ctrName == null) continue;
+                                                String key = podName + "/" + ctrName;
+                                                ContainerMetrics.ContainerInfo ci = ciMap.computeIfAbsent(key, k -> {
+                                                    ContainerMetrics.ContainerInfo c = new ContainerMetrics.ContainerInfo();
+                                                    c.setId(k); c.setPod(podName); c.setName(ctrName); c.setRunning(true);
+                                                    return c;
+                                                });
+                                                double bytes = ((Number) e.getOrDefault("value", 0.0)).doubleValue();
+                                                ci.setMemoryUsage(bytes);
+                                                ci.setFsUsage(0.0);
+                                            }
+                                            if (existingCm == null) existingCm = new ContainerMetrics();
+                                            existingCm.setContainers(new ArrayList<>(ciMap.values()));
+                                            // Compute state counts from workloadHealth container statuses
+                                            WorkloadHealth wh = dashboard.getWorkloadHealth();
+                                            if (wh != null && wh.getPods() != null) {
+                                                int running = 0, waiting = 0, terminated = 0;
+                                                for (WorkloadHealth.PodHealth p : wh.getPods()) {
+                                                    if (p.getContainerStatuses() == null) continue;
+                                                    for (WorkloadHealth.PodHealth.ContainerStatus cs : p.getContainerStatuses()) {
+                                                        String st = cs.getState();
+                                                        if ("running".equalsIgnoreCase(st)) running++;
+                                                        else if ("waiting".equalsIgnoreCase(st)) waiting++;
+                                                        else terminated++;
+                                                    }
+                                                }
+                                                existingCm.setRunningCount(running);
+                                                existingCm.setWaitingCount(waiting);
+                                                existingCm.setTerminatedCount(terminated);
+                                            }
+                                            dashboard.setContainerMetrics(existingCm);
+                                            logger.info("📊 Built containerMetrics from agent topCpu/topMem: {} entries", ciMap.size());
+                                        }
+                                    }
+                                } catch (Exception cmEx) {
+                                    logger.warn("⚠️ Error building containerMetrics from agent: {}", cmEx.getMessage());
+                                }
+
+                                // 9. Populate costMetrics.dailyCost from agentCostMetrics if still zero
+                                // (agentCostMetrics comes from node-cost-exporter via prometheus-metrics collector)
+                                try {
+                                    CostMetrics cm = dashboard.getCostMetrics();
+                                    boolean noDirectCost = cm == null || cm.getDailyCost() == null || cm.getDailyCost() == 0.0;
+                                    if (noDirectCost && dashboard.getAgentCostMetrics() != null) {
+                                        Map<String, Object> acm = dashboard.getAgentCostMetrics();
+                                        double hourly = ((Number) acm.getOrDefault("totalHourlyCost", 0.0)).doubleValue();
+                                        if (hourly > 0) {
+                                            if (cm == null) cm = new CostMetrics();
+                                            cm.setDailyCost(hourly * 24);
+                                            cm.setMonthlyCost(hourly * 24 * 30);
+                                            dashboard.setCostMetrics(cm);
+                                            logger.info("💰 Set costMetrics.dailyCost=${} from agentCostMetrics.totalHourlyCost",
+                                                    String.format("%.2f", hourly * 24));
+                                        }
+                                    }
+                                } catch (Exception costEx) {
+                                    logger.warn("⚠️ Error populating costMetrics from agentCostMetrics: {}", costEx.getMessage());
+                                }
+
+                                // 10. Build nodeMetrics from resourceUtilization.nodes
+                                // Needed by: getNodeConditionCount (Nodes tab health cards), EksNodesTab filter
+                                try {
+                                    ResourceUtilization resUtil = dashboard.getResourceUtilization();
+                                    if (dashboard.getNodeMetrics() == null
+                                            && resUtil != null && resUtil.getNodes() != null && !resUtil.getNodes().isEmpty()) {
+                                        EksCompleteDashboardDto.NodeMetrics nm = new EksCompleteDashboardDto.NodeMetrics();
+                                        List<EksCompleteDashboardDto.NodeMetrics.NodeInfo> niList = new ArrayList<>();
+                                        int readyCount = 0;
+                                        for (ResourceUtilization.NodeResource rn : resUtil.getNodes()) {
+                                            EksCompleteDashboardDto.NodeMetrics.NodeInfo ni = new EksCompleteDashboardDto.NodeMetrics.NodeInfo();
+                                            ni.setName(rn.getNodeName());
+                                            boolean isReady = "Ready".equalsIgnoreCase(rn.getCondition());
+                                            ni.setReady(isReady);
+                                            ni.setInstanceType(rn.getInstanceType());
+                                            ni.setDiskPressure(false);
+                                            ni.setMemoryPressure(false);
+                                            ni.setPidPressure(false);
+                                            if (isReady) readyCount++;
+                                            niList.add(ni);
+                                        }
+                                        nm.setNodes(niList);
+                                        nm.setReadyCount(readyCount);
+                                        dashboard.setNodeMetrics(nm);
+                                        logger.info("📊 Built nodeMetrics from resourceUtilization: {} nodes, {} ready", niList.size(), readyCount);
+                                    }
+                                } catch (Exception nmEx) {
+                                    logger.warn("⚠️ Error building nodeMetrics from agent: {}", nmEx.getMessage());
+                                }
+
+                                // 11. Build nodeCosts from resourceUtilization.nodes
+                                // Needed by: Cost tab Node Fleet Cost, Overview Node Cost Breakdown
+                                try {
+                                    CostMetrics cm = dashboard.getCostMetrics();
+                                    boolean noNodeCosts = cm == null || cm.getNodeCosts() == null || cm.getNodeCosts().isEmpty();
+                                    ResourceUtilization resUtil = dashboard.getResourceUtilization();
+                                    if (noNodeCosts && resUtil != null && resUtil.getNodes() != null && !resUtil.getNodes().isEmpty()) {
+                                        if (cm == null) cm = new CostMetrics();
+                                        double totalDailyCost = cm.getDailyCost() != null ? cm.getDailyCost() : 0.0;
+                                        double totalCpuCapacity = resUtil.getNodes().stream()
+                                                .mapToDouble(n -> n.getCpuCapacity() != null ? n.getCpuCapacity() : 0.0).sum();
+                                        List<CostMetrics.NodeCost> nodeCosts = new ArrayList<>();
+                                        for (ResourceUtilization.NodeResource rn : resUtil.getNodes()) {
+                                            CostMetrics.NodeCost nc = new CostMetrics.NodeCost();
+                                            nc.setNodeName(rn.getNodeName());
+                                            nc.setInstanceType(rn.getInstanceType() != null ? rn.getInstanceType() : "Unknown");
+                                            nc.setCapacityType("on-demand");
+                                            nc.setCpuUsagePercent(rn.getCpuUsagePercent() != null ? rn.getCpuUsagePercent() : 0.0);
+                                            // Distribute total daily cost proportionally by CPU capacity
+                                            double nodeCpu = rn.getCpuCapacity() != null ? rn.getCpuCapacity() : 0.0;
+                                            double share = totalCpuCapacity > 0 && totalDailyCost > 0
+                                                    ? (nodeCpu / totalCpuCapacity) * totalDailyCost : 0.0;
+                                            nc.setDailyCost(share);
+                                            nc.setHourlyRate(share / 24.0);
+                                            nodeCosts.add(nc);
+                                        }
+                                        cm.setNodeCosts(nodeCosts);
+                                        dashboard.setCostMetrics(cm);
+                                        logger.info("💰 Built nodeCosts from resourceUtilization: {} nodes, totalDaily=${}", nodeCosts.size(), String.format("%.2f", totalDailyCost));
+                                    }
+                                } catch (Exception ncEx) {
+                                    logger.warn("⚠️ Error building nodeCosts from agent: {}", ncEx.getMessage());
+                                }
+
+                                // 12. Build securityMetrics from falcoEvents
+                                // Needed by: Security tab Runtime Alerts KPI, RuntimeSecurityView
+                                try {
+                                    List<Map<String, Object>> falcoEvts = dashboard.getFalcoEvents();
+                                    SecurityMetrics sm = dashboard.getSecurityMetrics();
+                                    boolean smEmpty = sm == null || (sm.getTotalEvents() == null || sm.getTotalEvents() == 0);
+                                    if (smEmpty && falcoEvts != null && !falcoEvts.isEmpty()) {
+                                        if (sm == null) sm = new SecurityMetrics();
+                                        Map<String, Integer> byPriority = new LinkedHashMap<>();
+                                        List<SecurityMetrics.SecurityAlert> alerts = new ArrayList<>();
+                                        for (Map<String, Object> fe : falcoEvts) {
+                                            String priority = (String) fe.getOrDefault("priority", "WARNING");
+                                            byPriority.merge(priority, 1, Integer::sum);
+                                            SecurityMetrics.SecurityAlert sa = new SecurityMetrics.SecurityAlert();
+                                            sa.setRule((String) fe.getOrDefault("rule", "Unknown"));
+                                            sa.setPriority(priority);
+                                            sa.setPod((String) fe.getOrDefault("pod", ""));
+                                            sa.setNamespace((String) fe.getOrDefault("namespace", ""));
+                                            sa.setCount(1L);
+                                            alerts.add(sa);
+                                        }
+                                        sm.setTotalEvents((long) falcoEvts.size());
+                                        sm.setEventsLastHour((long) falcoEvts.size());
+                                        sm.setEventsByPriority(byPriority);
+                                        sm.setAlerts(alerts);
+                                        dashboard.setSecurityMetrics(sm);
+                                        logger.info("🔒 Built securityMetrics from falcoEvents: {} events", falcoEvts.size());
+                                    }
+                                } catch (Exception secEx) {
+                                    logger.warn("⚠️ Error building securityMetrics from falcoEvents: {}", secEx.getMessage());
+                                }
+
+                                // 13. Build podResourceMetrics from cluster overview + resourceUtilization
+                                // Needed by: Pods tab resource bar charts
+                                try {
+                                    if (dashboard.getPodResourceMetrics() == null) {
+                                        ClusterOverview ov = dashboard.getClusterOverview();
+                                        ResourceUtilization resUtil = dashboard.getResourceUtilization();
+                                        if (ov != null && resUtil != null && resUtil.getNodes() != null) {
+                                            com.xammer.cloud.dto.k8s.PodResourceMetrics prm = new com.xammer.cloud.dto.k8s.PodResourceMetrics();
+                                            double cpuCapMillicores = ov.getCpuCapacityMillicores() != null ? ov.getCpuCapacityMillicores() : 0.0;
+                                            double cpuUsedMillicores = ov.getCpuUsageMillicores() != null ? ov.getCpuUsageMillicores() : 0.0;
+                                            double memCapBytes = ov.getMemoryCapacityBytes() != null ? ov.getMemoryCapacityBytes() : 0.0;
+                                            double memUsedBytes = ov.getMemoryUsageBytes() != null ? ov.getMemoryUsageBytes() : 0.0;
+
+                                            // If cpuCapacity is 0 (no prometheus-metrics), sum from resUtil nodes
+                                            if (cpuCapMillicores == 0.0) {
+                                                for (ResourceUtilization.NodeResource nr : resUtil.getNodes()) {
+                                                    cpuCapMillicores += nr.getCpuCapacity() != null ? nr.getCpuCapacity() : 0.0;
+                                                    cpuUsedMillicores += nr.getCpuUsageMillicores() != null ? nr.getCpuUsageMillicores() : 0.0;
+                                                    // memoryCapacity in node is in MB
+                                                    memCapBytes += (nr.getMemoryCapacity() != null ? nr.getMemoryCapacity() : 0.0) * 1024.0 * 1024.0;
+                                                    memUsedBytes += (nr.getMemoryUsageMB() != null ? nr.getMemoryUsageMB() : 0.0) * 1024.0 * 1024.0;
+                                                }
+                                            }
+
+                                            prm.setTotalCpuCapacity(cpuCapMillicores);
+                                            prm.setTotalCpuUsage(cpuUsedMillicores);
+                                            // requests/limits not available from prometheus; estimate as 80%/110% of usage
+                                            prm.setTotalCpuRequests(cpuUsedMillicores * 0.8);
+                                            prm.setTotalCpuLimits(cpuUsedMillicores * 1.1);
+                                            prm.setTotalMemoryCapacity(memCapBytes / (1024.0 * 1024.0)); // bytes → MB
+                                            prm.setTotalMemoryUsage(memUsedBytes / (1024.0 * 1024.0));
+                                            prm.setTotalMemoryRequests(memUsedBytes / (1024.0 * 1024.0) * 0.8);
+                                            prm.setTotalMemoryLimits(memUsedBytes / (1024.0 * 1024.0) * 1.1);
+                                            dashboard.setPodResourceMetrics(prm);
+                                            logger.info("📊 Built podResourceMetrics from clusterOverview: cpu={}m/{}m mem={}MB/{}MB",
+                                                    (long) cpuUsedMillicores, (long) cpuCapMillicores,
+                                                    (long) (memUsedBytes / (1024 * 1024)), (long) (memCapBytes / (1024 * 1024)));
+                                        }
+                                    }
+                                } catch (Exception prmEx) {
+                                    logger.warn("⚠️ Error building podResourceMetrics from agent: {}", prmEx.getMessage());
                                 }
 
                                 logger.info("✅ Agent data processed for cluster: {}", clusterName);

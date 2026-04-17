@@ -24,10 +24,6 @@ interface CostRecommendation {
   affectedResources: string[];
 }
 
-const NS_BAR_COLORS = [
-  'bg-indigo-500', 'bg-blue-500', 'bg-violet-500', 'bg-purple-500',
-  'bg-cyan-500', 'bg-teal-500', 'bg-emerald-500', 'bg-sky-500',
-];
 
 const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
   const { dashboard, sortedNodesByCost } = eksData;
@@ -46,20 +42,21 @@ const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
   const dailyCost = dashboard.costMetrics?.dailyCost || 0;
   const monthlyCost = dailyCost * 30;
 
+  // In agent mode, pods come from k8sPods (k8s-resources collector), not workloadHealth.pods
+  const allPods: any[] = (dashboard.k8sPods?.length ? dashboard.k8sPods : dashboard.workloadHealth?.pods) || [];
+
   function getNamespaceCosts() {
     let costs = dashboard.costMetrics?.namespaceCosts || [];
     if (costs.length > 0) {
       costs.forEach((ns: any) => {
         if (!ns.podCount) {
-          ns.podCount = dashboard.workloadHealth?.pods?.filter(
-            (p: any) => p.namespace === ns.namespace
-          ).length || 0;
+          ns.podCount = allPods.filter((p: any) => p.namespace === ns.namespace).length || 0;
         }
       });
       return costs.sort((a: any, b: any) => b.dailyCost - a.dailyCost);
     }
     const namespaceMap = new Map<string, any>();
-    dashboard.workloadHealth?.pods?.forEach((pod: any) => {
+    allPods.forEach((pod: any) => {
       const ns = pod.namespace || 'default';
       if (!namespaceMap.has(ns)) {
         namespaceMap.set(ns, { namespace: ns, cpuUsageMillicores: 0, memoryUsageMb: 0, podCount: 0, dailyCost: 0, monthlyCost: 0 });
@@ -82,42 +79,54 @@ const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
     if (costs.length > 0) {
       costs.forEach((wl: any) => {
         if (!wl.podCount) {
-          const wlPods = dashboard.workloadHealth?.pods?.filter(
-            (p: any) => p.namespace === wl.namespace && (p.ownerName === wl.name || p.name.startsWith(wl.name))
-          ) || [];
+          const wlPods = allPods.filter(
+            (p: any) => p.namespace === wl.namespace &&
+              (p.ownerName === wl.name || p.controllerName === wl.name || p.name.startsWith(wl.name))
+          );
           wl.podCount = wlPods.length || wl.replicas || 0;
         }
       });
       return costs.sort((a: any, b: any) => b.dailyCost - a.dailyCost);
     }
     const workloads: any[] = [];
-    dashboard.workloadHealth?.deployments?.forEach((deployment: any) => {
-      const pods = dashboard.workloadHealth?.pods?.filter(
-        (pod: any) => pod.namespace === deployment.namespace && (pod.ownerName === deployment.name || pod.name.includes(deployment.name))
-      ) || [];
+
+    // Use k8sDeployments (agent mode) or workloadHealth.deployments (prometheus mode)
+    const deployments: any[] = (dashboard.k8sDeployments?.length ? dashboard.k8sDeployments : dashboard.workloadHealth?.deployments) || [];
+    deployments.forEach((deployment: any) => {
+      const pods = allPods.filter(
+        (pod: any) => pod.namespace === deployment.namespace &&
+          (pod.ownerName === deployment.name || pod.controllerName === deployment.name || pod.name.includes(deployment.name))
+      );
       let cpu = 0, mem = 0;
       pods.forEach((pod: any) => { cpu += pod.cpuUsage || 0; mem += (pod.memoryUsage || 0) / (1024 * 1024); });
       const daily = (cpu / 1000) * 0.0416 * 24 + (mem / 1024) * 0.00456 * 24;
-      workloads.push({ name: deployment.name, namespace: deployment.namespace, kind: 'Deployment', cpuUsageMillicores: cpu, memoryUsageMb: mem, podCount: pods.length || deployment.replicas || 0, dailyCost: daily, monthlyCost: daily * 30 });
+      workloads.push({ name: deployment.name, namespace: deployment.namespace, kind: 'Deployment', cpuUsageMillicores: cpu, memoryUsageMb: mem, podCount: pods.length || deployment.readyReplicas || deployment.replicas || 0, dailyCost: daily, monthlyCost: daily * 30 });
     });
-    dashboard.workloadHealth?.daemonsets?.forEach((ds: any) => {
-      const pods = dashboard.workloadHealth?.pods?.filter(
-        (pod: any) => pod.namespace === ds.namespace && (pod.ownerName === ds.name || pod.name.includes(ds.name))
-      ) || [];
+
+    const daemonSets: any[] = (dashboard.k8sDaemonSets?.length ? dashboard.k8sDaemonSets : dashboard.workloadHealth?.daemonsets) || [];
+    daemonSets.forEach((ds: any) => {
+      const pods = allPods.filter(
+        (pod: any) => pod.namespace === ds.namespace &&
+          (pod.ownerName === ds.name || pod.controllerName === ds.name || pod.name.includes(ds.name))
+      );
       let cpu = 0, mem = 0;
       pods.forEach((pod: any) => { cpu += pod.cpuUsage || 0; mem += (pod.memoryUsage || 0) / (1024 * 1024); });
       const daily = (cpu / 1000) * 0.0416 * 24 + (mem / 1024) * 0.00456 * 24;
-      workloads.push({ name: ds.name, namespace: ds.namespace, kind: 'DaemonSet', cpuUsageMillicores: cpu, memoryUsageMb: mem, podCount: pods.length || ds.ready || 0, dailyCost: daily, monthlyCost: daily * 30 });
+      workloads.push({ name: ds.name, namespace: ds.namespace, kind: 'DaemonSet', cpuUsageMillicores: cpu, memoryUsageMb: mem, podCount: pods.length || ds.numberReady || ds.ready || 0, dailyCost: daily, monthlyCost: daily * 30 });
     });
-    dashboard.workloadHealth?.statefulsets?.forEach((ss: any) => {
-      const pods = dashboard.workloadHealth?.pods?.filter(
-        (pod: any) => pod.namespace === ss.namespace && (pod.ownerName === ss.name || pod.name.includes(ss.name))
-      ) || [];
+
+    const statefulSets: any[] = (dashboard.k8sStatefulSets?.length ? dashboard.k8sStatefulSets : dashboard.workloadHealth?.statefulsets) || [];
+    statefulSets.forEach((ss: any) => {
+      const pods = allPods.filter(
+        (pod: any) => pod.namespace === ss.namespace &&
+          (pod.ownerName === ss.name || pod.controllerName === ss.name || pod.name.includes(ss.name))
+      );
       let cpu = 0, mem = 0;
       pods.forEach((pod: any) => { cpu += pod.cpuUsage || 0; mem += (pod.memoryUsage || 0) / (1024 * 1024); });
       const daily = (cpu / 1000) * 0.0416 * 24 + (mem / 1024) * 0.00456 * 24;
-      workloads.push({ name: ss.name, namespace: ss.namespace, kind: 'StatefulSet', cpuUsageMillicores: cpu, memoryUsageMb: mem, podCount: pods.length || ss.replicas || 0, dailyCost: daily, monthlyCost: daily * 30 });
+      workloads.push({ name: ss.name, namespace: ss.namespace, kind: 'StatefulSet', cpuUsageMillicores: cpu, memoryUsageMb: mem, podCount: pods.length || ss.readyReplicas || ss.replicas || 0, dailyCost: daily, monthlyCost: daily * 30 });
     });
+
     return workloads.sort((a, b) => b.dailyCost - a.dailyCost);
   }
 
@@ -353,7 +362,6 @@ const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
               </div>
             </div>
           )}
-        </div>
       </div>
 
       {/* ── Workload Cost Ranking ── */}
