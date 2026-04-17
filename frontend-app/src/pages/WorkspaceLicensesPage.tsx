@@ -3,7 +3,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
   PieChart, Pie, Legend,
 } from 'recharts';
-import { useTopbar } from '../contexts/TopbarContext';
+import { useTopbar, useTopbarActions } from '../contexts/TopbarContext';
 import {
   useWorkspaceStatus,
   useWorkspaceUsers,
@@ -22,17 +22,20 @@ const Spinner: React.FC<{ size?: string }> = ({ size = 'h-8 w-8' }) => (
 );
 
 const SummaryCard: React.FC<{
-  icon: string; label: string; value: number | string; color: string; sub?: string;
-}> = ({ icon, label, value, color, sub }) => (
-  <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 flex items-center gap-4">
-    <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${color}`}>
-      <i className={`${icon} text-white text-lg`} />
+  icon: string; label: string; value: number | string;
+  gradient: string; borderColor: string; textGradient: string; sub?: string;
+}> = ({ icon, label, value, gradient, borderColor, textGradient, sub }) => (
+  <div className={`bg-white/90 backdrop-blur border border-gray-200 rounded-2xl p-6 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 border-t-4 ${borderColor}`}>
+    <div className="flex items-center justify-between mb-4">
+      <div className={`w-12 h-12 ${gradient} rounded-xl flex items-center justify-center shadow-md`}>
+        <i className={`${icon} text-white text-xl`} />
+      </div>
+      <div className="text-right">
+        <p className="text-sm text-gray-600 font-medium">{label}</p>
+        <p className={`text-2xl font-bold text-transparent bg-clip-text ${textGradient}`}>{value}</p>
+      </div>
     </div>
-    <div>
-      <p className="text-2xl font-bold text-gray-900">{value}</p>
-      <p className="text-sm text-gray-500">{label}</p>
-      {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
-    </div>
+    {sub && <div className="text-sm text-gray-500">{sub}</div>}
   </div>
 );
 
@@ -259,15 +262,15 @@ const ConnectionPanel: React.FC<{ onConnected: () => void }> = ({ onConnected })
         </div>
 
         {/* Benefit cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
           {[
-            { icon: 'fas fa-users', color: 'bg-blue-500', title: 'Seat Visibility', desc: 'See every user, their last login, and seat allocation in real time.' },
-            { icon: 'fas fa-lightbulb', color: 'bg-orange-500', title: 'Smart Optimisation', desc: 'Auto-detect inactive and never-logged-in users to reclaim unused seats.' },
-            { icon: 'fas fa-chart-bar', color: 'bg-green-500', title: 'Cost Insights', desc: 'Understand utilisation rates and quantify licence waste instantly.' },
+            { icon: 'fas fa-users', gradient: 'bg-gradient-to-br from-blue-500 to-blue-600', border: 'border-t-blue-500', title: 'Seat Visibility', desc: 'See every user, their last login, and seat allocation in real time.' },
+            { icon: 'fas fa-lightbulb', gradient: 'bg-gradient-to-br from-orange-500 to-orange-600', border: 'border-t-orange-500', title: 'Smart Optimisation', desc: 'Auto-detect inactive and never-logged-in users to reclaim unused seats.' },
+            { icon: 'fas fa-chart-bar', gradient: 'bg-gradient-to-br from-green-500 to-green-600', border: 'border-t-green-500', title: 'Cost Insights', desc: 'Understand utilisation rates and quantify licence waste instantly.' },
           ].map((b) => (
-            <div key={b.title} className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 flex gap-4">
-              <div className={`${b.color} w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0`}>
-                <i className={`${b.icon} text-white`} />
+            <div key={b.title} className={`bg-white/90 backdrop-blur border border-gray-200 rounded-2xl shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 border-t-4 ${b.border} p-6 flex gap-4`}>
+              <div className={`${b.gradient} w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 shadow-md`}>
+                <i className={`${b.icon} text-white text-lg`} />
               </div>
               <div>
                 <p className="font-semibold text-gray-800">{b.title}</p>
@@ -278,7 +281,7 @@ const ConnectionPanel: React.FC<{ onConnected: () => void }> = ({ onConnected })
         </div>
 
         {/* Connection form */}
-        <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-8">
+        <div className="bg-white/90 backdrop-blur border border-gray-200 rounded-2xl shadow-sm p-8">
           <h3 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2">
             <i className="fas fa-plug text-orange-500" /> Connection Setup
           </h3>
@@ -417,8 +420,9 @@ const ConnectedDashboard: React.FC<{ onDisconnected: () => void; onRefresh: () =
   const { users, loading: usersLoading } = useWorkspaceUsers(true, 'ALL');
   const { summary, loading: summaryLoading } = useWorkspaceLicenseSummary(true);
   const { items: optimItems, loading: optimLoading } = useWorkspaceOptimization(true, inactiveDays);
+  const { setTitle, setActions, clearActions } = useTopbarActions();
 
-  const handleSync = async () => {
+  const handleSync = useCallback(async () => {
     setSyncing(true);
     setActionError(null);
     try {
@@ -430,9 +434,9 @@ const ConnectedDashboard: React.FC<{ onDisconnected: () => void; onRefresh: () =
     } finally {
       setSyncing(false);
     }
-  };
+  }, [refetchStatus, onRefresh]);
 
-  const handleDisconnect = async () => {
+  const handleDisconnect = useCallback(async () => {
     if (!window.confirm('Disconnect Google Workspace? All cached user data will be removed.')) return;
     setDisconnecting(true);
     try {
@@ -442,7 +446,7 @@ const ConnectedDashboard: React.FC<{ onDisconnected: () => void; onRefresh: () =
       setActionError(e.message ?? 'Disconnect failed');
       setDisconnecting(false);
     }
-  };
+  }, [onDisconnected]);
 
   // Filtered users for the table
   const filteredUsers = users.filter((u) => {
@@ -479,42 +483,44 @@ const ConnectedDashboard: React.FC<{ onDisconnected: () => void; onRefresh: () =
     NEVER_LOGGED_IN:        { label: 'Never Logged In',       color: 'bg-purple-100 text-purple-700',icon: 'fas fa-user-slash' },
   };
 
-  return (
-    <div className="flex-1 flex flex-col p-6 max-w-7xl mx-auto w-full">
-
-      {/* ── Header bar ── */}
-      <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-700 rounded-xl flex items-center justify-center">
-            <i className="fab fa-google text-white" />
-          </div>
-          <div>
-            <h2 className="font-bold text-gray-900 text-lg">{status?.domain}</h2>
-            <p className="text-xs text-gray-400">Last synced: {lastSync}</p>
-          </div>
-          <span className="px-2 py-1 bg-green-100 text-green-700 text-xs font-semibold rounded-full">
-            Connected
-          </span>
-        </div>
+  useEffect(() => {
+    setTitle('Workspace Licenses');
+    setActions(
+      <div className="flex items-center gap-3">
         <div className="flex items-center gap-2">
-          <button
-            onClick={handleSync}
-            disabled={syncing}
-            className="flex items-center gap-2 px-4 py-2 bg-orange-500 text-white rounded-lg text-sm font-medium hover:bg-orange-600 transition disabled:opacity-60"
-          >
-            <i className={`fas fa-sync ${syncing ? 'animate-spin' : ''}`} />
-            {syncing ? 'Syncing…' : 'Sync Now'}
-          </button>
-          <button
-            onClick={handleDisconnect}
-            disabled={disconnecting}
-            className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-red-50 hover:text-red-600 transition disabled:opacity-60"
-          >
-            <i className="fas fa-unlink" />
-            Disconnect
-          </button>
+          <div className="w-7 h-7 bg-gradient-to-br from-blue-500 to-blue-700 rounded-lg flex items-center justify-center flex-shrink-0">
+            <i className="fab fa-google text-white text-xs" />
+          </div>
+          <span className="font-semibold text-gray-800 text-sm">{status?.domain}</span>
+          <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs font-semibold rounded-full">Connected</span>
+          <span className="text-xs text-gray-400">Last synced: {lastSync}</span>
         </div>
+        <button
+          onClick={handleSync}
+          disabled={syncing}
+          className="flex items-center gap-2 px-4 py-2 bg-orange-500 text-white rounded-lg text-sm font-medium hover:bg-orange-600 transition disabled:opacity-60"
+        >
+          <i className={`fas fa-sync ${syncing ? 'animate-spin' : ''}`} />
+          {syncing ? 'Syncing…' : 'Sync Now'}
+        </button>
+        <button
+          onClick={handleDisconnect}
+          disabled={disconnecting}
+          className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-red-50 hover:text-red-600 transition disabled:opacity-60"
+        >
+          <i className="fas fa-unlink" />
+          Disconnect
+        </button>
       </div>
+    );
+    return () => {
+      clearActions();
+      setTitle(null);
+    };
+  }, [setTitle, setActions, clearActions, status?.domain, lastSync, handleSync, handleDisconnect, syncing, disconnecting]);
+
+  return (
+    <div className="flex-1 p-8 space-y-8 w-full">
 
       {actionError && (
         <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex gap-2 text-sm text-red-700">
@@ -526,15 +532,15 @@ const ConnectedDashboard: React.FC<{ onDisconnected: () => void; onRefresh: () =
       )}
 
       {/* ── Summary cards ── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <SummaryCard icon="fas fa-users"      label="Total Users"  value={status?.totalUsers    ?? '—'} color="bg-blue-500" />
-        <SummaryCard icon="fas fa-user-check" label="Active"       value={status?.activeUsers   ?? '—'} color="bg-green-500" />
-        <SummaryCard icon="fas fa-user-clock" label="Inactive"     value={status?.inactiveUsers ?? '—'} color="bg-amber-500" sub={`>${inactiveDays} days`} />
-        <SummaryCard icon="fas fa-user-times" label="Suspended"    value={status?.suspendedUsers ?? '—'} color="bg-red-500" />
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <SummaryCard icon="fas fa-users"      label="Total Users"  value={status?.totalUsers    ?? '—'} gradient="bg-gradient-to-br from-blue-500 to-blue-600"   borderColor="border-t-blue-500"   textGradient="bg-gradient-to-r from-blue-600 to-purple-600" />
+        <SummaryCard icon="fas fa-user-check" label="Active"       value={status?.activeUsers   ?? '—'} gradient="bg-gradient-to-br from-green-500 to-green-600"  borderColor="border-t-green-500"  textGradient="bg-gradient-to-r from-green-600 to-teal-600"  />
+        <SummaryCard icon="fas fa-user-clock" label="Inactive"     value={status?.inactiveUsers ?? '—'} gradient="bg-gradient-to-br from-amber-500 to-amber-600"  borderColor="border-t-amber-500"  textGradient="bg-gradient-to-r from-amber-600 to-orange-600" sub={`No login in >${inactiveDays} days`} />
+        <SummaryCard icon="fas fa-user-times" label="Suspended"    value={status?.suspendedUsers ?? '—'} gradient="bg-gradient-to-br from-red-500 to-red-600"     borderColor="border-t-red-500"    textGradient="bg-gradient-to-r from-red-600 to-rose-600"     />
       </div>
 
       {/* ── Tabs ── */}
-      <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-6 overflow-x-auto">
+      <div className="flex gap-1 bg-gray-100 rounded-xl p-1 overflow-x-auto">
         {tabs.map((t) => (
           <button
             key={t.id}
@@ -552,9 +558,9 @@ const ConnectedDashboard: React.FC<{ onDisconnected: () => void; onRefresh: () =
 
       {/* ── OVERVIEW TAB ── */}
       {activeTab === 'overview' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           {/* Donut */}
-          <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
+          <div className="bg-white/90 backdrop-blur border border-gray-200 rounded-2xl shadow-sm p-6">
             <h3 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
               <i className="fas fa-chart-pie text-orange-500" /> Seat Utilisation
             </h3>
@@ -581,7 +587,7 @@ const ConnectedDashboard: React.FC<{ onDisconnected: () => void; onRefresh: () =
           </div>
 
           {/* Stats list */}
-          <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 flex flex-col gap-4">
+          <div className="bg-white/90 backdrop-blur border border-gray-200 rounded-2xl shadow-sm p-6 flex flex-col gap-4">
             <h3 className="font-semibold text-gray-800 flex items-center gap-2">
               <i className="fas fa-info-circle text-orange-500" /> Seat Breakdown
             </h3>
@@ -606,7 +612,7 @@ const ConnectedDashboard: React.FC<{ onDisconnected: () => void; onRefresh: () =
           </div>
 
           {/* Top optimisation preview */}
-          <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 lg:col-span-2">
+          <div className="bg-white/90 backdrop-blur border border-gray-200 rounded-2xl shadow-sm p-6 lg:col-span-2">
             <h3 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
               <i className="fas fa-exclamation-triangle text-amber-500" /> Top Optimisation Opportunities
             </h3>
@@ -650,7 +656,7 @@ const ConnectedDashboard: React.FC<{ onDisconnected: () => void; onRefresh: () =
 
       {/* ── USERS & SEATS TAB ── */}
       {activeTab === 'users' && (
-        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
+        <div className="bg-white/90 backdrop-blur border border-gray-200 rounded-2xl shadow-sm p-6">
           <div className="flex flex-wrap items-center gap-3 mb-5">
             <div className="relative flex-1 min-w-48">
               <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm" />
@@ -737,7 +743,7 @@ const ConnectedDashboard: React.FC<{ onDisconnected: () => void; onRefresh: () =
       {/* ── OPTIMISATION TAB ── */}
       {activeTab === 'optimization' && (
         <div className="space-y-4">
-          <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex flex-wrap items-center gap-4">
+          <div className="bg-white/90 backdrop-blur border border-gray-200 rounded-2xl shadow-sm p-4 flex flex-wrap items-center gap-4">
             <span className="text-sm font-medium text-gray-700">Inactivity threshold:</span>
             <div className="flex gap-2">
               {[7, 14, 30, 60, 90].map((d) => (
@@ -763,14 +769,14 @@ const ConnectedDashboard: React.FC<{ onDisconnected: () => void; onRefresh: () =
             ? <div className="flex justify-center py-12"><Spinner /></div>
             : optimItems.length === 0
               ? (
-                <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-12 text-center">
+                <div className="bg-white/90 backdrop-blur border border-gray-200 rounded-2xl shadow-sm p-12 text-center">
                   <i className="fas fa-check-circle text-green-400 text-4xl mb-4" />
                   <p className="text-lg font-semibold text-gray-700">All seats are optimally used!</p>
                   <p className="text-sm text-gray-400 mt-2">No inactive or problematic accounts detected.</p>
                 </div>
               )
               : (
-                <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+                <div className="bg-white/90 backdrop-blur border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
                   <table className="w-full text-sm">
                     <thead className="bg-gray-50">
                       <tr>
@@ -813,12 +819,12 @@ const ConnectedDashboard: React.FC<{ onDisconnected: () => void; onRefresh: () =
 
       {/* ── COST & SAVINGS TAB ── */}
       {activeTab === 'cost' && (
-        <div className="space-y-6">
+        <div className="space-y-8">
           {summaryLoading
             ? <div className="flex justify-center py-12"><Spinner /></div>
             : summary && (
               <>
-                <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
+                <div className="bg-white/90 backdrop-blur border border-gray-200 rounded-2xl shadow-sm p-6">
                   <h3 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
                     <i className="fas fa-chart-bar text-orange-500" /> Seat Utilisation Breakdown
                   </h3>
@@ -835,28 +841,46 @@ const ConnectedDashboard: React.FC<{ onDisconnected: () => void; onRefresh: () =
                   </ResponsiveContainer>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-xl border border-green-200 p-5">
-                    <i className="fas fa-check-circle text-green-500 text-xl mb-3" />
-                    <p className="text-2xl font-bold text-green-800">{summary.activeSeats}</p>
-                    <p className="text-sm text-green-700 font-medium">Active seats in use</p>
-                    <p className="text-xs text-green-600 mt-1">{summary.utilizationPercent}% utilisation</p>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="bg-white/90 backdrop-blur border border-gray-200 rounded-2xl p-6 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 border-t-4 border-t-green-500">
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="w-12 h-12 bg-gradient-to-br from-green-500 to-green-600 rounded-xl flex items-center justify-center shadow-md">
+                        <i className="fas fa-check-circle text-white text-xl" />
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm text-gray-600 font-medium">Active seats in use</p>
+                        <p className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-green-600 to-teal-600">{summary.activeSeats}</p>
+                      </div>
+                    </div>
+                    <p className="text-sm text-gray-500">{summary.utilizationPercent}% utilisation</p>
                   </div>
-                  <div className="bg-gradient-to-br from-amber-50 to-amber-100 rounded-xl border border-amber-200 p-5">
-                    <i className="fas fa-exclamation-circle text-amber-500 text-xl mb-3" />
-                    <p className="text-2xl font-bold text-amber-800">{summary.inactiveSeats}</p>
-                    <p className="text-sm text-amber-700 font-medium">Inactive seats</p>
-                    <p className="text-xs text-amber-600 mt-1">No login in {inactiveDays}+ days</p>
+                  <div className="bg-white/90 backdrop-blur border border-gray-200 rounded-2xl p-6 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 border-t-4 border-t-amber-500">
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="w-12 h-12 bg-gradient-to-br from-amber-500 to-amber-600 rounded-xl flex items-center justify-center shadow-md">
+                        <i className="fas fa-exclamation-circle text-white text-xl" />
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm text-gray-600 font-medium">Inactive seats</p>
+                        <p className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-amber-600 to-orange-600">{summary.inactiveSeats}</p>
+                      </div>
+                    </div>
+                    <p className="text-sm text-gray-500">No login in {inactiveDays}+ days</p>
                   </div>
-                  <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl border border-purple-200 p-5">
-                    <i className="fas fa-user-slash text-purple-500 text-xl mb-3" />
-                    <p className="text-2xl font-bold text-purple-800">{summary.neverLoggedIn}</p>
-                    <p className="text-sm text-purple-700 font-medium">Never logged in</p>
-                    <p className="text-xs text-purple-600 mt-1">Potentially wasted seats</p>
+                  <div className="bg-white/90 backdrop-blur border border-gray-200 rounded-2xl p-6 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 border-t-4 border-t-purple-500">
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl flex items-center justify-center shadow-md">
+                        <i className="fas fa-user-slash text-white text-xl" />
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm text-gray-600 font-medium">Never logged in</p>
+                        <p className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-pink-600">{summary.neverLoggedIn}</p>
+                      </div>
+                    </div>
+                    <p className="text-sm text-gray-500">Potentially wasted seats</p>
                   </div>
                 </div>
 
-                <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
+                <div className="bg-white/90 backdrop-blur border border-gray-200 rounded-2xl shadow-sm p-6">
                   <h3 className="font-semibold text-gray-800 mb-2 flex items-center gap-2">
                     <i className="fas fa-calculator text-orange-500" /> Savings Estimator
                   </h3>
@@ -900,7 +924,7 @@ const WorkspaceLicensesPage: React.FC = () => {
 
   if (loading) {
     return (
-      <main className="flex-1 flex items-center justify-center min-h-screen bg-gray-50">
+      <main className="flex-1 flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
           <Spinner size="h-12 w-12" />
           <p className="text-gray-400 text-sm">Loading Workspace…</p>
@@ -911,7 +935,7 @@ const WorkspaceLicensesPage: React.FC = () => {
 
   if (error) {
     return (
-      <main className="flex-1 flex items-center justify-center min-h-screen bg-gray-50">
+      <main className="flex-1 flex items-center justify-center">
         <div className="text-center p-8">
           <i className="fas fa-exclamation-triangle text-red-400 text-4xl mb-4" />
           <p className="text-gray-700 font-medium">{error}</p>
@@ -927,7 +951,7 @@ const WorkspaceLicensesPage: React.FC = () => {
   }
 
   return (
-    <main key={refreshKey} className="flex-1 flex flex-col min-h-screen bg-gray-50">
+    <main key={refreshKey} className="flex-1 flex flex-col">
       {status?.connected
         ? <ConnectedDashboard onDisconnected={handleDisconnected} onRefresh={refetch} />
         : <ConnectionPanel onConnected={handleConnected} />

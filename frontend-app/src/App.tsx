@@ -351,7 +351,7 @@ const AuthenticatedLayout: React.FC = () => {
           style={{ WebkitOverflowScrolling: 'touch' }}
         >
           <Topbar />
-          <div className="flex-1 pt-6">
+          <div className="flex-1 pt-6 flex flex-col">
             <Outlet />
           </div>
         </div>
