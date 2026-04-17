@@ -32,7 +32,10 @@ const EksPerformanceTab: React.FC<EksPerformanceTabProps> = ({ eksData }) => {
   const readyNodes = allUtilizationNodes.filter((utilNode: any) => {
     // Cross-reference with nodeMetrics to check if it's ready
     const nodeInfo = nodeMetrics.find((n: any) => n.name === utilNode.nodeName);
-    return nodeInfo?.ready === true;
+    // nodeMetrics may be empty in agent-only mode; fall back to condition string from resourceUtilization
+    return nodeInfo?.ready === true ||
+      utilNode.condition === 'Ready' ||
+      utilNode.condition === 'ready';
   });
 
   // Calculate stroke dasharray for circular progress
@@ -48,9 +51,9 @@ const EksPerformanceTab: React.FC<EksPerformanceTabProps> = ({ eksData }) => {
   };
 
   const getMemoryColor = () => {
-    if (memoryUsagePercent >= 80) return '#ef4444'; // red
-    if (memoryUsagePercent >= 60) return '#f59e0b'; // amber
-    return '#64748b'; // slate
+    if (memoryUsagePercent >= 80) return '#ef4444';
+    if (memoryUsagePercent >= 60) return '#f59e0b';
+    return '#6366f1';
   };
 
   const formatBytes = (bytes: number) => {
@@ -81,9 +84,6 @@ const EksPerformanceTab: React.FC<EksPerformanceTabProps> = ({ eksData }) => {
     ? (readyNodes.reduce((sum: number, node: any) => sum + (node.memoryUsagePercent || 0), 0) / readyNodes.length).toFixed(1)
     : '0';
 
-  // Running pods vs total capacity
-  const runningPods = dashboard.workloadHealth?.pods?.filter((p: any) => p.phase === 'Running').length || 0;
-  const podUtilizationPercent = totalPods > 0 ? ((runningPods / totalPods) * 100).toFixed(0) : '0';
 
   return (
     <div className="space-y-6">

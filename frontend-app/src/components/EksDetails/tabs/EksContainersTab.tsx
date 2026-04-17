@@ -5,6 +5,7 @@
  */
 
 import React, { useState, useMemo } from 'react';
+import ReactDOM from 'react-dom';
 import { ContainerWithMetrics } from '../../../types/eksTypes';
 
 interface EksContainersTabProps {
@@ -350,7 +351,7 @@ const EksContainersTab: React.FC<EksContainersTabProps> = ({ eksData }) => {
       </section>
 
       {/* Detailed Container View Modal */}
-      {selectedContainer && (
+      {selectedContainer && ReactDOM.createPortal(
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
             {/* Modal Header */}
@@ -641,7 +642,7 @@ const EksContainersTab: React.FC<EksContainersTabProps> = ({ eksData }) => {
             </div>
           </div>
         </div>
-      )}
+      , document.body)}
     </div>
   );
 };

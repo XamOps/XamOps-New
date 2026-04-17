@@ -9,6 +9,8 @@ import React, { useState, useMemo } from 'react';
 const EksNodesTab: React.FC<{ eksData: any }> = ({ eksData }) => {
   const { dashboard, sortedNodesByPressure, getNodeConditionCount } = eksData;
   const nodes = dashboard?.nodeMetrics?.nodes || [];
+  // totalNodeCount: prefer nodeMetrics (populated by backend step 10); fallback to resourceUtilization.nodes
+  const totalNodeCount = nodes.length || sortedNodesByPressure.length;
 
   // State for filtering and pagination
   const [filterStatus, setFilterStatus] = useState<'all' | 'running' | 'notReady'>('running');
@@ -22,15 +24,22 @@ const EksNodesTab: React.FC<{ eksData: any }> = ({ eksData }) => {
 
     // Stage 2: Filter by Status
     let result = [...baseNodes];
+    // nodeMetrics.nodes use `nodeName` field (not `name`) — support both to be safe
+    const findNode = (nodeName: string) =>
+      nodes.find((n: any) => (n.nodeName || n.name) === nodeName);
+
     if (filterStatus === 'running') {
       result = baseNodes.filter((node: any) => {
-        const fullNode = nodes.find((n: any) => n.name === node.nodeName);
-        return fullNode?.ready === true;
+        const fullNode = findNode(node.nodeName);
+        // nodeMetrics may be empty in agent-only mode; fall back to condition string from resourceUtilization
+        return fullNode?.ready === true || node.ready === true ||
+          node.condition === 'Ready' || node.condition === 'ready';
       });
     } else if (filterStatus === 'notReady') {
       result = baseNodes.filter((node: any) => {
-        const fullNode = nodes.find((n: any) => n.name === node.nodeName);
-        return fullNode?.ready === false;
+        const fullNode = findNode(node.nodeName);
+        return fullNode?.ready === false || node.ready === false ||
+          node.condition === 'NotReady' || node.condition === 'notReady';
       });
     } else { // 'all' status
       result = baseNodes;
@@ -38,8 +47,8 @@ const EksNodesTab: React.FC<{ eksData: any }> = ({ eksData }) => {
 
     // Stage 3: Sort by Ready status first, then by pressure
     return result.sort((a: any, b: any) => {
-      const fullA = nodes.find((n: any) => n.name === a.nodeName);
-      const fullB = nodes.find((n: any) => n.name === b.nodeName);
+      const fullA = findNode(a.nodeName);
+      const fullB = findNode(b.nodeName);
       const aReady = fullA?.ready === true ? 1 : 0;
       const bReady = fullB?.ready === true ? 1 : 0;
       if (aReady !== bReady) return bReady - aReady;
@@ -116,7 +125,7 @@ const EksNodesTab: React.FC<{ eksData: any }> = ({ eksData }) => {
               </div>
               <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Total Nodes</span>
             </div>
-            <div className="text-3xl font-bold text-gray-900">{nodes.length}</div>
+            <div className="text-3xl font-bold text-gray-900">{totalNodeCount}</div>
             <div className="text-xs text-gray-600 mt-1">{getNodeConditionCount('ready')} running nodes</div>
           </div>
         </div>
@@ -191,7 +200,11 @@ const EksNodesTab: React.FC<{ eksData: any }> = ({ eksData }) => {
             const memUsageMB = fullNode.memoryUsageMB || node.memoryUsageMB ||
               (memPercent > 0 && (fullNode.memoryCapacity || node.memoryCapacity || 0) > 0 ? (memPercent / 100) * (fullNode.memoryCapacity || node.memoryCapacity) * 1024 : 0);
 
-            const isHealthy = fullNode?.ready !== false && cpuPercent < 85 && memPercent < 85;
+            // isNodeReady: check boolean ready field (from nodeMetrics) OR condition string (from resourceUtilization)
+            const isNodeReady = fullNode?.ready === true ||
+              node.condition === 'Ready' || node.condition === 'ready' ||
+              fullNode?.condition === 'Ready' || fullNode?.condition === 'ready';
+            const isHealthy = isNodeReady && cpuPercent < 85 && memPercent < 85;
 
             return (
               <div
@@ -210,10 +223,10 @@ const EksNodesTab: React.FC<{ eksData: any }> = ({ eksData }) => {
                     <div className="flex-1 min-w-0">
                       <h4 className="text-lg font-bold text-gray-900 mb-2 flex items-center gap-2 flex-wrap">
                         {node.nodeName}
-                        <span className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 ${fullNode?.ready ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                        <span className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 ${isNodeReady ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
                           }`}>
-                          <div className={`w-2 h-2 rounded-full ${fullNode?.ready ? 'bg-green-600' : 'bg-red-600'} animate-pulse`}></div>
-                          {fullNode?.ready ? 'Ready' : 'Not Ready'}
+                          <div className={`w-2 h-2 rounded-full ${isNodeReady ? 'bg-green-600' : 'bg-red-600'} animate-pulse`}></div>
+                          {isNodeReady ? 'Ready' : 'Not Ready'}
                         </span>
                       </h4>
 
@@ -276,7 +289,7 @@ const EksNodesTab: React.FC<{ eksData: any }> = ({ eksData }) => {
                             <span className={`font-black text-sm ${cpuPercent >= 80 ? 'text-red-600' :
                               cpuPercent >= 60 ? 'text-amber-600' : 'text-green-600'
                               }`}>
-                              {cpuPercent.toFixed(1)}% {cpuUsageMillicores > 0 && `(${Math.round(cpuUsageMillicores)}m)`}
+                              {(cpuPercent ?? 0).toFixed(1)}% {cpuUsageMillicores > 0 && `(${Math.round(cpuUsageMillicores)}m)`}
                             </span>
                           </div>
                           <div className="h-2.5 bg-gray-200 rounded-full overflow-hidden relative">
@@ -297,10 +310,8 @@ const EksNodesTab: React.FC<{ eksData: any }> = ({ eksData }) => {
                               <i className="fas fa-memory text-purple-500 text-[10px]"></i>
                               Memory Usage
                             </span>
-                            <span className={`font-black text-sm ${memPercent >= 80 ? 'text-red-600' :
-                              memPercent >= 60 ? 'text-amber-600' : 'text-green-600'
-                              }`}>
-                              {memPercent.toFixed(1)}% {memUsageMB > 0 && `(${Math.round(memUsageMB)} MB)`}
+                            <span className="font-semibold text-sm" style={{ color: memPercent >= 80 ? '#cf222e' : memPercent >= 60 ? '#9a6700' : '#1a1f2e' }}>
+                              {(memPercent ?? 0).toFixed(1)}% {memUsageMB > 0 && `(${Math.round(memUsageMB)} MB)`}
                             </span>
                           </div>
                           <div className="h-2.5 bg-gray-200 rounded-full overflow-hidden relative">
@@ -321,8 +332,8 @@ const EksNodesTab: React.FC<{ eksData: any }> = ({ eksData }) => {
                               <i className="fas fa-chart-line text-blue-500 text-[10px]"></i>
                               CPU Requests
                             </span>
-                            <span className="font-black text-sm text-blue-600">
-                              {fullNode?.cpuRequestsPercent !== undefined
+                            <span className="font-semibold text-sm text-[#2f4bde]">
+                              {fullNode?.cpuRequestsPercent != null
                                 ? `${fullNode.cpuRequestsPercent.toFixed(1)}% ${fullNode.cpuRequests ? `(${Math.round(fullNode.cpuRequests)}m)` : ''}`
                                 : 'N/A'}
                             </span>
@@ -342,8 +353,8 @@ const EksNodesTab: React.FC<{ eksData: any }> = ({ eksData }) => {
                               <i className="fas fa-chart-line text-indigo-500 text-[10px]"></i>
                               Memory Requests
                             </span>
-                            <span className="font-black text-sm text-indigo-600">
-                              {fullNode?.memoryRequestsPercent !== undefined
+                            <span className="font-semibold text-sm text-[#2f4bde]">
+                              {fullNode?.memoryRequestsPercent != null
                                 ? `${fullNode.memoryRequestsPercent.toFixed(1)}% ${fullNode.memoryRequests ? `(${Math.round(fullNode.memoryRequests)} MB)` : ''}`
                                 : 'N/A'}
                             </span>

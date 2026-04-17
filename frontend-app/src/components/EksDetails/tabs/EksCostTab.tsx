@@ -213,7 +213,6 @@ const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
   const recommendations = useMemo<CostRecommendation[]>(() => {
     const recs: CostRecommendation[] = [];
 
-
     // 3. Expensive Namespaces
     const namespaceCosts = getNamespaceCosts();
     const totalNamespaceCost = namespaceCosts.reduce((sum: number, ns: any) => sum + (ns.dailyCost || 0), 0);
@@ -248,7 +247,6 @@ const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
     // 4. No Autoscaling Configured
     const hasKarpenter = dashboard.karpenter?.healthy || false;
     if (!hasKarpenter && (dashboard.costMetrics?.dailyCost || 0) > 0) {
-      // Use a more conservative estimate for potential savings (15-20%)
       const estimatedSavings = (dashboard.costMetrics?.dailyCost || 0) * 0.15;
       recs.push({
         id: 'no-autoscaling',
@@ -303,7 +301,7 @@ const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
       }
       return b.savingsEstimate - a.savingsEstimate;
     });
-  }, [sortedNodesByCost, dashboard, getNamespaceCosts, getWorkloadCosts]);
+  }, [sortedNodesByCost, dashboard]);
 
   const getPriorityColor = (priority: string) => {
     switch (priority) {
@@ -322,6 +320,16 @@ const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
       default: return 'info-circle';
     }
   };
+
+  const sortedNodes = [...(sortedNodesByCost || [])].sort((a: any, b: any) => {
+    const aReady = (!a.condition || a.condition === 'Ready' || a.condition === 'ready') ? 1 : 0;
+    const bReady = (!b.condition || b.condition === 'Ready' || b.condition === 'ready') ? 1 : 0;
+    if (aReady !== bReady) return bReady - aReady;
+    const aHasType = a.instanceType && a.instanceType !== 'Unknown' ? 1 : 0;
+    const bHasType = b.instanceType && b.instanceType !== 'Unknown' ? 1 : 0;
+    if (aHasType !== bHasType) return bHasType - aHasType;
+    return (b.dailyCost || 0) - (a.dailyCost || 0);
+  });
 
   return (
     <div className="space-y-6">
@@ -351,7 +359,6 @@ const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
         </div>
       </section>
 
-
       {/* Node Cost Breakdown */}
       <section className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
         <div className="flex items-center gap-3 mb-6">
@@ -361,99 +368,72 @@ const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
           <h3 className="text-xl font-bold text-gray-900">
             Node Cost Breakdown
             <span className="ml-2 text-sm font-normal text-gray-500">
-              ({sortedNodesByCost.filter((n: any) => n.condition === 'Ready' || n.condition === 'ready' || !n.condition).length} running nodes)
+              ({sortedNodes.filter((n: any) => !n.condition || n.condition === 'Ready' || n.condition === 'ready').length} running nodes)
             </span>
           </h3>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b-2 border-gray-200">
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                  Node Name
-                </th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                  Instance Type
-                </th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                  Hourly Rate
-                </th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                  Daily Cost
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {sortedNodesByCost
-                .filter(() => true) // No capacity filter
-                .sort((a: any, b: any) => {
-                  const aReady = (a.condition === 'Ready' || a.condition === 'ready' || !a.condition) ? 1 : 0;
-                  const bReady = (b.condition === 'Ready' || b.condition === 'ready' || !b.condition) ? 1 : 0;
-                  if (aReady !== bReady) return bReady - aReady;
-                  // Then prioritize nodes with known instance types
-                  const aHasType = a.instanceType && a.instanceType !== 'Unknown' ? 1 : 0;
-                  const bHasType = b.instanceType && b.instanceType !== 'Unknown' ? 1 : 0;
-                  if (aHasType !== bHasType) return bHasType - aHasType;
-                  return (b.dailyCost || 0) - (a.dailyCost || 0);
-                })
-                .slice(nodePage * nodeItemsPerPage, (nodePage + 1) * nodeItemsPerPage)
-                .map((node: any, index: number) => {
-                  // Fallback for instance type if missing in cost data
-                  const instanceType = node.instanceType ||
-                    dashboard.nodes?.find((n: any) => n.name === node.nodeName)?.instanceType ||
-                    'Unknown';
-
-                  return (
-                    <tr key={index} className="border-t border-gray-100 hover:bg-gray-50 transition-colors">
-                      <td className="px-4 py-3 text-sm font-mono font-semibold text-gray-900">
-                        {node.nodeName}
-                        {(!node.condition || (node.condition !== 'Ready' && node.condition !== 'ready')) && (
-                          <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
-                            {node.condition || 'Not Ready'}
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-600">{instanceType}</td>
-                      <td className="px-4 py-3 text-sm text-right font-medium text-gray-700">
-                        ${(node.hourlyRate || 0).toFixed(4)}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-right font-bold text-gray-900">
-                        ${(node.dailyCost || 0).toFixed(2)}
-                      </td>
-                    </tr>
-                  );
-                })}
-              {sortedNodesByCost.length === 0 && (
-                <tr>
-                  <td colSpan={4} className="px-4 py-8 text-center text-gray-500">
-                    <i className="fas fa-server text-gray-300 text-2xl mb-2"></i>
-                    <p className="text-sm">No node cost data available</p>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+          {sortedNodes.slice(nodePage * nodeItemsPerPage, (nodePage + 1) * nodeItemsPerPage).map((node: any, i: number) => {
+            const isReady = !node.condition || node.condition === 'Ready' || node.condition === 'ready';
+            const isSpot = node.capacityType === 'spot';
+            const instanceType = node.instanceType ||
+              dashboard.nodes?.find((n: any) => n.name === node.nodeName)?.instanceType || 'Unknown';
+            return (
+              <div key={i} className="bg-white border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors">
+                <div className="flex items-start justify-between mb-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[13px] font-mono font-semibold text-gray-900 truncate">{node.nodeName}</p>
+                    <p className="text-[11px] text-gray-500 mt-0.5">{instanceType}</p>
+                  </div>
+                  {node.capacityType && (
+                    <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold border ml-2 flex-shrink-0 ${
+                      isSpot
+                        ? 'text-blue-700 bg-blue-50 border-blue-200'
+                        : 'text-gray-600 bg-gray-50 border-gray-200'
+                    }`}>
+                      {isSpot ? 'Spot' : 'On-Demand'}
+                    </span>
+                  )}
+                </div>
+                <div className="text-[26px] font-semibold text-gray-900 leading-none mb-1">
+                  ${(node.dailyCost || 0).toFixed(2)}<span className="text-[13px] text-gray-500 font-normal">/day</span>
+                </div>
+                <p className="text-[11px] text-gray-500 mb-3">
+                  ${((node.dailyCost || 0) * 30).toFixed(0)}/mo · ${(node.hourlyRate || 0).toFixed(4)}/hr
+                </p>
+                <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold border ${
+                  isReady
+                    ? 'text-green-700 bg-green-50 border-green-200'
+                    : 'text-red-700 bg-red-50 border-red-200'
+                }`}>
+                  {isReady ? 'Ready' : (node.condition || 'Not Ready')}
+                </span>
+              </div>
+            );
+          })}
         </div>
-        {/* Node Pagination */}
-        {sortedNodesByCost.length > nodeItemsPerPage && (
+        {sortedNodes.length === 0 && (
+          <div className="py-10 text-center">
+            <p className="text-sm text-gray-500">No node cost data available</p>
+          </div>
+        )}
+        {sortedNodes.length > nodeItemsPerPage && (
           <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-200">
-            <div className="text-sm text-gray-600">
-              Showing {nodePage * nodeItemsPerPage + 1} to{' '}
-              {Math.min((nodePage + 1) * nodeItemsPerPage, sortedNodesByCost.length)} of{' '}
-              {sortedNodesByCost.length} nodes
-            </div>
+            <span className="text-sm text-gray-600">
+              {nodePage * nodeItemsPerPage + 1}–{Math.min((nodePage + 1) * nodeItemsPerPage, sortedNodes.length)} of {sortedNodes.length}
+            </span>
             <div className="flex gap-2">
               <button
-                onClick={() => setNodePage(Math.max(0, nodePage - 1))}
+                onClick={() => setNodePage(p => Math.max(0, p - 1))}
                 disabled={nodePage === 0}
-                className="px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+                className="px-3 py-1.5 text-sm font-semibold bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40"
               >
                 Previous
               </button>
               <button
-                onClick={() => setNodePage(nodePage + 1)}
-                disabled={(nodePage + 1) * nodeItemsPerPage >= sortedNodesByCost.length}
-                className="px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+                onClick={() => setNodePage(p => p + 1)}
+                disabled={(nodePage + 1) * nodeItemsPerPage >= sortedNodes.length}
+                className="px-3 py-1.5 text-sm font-semibold bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40"
               >
                 Next
               </button>
@@ -474,24 +454,12 @@ const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
           <table className="w-full">
             <thead>
               <tr className="border-b-2 border-gray-200">
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                  Namespace
-                </th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                  Pods
-                </th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                  CPU (m)
-                </th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                  Memory (MB)
-                </th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                  $/Day
-                </th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                  $/Month
-                </th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">Namespace</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">Pods</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">CPU (m)</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">Memory (MB)</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">$/Day</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">$/Month</th>
               </tr>
             </thead>
             <tbody>
@@ -499,24 +467,12 @@ const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
                 .slice(namespacePage * itemsPerPage, (namespacePage + 1) * itemsPerPage)
                 .map((ns: any, index: number) => (
                   <tr key={index} className="border-t border-gray-100 hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-3 text-sm font-mono font-semibold text-gray-900">
-                      {ns.namespace}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-right text-gray-700 font-medium">
-                      {ns.podCount || 0}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-right text-gray-600">
-                      {(ns.cpuUsageMillicores || 0).toFixed(0)}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-right text-gray-600">
-                      {(ns.memoryUsageMb || 0).toFixed(0)}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-right font-semibold text-gray-900">
-                      ${(ns.dailyCost || 0).toFixed(2)}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-right font-bold text-gray-900">
-                      ${(ns.monthlyCost || 0).toFixed(2)}
-                    </td>
+                    <td className="px-4 py-3 text-sm font-mono font-semibold text-gray-900">{ns.namespace}</td>
+                    <td className="px-4 py-3 text-sm text-right text-gray-700 font-medium">{ns.podCount || 0}</td>
+                    <td className="px-4 py-3 text-sm text-right text-gray-600">{(ns.cpuUsageMillicores || 0).toFixed(0)}</td>
+                    <td className="px-4 py-3 text-sm text-right text-gray-600">{(ns.memoryUsageMb || 0).toFixed(0)}</td>
+                    <td className="px-4 py-3 text-sm text-right font-semibold text-gray-900">${(ns.dailyCost || 0).toFixed(2)}</td>
+                    <td className="px-4 py-3 text-sm text-right font-bold text-gray-900">${(ns.monthlyCost || 0).toFixed(2)}</td>
                   </tr>
                 ))}
               {getNamespaceCosts().length === 0 && (
@@ -530,7 +486,6 @@ const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
             </tbody>
           </table>
         </div>
-        {/* Namespace Pagination */}
         {getNamespaceCosts().length > itemsPerPage && (
           <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-200">
             <div className="text-sm text-gray-600">
@@ -583,24 +538,12 @@ const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
               <table className="w-full">
                 <thead>
                   <tr className="border-b-2 border-gray-200">
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                      Name
-                    </th>
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                      Namespace
-                    </th>
-                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                      CPU (m)
-                    </th>
-                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                      Memory (MB)
-                    </th>
-                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                      $/Day
-                    </th>
-                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                      $/Month
-                    </th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">Name</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">Namespace</th>
+                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">CPU (m)</th>
+                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">Memory (MB)</th>
+                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">$/Day</th>
+                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">$/Month</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -608,22 +551,12 @@ const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
                     .slice(deploymentPage * itemsPerPage, (deploymentPage + 1) * itemsPerPage)
                     .map((wl: any, index: number) => (
                       <tr key={index} className="border-t border-gray-100 hover:bg-gray-50 transition-colors">
-                        <td className="px-4 py-3 text-sm font-mono font-semibold text-gray-900">
-                          {wl.name}
-                        </td>
+                        <td className="px-4 py-3 text-sm font-mono font-semibold text-gray-900">{wl.name}</td>
                         <td className="px-4 py-3 text-sm text-gray-600">{wl.namespace}</td>
-                        <td className="px-4 py-3 text-sm text-right text-gray-600">
-                          {(wl.cpuUsageMillicores || 0).toFixed(0)}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-right text-gray-600">
-                          {(wl.memoryUsageMb || 0).toFixed(0)}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-right font-semibold text-gray-900">
-                          ${(wl.dailyCost || 0).toFixed(2)}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-right font-bold text-gray-900">
-                          ${(wl.monthlyCost || 0).toFixed(2)}
-                        </td>
+                        <td className="px-4 py-3 text-sm text-right text-gray-600">{(wl.cpuUsageMillicores || 0).toFixed(0)}</td>
+                        <td className="px-4 py-3 text-sm text-right text-gray-600">{(wl.memoryUsageMb || 0).toFixed(0)}</td>
+                        <td className="px-4 py-3 text-sm text-right font-semibold text-gray-900">${(wl.dailyCost || 0).toFixed(2)}</td>
+                        <td className="px-4 py-3 text-sm text-right font-bold text-gray-900">${(wl.monthlyCost || 0).toFixed(2)}</td>
                       </tr>
                     ))}
                 </tbody>
@@ -668,24 +601,12 @@ const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
               <table className="w-full">
                 <thead>
                   <tr className="border-b-2 border-gray-200">
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                      Name
-                    </th>
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                      Namespace
-                    </th>
-                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                      CPU (m)
-                    </th>
-                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                      Memory (MB)
-                    </th>
-                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                      $/Day
-                    </th>
-                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                      $/Month
-                    </th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">Name</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">Namespace</th>
+                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">CPU (m)</th>
+                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">Memory (MB)</th>
+                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">$/Day</th>
+                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">$/Month</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -693,22 +614,12 @@ const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
                     .slice(daemonSetPage * itemsPerPage, (daemonSetPage + 1) * itemsPerPage)
                     .map((wl: any, index: number) => (
                       <tr key={index} className="border-t border-gray-100 hover:bg-gray-50 transition-colors">
-                        <td className="px-4 py-3 text-sm font-mono font-semibold text-gray-900">
-                          {wl.name}
-                        </td>
+                        <td className="px-4 py-3 text-sm font-mono font-semibold text-gray-900">{wl.name}</td>
                         <td className="px-4 py-3 text-sm text-gray-600">{wl.namespace}</td>
-                        <td className="px-4 py-3 text-sm text-right text-gray-600">
-                          {(wl.cpuUsageMillicores || 0).toFixed(0)}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-right text-gray-600">
-                          {(wl.memoryUsageMb || 0).toFixed(0)}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-right font-semibold text-gray-900">
-                          ${(wl.dailyCost || 0).toFixed(2)}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-right font-bold text-gray-900">
-                          ${(wl.monthlyCost || 0).toFixed(2)}
-                        </td>
+                        <td className="px-4 py-3 text-sm text-right text-gray-600">{(wl.cpuUsageMillicores || 0).toFixed(0)}</td>
+                        <td className="px-4 py-3 text-sm text-right text-gray-600">{(wl.memoryUsageMb || 0).toFixed(0)}</td>
+                        <td className="px-4 py-3 text-sm text-right font-semibold text-gray-900">${(wl.dailyCost || 0).toFixed(2)}</td>
+                        <td className="px-4 py-3 text-sm text-right font-bold text-gray-900">${(wl.monthlyCost || 0).toFixed(2)}</td>
                       </tr>
                     ))}
                 </tbody>
@@ -753,24 +664,12 @@ const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
               <table className="w-full">
                 <thead>
                   <tr className="border-b-2 border-gray-200">
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                      Name
-                    </th>
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                      Namespace
-                    </th>
-                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                      CPU (m)
-                    </th>
-                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                      Memory (MB)
-                    </th>
-                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                      $/Day
-                    </th>
-                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                      $/Month
-                    </th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">Name</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">Namespace</th>
+                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">CPU (m)</th>
+                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">Memory (MB)</th>
+                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">$/Day</th>
+                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">$/Month</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -778,22 +677,12 @@ const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
                     .slice(statefulSetPage * itemsPerPage, (statefulSetPage + 1) * itemsPerPage)
                     .map((wl: any, index: number) => (
                       <tr key={index} className="border-t border-gray-100 hover:bg-gray-50 transition-colors">
-                        <td className="px-4 py-3 text-sm font-mono font-semibold text-gray-900">
-                          {wl.name}
-                        </td>
+                        <td className="px-4 py-3 text-sm font-mono font-semibold text-gray-900">{wl.name}</td>
                         <td className="px-4 py-3 text-sm text-gray-600">{wl.namespace}</td>
-                        <td className="px-4 py-3 text-sm text-right text-gray-600">
-                          {(wl.cpuUsageMillicores || 0).toFixed(0)}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-right text-gray-600">
-                          {(wl.memoryUsageMb || 0).toFixed(0)}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-right font-semibold text-gray-900">
-                          ${(wl.dailyCost || 0).toFixed(2)}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-right font-bold text-gray-900">
-                          ${(wl.monthlyCost || 0).toFixed(2)}
-                        </td>
+                        <td className="px-4 py-3 text-sm text-right text-gray-600">{(wl.cpuUsageMillicores || 0).toFixed(0)}</td>
+                        <td className="px-4 py-3 text-sm text-right text-gray-600">{(wl.memoryUsageMb || 0).toFixed(0)}</td>
+                        <td className="px-4 py-3 text-sm text-right font-semibold text-gray-900">${(wl.dailyCost || 0).toFixed(2)}</td>
+                        <td className="px-4 py-3 text-sm text-right font-bold text-gray-900">${(wl.monthlyCost || 0).toFixed(2)}</td>
                       </tr>
                     ))}
                 </tbody>
@@ -845,7 +734,7 @@ const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
             <div className="flex-1">
               <h3 className="text-xl font-bold text-gray-900">Cost Optimization Recommendations</h3>
               <p className="text-sm text-gray-600">
-                {recommendations.length} opportunity{recommendations.length > 1 ? 'ies' : 'y'} identified • Potential savings: $
+                {recommendations.length} opportunit{recommendations.length > 1 ? 'ies' : 'y'} identified • Potential savings: $
                 {recommendations.reduce((sum, r) => sum + r.savingsEstimate, 0).toFixed(2)}/month
               </p>
             </div>
@@ -858,14 +747,21 @@ const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
                 className={`bg-white rounded-lg p-5 border-2 transition-all ${getPriorityColor(rec.priority)}`}
               >
                 <div className="flex items-start gap-4">
-                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${rec.priority === 'high' ? 'bg-red-100' : rec.priority === 'medium' ? 'bg-amber-100' : 'bg-blue-100'}`}>
-                    <i className={`fas fa-${getPriorityIcon(rec.priority)} ${rec.priority === 'high' ? 'text-red-600' : rec.priority === 'medium' ? 'text-amber-600' : 'text-blue-600'} text-lg`}></i>
+                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                    rec.priority === 'high' ? 'bg-red-100' : rec.priority === 'medium' ? 'bg-amber-100' : 'bg-blue-100'
+                  }`}>
+                    <i className={`fas fa-${getPriorityIcon(rec.priority)} ${
+                      rec.priority === 'high' ? 'text-red-600' : rec.priority === 'medium' ? 'text-amber-600' : 'text-blue-600'
+                    } text-lg`}></i>
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-2 mb-2">
                       <div>
                         <h4 className="text-base font-semibold text-gray-900">{rec.title}</h4>
-                        <span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold uppercase mt-1 ${rec.priority === 'high' ? 'bg-red-100 text-red-700' : rec.priority === 'medium' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'}`}>
+                        <span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold uppercase mt-1 ${
+                          rec.priority === 'high' ? 'bg-red-100 text-red-700' :
+                          rec.priority === 'medium' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'
+                        }`}>
                           {rec.priority} priority
                         </span>
                       </div>
@@ -882,12 +778,11 @@ const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
                     <p className="text-sm text-gray-700 mb-3">{rec.description}</p>
                     <div className="text-sm font-semibold text-gray-900 mb-2">{rec.impact}</div>
 
-                    {/* Basis Explanation - Collapsible */}
                     <button
                       onClick={() => setShowRecommendationInfo(showRecommendationInfo === rec.id ? null : rec.id)}
                       className="flex items-center gap-2 text-xs text-gray-600 hover:text-gray-900 mb-2 font-medium"
                     >
-                      <i className={`fas fa-info-circle text-sm`}></i>
+                      <i className="fas fa-info-circle text-sm"></i>
                       <span>How is this calculated?</span>
                       <i className={`fas fa-chevron-${showRecommendationInfo === rec.id ? 'up' : 'down'} text-xs`}></i>
                     </button>
@@ -898,7 +793,6 @@ const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
                       </div>
                     )}
 
-                    {/* Action Items */}
                     <div className="mb-3">
                       <div className="text-xs font-semibold text-gray-700 mb-2 uppercase tracking-wide">Recommended Actions:</div>
                       <ul className="space-y-1">
@@ -911,7 +805,6 @@ const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
                       </ul>
                     </div>
 
-                    {/* Affected Resources */}
                     {rec.affectedResources.length > 0 && (
                       <div className="text-xs text-gray-600">
                         <strong>Affected:</strong> {rec.affectedResources.slice(0, 3).join(', ')}

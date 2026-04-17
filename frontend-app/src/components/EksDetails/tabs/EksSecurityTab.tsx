@@ -35,6 +35,19 @@ const EksSecurityTab: React.FC<EksSecurityTabProps> = ({ eksData }) => {
     vulnImagePage * imagesPerPage
   );
 
+  // Compute overall security score for hero
+  const totalCritical = trivyData?.summary?.totalCritical || 0;
+  const totalHigh = trivyData?.summary?.totalHigh || 0;
+  const totalMedium = trivyData?.summary?.totalMedium || 0;
+  const totalLow = trivyData?.summary?.totalLow || 0;
+  const totalVulns = totalCritical + totalHigh + totalMedium + totalLow;
+  const securityScore = Math.max(0, 100 - (totalCritical * 10 + totalHigh * 3 + totalMedium * 1));
+  // securityMetrics uses totalEvents + eventsByPriority (not criticalAlerts/highAlerts)
+  const falcoTotal = dashboard.securityMetrics?.totalEvents ||
+    Object.values(dashboard.securityMetrics?.eventsByPriority || {})
+      .reduce((sum: number, v: any) => sum + (Number(v) || 0), 0);
+  const kubescapeScore = dashboard.kubescape?.complianceScore || 0;
+
   return (
     <div className="space-y-8">
       {/* Runtime Security Section - Powered by Falco */}

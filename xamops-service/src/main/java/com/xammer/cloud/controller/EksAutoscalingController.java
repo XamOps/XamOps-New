@@ -2,6 +2,7 @@ package com.xammer.cloud.controller;
 
 import com.xammer.cloud.dto.autoscaling.AutoscalerDashboardDto;
 import com.xammer.cloud.dto.autoscaling.AutoscalerDashboardDto.*;
+import com.xammer.cloud.dto.autoscaling.NodeOptimizerPolicyDto;
 import com.xammer.cloud.dto.autoscaling.WorkloadRightsizingDto;
 import com.xammer.cloud.repository.KubernetesClusterConfigRepository;
 import com.xammer.cloud.service.EksAutoscalingService;
@@ -213,6 +214,25 @@ public class EksAutoscalingController {
     }
 
     /**
+     * PUT /api/eks/autoscaling/{clusterName}/node-optimizer?accountId=xxx
+     */
+    @PutMapping("/{clusterName}/node-optimizer")
+    public ResponseEntity<Map<String, Object>> saveNodeOptimizerPolicy(
+            @PathVariable String clusterName,
+            @RequestParam String accountId,
+            @RequestBody NodeOptimizerPolicyDto policy) {
+
+        logger.info("PUT node-optimizer: cluster={} account={}", clusterName, accountId);
+        try {
+            autoscalingService.saveNodeOptimizerPolicy(clusterName, Long.parseLong(accountId), policy);
+            return ResponseEntity.ok(ok("Node Optimizer policy saved"));
+        } catch (Exception e) {
+            logger.error("Error saving node-optimizer for cluster {}: {}", clusterName, e.getMessage());
+            return ResponseEntity.internalServerError().body(err(e.getMessage()));
+        }
+    }
+
+    /**
      * PUT /api/eks/autoscaling/{clusterName}/rebalancer?accountId=xxx
      */
     @PutMapping("/{clusterName}/rebalancer")
@@ -367,6 +387,30 @@ public class EksAutoscalingController {
             return ResponseEntity.badRequest().build();
         } catch (Exception e) {
             logger.error("Error getting rebalance status for cluster {}: {}", clusterName, e.getMessage());
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    /**
+     * GET /api/eks/autoscaling/{clusterName}/node-fleet?accountId=xxx
+     *
+     * Returns a NodeFleetReport — on-demand/spot split, idle nodes, and spot candidates.
+     * Synthesized from k8s-resources agent cache if xamops-automation has not pushed one yet.
+     */
+    @GetMapping("/{clusterName}/node-fleet")
+    public ResponseEntity<Map<String, Object>> getNodeFleet(
+            @PathVariable String clusterName,
+            @RequestParam String accountId) {
+
+        logger.debug("GET node-fleet: cluster={} account={}", clusterName, accountId);
+        try {
+            Map<String, Object> report = autoscalingService.getNodeFleetReport(
+                    clusterName, Long.parseLong(accountId));
+            return ResponseEntity.ok(report);
+        } catch (NumberFormatException e) {
+            return ResponseEntity.badRequest().build();
+        } catch (Exception e) {
+            logger.error("Error getting node-fleet for cluster {}: {}", clusterName, e.getMessage());
             return ResponseEntity.internalServerError().build();
         }
     }

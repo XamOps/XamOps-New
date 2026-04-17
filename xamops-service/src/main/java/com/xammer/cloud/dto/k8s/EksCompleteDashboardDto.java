@@ -54,6 +54,80 @@ public class EksCompleteDashboardDto {
     // ✅ NEW: Pod Resource Metrics for Pods tab charts
     private PodResourceMetrics podResourceMetrics;
 
+    // ── Agent k8s-resources raw data (populated by EksDashboardService steps 6-7) ──
+    private List<Map<String, Object>> k8sNodes;
+    private List<Map<String, Object>> k8sPods;
+    private List<Map<String, Object>> k8sDeployments;
+    private List<Map<String, Object>> k8sStatefulSets;
+    private List<Map<String, Object>> k8sDaemonSets;
+    private List<Map<String, Object>> k8sServices;
+    private List<Map<String, Object>> k8sIngresses;
+    private List<Map<String, Object>> k8sHpas;
+    private List<Map<String, Object>> k8sPvcs;
+    private List<Map<String, Object>> k8sEvents;
+
+    // ── Agent prometheus-metrics derived data ──
+    private List<Map<String, Object>> falcoEvents;
+    private Map<String, Object> agentCostMetrics;
+    private List<Map<String, Object>> namespaceUtilization;
+    private List<Map<String, Object>> topCpuPods;
+    private List<Map<String, Object>> topMemoryPods;
+    private List<Map<String, Object>> nodeUtilization;
+    private List<Map<String, Object>> networkMetrics;
+
+    // ── Getters / setters for agent raw data ────────────────────────────────
+
+    public List<Map<String, Object>> getK8sNodes() { return k8sNodes; }
+    public void setK8sNodes(List<Map<String, Object>> v) { this.k8sNodes = v; }
+
+    public List<Map<String, Object>> getK8sPods() { return k8sPods; }
+    public void setK8sPods(List<Map<String, Object>> v) { this.k8sPods = v; }
+
+    public List<Map<String, Object>> getK8sDeployments() { return k8sDeployments; }
+    public void setK8sDeployments(List<Map<String, Object>> v) { this.k8sDeployments = v; }
+
+    public List<Map<String, Object>> getK8sStatefulSets() { return k8sStatefulSets; }
+    public void setK8sStatefulSets(List<Map<String, Object>> v) { this.k8sStatefulSets = v; }
+
+    public List<Map<String, Object>> getK8sDaemonSets() { return k8sDaemonSets; }
+    public void setK8sDaemonSets(List<Map<String, Object>> v) { this.k8sDaemonSets = v; }
+
+    public List<Map<String, Object>> getK8sServices() { return k8sServices; }
+    public void setK8sServices(List<Map<String, Object>> v) { this.k8sServices = v; }
+
+    public List<Map<String, Object>> getK8sIngresses() { return k8sIngresses; }
+    public void setK8sIngresses(List<Map<String, Object>> v) { this.k8sIngresses = v; }
+
+    public List<Map<String, Object>> getK8sHpas() { return k8sHpas; }
+    public void setK8sHpas(List<Map<String, Object>> v) { this.k8sHpas = v; }
+
+    public List<Map<String, Object>> getK8sPvcs() { return k8sPvcs; }
+    public void setK8sPvcs(List<Map<String, Object>> v) { this.k8sPvcs = v; }
+
+    public List<Map<String, Object>> getK8sEvents() { return k8sEvents; }
+    public void setK8sEvents(List<Map<String, Object>> v) { this.k8sEvents = v; }
+
+    public List<Map<String, Object>> getFalcoEvents() { return falcoEvents; }
+    public void setFalcoEvents(List<Map<String, Object>> v) { this.falcoEvents = v; }
+
+    public Map<String, Object> getAgentCostMetrics() { return agentCostMetrics; }
+    public void setAgentCostMetrics(Map<String, Object> v) { this.agentCostMetrics = v; }
+
+    public List<Map<String, Object>> getNamespaceUtilization() { return namespaceUtilization; }
+    public void setNamespaceUtilization(List<Map<String, Object>> v) { this.namespaceUtilization = v; }
+
+    public List<Map<String, Object>> getTopCpuPods() { return topCpuPods; }
+    public void setTopCpuPods(List<Map<String, Object>> v) { this.topCpuPods = v; }
+
+    public List<Map<String, Object>> getTopMemoryPods() { return topMemoryPods; }
+    public void setTopMemoryPods(List<Map<String, Object>> v) { this.topMemoryPods = v; }
+
+    public List<Map<String, Object>> getNodeUtilization() { return nodeUtilization; }
+    public void setNodeUtilization(List<Map<String, Object>> v) { this.nodeUtilization = v; }
+
+    public List<Map<String, Object>> getNetworkMetrics() { return networkMetrics; }
+    public void setNetworkMetrics(List<Map<String, Object>> v) { this.networkMetrics = v; }
+
     public KubescapeDashboard getKubescape() {
         return kubescape;
     }
@@ -142,6 +216,23 @@ public class EksCompleteDashboardDto {
         private Double memoryUsagePercent;
         private Double memoryUsageBytes;
         private Double memoryCapacityBytes;
+        // Agent-enriched node/pod counts
+        private Integer readyNodes;
+        private Integer spotNodes;
+        private Integer runningPods;
+        private Integer pendingPods;
+        private Integer failedPods;
+
+        public Integer getReadyNodes() { return readyNodes; }
+        public void setReadyNodes(Integer v) { this.readyNodes = v; }
+        public Integer getSpotNodes() { return spotNodes; }
+        public void setSpotNodes(Integer v) { this.spotNodes = v; }
+        public Integer getRunningPods() { return runningPods; }
+        public void setRunningPods(Integer v) { this.runningPods = v; }
+        public Integer getPendingPods() { return pendingPods; }
+        public void setPendingPods(Integer v) { this.pendingPods = v; }
+        public Integer getFailedPods() { return failedPods; }
+        public void setFailedPods(Integer v) { this.failedPods = v; }
 
         // Getters and Setters
         public String getClusterName() {

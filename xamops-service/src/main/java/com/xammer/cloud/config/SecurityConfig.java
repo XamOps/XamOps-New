@@ -177,6 +177,7 @@ public class SecurityConfig {
                                                                 new AntPathRequestMatcher("/api/xamops/k8s/**"),
                                                                 // ✅ YOUR CODE: Preserved missing APIs
                                                                 new AntPathRequestMatcher("/api/xamops/eks/**"),
+                                                                new AntPathRequestMatcher("/api/eks/autoscaling/**"),
                                                                 new AntPathRequestMatcher("/api/karpenter/**"),
 
                                                                 new AntPathRequestMatcher("/api/autospotting/**"),
