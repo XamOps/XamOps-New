@@ -28,9 +28,11 @@ type Config struct {
 	CollectorOpenCost     bool
 	CollectorKarpenter    bool
 	CollectorMetrics      bool
-	CollectorAutoscaling  bool // NEW: push autoscaling-metrics + autoscaling-events
-	CollectorDB           bool // DB query stats collector (opt-in)
-	CollectorDisk         bool // EC2 disk usage collector (opt-in, for EBS rightsizing)
+	CollectorAutoscaling       bool // push autoscaling-metrics + autoscaling-events
+	CollectorK8sResources      bool // full K8s resource snapshot (nodes/pods/deployments/etc.)
+	CollectorPrometheusMetrics bool // in-cluster Prometheus: utilization, cost, Falco, top pods
+	CollectorDB                bool // DB query stats collector (opt-in)
+	CollectorDisk              bool // EC2 disk usage collector (opt-in, for EBS rightsizing)
 
 	// DB collector settings
 	// DB_DSN_0, DB_DSN_1, ... — one DSN per database instance
@@ -44,7 +46,8 @@ type Config struct {
 	OpenCostServiceURL string
 	OpenCostWindow     string
 
-	// Prometheus settings (for autoscaling metrics)
+	// Prometheus settings — in-cluster Prometheus endpoint.
+	// Used by both prometheus-metrics collector and autoscaling-metrics collector.
 	PrometheusURL string // e.g. http://prometheus-server.monitoring.svc.cluster.local:9090
 
 	// Logging
@@ -74,9 +77,11 @@ func Load() (*Config, error) {
 		CollectorOpenCost:    getEnvBool("COLLECTOR_OPENCOST", true),
 		CollectorKarpenter:   getEnvBool("COLLECTOR_KARPENTER", true),
 		CollectorMetrics:     getEnvBool("COLLECTOR_METRICS", true),
-		CollectorAutoscaling: getEnvBool("COLLECTOR_AUTOSCALING", false), // opt-in
-		CollectorDB:          getEnvBool("COLLECTOR_DB", false),          // opt-in
-		CollectorDisk:        getEnvBool("COLLECTOR_DISK", false),        // opt-in
+		CollectorAutoscaling:       getEnvBool("COLLECTOR_AUTOSCALING", false),        // opt-in
+		CollectorK8sResources:      getEnvBool("COLLECTOR_K8S_RESOURCES", true),       // on by default
+		CollectorPrometheusMetrics: getEnvBool("COLLECTOR_PROMETHEUS_METRICS", true),  // on by default
+		CollectorDB:                getEnvBool("COLLECTOR_DB", false),                 // opt-in
+		CollectorDisk:              getEnvBool("COLLECTOR_DISK", false),               // opt-in
 
 		// DB settings
 		DBDSNs:            getEnvDSNs(),

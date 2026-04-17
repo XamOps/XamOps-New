@@ -37,112 +37,112 @@ import 'goey-toast/styles.css';
 import LoginPage from './pages/LoginPage';
 
 // Dashboards
-const UnifiedDashboard          = lazy(() => import('./pages/UnifiedDashboard').then(m => ({ default: m.UnifiedDashboard })));
-const Dashboard                 = lazy(() => import('./pages/Dashboard'));
-const GcpDashboard              = lazy(() => import('./pages/GcpDashboard'));
-const AzureDashboard            = lazy(() => import('./pages/AzureDashboard'));
+const UnifiedDashboard = lazy(() => import('./pages/UnifiedDashboard').then(m => ({ default: m.UnifiedDashboard })));
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const GcpDashboard = lazy(() => import('./pages/GcpDashboard'));
+const AzureDashboard = lazy(() => import('./pages/AzureDashboard'));
 
 // AWS — FinOps & Cost
-const FinOpsPage                = lazy(() => import('./pages/FinOpsPage'));
-const CostPage                  = lazy(() => import('./pages/CostPage'));
-const WastePage                 = lazy(() => import('./pages/WastePage'));
-const RightsizingPage           = lazy(() => import('./pages/RightsizingPage'));
-const ReservationPage           = lazy(() => import('./pages/ReservationPage'));
-const EbsRightsizingPage        = lazy(() => import('./pages/EbsRightsizingPage'));
-const FlexComputePage           = lazy(() => import('./pages/FlexComputePage'));
+const FinOpsPage = lazy(() => import('./pages/FinOpsPage'));
+const CostPage = lazy(() => import('./pages/CostPage'));
+const WastePage = lazy(() => import('./pages/WastePage'));
+const RightsizingPage = lazy(() => import('./pages/RightsizingPage'));
+const ReservationPage = lazy(() => import('./pages/ReservationPage'));
+const EbsRightsizingPage = lazy(() => import('./pages/EbsRightsizingPage'));
+const FlexComputePage = lazy(() => import('./pages/FlexComputePage'));
 
 // AWS — Infrastructure
-const CloudSitterPage           = lazy(() => import('./pages/CloudSitterPage'));
-const SpotAutomationPage        = lazy(() => import('./pages/SpotAutomationPage'));
-const ASGDetailPage             = lazy(() => import('./pages/ASGDetailPage'));
-const ASGConfigPage             = lazy(() => import('./pages/ASGConfigPage'));
-const CloudK8sPage              = lazy(() => import('./pages/CloudK8sPage'));
-const EksDetailsPage            = lazy(() => import('./pages/EksDetailsPage'));
-const CloudListPage             = lazy(() => import('./pages/CloudListPage'));
-const CloudMapPage              = lazy(() => import('./pages/CloudMapPage'));
-const CloudShellPage            = lazy(() => import('./pages/CloudShellPage'));
-const ResourceLabelsPage        = lazy(() => import('./pages/ResourceLabelsPage'));
-const GrafanaDashboardPage      = lazy(() => import('./pages/GrafanaDashboardPage'));
+const CloudSitterPage = lazy(() => import('./pages/CloudSitterPage'));
+const SpotAutomationPage = lazy(() => import('./pages/SpotAutomationPage'));
+const ASGDetailPage = lazy(() => import('./pages/ASGDetailPage'));
+const ASGConfigPage = lazy(() => import('./pages/ASGConfigPage'));
+const CloudK8sPage = lazy(() => import('./pages/CloudK8sPage'));
+const EksDetailsPage = lazy(() => import('./pages/EksDetailsPage'));
+const CloudListPage = lazy(() => import('./pages/CloudListPage'));
+const CloudMapPage = lazy(() => import('./pages/CloudMapPage'));
+const CloudShellPage = lazy(() => import('./pages/CloudShellPage'));
+const ResourceLabelsPage = lazy(() => import('./pages/ResourceLabelsPage'));
+const GrafanaDashboardPage = lazy(() => import('./pages/GrafanaDashboardPage'));
 
 // AWS — Security & Monitoring
-const SecurityPage              = lazy(() => import('./pages/SecurityPage'));
-const PerformancePage           = lazy(() => import('./pages/PerformancePage'));
-const AlertsPage                = lazy(() => import('./pages/AlertsPage'));
+const SecurityPage = lazy(() => import('./pages/SecurityPage'));
+const PerformancePage = lazy(() => import('./pages/PerformancePage'));
+const AlertsPage = lazy(() => import('./pages/AlertsPage'));
 
 // GCP
-const GcpFinOpsPage             = lazy(() => import('./pages/GcpFinOpsPage'));
-const GcpCostPage               = lazy(() => import('./pages/GcpCostPage'));
-const GcpWastePage              = lazy(() => import('./pages/GcpWastePage'));
-const GcpRightsizingPage        = lazy(() => import('./pages/GcpRightsizingPage'));
-const GcpReservationsPage       = lazy(() => import('./pages/GcpReservationsPage'));
-const GcpCloudK8sPage           = lazy(() => import('./pages/GcpCloudK8sPage'));
-const GkeDetailsPage            = lazy(() => import('./pages/GkeDetailsPage'));
-const GcpCloudListPage          = lazy(() => import('./pages/GcpCloudListPage'));
-const GcpCloudMapPage           = lazy(() => import('./pages/GcpCloudMapPage'));
-const GcpSecurityPage           = lazy(() => import('./pages/GcpSecurityPage'));
-const GcpPerformancePage        = lazy(() => import('./pages/GcpPerformancePage'));
-const GcpAlertsPage             = lazy(() => import('./pages/GcpAlertsPage'));
-const GcpBillingPage            = lazy(() => import('./pages/GcpBillingPage'));
-const GcpSpotAutomationPage     = lazy(() => import('./pages/GcpSpotAutomationPage'));
-const GcpDataOpsPage            = lazy(() => import('./pages/GcpDataOpsPage'));
+const GcpFinOpsPage = lazy(() => import('./pages/GcpFinOpsPage'));
+const GcpCostPage = lazy(() => import('./pages/GcpCostPage'));
+const GcpWastePage = lazy(() => import('./pages/GcpWastePage'));
+const GcpRightsizingPage = lazy(() => import('./pages/GcpRightsizingPage'));
+const GcpReservationsPage = lazy(() => import('./pages/GcpReservationsPage'));
+const GcpCloudK8sPage = lazy(() => import('./pages/GcpCloudK8sPage'));
+const GkeDetailsPage = lazy(() => import('./pages/GkeDetailsPage'));
+const GcpCloudListPage = lazy(() => import('./pages/GcpCloudListPage'));
+const GcpCloudMapPage = lazy(() => import('./pages/GcpCloudMapPage'));
+const GcpSecurityPage = lazy(() => import('./pages/GcpSecurityPage'));
+const GcpPerformancePage = lazy(() => import('./pages/GcpPerformancePage'));
+const GcpAlertsPage = lazy(() => import('./pages/GcpAlertsPage'));
+const GcpBillingPage = lazy(() => import('./pages/GcpBillingPage'));
+const GcpSpotAutomationPage = lazy(() => import('./pages/GcpSpotAutomationPage'));
+const GcpDataOpsPage = lazy(() => import('./pages/GcpDataOpsPage'));
 
 // Azure
-const AzureFinOpsPage           = lazy(() => import('./pages/AzureFinOpsPage'));
-const AzureCostPage             = lazy(() => import('./pages/AzureCostPage'));
-const AzureWastePage            = lazy(() => import('./pages/AzureWastePage'));
-const AzureRightsizingPage      = lazy(() => import('./pages/AzureRightsizingPage'));
-const AzureReservationsPage     = lazy(() => import('./pages/AzureReservationsPage'));
-const AzureCloudK8sPage         = lazy(() => import('./pages/AzureCloudK8sPage'));
-const AksDetailsPage            = lazy(() => import('./pages/AksDetailsPage'));
-const AzureCloudList            = lazy(() => import('./pages/AzureCloudList'));
-const AzureSecurityPage         = lazy(() => import('./pages/AzureSecurityPage'));
-const AzurePerformancePage      = lazy(() => import('./pages/AzurePerformancePage'));
-const AzureAlertsPage           = lazy(() => import('./pages/AzureAlertsPage'));
-const AzureSpotAutomationPage   = lazy(() => import('./pages/AzureSpotAutomationPage'));
+const AzureFinOpsPage = lazy(() => import('./pages/AzureFinOpsPage'));
+const AzureCostPage = lazy(() => import('./pages/AzureCostPage'));
+const AzureWastePage = lazy(() => import('./pages/AzureWastePage'));
+const AzureRightsizingPage = lazy(() => import('./pages/AzureRightsizingPage'));
+const AzureReservationsPage = lazy(() => import('./pages/AzureReservationsPage'));
+const AzureCloudK8sPage = lazy(() => import('./pages/AzureCloudK8sPage'));
+const AksDetailsPage = lazy(() => import('./pages/AksDetailsPage'));
+const AzureCloudList = lazy(() => import('./pages/AzureCloudList'));
+const AzureSecurityPage = lazy(() => import('./pages/AzureSecurityPage'));
+const AzurePerformancePage = lazy(() => import('./pages/AzurePerformancePage'));
+const AzureAlertsPage = lazy(() => import('./pages/AzureAlertsPage'));
+const AzureSpotAutomationPage = lazy(() => import('./pages/AzureSpotAutomationPage'));
 
 // DevOps & Tools
-const AccountManagerPage        = lazy(() => import('./pages/AccountManagerPage'));
-const AddAccountPage            = lazy(() => import('./pages/AddAccountPage'));
-const AddGcpAccountPage         = lazy(() => import('./pages/AddGcpAccountPage'));
-const GitHubConfigPage          = lazy(() => import('./pages/GitHubConfigPage'));
-const DevOpsInTheBoxPage        = lazy(() => import('./pages/DevOpsInTheBoxPage'));
-const CICDPipelinesPage         = lazy(() => import('./pages/CICDPipelinesPage'));
-const SonarQubePage             = lazy(() => import('./pages/SonarQubePage'));
-const AIOpsPage                 = lazy(() => import('./pages/AIOpsPage'));
-const DataOpsPage               = lazy(() => import('./pages/DataOpsPage'));
-const ObservabilityPage         = lazy(() => import('./pages/ObservabilityPage'));
-const ComplianceOpsPage         = lazy(() => import('./pages/ComplianceOpsPage'));
-const CalculatorPage            = lazy(() => import('./pages/CalculatorPage'));
+const AccountManagerPage = lazy(() => import('./pages/AccountManagerPage'));
+const AddAccountPage = lazy(() => import('./pages/AddAccountPage'));
+const AddGcpAccountPage = lazy(() => import('./pages/AddGcpAccountPage'));
+const GitHubConfigPage = lazy(() => import('./pages/GitHubConfigPage'));
+const DevOpsInTheBoxPage = lazy(() => import('./pages/DevOpsInTheBoxPage'));
+const CICDPipelinesPage = lazy(() => import('./pages/CICDPipelinesPage'));
+const SonarQubePage = lazy(() => import('./pages/SonarQubePage'));
+const AIOpsPage = lazy(() => import('./pages/AIOpsPage'));
+const DataOpsPage = lazy(() => import('./pages/DataOpsPage'));
+const ObservabilityPage = lazy(() => import('./pages/ObservabilityPage'));
+const ComplianceOpsPage = lazy(() => import('./pages/ComplianceOpsPage'));
+const CalculatorPage = lazy(() => import('./pages/CalculatorPage'));
 
 // BillOps — User
-const BillOpsUserDashboardPage  = lazy(() => import('./pages/BillOpsUserDashboardPage'));
-const BillingPage               = lazy(() => import('./pages/BillingPage'));
-const InvoicesPage              = lazy(() => import('./pages/InvoicesPage'));
-const CreditsPage               = lazy(() => import('./pages/CreditsPage'));
-const BillOpsTicketsPage        = lazy(() => import('./pages/BillOpsTicketsPage'));
-const BillOpsTicketDetailPage   = lazy(() => import('./pages/BillOpsTicketDetailPage'));
-const AgreementsPage            = lazy(() => import('./pages/AgreementsPage'));
-const MarketplacePurchasesPage  = lazy(() => import('./pages/MarketplacePurchasesPage'));
-const WorkspaceLicensesPage     = lazy(() => import('./pages/WorkspaceLicensesPage'));
+const BillOpsUserDashboardPage = lazy(() => import('./pages/BillOpsUserDashboardPage'));
+const BillingPage = lazy(() => import('./pages/BillingPage'));
+const InvoicesPage = lazy(() => import('./pages/InvoicesPage'));
+const CreditsPage = lazy(() => import('./pages/CreditsPage'));
+const BillOpsTicketsPage = lazy(() => import('./pages/BillOpsTicketsPage'));
+const BillOpsTicketDetailPage = lazy(() => import('./pages/BillOpsTicketDetailPage'));
+const AgreementsPage = lazy(() => import('./pages/AgreementsPage'));
+const MarketplacePurchasesPage = lazy(() => import('./pages/MarketplacePurchasesPage'));
+const WorkspaceLicensesPage = lazy(() => import('./pages/WorkspaceLicensesPage'));
 
 // BillOps — Admin
-const BillOpsSupportDashboardPage       = lazy(() => import('./pages/BillOpsSupportDashboardPage'));
-const BillOpsAdminDashboardPage         = lazy(() => import('./pages/BillOpsAdminDashboardPage'));
-const AutoSpottingAdminDashboardPage    = lazy(() => import('./pages/AutoSpottingAdminDashboardPage'));
-const BillOpsAdminInvoicesPage          = lazy(() => import('./pages/BillOpsAdminInvoicesPage'));
-const BillOpsAdminInvoiceDetailPage     = lazy(() => import('./pages/BillOpsAdminInvoiceDetailPage'));
-const BillOpsAdminCreditsPage           = lazy(() => import('./pages/BillOpsAdminCreditsPage'));
-const BillOpsAdminTicketsPage           = lazy(() => import('./pages/BillOpsAdminTicketsPage'));
-const BillOpsAdminAgreementsPage        = lazy(() => import('./pages/BillOpsAdminAgreementsPage'));
+const BillOpsSupportDashboardPage = lazy(() => import('./pages/BillOpsSupportDashboardPage'));
+const BillOpsAdminDashboardPage = lazy(() => import('./pages/BillOpsAdminDashboardPage'));
+const AutoSpottingAdminDashboardPage = lazy(() => import('./pages/AutoSpottingAdminDashboardPage'));
+const BillOpsAdminInvoicesPage = lazy(() => import('./pages/BillOpsAdminInvoicesPage'));
+const BillOpsAdminInvoiceDetailPage = lazy(() => import('./pages/BillOpsAdminInvoiceDetailPage'));
+const BillOpsAdminCreditsPage = lazy(() => import('./pages/BillOpsAdminCreditsPage'));
+const BillOpsAdminTicketsPage = lazy(() => import('./pages/BillOpsAdminTicketsPage'));
+const BillOpsAdminAgreementsPage = lazy(() => import('./pages/BillOpsAdminAgreementsPage'));
 const BillOpsAdminMarketplaceBillingPage = lazy(() => import('./pages/BillOpsAdminMarketplaceBillingPage'));
-const BillOpsAdminUserManagerPage       = lazy(() => import('./pages/BillOpsAdminUserManagerPage'));
-const ClientDetailsPage                 = lazy(() => import('./pages/ClientDetailsPage'));
+const BillOpsAdminUserManagerPage = lazy(() => import('./pages/BillOpsAdminUserManagerPage'));
+const ClientDetailsPage = lazy(() => import('./pages/ClientDetailsPage'));
 
 // Settings & Profile
-const TicketsPage               = lazy(() => import('./pages/TicketsPage'));
-const TicketDetailPage          = lazy(() => import('./pages/TicketDetailPage'));
-const UserManagementPage        = lazy(() => import('./pages/UserManagementPage'));
-const MyProfilePage             = lazy(() => import('./pages/MyProfilePage'));
+const TicketsPage = lazy(() => import('./pages/TicketsPage'));
+const TicketDetailPage = lazy(() => import('./pages/TicketDetailPage'));
+const UserManagementPage = lazy(() => import('./pages/UserManagementPage'));
+const MyProfilePage = lazy(() => import('./pages/MyProfilePage'));
 // ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -272,15 +272,15 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 
 /** Tab key → React route mapping for BillOps admin tabs */
 const BILLOPS_ADMIN_TAB_ROUTES: Record<string, string> = {
-  'admin-dashboard':   '/billops-admin-dashboard',
-  'support-inbox':     '/billops-support-dashboard',
-  'all-tickets':       '/billops-admin-tickets',
-  'all-invoices':      '/billops-admin-invoices',
-  'credit-requests':   '/billops-admin-credits',
-  'agreement-admin':   '/billops-admin-agreements',
-  'client-details':    '/billops-client-details',
-  'autospotting-admin':    '/autospotting-admin',
-  'historical-billing':    '/billops-admin-historical-billing',
+  'admin-dashboard': '/billops-admin-dashboard',
+  'support-inbox': '/billops-support-dashboard',
+  'all-tickets': '/billops-admin-tickets',
+  'all-invoices': '/billops-admin-invoices',
+  'credit-requests': '/billops-admin-credits',
+  'agreement-admin': '/billops-admin-agreements',
+  'client-details': '/billops-client-details',
+  'autospotting-admin': '/autospotting-admin',
+  'historical-billing': '/billops-admin-historical-billing',
 };
 const BILLOPS_ADMIN_TAB_ORDER = Object.keys(BILLOPS_ADMIN_TAB_ROUTES);
 

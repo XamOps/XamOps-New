@@ -29,9 +29,12 @@ type Config struct {
 
 	// Feature flags — all default to false for safety.
 	// Enable gradually via XamOps UI (autoscaling mode field) or these env vars.
-	EnableEvictor    bool // bin-packing simulation + pod eviction
-	EnableRightsizer bool // VPA-style resource request patching
-	EnableRebalancer bool // node rebalancing (drain + replace)
+	EnableEvictor      bool // bin-packing simulation + pod eviction
+	EnableRightsizer   bool // resource request patching (VPA-style, manual)
+	EnableRebalancer   bool // node rebalancing (drain + replace)
+	EnableHPAManager   bool // create/update/delete HPAs based on XamOps recommendations
+	EnableVPAManager   bool // create/manage VPA objects (requires VPA CRD installed)
+	EnableNodeOptimizer bool // idle node detection, spot candidate analysis, spot interruption handling
 
 	// DryRun — when true the controller logs all actions but makes no actual changes.
 	// Strongly recommended on first deployment. Disable once you trust the recommendations.
@@ -61,9 +64,12 @@ func Load() (*Config, error) {
 		RetryDelay:          getEnvInt("RETRY_DELAY", 5),
 
 		// All controllers default to false — must be explicitly opted in
-		EnableEvictor:    getEnvBool("ENABLE_EVICTOR", false),
-		EnableRightsizer: getEnvBool("ENABLE_RIGHTSIZER", false),
-		EnableRebalancer: getEnvBool("ENABLE_REBALANCER", false),
+		EnableEvictor:       getEnvBool("ENABLE_EVICTOR", false),
+		EnableRightsizer:    getEnvBool("ENABLE_RIGHTSIZER", false),
+		EnableRebalancer:    getEnvBool("ENABLE_REBALANCER", false),
+		EnableHPAManager:    getEnvBool("ENABLE_HPA_MANAGER", false),
+		EnableVPAManager:    getEnvBool("ENABLE_VPA_MANAGER", false),
+		EnableNodeOptimizer: getEnvBool("ENABLE_NODE_OPTIMIZER", false),
 
 		// DryRun defaults to TRUE for safety
 		DryRun: getEnvBool("DRY_RUN", true),

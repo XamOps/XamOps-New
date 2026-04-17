@@ -2,12 +2,14 @@ package com.xammer.cloud.controller;
 
 import com.xammer.cloud.domain.AgentDataCache;
 import com.xammer.cloud.domain.AgentEvent;
+import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.DbAgentConfig;
 import com.xammer.cloud.domain.KubernetesClusterConfig;
 import com.xammer.cloud.dto.agent.AgentIngestPayload;
 import com.xammer.cloud.dto.agent.AgentIngestResponse;
 import com.xammer.cloud.repository.AgentDataCacheRepository;
 import com.xammer.cloud.repository.AgentEventRepository;
+import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.KubernetesClusterConfigRepository;
 import com.xammer.cloud.service.AgentIngestService;
 import com.xammer.cloud.service.DbAgentService;
@@ -53,6 +55,7 @@ public class AgentController {
     private final AgentDataCacheRepository agentDataCacheRepository;
     private final AgentEventRepository agentEventRepository;
     private final RedisCacheService redisCacheService;
+    private final CloudAccountRepository cloudAccountRepository;
 
     public AgentController(
             AgentIngestService agentIngestService,
@@ -60,13 +63,15 @@ public class AgentController {
             KubernetesClusterConfigRepository clusterConfigRepository,
             AgentDataCacheRepository agentDataCacheRepository,
             AgentEventRepository agentEventRepository,
-            RedisCacheService redisCacheService) {
+            RedisCacheService redisCacheService,
+            CloudAccountRepository cloudAccountRepository) {
         this.agentIngestService = agentIngestService;
         this.dbAgentService = dbAgentService;
         this.clusterConfigRepository = clusterConfigRepository;
         this.agentDataCacheRepository = agentDataCacheRepository;
         this.agentEventRepository = agentEventRepository;
         this.redisCacheService = redisCacheService;
+        this.cloudAccountRepository = cloudAccountRepository;
     }
 
     /**
@@ -511,13 +516,13 @@ public class AgentController {
 
     // =========================================================================
     // AUTOSCALING CONTROLLER ENDPOINTS
-    // Used by xamops-autoscaler agent (authenticated with same global API key)
+    // Used by xamops-automation agent (authenticated with same global API key)
     // =========================================================================
 
     /**
      * GET /api/v1/agent/autoscaling-policy?clusterName=xxx&cloudAccountId=xxx
      *
-     * Called by xamops-autoscaler on every policy poll cycle.
+     * Called by xamops-automation on every policy poll cycle.
      * Returns the PolicyBundle JSON (from agent_data_cache dataType="autoscaling-policy")
      * so the controller knows the current user-configured autoscaling settings.
      *
@@ -537,11 +542,26 @@ public class AgentController {
                     .body(Map.of("error", "Invalid or missing API key"));
         }
 
-        // Find cluster config
-        Optional<KubernetesClusterConfig> configOpt = clusterConfigRepository
-                .findByCloudAccountIdAndClusterName(cloudAccountId, clusterName);
+        // Find cluster config — three-tier lookup to handle all deployment patterns:
+        // 1. By API key (most reliable — per-cluster key stored in agent_api_key column)
+        // 2. By cloudAccountId Long directly (works when cloud_account_id IS the aws account number)
+        // 3. By zero-padded AWS account ID via cloud_account table (handles leading-zero stripping:
+        //    Long.parseLong("080310056620") = 80310056620, pad back to "080310056620" for DB lookup)
+        Optional<KubernetesClusterConfig> configOpt = clusterConfigRepository.findByAgentApiKey(apiKey);
+        if (configOpt.isEmpty()) {
+            configOpt = clusterConfigRepository.findByCloudAccountIdAndClusterName(cloudAccountId, clusterName);
+        }
+        if (configOpt.isEmpty()) {
+            String awsAccountIdPadded = String.format("%012d", cloudAccountId);
+            List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(awsAccountIdPadded);
+            for (CloudAccount account : accounts) {
+                configOpt = clusterConfigRepository.findByCloudAccountIdAndClusterName(account.getId(), clusterName);
+                if (configOpt.isPresent()) break;
+            }
+        }
 
         if (configOpt.isEmpty()) {
+            logger.warn("autoscaling-policy: cluster not found — clusterName={} cloudAccountId={}", clusterName, cloudAccountId);
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
                     .body(Map.of("error", "Cluster not found or not configured"));
         }
@@ -550,6 +570,7 @@ public class AgentController {
 
         // Guard: autoscaling must be enabled for this cluster
         if (!Boolean.TRUE.equals(config.getAutoscalingEnabled())) {
+            logger.info("autoscaling-policy: autoscaling not enabled for cluster={}", config.getClusterName());
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
                     .body(Map.of("error", "Autoscaling not enabled for this cluster"));
         }

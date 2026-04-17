@@ -89,6 +89,7 @@ public class MessagingIntegrationController {
         if (payload.containsKey("signingSecret") && !payload.get("signingSecret").isBlank()) {
             config.setSigningSecret(payload.get("signingSecret"));
         }
+<<<<<<< HEAD
         if (payload.containsKey("clientId") && !payload.get("clientId").isBlank()) {
             config.setClientId(payload.get("clientId"));
         }
@@ -98,6 +99,8 @@ public class MessagingIntegrationController {
         if (payload.containsKey("serviceAccountJson") && !payload.get("serviceAccountJson").isBlank()) {
             config.setServiceAccountJson(payload.get("serviceAccountJson"));
         }
+=======
+>>>>>>> 85fe1571bf128933040aa0ac925b377cef6782e2
         if (payload.containsKey("label")) {
             config.setLabel(payload.get("label"));
         }
@@ -276,10 +279,13 @@ public class MessagingIntegrationController {
         // Mask sensitive values — only show whether they are configured
         m.put("botTokenConfigured", c.getBotToken() != null && !c.getBotToken().isBlank());
         m.put("signingSecretConfigured", c.getSigningSecret() != null && !c.getSigningSecret().isBlank());
+<<<<<<< HEAD
         m.put("clientIdConfigured", c.getClientId() != null && !c.getClientId().isBlank());
         m.put("clientSecretConfigured", c.getClientSecret() != null && !c.getClientSecret().isBlank());
         m.put("clientId", c.getClientId());
         m.put("serviceAccountConfigured", c.getServiceAccountJson() != null && !c.getServiceAccountJson().isBlank());
+=======
+>>>>>>> 85fe1571bf128933040aa0ac925b377cef6782e2
         return m;
     }
 
@@ -291,9 +297,12 @@ public class MessagingIntegrationController {
         m.put("webhookUrl", c.getWebhookUrl());
         m.put("channelId", c.getChannelId());
         m.put("platformUserId", c.getPlatformUserId());
+<<<<<<< HEAD
         m.put("workspaceId", c.getWorkspaceId());
         // Don't expose the token itself — only whether OAuth has been completed
         m.put("oauthConnected", c.getUserBotToken() != null && !c.getUserBotToken().isBlank());
+=======
+>>>>>>> 85fe1571bf128933040aa0ac925b377cef6782e2
         m.put("active", c.isActive());
         m.put("createdAt", c.getCreatedAt() != null ? c.getCreatedAt().toString() : null);
         m.put("updatedAt", c.getUpdatedAt() != null ? c.getUpdatedAt().toString() : null);

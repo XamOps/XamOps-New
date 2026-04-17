@@ -32,13 +32,21 @@ import EksPodsTab from '../components/EksDetails/tabs/EksPodsTab';
 import EksContainersTab from '../components/EksDetails/tabs/EksContainersTab';
 import EksNodesTab from '../components/EksDetails/tabs/EksNodesTab';
 import EksKarpenterTab from '../components/EksDetails/tabs/EksKarpenterTab';
-// import EksAutoscalingTab from '../components/EksDetails/tabs/EksAutoscalingTab'; // XAMOPS-AUTOSCALER: Hidden until ready
+import EksResourcesTab from '../components/EksDetails/tabs/EksResourcesTab';
+import EksAutoscalingTab from '../components/EksDetails/tabs/EksAutoscalingTab';
 import EksIntegrationModal from '../components/EksDetails/EksIntegrationModal';
 
 const EksDetailsPage: React.FC = () => {
   const [searchParams] = useSearchParams();
   const [showIntegrationGuide, setShowIntegrationGuide] = useState(false);
   const { setTitle, setActions, clearActions } = useTopbar();
+
+  // Listen for the custom event dispatched by child tabs (e.g. EksAutoscalingTab)
+  useEffect(() => {
+    const handler = () => setShowIntegrationGuide(true);
+    document.addEventListener('open-integration-guide', handler);
+    return () => document.removeEventListener('open-integration-guide', handler);
+  }, []);
 
   // Get params from URL
   const clusterName = searchParams.get('name');
@@ -144,8 +152,8 @@ const EksDetailsPage: React.FC = () => {
   }
 
   return (
-    <main className="eks-details-page flex-1 flex flex-col min-h-screen">
-      <div className="p-8 space-y-8 w-full">
+    <main className="eks-details-page flex-1 flex flex-col min-h-screen bg-[#f6f8fa]" style={{ fontFamily: "'Inter', sans-serif" }}>
+      <div className="p-6 space-y-4 w-full">
         {/* Old Header Removed */}
 
         {/* Loading State */}
@@ -162,12 +170,12 @@ const EksDetailsPage: React.FC = () => {
 
         {/* Error State */}
         {error && !loading && (
-          <div className="bg-red-900/20 border-l-4 border-red-500 p-6 rounded-lg shadow-sm backdrop-blur-sm">
-            <div className="flex items-center">
-              <i className="fas fa-exclamation-circle text-red-400 text-2xl mr-4"></i>
+          <div className="bg-[#ffebe9] border border-[rgba(255,129,130,0.4)] p-5 rounded-lg">
+            <div className="flex items-center gap-3">
+              <i className="fas fa-exclamation-circle text-[#cf222e] text-lg"></i>
               <div>
-                <h3 className="text-lg font-bold text-red-300">Error Loading Dashboard</h3>
-                <p className="text-sm text-red-400 mt-1">{error}</p>
+                <h3 className="text-sm font-semibold text-[#cf222e]">Error Loading Dashboard</h3>
+                <p className="text-[13px] text-[#57606a] mt-0.5">{error}</p>
               </div>
             </div>
           </div>
@@ -192,9 +200,9 @@ const EksDetailsPage: React.FC = () => {
               {activeTab === 'pods' && <EksPodsTab eksData={eksData} />}
               {activeTab === 'containers' && <EksContainersTab eksData={eksData} />}
               {activeTab === 'nodes' && <EksNodesTab eksData={eksData} />}
+              {activeTab === 'resources' && <EksResourcesTab eksData={eksData} />}
               {activeTab === 'karpenter' && <EksKarpenterTab eksData={eksData} />}
-              {/* XAMOPS-AUTOSCALER: Hidden until ready */}
-              {/* {activeTab === 'autoscaling' && <EksAutoscalingTab eksData={eksData} />} */}
+              {activeTab === 'autoscaling' && <EksAutoscalingTab eksData={eksData} />}
             </div>
           </>
         )}

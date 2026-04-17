@@ -54,6 +54,62 @@ public class EksCompleteDashboardDto {
     // ✅ NEW: Pod Resource Metrics for Pods tab charts
     private PodResourceMetrics podResourceMetrics;
 
+    // ── Agent: full K8s resource snapshot (from k8s-resources collector) ──────
+    private List<java.util.Map<String, Object>> k8sNodes;
+    private List<java.util.Map<String, Object>> k8sPods;
+    private List<java.util.Map<String, Object>> k8sDeployments;
+    private List<java.util.Map<String, Object>> k8sStatefulSets;
+    private List<java.util.Map<String, Object>> k8sDaemonSets;
+    private List<java.util.Map<String, Object>> k8sServices;
+    private List<java.util.Map<String, Object>> k8sIngresses;
+    private List<java.util.Map<String, Object>> k8sHpas;
+    private List<java.util.Map<String, Object>> k8sPvcs;
+    private List<java.util.Map<String, Object>> k8sEvents;
+
+    // ── Agent: Prometheus metrics (from prometheus-metrics collector) ─────────
+    private List<java.util.Map<String, Object>> nodeUtilization;
+    private List<java.util.Map<String, Object>> namespaceUtilization;
+    private List<java.util.Map<String, Object>> falcoEvents;
+    private List<java.util.Map<String, Object>> topCpuPods;
+    private List<java.util.Map<String, Object>> topMemoryPods;
+    private List<java.util.Map<String, Object>> networkMetrics;
+    private java.util.Map<String, Object> agentCostMetrics; // from node-cost-exporter / opencost prometheus metrics
+
+    public List<java.util.Map<String, Object>> getK8sNodes() { return k8sNodes; }
+    public void setK8sNodes(List<java.util.Map<String, Object>> v) { this.k8sNodes = v; }
+    public List<java.util.Map<String, Object>> getK8sPods() { return k8sPods; }
+    public void setK8sPods(List<java.util.Map<String, Object>> v) { this.k8sPods = v; }
+    public List<java.util.Map<String, Object>> getK8sDeployments() { return k8sDeployments; }
+    public void setK8sDeployments(List<java.util.Map<String, Object>> v) { this.k8sDeployments = v; }
+    public List<java.util.Map<String, Object>> getK8sStatefulSets() { return k8sStatefulSets; }
+    public void setK8sStatefulSets(List<java.util.Map<String, Object>> v) { this.k8sStatefulSets = v; }
+    public List<java.util.Map<String, Object>> getK8sDaemonSets() { return k8sDaemonSets; }
+    public void setK8sDaemonSets(List<java.util.Map<String, Object>> v) { this.k8sDaemonSets = v; }
+    public List<java.util.Map<String, Object>> getK8sServices() { return k8sServices; }
+    public void setK8sServices(List<java.util.Map<String, Object>> v) { this.k8sServices = v; }
+    public List<java.util.Map<String, Object>> getK8sIngresses() { return k8sIngresses; }
+    public void setK8sIngresses(List<java.util.Map<String, Object>> v) { this.k8sIngresses = v; }
+    public List<java.util.Map<String, Object>> getK8sHpas() { return k8sHpas; }
+    public void setK8sHpas(List<java.util.Map<String, Object>> v) { this.k8sHpas = v; }
+    public List<java.util.Map<String, Object>> getK8sPvcs() { return k8sPvcs; }
+    public void setK8sPvcs(List<java.util.Map<String, Object>> v) { this.k8sPvcs = v; }
+    public List<java.util.Map<String, Object>> getK8sEvents() { return k8sEvents; }
+    public void setK8sEvents(List<java.util.Map<String, Object>> v) { this.k8sEvents = v; }
+    public List<java.util.Map<String, Object>> getNodeUtilization() { return nodeUtilization; }
+    public void setNodeUtilization(List<java.util.Map<String, Object>> v) { this.nodeUtilization = v; }
+    public List<java.util.Map<String, Object>> getNamespaceUtilization() { return namespaceUtilization; }
+    public void setNamespaceUtilization(List<java.util.Map<String, Object>> v) { this.namespaceUtilization = v; }
+    public List<java.util.Map<String, Object>> getFalcoEvents() { return falcoEvents; }
+    public void setFalcoEvents(List<java.util.Map<String, Object>> v) { this.falcoEvents = v; }
+    public List<java.util.Map<String, Object>> getTopCpuPods() { return topCpuPods; }
+    public void setTopCpuPods(List<java.util.Map<String, Object>> v) { this.topCpuPods = v; }
+    public List<java.util.Map<String, Object>> getTopMemoryPods() { return topMemoryPods; }
+    public void setTopMemoryPods(List<java.util.Map<String, Object>> v) { this.topMemoryPods = v; }
+    public List<java.util.Map<String, Object>> getNetworkMetrics() { return networkMetrics; }
+    public void setNetworkMetrics(List<java.util.Map<String, Object>> v) { this.networkMetrics = v; }
+    public java.util.Map<String, Object> getAgentCostMetrics() { return agentCostMetrics; }
+    public void setAgentCostMetrics(java.util.Map<String, Object> v) { this.agentCostMetrics = v; }
+
     public KubescapeDashboard getKubescape() {
         return kubescape;
     }
@@ -134,7 +190,12 @@ public class EksCompleteDashboardDto {
         private String version;
         private String status;
         private Integer totalNodes;
+        private Integer readyNodes;
+        private Integer spotNodes;
         private Integer totalPods;
+        private Integer runningPods;
+        private Integer pendingPods;
+        private Integer failedPods;
         private Integer totalNamespaces;
         private Double cpuUsagePercent;
         private Double cpuUsageMillicores;
@@ -176,21 +237,26 @@ public class EksCompleteDashboardDto {
             this.status = status;
         }
 
-        public Integer getTotalNodes() {
-            return totalNodes;
-        }
+        public Integer getTotalNodes() { return totalNodes; }
+        public void setTotalNodes(Integer totalNodes) { this.totalNodes = totalNodes; }
 
-        public void setTotalNodes(Integer totalNodes) {
-            this.totalNodes = totalNodes;
-        }
+        public Integer getReadyNodes() { return readyNodes; }
+        public void setReadyNodes(Integer readyNodes) { this.readyNodes = readyNodes; }
 
-        public Integer getTotalPods() {
-            return totalPods;
-        }
+        public Integer getSpotNodes() { return spotNodes; }
+        public void setSpotNodes(Integer spotNodes) { this.spotNodes = spotNodes; }
 
-        public void setTotalPods(Integer totalPods) {
-            this.totalPods = totalPods;
-        }
+        public Integer getTotalPods() { return totalPods; }
+        public void setTotalPods(Integer totalPods) { this.totalPods = totalPods; }
+
+        public Integer getRunningPods() { return runningPods; }
+        public void setRunningPods(Integer runningPods) { this.runningPods = runningPods; }
+
+        public Integer getPendingPods() { return pendingPods; }
+        public void setPendingPods(Integer pendingPods) { this.pendingPods = pendingPods; }
+
+        public Integer getFailedPods() { return failedPods; }
+        public void setFailedPods(Integer failedPods) { this.failedPods = failedPods; }
 
         public Integer getTotalNamespaces() {
             return totalNamespaces;

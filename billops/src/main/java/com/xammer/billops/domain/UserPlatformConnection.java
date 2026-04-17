@@ -63,6 +63,7 @@ public class UserPlatformConnection {
     @Column(name = "platform_user_id", length = 500)
     private String platformUserId;
 
+<<<<<<< HEAD
     /**
      * Per-user Slack bot token obtained via OAuth 2.0 install flow.
      * When present, this token is used instead of the global bot token,
@@ -78,6 +79,8 @@ public class UserPlatformConnection {
     @Column(name = "workspace_id", length = 100)
     private String workspaceId;
 
+=======
+>>>>>>> 85fe1571bf128933040aa0ac925b377cef6782e2
     @Column(name = "active", nullable = false)
     private boolean active = true;
 
@@ -99,10 +102,13 @@ public class UserPlatformConnection {
     public void setChannelId(String channelId) { this.channelId = channelId; }
     public String getPlatformUserId() { return platformUserId; }
     public void setPlatformUserId(String platformUserId) { this.platformUserId = platformUserId; }
+<<<<<<< HEAD
     public String getUserBotToken() { return userBotToken; }
     public void setUserBotToken(String userBotToken) { this.userBotToken = userBotToken; }
     public String getWorkspaceId() { return workspaceId; }
     public void setWorkspaceId(String workspaceId) { this.workspaceId = workspaceId; }
+=======
+>>>>>>> 85fe1571bf128933040aa0ac925b377cef6782e2
     public boolean isActive() { return active; }
     public void setActive(boolean active) { this.active = active; }
     public LocalDateTime getCreatedAt() { return createdAt; }

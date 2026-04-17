@@ -4,11 +4,17 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xammer.billops.domain.SupportMessage;
 import com.xammer.billops.domain.UserPlatformConnection;
+<<<<<<< HEAD
 import com.xammer.billops.repository.AppUserRepository;
 import com.xammer.billops.repository.SupportMessageRepository;
 import com.xammer.billops.repository.UserPlatformConnectionRepository;
 import com.xammer.billops.repository.MessagingIntegrationConfigRepository;
 import com.xammer.cloud.domain.AppUser;
+=======
+import com.xammer.billops.repository.SupportMessageRepository;
+import com.xammer.billops.repository.UserPlatformConnectionRepository;
+import com.xammer.billops.repository.MessagingIntegrationConfigRepository;
+>>>>>>> 85fe1571bf128933040aa0ac925b377cef6782e2
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -57,17 +63,27 @@ public class MessagingWebhookController {
     private final SupportMessageRepository messageRepository;
     private final UserPlatformConnectionRepository connectionRepo;
     private final MessagingIntegrationConfigRepository configRepo;
+<<<<<<< HEAD
     private final AppUserRepository appUserRepository;
+=======
+>>>>>>> 85fe1571bf128933040aa0ac925b377cef6782e2
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public MessagingWebhookController(SupportMessageRepository messageRepository,
                                       UserPlatformConnectionRepository connectionRepo,
+<<<<<<< HEAD
                                       MessagingIntegrationConfigRepository configRepo,
                                       AppUserRepository appUserRepository) {
         this.messageRepository = messageRepository;
         this.connectionRepo = connectionRepo;
         this.configRepo = configRepo;
         this.appUserRepository = appUserRepository;
+=======
+                                      MessagingIntegrationConfigRepository configRepo) {
+        this.messageRepository = messageRepository;
+        this.connectionRepo = connectionRepo;
+        this.configRepo = configRepo;
+>>>>>>> 85fe1571bf128933040aa0ac925b377cef6782e2
     }
 
     // ── SLACK ─────────────────────────────────────────────────────────────────
@@ -110,6 +126,7 @@ public class MessagingWebhookController {
                 JsonNode event = payload.path("event");
                 String eventType = event.path("type").asText();
 
+<<<<<<< HEAD
                 // Only handle regular messages:
                 //   - skip subtypes (edits, deletes, channel_join, etc.)
                 //   - skip bot messages — bot_id present means the message was sent by a bot (including our own)
@@ -119,6 +136,10 @@ public class MessagingWebhookController {
                         && !event.has("bot_id")
                         && !event.has("app_id")) {
 
+=======
+                // Only handle regular messages (skip bot messages and subtypes like edits/deletes)
+                if ("message".equals(eventType) && !event.has("subtype")) {
+>>>>>>> 85fe1571bf128933040aa0ac925b377cef6782e2
                     String channelId = event.path("channel").asText();
                     String slackUserId = event.path("user").asText();
                     String text = event.path("text").asText();
@@ -128,6 +149,7 @@ public class MessagingWebhookController {
                         return ResponseEntity.ok(Map.of("ok", true));
                     }
 
+<<<<<<< HEAD
                     // Deduplicate: Slack retries delivery if we don't respond within 3s.
                     // The ts (timestamp) is unique per message — skip if already saved.
                     if (ts != null && !ts.isBlank() && messageRepository.existsByExternalMessageId(ts)) {
@@ -135,6 +157,8 @@ public class MessagingWebhookController {
                         return ResponseEntity.ok(Map.of("ok", true));
                     }
 
+=======
+>>>>>>> 85fe1571bf128933040aa0ac925b377cef6782e2
                     // Find the XamOps user by Slack channel ID
                     UserPlatformConnection conn = resolveConnection(channelId, slackUserId, "SLACK");
                     if (conn == null) {
@@ -157,9 +181,13 @@ public class MessagingWebhookController {
     // ── MICROSOFT TEAMS ───────────────────────────────────────────────────────
 
     /**
+<<<<<<< HEAD
      * Handles Bot Framework activity payloads from Microsoft Teams.
      * - First message with a registration code → registers the user's conversation.
      * - Subsequent messages → saved as inbound support messages.
+=======
+     * Handles Teams Outgoing Webhook or Bot Framework activity payloads.
+>>>>>>> 85fe1571bf128933040aa0ac925b377cef6782e2
      */
     @PostMapping("/teams")
     public ResponseEntity<Map<String, Object>> handleTeamsEvent(@RequestBody String rawBody) {
@@ -169,13 +197,18 @@ public class MessagingWebhookController {
 
             if ("message".equals(activityType)) {
                 String text = payload.path("text").asText("").trim();
+<<<<<<< HEAD
                 // Strip bot @mention tags: <at>BotName</at>
+=======
+                // Teams wraps the bot mention in <at>...</at> — strip it
+>>>>>>> 85fe1571bf128933040aa0ac925b377cef6782e2
                 text = text.replaceAll("<at>[^<]*</at>", "").trim();
 
                 if (text.isBlank()) {
                     return ResponseEntity.ok(Map.of("type", "message", "text", ""));
                 }
 
+<<<<<<< HEAD
                 // Extract Bot Framework activity fields
                 String serviceUrl    = payload.path("serviceUrl").asText(null);
                 String conversationId = payload.path("conversation").path("id").asText(null);
@@ -208,12 +241,30 @@ public class MessagingWebhookController {
                 // Deduplicate (Teams may retry delivery)
                 if (activityId != null && messageRepository.existsByExternalMessageId(activityId)) {
                     return ResponseEntity.ok(Map.of("type", "message", "text", ""));
+=======
+                // Channel ID for correlation
+                String channelId = payload.path("channelData").path("channel").path("id").asText(null);
+                if (channelId == null) {
+                    channelId = payload.path("conversation").path("id").asText(null);
+                }
+                String teamsUserId = payload.path("from").path("id").asText(null);
+                String activityId = payload.path("id").asText(null);
+
+                UserPlatformConnection conn = resolveConnection(channelId, teamsUserId, "TEAMS");
+                if (conn == null) {
+                    log.warn("Teams: no user connection found for channel={} user={}", channelId, teamsUserId);
+                    return ResponseEntity.ok(Map.of("type", "message", "text", "Message received."));
+>>>>>>> 85fe1571bf128933040aa0ac925b377cef6782e2
                 }
 
                 saveInboundMessage(conn.getUserId(), text, "TEAMS", activityId);
             }
         } catch (Exception e) {
+<<<<<<< HEAD
             log.error("Error processing Teams event: {}", e.getMessage(), e);
+=======
+            log.error("Error processing Teams event: {}", e.getMessage());
+>>>>>>> 85fe1571bf128933040aa0ac925b377cef6782e2
         }
 
         Map<String, Object> resp = new HashMap<>();
@@ -245,6 +296,7 @@ public class MessagingWebhookController {
 
                 UserPlatformConnection conn = resolveConnection(spaceName, senderEmail, "GOOGLE_CHAT");
                 if (conn == null) {
+<<<<<<< HEAD
                     // Auto-register: first time this user messages the bot
                     conn = autoRegisterGChatUser(senderEmail, spaceName);
                     if (conn == null) {
@@ -255,6 +307,10 @@ public class MessagingWebhookController {
                     log.info("GChat: auto-registered userId={} email={} space={}", conn.getUserId(), senderEmail, spaceName);
                     return ResponseEntity.ok(Map.of("text",
                         "Connected! Your XamOps support admin can now reach you here."));
+=======
+                    log.warn("GChat: no user connection found for space={} sender={}", spaceName, senderEmail);
+                    return ResponseEntity.ok(Map.of("text", "Message received. Please reply via XamOps portal."));
+>>>>>>> 85fe1571bf128933040aa0ac925b377cef6782e2
                 }
 
                 saveInboundMessage(conn.getUserId(), text, "GOOGLE_CHAT", messageName);
@@ -310,6 +366,7 @@ public class MessagingWebhookController {
     }
 
     /**
+<<<<<<< HEAD
      * Registers a Teams user's conversationId and serviceUrl after they send the registration code.
      * serviceUrl is stored as webhookUrl — it's the Bot Framework endpoint for this user's region.
      */
@@ -354,6 +411,8 @@ public class MessagingWebhookController {
     }
 
     /**
+=======
+>>>>>>> 85fe1571bf128933040aa0ac925b377cef6782e2
      * Verifies Slack's HMAC-SHA256 request signature.
      * See: https://api.slack.com/authentication/verifying-requests-from-slack
      */

@@ -293,7 +293,8 @@ export const useEksDashboard = ({
   }, [costEfficiency]);
 
   const totalPodsCount = useMemo(() => {
-    return dashboard?.workloadHealth?.pods?.length || 0;
+    // prefer k8sPods (from k8s-resources collector) over workloadHealth.pods (from prometheus)
+    return dashboard?.k8sPods?.length || dashboard?.workloadHealth?.pods?.length || 0;
   }, [dashboard]);
 
   const sortedNodesByCost = useMemo(() => {
@@ -513,7 +514,9 @@ export const useEksDashboard = ({
   }, [dashboard]);
 
   const allContainersWithMetrics = useMemo((): ContainerWithMetrics[] => {
-    const pods = dashboard?.workloadHealth?.pods || [];
+    // prefer k8sPods (from k8s-resources collector) over workloadHealth.pods (from prometheus)
+    const wlPods = dashboard?.workloadHealth?.pods || [];
+    const pods = (dashboard?.k8sPods?.length ? dashboard.k8sPods : wlPods);
     const containers: ContainerWithMetrics[] = [];
 
     const metricsMap: Record<string, any> = {};
@@ -550,9 +553,10 @@ export const useEksDashboard = ({
   }, [dashboard]);
 
   const uniqueNamespaces = useMemo(() => {
-    const pods = dashboard?.workloadHealth?.pods || [];
+    const wlPods = dashboard?.workloadHealth?.pods || [];
+    const pods = (dashboard?.k8sPods?.length ? dashboard.k8sPods : wlPods);
     const namespaces = new Set<string>();
-    pods.forEach(pod => {
+    pods.forEach((pod: any) => {
       if (pod.namespace) namespaces.add(pod.namespace);
     });
     return Array.from(namespaces).sort();
@@ -579,8 +583,9 @@ export const useEksDashboard = ({
 
   // Helper functions
   const getPodsCountByPhase = useCallback((phase: string) => {
-    const pods = dashboard?.workloadHealth?.pods || [];
-    return pods.filter(p => p.phase === phase).length;
+    // prefer k8sPods (from k8s-resources collector) over workloadHealth.pods
+    const pods = (dashboard?.k8sPods?.length ? dashboard.k8sPods : dashboard?.workloadHealth?.pods) || [];
+    return pods.filter((p: any) => p.phase === phase).length;
   }, [dashboard]);
 
   const getPodsCountByQoS = useCallback((qosClass: string) => {
@@ -589,26 +594,35 @@ export const useEksDashboard = ({
   }, [dashboard]);
 
   const getNodeConditionCount = useCallback((condition: string) => {
-    const nodes = dashboard?.nodeMetrics?.nodes || [];
+    const nodeMetricNodes = dashboard?.nodeMetrics?.nodes || [];
+    // Fallback: if nodeMetrics is not yet populated, use resourceUtilization.nodes (condition string)
+    const resUtilNodes = dashboard?.resourceUtilization?.nodes || [];
 
-    const uniqueNodes = nodes.reduce((acc: any[], node) => {
-      if (!acc.find(n => n.name === node.name)) {
-        acc.push(node);
+    if (condition === 'ready') {
+      // Try nodeMetrics boolean first (built by backend step 10)
+      if (nodeMetricNodes.length > 0) {
+        const unique = nodeMetricNodes.reduce((acc: any[], node) => {
+          if (!acc.find((n: any) => n.name === node.name)) acc.push(node);
+          return acc;
+        }, []);
+        return unique.filter((n: any) => n.ready).length;
       }
+      // Fallback: count nodes with condition === 'Ready' from resourceUtilization
+      return resUtilNodes.filter((n: any) =>
+        n.condition === 'Ready' || n.condition === 'ready'
+      ).length;
+    }
+
+    // For pressure conditions, only nodeMetrics has this data
+    const uniqueNodes = nodeMetricNodes.reduce((acc: any[], node) => {
+      if (!acc.find((n: any) => n.name === node.name)) acc.push(node);
       return acc;
     }, []);
-
     switch (condition) {
-      case 'ready':
-        return uniqueNodes.filter(n => n.ready).length;
-      case 'diskPressure':
-        return uniqueNodes.filter(n => n.diskPressure).length;
-      case 'memoryPressure':
-        return uniqueNodes.filter(n => n.memoryPressure).length;
-      case 'pidPressure':
-        return uniqueNodes.filter(n => n.pidPressure).length;
-      default:
-        return 0;
+      case 'diskPressure': return uniqueNodes.filter((n: any) => n.diskPressure).length;
+      case 'memoryPressure': return uniqueNodes.filter((n: any) => n.memoryPressure).length;
+      case 'pidPressure': return uniqueNodes.filter((n: any) => n.pidPressure).length;
+      default: return 0;
     }
   }, [dashboard]);
 

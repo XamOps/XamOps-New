@@ -15,16 +15,16 @@ RUN go mod tidy && go mod download
 
 # Build static binary (no CGO, works in distroless)
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-    go build -ldflags="-w -s" -o /xamops-autoscaler ./cmd/autoscaler
+    go build -ldflags="-w -s" -o /xamops-automation ./cmd/autoscaler
 
 # ── Final image (distroless — no shell, minimal attack surface) ────────────────
 FROM gcr.io/distroless/static:nonroot
 
-COPY --from=builder /xamops-autoscaler /xamops-autoscaler
+COPY --from=builder /xamops-automation /xamops-automation
 
 USER nonroot:nonroot
 
 # Health/ready server — matches /healthz and /readyz probes in the manifest
 EXPOSE 8081
 
-ENTRYPOINT ["/xamops-autoscaler"]
+ENTRYPOINT ["/xamops-automation"]

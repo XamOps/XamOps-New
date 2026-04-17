@@ -48,14 +48,20 @@ public class AgentIngestService {
      * For these, we store batch.getItems().get(0) as a raw object instead of the full list.
      *
      * "autoscaling-metrics"          → AutoscalingKpisDto (single KPIs object — xamops-agent)
-     * "autoscaling-rebalance-status" → RebalanceStatus (single status object — xamops-autoscaler)
+     * "autoscaling-rebalance-status" → RebalanceStatus (single status object — xamops-automation)
+     * "k8s-resources"                → K8sResources (full cluster snapshot — xamops-agent)
+     * "prometheus-metrics"           → PrometheusMetrics (utilization + cost + Falco — xamops-agent)
+     * "node-optimizer-report"        → NodeOptimizerReport (idle nodes + spot candidates — xamops-automation)
      *
      * All other collectors (trivy, kubescape, autoscaling-events, autoscaling-rightsizing,
-     * autoscaling-evictor-candidates) push a list → stored as JSON array.
+     * hpa-recommendations, vpa-recommendations, autoscaling-evictor-candidates) push a list → stored as JSON array.
      */
     private static final Set<String> SINGLE_OBJECT_COLLECTORS = Set.of(
             "autoscaling-metrics",
-            "autoscaling-rebalance-status"
+            "autoscaling-rebalance-status",
+            "k8s-resources",
+            "prometheus-metrics",
+            "node-optimizer-report"
     );
 
     private final KubernetesClusterConfigRepository clusterConfigRepository;

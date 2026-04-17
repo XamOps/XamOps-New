@@ -42,13 +42,14 @@ type TrivySummary struct {
 }
 
 type TrivyVulnerability struct {
-	VulnerabilityID  string `json:"vulnerabilityID"`
-	Severity         string `json:"severity"`
-	PkgName          string `json:"pkgName"`
-	InstalledVersion string `json:"installedVersion"`
-	FixedVersion     string `json:"fixedVersion,omitempty"`
-	Title            string `json:"title,omitempty"`
-	PrimaryLink      string `json:"primaryLink,omitempty"`
+	VulnerabilityID  string  `json:"vulnerabilityID"`
+	Severity         string  `json:"severity"`
+	PkgName          string  `json:"pkgName"`
+	InstalledVersion string  `json:"installedVersion"`
+	FixedVersion     string  `json:"fixedVersion,omitempty"`
+	Title            string  `json:"title,omitempty"`
+	PrimaryLink      string  `json:"primaryLink,omitempty"`
+	Score            float64 `json:"score,omitempty"`
 }
 
 // KubescapeScan represents a Kubescape configuration scan
@@ -286,6 +287,382 @@ type DiskUsage struct {
 	FreeGB      float64 `json:"freeGb"`
 	UsedPercent float64 `json:"usedPercent"` // 0-100
 	CollectedAt string  `json:"collectedAt"` // RFC3339
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// K8s Resources — full cluster snapshot (collector: "k8s-resources")
+// Replaces the limited ClusterMetadata type.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// K8sResources is the top-level payload for the "k8s-resources" batch.
+type K8sResources struct {
+	Nodes        []NodeDetail        `json:"nodes"`
+	Namespaces   []NamespaceDetail   `json:"namespaces"`
+	Pods         []PodDetail         `json:"pods"`
+	Deployments  []DeploymentDetail  `json:"deployments"`
+	StatefulSets []StatefulSetDetail `json:"statefulSets"`
+	DaemonSets   []DaemonSetDetail   `json:"daemonSets"`
+	Services     []ServiceDetail     `json:"services"`
+	Ingresses    []IngressDetail     `json:"ingresses"`
+	HPAs         []HPADetail         `json:"hpas"`
+	PVCs         []PVCDetail         `json:"pvcs"`
+	Jobs         []JobDetail         `json:"jobs"`
+	CronJobs     []CronJobDetail     `json:"cronJobs"`
+	Events       []EventDetail       `json:"events"`
+	NodeMetrics  []NodeMetricDetail  `json:"nodeMetrics"`
+	PodMetrics   []PodMetricDetail   `json:"podMetrics"`
+	Summary      K8sSummary          `json:"summary"`
+	K8sVersion   string              `json:"k8sVersion"`
+}
+
+type K8sSummary struct {
+	TotalNodes       int `json:"totalNodes"`
+	ReadyNodes       int `json:"readyNodes"`
+	SpotNodes        int `json:"spotNodes"`
+	TotalPods        int `json:"totalPods"`
+	RunningPods      int `json:"runningPods"`
+	PendingPods      int `json:"pendingPods"`
+	FailedPods       int `json:"failedPods"`
+	TotalDeployments int `json:"totalDeployments"`
+	TotalServices    int `json:"totalServices"`
+	TotalNamespaces  int `json:"totalNamespaces"`
+	TotalPVCs        int `json:"totalPvcs"`
+	UnscheduledPods  int `json:"unscheduledPods"`
+}
+
+type NodeDetail struct {
+	Name              string            `json:"name"`
+	Labels            map[string]string `json:"labels,omitempty"`
+	Annotations       map[string]string `json:"annotations,omitempty"`
+	Roles             []string          `json:"roles"`
+	InstanceType      string            `json:"instanceType,omitempty"` // e.g. t3.medium
+	CapacityType      string            `json:"capacityType,omitempty"` // on-demand | spot
+	Zone              string            `json:"zone,omitempty"`
+	Region            string            `json:"region,omitempty"`
+	OperatingSystem   string            `json:"operatingSystem,omitempty"`
+	KernelVersion     string            `json:"kernelVersion,omitempty"`
+	ContainerRuntime  string            `json:"containerRuntime,omitempty"`
+	KubeletVersion    string            `json:"kubeletVersion,omitempty"`
+	CapacityCPU       string            `json:"capacityCpu"`
+	CapacityMemory    string            `json:"capacityMemory"`
+	CapacityPods      string            `json:"capacityPods"`
+	AllocatableCPU    string            `json:"allocatableCpu"`
+	AllocatableMemory string            `json:"allocatableMemory"`
+	AllocatablePods   string            `json:"allocatablePods"`
+	Conditions        []NodeCondition   `json:"conditions"`
+	Taints            []NodeTaint       `json:"taints,omitempty"`
+	Unschedulable     bool              `json:"unschedulable"`
+	Age               string            `json:"age"` // RFC3339 creationTimestamp
+}
+
+type NodeCondition struct {
+	Type    string `json:"type"`
+	Status  string `json:"status"`
+	Message string `json:"message,omitempty"`
+	Reason  string `json:"reason,omitempty"`
+}
+
+type NodeTaint struct {
+	Key    string `json:"key"`
+	Value  string `json:"value,omitempty"`
+	Effect string `json:"effect"`
+}
+
+type NamespaceDetail struct {
+	Name              string            `json:"name"`
+	Labels            map[string]string `json:"labels,omitempty"`
+	Status            string            `json:"status"`
+	Age               string            `json:"age"`
+	PodCount          int               `json:"podCount"`
+	RunningPodCount   int               `json:"runningPodCount"`
+	DeploymentCount   int               `json:"deploymentCount"`
+}
+
+type PodDetail struct {
+	Name            string            `json:"name"`
+	Namespace       string            `json:"namespace"`
+	NodeName        string            `json:"nodeName,omitempty"`
+	Labels          map[string]string `json:"labels,omitempty"`
+	Phase           string            `json:"phase"`
+	QosClass        string            `json:"qosClass,omitempty"`
+	Reason          string            `json:"reason,omitempty"`
+	Message         string            `json:"message,omitempty"`
+	ControllerKind  string            `json:"controllerKind,omitempty"`  // Deployment | StatefulSet | DaemonSet | Job | None
+	ControllerName  string            `json:"controllerName,omitempty"`
+	PodIP           string            `json:"podIp,omitempty"`
+	StartedAt       string            `json:"startedAt,omitempty"` // RFC3339
+	Age             string            `json:"age"`
+	Containers      []ContainerDetail `json:"containers"`
+	InitContainers  []ContainerDetail `json:"initContainers,omitempty"`
+	Unschedulable   bool              `json:"unschedulable"`
+}
+
+type ContainerDetail struct {
+	Name            string            `json:"name"`
+	Image           string            `json:"image"`
+	Ready           bool              `json:"ready"`
+	RestartCount    int32             `json:"restartCount"`
+	State           string            `json:"state"` // running | waiting | terminated
+	WaitingReason   string            `json:"waitingReason,omitempty"`
+	CPURequest      string            `json:"cpuRequest,omitempty"`
+	CPULimit        string            `json:"cpuLimit,omitempty"`
+	MemoryRequest   string            `json:"memoryRequest,omitempty"`
+	MemoryLimit     string            `json:"memoryLimit,omitempty"`
+	Ports           []ContainerPort   `json:"ports,omitempty"`
+}
+
+type ContainerPort struct {
+	Name          string `json:"name,omitempty"`
+	ContainerPort int32  `json:"containerPort"`
+	Protocol      string `json:"protocol"`
+}
+
+type DeploymentDetail struct {
+	Name              string            `json:"name"`
+	Namespace         string            `json:"namespace"`
+	Labels            map[string]string `json:"labels,omitempty"`
+	Replicas          int32             `json:"replicas"`
+	ReadyReplicas     int32             `json:"readyReplicas"`
+	AvailableReplicas int32             `json:"availableReplicas"`
+	UpdatedReplicas   int32             `json:"updatedReplicas"`
+	Strategy          string            `json:"strategy"` // RollingUpdate | Recreate
+	Age               string            `json:"age"`
+	Images            []string          `json:"images,omitempty"` // container images
+}
+
+type StatefulSetDetail struct {
+	Name            string            `json:"name"`
+	Namespace       string            `json:"namespace"`
+	Labels          map[string]string `json:"labels,omitempty"`
+	Replicas        int32             `json:"replicas"`
+	ReadyReplicas   int32             `json:"readyReplicas"`
+	ServiceName     string            `json:"serviceName,omitempty"`
+	Age             string            `json:"age"`
+	Images          []string          `json:"images,omitempty"`
+}
+
+type DaemonSetDetail struct {
+	Name                   string            `json:"name"`
+	Namespace              string            `json:"namespace"`
+	Labels                 map[string]string `json:"labels,omitempty"`
+	DesiredNumberScheduled int32             `json:"desiredNumberScheduled"`
+	NumberReady            int32             `json:"numberReady"`
+	NumberUnavailable      int32             `json:"numberUnavailable"`
+	Age                    string            `json:"age"`
+	Images                 []string          `json:"images,omitempty"`
+}
+
+type ServiceDetail struct {
+	Name                string            `json:"name"`
+	Namespace           string            `json:"namespace"`
+	Labels              map[string]string `json:"labels,omitempty"`
+	Type                string            `json:"type"` // ClusterIP | NodePort | LoadBalancer | ExternalName
+	ClusterIP           string            `json:"clusterIp,omitempty"`
+	ExternalIPs         []string          `json:"externalIps,omitempty"`
+	LoadBalancerHostname string           `json:"loadBalancerHostname,omitempty"`
+	LoadBalancerIP       string           `json:"loadBalancerIp,omitempty"`
+	ExternalName        string            `json:"externalName,omitempty"`
+	Ports               []ServicePort     `json:"ports,omitempty"`
+	Age                 string            `json:"age"`
+}
+
+type ServicePort struct {
+	Name       string `json:"name,omitempty"`
+	Port       int32  `json:"port"`
+	TargetPort string `json:"targetPort"`
+	NodePort   int32  `json:"nodePort,omitempty"`
+	Protocol   string `json:"protocol"`
+}
+
+type IngressDetail struct {
+	Name        string        `json:"name"`
+	Namespace   string        `json:"namespace"`
+	Labels      map[string]string `json:"labels,omitempty"`
+	ClassName   string        `json:"className,omitempty"`
+	Rules       []IngressRule `json:"rules,omitempty"`
+	HasTLS      bool          `json:"hasTls"`
+	Age         string        `json:"age"`
+}
+
+type IngressRule struct {
+	Host  string        `json:"host,omitempty"`
+	Paths []IngressPath `json:"paths,omitempty"`
+}
+
+type IngressPath struct {
+	Path        string `json:"path"`
+	PathType    string `json:"pathType"`
+	ServiceName string `json:"serviceName"`
+	ServicePort string `json:"servicePort"`
+}
+
+type HPADetail struct {
+	Name            string            `json:"name"`
+	Namespace       string            `json:"namespace"`
+	Labels          map[string]string `json:"labels,omitempty"`
+	TargetKind      string            `json:"targetKind"` // Deployment | StatefulSet
+	TargetName      string            `json:"targetName"`
+	MinReplicas     int32             `json:"minReplicas"`
+	MaxReplicas     int32             `json:"maxReplicas"`
+	CurrentReplicas int32             `json:"currentReplicas"`
+	DesiredReplicas int32             `json:"desiredReplicas"`
+	CPUTargetPct    int32             `json:"cpuTargetPct,omitempty"`
+	CurrentCPUPct   int32             `json:"currentCpuPct,omitempty"`
+	Age             string            `json:"age"`
+	Conditions      []HPACondition    `json:"conditions,omitempty"`
+}
+
+type HPACondition struct {
+	Type    string `json:"type"`
+	Status  string `json:"status"`
+	Message string `json:"message,omitempty"`
+	Reason  string `json:"reason,omitempty"`
+}
+
+type PVCDetail struct {
+	Name             string            `json:"name"`
+	Namespace        string            `json:"namespace"`
+	Labels           map[string]string `json:"labels,omitempty"`
+	Status           string            `json:"status"` // Bound | Pending | Lost
+	VolumeName       string            `json:"volumeName,omitempty"`
+	StorageClassName string            `json:"storageClassName,omitempty"`
+	AccessModes      []string          `json:"accessModes"`
+	Capacity         string            `json:"capacity,omitempty"`
+	Age              string            `json:"age"`
+}
+
+type JobDetail struct {
+	Name           string            `json:"name"`
+	Namespace      string            `json:"namespace"`
+	Labels         map[string]string `json:"labels,omitempty"`
+	Completions    int32             `json:"completions"`
+	Active         int32             `json:"active"`
+	Succeeded      int32             `json:"succeeded"`
+	Failed         int32             `json:"failed"`
+	StartTime      string            `json:"startTime,omitempty"`
+	CompletionTime string            `json:"completionTime,omitempty"`
+	Age            string            `json:"age"`
+}
+
+type CronJobDetail struct {
+	Name             string  `json:"name"`
+	Namespace        string  `json:"namespace"`
+	Schedule         string  `json:"schedule"`
+	Suspend          bool    `json:"suspend"`
+	LastScheduleTime string  `json:"lastScheduleTime,omitempty"`
+	ActiveJobs       int     `json:"activeJobs"`
+	Age              string  `json:"age"`
+}
+
+type EventDetail struct {
+	Name           string `json:"name"`
+	Namespace      string `json:"namespace"`
+	Reason         string `json:"reason"`
+	Message        string `json:"message"`
+	Type           string `json:"type"` // Normal | Warning
+	Count          int32  `json:"count"`
+	InvolvedObject string `json:"involvedObject"`
+	ObjectKind     string `json:"objectKind"`
+	FirstTime      string `json:"firstTime,omitempty"`
+	LastTime       string `json:"lastTime,omitempty"`
+}
+
+type NodeMetricDetail struct {
+	NodeName     string  `json:"nodeName"`
+	CPUUsage     string  `json:"cpuUsage"`     // e.g. "250m"
+	MemoryUsage  string  `json:"memoryUsage"`  // e.g. "1024Mi"
+	CPUPercent   float64 `json:"cpuPercent"`   // 0-100
+	MemoryPercent float64 `json:"memoryPercent"` // 0-100
+}
+
+type PodMetricDetail struct {
+	PodName      string           `json:"podName"`
+	Namespace    string           `json:"namespace"`
+	Containers   []ContainerUsage `json:"containers"`
+}
+
+type ContainerUsage struct {
+	Name        string `json:"name"`
+	CPUUsage    string `json:"cpuUsage"`
+	MemoryUsage string `json:"memoryUsage"`
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Prometheus Metrics — in-cluster Prometheus query results (collector: "prometheus-metrics")
+// ─────────────────────────────────────────────────────────────────────────────
+
+// PrometheusMetrics is the top-level payload for the "prometheus-metrics" batch.
+type PrometheusMetrics struct {
+	ClusterCPUUsagePct    float64                   `json:"clusterCpuUsagePct"`    // 0-100
+	ClusterMemUsagePct    float64                   `json:"clusterMemUsagePct"`    // 0-100
+	NodeUtilization       []NodeUtilizationMetric   `json:"nodeUtilization"`
+	NamespaceUtilization  []NamespaceUsageMetric    `json:"namespaceUtilization"`
+	CostMetrics           *ClusterCostMetrics       `json:"costMetrics,omitempty"`
+	FalcoEvents           []FalcoEvent              `json:"falcoEvents,omitempty"`
+	PodRestartRates       []PodRestartMetric        `json:"podRestartRates,omitempty"`
+	TopCPUPods            []PodResourceMetric       `json:"topCpuPods,omitempty"`
+	TopMemoryPods         []PodResourceMetric       `json:"topMemoryPods,omitempty"`
+	NetworkMetrics        []NamespaceNetworkMetric  `json:"networkMetrics,omitempty"`
+	CollectedAt           string                    `json:"collectedAt"` // RFC3339
+}
+
+type NodeUtilizationMetric struct {
+	NodeName        string  `json:"nodeName"`
+	CPUUsagePct     float64 `json:"cpuUsagePct"`
+	MemUsagePct     float64 `json:"memUsagePct"`
+	CPUCoresUsed    float64 `json:"cpuCoresUsed"`
+	MemGBUsed       float64 `json:"memGbUsed"`
+}
+
+type NamespaceUsageMetric struct {
+	Namespace       string  `json:"namespace"`
+	CPUCores        float64 `json:"cpuCores"`
+	MemGB           float64 `json:"memGb"`
+	CPURequestCores float64 `json:"cpuRequestCores"`
+	MemRequestGB    float64 `json:"memRequestGb"`
+}
+
+type ClusterCostMetrics struct {
+	TotalHourlyCost        float64 `json:"totalHourlyCost"`
+	CPUHourlyCost          float64 `json:"cpuHourlyCost"`
+	MemoryHourlyCost       float64 `json:"memoryHourlyCost"`
+	MonthlyEstimate        float64 `json:"monthlyEstimate"`
+	IdleNodeCostHourly     float64 `json:"idleNodeCostHourly"`
+	WastedCPUPercent       float64 `json:"wastedCpuPercent"`
+	WastedMemoryPercent    float64 `json:"wastedMemoryPercent"`
+}
+
+type FalcoEvent struct {
+	Rule        string            `json:"rule"`
+	Priority    string            `json:"priority"`   // Emergency | Alert | Critical | Error | Warning | Notice | Informational | Debug
+	Output      string            `json:"output"`
+	Source      string            `json:"source,omitempty"`
+	Tags        []string          `json:"tags,omitempty"`
+	Fields      map[string]string `json:"fields,omitempty"`
+	Namespace   string            `json:"namespace,omitempty"`
+	Pod         string            `json:"pod,omitempty"`
+	Count       float64           `json:"count"`       // aggregated count from Prometheus
+	CollectedAt string            `json:"collectedAt"` // RFC3339
+}
+
+type PodRestartMetric struct {
+	PodName       string  `json:"podName"`
+	Namespace     string  `json:"namespace"`
+	ContainerName string  `json:"containerName"`
+	RestartRate   float64 `json:"restartRate"` // restarts per hour
+}
+
+type PodResourceMetric struct {
+	PodName      string  `json:"podName"`
+	Namespace    string  `json:"namespace"`
+	ContainerName string `json:"containerName,omitempty"`
+	Value        float64 `json:"value"` // CPU in cores or Memory in bytes
+}
+
+type NamespaceNetworkMetric struct {
+	Namespace     string  `json:"namespace"`
+	BytesInPerSec float64 `json:"bytesInPerSec"`
+	BytesOutPerSec float64 `json:"bytesOutPerSec"`
 }
 
 // DbQueryStat represents a single normalized query from performance_schema or pg_stat_statements

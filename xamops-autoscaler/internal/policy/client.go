@@ -70,11 +70,14 @@ func (c *Client) FetchPolicy(ctx context.Context) (PolicyBundle, error) {
 		return DefaultBundle(), fmt.Errorf("parse policy: %w", err)
 	}
 
-	log.Printf("INFO: policy fetched — mode=%s evictor=%v rightsizer=%v rebalancer_status=%s",
+	log.Printf("INFO: policy fetched — mode=%s evictor=%v rightsizer=%v rebalancer_status=%s hpa=%v vpa=%v nodeopt=%v",
 		bundle.AutoscalerMode,
 		bundle.EvictorPolicy.Enabled,
 		bundle.WorkloadRightsizerPolicy.Enabled,
-		bundle.Rebalancer.Status)
+		bundle.Rebalancer.Status,
+		bundle.HPAManagerPolicy.Enabled,
+		bundle.VPAManagerPolicy.Enabled,
+		bundle.NodeOptimizerPolicy.Enabled)
 
 	return bundle, nil
 }

@@ -82,6 +82,12 @@ public class SupportMessage {
     @Column(name = "auto_ping_sent", nullable = false)
     private boolean autoPingSent = false;
 
+    @Column(name = "external_platform", length = 50)
+    private String externalPlatform;
+
+    @Column(name = "external_message_id", length = 255)
+    private String externalMessageId;
+
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
     public String getContent() { return content; }
@@ -126,4 +132,8 @@ public class SupportMessage {
     public void setEditedAt(LocalDateTime editedAt) { this.editedAt = editedAt; }
     public boolean isDeleted() { return isDeleted; }
     public void setDeleted(boolean deleted) { isDeleted = deleted; }
+    public String getExternalPlatform() { return externalPlatform; }
+    public void setExternalPlatform(String externalPlatform) { this.externalPlatform = externalPlatform; }
+    public String getExternalMessageId() { return externalMessageId; }
+    public void setExternalMessageId(String externalMessageId) { this.externalMessageId = externalMessageId; }
 }

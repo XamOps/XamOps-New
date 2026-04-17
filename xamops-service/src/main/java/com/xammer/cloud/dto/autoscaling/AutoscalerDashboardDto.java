@@ -26,6 +26,7 @@ public class AutoscalerDashboardDto {
     private List<NodeTemplateDto> nodeTemplates;
     private RebalancerConfigDto rebalancer;
     private SafetyGuardsDto safetyGuards;
+    private NodeOptimizerPolicyDto nodeOptimizerPolicy;
     private List<AutoscalingEventDto> recentEvents;
 
     // ─── Getters / Setters ────────────────────────────────────────────────────
@@ -56,6 +57,9 @@ public class AutoscalerDashboardDto {
 
     public SafetyGuardsDto getSafetyGuards() { return safetyGuards; }
     public void setSafetyGuards(SafetyGuardsDto safetyGuards) { this.safetyGuards = safetyGuards; }
+
+    public NodeOptimizerPolicyDto getNodeOptimizerPolicy() { return nodeOptimizerPolicy; }
+    public void setNodeOptimizerPolicy(NodeOptimizerPolicyDto nodeOptimizerPolicy) { this.nodeOptimizerPolicy = nodeOptimizerPolicy; }
 
     public List<AutoscalingEventDto> getRecentEvents() { return recentEvents; }
     public void setRecentEvents(List<AutoscalingEventDto> recentEvents) { this.recentEvents = recentEvents; }

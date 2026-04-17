@@ -6,7 +6,8 @@ import javax.persistence.*;
 import java.time.LocalDateTime;
 
 /**
- * Stores per-tenant admin credentials for each messaging platform (Slack / Teams / Google Chat).
+ * Stores per-tenant admin credentials for each messaging platform (Slack /
+ * Teams / Google Chat).
  * One row per platform per tenant schema.
  */
 @Entity
@@ -34,14 +35,16 @@ public class MessagingIntegrationConfig {
     private String botToken;
 
     /**
-     * Slack: Signing Secret — used to verify inbound webhook payloads (X-Slack-Signature).
+     * Slack: Signing Secret — used to verify inbound webhook payloads
+     * (X-Slack-Signature).
      */
     @Column(name = "signing_secret", length = 300)
     private String signingSecret;
 
     /**
      * Google Chat service account JSON key — downloaded from Google Cloud Console.
-     * Used for server-to-server calls to the Google Chat REST API (create DM spaces, send messages).
+     * Used for server-to-server calls to the Google Chat REST API (create DM
+     * spaces, send messages).
      * Stored as TEXT because JSON keys are large (~2KB).
      */
     @Column(name = "service_account_json", columnDefinition = "TEXT")
@@ -62,7 +65,8 @@ public class MessagingIntegrationConfig {
     private String clientSecret;
 
     /**
-     * Human-readable label/description for this integration (e.g. "XamOps Workspace").
+     * Human-readable label/description for this integration (e.g. "XamOps
+     * Workspace").
      */
     @Column(name = "label", length = 200)
     private String label;
@@ -76,26 +80,91 @@ public class MessagingIntegrationConfig {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
-    public Long getId() { return id; }
-    public void setId(Long id) { this.id = id; }
-    public String getPlatform() { return platform; }
-    public void setPlatform(String platform) { this.platform = platform; }
-    public String getBotToken() { return botToken; }
-    public void setBotToken(String botToken) { this.botToken = botToken; }
-    public String getSigningSecret() { return signingSecret; }
-    public void setSigningSecret(String signingSecret) { this.signingSecret = signingSecret; }
-    public String getServiceAccountJson() { return serviceAccountJson; }
-    public void setServiceAccountJson(String serviceAccountJson) { this.serviceAccountJson = serviceAccountJson; }
-    public String getClientId() { return clientId; }
-    public void setClientId(String clientId) { this.clientId = clientId; }
-    public String getClientSecret() { return clientSecret; }
-    public void setClientSecret(String clientSecret) { this.clientSecret = clientSecret; }
-    public String getLabel() { return label; }
-    public void setLabel(String label) { this.label = label; }
-    public boolean isEnabled() { return enabled; }
-    public void setEnabled(boolean enabled) { this.enabled = enabled; }
-    public LocalDateTime getCreatedAt() { return createdAt; }
-    public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
-    public LocalDateTime getUpdatedAt() { return updatedAt; }
-    public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+
+    public String getPlatform() {
+        return platform;
+    }
+
+    public void setPlatform(String platform) {
+        this.platform = platform;
+    }
+
+    public String getBotToken() {
+        return botToken;
+    }
+
+    public void setBotToken(String botToken) {
+        this.botToken = botToken;
+    }
+
+    public String getSigningSecret() {
+        return signingSecret;
+    }
+
+    public void setSigningSecret(String signingSecret) {
+        this.signingSecret = signingSecret;
+    }
+
+    public String getServiceAccountJson() {
+        return serviceAccountJson;
+    }
+
+    public void setServiceAccountJson(String serviceAccountJson) {
+        this.serviceAccountJson = serviceAccountJson;
+    }
+
+    public String getClientId() {
+        return clientId;
+    }
+
+    public void setClientId(String clientId) {
+        this.clientId = clientId;
+    }
+
+    public String getClientSecret() {
+        return clientSecret;
+    }
+
+    public void setClientSecret(String clientSecret) {
+        this.clientSecret = clientSecret;
+    }
+
+    public String getLabel() {
+        return label;
+    }
+
+    public void setLabel(String label) {
+        this.label = label;
+    }
+
+    public boolean isEnabled() {
+        return enabled;
+    }
+
+    public void setEnabled(boolean enabled) {
+        this.enabled = enabled;
+    }
+
+    public LocalDateTime getCreatedAt() {
+        return createdAt;
+    }
+
+    public void setCreatedAt(LocalDateTime createdAt) {
+        this.createdAt = createdAt;
+    }
+
+    public LocalDateTime getUpdatedAt() {
+        return updatedAt;
+    }
+
+    public void setUpdatedAt(LocalDateTime updatedAt) {
+        this.updatedAt = updatedAt;
+    }
 }

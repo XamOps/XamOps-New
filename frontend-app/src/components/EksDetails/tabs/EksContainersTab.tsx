@@ -5,6 +5,7 @@
  */
 
 import React, { useState, useMemo } from 'react';
+import ReactDOM from 'react-dom';
 import { ContainerWithMetrics } from '../../../types/eksTypes';
 
 interface EksContainersTabProps {
@@ -301,9 +302,9 @@ const EksContainersTab: React.FC<EksContainersTabProps> = ({ eksData }) => {
           </table>
 
           {stateFilteredContainers.length === 0 && (
-            <div className="text-center py-16 bg-gray-50 rounded-xl border-2 border-dashed border-gray-300 mt-4">
-              <i className="fas fa-filter text-gray-300 text-4xl mb-3"></i>
-              <p className="text-gray-500 font-medium">No containers match your filters</p>
+            <div className="text-center py-12 bg-[#f6f8fa] rounded-lg border border-dashed border-[#d0d7de] mt-4">
+              <i className="fas fa-filter text-[#8b949e] text-2xl mb-3"></i>
+              <p className="text-[13px] text-[#57606a] font-medium">No containers match your filters</p>
               <button
                 onClick={() => {
                   setContainerSearchQuery('');
@@ -350,7 +351,7 @@ const EksContainersTab: React.FC<EksContainersTabProps> = ({ eksData }) => {
       </section>
 
       {/* Detailed Container View Modal */}
-      {selectedContainer && (
+      {selectedContainer && ReactDOM.createPortal(
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
             {/* Modal Header */}
@@ -641,7 +642,7 @@ const EksContainersTab: React.FC<EksContainersTabProps> = ({ eksData }) => {
             </div>
           </div>
         </div>
-      )}
+      , document.body)}
     </div>
   );
 };

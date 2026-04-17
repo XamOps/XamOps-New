@@ -11,6 +11,7 @@ import com.xammer.cloud.domain.EksDashboardCache;
 import com.xammer.cloud.domain.KubernetesClusterConfig;
 import com.xammer.cloud.dto.autoscaling.AutoscalerDashboardDto;
 import com.xammer.cloud.dto.autoscaling.AutoscalerDashboardDto.*;
+import com.xammer.cloud.dto.autoscaling.NodeOptimizerPolicyDto;
 import com.xammer.cloud.dto.autoscaling.WorkloadRightsizingDto;
 import com.xammer.cloud.dto.autoscaling.WorkloadRightsizingDto.WorkloadRecommendation;
 import com.xammer.cloud.dto.k8s.EksCompleteDashboardDto;
@@ -66,7 +67,7 @@ public class EksAutoscalingService {
     public static final String DT_POLICY             = "autoscaling-policy";
     public static final String DT_METRICS            = "autoscaling-metrics";
     public static final String DT_EVENTS             = "autoscaling-events";
-    // Pushed by xamops-autoscaler (read-write controller):
+    // Pushed by xamops-automation (read-write controller):
     public static final String DT_RIGHTSIZING        = "autoscaling-rightsizing";
     public static final String DT_REBALANCE_STATUS   = "autoscaling-rebalance-status";
     public static final String DT_EVICTOR_CANDIDATES = "autoscaling-evictor-candidates";
@@ -136,6 +137,7 @@ public class EksAutoscalingService {
         dto.setNodeTemplates(bundle.nodeTemplates);
         dto.setRebalancer(bundle.rebalancer);
         dto.setSafetyGuards(bundle.safetyGuards);
+        dto.setNodeOptimizerPolicy(bundle.nodeOptimizerPolicy);
 
         // 3. Runtime metrics — from agent_data_cache (dataType="autoscaling-metrics")
         //    Enriched with live data from Prometheus/existing EksDashboardCache where available
@@ -184,6 +186,15 @@ public class EksAutoscalingService {
         bundle.safetyGuards = guards;
         writePolicyBundle(config.getId(), bundle);
         logEvent(config.getId(), "autoscaling_config_change", "Safety Guards updated");
+    }
+
+    @Transactional
+    public void saveNodeOptimizerPolicy(String clusterName, Long cloudAccountId, NodeOptimizerPolicyDto policy) {
+        KubernetesClusterConfig config = requireAutoscalingEnabled(clusterName, cloudAccountId);
+        PolicyBundle bundle = readPolicyBundle(config.getId());
+        bundle.nodeOptimizerPolicy = policy;
+        writePolicyBundle(config.getId(), bundle);
+        logEvent(config.getId(), "autoscaling_config_change", "Node Optimizer policy updated");
     }
 
     @Transactional
@@ -293,9 +304,27 @@ public class EksAutoscalingService {
     // ═══════════════════════════════════════════════════════════════════════
 
     private KubernetesClusterConfig findConfig(String clusterName, Long cloudAccountId) {
-        return clusterConfigRepository
-                .findByCloudAccountIdAndClusterName(cloudAccountId, clusterName)
-                .orElse(null);
+        // 1. Direct lookup — works when cloud_account_id stores the value as-is
+        Optional<KubernetesClusterConfig> configOpt =
+                clusterConfigRepository.findByCloudAccountIdAndClusterName(cloudAccountId, clusterName);
+        if (configOpt.isPresent()) return configOpt.get();
+
+        // 2. Fallback: the URL passes the AWS account number (e.g. 80310056620) but
+        //    cloud_account_id may store the cloud_account DB primary key.
+        //    Look up the CloudAccount by awsAccountId and retry with its DB id.
+        // AWS account IDs are always 12 digits — Long.parseLong strips the leading zero,
+        // so String.valueOf(80310056620L) = "80310056620" != "080310056620" stored in DB.
+        String awsAccountIdPadded = String.format("%012d", cloudAccountId);
+        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(awsAccountIdPadded);
+        for (CloudAccount account : accounts) {
+            configOpt = clusterConfigRepository.findByCloudAccountIdAndClusterName(account.getId(), clusterName);
+            if (configOpt.isPresent()) {
+                logger.debug("findConfig: found via DB-id fallback — awsAccountId={} dbId={} cluster={}",
+                        cloudAccountId, account.getId(), clusterName);
+                return configOpt.get();
+            }
+        }
+        return null;
     }
 
     private KubernetesClusterConfig requireAutoscalingEnabled(String clusterName, Long cloudAccountId) {
@@ -364,6 +393,7 @@ public class EksAutoscalingService {
         public List<NodeTemplateDto> nodeTemplates;
         public RebalancerConfigDto rebalancer;
         public SafetyGuardsDto safetyGuards;
+        public NodeOptimizerPolicyDto nodeOptimizerPolicy;
     }
 
     private PolicyBundle readPolicyBundle(Long clusterConfigId) {
@@ -399,6 +429,7 @@ public class EksAutoscalingService {
         b.nodeTemplates = buildDefaultNodeTemplates();
         b.rebalancer = defaultRebalancer();
         b.safetyGuards = buildDefaultSafetyGuards();
+        b.nodeOptimizerPolicy = new NodeOptimizerPolicyDto();
         return b;
     }
 
@@ -548,12 +579,12 @@ public class EksAutoscalingService {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // AUTOSCALER CONTROLLER DATA (xamops-autoscaler pushes these)
+    // AUTOSCALER CONTROLLER DATA (xamops-automation pushes these)
     // ═══════════════════════════════════════════════════════════════════════
 
     /**
      * Read rightsizing recommendations.
-     * Primary source: autoscaling-rightsizing pushed by xamops-autoscaler (Prometheus-backed p80 analysis).
+     * Primary source: autoscaling-rightsizing pushed by xamops-automation (Prometheus-backed p80 analysis).
      * Fallback:       compute snapshot-based recommendations from EksDashboardCache (already in DB).
      */
     @SuppressWarnings("unchecked")
@@ -705,7 +736,7 @@ public class EksAutoscalingService {
                     rec.setP100Mem(maxMemUsage);
                     rec.setEstimatedSavingsPercent(Math.round(savingsPct * 10.0) / 10.0);
                     rec.setApplied(false);
-                    rec.setReason("snapshot-based (deploy xamops-autoscaler for Prometheus p80 analysis)");
+                    rec.setReason("snapshot-based (deploy xamops-automation for Prometheus p80 analysis)");
                     recommendations.add(rec);
                 }
             }
@@ -739,7 +770,7 @@ public class EksAutoscalingService {
     }
 
     /**
-     * Read rebalance status pushed by xamops-autoscaler.
+     * Read rebalance status pushed by xamops-automation.
      * Returns empty map if no rebalance has occurred.
      */
     public Map<String, Object> getRebalanceStatus(String clusterName, Long cloudAccountId) {
@@ -762,7 +793,7 @@ public class EksAutoscalingService {
     }
 
     /**
-     * Read evictor candidates pushed by xamops-autoscaler.
+     * Read evictor candidates pushed by xamops-automation.
      */
     @SuppressWarnings("unchecked")
     public List<Map<String, Object>> getEvictorCandidates(String clusterName, Long cloudAccountId) {
@@ -783,6 +814,92 @@ public class EksAutoscalingService {
             logger.warn("Failed to parse evictor candidates: {}", e.getMessage());
             return Collections.emptyList();
         }
+    }
+
+    // ── Node Fleet Report ──────────────────────────────────────────────────
+
+    public static final String DT_NODE_FLEET = "node-fleet-report";
+
+    /**
+     * Returns a NodeFleetReport built from the k8s-resources agent cache.
+     * If xamops-automation has pushed a dedicated node-fleet-report it takes precedence.
+     * Otherwise we synthesize it from the k8s-resources snapshot so the UI always
+     * gets a useful response even before the automation agent is running.
+     */
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> getNodeFleetReport(String clusterName, Long cloudAccountId) {
+        KubernetesClusterConfig config = findConfig(clusterName, cloudAccountId);
+        if (config == null) return buildEmptyFleet();
+
+        // 1. Prefer dedicated push from xamops-automation
+        Optional<AgentDataCache> dedicated =
+                agentDataCacheRepository.findByClusterConfigIdAndDataType(config.getId(), DT_NODE_FLEET);
+        if (dedicated.isPresent()) {
+            try {
+                return objectMapper.readValue(dedicated.get().getDataJson(),
+                        new TypeReference<Map<String, Object>>() {});
+            } catch (Exception e) {
+                logger.warn("Failed to parse node-fleet-report cache: {}", e.getMessage());
+            }
+        }
+
+        // 2. Synthesize from k8s-resources snapshot
+        Optional<AgentDataCache> k8sCache =
+                agentDataCacheRepository.findByClusterConfigIdAndDataType(config.getId(), "k8s-resources");
+        if (k8sCache.isEmpty()) return buildEmptyFleet();
+
+        try {
+            Map<String, Object> snapshot = objectMapper.readValue(k8sCache.get().getDataJson(),
+                    new TypeReference<Map<String, Object>>() {});
+            List<Map<String, Object>> nodes = (List<Map<String, Object>>) snapshot.getOrDefault("nodes", Collections.emptyList());
+
+            int onDemand = 0, spot = 0;
+            List<Map<String, Object>> idleNodes = new ArrayList<>();
+            for (Map<String, Object> node : nodes) {
+                String capacityType = String.valueOf(node.getOrDefault("capacityType", "on-demand")).toLowerCase();
+                if (capacityType.contains("spot")) spot++; else onDemand++;
+
+                // Flag as idle if cpu < 10% (agent may push cpuUsagePercent)
+                Object cpuObj = node.get("cpuUsagePercent");
+                double cpu = cpuObj instanceof Number ? ((Number) cpuObj).doubleValue() : -1;
+                if (cpu >= 0 && cpu < 10) {
+                    Map<String, Object> idle = new LinkedHashMap<>();
+                    idle.put("nodeName", node.get("name"));
+                    idle.put("cpuUsagePct", cpu);
+                    idle.put("memUsagePct", node.getOrDefault("memoryUsagePercent", 0));
+                    idle.put("reason", "CPU below 10%");
+                    idleNodes.add(idle);
+                }
+            }
+
+            Map<String, Object> report = new LinkedHashMap<>();
+            report.put("totalNodes", nodes.size());
+            report.put("onDemandNodes", onDemand);
+            report.put("spotNodes", spot);
+            report.put("idleNodes", idleNodes);
+            report.put("spotCandidates", Collections.emptyList());
+            report.put("interruptedNodes", Collections.emptyList());
+            report.put("estimatedSavingsPct", 0);
+            report.put("collectedAt", k8sCache.get().getReceivedAt() != null
+                    ? k8sCache.get().getReceivedAt().toString() : null);
+            return report;
+        } catch (Exception e) {
+            logger.warn("Failed to synthesize node-fleet-report: {}", e.getMessage());
+            return buildEmptyFleet();
+        }
+    }
+
+    private Map<String, Object> buildEmptyFleet() {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("totalNodes", 0);
+        m.put("onDemandNodes", 0);
+        m.put("spotNodes", 0);
+        m.put("idleNodes", Collections.emptyList());
+        m.put("spotCandidates", Collections.emptyList());
+        m.put("interruptedNodes", Collections.emptyList());
+        m.put("estimatedSavingsPct", 0);
+        m.put("collectedAt", null);
+        return m;
     }
 
     private WorkloadRightsizingDto emptyRightsizingDto() {

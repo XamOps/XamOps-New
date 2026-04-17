@@ -1,14 +1,18 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# XamOps Autoscaler — Complete Kubernetes Manifest
+# XamOps Automation Agent — Complete Kubernetes Manifest
 #
-# Deploys xamops-autoscaler into the xamops-system namespace (same as
-# xamops-agent). The autoscaler has READ+WRITE cluster access to:
-#   - Evict pods (bin-packing / scale-in)
-#   - Cordon & uncordon nodes
-#   - Patch Deployment/StatefulSet resource requests (rightsizing)
-#   - Read PodDisruptionBudgets before eviction
+# Tier 2: Write-Permission Automation Agent (optional — deploy alongside agent)
+# Deploys into the xamops-system namespace (same as xamops-agent).
 #
-# IMPORTANT DEFAULTS (DRY_RUN=true — no cluster changes until explicitly enabled)
+# Controllers (all off by default, enable via XamOps UI or env vars):
+#   ENABLE_EVICTOR        — bin-packing simulation + pod eviction (scale-in)
+#   ENABLE_RIGHTSIZER     — patch resource requests (VPA-style, P80/P100)
+#   ENABLE_REBALANCER     — cordon + drain nodes for AZ rebalancing
+#   ENABLE_HPA_MANAGER    — create/update/delete HPAs from UI recommendations
+#   ENABLE_VPA_MANAGER    — create VPA objects + collect recommendations
+#   ENABLE_NODE_OPTIMIZER — idle node detection, spot analysis, interruption handling
+#
+# IMPORTANT: DRY_RUN=true by default — zero cluster changes until explicitly enabled.
 # ═══════════════════════════════════════════════════════════════════════════════
 ---
 # ── Namespace (shared with xamops-agent) ──────────────────────────────────────
@@ -24,11 +28,11 @@ metadata:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: xamops-autoscaler
+  name: xamops-automation
   namespace: xamops-system
   labels:
-    app: xamops-autoscaler
-    app.kubernetes.io/component: autoscaler
+    app: xamops-automation
+    app.kubernetes.io/component: automation
 
 ---
 # ── ClusterRole — Write RBAC ──────────────────────────────────────────────────
@@ -36,9 +40,9 @@ metadata:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: xamops-autoscaler
+  name: xamops-automation
   labels:
-    app: xamops-autoscaler
+    app: xamops-automation
 rules:
   # ── Read access (needed to make safe decisions) ──────────────────────────
   - apiGroups: [""]
@@ -113,21 +117,40 @@ rules:
       - events
     verbs: ["create", "patch", "update"]
 
+  # ── HPA Manager: create/update/delete HorizontalPodAutoscalers ─────────────
+  - apiGroups: ["autoscaling"]
+    resources:
+      - horizontalpodautoscalers
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  # ── VPA Manager: create/update/delete VerticalPodAutoscalers ───────────────
+  # Only needed when ENABLE_VPA_MANAGER=true and VPA CRD is installed.
+  - apiGroups: ["autoscaling.k8s.io"]
+    resources:
+      - verticalpodautoscalers
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  # ── Node Optimizer: read node metrics, read PDB ────────────────────────────
+  - apiGroups: ["policy"]
+    resources:
+      - poddisruptionbudgets
+    verbs: ["get", "list", "watch"]
+
 ---
 # ── ClusterRoleBinding ────────────────────────────────────────────────────────
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: xamops-autoscaler
+  name: xamops-automation
   labels:
-    app: xamops-autoscaler
+    app: xamops-automation
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: xamops-autoscaler
+  name: xamops-automation
 subjects:
   - kind: ServiceAccount
-    name: xamops-autoscaler
+    name: xamops-automation
     namespace: xamops-system
 
 ---
@@ -138,10 +161,10 @@ subjects:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: xamops-autoscaler-secret
+  name: xamops-automation-secret
   namespace: xamops-system
   labels:
-    app: xamops-autoscaler
+    app: xamops-automation
 type: Opaque
 data:
   XAMOPS_API_KEY: <BASE64_API_KEY>
@@ -152,18 +175,28 @@ data:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: xamops-autoscaler-config
+  name: xamops-automation-config
   namespace: xamops-system
   labels:
-    app: xamops-autoscaler
+    app: xamops-automation
 data:
   # ── Safety: DRY_RUN=true means no cluster changes (just logs + pushes data)
   DRY_RUN: "true"
 
-  # ── Feature flags (all off by default — enable per-cluster in XamOps UI)
+  # ── Tier 2 feature flags (all off by default — enable per-cluster in XamOps UI)
+  # Node scale-in: bin-packing simulation + pod eviction to remove underused nodes
   ENABLE_EVICTOR: "false"
+  # Workload rightsizing: patch CPU/memory resource requests based on P80/P100 usage
   ENABLE_RIGHTSIZER: "false"
+  # Node rebalance: drain + replace nodes for cost optimization or AZ balance
   ENABLE_REBALANCER: "false"
+  # HPA management: create/update/delete HPAs from XamOps UI recommendations
+  ENABLE_HPA_MANAGER: "false"
+  # VPA management: create VPA objects and collect VPA recommendations
+  # Requires VPA CRD installed: helm install vpa fairwinds-stable/vpa
+  ENABLE_VPA_MANAGER: "false"
+  # Node optimizer: idle node detection, spot candidate analysis, spot interruption handling
+  ENABLE_NODE_OPTIMIZER: "false"
 
   # ── Polling & push intervals (seconds)
   POLICY_POLL_INTERVAL: "60"
@@ -187,11 +220,11 @@ data:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: xamops-autoscaler
+  name: xamops-automation
   namespace: xamops-system
   labels:
-    app: xamops-autoscaler
-    app.kubernetes.io/component: autoscaler
+    app: xamops-automation
+    app.kubernetes.io/component: automation
   annotations:
     # Rolling update — always drain old pod before replacing so both agents
     # are never in a split-brain write state simultaneously.
@@ -200,7 +233,7 @@ spec:
   replicas: 1
   selector:
     matchLabels:
-      app: xamops-autoscaler
+      app: xamops-automation
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -209,13 +242,13 @@ spec:
   template:
     metadata:
       labels:
-        app: xamops-autoscaler
-        app.kubernetes.io/component: autoscaler
+        app: xamops-automation
+        app.kubernetes.io/component: automation
       annotations:
         # Restart when ConfigMap changes (requires Reloader or manual rollout)
         checksum/config: "placeholder-update-on-deploy"
     spec:
-      serviceAccountName: xamops-autoscaler
+      serviceAccountName: xamops-automation
       terminationGracePeriodSeconds: 60
 
       # ── Security context ───────────────────────────────────────────────────
@@ -226,11 +259,11 @@ spec:
         fsGroup: 65534
 
       containers:
-        - name: autoscaler
+        - name: automation
           # Replace with your actual image once built:
-          #   docker build -t <registry>/xamops-autoscaler:latest ./xamops-autoscaler
-          #   docker push <registry>/xamops-autoscaler:latest
-          image: xamops/autoscaler:latest
+          #   docker build -t <registry>/xamops-automation:latest ./xamops-automation
+          #   docker push <registry>/xamops-automation:latest
+          image: xamops/automation:v1.0.0
           imagePullPolicy: Always
 
           ports:
@@ -257,20 +290,20 @@ spec:
           # ── Environment — ConfigMap values ───────────────────────────────
           envFrom:
             - configMapRef:
-                name: xamops-autoscaler-config
+                name: xamops-automation-config
 
           # ── Environment — Secrets + cluster identity ─────────────────────
           env:
             - name: XAMOPS_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: xamops-autoscaler-secret
+                  name: xamops-automation-secret
                   key: XAMOPS_API_KEY
 
             - name: XAMOPS_SERVER_URL
               valueFrom:
                 secretKeyRef:
-                  name: xamops-autoscaler-secret
+                  name: xamops-automation-secret
                   key: XAMOPS_SERVER_URL
 
             # ── Set these to match your cluster registration in XamOps ─────
@@ -334,14 +367,14 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: xamops-autoscaler-netpol
+  name: xamops-automation-netpol
   namespace: xamops-system
   labels:
-    app: xamops-autoscaler
+    app: xamops-automation
 spec:
   podSelector:
     matchLabels:
-      app: xamops-autoscaler
+      app: xamops-automation
   policyTypes:
     - Ingress
     - Egress
@@ -395,12 +428,12 @@ spec:
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: xamops-autoscaler-pdb
+  name: xamops-automation-pdb
   namespace: xamops-system
   labels:
-    app: xamops-autoscaler
+    app: xamops-automation
 spec:
   minAvailable: 1
   selector:
     matchLabels:
-      app: xamops-autoscaler
+      app: xamops-automation

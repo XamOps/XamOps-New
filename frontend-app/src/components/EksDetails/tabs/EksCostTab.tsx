@@ -1,7 +1,8 @@
 /**
- * EKS Cost Tab
+ * EKS Cost Tab — Cast.ai / KubeCost Premium Level
  *
- * Professional cost analysis with intelligent recommendations
+ * Hero gradient strip, KubeCost-style namespace bars, node cost cards,
+ * workload leaderboard, and intelligent savings opportunities.
  */
 
 import React, { useState, useMemo } from 'react';
@@ -23,257 +24,152 @@ interface CostRecommendation {
   affectedResources: string[];
 }
 
+
 const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
   const { dashboard, sortedNodesByCost } = eksData;
   const [showRecommendationInfo, setShowRecommendationInfo] = useState<string | null>(null);
-
   const [deploymentPage, setDeploymentPage] = useState(0);
   const [daemonSetPage, setDaemonSetPage] = useState(0);
   const [statefulSetPage, setStatefulSetPage] = useState(0);
   const [namespacePage, setNamespacePage] = useState(0);
   const [nodePage, setNodePage] = useState(0);
+  const [workloadTab, setWorkloadTab] = useState<'deployments' | 'daemonsets' | 'statefulsets'>('deployments');
   const itemsPerPage = 10;
-  const nodeItemsPerPage = 5;
+  const nodeItemsPerPage = 6;
 
   if (!dashboard) return null;
 
-  // Helper functions
+  const dailyCost = dashboard.costMetrics?.dailyCost || 0;
+  const monthlyCost = dailyCost * 30;
+
+  // In agent mode, pods come from k8sPods (k8s-resources collector), not workloadHealth.pods
+  const allPods: any[] = (dashboard.k8sPods?.length ? dashboard.k8sPods : dashboard.workloadHealth?.pods) || [];
+
   function getNamespaceCosts() {
     let costs = dashboard.costMetrics?.namespaceCosts || [];
-
-    // If API returns costs but missing pod counts, fill them in
     if (costs.length > 0) {
       costs.forEach((ns: any) => {
         if (!ns.podCount) {
-          ns.podCount = dashboard.workloadHealth?.pods?.filter(
-            (p: any) => p.namespace === ns.namespace
-          ).length || 0;
+          ns.podCount = allPods.filter((p: any) => p.namespace === ns.namespace).length || 0;
         }
       });
       return costs.sort((a: any, b: any) => b.dailyCost - a.dailyCost);
     }
-
     const namespaceMap = new Map<string, any>();
-    dashboard.workloadHealth?.pods?.forEach((pod: any) => {
+    allPods.forEach((pod: any) => {
       const ns = pod.namespace || 'default';
       if (!namespaceMap.has(ns)) {
-        namespaceMap.set(ns, {
-          namespace: ns,
-          cpuUsageMillicores: 0,
-          memoryUsageMb: 0,
-          podCount: 0,
-          dailyCost: 0,
-          monthlyCost: 0
-        });
+        namespaceMap.set(ns, { namespace: ns, cpuUsageMillicores: 0, memoryUsageMb: 0, podCount: 0, dailyCost: 0, monthlyCost: 0 });
       }
-
       const nsData = namespaceMap.get(ns);
       nsData.podCount++;
       nsData.cpuUsageMillicores += pod.cpuUsage || 0;
       nsData.memoryUsageMb += (pod.memoryUsage || 0) / (1024 * 1024);
-
       const podCpuCost = ((pod.cpuUsage || 0) / 1000) * 0.0416;
       const podMemCost = ((pod.memoryUsage || 0) / (1024 * 1024 * 1024)) * 0.00456;
       nsData.dailyCost += (podCpuCost + podMemCost) * 24;
     });
-
     const result = Array.from(namespaceMap.values());
-    result.forEach(ns => {
-      ns.monthlyCost = ns.dailyCost * 30;
-    });
-
+    result.forEach(ns => { ns.monthlyCost = ns.dailyCost * 30; });
     return result.sort((a, b) => b.dailyCost - a.dailyCost);
   }
 
   function getWorkloadCosts() {
     let costs = dashboard.costMetrics?.workloadCosts || [];
-
-    // If API returns costs but missing pod counts, fill them in
     if (costs.length > 0) {
       costs.forEach((wl: any) => {
         if (!wl.podCount) {
-          const wlPods = dashboard.workloadHealth?.pods?.filter(
+          const wlPods = allPods.filter(
             (p: any) => p.namespace === wl.namespace &&
-              (p.ownerName === wl.name || p.name.startsWith(wl.name))
-          ) || [];
+              (p.ownerName === wl.name || p.controllerName === wl.name || p.name.startsWith(wl.name))
+          );
           wl.podCount = wlPods.length || wl.replicas || 0;
         }
       });
       return costs.sort((a: any, b: any) => b.dailyCost - a.dailyCost);
     }
-
     const workloads: any[] = [];
 
-    // Process Deployments
-    dashboard.workloadHealth?.deployments?.forEach((deployment: any) => {
-      const deploymentPods = dashboard.workloadHealth?.pods?.filter(
+    // Use k8sDeployments (agent mode) or workloadHealth.deployments (prometheus mode)
+    const deployments: any[] = (dashboard.k8sDeployments?.length ? dashboard.k8sDeployments : dashboard.workloadHealth?.deployments) || [];
+    deployments.forEach((deployment: any) => {
+      const pods = allPods.filter(
         (pod: any) => pod.namespace === deployment.namespace &&
-          (pod.ownerName === deployment.name || pod.name.includes(deployment.name))
-      ) || [];
-
-      let cpuUsage = 0;
-      let memoryUsage = 0;
-      deploymentPods.forEach((pod: any) => {
-        cpuUsage += pod.cpuUsage || 0;
-        memoryUsage += (pod.memoryUsage || 0) / (1024 * 1024);
-      });
-
-      const cpuCost = (cpuUsage / 1000) * 0.0416 * 24;
-      const memCost = (memoryUsage / 1024) * 0.00456 * 24;
-      const dailyCost = cpuCost + memCost;
-
-      workloads.push({
-        name: deployment.name,
-        namespace: deployment.namespace,
-        kind: 'Deployment',
-        cpuUsageMillicores: cpuUsage,
-        memoryUsageMb: memoryUsage,
-        podCount: deploymentPods.length || deployment.replicas || 0,
-        dailyCost,
-        monthlyCost: dailyCost * 30
-      });
+          (pod.ownerName === deployment.name || pod.controllerName === deployment.name || pod.name.includes(deployment.name))
+      );
+      let cpu = 0, mem = 0;
+      pods.forEach((pod: any) => { cpu += pod.cpuUsage || 0; mem += (pod.memoryUsage || 0) / (1024 * 1024); });
+      const daily = (cpu / 1000) * 0.0416 * 24 + (mem / 1024) * 0.00456 * 24;
+      workloads.push({ name: deployment.name, namespace: deployment.namespace, kind: 'Deployment', cpuUsageMillicores: cpu, memoryUsageMb: mem, podCount: pods.length || deployment.readyReplicas || deployment.replicas || 0, dailyCost: daily, monthlyCost: daily * 30 });
     });
 
-    // Process DaemonSets
-    dashboard.workloadHealth?.daemonsets?.forEach((ds: any) => {
-      const dsPods = dashboard.workloadHealth?.pods?.filter(
+    const daemonSets: any[] = (dashboard.k8sDaemonSets?.length ? dashboard.k8sDaemonSets : dashboard.workloadHealth?.daemonsets) || [];
+    daemonSets.forEach((ds: any) => {
+      const pods = allPods.filter(
         (pod: any) => pod.namespace === ds.namespace &&
-          (pod.ownerName === ds.name || pod.name.includes(ds.name))
-      ) || [];
-
-      let cpuUsage = 0;
-      let memoryUsage = 0;
-      dsPods.forEach((pod: any) => {
-        cpuUsage += pod.cpuUsage || 0;
-        memoryUsage += (pod.memoryUsage || 0) / (1024 * 1024);
-      });
-
-      const cpuCost = (cpuUsage / 1000) * 0.0416 * 24;
-      const memCost = (memoryUsage / 1024) * 0.00456 * 24;
-      const dailyCost = cpuCost + memCost;
-
-      workloads.push({
-        name: ds.name,
-        namespace: ds.namespace,
-        kind: 'DaemonSet',
-        cpuUsageMillicores: cpuUsage,
-        memoryUsageMb: memoryUsage,
-        podCount: dsPods.length || ds.ready || 0,
-        dailyCost,
-        monthlyCost: dailyCost * 30
-      });
+          (pod.ownerName === ds.name || pod.controllerName === ds.name || pod.name.includes(ds.name))
+      );
+      let cpu = 0, mem = 0;
+      pods.forEach((pod: any) => { cpu += pod.cpuUsage || 0; mem += (pod.memoryUsage || 0) / (1024 * 1024); });
+      const daily = (cpu / 1000) * 0.0416 * 24 + (mem / 1024) * 0.00456 * 24;
+      workloads.push({ name: ds.name, namespace: ds.namespace, kind: 'DaemonSet', cpuUsageMillicores: cpu, memoryUsageMb: mem, podCount: pods.length || ds.numberReady || ds.ready || 0, dailyCost: daily, monthlyCost: daily * 30 });
     });
 
-    // Process StatefulSets
-    dashboard.workloadHealth?.statefulsets?.forEach((ss: any) => {
-      const ssPods = dashboard.workloadHealth?.pods?.filter(
+    const statefulSets: any[] = (dashboard.k8sStatefulSets?.length ? dashboard.k8sStatefulSets : dashboard.workloadHealth?.statefulsets) || [];
+    statefulSets.forEach((ss: any) => {
+      const pods = allPods.filter(
         (pod: any) => pod.namespace === ss.namespace &&
-          (pod.ownerName === ss.name || pod.name.includes(ss.name))
-      ) || [];
-
-      let cpuUsage = 0;
-      let memoryUsage = 0;
-      ssPods.forEach((pod: any) => {
-        cpuUsage += pod.cpuUsage || 0;
-        memoryUsage += (pod.memoryUsage || 0) / (1024 * 1024);
-      });
-
-      const cpuCost = (cpuUsage / 1000) * 0.0416 * 24;
-      const memCost = (memoryUsage / 1024) * 0.00456 * 24;
-      const dailyCost = cpuCost + memCost;
-
-      workloads.push({
-        name: ss.name,
-        namespace: ss.namespace,
-        kind: 'StatefulSet',
-        cpuUsageMillicores: cpuUsage,
-        memoryUsageMb: memoryUsage,
-        podCount: ssPods.length || ss.replicas || 0,
-        dailyCost,
-        monthlyCost: dailyCost * 30
-      });
+          (pod.ownerName === ss.name || pod.controllerName === ss.name || pod.name.includes(ss.name))
+      );
+      let cpu = 0, mem = 0;
+      pods.forEach((pod: any) => { cpu += pod.cpuUsage || 0; mem += (pod.memoryUsage || 0) / (1024 * 1024); });
+      const daily = (cpu / 1000) * 0.0416 * 24 + (mem / 1024) * 0.00456 * 24;
+      workloads.push({ name: ss.name, namespace: ss.namespace, kind: 'StatefulSet', cpuUsageMillicores: cpu, memoryUsageMb: mem, podCount: pods.length || ss.readyReplicas || ss.replicas || 0, dailyCost: daily, monthlyCost: daily * 30 });
     });
 
     return workloads.sort((a, b) => b.dailyCost - a.dailyCost);
   }
 
-  function getDeploymentCosts() {
-    return getWorkloadCosts().filter((wl: any) => wl.kind?.toLowerCase() === 'deployment');
-  }
+  function getDeploymentCosts() { return getWorkloadCosts().filter((wl: any) => wl.kind?.toLowerCase() === 'deployment'); }
+  function getDaemonSetCosts() { return getWorkloadCosts().filter((wl: any) => wl.kind?.toLowerCase() === 'daemonset'); }
+  function getStatefulSetCosts() { return getWorkloadCosts().filter((wl: any) => wl.kind?.toLowerCase() === 'statefulset'); }
 
-  function getDaemonSetCosts() {
-    return getWorkloadCosts().filter((wl: any) => wl.kind?.toLowerCase() === 'daemonset');
-  }
-
-  function getStatefulSetCosts() {
-    return getWorkloadCosts().filter((wl: any) => wl.kind?.toLowerCase() === 'statefulset');
-  }
-
-  // Intelligent recommendation engine
   const recommendations = useMemo<CostRecommendation[]>(() => {
     const recs: CostRecommendation[] = [];
-
-
-    // 3. Expensive Namespaces
     const namespaceCosts = getNamespaceCosts();
-    const totalNamespaceCost = namespaceCosts.reduce((sum: number, ns: any) => sum + (ns.dailyCost || 0), 0);
-    const expensiveNamespaces = namespaceCosts.filter((ns: any) => {
-      const costPercent = (ns.dailyCost / totalNamespaceCost) * 100;
-      return costPercent > 30;
-    });
-
-    if (expensiveNamespaces.length > 0) {
-      expensiveNamespaces.forEach((ns: any) => {
-        const costPercent = ((ns.dailyCost / totalNamespaceCost) * 100).toFixed(1);
-        recs.push({
-          id: `expensive-namespace-${ns.namespace}`,
-          priority: 'medium',
-          category: 'rightsizing',
-          title: `Namespace "${ns.namespace}" High Cost`,
-          description: `This namespace accounts for ${costPercent}% of total cluster cost ($${ns.dailyCost.toFixed(2)}/day).`,
-          impact: `Review workloads in this namespace for optimization opportunities`,
-          savingsEstimate: ns.dailyCost * 0.3 * 30,
-          basisExplanation: `Namespace costs are calculated by aggregating resource usage (CPU and memory) of all pods within the namespace, then applying AWS EC2 pricing rates.`,
-          actionItems: [
-            'Audit all workloads in this namespace for necessity',
-            'Check for idle or forgotten deployments',
-            'Review pod resource requests vs actual usage',
-            'Consider implementing resource quotas'
-          ],
-          affectedResources: [ns.namespace]
-        });
+    const totalNsCost = namespaceCosts.reduce((sum: number, ns: any) => sum + (ns.dailyCost || 0), 0);
+    namespaceCosts.filter((ns: any) => (ns.dailyCost / Math.max(totalNsCost, 0.01)) * 100 > 30).forEach((ns: any) => {
+      const pct = ((ns.dailyCost / Math.max(totalNsCost, 0.01)) * 100).toFixed(1);
+      recs.push({
+        id: `expensive-namespace-${ns.namespace}`,
+        priority: 'medium',
+        category: 'rightsizing',
+        title: `Namespace "${ns.namespace}" High Cost`,
+        description: `This namespace accounts for ${pct}% of total cluster cost ($${ns.dailyCost.toFixed(2)}/day).`,
+        impact: `Review workloads in this namespace for optimization opportunities`,
+        savingsEstimate: ns.dailyCost * 0.3 * 30,
+        basisExplanation: `Namespace costs are calculated by aggregating CPU and memory usage of all pods, then applying AWS EC2 pricing rates.`,
+        actionItems: ['Audit all workloads in this namespace for necessity', 'Check for idle or forgotten deployments', 'Review pod resource requests vs actual usage', 'Consider implementing resource quotas'],
+        affectedResources: [ns.namespace],
       });
-    }
-
-    // 4. No Autoscaling Configured
+    });
     const hasKarpenter = dashboard.karpenter?.healthy || false;
-    if (!hasKarpenter && (dashboard.costMetrics?.dailyCost || 0) > 0) {
-      // Use a more conservative estimate for potential savings (15-20%)
-      const estimatedSavings = (dashboard.costMetrics?.dailyCost || 0) * 0.15;
+    if (!hasKarpenter && dailyCost > 0) {
+      const est = dailyCost * 0.15;
       recs.push({
         id: 'no-autoscaling',
         priority: 'high',
         category: 'autoscaling',
         title: 'Cloud-Native Autoscaling Recommended',
-        description: 'Advanced autoscaling (like Karpenter) is not active. This limits your cluster\'s ability to automatically right-size node provisioning.',
-        impact: `Potential savings of $${(estimatedSavings * 30).toFixed(2)}/month with intelligent orchestration`,
-        savingsEstimate: estimatedSavings * 30,
-        basisExplanation: `Intelligent autoscalers can reduce cluster costs by 15-20% through automated consolidation and optimal instance selection. This estimate is based on typical industry benchmarks applied to your current spend.`,
-        actionItems: [
-          'Install and configure Karpenter for intelligent node provisioning',
-          'Define NodePools with appropriate instance type constraints',
-          'Set up Pod Disruption Budgets for safe scaling',
-          'Monitor and tune consolidation settings'
-        ],
-        affectedResources: ['cluster-wide']
+        description: "Advanced autoscaling (like Karpenter) is not active. This limits your cluster's ability to automatically right-size node provisioning.",
+        impact: `Potential savings of $${(est * 30).toFixed(2)}/month with intelligent orchestration`,
+        savingsEstimate: est * 30,
+        basisExplanation: `Intelligent autoscalers can reduce cluster costs by 15-20% through automated consolidation and optimal instance selection.`,
+        actionItems: ['Install and configure Karpenter for intelligent node provisioning', 'Define NodePools with appropriate instance type constraints', 'Set up Pod Disruption Budgets for safe scaling', 'Monitor and tune consolidation settings'],
+        affectedResources: ['cluster-wide'],
       });
     }
-
-    // 5. Idle Resources
-    const idleWorkloads = getWorkloadCosts().filter((wl: any) => {
-      return (wl.cpuUsageMillicores || 0) < 10 && (wl.memoryUsageMb || 0) < 100;
-    });
-
+    const idleWorkloads = getWorkloadCosts().filter((wl: any) => (wl.cpuUsageMillicores || 0) < 10 && (wl.memoryUsageMb || 0) < 100);
     if (idleWorkloads.length > 2) {
       const idleCost = idleWorkloads.reduce((sum: number, wl: any) => sum + (wl.dailyCost || 0), 0);
       recs.push({
@@ -284,646 +180,322 @@ const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
         description: `Found ${idleWorkloads.length} workloads with minimal CPU (<10m) and memory usage (<100MB). These may be idle or test workloads.`,
         impact: `Save $${(idleCost * 30).toFixed(2)}/month by cleaning up`,
         savingsEstimate: idleCost * 30,
-        basisExplanation: `Workloads are classified as idle when CPU usage is below 10 millicores and memory usage is below 100MB. Even idle pods consume cluster resources and incur costs.`,
-        actionItems: [
-          'Review and delete unused test/development workloads',
-          'Implement workload scheduling for non-production environments',
-          'Use namespaces to organize and track workload purposes',
-          'Set up regular audits of running workloads'
-        ],
-        affectedResources: idleWorkloads.map((wl: any) => `${wl.namespace}/${wl.name}`).slice(0, 5)
+        basisExplanation: `Workloads are classified as idle when CPU usage is below 10 millicores and memory usage is below 100MB.`,
+        actionItems: ['Review and delete unused test/development workloads', 'Implement workload scheduling for non-production environments', 'Use namespaces to organize and track workload purposes', 'Set up regular audits of running workloads'],
+        affectedResources: idleWorkloads.map((wl: any) => `${wl.namespace}/${wl.name}`).slice(0, 5),
       });
     }
-
-    // Sort by priority and savings
     return recs.sort((a, b) => {
-      const priorityWeight = { high: 3, medium: 2, low: 1 };
-      if (priorityWeight[a.priority] !== priorityWeight[b.priority]) {
-        return priorityWeight[b.priority] - priorityWeight[a.priority];
-      }
+      const w = { high: 3, medium: 2, low: 1 };
+      if (w[a.priority] !== w[b.priority]) return w[b.priority] - w[a.priority];
       return b.savingsEstimate - a.savingsEstimate;
     });
-  }, [sortedNodesByCost, dashboard, getNamespaceCosts, getWorkloadCosts]);
+  }, [sortedNodesByCost, dashboard]);
 
-  const getPriorityColor = (priority: string) => {
-    switch (priority) {
-      case 'high': return 'bg-red-50 border-red-200 text-red-700';
-      case 'medium': return 'bg-amber-50 border-amber-200 text-amber-700';
-      case 'low': return 'bg-blue-50 border-blue-200 text-blue-700';
-      default: return 'bg-gray-50 border-gray-200 text-gray-700';
-    }
-  };
+  const namespaceCosts = getNamespaceCosts();
+  const totalNsCost = namespaceCosts.reduce((s: number, n: any) => s + (n.dailyCost || 0), 0);
+  const totalSavings = recommendations.reduce((s, r) => s + r.savingsEstimate, 0);
+  const hourlyRate = dailyCost / 24;
 
-  const getPriorityIcon = (priority: string) => {
-    switch (priority) {
-      case 'high': return 'exclamation-circle';
-      case 'medium': return 'exclamation-triangle';
-      case 'low': return 'info-circle';
-      default: return 'info-circle';
-    }
-  };
+  const deploymentCosts = getDeploymentCosts();
+  const daemonSetCosts = getDaemonSetCosts();
+  const statefulSetCosts = getStatefulSetCosts();
+  const activeWorkloads = workloadTab === 'deployments' ? deploymentCosts : workloadTab === 'daemonsets' ? daemonSetCosts : statefulSetCosts;
+  const activeWorkloadPage = workloadTab === 'deployments' ? deploymentPage : workloadTab === 'daemonsets' ? daemonSetPage : statefulSetPage;
+  const setActiveWorkloadPage = workloadTab === 'deployments' ? setDeploymentPage : workloadTab === 'daemonsets' ? setDaemonSetPage : setStatefulSetPage;
+  const maxWorkloadCost = Math.max(...activeWorkloads.map((w: any) => w.dailyCost || 0), 0.01);
+
+  const sortedNodes = [...sortedNodesByCost].sort((a: any, b: any) => {
+    const aReady = (!a.condition || a.condition === 'Ready' || a.condition === 'ready') ? 1 : 0;
+    const bReady = (!b.condition || b.condition === 'Ready' || b.condition === 'ready') ? 1 : 0;
+    if (aReady !== bReady) return bReady - aReady;
+    return (b.dailyCost || 0) - (a.dailyCost || 0);
+  });
 
   return (
-    <div className="space-y-6">
-      {/* Cost Summary */}
-      <section className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
-        <div className="flex items-center gap-3 mb-6">
-          <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center">
-            <i className="fas fa-dollar-sign text-slate-700 text-lg"></i>
-          </div>
-          <h3 className="text-xl font-bold text-gray-900">Cost Overview</h3>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="p-5 bg-gray-50 rounded-lg border border-gray-200">
-            <div className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Daily Cost</div>
-            <div className="text-3xl font-bold text-gray-900">
-              ${(dashboard.costMetrics?.dailyCost || 0).toFixed(2)}
-            </div>
-            <div className="text-xs text-gray-500 mt-1">Current spend per day</div>
-          </div>
-          <div className="p-5 bg-gray-50 rounded-lg border border-gray-200">
-            <div className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Monthly Projection</div>
-            <div className="text-3xl font-bold text-gray-900">
-              ${((dashboard.costMetrics?.dailyCost || 0) * 30).toFixed(2)}
-            </div>
-            <div className="text-xs text-gray-500 mt-1">Projected for 30 days</div>
-          </div>
-        </div>
-      </section>
+    <div className="space-y-5">
 
-
-      {/* Node Cost Breakdown */}
-      <section className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
-        <div className="flex items-center gap-3 mb-6">
-          <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center">
-            <i className="fas fa-server text-blue-600 text-lg"></i>
-          </div>
-          <h3 className="text-xl font-bold text-gray-900">
-            Node Cost Breakdown
-            <span className="ml-2 text-sm font-normal text-gray-500">
-              ({sortedNodesByCost.filter((n: any) => n.condition === 'Ready' || n.condition === 'ready' || !n.condition).length} running nodes)
-            </span>
-          </h3>
+      {/* ── KPI Strip ── */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="bg-white border border-[#d0d7de] rounded-lg px-5 py-4">
+          <div className="text-[11px] font-medium uppercase tracking-wider text-[#8b949e] mb-1">TODAY'S SPEND</div>
+          <div className="text-[26px] font-semibold leading-none text-[#1a1f2e]">${dailyCost.toFixed(2)}</div>
+          <div className="text-[11px] text-[#8b949e] mt-1">per day · ${hourlyRate.toFixed(4)}/hr</div>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b-2 border-gray-200">
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                  Node Name
-                </th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                  Instance Type
-                </th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                  Hourly Rate
-                </th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                  Daily Cost
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {sortedNodesByCost
-                .filter(() => true) // No capacity filter
-                .sort((a: any, b: any) => {
-                  const aReady = (a.condition === 'Ready' || a.condition === 'ready' || !a.condition) ? 1 : 0;
-                  const bReady = (b.condition === 'Ready' || b.condition === 'ready' || !b.condition) ? 1 : 0;
-                  if (aReady !== bReady) return bReady - aReady;
-                  // Then prioritize nodes with known instance types
-                  const aHasType = a.instanceType && a.instanceType !== 'Unknown' ? 1 : 0;
-                  const bHasType = b.instanceType && b.instanceType !== 'Unknown' ? 1 : 0;
-                  if (aHasType !== bHasType) return bHasType - aHasType;
-                  return (b.dailyCost || 0) - (a.dailyCost || 0);
-                })
-                .slice(nodePage * nodeItemsPerPage, (nodePage + 1) * nodeItemsPerPage)
-                .map((node: any, index: number) => {
-                  // Fallback for instance type if missing in cost data
-                  const instanceType = node.instanceType ||
-                    dashboard.nodes?.find((n: any) => n.name === node.nodeName)?.instanceType ||
-                    'Unknown';
-
-                  return (
-                    <tr key={index} className="border-t border-gray-100 hover:bg-gray-50 transition-colors">
-                      <td className="px-4 py-3 text-sm font-mono font-semibold text-gray-900">
-                        {node.nodeName}
-                        {(!node.condition || (node.condition !== 'Ready' && node.condition !== 'ready')) && (
-                          <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
-                            {node.condition || 'Not Ready'}
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-600">{instanceType}</td>
-                      <td className="px-4 py-3 text-sm text-right font-medium text-gray-700">
-                        ${(node.hourlyRate || 0).toFixed(4)}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-right font-bold text-gray-900">
-                        ${(node.dailyCost || 0).toFixed(2)}
-                      </td>
-                    </tr>
-                  );
-                })}
-              {sortedNodesByCost.length === 0 && (
-                <tr>
-                  <td colSpan={4} className="px-4 py-8 text-center text-gray-500">
-                    <i className="fas fa-server text-gray-300 text-2xl mb-2"></i>
-                    <p className="text-sm">No node cost data available</p>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+        <div className="bg-white border border-[#d0d7de] rounded-lg px-5 py-4">
+          <div className="text-[11px] font-medium uppercase tracking-wider text-[#8b949e] mb-1">MONTHLY EST.</div>
+          <div className="text-[26px] font-semibold leading-none text-[#1a1f2e]">${monthlyCost.toFixed(0)}</div>
+          <div className="text-[11px] text-[#8b949e] mt-1">30-day projection</div>
         </div>
-        {/* Node Pagination */}
-        {sortedNodesByCost.length > nodeItemsPerPage && (
-          <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-200">
-            <div className="text-sm text-gray-600">
-              Showing {nodePage * nodeItemsPerPage + 1} to{' '}
-              {Math.min((nodePage + 1) * nodeItemsPerPage, sortedNodesByCost.length)} of{' '}
-              {sortedNodesByCost.length} nodes
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setNodePage(Math.max(0, nodePage - 1))}
-                disabled={nodePage === 0}
-                className="px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
-              >
-                Previous
-              </button>
-              <button
-                onClick={() => setNodePage(nodePage + 1)}
-                disabled={(nodePage + 1) * nodeItemsPerPage >= sortedNodesByCost.length}
-                className="px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        )}
-      </section>
-
-      {/* Cost by Namespace */}
-      <section className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
-        <div className="flex items-center gap-3 mb-6">
-          <div className="w-10 h-10 rounded-lg bg-indigo-50 flex items-center justify-center">
-            <i className="fas fa-layer-group text-indigo-600 text-lg"></i>
-          </div>
-          <h3 className="text-xl font-bold text-gray-900">Cost by Namespace</h3>
+        <div className="bg-white border border-[#d0d7de] rounded-lg px-5 py-4">
+          <div className="text-[11px] font-medium uppercase tracking-wider text-[#8b949e] mb-1">POTENTIAL SAVINGS</div>
+          <div className={`text-[26px] font-semibold leading-none ${totalSavings > 0 ? 'text-[#1a7f37]' : 'text-[#1a1f2e]'}`}>${totalSavings.toFixed(0)}</div>
+          <div className="text-[11px] text-[#8b949e] mt-1">per month identified</div>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b-2 border-gray-200">
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                  Namespace
-                </th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                  Pods
-                </th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                  CPU (m)
-                </th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                  Memory (MB)
-                </th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                  $/Day
-                </th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                  $/Month
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {getNamespaceCosts()
-                .slice(namespacePage * itemsPerPage, (namespacePage + 1) * itemsPerPage)
-                .map((ns: any, index: number) => (
-                  <tr key={index} className="border-t border-gray-100 hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-3 text-sm font-mono font-semibold text-gray-900">
-                      {ns.namespace}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-right text-gray-700 font-medium">
-                      {ns.podCount || 0}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-right text-gray-600">
-                      {(ns.cpuUsageMillicores || 0).toFixed(0)}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-right text-gray-600">
-                      {(ns.memoryUsageMb || 0).toFixed(0)}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-right font-semibold text-gray-900">
-                      ${(ns.dailyCost || 0).toFixed(2)}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-right font-bold text-gray-900">
-                      ${(ns.monthlyCost || 0).toFixed(2)}
-                    </td>
-                  </tr>
-                ))}
-              {getNamespaceCosts().length === 0 && (
-                <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
-                    <i className="fas fa-layer-group text-gray-300 text-2xl mb-2"></i>
-                    <p className="text-sm">No namespace cost data available</p>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+        <div className="bg-white border border-[#d0d7de] rounded-lg px-5 py-4">
+          <div className="text-[11px] font-medium uppercase tracking-wider text-[#8b949e] mb-1">ACTIVE NAMESPACES</div>
+          <div className="text-[26px] font-semibold leading-none text-[#1a1f2e]">{namespaceCosts.length}</div>
+          <div className="text-[11px] text-[#8b949e] mt-1">{sortedNodes.length} nodes running</div>
         </div>
-        {/* Namespace Pagination */}
-        {getNamespaceCosts().length > itemsPerPage && (
-          <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-200">
-            <div className="text-sm text-gray-600">
-              Showing {namespacePage * itemsPerPage + 1} to{' '}
-              {Math.min((namespacePage + 1) * itemsPerPage, getNamespaceCosts().length)} of{' '}
-              {getNamespaceCosts().length} namespaces
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setNamespacePage(Math.max(0, namespacePage - 1))}
-                disabled={namespacePage === 0}
-                className="px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
-              >
-                Previous
-              </button>
-              <button
-                onClick={() => setNamespacePage(namespacePage + 1)}
-                disabled={(namespacePage + 1) * itemsPerPage >= getNamespaceCosts().length}
-                className="px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        )}
-      </section>
+      </div>
 
-      {/* Cost by Workload */}
-      <section className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
-        <div className="flex items-center gap-3 mb-6">
-          <div className="w-10 h-10 rounded-lg bg-purple-50 flex items-center justify-center">
-            <i className="fas fa-cubes text-purple-600 text-lg"></i>
-          </div>
-          <h3 className="text-xl font-bold text-gray-900">
-            Cost by Workload
-            <span className="ml-2 text-sm font-normal text-gray-500">
-              ({getWorkloadCosts().length} total)
-            </span>
-          </h3>
+      {/* ── Namespace Cost Breakdown ── */}
+      <div className="bg-white border border-[#d0d7de] rounded-lg overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-[#e8ecf0] flex items-center justify-between">
+          <span className="text-sm font-semibold text-[#1a1f2e]">Namespace Cost Breakdown</span>
+          <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold border border-[#d0d7de] text-[#57606a]">
+            ${totalNsCost.toFixed(2)}/day · {namespaceCosts.length} namespaces
+          </span>
         </div>
 
-        {/* Deployments */}
-        {getDeploymentCosts().length > 0 && (
-          <div className="mb-6">
-            <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-              <i className="fas fa-rocket text-blue-600"></i>
-              Deployments ({getDeploymentCosts().length})
-            </h4>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b-2 border-gray-200">
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                      Name
-                    </th>
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                      Namespace
-                    </th>
-                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                      CPU (m)
-                    </th>
-                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                      Memory (MB)
-                    </th>
-                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                      $/Day
-                    </th>
-                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                      $/Month
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {getDeploymentCosts()
-                    .slice(deploymentPage * itemsPerPage, (deploymentPage + 1) * itemsPerPage)
-                    .map((wl: any, index: number) => (
-                      <tr key={index} className="border-t border-gray-100 hover:bg-gray-50 transition-colors">
-                        <td className="px-4 py-3 text-sm font-mono font-semibold text-gray-900">
-                          {wl.name}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-600">{wl.namespace}</td>
-                        <td className="px-4 py-3 text-sm text-right text-gray-600">
-                          {(wl.cpuUsageMillicores || 0).toFixed(0)}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-right text-gray-600">
-                          {(wl.memoryUsageMb || 0).toFixed(0)}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-right font-semibold text-gray-900">
-                          ${(wl.dailyCost || 0).toFixed(2)}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-right font-bold text-gray-900">
-                          ${(wl.monthlyCost || 0).toFixed(2)}
-                        </td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
-            </div>
-            {getDeploymentCosts().length > itemsPerPage && (
-              <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-200">
-                <div className="text-sm text-gray-600">
-                  Showing {deploymentPage * itemsPerPage + 1} to{' '}
-                  {Math.min((deploymentPage + 1) * itemsPerPage, getDeploymentCosts().length)} of{' '}
-                  {getDeploymentCosts().length}
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setDeploymentPage(Math.max(0, deploymentPage - 1))}
-                    disabled={deploymentPage === 0}
-                    className="px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
-                  >
-                    Previous
-                  </button>
-                  <button
-                    onClick={() => setDeploymentPage(deploymentPage + 1)}
-                    disabled={(deploymentPage + 1) * itemsPerPage >= getDeploymentCosts().length}
-                    className="px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
-                  >
-                    Next
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* DaemonSets */}
-        {getDaemonSetCosts().length > 0 && (
-          <div className="mb-6">
-            <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-              <i className="fas fa-network-wired text-emerald-600"></i>
-              DaemonSets ({getDaemonSetCosts().length})
-            </h4>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b-2 border-gray-200">
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                      Name
-                    </th>
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                      Namespace
-                    </th>
-                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                      CPU (m)
-                    </th>
-                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                      Memory (MB)
-                    </th>
-                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                      $/Day
-                    </th>
-                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                      $/Month
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {getDaemonSetCosts()
-                    .slice(daemonSetPage * itemsPerPage, (daemonSetPage + 1) * itemsPerPage)
-                    .map((wl: any, index: number) => (
-                      <tr key={index} className="border-t border-gray-100 hover:bg-gray-50 transition-colors">
-                        <td className="px-4 py-3 text-sm font-mono font-semibold text-gray-900">
-                          {wl.name}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-600">{wl.namespace}</td>
-                        <td className="px-4 py-3 text-sm text-right text-gray-600">
-                          {(wl.cpuUsageMillicores || 0).toFixed(0)}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-right text-gray-600">
-                          {(wl.memoryUsageMb || 0).toFixed(0)}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-right font-semibold text-gray-900">
-                          ${(wl.dailyCost || 0).toFixed(2)}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-right font-bold text-gray-900">
-                          ${(wl.monthlyCost || 0).toFixed(2)}
-                        </td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
-            </div>
-            {getDaemonSetCosts().length > itemsPerPage && (
-              <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-200">
-                <div className="text-sm text-gray-600">
-                  Showing {daemonSetPage * itemsPerPage + 1} to{' '}
-                  {Math.min((daemonSetPage + 1) * itemsPerPage, getDaemonSetCosts().length)} of{' '}
-                  {getDaemonSetCosts().length}
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setDaemonSetPage(Math.max(0, daemonSetPage - 1))}
-                    disabled={daemonSetPage === 0}
-                    className="px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
-                  >
-                    Previous
-                  </button>
-                  <button
-                    onClick={() => setDaemonSetPage(daemonSetPage + 1)}
-                    disabled={(daemonSetPage + 1) * itemsPerPage >= getDaemonSetCosts().length}
-                    className="px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
-                  >
-                    Next
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* StatefulSets */}
-        {getStatefulSetCosts().length > 0 && (
-          <div>
-            <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-              <i className="fas fa-database text-purple-600"></i>
-              StatefulSets ({getStatefulSetCosts().length})
-            </h4>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b-2 border-gray-200">
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                      Name
-                    </th>
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                      Namespace
-                    </th>
-                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                      CPU (m)
-                    </th>
-                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                      Memory (MB)
-                    </th>
-                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                      $/Day
-                    </th>
-                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                      $/Month
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {getStatefulSetCosts()
-                    .slice(statefulSetPage * itemsPerPage, (statefulSetPage + 1) * itemsPerPage)
-                    .map((wl: any, index: number) => (
-                      <tr key={index} className="border-t border-gray-100 hover:bg-gray-50 transition-colors">
-                        <td className="px-4 py-3 text-sm font-mono font-semibold text-gray-900">
-                          {wl.name}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-600">{wl.namespace}</td>
-                        <td className="px-4 py-3 text-sm text-right text-gray-600">
-                          {(wl.cpuUsageMillicores || 0).toFixed(0)}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-right text-gray-600">
-                          {(wl.memoryUsageMb || 0).toFixed(0)}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-right font-semibold text-gray-900">
-                          ${(wl.dailyCost || 0).toFixed(2)}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-right font-bold text-gray-900">
-                          ${(wl.monthlyCost || 0).toFixed(2)}
-                        </td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
-            </div>
-            {getStatefulSetCosts().length > itemsPerPage && (
-              <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-200">
-                <div className="text-sm text-gray-600">
-                  Showing {statefulSetPage * itemsPerPage + 1} to{' '}
-                  {Math.min((statefulSetPage + 1) * itemsPerPage, getStatefulSetCosts().length)} of{' '}
-                  {getStatefulSetCosts().length}
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setStatefulSetPage(Math.max(0, statefulSetPage - 1))}
-                    disabled={statefulSetPage === 0}
-                    className="px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
-                  >
-                    Previous
-                  </button>
-                  <button
-                    onClick={() => setStatefulSetPage(statefulSetPage + 1)}
-                    disabled={(statefulSetPage + 1) * itemsPerPage >= getStatefulSetCosts().length}
-                    className="px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
-                  >
-                    Next
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {getWorkloadCosts().length === 0 && (
-          <div className="py-8 text-center text-gray-500">
-            <i className="fas fa-cubes text-gray-300 text-2xl mb-2"></i>
-            <p className="text-sm">No workload cost data available</p>
-          </div>
-        )}
-      </section>
-
-      {/* Intelligent Recommendations */}
-      {recommendations.length > 0 && (
-        <section className="bg-gradient-to-br from-amber-50 to-yellow-50 rounded-xl shadow-sm p-6 border-2 border-amber-200">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center">
-              <i className="fas fa-lightbulb text-amber-600 text-lg"></i>
-            </div>
-            <div className="flex-1">
-              <h3 className="text-xl font-bold text-gray-900">Cost Optimization Recommendations</h3>
-              <p className="text-sm text-gray-600">
-                {recommendations.length} opportunity{recommendations.length > 1 ? 'ies' : 'y'} identified • Potential savings: $
-                {recommendations.reduce((sum, r) => sum + r.savingsEstimate, 0).toFixed(2)}/month
-              </p>
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            {recommendations.map((rec) => (
-              <div
-                key={rec.id}
-                className={`bg-white rounded-lg p-5 border-2 transition-all ${getPriorityColor(rec.priority)}`}
-              >
-                <div className="flex items-start gap-4">
-                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${rec.priority === 'high' ? 'bg-red-100' : rec.priority === 'medium' ? 'bg-amber-100' : 'bg-blue-100'}`}>
-                    <i className={`fas fa-${getPriorityIcon(rec.priority)} ${rec.priority === 'high' ? 'text-red-600' : rec.priority === 'medium' ? 'text-amber-600' : 'text-blue-600'} text-lg`}></i>
+        <div className="p-5 space-y-3">
+          {namespaceCosts.slice(namespacePage * itemsPerPage, (namespacePage + 1) * itemsPerPage).map((ns: any, i: number) => {
+            const idx = namespacePage * itemsPerPage + i;
+            const costPct = totalNsCost > 0 ? (ns.dailyCost / totalNsCost) * 100 : 0;
+            return (
+              <div key={ns.namespace}>
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] text-[#8b949e] font-mono w-4">{idx + 1}</span>
+                    <span className="font-mono text-[13px] font-semibold text-[#1a1f2e]">{ns.namespace}</span>
+                    <span className="rounded-full px-2 py-0.5 text-[11px] font-semibold border border-[#d0d7de] text-[#57606a]">{ns.podCount} pods</span>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between gap-2 mb-2">
-                      <div>
-                        <h4 className="text-base font-semibold text-gray-900">{rec.title}</h4>
-                        <span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold uppercase mt-1 ${rec.priority === 'high' ? 'bg-red-100 text-red-700' : rec.priority === 'medium' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'}`}>
+                  <div className="flex items-center gap-3">
+                    <span className="text-[11px] text-[#8b949e]">{costPct.toFixed(1)}%</span>
+                    <span className="text-[13px] font-semibold text-[#1a1f2e]">${(ns.dailyCost || 0).toFixed(2)}<span className="text-[11px] text-[#8b949e] font-normal">/day</span></span>
+                    <span className="text-[11px] text-[#8b949e] w-16 text-right">${((ns.dailyCost || 0) * 30).toFixed(0)}/mo</span>
+                  </div>
+                </div>
+                <div className="h-1.5 bg-[#e8ecf0] rounded-full overflow-hidden ml-6">
+                  <div className="h-full bg-[#2f4bde] rounded-full transition-all duration-700"
+                    style={{ width: `${Math.max(costPct, 0.5)}%` }} />
+                </div>
+              </div>
+            );
+          })}
+          {namespaceCosts.length === 0 && (
+            <div className="py-12 text-center">
+              <i className="fas fa-layer-group text-[#8b949e] text-3xl mb-3"></i>
+              <p className="text-[13px] text-[#57606a]">No namespace cost data available</p>
+            </div>
+          )}
+        </div>
+
+        {namespaceCosts.length > itemsPerPage && (
+          <div className="px-5 py-3 bg-[#f6f8fa] border-t border-[#e8ecf0] flex items-center justify-between">
+            <span className="text-[11px] text-[#8b949e]">
+              {namespacePage * itemsPerPage + 1}–{Math.min((namespacePage + 1) * itemsPerPage, namespaceCosts.length)} of {namespaceCosts.length}
+            </span>
+            <div className="flex gap-2">
+              <button onClick={() => setNamespacePage(p => Math.max(0, p - 1))} disabled={namespacePage === 0}
+                className="px-3 py-1.5 text-[12px] font-semibold bg-white border border-[#d0d7de] rounded-lg hover:bg-[#f6f8fa] disabled:opacity-40 text-[#1a1f2e]">Previous</button>
+              <button onClick={() => setNamespacePage(p => p + 1)} disabled={(namespacePage + 1) * itemsPerPage >= namespaceCosts.length}
+                className="px-3 py-1.5 text-[12px] font-semibold bg-white border border-[#d0d7de] rounded-lg hover:bg-[#f6f8fa] disabled:opacity-40 text-[#1a1f2e]">Next</button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── Node Fleet Cost ── */}
+      <div className="bg-white border border-[#d0d7de] rounded-lg overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-[#e8ecf0]">
+          <span className="text-sm font-semibold text-[#1a1f2e]">Node Fleet Cost</span>
+          <span className="ml-2 text-[11px] text-[#8b949e]">{sortedNodes.length} nodes · by daily spend</span>
+        </div>
+
+        <div className="p-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+            {sortedNodes.slice(nodePage * nodeItemsPerPage, (nodePage + 1) * nodeItemsPerPage).map((node: any, i: number) => {
+              const isReady = !node.condition || node.condition === 'Ready' || node.condition === 'ready';
+              const isSpot = node.capacityType === 'spot';
+              const instanceType = node.instanceType || dashboard.nodes?.find((n: any) => n.name === node.nodeName)?.instanceType || 'Unknown';
+              return (
+                <div key={i} className="bg-white border border-[#d0d7de] rounded-lg p-4 hover:bg-[#f6f8fa] transition-colors">
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[13px] font-mono font-semibold text-[#1a1f2e] truncate">{node.nodeName}</p>
+                      <p className="text-[11px] text-[#8b949e] mt-0.5">{instanceType}</p>
+                    </div>
+                    {node.capacityType && (
+                      <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold border ml-2 flex-shrink-0"
+                        style={isSpot
+                          ? { color: '#0550ae', background: '#ddf4ff', borderColor: 'rgba(84,174,255,0.4)' }
+                          : { color: '#57606a', background: '#f6f8fa', borderColor: '#d0d7de' }}>
+                        {isSpot ? 'Spot' : 'On-Demand'}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="text-[26px] font-semibold text-[#1a1f2e] leading-none mb-1">
+                    ${(node.dailyCost || 0).toFixed(2)}<span className="text-[13px] text-[#8b949e] font-normal">/day</span>
+                  </div>
+                  <p className="text-[11px] text-[#8b949e] mb-3">${((node.dailyCost || 0) * 30).toFixed(0)}/mo · ${(node.hourlyRate || 0).toFixed(4)}/hr</p>
+
+                  <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold border"
+                    style={isReady
+                      ? { color: '#1a7f37', background: '#dafbe1', borderColor: 'rgba(74,194,107,0.4)' }
+                      : { color: '#cf222e', background: '#ffebe9', borderColor: 'rgba(255,129,130,0.4)' }}>
+                    {isReady ? 'Ready' : (node.condition || 'Not Ready')}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+
+          {sortedNodes.length === 0 && (
+            <div className="py-10 text-center col-span-3">
+              <p className="text-[13px] text-[#57606a]">No node cost data available</p>
+            </div>
+          )}
+        </div>
+
+          {sortedNodes.length > nodeItemsPerPage && (
+            <div className="flex items-center justify-between mt-4 pt-4 border-t border-[#e8ecf0]">
+              <span className="text-[11px] text-[#8b949e]">
+                {nodePage * nodeItemsPerPage + 1}–{Math.min((nodePage + 1) * nodeItemsPerPage, sortedNodes.length)} of {sortedNodes.length}
+              </span>
+              <div className="flex gap-2">
+                <button onClick={() => setNodePage(p => Math.max(0, p - 1))} disabled={nodePage === 0}
+                  className="px-3 py-1.5 text-[12px] font-semibold bg-white border border-[#d0d7de] rounded-lg hover:bg-[#f6f8fa] disabled:opacity-40 text-[#1a1f2e]">Previous</button>
+                <button onClick={() => setNodePage(p => p + 1)} disabled={(nodePage + 1) * nodeItemsPerPage >= sortedNodes.length}
+                  className="px-3 py-1.5 text-[12px] font-semibold bg-white border border-[#d0d7de] rounded-lg hover:bg-[#f6f8fa] disabled:opacity-40 text-[#1a1f2e]">Next</button>
+              </div>
+            </div>
+          )}
+      </div>
+
+      {/* ── Workload Cost Ranking ── */}
+      <div className="bg-white border border-[#d0d7de] rounded-lg overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-[#e8ecf0] flex items-center justify-between flex-wrap gap-3">
+          <span className="text-sm font-semibold text-[#1a1f2e]">Workload Cost Ranking</span>
+          <div className="flex items-center gap-1">
+            {[
+              { key: 'deployments', label: 'Deployments', count: deploymentCosts.length },
+              { key: 'daemonsets', label: 'DaemonSets', count: daemonSetCosts.length },
+              { key: 'statefulsets', label: 'StatefulSets', count: statefulSetCosts.length },
+            ].map(tab => (
+              <button key={tab.key}
+                onClick={() => { setWorkloadTab(tab.key as any); setDeploymentPage(0); setDaemonSetPage(0); setStatefulSetPage(0); }}
+                className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold transition-colors ${workloadTab === tab.key ? 'bg-[#2f4bde] text-white' : 'bg-white text-[#57606a] border border-[#d0d7de] hover:bg-[#f6f8fa]'}`}>
+                {tab.label} <span className="opacity-70">({tab.count})</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <table className="w-full">
+          <thead>
+            <tr className="bg-[#f6f8fa] border-b border-[#d0d7de]">
+              <th className="px-5 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-[#8b949e]">#</th>
+              <th className="px-5 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-[#8b949e]">Workload</th>
+              <th className="px-5 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-[#8b949e]">Namespace</th>
+              <th className="px-5 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-[#8b949e]">Usage share</th>
+              <th className="px-5 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-[#8b949e]">Daily</th>
+              <th className="px-5 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-[#8b949e]">Monthly</th>
+            </tr>
+          </thead>
+          <tbody>
+            {activeWorkloads.slice(activeWorkloadPage * itemsPerPage, (activeWorkloadPage + 1) * itemsPerPage).map((wl: any, i: number) => {
+              const rank = activeWorkloadPage * itemsPerPage + i + 1;
+              const costShare = (wl.dailyCost / Math.max(maxWorkloadCost, 0.01)) * 100;
+              return (
+                <tr key={i} className="border-b border-[#e8ecf0] hover:bg-[#f6f8fa] transition-colors">
+                  <td className="px-5 py-2.5 text-[11px] text-[#8b949e] font-mono">{rank}</td>
+                  <td className="px-5 py-2.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[13px] font-semibold text-[#1a1f2e] truncate max-w-[180px]">{wl.name}</span>
+                      <span className="rounded-full px-2 py-0.5 text-[11px] font-semibold border border-[#d0d7de] text-[#57606a]">{wl.kind}</span>
+                    </div>
+                  </td>
+                  <td className="px-5 py-2.5 text-[13px] font-mono text-[#57606a]">{wl.namespace}</td>
+                  <td className="px-5 py-2.5 w-36">
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 h-1.5 bg-[#e8ecf0] rounded-full overflow-hidden">
+                        <div className="h-full bg-[#2f4bde] rounded-full" style={{ width: `${costShare}%` }} />
+                      </div>
+                      <span className="text-[11px] text-[#8b949e] w-8">{wl.podCount}p</span>
+                    </div>
+                  </td>
+                  <td className="px-5 py-2.5 text-right text-[13px] font-semibold text-[#1a1f2e]">${(wl.dailyCost || 0).toFixed(2)}</td>
+                  <td className="px-5 py-2.5 text-right text-[11px] text-[#8b949e]">${(wl.monthlyCost || 0).toFixed(0)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {activeWorkloads.length === 0 && (
+          <div className="py-10 text-center">
+            <p className="text-[13px] text-[#57606a]">No {workloadTab} cost data available</p>
+          </div>
+        )}
+        {activeWorkloads.length > itemsPerPage && (
+          <div className="px-5 py-3 bg-[#f6f8fa] border-t border-[#e8ecf0] flex items-center justify-between">
+            <span className="text-[11px] text-[#8b949e]">
+              {activeWorkloadPage * itemsPerPage + 1}–{Math.min((activeWorkloadPage + 1) * itemsPerPage, activeWorkloads.length)} of {activeWorkloads.length}
+            </span>
+            <div className="flex gap-2">
+              <button onClick={() => setActiveWorkloadPage(p => Math.max(0, p - 1))} disabled={activeWorkloadPage === 0}
+                className="px-3 py-1.5 text-[12px] font-semibold bg-white border border-[#d0d7de] rounded-lg hover:bg-[#f6f8fa] disabled:opacity-40 text-[#1a1f2e]">Previous</button>
+              <button onClick={() => setActiveWorkloadPage(p => p + 1)} disabled={(activeWorkloadPage + 1) * itemsPerPage >= activeWorkloads.length}
+                className="px-3 py-1.5 text-[12px] font-semibold bg-white border border-[#d0d7de] rounded-lg hover:bg-[#f6f8fa] disabled:opacity-40 text-[#1a1f2e]">Next</button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── Savings Opportunities ── */}
+      {recommendations.length > 0 && (
+        <div className="bg-white border border-[#d0d7de] rounded-lg overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-[#e8ecf0] flex items-center justify-between">
+            <span className="text-sm font-semibold text-[#1a1f2e]">Savings Opportunities</span>
+            <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold border"
+              style={{ color: '#1a7f37', background: '#dafbe1', borderColor: 'rgba(74,194,107,0.4)' }}>
+              ${totalSavings.toFixed(0)}/mo potential
+            </span>
+          </div>
+
+          <div className="p-5 space-y-3">
+            {recommendations.map((rec) => {
+              const prioStyle = rec.priority === 'high'
+                ? { color: '#cf222e', bg: '#ffebe9', border: 'rgba(255,129,130,0.4)' }
+                : rec.priority === 'medium'
+                ? { color: '#9a6700', bg: '#fff8c5', border: 'rgba(212,167,44,0.4)' }
+                : { color: '#0550ae', bg: '#ddf4ff', border: 'rgba(84,174,255,0.4)' };
+              return (
+                <div key={rec.id} className="border border-[#d0d7de] rounded-lg p-4 hover:bg-[#f6f8fa] transition-colors">
+                  <div className="flex items-start justify-between gap-3 mb-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        <h4 className="text-sm font-semibold text-[#1a1f2e]">{rec.title}</h4>
+                        <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold border"
+                          style={{ color: prioStyle.color, background: prioStyle.bg, borderColor: prioStyle.border }}>
                           {rec.priority} priority
                         </span>
                       </div>
-                      {rec.savingsEstimate > 0 && (
-                        <div className="text-right flex-shrink-0">
-                          <div className="text-lg font-bold text-emerald-600">
-                            ${rec.savingsEstimate.toFixed(2)}
-                          </div>
-                          <div className="text-xs text-gray-500">potential/month</div>
-                        </div>
-                      )}
+                      <p className="text-[13px] text-[#57606a] mb-1">{rec.description}</p>
+                      <p className="text-[13px] font-semibold text-[#1a1f2e]">{rec.impact}</p>
                     </div>
-
-                    <p className="text-sm text-gray-700 mb-3">{rec.description}</p>
-                    <div className="text-sm font-semibold text-gray-900 mb-2">{rec.impact}</div>
-
-                    {/* Basis Explanation - Collapsible */}
-                    <button
-                      onClick={() => setShowRecommendationInfo(showRecommendationInfo === rec.id ? null : rec.id)}
-                      className="flex items-center gap-2 text-xs text-gray-600 hover:text-gray-900 mb-2 font-medium"
-                    >
-                      <i className={`fas fa-info-circle text-sm`}></i>
-                      <span>How is this calculated?</span>
-                      <i className={`fas fa-chevron-${showRecommendationInfo === rec.id ? 'up' : 'down'} text-xs`}></i>
-                    </button>
-
-                    {showRecommendationInfo === rec.id && (
-                      <div className="bg-gray-50 rounded-lg p-3 mb-3 text-xs text-gray-700 border border-gray-200">
-                        <strong className="text-gray-900">Calculation Basis:</strong> {rec.basisExplanation}
-                      </div>
-                    )}
-
-                    {/* Action Items */}
-                    <div className="mb-3">
-                      <div className="text-xs font-semibold text-gray-700 mb-2 uppercase tracking-wide">Recommended Actions:</div>
-                      <ul className="space-y-1">
-                        {rec.actionItems.map((action, idx) => (
-                          <li key={idx} className="text-xs text-gray-700 flex items-start gap-2">
-                            <i className="fas fa-check text-emerald-600 mt-0.5 flex-shrink-0"></i>
-                            <span>{action}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-
-                    {/* Affected Resources */}
-                    {rec.affectedResources.length > 0 && (
-                      <div className="text-xs text-gray-600">
-                        <strong>Affected:</strong> {rec.affectedResources.slice(0, 3).join(', ')}
-                        {rec.affectedResources.length > 3 && ` and ${rec.affectedResources.length - 3} more`}
+                    {rec.savingsEstimate > 0 && (
+                      <div className="text-right flex-shrink-0">
+                        <div className="text-[26px] font-semibold text-[#1a7f37] leading-none">${rec.savingsEstimate.toFixed(0)}</div>
+                        <div className="text-[11px] text-[#8b949e]">/month</div>
                       </div>
                     )}
                   </div>
+                  <button onClick={() => setShowRecommendationInfo(showRecommendationInfo === rec.id ? null : rec.id)}
+                    className="text-[12px] text-[#2f4bde] hover:underline">
+                    {showRecommendationInfo === rec.id ? '▲' : '▼'} How is this calculated?
+                  </button>
+                  {showRecommendationInfo === rec.id && (
+                    <div className="mt-2 p-3 bg-[#f6f8fa] rounded-lg border border-[#d0d7de] text-[11px] text-[#57606a]">
+                      {rec.basisExplanation}
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
-        </section>
+        </div>
       )}
     </div>
   );
