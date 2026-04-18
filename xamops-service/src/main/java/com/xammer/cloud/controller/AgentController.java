@@ -13,13 +13,16 @@ import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.KubernetesClusterConfigRepository;
 import com.xammer.cloud.service.AgentIngestService;
 import com.xammer.cloud.service.DbAgentService;
+import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.service.EksAutoscalingService;
 import com.xammer.cloud.service.RedisCacheService;
+import com.xammer.cloud.util.SecurityUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import javax.servlet.http.HttpServletRequest;
@@ -200,7 +203,8 @@ public class AgentController {
      */
     @PostMapping("/db/register")
     public ResponseEntity<Map<String, Object>> registerDbAgent(
-            @RequestBody Map<String, String> body) {
+            @RequestBody Map<String, String> body,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
 
         String agentName = body.get("agentName");
         String cloudAccountId = body.get("cloudAccountId");
@@ -208,6 +212,16 @@ public class AgentController {
         if (agentName == null || agentName.isEmpty() || cloudAccountId == null || cloudAccountId.isEmpty()) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body(Map.of("error", "agentName and cloudAccountId are required"));
+        }
+
+        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(cloudAccountId);
+        if (accounts.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("error", "Cloud account not found. Add account to XamOps first."));
+        }
+
+        if (!SecurityUtils.isAuthorizedForAccount(accounts.get(0), userDetails)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
 
         DbAgentConfig cfg = dbAgentService.registerDbAgent(cloudAccountId, agentName);
@@ -410,12 +424,18 @@ public class AgentController {
      */
     @PostMapping("/db/config")
     public ResponseEntity<Map<String, Object>> saveDbAgentConfig(
-            @RequestBody Map<String, String> body) {
+            @RequestBody Map<String, String> body,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
 
         String agentName     = body.get("agentName");
         String cloudAccountId = body.get("cloudAccountId");
         if (agentName == null || cloudAccountId == null) {
             return ResponseEntity.badRequest().body(Map.of("error", "agentName and cloudAccountId are required"));
+        }
+
+        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(cloudAccountId);
+        if (accounts.isEmpty() || !SecurityUtils.isAuthorizedForAccount(accounts.get(0), userDetails)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
 
         DbAgentConfig cfg = dbAgentService.saveConnectionConfig(
@@ -439,7 +459,13 @@ public class AgentController {
     @GetMapping("/db/config")
     public ResponseEntity<Map<String, Object>> loadDbAgentConfig(
             @RequestParam String agentName,
-            @RequestParam String cloudAccountId) {
+            @RequestParam String cloudAccountId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+
+        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(cloudAccountId);
+        if (accounts.isEmpty() || !SecurityUtils.isAuthorizedForAccount(accounts.get(0), userDetails)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
 
         DbAgentConfig cfg = dbAgentService.loadConnectionConfig(cloudAccountId, agentName);
         if (cfg == null) {
@@ -465,7 +491,13 @@ public class AgentController {
     @GetMapping("/db/status")
     public ResponseEntity<Map<String, Object>> getDbAgentStatus(
             @RequestParam String agentName,
-            @RequestParam String cloudAccountId) {
+            @RequestParam String cloudAccountId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+
+        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(cloudAccountId);
+        if (accounts.isEmpty() || !SecurityUtils.isAuthorizedForAccount(accounts.get(0), userDetails)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
 
         java.util.Optional<DbAgentConfig> cfgOpt = dbAgentService.findDbAgent(cloudAccountId, agentName);
         if (cfgOpt.isEmpty()) {
