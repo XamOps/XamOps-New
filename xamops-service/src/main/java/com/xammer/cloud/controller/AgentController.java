@@ -11,15 +11,18 @@ import com.xammer.cloud.repository.AgentDataCacheRepository;
 import com.xammer.cloud.repository.AgentEventRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.KubernetesClusterConfigRepository;
+import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.service.AgentIngestService;
 import com.xammer.cloud.service.DbAgentService;
 import com.xammer.cloud.service.EksAutoscalingService;
 import com.xammer.cloud.service.RedisCacheService;
+import com.xammer.cloud.util.SecurityUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import javax.servlet.http.HttpServletRequest;
@@ -195,12 +198,12 @@ public class AgentController {
      * Idempotent — safe to call multiple times.
      *
      * POST /api/v1/agent/db/register
-     * Authorization: Bearer <global_api_key>
      * Body: { "agentName": "my-rds-agent", "cloudAccountId": "015764906357" }
      */
     @PostMapping("/db/register")
     public ResponseEntity<Map<String, Object>> registerDbAgent(
-            @RequestBody Map<String, String> body) {
+            @RequestBody Map<String, String> body,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
 
         String agentName = body.get("agentName");
         String cloudAccountId = body.get("cloudAccountId");
@@ -208,6 +211,12 @@ public class AgentController {
         if (agentName == null || agentName.isEmpty() || cloudAccountId == null || cloudAccountId.isEmpty()) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body(Map.of("error", "agentName and cloudAccountId are required"));
+        }
+
+        CloudAccount account = dbAgentService.resolveAccount(cloudAccountId);
+        if (account == null || !SecurityUtils.isAuthorizedForAccount(account, userDetails)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("error", "Unauthorized access to account"));
         }
 
         DbAgentConfig cfg = dbAgentService.registerDbAgent(cloudAccountId, agentName);
@@ -231,7 +240,14 @@ public class AgentController {
     @DeleteMapping("/db/register")
     public ResponseEntity<Map<String, Object>> deleteDbAgent(
             @RequestParam String agentName,
-            @RequestParam String cloudAccountId) {
+            @RequestParam String cloudAccountId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+
+        CloudAccount account = dbAgentService.resolveAccount(cloudAccountId);
+        if (account == null || !SecurityUtils.isAuthorizedForAccount(account, userDetails)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("error", "Unauthorized access to account"));
+        }
 
         boolean deleted = dbAgentService.deleteDbAgent(cloudAccountId, agentName);
         if (!deleted) {
@@ -410,7 +426,8 @@ public class AgentController {
      */
     @PostMapping("/db/config")
     public ResponseEntity<Map<String, Object>> saveDbAgentConfig(
-            @RequestBody Map<String, String> body) {
+            @RequestBody Map<String, String> body,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
 
         String agentName     = body.get("agentName");
         String cloudAccountId = body.get("cloudAccountId");
@@ -418,10 +435,25 @@ public class AgentController {
             return ResponseEntity.badRequest().body(Map.of("error", "agentName and cloudAccountId are required"));
         }
 
+        CloudAccount account = dbAgentService.resolveAccount(cloudAccountId);
+        if (account == null || !SecurityUtils.isAuthorizedForAccount(account, userDetails)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("error", "Unauthorized access to account"));
+        }
+
+        String dbPassword = body.get("dbPassword");
+        // If placeholder sent from UI, do not overwrite the existing password
+        if ("[PROTECTED]".equals(dbPassword)) {
+            DbAgentConfig existing = dbAgentService.loadConnectionConfig(cloudAccountId, agentName);
+            if (existing != null) {
+                dbPassword = existing.getDbPassword();
+            }
+        }
+
         DbAgentConfig cfg = dbAgentService.saveConnectionConfig(
                 cloudAccountId, agentName,
                 body.get("dbEngine"), body.get("dbHost"), body.get("dbPort"),
-                body.get("dbName"), body.get("dbUser"), body.get("dbPassword"),
+                body.get("dbName"), body.get("dbUser"), dbPassword,
                 body.get("serverUrl"));
 
         if (cfg == null) {
@@ -439,7 +471,14 @@ public class AgentController {
     @GetMapping("/db/config")
     public ResponseEntity<Map<String, Object>> loadDbAgentConfig(
             @RequestParam String agentName,
-            @RequestParam String cloudAccountId) {
+            @RequestParam String cloudAccountId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+
+        CloudAccount account = dbAgentService.resolveAccount(cloudAccountId);
+        if (account == null || !SecurityUtils.isAuthorizedForAccount(account, userDetails)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("error", "Unauthorized access to account"));
+        }
 
         DbAgentConfig cfg = dbAgentService.loadConnectionConfig(cloudAccountId, agentName);
         if (cfg == null) {
@@ -453,7 +492,8 @@ public class AgentController {
         result.put("dbPort",    cfg.getDbPort()     != null ? cfg.getDbPort()     : "");
         result.put("dbName",    cfg.getDbName()     != null ? cfg.getDbName()     : "");
         result.put("dbUser",    cfg.getDbUser()     != null ? cfg.getDbUser()     : "");
-        result.put("dbPassword",cfg.getDbPassword() != null ? cfg.getDbPassword() : "");
+        // Redact password
+        result.put("dbPassword",cfg.getDbPassword() != null ? "[PROTECTED]"       : "");
         result.put("serverUrl", cfg.getServerUrl()  != null ? cfg.getServerUrl()  : "");
         return ResponseEntity.ok(result);
     }
@@ -465,7 +505,14 @@ public class AgentController {
     @GetMapping("/db/status")
     public ResponseEntity<Map<String, Object>> getDbAgentStatus(
             @RequestParam String agentName,
-            @RequestParam String cloudAccountId) {
+            @RequestParam String cloudAccountId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+
+        CloudAccount account = dbAgentService.resolveAccount(cloudAccountId);
+        if (account == null || !SecurityUtils.isAuthorizedForAccount(account, userDetails)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("error", "Unauthorized access to account"));
+        }
 
         java.util.Optional<DbAgentConfig> cfgOpt = dbAgentService.findDbAgent(cloudAccountId, agentName);
         if (cfgOpt.isEmpty()) {
