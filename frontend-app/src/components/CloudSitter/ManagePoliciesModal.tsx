@@ -6,7 +6,7 @@
 
 import React from 'react';
 import type { CloudSitterPolicy } from '../../types/cloudsitter';
-import { DialogRoot, DialogPanel } from '../ui';
+import { DialogRoot, DialogPanel, TooltipWrapper } from '../ui';
 
 interface ManagePoliciesModalProps {
   isOpen: boolean;
@@ -47,8 +47,24 @@ const ManagePoliciesModal: React.FC<ManagePoliciesModalProps> = ({
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    <button onClick={() => onEdit(p)} className="text-gray-400 hover:text-indigo-600 p-2 rounded-full hover:bg-indigo-50 transition-colors" title="Edit"><i className="fas fa-pencil-alt"></i></button>
-                    <button onClick={() => onDelete(p.id)} className="text-gray-400 hover:text-red-600 p-2 rounded-full hover:bg-red-50 transition-colors" title="Delete"><i className="fas fa-trash"></i></button>
+                    <TooltipWrapper tip="Edit Policy">
+                      <button
+                        onClick={() => onEdit(p)}
+                        className="text-gray-400 hover:text-indigo-600 p-2 rounded-full hover:bg-indigo-50 transition-colors focus-visible:ring-2 focus-visible:ring-indigo-500 outline-none"
+                        aria-label="Edit policy"
+                      >
+                        <i className="fas fa-pencil-alt"></i>
+                      </button>
+                    </TooltipWrapper>
+                    <TooltipWrapper tip="Delete Policy">
+                      <button
+                        onClick={() => onDelete(p.id)}
+                        className="text-gray-400 hover:text-red-600 p-2 rounded-full hover:bg-red-50 transition-colors focus-visible:ring-2 focus-visible:ring-red-500 outline-none"
+                        aria-label="Delete policy"
+                      >
+                        <i className="fas fa-trash"></i>
+                      </button>
+                    </TooltipWrapper>
                   </div>
                 </div>
               ))}
