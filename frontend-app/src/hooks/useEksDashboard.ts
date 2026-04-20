@@ -10,6 +10,7 @@ import apiClient from '../utils/apiClient';
 import {
   EksDashboard,
   ContainerWithMetrics,
+  ContainerStatus,
   PotentialSavings,
   QuickWin,
   KarpenterStatus,
@@ -529,7 +530,7 @@ export const useEksDashboard = ({
     pods.forEach(pod => {
       if (!pod.containerStatuses) return;
 
-      pod.containerStatuses.forEach(containerStatus => {
+      pod.containerStatuses.forEach((containerStatus: ContainerStatus) => {
         const key = `${pod.name}/${containerStatus.name}`;
         const metrics = metricsMap[key] || {};
 

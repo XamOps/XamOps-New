@@ -443,7 +443,7 @@ public class ExternalMessagingService {
             String spaceName = conn.getChannelId();
             if (spaceName != null && spaceName.startsWith("spaces/")) {
                 String result = googleChatService.sendMessage(
-                        config.getServiceAccountJson(), spaceName, message, adminName);
+                        config.getServiceAccountJson(), config.getAdminEmail(), spaceName, message, adminName);
                 if (result != null)
                     return result;
                 log.warn("GChat: service account send failed for userId={}, falling back to webhook", conn.getUserId());

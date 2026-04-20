@@ -2,6 +2,8 @@ import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useSecurityData } from '../hooks/useSecurityData';
+import { useGcpSecurityData } from '../hooks/useGcpSecurityData';
+import { useAzureSecurityData } from '../hooks/useAzureSecurityData';
 
 /**
  * ComplianceOps Page
@@ -332,17 +334,104 @@ function getSeverityBadge(severity: string) {
 
 // --- Component ---
 
+// --- Normalize compliance control string "SOC2 CC6.1" → { framework, controlId } ---
+function parseComplianceControl(control?: string): { framework: string; controlId: string } | null {
+  if (!control) return null;
+  const parts = control.trim().split(/\s+/);
+  if (parts.length >= 2) {
+    return { framework: parts[0], controlId: parts.slice(1).join(' ') };
+  }
+  return { framework: control, controlId: control };
+}
+
+// Shared finding shape used by the scoring/table logic
+interface NormalizedFinding {
+  complianceFramework?: string;
+  controlId?: string;
+  description?: string;
+  severity: string;
+  resourceId: string;
+  region?: string;
+}
+
 const ComplianceOpsPage: React.FC = () => {
-  const { selectedAccountIds } = useAccounts();
+  const { selectedAccountIds, selectedAccountDisplay } = useAccounts();
   const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
 
+  // Provider from the currently selected account ('AWS' | 'GCP' | 'Azure')
+  const provider = selectedAccountDisplay?.provider ?? 'AWS';
+
+  // Always call all hooks (React rules — no conditional hooks)
   const {
-    findings,
-    isLoading,
-    isRefreshing,
+    findings: awsFindings,
+    isLoading: awsLoading,
+    isRefreshing: awsRefreshing,
     prowlerStatus,
     loadFindings,
-  } = useSecurityData({ selectedAccountId });
+  } = useSecurityData({ selectedAccountId: provider === 'AWS' ? selectedAccountId : null });
+
+  const {
+    findings: gcpRawFindings,
+    isLoading: gcpLoading,
+    isRefreshing: gcpRefreshing,
+    loadAllData: loadGcpData,
+  } = useGcpSecurityData({ selectedAccountId: provider === 'GCP' ? selectedAccountId : null });
+
+  const {
+    securityData: azureData,
+    isLoading: azureLoading,
+    isRefreshing: azureRefreshing,
+    loadSecurityData: loadAzureData,
+  } = useAzureSecurityData({ selectedAccountId: provider === 'Azure' ? selectedAccountId : null });
+
+  // Normalize GCP findings into the shared shape
+  const gcpFindings = useMemo<NormalizedFinding[]>(() => {
+    return gcpRawFindings.map((f) => {
+      // Prefer full control string "SOC2 CC6.1"; fall back to framework-only "CIS"
+      const parsed = parseComplianceControl(f.complianceControl);
+      const framework = parsed?.framework ?? f.compliance ?? 'CUSTOM';
+      const controlId = parsed?.controlId ?? f.category ?? f.compliance ?? 'N/A';
+      return {
+        complianceFramework: framework,
+        controlId,
+        description: f.description,
+        severity: f.severity,
+        resourceId: f.resourceName,
+        region: undefined,
+      };
+    });
+  }, [gcpRawFindings]);
+
+  // Normalize Azure assessments (unhealthy = FAIL) into the shared shape
+  const azureFindings = useMemo<NormalizedFinding[]>(() => {
+    if (!azureData?.assessments) return [];
+    return azureData.assessments.flatMap((a) => {
+      if (a.statusCode === 'Healthy' || a.statusCode === 'NotApplicable') return [];
+      const parsed = parseComplianceControl(a.complianceControl);
+      return [{
+        complianceFramework: parsed?.framework ?? 'CUSTOM',
+        controlId: parsed?.controlId ?? a.assessmentId,
+        description: a.displayName,
+        severity: a.severity?.toUpperCase() ?? 'MEDIUM',
+        resourceId: a.resourceId ?? a.resourceName ?? '',
+        region: undefined,
+      }];
+    });
+  }, [azureData]);
+
+  // Unified findings / loading state based on provider
+  const findings: NormalizedFinding[] = provider === 'GCP' ? gcpFindings
+    : provider === 'Azure' ? azureFindings
+    : awsFindings as unknown as NormalizedFinding[];
+
+  const isLoading = provider === 'GCP' ? gcpLoading : provider === 'Azure' ? azureLoading : awsLoading;
+  const isRefreshing = provider === 'GCP' ? gcpRefreshing : provider === 'Azure' ? azureRefreshing : awsRefreshing;
+
+  const handleRefresh = useCallback((force = true) => {
+    if (provider === 'GCP') loadGcpData(force);
+    else if (provider === 'Azure') loadAzureData(force);
+    else loadFindings(force);
+  }, [provider, loadGcpData, loadAzureData, loadFindings]);
 
   const { setActions, clearActions } = useTopbar();
 
@@ -637,19 +726,20 @@ const ComplianceOpsPage: React.FC = () => {
   useEffect(() => {
     setActions(
       <div className="flex items-center gap-3">
-        {prowlerStatus.status === 'RUNNING' && (
+        {/* AWS-only: Prowler scan status badges */}
+        {provider === 'AWS' && prowlerStatus.status === 'RUNNING' && (
           <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-xs font-medium">
             <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
             <span>Prowler Scan Running...</span>
           </div>
         )}
-        {prowlerStatus.status === 'FAILED' && (
+        {provider === 'AWS' && prowlerStatus.status === 'FAILED' && (
           <div className="flex items-center gap-2 px-3 py-1.5 bg-red-50 text-red-700 rounded-lg text-xs font-medium" title={prowlerStatus.error || 'Unknown error'}>
             <i className="fas fa-exclamation-triangle"></i>
             <span>Prowler Scan Failed</span>
           </div>
         )}
-        {prowlerStatus.status === 'COMPLETED' && prowlerStatus.findingsCount != null && (
+        {provider === 'AWS' && prowlerStatus.status === 'COMPLETED' && prowlerStatus.findingsCount != null && (
           <div className="flex items-center gap-2 px-3 py-1.5 bg-green-50 text-green-700 rounded-lg text-xs font-medium">
             <i className="fas fa-check-circle"></i>
             <span>{prowlerStatus.findingsCount} Prowler findings</span>
@@ -663,18 +753,32 @@ const ComplianceOpsPage: React.FC = () => {
           <i className="fas fa-file-csv"></i>
           Export Report
         </button>
-        <button
-          onClick={triggerComplianceScan}
-          disabled={isTriggeringScan || isRefreshing || prowlerStatus.status === 'RUNNING'}
-          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-        >
-          <i className={`fas fa-sync-alt ${(isTriggeringScan || prowlerStatus.status === 'RUNNING') ? 'animate-spin' : ''}`}></i>
-          {prowlerStatus.status === 'RUNNING' ? 'Scan Running...' : isTriggeringScan ? 'Triggering...' : 'Run Compliance Scan'}
-        </button>
+        {/* AWS: Prowler scan trigger */}
+        {provider === 'AWS' && (
+          <button
+            onClick={triggerComplianceScan}
+            disabled={isTriggeringScan || isRefreshing || prowlerStatus.status === 'RUNNING'}
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            <i className={`fas fa-sync-alt ${(isTriggeringScan || prowlerStatus.status === 'RUNNING') ? 'animate-spin' : ''}`}></i>
+            {prowlerStatus.status === 'RUNNING' ? 'Scan Running...' : isTriggeringScan ? 'Triggering...' : 'Run Compliance Scan'}
+          </button>
+        )}
+        {/* GCP / Azure: simple refresh button */}
+        {(provider === 'GCP' || provider === 'Azure') && (
+          <button
+            onClick={() => handleRefresh(true)}
+            disabled={isRefreshing}
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            <i className={`fas fa-sync-alt ${isRefreshing ? 'animate-spin' : ''}`}></i>
+            {isRefreshing ? 'Refreshing...' : 'Refresh Data'}
+          </button>
+        )}
       </div>
     );
     return () => clearActions();
-  }, [setActions, clearActions, prowlerStatus, isRefreshing, isTriggeringScan, isExportingReport, controlRows.length, exportComplianceReport, triggerComplianceScan, loadFindings]);
+  }, [setActions, clearActions, provider, prowlerStatus, isRefreshing, isTriggeringScan, isExportingReport, controlRows.length, exportComplianceReport, triggerComplianceScan, handleRefresh]);
 
   // Reset page when filters change
   useEffect(() => {
@@ -733,12 +837,12 @@ const ComplianceOpsPage: React.FC = () => {
             Run a security scan to generate compliance findings across frameworks like CIS, SOC 2, PCI-DSS, and more.
           </p>
           <button
-            onClick={() => loadFindings(true)}
+            onClick={() => handleRefresh(true)}
             disabled={isRefreshing}
             className="inline-flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors"
           >
             <i className={`fas fa-play ${isRefreshing ? 'animate-spin' : ''}`}></i>
-            {isRefreshing ? 'Starting Scan...' : 'Start Compliance Scan'}
+            {isRefreshing ? 'Loading...' : provider === 'AWS' ? 'Start Compliance Scan' : 'Load Compliance Data'}
           </button>
         </div>
       </main>
@@ -751,8 +855,8 @@ const ComplianceOpsPage: React.FC = () => {
     <main className="flex-1 p-6 bg-gray-50 min-h-screen">
       <div className="max-w-7xl mx-auto space-y-6">
 
-        {/* Prowler Running Banner */}
-        {prowlerStatus.status === 'RUNNING' && (
+        {/* Prowler Running Banner (AWS only) */}
+        {provider === 'AWS' && prowlerStatus.status === 'RUNNING' && (
           <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-center gap-3">
             <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
               <i className="fas fa-radar text-blue-600 animate-spin"></i>

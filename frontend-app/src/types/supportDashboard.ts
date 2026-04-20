@@ -149,6 +149,9 @@ export interface IntegrationConfig {
   clientId?: string;
   /** true when Google Chat service account JSON has been saved */
   serviceAccountConfigured: boolean;
+  /** admin Workspace email for DWD impersonation */
+  adminEmail?: string;
+  adminEmailConfigured?: boolean;
   updatedAt?: string;
 }
 

@@ -100,6 +100,9 @@ public class MessagingIntegrationController {
         if (payload.containsKey("serviceAccountJson") && !payload.get("serviceAccountJson").isBlank()) {
             config.setServiceAccountJson(payload.get("serviceAccountJson"));
         }
+        if (payload.containsKey("adminEmail") && !payload.get("adminEmail").isBlank()) {
+            config.setAdminEmail(payload.get("adminEmail"));
+        }
         if (payload.containsKey("label")) {
             config.setLabel(payload.get("label"));
         }
@@ -287,6 +290,8 @@ public class MessagingIntegrationController {
         m.put("clientSecretConfigured", c.getClientSecret() != null && !c.getClientSecret().isBlank());
         m.put("clientId", c.getClientId());
         m.put("serviceAccountConfigured", c.getServiceAccountJson() != null && !c.getServiceAccountJson().isBlank());
+        m.put("adminEmail", c.getAdminEmail());
+        m.put("adminEmailConfigured", c.getAdminEmail() != null && !c.getAdminEmail().isBlank());
         return m;
     }
 

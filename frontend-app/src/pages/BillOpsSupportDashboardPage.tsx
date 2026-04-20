@@ -167,8 +167,9 @@ const BillOpsSupportDashboardPage: React.FC = () => {
   const [sendingInstallLink, setSendingInstallLink] = useState(false);
   const [installLinkResult, setInstallLinkResult] = useState<{ sent: boolean; email?: string; error?: string } | null>(null);
 
-  /* ── Google Chat service account JSON (integrations modal) ── */
+  /* ── Google Chat service account JSON + admin email (integrations modal) ── */
   const [gchatServiceAccountJson, setGchatServiceAccountJson] = useState('');
+  const [gchatAdminEmail, setGchatAdminEmail] = useState('');
 
   /* ── Google Chat per-user setup ── */
   const [settingUpGChat, setSettingUpGChat] = useState(false);
@@ -1102,8 +1103,8 @@ const BillOpsSupportDashboardPage: React.FC = () => {
                         : 'Send G.Chat Invite'}
                     </button>
                     {gchatSetupResult && (
-                      <span className={`text-[10px] font-semibold px-2 py-1 rounded-lg ${gchatSetupResult.invited || gchatSetupResult.connected ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>
-                        {gchatSetupResult.invited ? 'Invite sent ✓' : gchatSetupResult.connected ? 'DM space ready ✓' : gchatSetupResult.error}
+                      <span className={`text-[10px] font-semibold px-2 py-1 rounded-lg ${gchatSetupResult.connected ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>
+                        {gchatSetupResult.connected ? 'Space created ✓ Invite sent' : gchatSetupResult.error}
                       </span>
                     )}
                   </div>
@@ -1427,15 +1428,28 @@ const BillOpsSupportDashboardPage: React.FC = () => {
                 </>
               ) : integrationTab === 'GOOGLE_CHAT' ? (
                 <div className="space-y-4">
-                  {/* Service Account (bot DM approach) */}
-                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 space-y-3">
-                    <p className="text-xs font-bold text-blue-800 flex items-center gap-1.5">
-                      <i className="fab fa-google"></i> Google Chat Bot (Recommended — no user action needed)
-                    </p>
-                    <p className="text-xs text-blue-700">
-                      Create a Google Cloud project, enable Chat API, create a service account, download the JSON key, and paste it below.
-                      The bot will automatically create a DM space with each user.
-                    </p>
+                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-800">
+                    <p className="font-semibold mb-1"><i className="fab fa-google mr-1"></i> Google Chat — Cross-Org via Domain-Wide Delegation</p>
+                    <p>Admin creates a Space per user and invites them by email. Works with any Google account (Gmail or Workspace). Requires DWD enabled on the service account.</p>
+                  </div>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">
+                        Admin Workspace Email
+                        {getIntegrationConfig('GOOGLE_CHAT')?.adminEmailConfigured && (
+                          <span className="ml-2 text-green-600 font-normal">✓ {getIntegrationConfig('GOOGLE_CHAT')?.adminEmail}</span>
+                        )}
+                      </label>
+                      <input
+                        type="email"
+                        value={gchatAdminEmail}
+                        onChange={e => setGchatAdminEmail(e.target.value)}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder={getIntegrationConfig('GOOGLE_CHAT')?.adminEmailConfigured
+                          ? 'Enter new email to update'
+                          : 'e.g. admin@yourcompany.com (your Google Workspace admin email)'}
+                      />
+                    </div>
                     <div>
                       <label className="block text-xs font-semibold text-gray-600 mb-1">
                         Service Account JSON Key
@@ -1456,22 +1470,25 @@ const BillOpsSupportDashboardPage: React.FC = () => {
                   </div>
                   <div className="flex items-center justify-between pt-1">
                     <span className="text-xs text-gray-500 flex items-center gap-1.5">
-                      <span className={`w-2 h-2 rounded-full inline-block ${getIntegrationConfig('GOOGLE_CHAT')?.serviceAccountConfigured ? 'bg-green-500' : 'bg-gray-300'}`}></span>
-                      {getIntegrationConfig('GOOGLE_CHAT')?.serviceAccountConfigured ? 'Service account configured' : 'Not configured'}
+                      <span className={`w-2 h-2 rounded-full inline-block ${getIntegrationConfig('GOOGLE_CHAT')?.serviceAccountConfigured && getIntegrationConfig('GOOGLE_CHAT')?.adminEmailConfigured ? 'bg-green-500' : 'bg-gray-300'}`}></span>
+                      {getIntegrationConfig('GOOGLE_CHAT')?.serviceAccountConfigured && getIntegrationConfig('GOOGLE_CHAT')?.adminEmailConfigured ? 'Fully configured' : 'Incomplete — need service account JSON + admin email'}
                     </span>
                     <button
                       onClick={async () => {
-                        if (!gchatServiceAccountJson.trim()) return;
+                        if (!gchatServiceAccountJson.trim() && !gchatAdminEmail.trim()) return;
                         setSavingIntegration(true);
-                        const body: Record<string, string> = { platform: 'GOOGLE_CHAT', enabled: 'true', serviceAccountJson: gchatServiceAccountJson };
+                        const body: Record<string, string> = { platform: 'GOOGLE_CHAT', enabled: 'true' };
+                        if (gchatServiceAccountJson.trim()) body.serviceAccountJson = gchatServiceAccountJson;
+                        if (gchatAdminEmail.trim()) body.adminEmail = gchatAdminEmail;
                         try {
                           await (await import('../utils/apiClient')).default.post('/api/billops/messaging/config', body);
                           await loadIntegrationConfigs();
                           setGchatServiceAccountJson('');
+                          setGchatAdminEmail('');
                         } catch (e) { console.error(e); }
                         setSavingIntegration(false);
                       }}
-                      disabled={savingIntegration || !gchatServiceAccountJson.trim()}
+                      disabled={savingIntegration || (!gchatServiceAccountJson.trim() && !gchatAdminEmail.trim())}
                       className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-lg text-sm font-semibold transition disabled:opacity-50"
                     >
                       {savingIntegration ? <i className="fas fa-circle-notch fa-spin mr-1"></i> : null} Save Google Chat Config

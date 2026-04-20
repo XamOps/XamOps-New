@@ -60,6 +60,22 @@ public class GoogleChatService {
     // ── Public API ─────────────────────────────────────────────────────────────
 
     /**
+     * Creates a Google Chat Space using Domain-Wide Delegation (impersonates adminEmail),
+     * then invites userEmail as an external member.
+     * Google automatically sends an invitation email to the user.
+     * Returns the space name (e.g. "spaces/ABCDEF") or throws with a descriptive message.
+     */
+    public String createSpaceAndInvite(String serviceAccountJson, String adminEmail,
+                                       String userEmail, String displayName) throws Exception {
+        String dwdToken = getAccessTokenDWD(serviceAccountJson, adminEmail);
+        if (dwdToken == null) {
+            throw new Exception("Failed to obtain DWD access token. Ensure Domain-Wide Delegation is enabled for the service account.");
+        }
+        // spaces:setup atomically creates the DM space and adds the user — works with DWD
+        return createSpace(dwdToken, userEmail);
+    }
+
+    /**
      * Get (or create) a DM space between the bot and a user identified by email.
      * Uses spaces:setup which atomically creates the space and adds the human member.
      * Returns the space name (e.g. "spaces/ABCDEF") or throws with a descriptive message.
@@ -83,8 +99,16 @@ public class GoogleChatService {
      * @return message resource name or null on failure
      */
     public String sendMessage(String serviceAccountJson, String spaceName, String message, String adminName) {
+        return sendMessage(serviceAccountJson, null, spaceName, message, adminName);
+    }
+
+    public String sendMessage(String serviceAccountJson, String adminEmail, String spaceName, String message, String adminName) {
         try {
-            String accessToken = getAccessToken(serviceAccountJson);
+            // Use DWD token (impersonating admin) if adminEmail is provided — required for DWD-created spaces
+            // Fall back to bot token for legacy webhook-created spaces
+            String accessToken = (adminEmail != null && !adminEmail.isBlank())
+                    ? getAccessTokenDWD(serviceAccountJson, adminEmail)
+                    : getAccessToken(serviceAccountJson);
             if (accessToken == null) return null;
 
             HttpHeaders headers = new HttpHeaders();
@@ -113,6 +137,52 @@ public class GoogleChatService {
             log.error("GChat: sendMessage failed for space {}: {}", spaceName, e.getMessage(), e);
         }
         return null;
+    }
+
+    // ── Internal: Space management (DWD) ─────────────────────────────────────
+
+    /**
+     * Creates a DM space between the impersonated admin and the user via spaces:setup (DWD).
+     * spaces:setup atomically creates the space and adds both the admin and the user as members.
+     * This works with DWD whereas spaces.create (SPACE type) does not.
+     */
+    private String createSpace(String dwdToken, String userEmail) throws Exception {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(dwdToken);
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        Map<String, Object> member = new LinkedHashMap<>();
+        member.put("name", "users/" + userEmail);
+        member.put("type", "HUMAN");
+
+        Map<String, Object> membership = new LinkedHashMap<>();
+        membership.put("member", member);
+
+        Map<String, Object> space = new LinkedHashMap<>();
+        space.put("spaceType", "DIRECT_MESSAGE");
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("space", space);
+        body.put("memberships", List.of(membership));
+
+        HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
+        try {
+            ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                    CHAT_BASE + "/spaces:setup",
+                    HttpMethod.POST, request,
+                    new org.springframework.core.ParameterizedTypeReference<Map<String, Object>>() {});
+
+            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                String spaceName = (String) response.getBody().get("name");
+                log.info("GChat: DM space {} created for {}", spaceName, userEmail);
+                return spaceName;
+            }
+            throw new Exception("spaces:setup returned " + response.getStatusCode());
+        } catch (HttpClientErrorException e) {
+            throw new Exception("Google Chat spaces:setup error " + e.getStatusCode() + ": " + e.getResponseBodyAsString());
+        } catch (HttpServerErrorException e) {
+            throw new Exception("Google Chat spaces:setup server error " + e.getStatusCode() + ": " + e.getResponseBodyAsString());
+        }
     }
 
     // ── Internal: Google Chat API calls ───────────────────────────────────────
@@ -240,6 +310,67 @@ public class GoogleChatService {
     }
 
     /**
+     * Gets a DWD (Domain-Wide Delegation) access token.
+     * The JWT includes a "sub" claim set to adminEmail, so the service account
+     * impersonates that user and can create spaces / manage members.
+     * Scopes: chat.spaces + chat.memberships
+     */
+    public String getAccessTokenDWD(String serviceAccountJson, String adminEmail) {
+        try {
+            JsonNode sa = objectMapper.readTree(serviceAccountJson);
+            String clientEmail = sa.path("client_email").asText();
+            String privateKeyPem = sa.path("private_key").asText();
+
+            if (clientEmail.isBlank() || privateKeyPem.isBlank()) {
+                log.error("GChat DWD: service account JSON missing client_email or private_key");
+                return null;
+            }
+
+            String cacheKey = clientEmail + "|DWD|" + adminEmail;
+            CachedToken cached = tokenCache.get(cacheKey);
+            if (cached != null && System.currentTimeMillis() < cached.expiresAt) {
+                return cached.token;
+            }
+            tokenCache.remove(cacheKey);
+
+            String dwdScope = "https://www.googleapis.com/auth/chat.spaces "
+                    + "https://www.googleapis.com/auth/chat.memberships "
+                    + "https://www.googleapis.com/auth/chat.messages "
+                    + "https://www.googleapis.com/auth/chat.messages.create";
+            String jwt = buildJwtDWD(clientEmail, privateKeyPem, dwdScope, adminEmail);
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+            org.springframework.util.MultiValueMap<String, String> body = new org.springframework.util.LinkedMultiValueMap<>();
+            body.add("grant_type", "urn:ietf:params:oauth:grant-type:jwt-bearer");
+            body.add("assertion", jwt);
+
+            HttpEntity<org.springframework.util.MultiValueMap<String, String>> tokenRequest = new HttpEntity<>(body, headers);
+            try {
+                ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                        TOKEN_URL, HttpMethod.POST, tokenRequest,
+                        new org.springframework.core.ParameterizedTypeReference<Map<String, Object>>() {});
+
+                if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                    String token = (String) response.getBody().get("access_token");
+                    Number expiresIn = (Number) response.getBody().get("expires_in");
+                    long expiresAt = System.currentTimeMillis()
+                            + ((expiresIn != null ? expiresIn.longValue() : 3600L) - 300L) * 1000L;
+                    tokenCache.put(cacheKey, new CachedToken(token, expiresAt));
+                    log.info("GChat: obtained DWD token for admin={}", adminEmail);
+                    return token;
+                }
+                log.error("GChat DWD: token exchange failed {}", response.getStatusCode());
+            } catch (HttpClientErrorException e) {
+                log.error("GChat DWD: token exchange error {} body={}", e.getStatusCode(), e.getResponseBodyAsString());
+            }
+        } catch (Exception e) {
+            log.error("GChat DWD: getAccessTokenDWD failed: {}", e.getMessage(), e);
+        }
+        return null;
+    }
+
+    /**
      * Builds a signed RS256 JWT for the service account.
      * Uses only Java built-in crypto — no extra dependencies required.
      */
@@ -275,6 +406,39 @@ public class GoogleChatService {
         String signature = Base64.getUrlEncoder().withoutPadding()
                 .encodeToString(sig.sign());
 
+        return signingInput + "." + signature;
+    }
+
+    /** Same as buildJwt but adds the "sub" claim for DWD impersonation. */
+    private String buildJwtDWD(String clientEmail, String privateKeyPem, String scope, String subEmail) throws Exception {
+        String stripped = privateKeyPem
+                .replace("-----BEGIN PRIVATE KEY-----", "")
+                .replace("-----END PRIVATE KEY-----", "")
+                .replace("-----BEGIN RSA PRIVATE KEY-----", "")
+                .replace("-----END RSA PRIVATE KEY-----", "")
+                .replaceAll("\\s+", "");
+
+        byte[] keyBytes = Base64.getDecoder().decode(stripped);
+        PrivateKey privateKey = KeyFactory.getInstance("RSA")
+                .generatePrivate(new PKCS8EncodedKeySpec(keyBytes));
+
+        long now = System.currentTimeMillis() / 1000;
+
+        String header = base64url("{\"alg\":\"RS256\",\"typ\":\"JWT\"}");
+        String payload = base64url("{"
+                + "\"iss\":\"" + clientEmail + "\","
+                + "\"sub\":\"" + subEmail + "\","
+                + "\"scope\":\"" + scope + "\","
+                + "\"aud\":\"" + TOKEN_URL + "\","
+                + "\"iat\":" + now + ","
+                + "\"exp\":" + (now + 3600)
+                + "}");
+
+        String signingInput = header + "." + payload;
+        Signature sig = Signature.getInstance("SHA256withRSA");
+        sig.initSign(privateKey);
+        sig.update(signingInput.getBytes(StandardCharsets.UTF_8));
+        String signature = Base64.getUrlEncoder().withoutPadding().encodeToString(sig.sign());
         return signingInput + "." + signature;
     }
 

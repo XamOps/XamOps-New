@@ -65,6 +65,13 @@ public class MessagingIntegrationConfig {
     private String clientSecret;
 
     /**
+     * Google Chat: admin Workspace email used for Domain-Wide Delegation impersonation.
+     * The service account acts on behalf of this user to create spaces and invite members.
+     */
+    @Column(name = "admin_email", length = 300)
+    private String adminEmail;
+
+    /**
      * Human-readable label/description for this integration (e.g. "XamOps
      * Workspace").
      */
@@ -134,6 +141,14 @@ public class MessagingIntegrationConfig {
 
     public void setClientSecret(String clientSecret) {
         this.clientSecret = clientSecret;
+    }
+
+    public String getAdminEmail() {
+        return adminEmail;
+    }
+
+    public void setAdminEmail(String adminEmail) {
+        this.adminEmail = adminEmail;
     }
 
     public String getLabel() {
