@@ -1,0 +1,4 @@
+## 2026-04-20 - [IDOR in Cloud Account Management]
+**Vulnerability:** Several endpoints in `SecurityController` and `AccountManagerController` allowed users to fetch findings, trigger scans, or modify configurations for any `accountId` by simply changing the request parameter, without verifying ownership.
+**Learning:** The application used `accountId` (often a string like AWS account ID) as a primary lookup key in controllers, assuming the front-end would only send valid IDs for the logged-in user, lacking server-side enforcement of resource ownership (BOLA/IDOR).
+**Prevention:** Always perform ownership validation on the server side by checking the retrieved resource's `clientId` against the authenticated user's `clientId` (from `SecurityContextHolder`). Centralize this check in a security utility class.

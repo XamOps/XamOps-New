@@ -12,6 +12,7 @@ import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.UserCloudAccountAccessRepository;
 import com.xammer.cloud.repository.UserRepository;
 import com.xammer.cloud.security.ClientUserDetails;
+import com.xammer.cloud.util.SecurityUtils;
 import com.xammer.cloud.service.AwsAccountService;
 import com.xammer.cloud.service.MasterDatabaseService;
 import com.xammer.cloud.service.gcp.GcpDataService;
@@ -227,9 +228,13 @@ public class AccountManagerController {
     }
 
     @DeleteMapping("/accounts/{id}")
-    public ResponseEntity<?> deleteAccount(@PathVariable Long id) {
+    public ResponseEntity<?> deleteAccount(@PathVariable Long id, @AuthenticationPrincipal ClientUserDetails userDetails) {
         return cloudAccountRepository.findById(id)
                 .map(account -> {
+                    if (!SecurityUtils.isAuthorizedForAccount(account, userDetails)) {
+                        logger.warn("User {} is not authorized to delete account {}", userDetails.getUsername(), id);
+                        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("message", "Access Denied"));
+                    }
                     String accountName = account.getAccountName();
                     awsAccountService.deleteAccountById(id);
                     return ResponseEntity
@@ -308,6 +313,12 @@ public class AccountManagerController {
             if (existingAccountOpt.isPresent()) {
                 // UPDATE existing account
                 account = existingAccountOpt.get();
+
+                if (!SecurityUtils.isAuthorizedForAccount(account, userDetails)) {
+                    logger.warn("User {} is not authorized to update Azure account {}", userDetails.getUsername(), account.getId());
+                    return ResponseEntity.status(HttpStatus.FORBIDDEN).body("Access Denied");
+                }
+
                 logger.info("Updating existing Azure account: {}", account.getAccountName());
 
                 account.setAccountName(request.getAccountName());
@@ -369,7 +380,18 @@ public class AccountManagerController {
 
     @PutMapping("/accounts/{accountId}/billing-table")
     public ResponseEntity<?> updateBillingTable(@PathVariable Long accountId,
-            @RequestBody Map<String, String> payload) {
+            @RequestBody Map<String, String> payload,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+
+        CloudAccount account = cloudAccountRepository.findById(accountId).orElse(null);
+        if (account == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("message", "Account not found"));
+        }
+        if (!SecurityUtils.isAuthorizedForAccount(account, userDetails)) {
+            logger.warn("User {} is not authorized to update billing table for account {}", userDetails.getUsername(), accountId);
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("message", "Access Denied"));
+        }
+
         String billingExportTable = payload.get("billingExportTable");
         if (billingExportTable == null || billingExportTable.trim().isEmpty()) {
             return ResponseEntity.badRequest()
@@ -401,7 +423,8 @@ public class AccountManagerController {
 
     @PostMapping("/accounts/{accountId}/monitoring")
     public ResponseEntity<?> updateMonitoringEndpoint(@PathVariable String accountId,
-            @RequestBody Map<String, String> payload) {
+            @RequestBody Map<String, String> payload,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
         String grafanaIp = payload.get("grafanaIp");
         if (grafanaIp == null || grafanaIp.trim().isEmpty()) {
             return ResponseEntity.badRequest().body(Map.of("message", "grafanaIp is required in the request body."));
@@ -414,6 +437,11 @@ public class AccountManagerController {
         if (account == null) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
                     .body(Map.of("message", "Account not found with ID: " + accountId));
+        }
+
+        if (!SecurityUtils.isAuthorizedForAccount(account, userDetails)) {
+            logger.warn("User {} is not authorized to update monitoring for account {}", userDetails.getUsername(), accountId);
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("message", "Access Denied"));
         }
 
         account.setGrafanaIp(grafanaIp);
