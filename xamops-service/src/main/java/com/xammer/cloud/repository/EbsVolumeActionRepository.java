@@ -6,12 +6,16 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.List;
 
 @Repository
 public interface EbsVolumeActionRepository extends JpaRepository<EbsVolumeAction, Long> {
     List<EbsVolumeAction> findByAccountIdOrderByInitiatedAtDesc(Long accountId);
     List<EbsVolumeAction> findByAccountIdAndVolumeId(Long accountId, String volumeId);
+
+    List<EbsVolumeAction> findByAccountIdAndStatusAndInitiatedAtBetween(
+        Long accountId, String status, Instant start, Instant end);
 
     @Modifying
     @Transactional
