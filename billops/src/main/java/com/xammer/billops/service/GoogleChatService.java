@@ -60,9 +60,9 @@ public class GoogleChatService {
     // ── Public API ─────────────────────────────────────────────────────────────
 
     /**
-     * Creates a Google Chat Space using Domain-Wide Delegation (impersonates adminEmail),
-     * then invites userEmail as an external member.
-     * Google automatically sends an invitation email to the user.
+     * Creates a DM space between the Workspace admin (via DWD) and userEmail.
+     * spaces:setup requires user auth — the impersonated admin becomes the space owner.
+     * Messages are subsequently sent by the admin (also via DWD) using chat.messages.create scope.
      * Returns the space name (e.g. "spaces/ABCDEF") or throws with a descriptive message.
      */
     public String createSpaceAndInvite(String serviceAccountJson, String adminEmail,
@@ -71,8 +71,17 @@ public class GoogleChatService {
         if (dwdToken == null) {
             throw new Exception("Failed to obtain DWD access token. Ensure Domain-Wide Delegation is enabled for the service account.");
         }
-        // spaces:setup atomically creates the DM space and adds the user — works with DWD
-        return createSpace(dwdToken, userEmail);
+        String spaceName = setupDirectMessageSpace(dwdToken, userEmail);
+        log.info("GChat: DM space {} created for {} (admin={})", spaceName, userEmail, adminEmail);
+        // Attempt to add bot to the space so inbound messages trigger the webhook.
+        // This only works for SPACE/GROUP spaces, not DIRECT_MESSAGE — logged as warn if it fails.
+        try {
+            addBotToSpace(serviceAccountJson, spaceName);
+            log.info("GChat: bot added to space {}", spaceName);
+        } catch (Exception e) {
+            log.warn("GChat: bot could not join space {} (DM spaces don't support bots — inbound via webhook won't work): {}", spaceName, e.getMessage());
+        }
+        return spaceName;
     }
 
     /**
@@ -104,10 +113,10 @@ public class GoogleChatService {
 
     public String sendMessage(String serviceAccountJson, String adminEmail, String spaceName, String message, String adminName) {
         try {
-            // Use DWD token (impersonating admin) if adminEmail is provided — required for DWD-created spaces
-            // Fall back to bot token for legacy webhook-created spaces
+            // Use DWD token (admin sends as themselves into the DM they own).
+            // Falls back to bot token if adminEmail is not provided.
             String accessToken = (adminEmail != null && !adminEmail.isBlank())
-                    ? getAccessTokenDWD(serviceAccountJson, adminEmail)
+                    ? getAccessTokenDWDMessages(serviceAccountJson, adminEmail)
                     : getAccessToken(serviceAccountJson);
             if (accessToken == null) return null;
 
@@ -115,7 +124,11 @@ public class GoogleChatService {
             headers.setBearerAuth(accessToken);
             headers.setContentType(MediaType.APPLICATION_JSON);
 
-            Map<String, Object> body = buildMessagePayload(message, adminName);
+            // DWD (user auth) only supports plain text — Cards require app/bot auth
+            boolean usingDwd = adminEmail != null && !adminEmail.isBlank();
+            Map<String, Object> body = usingDwd
+                    ? Map.of("text", message)
+                    : buildMessagePayload(message, adminName);
             HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
 
             ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
@@ -137,52 +150,6 @@ public class GoogleChatService {
             log.error("GChat: sendMessage failed for space {}: {}", spaceName, e.getMessage(), e);
         }
         return null;
-    }
-
-    // ── Internal: Space management (DWD) ─────────────────────────────────────
-
-    /**
-     * Creates a DM space between the impersonated admin and the user via spaces:setup (DWD).
-     * spaces:setup atomically creates the space and adds both the admin and the user as members.
-     * This works with DWD whereas spaces.create (SPACE type) does not.
-     */
-    private String createSpace(String dwdToken, String userEmail) throws Exception {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setBearerAuth(dwdToken);
-        headers.setContentType(MediaType.APPLICATION_JSON);
-
-        Map<String, Object> member = new LinkedHashMap<>();
-        member.put("name", "users/" + userEmail);
-        member.put("type", "HUMAN");
-
-        Map<String, Object> membership = new LinkedHashMap<>();
-        membership.put("member", member);
-
-        Map<String, Object> space = new LinkedHashMap<>();
-        space.put("spaceType", "DIRECT_MESSAGE");
-
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("space", space);
-        body.put("memberships", List.of(membership));
-
-        HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
-        try {
-            ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
-                    CHAT_BASE + "/spaces:setup",
-                    HttpMethod.POST, request,
-                    new org.springframework.core.ParameterizedTypeReference<Map<String, Object>>() {});
-
-            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
-                String spaceName = (String) response.getBody().get("name");
-                log.info("GChat: DM space {} created for {}", spaceName, userEmail);
-                return spaceName;
-            }
-            throw new Exception("spaces:setup returned " + response.getStatusCode());
-        } catch (HttpClientErrorException e) {
-            throw new Exception("Google Chat spaces:setup error " + e.getStatusCode() + ": " + e.getResponseBodyAsString());
-        } catch (HttpServerErrorException e) {
-            throw new Exception("Google Chat spaces:setup server error " + e.getStatusCode() + ": " + e.getResponseBodyAsString());
-        }
     }
 
     // ── Internal: Google Chat API calls ───────────────────────────────────────
@@ -230,12 +197,55 @@ public class GoogleChatService {
 
         } catch (HttpClientErrorException e) {
             String body2 = e.getResponseBodyAsString();
-            log.error("GChat: spaces:setup client error {} body={}", e.getStatusCode(), body2);
+            log.error("GChat: spaces:setup DM client error {} body={}", e.getStatusCode(), body2);
             throw new Exception("Google Chat API error " + e.getStatusCode() + ": " + body2);
         } catch (HttpServerErrorException e) {
             String body2 = e.getResponseBodyAsString();
             log.error("GChat: spaces:setup server error {} body={}", e.getStatusCode(), body2);
             throw new Exception("Google Chat API server error " + e.getStatusCode() + ": " + body2);
+        }
+    }
+
+    /**
+     * Bot adds itself to the space using its own app token with chat.memberships.app scope.
+     * Only works for SPACE/GROUP spaces — DIRECT_MESSAGE spaces do not support bots.
+     */
+    private void addBotToSpace(String serviceAccountJson, String spaceName) throws Exception {
+        JsonNode sa = objectMapper.readTree(serviceAccountJson);
+        String clientEmail = sa.path("client_email").asText();
+        String privateKeyPem = sa.path("private_key").asText();
+
+        String cacheKey = clientEmail + "|SCOPE|chat.memberships.app";
+        CachedToken cached = tokenCache.get(cacheKey);
+        String appToken = (cached != null && System.currentTimeMillis() < cached.expiresAt) ? cached.token : null;
+        if (appToken == null) {
+            tokenCache.remove(cacheKey);
+            String jwt = buildJwt(clientEmail, privateKeyPem, "https://www.googleapis.com/auth/chat.memberships.app");
+            HttpHeaders h = new HttpHeaders();
+            h.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+            org.springframework.util.MultiValueMap<String, String> form = new org.springframework.util.LinkedMultiValueMap<>();
+            form.add("grant_type", "urn:ietf:params:oauth:grant-type:jwt-bearer");
+            form.add("assertion", jwt);
+            ResponseEntity<Map<String, Object>> tr = restTemplate.exchange(
+                    TOKEN_URL, HttpMethod.POST, new HttpEntity<>(form, h),
+                    new org.springframework.core.ParameterizedTypeReference<Map<String, Object>>() {});
+            if (!tr.getStatusCode().is2xxSuccessful() || tr.getBody() == null)
+                throw new Exception("Failed to obtain chat.memberships.app token");
+            appToken = (String) tr.getBody().get("access_token");
+            Number exp = (Number) tr.getBody().get("expires_in");
+            tokenCache.put(cacheKey, new CachedToken(appToken, System.currentTimeMillis() + ((exp != null ? exp.longValue() : 3600L) - 300L) * 1000L));
+        }
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(appToken);
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        Map<String, Object> body = Map.of("member", Map.of("type", "BOT"));
+        try {
+            restTemplate.exchange(CHAT_BASE + "/" + spaceName + "/members",
+                    HttpMethod.POST, new HttpEntity<>(body, headers),
+                    new org.springframework.core.ParameterizedTypeReference<Map<String, Object>>() {});
+        } catch (HttpClientErrorException e) {
+            throw new Exception("addBotToSpace " + e.getStatusCode() + ": " + e.getResponseBodyAsString());
         }
     }
 
@@ -335,8 +345,7 @@ public class GoogleChatService {
 
             String dwdScope = "https://www.googleapis.com/auth/chat.spaces "
                     + "https://www.googleapis.com/auth/chat.memberships "
-                    + "https://www.googleapis.com/auth/chat.messages "
-                    + "https://www.googleapis.com/auth/chat.messages.create";
+                    + "https://www.googleapis.com/auth/chat.memberships.app";
             String jwt = buildJwtDWD(clientEmail, privateKeyPem, dwdScope, adminEmail);
 
             HttpHeaders headers = new HttpHeaders();
@@ -366,6 +375,48 @@ public class GoogleChatService {
             }
         } catch (Exception e) {
             log.error("GChat DWD: getAccessTokenDWD failed: {}", e.getMessage(), e);
+        }
+        return null;
+    }
+
+    /**
+     * DWD token scoped only for sending messages (chat.messages.create).
+     * Must be authorized separately in Workspace Admin Console DWD entry.
+     */
+    private String getAccessTokenDWDMessages(String serviceAccountJson, String adminEmail) {
+        try {
+            JsonNode sa = objectMapper.readTree(serviceAccountJson);
+            String clientEmail = sa.path("client_email").asText();
+            String privateKeyPem = sa.path("private_key").asText();
+
+            String cacheKey = clientEmail + "|DWD_MSG|" + adminEmail;
+            CachedToken cached = tokenCache.get(cacheKey);
+            if (cached != null && System.currentTimeMillis() < cached.expiresAt) return cached.token;
+            tokenCache.remove(cacheKey);
+
+            String scope = "https://www.googleapis.com/auth/chat.messages";
+            String jwt = buildJwtDWD(clientEmail, privateKeyPem, scope, adminEmail);
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+            org.springframework.util.MultiValueMap<String, String> body = new org.springframework.util.LinkedMultiValueMap<>();
+            body.add("grant_type", "urn:ietf:params:oauth:grant-type:jwt-bearer");
+            body.add("assertion", jwt);
+            ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                    TOKEN_URL, HttpMethod.POST, new HttpEntity<>(body, headers),
+                    new org.springframework.core.ParameterizedTypeReference<Map<String, Object>>() {});
+            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                String token = (String) response.getBody().get("access_token");
+                Number expiresIn = (Number) response.getBody().get("expires_in");
+                long expiresAt = System.currentTimeMillis() + ((expiresIn != null ? expiresIn.longValue() : 3600L) - 300L) * 1000L;
+                tokenCache.put(cacheKey, new CachedToken(token, expiresAt));
+                log.info("GChat: obtained DWD messages token for admin={}", adminEmail);
+                return token;
+            }
+        } catch (HttpClientErrorException e) {
+            log.error("GChat DWD messages: token exchange error {} body={}", e.getStatusCode(), e.getResponseBodyAsString());
+        } catch (Exception e) {
+            log.error("GChat DWD messages: token failed: {}", e.getMessage());
         }
         return null;
     }

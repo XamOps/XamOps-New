@@ -181,6 +181,321 @@ public class ProwlerService {
         return Collections.emptyList();
     }
 
+    // -------------------------------------------------------------------------
+    // GCP Prowler Support
+    // -------------------------------------------------------------------------
+
+    @Async("prowlerTaskExecutor")
+    public void triggerGcpScanAsync(String projectId, String[] complianceFrameworks) {
+        String statusKey = "prowler_status_gcp_" + projectId;
+        String findingsKey = "prowler_findings_gcp_" + projectId;
+
+        try {
+            Map<String, Object> status = new HashMap<>();
+            status.put("status", "RUNNING");
+            status.put("startTime", LocalDateTime.now().toString());
+            status.put("message", "Initializing Prowler GCP scan...");
+            redisCacheService.put(statusKey, status, 1440);
+
+            logger.info("Async Prowler GCP scan started for project {}", projectId);
+
+            Optional<CloudAccount> accountOpt = cloudAccountRepository.findByGcpProjectId(projectId);
+            if (accountOpt.isEmpty()) {
+                throw new IllegalArgumentException("GCP account not found for project: " + projectId);
+            }
+            CloudAccount account = accountOpt.get();
+
+            List<ProwlerFinding> findings = runInternalGcpScan(account, complianceFrameworks);
+
+            redisCacheService.put(findingsKey, findings, 1440);
+
+            try {
+                String json = objectMapper.writeValueAsString(findings);
+                String dbKey = "PROWLER::GCP::" + projectId + "::LATEST";
+                com.xammer.cloud.domain.CachedData data = cachedDataRepository.findById(dbKey)
+                        .orElse(new com.xammer.cloud.domain.CachedData());
+                data.setCacheKey(dbKey);
+                data.setJsonData(json);
+                data.setLastUpdated(LocalDateTime.now());
+                cachedDataRepository.save(data);
+                logger.info("Persisted {} GCP Prowler findings to DB for project {}", findings.size(), projectId);
+            } catch (Exception dbEx) {
+                logger.warn("Failed to persist GCP Prowler findings to DB: {}", dbEx.getMessage());
+            }
+
+            status.put("status", "COMPLETED");
+            status.put("endTime", LocalDateTime.now().toString());
+            status.put("findingsCount", findings.size());
+            status.put("message", "GCP scan completed. Found " + findings.size() + " issues.");
+            redisCacheService.put(statusKey, status, 1440);
+
+            logger.info("Async Prowler GCP scan finished for project {}. Findings: {}", projectId, findings.size());
+
+        } catch (Exception e) {
+            logger.error("Async Prowler GCP scan failed for project {}", projectId, e);
+            Map<String, Object> status = new HashMap<>();
+            status.put("status", "FAILED");
+            status.put("error", e.getMessage());
+            status.put("endTime", LocalDateTime.now().toString());
+            redisCacheService.put(statusKey, status, 1440);
+        }
+    }
+
+    public Map<String, Object> getGcpScanStatus(String projectId) {
+        return redisCacheService.get("prowler_status_gcp_" + projectId, new TypeReference<Map<String, Object>>() {})
+                .orElse(Map.of("status", "UNKNOWN", "message", "No scan running."));
+    }
+
+    public List<ProwlerFinding> getCachedGcpFindings(String projectId) {
+        String findingsKey = "prowler_findings_gcp_" + projectId;
+        Optional<List<ProwlerFinding>> redis = redisCacheService.get(findingsKey, new TypeReference<List<ProwlerFinding>>() {});
+        if (redis.isPresent()) return redis.get();
+
+        String dbKey = "PROWLER::GCP::" + projectId + "::LATEST";
+        Optional<com.xammer.cloud.domain.CachedData> dbData = cachedDataRepository.findById(dbKey);
+        if (dbData.isPresent()) {
+            try {
+                List<ProwlerFinding> findings = objectMapper.readValue(dbData.get().getJsonData(), new TypeReference<List<ProwlerFinding>>() {});
+                redisCacheService.put(findingsKey, findings, 1440);
+                return findings;
+            } catch (Exception e) {
+                logger.error("Failed to parse GCP Prowler findings from DB: {}", e.getMessage());
+            }
+        }
+        return Collections.emptyList();
+    }
+
+    private List<ProwlerFinding> runInternalGcpScan(CloudAccount account, String[] complianceFrameworks) {
+        String uniqueId = UUID.randomUUID().toString();
+        String outputDir = System.getProperty("java.io.tmpdir").replaceAll("[/\\\\]$", "");
+        String filenameBase = "prowler-gcp-" + uniqueId;
+
+        String executable = (configuredProwlerPath != null && !configuredProwlerPath.trim().isEmpty())
+                ? configuredProwlerPath : "prowler";
+
+        // Write service account key JSON to a temp file
+        File keyFile = null;
+        try {
+            if (account.getGcpServiceAccountKey() != null && !account.getGcpServiceAccountKey().isBlank()) {
+                keyFile = File.createTempFile("gcp-sa-key-", ".json");
+                Files.writeString(keyFile.toPath(), account.getGcpServiceAccountKey());
+            }
+
+            List<String> command = new ArrayList<>();
+            command.add(executable);
+            command.add("gcp");
+            command.add("--no-banner");
+            command.add("--project-ids");
+            command.add(account.getGcpProjectId());
+
+            if (keyFile != null) {
+                command.add("--credentials-file");
+                command.add(keyFile.getAbsolutePath());
+            }
+
+            if (complianceFrameworks != null && complianceFrameworks.length > 0) {
+                command.add("--compliance");
+                Collections.addAll(command, complianceFrameworks);
+            }
+
+            command.add("--output-modes");
+            command.add("json-ocsf");
+            command.add("--output-filename");
+            command.add(filenameBase);
+            command.add("--output-directory");
+            command.add(outputDir);
+
+            return executeProwlerCommand(command, new HashMap<>(), outputDir, filenameBase);
+
+        } catch (Exception e) {
+            throw new RuntimeException("GCP Prowler scan failed: " + e.getMessage(), e);
+        } finally {
+            if (keyFile != null) keyFile.delete();
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Azure Prowler Support
+    // -------------------------------------------------------------------------
+
+    @Async("prowlerTaskExecutor")
+    public void triggerAzureScanAsync(String subscriptionId, String[] complianceFrameworks) {
+        String statusKey = "prowler_status_azure_" + subscriptionId;
+        String findingsKey = "prowler_findings_azure_" + subscriptionId;
+
+        try {
+            Map<String, Object> status = new HashMap<>();
+            status.put("status", "RUNNING");
+            status.put("startTime", LocalDateTime.now().toString());
+            status.put("message", "Initializing Prowler Azure scan...");
+            redisCacheService.put(statusKey, status, 1440);
+
+            logger.info("Async Prowler Azure scan started for subscription {}", subscriptionId);
+
+            Optional<CloudAccount> accountOpt = cloudAccountRepository.findByAzureSubscriptionId(subscriptionId);
+            if (accountOpt.isEmpty()) {
+                throw new IllegalArgumentException("Azure account not found for subscription: " + subscriptionId);
+            }
+            CloudAccount account = accountOpt.get();
+
+            List<ProwlerFinding> findings = runInternalAzureScan(account, complianceFrameworks);
+
+            redisCacheService.put(findingsKey, findings, 1440);
+
+            try {
+                String json = objectMapper.writeValueAsString(findings);
+                String dbKey = "PROWLER::AZURE::" + subscriptionId + "::LATEST";
+                com.xammer.cloud.domain.CachedData data = cachedDataRepository.findById(dbKey)
+                        .orElse(new com.xammer.cloud.domain.CachedData());
+                data.setCacheKey(dbKey);
+                data.setJsonData(json);
+                data.setLastUpdated(LocalDateTime.now());
+                cachedDataRepository.save(data);
+                logger.info("Persisted {} Azure Prowler findings to DB for subscription {}", findings.size(), subscriptionId);
+            } catch (Exception dbEx) {
+                logger.warn("Failed to persist Azure Prowler findings to DB: {}", dbEx.getMessage());
+            }
+
+            status.put("status", "COMPLETED");
+            status.put("endTime", LocalDateTime.now().toString());
+            status.put("findingsCount", findings.size());
+            status.put("message", "Azure scan completed. Found " + findings.size() + " issues.");
+            redisCacheService.put(statusKey, status, 1440);
+
+            logger.info("Async Prowler Azure scan finished for subscription {}. Findings: {}", subscriptionId, findings.size());
+
+        } catch (Exception e) {
+            logger.error("Async Prowler Azure scan failed for subscription {}", subscriptionId, e);
+            Map<String, Object> status = new HashMap<>();
+            status.put("status", "FAILED");
+            status.put("error", e.getMessage());
+            status.put("endTime", LocalDateTime.now().toString());
+            redisCacheService.put(statusKey, status, 1440);
+        }
+    }
+
+    public Map<String, Object> getAzureScanStatus(String subscriptionId) {
+        return redisCacheService.get("prowler_status_azure_" + subscriptionId, new TypeReference<Map<String, Object>>() {})
+                .orElse(Map.of("status", "UNKNOWN", "message", "No scan running."));
+    }
+
+    public List<ProwlerFinding> getCachedAzureFindings(String subscriptionId) {
+        String findingsKey = "prowler_findings_azure_" + subscriptionId;
+        Optional<List<ProwlerFinding>> redis = redisCacheService.get(findingsKey, new TypeReference<List<ProwlerFinding>>() {});
+        if (redis.isPresent()) return redis.get();
+
+        String dbKey = "PROWLER::AZURE::" + subscriptionId + "::LATEST";
+        Optional<com.xammer.cloud.domain.CachedData> dbData = cachedDataRepository.findById(dbKey);
+        if (dbData.isPresent()) {
+            try {
+                List<ProwlerFinding> findings = objectMapper.readValue(dbData.get().getJsonData(), new TypeReference<List<ProwlerFinding>>() {});
+                redisCacheService.put(findingsKey, findings, 1440);
+                return findings;
+            } catch (Exception e) {
+                logger.error("Failed to parse Azure Prowler findings from DB: {}", e.getMessage());
+            }
+        }
+        return Collections.emptyList();
+    }
+
+    private List<ProwlerFinding> runInternalAzureScan(CloudAccount account, String[] complianceFrameworks) {
+        String uniqueId = UUID.randomUUID().toString();
+        String outputDir = System.getProperty("java.io.tmpdir").replaceAll("[/\\\\]$", "");
+        String filenameBase = "prowler-azure-" + uniqueId;
+
+        String executable = (configuredProwlerPath != null && !configuredProwlerPath.trim().isEmpty())
+                ? configuredProwlerPath : "prowler";
+
+        List<String> command = new ArrayList<>();
+        command.add(executable);
+        command.add("azure");
+        command.add("--no-banner");
+        command.add("--subscription-ids");
+        command.add(account.getAzureSubscriptionId());
+        command.add("--tenant-id");
+        command.add(account.getAzureTenantId());
+        command.add("--client-id");
+        command.add(account.getAzureClientId());
+        command.add("--client-secret");
+        command.add(account.getAzureClientSecret());
+
+        if (complianceFrameworks != null && complianceFrameworks.length > 0) {
+            command.add("--compliance");
+            Collections.addAll(command, complianceFrameworks);
+        }
+
+        command.add("--output-modes");
+        command.add("json-ocsf");
+        command.add("--output-filename");
+        command.add(filenameBase);
+        command.add("--output-directory");
+        command.add(outputDir);
+
+        return executeProwlerCommand(command, new HashMap<>(), outputDir, filenameBase);
+    }
+
+    // -------------------------------------------------------------------------
+    // Shared execution helper (extracted from AWS runInternalScan)
+    // -------------------------------------------------------------------------
+
+    private List<ProwlerFinding> executeProwlerCommand(List<String> command, Map<String, String> extraEnv,
+            String outputDir, String filenameBase) {
+        ProcessBuilder builder = new ProcessBuilder(command);
+        builder.environment().putAll(extraEnv);
+        builder.environment().put("PYTHONIOENCODING", "utf-8");
+        builder.redirectErrorStream(true);
+
+        logger.info("Executing Prowler command: {}", String.join(" ", command));
+
+        try {
+            Process process = builder.start();
+            StringBuilder processOutput = new StringBuilder();
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    logger.debug("[Prowler]: {}", line);
+                    if (processOutput.length() < 2000) processOutput.append(line).append("\n");
+                }
+            }
+
+            boolean finished = process.waitFor(60, TimeUnit.MINUTES);
+            if (!finished) {
+                process.destroy();
+                throw new RuntimeException("Prowler scan timed out after 60 minutes");
+            }
+
+            int exitCode = process.exitValue();
+            logger.info("Prowler process exited with code: {}", exitCode);
+
+            if (exitCode != 0 && exitCode != 3) {
+                String output = processOutput.length() > 500
+                        ? processOutput.substring(processOutput.length() - 500) : processOutput.toString();
+                throw new RuntimeException("Prowler exited with code " + exitCode + ". Output: " + output);
+            }
+
+            File dir = new File(outputDir);
+            File[] matchingFiles = dir.listFiles((d, name) -> name.startsWith(filenameBase) && name.contains(".json"));
+
+            if (matchingFiles != null && matchingFiles.length > 0) {
+                File jsonFile = matchingFiles[0];
+                if (jsonFile.length() == 0) {
+                    Files.deleteIfExists(jsonFile.toPath());
+                    throw new RuntimeException("Prowler output file is empty.");
+                }
+                logger.info("Parsing Prowler output: {} ({} bytes)", jsonFile.getName(), jsonFile.length());
+                List<ProwlerFinding> findings = objectMapper.readValue(jsonFile, new TypeReference<List<ProwlerFinding>>() {});
+                Files.deleteIfExists(jsonFile.toPath());
+                return findings;
+            } else {
+                logger.warn("No Prowler output JSON found at {} with base {}", outputDir, filenameBase);
+                return Collections.emptyList();
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("Prowler Execution Failed: " + e.getMessage(), e);
+        }
+    }
+
     public List<ProwlerFinding> runScan(String accountId, String region, String... serviceGroups) {
         List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
         if (accounts.isEmpty()) {

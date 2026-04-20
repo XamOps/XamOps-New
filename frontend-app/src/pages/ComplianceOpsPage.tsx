@@ -1,9 +1,7 @@
-import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useSecurityData } from '../hooks/useSecurityData';
-import { useGcpSecurityData } from '../hooks/useGcpSecurityData';
-import { useAzureSecurityData } from '../hooks/useAzureSecurityData';
 
 /**
  * ComplianceOps Page
@@ -334,14 +332,123 @@ function getSeverityBadge(severity: string) {
 
 // --- Component ---
 
-// --- Normalize compliance control string "SOC2 CC6.1" → { framework, controlId } ---
-function parseComplianceControl(control?: string): { framework: string; controlId: string } | null {
-  if (!control) return null;
-  const parts = control.trim().split(/\s+/);
-  if (parts.length >= 2) {
-    return { framework: parts[0], controlId: parts.slice(1).join(' ') };
-  }
-  return { framework: control, controlId: control };
+// --- Hook: polls Prowler findings + status for GCP or Azure ---
+
+type CloudProvider = 'GCP' | 'Azure';
+
+function useProwlerComplianceData(provider: CloudProvider, accountId: string | null) {
+  const [findings, setFindings] = useState<NormalizedFinding[]>([]);
+  const [prowlerStatus, setProwlerStatus] = useState<{ status: string; findingsCount?: number; error?: string }>({ status: 'UNKNOWN' });
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastIdRef = useRef<string | null>(null);
+
+  const baseUrl = provider === 'GCP'
+    ? '/api/xamops/gcp/security'
+    : '/api/xamops/azure/security';
+
+  const fetchFindings = useCallback(async (id: string) => {
+    try {
+      const res = await fetch(`${baseUrl}/prowler/findings?accountId=${id}`, { credentials: 'include' });
+      if (!res.ok) return;
+      const raw: Array<{ status_code?: string; severity?: string; message?: string; finding_info?: { title?: string; desc?: string }; resources?: Array<{ uid?: string; region?: string }>; unmapped?: { compliance?: Record<string, string[]> } }> = await res.json();
+      const normalized: NormalizedFinding[] = (raw || [])
+        .filter(f => f.status_code === 'FAIL')
+        .flatMap(f => {
+          const compliance = f.unmapped?.compliance ?? {};
+          const frameworks = Object.keys(compliance);
+          if (frameworks.length === 0) return [{
+            complianceFramework: 'CUSTOM',
+            controlId: f.finding_info?.title ?? 'N/A',
+            description: f.finding_info?.desc ?? f.message ?? '',
+            severity: (f.severity ?? 'LOW').toUpperCase(),
+            resourceId: f.resources?.[0]?.uid ?? '',
+            region: f.resources?.[0]?.region,
+          }];
+          return frameworks.flatMap(fw =>
+            (compliance[fw] ?? []).map(controlId => ({
+              complianceFramework: fw,
+              controlId,
+              description: f.finding_info?.desc ?? f.message ?? '',
+              severity: (f.severity ?? 'LOW').toUpperCase(),
+              resourceId: f.resources?.[0]?.uid ?? '',
+              region: f.resources?.[0]?.region,
+            }))
+          );
+        });
+      setFindings(normalized);
+    } catch (e) {
+      console.error(`[Prowler ${provider}] findings fetch error:`, e);
+    }
+  }, [baseUrl, provider]);
+
+  const fetchStatus = useCallback(async (id: string): Promise<string> => {
+    try {
+      const res = await fetch(`${baseUrl}/prowler/status?accountId=${id}`, { credentials: 'include' });
+      if (!res.ok) return 'UNKNOWN';
+      const data = await res.json();
+      setProwlerStatus(data);
+      if (data.status === 'COMPLETED') await fetchFindings(id);
+      return data.status as string;
+    } catch {
+      return 'UNKNOWN';
+    }
+  }, [baseUrl, fetchFindings]);
+
+  const startPolling = useCallback((id: string) => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      const s = await fetchStatus(id);
+      if (s !== 'RUNNING') {
+        clearInterval(pollRef.current!);
+        pollRef.current = null;
+        setIsRefreshing(false);
+      }
+    }, 5000);
+  }, [fetchStatus]);
+
+  const triggerScan = useCallback(async () => {
+    if (!accountId) return;
+    setIsRefreshing(true);
+    try {
+      const res = await fetch(`${baseUrl}/prowler/scan?accountId=${accountId}`, { method: 'POST', credentials: 'include' });
+      const data = await res.json();
+      if (data.status === 'ALREADY_RUNNING') {
+        alert('A scan is already in progress.');
+        setIsRefreshing(false);
+      } else if (data.status === 'STARTED') {
+        setProwlerStatus({ status: 'RUNNING' });
+        startPolling(accountId);
+      } else {
+        alert(`Failed to trigger scan: ${data.message}`);
+        setIsRefreshing(false);
+      }
+    } catch (e) {
+      console.error(`[Prowler ${provider}] trigger error:`, e);
+      setIsRefreshing(false);
+    }
+  }, [accountId, baseUrl, provider, startPolling]);
+
+  // Initial load: check status + cached findings
+  useEffect(() => {
+    if (!accountId) { setIsLoading(false); return; }
+    if (lastIdRef.current === accountId) return;
+    lastIdRef.current = accountId;
+    setIsLoading(true);
+    Promise.all([fetchStatus(accountId), fetchFindings(accountId)]).finally(() => setIsLoading(false));
+  }, [accountId, fetchStatus, fetchFindings]);
+
+  // Poll if already running
+  useEffect(() => {
+    if (prowlerStatus.status === 'RUNNING' && accountId && !pollRef.current) {
+      startPolling(accountId);
+    }
+  }, [prowlerStatus.status, accountId, startPolling]);
+
+  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
+
+  return { findings, prowlerStatus, isLoading, isRefreshing, triggerScan };
 }
 
 // Shared finding shape used by the scoring/table logic
@@ -361,77 +468,35 @@ const ComplianceOpsPage: React.FC = () => {
   // Provider from the currently selected account ('AWS' | 'GCP' | 'Azure')
   const provider = selectedAccountDisplay?.provider ?? 'AWS';
 
-  // Always call all hooks (React rules — no conditional hooks)
+  // AWS hook (always called — React rules)
   const {
     findings: awsFindings,
     isLoading: awsLoading,
     isRefreshing: awsRefreshing,
-    prowlerStatus,
+    prowlerStatus: awsProwlerStatus,
     loadFindings,
   } = useSecurityData({ selectedAccountId: provider === 'AWS' ? selectedAccountId : null });
 
-  const {
-    findings: gcpRawFindings,
-    isLoading: gcpLoading,
-    isRefreshing: gcpRefreshing,
-    loadAllData: loadGcpData,
-  } = useGcpSecurityData({ selectedAccountId: provider === 'GCP' ? selectedAccountId : null });
+  // GCP + Azure use Prowler endpoints (always called — React rules)
+  const gcpProwler = useProwlerComplianceData('GCP', provider === 'GCP' ? selectedAccountId : null);
+  const azureProwler = useProwlerComplianceData('Azure', provider === 'Azure' ? selectedAccountId : null);
 
-  const {
-    securityData: azureData,
-    isLoading: azureLoading,
-    isRefreshing: azureRefreshing,
-    loadSecurityData: loadAzureData,
-  } = useAzureSecurityData({ selectedAccountId: provider === 'Azure' ? selectedAccountId : null });
-
-  // Normalize GCP findings into the shared shape
-  const gcpFindings = useMemo<NormalizedFinding[]>(() => {
-    return gcpRawFindings.map((f) => {
-      // Prefer full control string "SOC2 CC6.1"; fall back to framework-only "CIS"
-      const parsed = parseComplianceControl(f.complianceControl);
-      const framework = parsed?.framework ?? f.compliance ?? 'CUSTOM';
-      const controlId = parsed?.controlId ?? f.category ?? f.compliance ?? 'N/A';
-      return {
-        complianceFramework: framework,
-        controlId,
-        description: f.description,
-        severity: f.severity,
-        resourceId: f.resourceName,
-        region: undefined,
-      };
-    });
-  }, [gcpRawFindings]);
-
-  // Normalize Azure assessments (unhealthy = FAIL) into the shared shape
-  const azureFindings = useMemo<NormalizedFinding[]>(() => {
-    if (!azureData?.assessments) return [];
-    return azureData.assessments.flatMap((a) => {
-      if (a.statusCode === 'Healthy' || a.statusCode === 'NotApplicable') return [];
-      const parsed = parseComplianceControl(a.complianceControl);
-      return [{
-        complianceFramework: parsed?.framework ?? 'CUSTOM',
-        controlId: parsed?.controlId ?? a.assessmentId,
-        description: a.displayName,
-        severity: a.severity?.toUpperCase() ?? 'MEDIUM',
-        resourceId: a.resourceId ?? a.resourceName ?? '',
-        region: undefined,
-      }];
-    });
-  }, [azureData]);
-
-  // Unified findings / loading state based on provider
-  const findings: NormalizedFinding[] = provider === 'GCP' ? gcpFindings
-    : provider === 'Azure' ? azureFindings
+  // Unified values based on active provider
+  const findings: NormalizedFinding[] = provider === 'GCP' ? gcpProwler.findings
+    : provider === 'Azure' ? azureProwler.findings
     : awsFindings as unknown as NormalizedFinding[];
 
-  const isLoading = provider === 'GCP' ? gcpLoading : provider === 'Azure' ? azureLoading : awsLoading;
-  const isRefreshing = provider === 'GCP' ? gcpRefreshing : provider === 'Azure' ? azureRefreshing : awsRefreshing;
+  const isLoading = provider === 'GCP' ? gcpProwler.isLoading
+    : provider === 'Azure' ? azureProwler.isLoading
+    : awsLoading;
 
-  const handleRefresh = useCallback((force = true) => {
-    if (provider === 'GCP') loadGcpData(force);
-    else if (provider === 'Azure') loadAzureData(force);
-    else loadFindings(force);
-  }, [provider, loadGcpData, loadAzureData, loadFindings]);
+  const isRefreshing = provider === 'GCP' ? gcpProwler.isRefreshing
+    : provider === 'Azure' ? azureProwler.isRefreshing
+    : awsRefreshing;
+
+  const prowlerStatus = provider === 'GCP' ? gcpProwler.prowlerStatus
+    : provider === 'Azure' ? azureProwler.prowlerStatus
+    : awsProwlerStatus;
 
   const { setActions, clearActions } = useTopbar();
 
@@ -470,6 +535,11 @@ const ComplianceOpsPage: React.FC = () => {
       setIsTriggeringScan(false);
     }
   }, [selectedAccountId, loadFindings]);
+
+  // Unified scan trigger used by topbar and empty-state
+  const triggerScan = provider === 'GCP' ? gcpProwler.triggerScan
+    : provider === 'Azure' ? azureProwler.triggerScan
+    : triggerComplianceScan;
 
   // --- Compute Framework Scores ---
 
@@ -753,32 +823,18 @@ const ComplianceOpsPage: React.FC = () => {
           <i className="fas fa-file-csv"></i>
           Export Report
         </button>
-        {/* AWS: Prowler scan trigger */}
-        {provider === 'AWS' && (
-          <button
-            onClick={triggerComplianceScan}
-            disabled={isTriggeringScan || isRefreshing || prowlerStatus.status === 'RUNNING'}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            <i className={`fas fa-sync-alt ${(isTriggeringScan || prowlerStatus.status === 'RUNNING') ? 'animate-spin' : ''}`}></i>
-            {prowlerStatus.status === 'RUNNING' ? 'Scan Running...' : isTriggeringScan ? 'Triggering...' : 'Run Compliance Scan'}
-          </button>
-        )}
-        {/* GCP / Azure: simple refresh button */}
-        {(provider === 'GCP' || provider === 'Azure') && (
-          <button
-            onClick={() => handleRefresh(true)}
-            disabled={isRefreshing}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            <i className={`fas fa-sync-alt ${isRefreshing ? 'animate-spin' : ''}`}></i>
-            {isRefreshing ? 'Refreshing...' : 'Refresh Data'}
-          </button>
-        )}
+        <button
+          onClick={triggerScan}
+          disabled={isTriggeringScan || isRefreshing || prowlerStatus.status === 'RUNNING'}
+          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          <i className={`fas fa-sync-alt ${(isTriggeringScan || isRefreshing || prowlerStatus.status === 'RUNNING') ? 'animate-spin' : ''}`}></i>
+          {prowlerStatus.status === 'RUNNING' ? 'Scan Running...' : isTriggeringScan ? 'Triggering...' : 'Run Compliance Scan'}
+        </button>
       </div>
     );
     return () => clearActions();
-  }, [setActions, clearActions, provider, prowlerStatus, isRefreshing, isTriggeringScan, isExportingReport, controlRows.length, exportComplianceReport, triggerComplianceScan, handleRefresh]);
+  }, [setActions, clearActions, provider, prowlerStatus, isRefreshing, isTriggeringScan, isExportingReport, controlRows.length, exportComplianceReport, triggerScan]);
 
   // Reset page when filters change
   useEffect(() => {
@@ -837,12 +893,12 @@ const ComplianceOpsPage: React.FC = () => {
             Run a security scan to generate compliance findings across frameworks like CIS, SOC 2, PCI-DSS, and more.
           </p>
           <button
-            onClick={() => handleRefresh(true)}
-            disabled={isRefreshing}
+            onClick={triggerScan}
+            disabled={isRefreshing || prowlerStatus.status === 'RUNNING'}
             className="inline-flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors"
           >
-            <i className={`fas fa-play ${isRefreshing ? 'animate-spin' : ''}`}></i>
-            {isRefreshing ? 'Loading...' : provider === 'AWS' ? 'Start Compliance Scan' : 'Load Compliance Data'}
+            <i className={`fas fa-play ${(isRefreshing || prowlerStatus.status === 'RUNNING') ? 'animate-spin' : ''}`}></i>
+            {prowlerStatus.status === 'RUNNING' ? 'Scan Running...' : isRefreshing ? 'Loading...' : 'Run Compliance Scan'}
           </button>
         </div>
       </main>
