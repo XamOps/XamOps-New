@@ -27,7 +27,36 @@ public class SecurityUtils {
     }
 
     public static boolean isSuperAdmin() {
-        return getPrincipal().getAuthorities().stream()
+        return isSuperAdmin(getPrincipal());
+    }
+
+    public static boolean isSuperAdmin(ClientUserDetails userDetails) {
+        if (userDetails == null) return false;
+        return userDetails.getAuthorities().stream()
                 .anyMatch(a -> a.getAuthority().equals("ROLE_SUPER_ADMIN"));
+    }
+
+    /**
+     * Checks if the user is authorized to access the given cloud account.
+     * Authorized if:
+     * 1. User is a SuperAdmin
+     * 2. Account's client matches User's client
+     */
+    public static boolean isAuthorizedForAccount(com.xammer.cloud.domain.CloudAccount account, ClientUserDetails userDetails) {
+        if (account == null || userDetails == null) {
+            return false;
+        }
+
+        // 1. SuperAdmins can access anything
+        if (isSuperAdmin(userDetails)) {
+            return true;
+        }
+
+        // 2. Otherwise, account must belong to the user's client
+        if (account.getClient() == null) {
+            return false;
+        }
+
+        return java.util.Objects.equals(account.getClient().getId(), userDetails.getClientId());
     }
 }
