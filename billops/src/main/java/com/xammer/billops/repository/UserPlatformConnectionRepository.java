@@ -19,4 +19,7 @@ public interface UserPlatformConnectionRepository extends JpaRepository<UserPlat
 
     /** Fallback: look up by Slack member ID / Teams user ID */
     Optional<UserPlatformConnection> findByPlatformUserIdAndPlatform(String platformUserId, String platform);
+
+    /** Used by polling scheduler to get all active connections for a platform */
+    List<UserPlatformConnection> findAllByPlatformAndActive(String platform, boolean active);
 }

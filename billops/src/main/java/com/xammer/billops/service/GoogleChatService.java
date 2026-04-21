@@ -65,34 +65,44 @@ public class GoogleChatService {
     public String createSpaceAndInvite(String serviceAccountJson, String adminEmail,
             String userEmail, String displayName) throws Exception {
 
-        // Create a DM space between the bot and the user using the bot's own token.
-        // In a bot DM, ALL user messages are forwarded to the webhook — no @mention needed.
-        // Bot is the creator so it's automatically a member → inbound webhook works.
-        String botToken = getAccessToken(serviceAccountJson);
-        if (botToken == null) {
-            throw new Exception("Failed to obtain bot token for DM space creation.");
+        // Step 1: Get DWD token (impersonating admin)
+        String dwdToken = getAccessTokenDWD(serviceAccountJson, adminEmail);
+        if (dwdToken == null) {
+            throw new Exception("Failed to obtain DWD access token. Ensure Domain-Wide Delegation is enabled.");
         }
 
+        String spaceName;
+        boolean botAdded = false;
+
         try {
-            String spaceName = createBotDmSpace(botToken, userEmail);
-            log.info("GChat: bot DM space {} created for user={}", spaceName, userEmail);
-            return spaceName;
+            // Step 2: Create named SPACE via DWD
+            spaceName = createNamedSpace(dwdToken, displayName);
+            log.info("GChat: SPACE {} created (admin={})", spaceName, adminEmail);
+
+            // Step 3: Add user as HUMAN member via DWD
+            addUserToSpace(dwdToken, spaceName, userEmail);
+            log.info("GChat: user {} added to space {}", userEmail, spaceName);
+
+            // Step 4: Add bot to space via DWD with chat.memberships.app scope
+            try {
+                addBotToSpace(serviceAccountJson, adminEmail, spaceName);
+                botAdded = true;
+                log.info("GChat: bot added to space {} — inbound webhook enabled", spaceName);
+            } catch (Exception e) {
+                log.warn("GChat: bot could not join space {}: {}", spaceName, e.getMessage());
+            }
+
         } catch (OrgBlocksExternalException e) {
             throw e;
         } catch (Exception e) {
-            log.warn("GChat: bot DM creation failed ({}), falling back to DWD SPACE", e.getMessage());
+            log.warn("GChat: SPACE creation failed ({}), falling back to DIRECT_MESSAGE", e.getMessage());
+            spaceName = setupDirectMessageSpace(dwdToken, userEmail);
+            log.info("GChat: fallback DM space {} created for {}", spaceName, userEmail);
         }
 
-        // Fallback: DWD SPACE (outbound works, inbound only on @mention)
-        String dwdToken = getAccessTokenDWD(serviceAccountJson, adminEmail);
-        if (dwdToken == null) {
-            throw new Exception("Failed to obtain DWD access token.");
+        if (!botAdded) {
+            log.warn("GChat: bot not in space {} — outbound via DWD, inbound won't work", spaceName);
         }
-        String spaceName = createNamedSpace(dwdToken, displayName);
-        log.info("GChat: fallback SPACE {} created (admin={})", spaceName, adminEmail);
-        addUserToSpace(dwdToken, spaceName, userEmail);
-        log.info("GChat: user {} added to fallback space {}", userEmail, spaceName);
-        log.warn("GChat: using fallback SPACE {} — inbound requires @mention", spaceName);
         return spaceName;
     }
 
@@ -162,7 +172,8 @@ public class GoogleChatService {
 
     /**
      * Creates a DM space between the bot and the user using the bot's own token.
-     * Bot is automatically a member → all user messages fire the webhook (no @mention needed).
+     * Bot is automatically a member → all user messages fire the webhook
+     * (no @mention needed).
      */
     private String createBotDmSpace(String botToken, String userEmail) throws Exception {
         HttpHeaders headers = new HttpHeaders();
@@ -186,7 +197,8 @@ public class GoogleChatService {
             ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
                     CHAT_BASE + "/spaces:setup",
                     HttpMethod.POST, new HttpEntity<>(body, headers),
-                    new org.springframework.core.ParameterizedTypeReference<Map<String, Object>>() {});
+                    new org.springframework.core.ParameterizedTypeReference<Map<String, Object>>() {
+                    });
             if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
                 return (String) response.getBody().get("name");
             }
@@ -257,12 +269,12 @@ public class GoogleChatService {
         String clientEmail = sa.path("client_email").asText();
         String privateKeyPem = sa.path("private_key").asText();
 
+        // DWD (sub=adminEmail) with chat.memberships.app scope.
         String cacheKey = clientEmail + "|DWD_BOT|" + adminEmail;
         CachedToken cached = tokenCache.get(cacheKey);
         String token = (cached != null && System.currentTimeMillis() < cached.expiresAt) ? cached.token : null;
         if (token == null) {
             tokenCache.remove(cacheKey);
-            // DWD with sub=adminEmail and chat.memberships.app scope
             String jwt = buildJwtDWD(clientEmail, privateKeyPem,
                     "https://www.googleapis.com/auth/chat.memberships.app", adminEmail);
             HttpHeaders h = new HttpHeaders();
@@ -464,8 +476,8 @@ public class GoogleChatService {
         return null;
     }
 
-    /** DWD token scoped for sending messages (chat.messages). Fallback sender. */
-    private String getAccessTokenDWDMessages(String serviceAccountJson, String adminEmail) {
+    /** DWD token scoped for sending/reading messages (chat.messages). */
+    public String getAccessTokenDWDMessages(String serviceAccountJson, String adminEmail) {
         try {
             JsonNode sa = objectMapper.readTree(serviceAccountJson);
             String clientEmail = sa.path("client_email").asText();
