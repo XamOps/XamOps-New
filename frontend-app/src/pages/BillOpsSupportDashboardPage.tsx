@@ -173,7 +173,7 @@ const BillOpsSupportDashboardPage: React.FC = () => {
 
   /* ── Google Chat per-user setup ── */
   const [settingUpGChat, setSettingUpGChat] = useState(false);
-  const [gchatSetupResult, setGchatSetupResult] = useState<{ invited?: boolean; connected: boolean; spaceName?: string; error?: string; message?: string } | null>(null);
+  const [gchatSetupResult, setGchatSetupResult] = useState<{ invited?: boolean; connected: boolean; spaceName?: string; error?: string; message?: string; errorCode?: string; suggestion?: string } | null>(null);
 
   /* ── Teams per-user invite ── */
   const [sendingTeamsInvite, setSendingTeamsInvite] = useState(false);
@@ -1103,8 +1103,20 @@ const BillOpsSupportDashboardPage: React.FC = () => {
                         : 'Send G.Chat Invite'}
                     </button>
                     {gchatSetupResult && (
-                      <span className={`text-[10px] font-semibold px-2 py-1 rounded-lg ${gchatSetupResult.connected ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>
-                        {gchatSetupResult.connected ? 'Space created ✓ Invite sent' : gchatSetupResult.error}
+                      <span
+                        title={gchatSetupResult.suggestion || gchatSetupResult.error || ''}
+                        className={`text-[10px] font-semibold px-2 py-1 rounded-lg ${
+                          gchatSetupResult.connected
+                            ? 'bg-green-100 text-green-700'
+                            : gchatSetupResult.errorCode === 'USER_ORG_BLOCKS_EXTERNAL'
+                              ? 'bg-yellow-100 text-yellow-700'
+                              : 'bg-red-100 text-red-600'
+                        }`}>
+                        {gchatSetupResult.connected
+                          ? 'Space created ✓'
+                          : gchatSetupResult.errorCode === 'USER_ORG_BLOCKS_EXTERNAL'
+                            ? '⚠ Org blocks external chat'
+                            : gchatSetupResult.error || 'Setup failed'}
                       </span>
                     )}
                   </div>

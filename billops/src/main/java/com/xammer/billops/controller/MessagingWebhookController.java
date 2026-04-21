@@ -242,6 +242,12 @@ public class MessagingWebhookController {
             String eventType = payload.path("type").asText();
 
             if ("MESSAGE".equals(eventType)) {
+                // Ignore messages sent by the bot itself to avoid echo loops
+                String senderType = payload.path("message").path("sender").path("type").asText("");
+                if ("BOT".equals(senderType)) {
+                    return ResponseEntity.ok(Map.of("text", ""));
+                }
+
                 String text = payload.path("message").path("text").asText("").trim();
                 String spaceName = payload.path("message").path("space").path("name").asText(null);
                 String senderEmail = payload.path("message").path("sender").path("email").asText(null);

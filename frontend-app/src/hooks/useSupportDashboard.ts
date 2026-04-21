@@ -58,7 +58,7 @@ interface UseSupportDashboardReturn {
   loadIntegrationConfigs: () => Promise<void>;
   saveIntegrationConfig: (platform: string, botToken?: string, signingSecret?: string, clientId?: string, clientSecret?: string) => Promise<boolean>;
   sendSlackInstallLink: (userId: number) => Promise<{ sent: boolean; email?: string; error?: string }>;
-  setupGoogleChat: (userId: number) => Promise<{ invited?: boolean; connected: boolean; spaceName?: string; error?: string; message?: string }>;
+  setupGoogleChat: (userId: number) => Promise<{ invited?: boolean; connected: boolean; spaceName?: string; error?: string; message?: string; errorCode?: string; suggestion?: string }>;
   sendTeamsInvite: (userId: number) => Promise<{ invited: boolean; email?: string; error?: string; message?: string }>;
 
   // Actions
@@ -507,9 +507,9 @@ export const useSupportDashboard = (): UseSupportDashboardReturn => {
     }
   }, []);
 
-  const setupGoogleChat = useCallback(async (userId: number): Promise<{ invited?: boolean; connected: boolean; spaceName?: string; error?: string; message?: string }> => {
+  const setupGoogleChat = useCallback(async (userId: number): Promise<{ invited?: boolean; connected: boolean; spaceName?: string; error?: string; message?: string; errorCode?: string; suggestion?: string }> => {
     try {
-      const result = await apiClient.post<{ invited?: boolean; connected: boolean; spaceName?: string; error?: string; message?: string }>(
+      const result = await apiClient.post<{ invited?: boolean; connected: boolean; spaceName?: string; error?: string; message?: string; errorCode?: string; suggestion?: string }>(
         `/api/billops/gchat/setup/${userId}`, {}
       );
       if (result?.connected) await loadUserConnections(userId);

@@ -134,9 +134,19 @@ public class GoogleChatController {
             result.put("message", "Google Chat space created and invitation sent to " + userEmail + ". The user will receive an invite from Google.");
             return ResponseEntity.ok(result);
 
+        } catch (GoogleChatService.OrgBlocksExternalException e) {
+            log.warn("GChat: org blocks external for userId={} email={}", userId, userEmail);
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("connected", false);
+            result.put("errorCode", "USER_ORG_BLOCKS_EXTERNAL");
+            result.put("message", e.getUserEmail() + "'s organization has blocked external Google Chat messaging.");
+            result.put("suggestion", "Ask their admin to enable external messaging in Google Workspace Admin Console, or use email instead.");
+            return ResponseEntity.ok(result);
         } catch (Exception e) {
             log.error("GChat: setup failed for userId={} email={}: {}", userId, userEmail, e.getMessage());
             return ResponseEntity.status(500).body(Map.of(
+                "connected", false,
+                "errorCode", "INTERNAL_ERROR",
                 "error", "Failed to create Google Chat space: " + e.getMessage()
             ));
         }
