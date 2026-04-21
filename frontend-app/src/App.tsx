@@ -112,6 +112,8 @@ import FlexComputePage from './pages/FlexComputePage';
 import EbsRightsizingPage from './pages/EbsRightsizingPage';
 import AzureCloudK8sPage from './pages/AzureCloudK8sPage';
 import ObservabilityPage from './pages/ObservabilityPage';
+import SreInvestigationsPage from './pages/SreInvestigationsPage';
+import SreInvestigationDetailPage from './pages/SreInvestigationDetailPage';
 import { SupportChatWidget } from './components/SupportChat';
 import AdminSupportNotificationListener from './components/Shared/AdminSupportNotificationListener';
 import UserSupportNotificationListener from './components/Shared/UserSupportNotificationListener';
@@ -450,6 +452,8 @@ const AppContent: React.FC = () => {
               <Route path="/dataops" element={<DataOpsPage />} />
               <Route path="/gcp-dataops" element={<GcpDataOpsPage />} />
               <Route path="/observability/*" element={<ObservabilityPage />} />
+              <Route path="/sre/investigations" element={<SreInvestigationsPage />} />
+              <Route path="/sre/investigations/:id" element={<SreInvestigationDetailPage />} />
 
               {/* BillOps Routes */}
               <Route path="/billops-dashboard" element={<BillOpsUserDashboardPage />} />
