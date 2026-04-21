@@ -60,3 +60,4 @@ opensre/opensre-source/
 
 # Superpowers
 .superpowers/
+opensre/.env
