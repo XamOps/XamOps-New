@@ -7,6 +7,7 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Chart, registerables } from 'chart.js';
+import SreInvestigateButton from '../../SreInvestigateButton';
 
 Chart.register(...registerables);
 
@@ -411,6 +412,7 @@ const EksPodsTab: React.FC<{ eksData: any }> = ({ eksData }) => {
                 >
                   Age {sortBy === 'age' && <i className={`fas fa-caret-${sortOrder === 'asc' ? 'up' : 'down'} ml-1`}></i>}
                 </th>
+                <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-400">Investigate</th>
                 <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-400 w-10"></th>
               </tr>
             </thead>
@@ -485,6 +487,13 @@ const EksPodsTab: React.FC<{ eksData: any }> = ({ eksData }) => {
                       <td className="px-6 py-4">
                         <span className="text-xs font-bold text-gray-600 bg-gray-50 px-2 py-1 rounded-md">{pod.age || 'N/A'}</span>
                       </td>
+                      <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
+                        <SreInvestigateButton
+                          resourceType="K8S_POD"
+                          resourceId={pod.name}
+                          resourceName={pod.name}
+                        />
+                      </td>
                       <td className="px-6 py-4 text-right">
                         <i className={`fas fa-chevron-right text-gray-200 transition-transform duration-300 ${isExpanded ? 'rotate-90 text-blue-400' : ''}`}></i>
                       </td>
@@ -493,7 +502,7 @@ const EksPodsTab: React.FC<{ eksData: any }> = ({ eksData }) => {
                     {/* Expansion Drawer */}
                     {isExpanded && (
                       <tr>
-                        <td colSpan={8} className="p-0 border-none">
+                        <td colSpan={9} className="p-0 border-none">
                           <div className="px-8 py-6 bg-gray-50/50 border-y border-gray-100 shadow-inner">
                             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                               {/* Metadata Card */}
