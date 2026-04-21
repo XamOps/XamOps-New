@@ -54,3 +54,9 @@ logs/
 test-prometheus-metrics.sh
 integration-guide.html
 NEW_TABS_CONTENT.html
+
+# OpenSRE sidecar source (cloned separately)
+opensre/opensre-source/
+
+# Superpowers
+.superpowers/
