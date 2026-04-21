@@ -7,8 +7,10 @@ import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.service.CloudListService;
 import com.xammer.cloud.service.DashboardDataService;
 import com.xammer.cloud.service.ExcelExportService;
+import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.service.ProwlerService;
 import com.xammer.cloud.service.SecurityService;
+import com.xammer.cloud.util.SecurityUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
@@ -16,6 +18,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -56,7 +59,8 @@ public class SecurityController {
     @GetMapping("/findings")
     public CompletableFuture<ResponseEntity<List<DashboardData.SecurityFinding>>> getSecurityFindings(
             @RequestParam String accountId,
-            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+            @RequestParam(defaultValue = "false") boolean forceRefresh,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
 
         logger.info("Fetching security findings for accountId: {}, forceRefresh: {}", accountId, forceRefresh);
 
@@ -84,6 +88,11 @@ public class SecurityController {
 
         CloudAccount account = accounts.get(0);
 
+        if (!SecurityUtils.isAuthorizedForAccount(account, userDetails)) {
+            logger.warn("User {} is not authorized to access security findings for account {}", userDetails.getUsername(), accountId);
+            return CompletableFuture.completedFuture(ResponseEntity.status(403).build());
+        }
+
         // Fallback: Fetch fresh data
         logger.info("Fetching fresh security findings for account {}", accountId);
         return cloudListService.getRegionStatusForAccount(account, forceRefresh)
@@ -106,12 +115,18 @@ public class SecurityController {
     }
 
     @GetMapping("/export")
-    public CompletableFuture<ResponseEntity<byte[]>> exportFindingsToExcel(@RequestParam String accountId) {
+    public CompletableFuture<ResponseEntity<byte[]>> exportFindingsToExcel(@RequestParam String accountId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
         List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
         if (accounts.isEmpty()) {
             throw new RuntimeException("Account not found: " + accountId);
         }
         CloudAccount account = accounts.get(0);
+
+        if (!SecurityUtils.isAuthorizedForAccount(account, userDetails)) {
+            logger.warn("User {} is not authorized to export security findings for account {}", userDetails.getUsername(), accountId);
+            return CompletableFuture.completedFuture(ResponseEntity.status(403).build());
+        }
 
         return cloudListService.getRegionStatusForAccount(account, true)
                 .thenCompose((List<DashboardData.RegionStatus> activeRegions) -> securityService
@@ -135,7 +150,8 @@ public class SecurityController {
 
     // ✅ Trigger a full compliance scan with all frameworks
     @PostMapping("/prowler/scan")
-    public ResponseEntity<Map<String, Object>> triggerComplianceScan(@RequestParam String accountId) {
+    public ResponseEntity<Map<String, Object>> triggerComplianceScan(@RequestParam String accountId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
         logger.info("Manual compliance scan triggered for accountId: {}", accountId);
 
         List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
@@ -143,6 +159,12 @@ public class SecurityController {
             return ResponseEntity.badRequest().body(Map.of(
                     "status", "ERROR",
                     "message", "Account not found: " + accountId));
+        }
+
+        CloudAccount account = accounts.get(0);
+        if (!SecurityUtils.isAuthorizedForAccount(account, userDetails)) {
+            logger.warn("User {} is not authorized to trigger compliance scan for account {}", userDetails.getUsername(), accountId);
+            return ResponseEntity.status(403).build();
         }
 
         // Check if a scan is already running
@@ -179,7 +201,16 @@ public class SecurityController {
 
     // ✅ Endpoint for Polling Status
     @GetMapping("/prowler/status")
-    public ResponseEntity<Map<String, Object>> getProwlerStatus(@RequestParam String accountId) {
+    public ResponseEntity<Map<String, Object>> getProwlerStatus(@RequestParam String accountId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
+        if (!accounts.isEmpty()) {
+            CloudAccount account = accounts.get(0);
+            if (!SecurityUtils.isAuthorizedForAccount(account, userDetails)) {
+                logger.warn("User {} is not authorized to check prowler status for account {}", userDetails.getUsername(), accountId);
+                return ResponseEntity.status(403).build();
+            }
+        }
         return ResponseEntity.ok(prowlerService.getScanStatus(accountId));
     }
 }
