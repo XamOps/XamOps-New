@@ -60,10 +60,10 @@ export const useGcpCostData = ({
     }
 
     try {
-      let url = `/api/xamops/gcp/costs/breakdown?accountId=${selectedAccountId}&groupBy=${filters.groupBy}`;
+      let url = `/api/xamops/gcp/costs/breakdown?accountId=${selectedAccountId}&groupBy=${filters.groupBy}&forceRefresh=${forceRefresh}`;
 
       if (filters.groupBy === 'TAG' && filters.tagKey) {
-        url = `/api/xamops/gcp/costs/breakdown-by-tag?accountId=${selectedAccountId}&tagKey=${filters.tagKey}`;
+        url = `/api/xamops/gcp/costs/breakdown-by-tag?accountId=${selectedAccountId}&tagKey=${filters.tagKey}&forceRefresh=${forceRefresh}`;
       }
 
       console.log(`[GCP Cost] Fetching cost data for account: ${selectedAccountId}, groupBy: ${filters.groupBy}`);

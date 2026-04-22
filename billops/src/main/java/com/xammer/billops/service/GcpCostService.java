@@ -91,14 +91,14 @@ public class GcpCostService {
             LocalDate today = LocalDate.now();
             logger.info("📅 [GCP DEBUG] Fetching data for date range up to: {}", today);
 
-            List<GcpBillingDashboardDto.CostHistory> costHistory = getCostHistory(bigquery, tableName, today);
+            List<GcpBillingDashboardDto.CostHistory> costHistory = getCostHistory(bigquery, tableName, today, account.getGcpProjectId());
             logger.info("📊 [GCP DEBUG] Fetched {} history records", costHistory.size());
 
             List<GcpBillingDashboardDto.ServiceBreakdown> serviceBreakdown = getServiceBreakdown(bigquery, tableName,
-                    today);
+                    today, account.getGcpProjectId());
             logger.info("📊 [GCP DEBUG] Fetched {} service breakdown records", serviceBreakdown.size());
 
-            BigDecimal totalCost = getMonthToDateSpend(bigquery, tableName, today);
+            BigDecimal totalCost = getMonthToDateSpend(bigquery, tableName, today, account.getGcpProjectId());
             logger.info("💰 [GCP DEBUG] MTD Total Spend (Raw): {}", totalCost);
 
             BigDecimal lastMonthSpend = getLastMonthSpend(costHistory);
@@ -154,10 +154,10 @@ public class GcpCostService {
         String query = String.format(
                 "SELECT resource.name as resource_name, SUM(cost) as total_cost " +
                         "FROM %s " +
-                        "WHERE service.description = '%s' AND resource.name IS NOT NULL " +
+                        "WHERE project.id = '%s' AND service.description = '%s' AND resource.name IS NOT NULL " +
                         "AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' " +
                         "GROUP BY 1 HAVING total_cost > 0.01 ORDER BY total_cost DESC LIMIT 50",
-                tableName,
+                tableName, account.getGcpProjectId(),
                 serviceName,
                 startDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
                 today.format(DateTimeFormatter.ISO_LOCAL_DATE));
@@ -283,8 +283,8 @@ public class GcpCostService {
         }
     }
 
-    private List<GcpBillingDashboardDto.CostHistory> getCostHistory(BigQuery bq, String tableName, LocalDate today)
-            throws InterruptedException {
+    private List<GcpBillingDashboardDto.CostHistory> getCostHistory(BigQuery bq, String tableName, LocalDate today,
+            String gcpProjectId) throws InterruptedException {
         String startDate = today.minusMonths(6).withDayOfMonth(1).format(DateTimeFormatter.ISO_LOCAL_DATE);
         String endDate = today.format(DateTimeFormatter.ISO_LOCAL_DATE);
 
@@ -292,7 +292,7 @@ public class GcpCostService {
                 "WITH MonthlyCosts AS (" +
                         "  SELECT FORMAT_DATE('%%Y-%%m', usage_start_time) as name, SUM(cost) as total_cost " +
                         "  FROM %s " +
-                        "  WHERE DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' " +
+                        "  WHERE project.id = '%s' AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' " +
                         "  GROUP BY 1" +
                         "), " +
                         "MonthlyCostsWithLag AS (" +
@@ -302,7 +302,7 @@ public class GcpCostService {
                         "SELECT name, total_cost, (total_cost > prev_month_cost * 1.2 AND prev_month_cost > 10) as is_anomaly "
                         +
                         "FROM MonthlyCostsWithLag ORDER BY name",
-                tableName, startDate, endDate);
+                tableName, gcpProjectId, startDate, endDate);
 
         QueryJobConfiguration queryConfig = QueryJobConfiguration.newBuilder(query).build();
         TableResult results = bq.query(queryConfig);
@@ -318,15 +318,15 @@ public class GcpCostService {
     }
 
     private List<GcpBillingDashboardDto.ServiceBreakdown> getServiceBreakdown(BigQuery bq, String tableName,
-            LocalDate today) throws InterruptedException {
+            LocalDate today, String gcpProjectId) throws InterruptedException {
         LocalDate startDate = today.withDayOfMonth(1);
 
         String query = String.format(
                 "SELECT service.description as service_name, SUM(cost) as total_cost " +
                         "FROM %s " +
-                        "WHERE DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' " +
+                        "WHERE project.id = '%s' AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' " +
                         "GROUP BY 1 HAVING total_cost > 0 ORDER BY total_cost DESC",
-                tableName,
+                tableName, gcpProjectId,
                 startDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
                 today.format(DateTimeFormatter.ISO_LOCAL_DATE));
 
@@ -342,12 +342,12 @@ public class GcpCostService {
         return serviceBreakdown;
     }
 
-    private BigDecimal getMonthToDateSpend(BigQuery bigquery, String tableName, LocalDate today)
+    private BigDecimal getMonthToDateSpend(BigQuery bigquery, String tableName, LocalDate today, String gcpProjectId)
             throws InterruptedException {
         LocalDate startDate = today.withDayOfMonth(1);
         String query = String.format(
-                "SELECT SUM(cost) as total_cost FROM %s WHERE DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s'",
-                tableName,
+                "SELECT SUM(cost) as total_cost FROM %s WHERE project.id = '%s' AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s'",
+                tableName, gcpProjectId,
                 startDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
                 today.format(DateTimeFormatter.ISO_LOCAL_DATE));
 

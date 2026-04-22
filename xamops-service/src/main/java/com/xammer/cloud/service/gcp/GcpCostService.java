@@ -116,11 +116,11 @@ public class GcpCostService {
                         "    location.region as region, " +
                         "    SUM(cost) as total_cost " +
                         "FROM `%s` " +
-                        "WHERE DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' " +
+                        "WHERE project.id = '%s' AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' " +
                         "GROUP BY 1, 2 " +
                         "HAVING total_cost > 0.01 " +
                         "ORDER BY total_cost DESC",
-                tableNameOpt.get(),
+                tableNameOpt.get(), gcpProjectId,
                 startDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
                 endDate.format(DateTimeFormatter.ISO_LOCAL_DATE));
 
@@ -190,9 +190,9 @@ public class GcpCostService {
         String query = String.format(
                 "SELECT l.value as name, SUM(cost) as total_cost, false as is_anomaly " +
                         "FROM `%s`, UNNEST(labels) as l " +
-                        "WHERE l.key = '%s' AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' " +
+                        "WHERE project.id = '%s' AND l.key = '%s' AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' " +
                         "GROUP BY 1 ORDER BY total_cost DESC",
-                tableNameOpt.get(), tagKey,
+                tableNameOpt.get(), gcpProjectId, tagKey,
                 startDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
                 today.format(DateTimeFormatter.ISO_LOCAL_DATE));
 
@@ -230,8 +230,8 @@ public class GcpCostService {
         LocalDate today = LocalDate.now();
         LocalDate startDate = today.withDayOfMonth(1);
         String query = String.format(
-                "SELECT SUM(cost) as total_cost FROM `%s` WHERE DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s'",
-                tableNameOpt.get(),
+                "SELECT SUM(cost) as total_cost FROM `%s` WHERE project.id = '%s' AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s'",
+                tableNameOpt.get(), gcpProjectId,
                 startDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
                 today.format(DateTimeFormatter.ISO_LOCAL_DATE));
 
@@ -361,12 +361,12 @@ public class GcpCostService {
         String startDate = today.minusMonths(6).withDayOfMonth(1).format(DateTimeFormatter.ISO_LOCAL_DATE);
 
         String query = String.format(
-                "WITH MonthlyCosts AS (SELECT FORMAT_DATE('%%Y-%%m', DATE(usage_start_time)) as name, SUM(cost) as total_cost FROM `%s` WHERE DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' GROUP BY 1), "
+                "WITH MonthlyCosts AS (SELECT FORMAT_DATE('%%Y-%%m', DATE(usage_start_time)) as name, SUM(cost) as total_cost FROM `%s` WHERE project.id = '%s' AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' GROUP BY 1), "
                         +
                         "MonthlyCostsWithLag AS (SELECT name, total_cost, LAG(total_cost, 1, 0) OVER (ORDER BY name) as prev_month_cost FROM MonthlyCosts) "
                         +
                         "SELECT name, total_cost, (total_cost > prev_month_cost * 1.2 AND prev_month_cost > 10) as is_anomaly FROM MonthlyCostsWithLag ORDER BY name",
-                tableNameOpt.get(), startDate, endDate);
+                tableNameOpt.get(), gcpProjectId, startDate, endDate);
 
         List<GcpCostDto> result = executeQuery(bigquery, query, gcpProjectId);
         redisCacheService.put(cacheKey, result, 60);
@@ -469,8 +469,8 @@ public class GcpCostService {
                 : "";
 
         String query = String.format(
-                "SELECT FORMAT_DATE('%%Y-%%m-%%d', DATE(usage_start_time)) as date, SUM(cost) as cost FROM `%s` WHERE DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) < '%s' %s GROUP BY 1 ORDER BY 1",
-                tableNameOpt.get(),
+                "SELECT FORMAT_DATE('%%Y-%%m-%%d', DATE(usage_start_time)) as date, SUM(cost) as cost FROM `%s` WHERE project.id = '%s' AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) < '%s' %s GROUP BY 1 ORDER BY 1",
+                tableNameOpt.get(), gcpProjectId,
                 startDate.toString(),
                 endDate.toString(),
                 serviceFilter);
@@ -496,33 +496,47 @@ public class GcpCostService {
     // ===== COST BREAKDOWN =====
 
     public CompletableFuture<List<GcpCostDto>> getCostBreakdown(String gcpProjectId, String groupBy) {
-        return CompletableFuture.supplyAsync(() -> getCostBreakdownSync(gcpProjectId, groupBy), executor);
+        return getCostBreakdown(gcpProjectId, groupBy, false);
+    }
+
+    public CompletableFuture<List<GcpCostDto>> getCostBreakdown(String gcpProjectId, String groupBy, boolean forceRefresh) {
+        return CompletableFuture.supplyAsync(() -> getCostBreakdownSync(gcpProjectId, groupBy, forceRefresh), executor);
     }
 
     public List<GcpCostDto> getCostBreakdownSync(String gcpProjectId, String groupBy) {
+        return getCostBreakdownSync(gcpProjectId, groupBy, false);
+    }
+
+    public List<GcpCostDto> getCostBreakdownSync(String gcpProjectId, String groupBy, boolean forceRefresh) {
         String cacheKey = COST_BREAKDOWN_CACHE_PREFIX + gcpProjectId + ":" + groupBy;
 
-        Optional<List<GcpCostDto>> cached = redisCacheService.get(
-                cacheKey,
-                new TypeReference<List<GcpCostDto>>() {
-                });
+        if (forceRefresh) {
+            redisCacheService.evict(cacheKey);
+            cachedDataRepository.deleteById(cacheKey);
+            log.info("🔄 Force refresh: evicted cache for project {} / groupBy {}", gcpProjectId, groupBy);
+        } else {
+            Optional<List<GcpCostDto>> cached = redisCacheService.get(
+                    cacheKey,
+                    new TypeReference<List<GcpCostDto>>() {
+                    });
 
-        if (cached.isPresent()) {
-            log.info("✅ Returning Redis-cached cost breakdown for project {} / groupBy {}", gcpProjectId, groupBy);
-            return cached.get();
-        }
-
-        // Try DB snapshot
-        try {
-            Optional<CachedData> dbSnapshot = cachedDataRepository.findById(cacheKey);
-            if (dbSnapshot.isPresent()) {
-                List<GcpCostDto> dbResult = objectMapper.readValue(dbSnapshot.get().getJsonData(), new TypeReference<>() {});
-                log.info("✅ Returning DB-cached cost breakdown for project {} / groupBy {} — re-warming Redis", gcpProjectId, groupBy);
-                redisCacheService.put(cacheKey, dbResult, 60);
-                return dbResult;
+            if (cached.isPresent()) {
+                log.info("✅ Returning Redis-cached cost breakdown for project {} / groupBy {}", gcpProjectId, groupBy);
+                return cached.get();
             }
-        } catch (Exception e) {
-            log.warn("DB snapshot load failed for cost breakdown {}: {}", gcpProjectId, e.getMessage());
+
+            // Try DB snapshot
+            try {
+                Optional<CachedData> dbSnapshot = cachedDataRepository.findById(cacheKey);
+                if (dbSnapshot.isPresent()) {
+                    List<GcpCostDto> dbResult = objectMapper.readValue(dbSnapshot.get().getJsonData(), new TypeReference<>() {});
+                    log.info("✅ Returning DB-cached cost breakdown for project {} / groupBy {} — re-warming Redis", gcpProjectId, groupBy);
+                    redisCacheService.put(cacheKey, dbResult, 60);
+                    return dbResult;
+                }
+            } catch (Exception e) {
+                log.warn("DB snapshot load failed for cost breakdown {}: {}", gcpProjectId, e.getMessage());
+            }
         }
 
         log.info("🔍 Fetching cost breakdown for project {} / groupBy {}", gcpProjectId, groupBy);
@@ -577,8 +591,8 @@ public class GcpCostService {
             return Collections.emptyList();
 
         String query = String.format(
-                "SELECT COALESCE(%s, 'Uncategorized') as name, SUM(cost) as total_cost, false as is_anomaly FROM `%s` WHERE DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' GROUP BY 1 HAVING total_cost > 0 ORDER BY total_cost DESC",
-                dimension, tableNameOpt.get(), startDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
+                "SELECT COALESCE(%s, 'Uncategorized') as name, SUM(cost) as total_cost, false as is_anomaly FROM `%s` WHERE project.id = '%s' AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' GROUP BY 1 HAVING total_cost > 0 ORDER BY total_cost DESC",
+                dimension, tableNameOpt.get(), gcpProjectId, startDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
                 endDate.format(DateTimeFormatter.ISO_LOCAL_DATE));
         return executeQuery(bigquery, query, gcpProjectId);
     }
@@ -747,10 +761,10 @@ public class GcpCostService {
             String query = String.format(
                     "SELECT COALESCE(l.value, 'Untagged') as labelValue, SUM(cost) as cost " +
                             "FROM `%s`, UNNEST(labels) as l " +
-                            "WHERE l.key = '%s' AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' "
+                            "WHERE project.id = '%s' AND l.key = '%s' AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' "
                             +
                             "GROUP BY 1 HAVING cost > 0.01 ORDER BY cost DESC",
-                    tableNameOpt.get(), labelKey,
+                    tableNameOpt.get(), gcpProjectId, labelKey,
                     start.format(DateTimeFormatter.ISO_LOCAL_DATE),
                     end.format(DateTimeFormatter.ISO_LOCAL_DATE));
 
@@ -821,7 +835,7 @@ public class GcpCostService {
                         "         service.description as service_name, " +
                         "         SUM(cost) as daily_cost " +
                         "  FROM `%s` " +
-                        "  WHERE DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' " +
+                        "  WHERE project.id = '%s' AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' " +
                         "  GROUP BY 1, 2 " +
                         "), " +
                         "CostsWithLag AS (" +
@@ -836,7 +850,7 @@ public class GcpCostService {
                         "WHERE avg_prev_7_days > 10 AND daily_cost > avg_prev_7_days * 1.5 " +
                         "ORDER BY change_percent DESC " +
                         "LIMIT 20",
-                tableNameOpt.get(),
+                tableNameOpt.get(), gcpProjectId,
                 startDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
                 today.format(DateTimeFormatter.ISO_LOCAL_DATE));
 

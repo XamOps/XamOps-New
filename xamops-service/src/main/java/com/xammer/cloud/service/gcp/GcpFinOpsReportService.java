@@ -383,8 +383,10 @@ public class GcpFinOpsReportService {
      */
     public CompletableFuture<GcpFinOpsReportDto> refreshFinOpsReport(String gcpProjectId) {
         String cacheKey = FINOPS_REPORT_CACHE_PREFIX + gcpProjectId;
+        String dbKey = DB_CACHE_KEY_PREFIX + gcpProjectId;
         redisCacheService.evict(cacheKey);
-        logger.info("Forced refresh of FinOps report for project {}", gcpProjectId);
+        cachedDataRepository.deleteById(dbKey);
+        logger.info("Forced refresh of FinOps report for project {} — evicted Redis + DB snapshot", gcpProjectId);
         return generateFinOpsReport(gcpProjectId);
     }
 
