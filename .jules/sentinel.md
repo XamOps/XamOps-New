@@ -1,0 +1,4 @@
+## 2026-04-22 - Sensitive Credential Exposure in Logs and Process List
+**Vulnerability:** Prowler cloud scan commands were being logged in plaintext, including sensitive Azure client secrets and GCP credentials file paths. Additionally, Azure secrets were passed as command-line arguments, making them visible in the system's process list.
+**Learning:** Using `String.join(" ", command)` for logging raw `List<String>` commands is dangerous when they contain secrets. Furthermore, passing secrets as CLI arguments is inherently insecure as they are visible to any user or monitoring tool on the same host.
+**Prevention:** Always use environment variables for passing secrets to child processes when supported by the tool (e.g., Prowler's `--sp-env-auth`). Implement a dedicated command masking utility to redact sensitive flags (e.g., `--client-secret`, `--credentials-file`) before logging.

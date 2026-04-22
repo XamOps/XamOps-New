@@ -416,8 +416,12 @@ public class ProwlerService {
         command.add(account.getAzureTenantId());
         command.add("--client-id");
         command.add(account.getAzureClientId());
-        command.add("--client-secret");
-        command.add(account.getAzureClientSecret());
+        command.add("--sp-env-auth");
+
+        Map<String, String> extraEnv = new HashMap<>();
+        extraEnv.put("AZURE_CLIENT_ID", account.getAzureClientId());
+        extraEnv.put("AZURE_TENANT_ID", account.getAzureTenantId());
+        extraEnv.put("AZURE_CLIENT_SECRET", account.getAzureClientSecret());
 
         if (complianceFrameworks != null && complianceFrameworks.length > 0) {
             command.add("--compliance");
@@ -431,12 +435,28 @@ public class ProwlerService {
         command.add("--output-directory");
         command.add(outputDir);
 
-        return executeProwlerCommand(command, new HashMap<>(), outputDir, filenameBase);
+        return executeProwlerCommand(command, extraEnv, outputDir, filenameBase);
     }
 
     // -------------------------------------------------------------------------
     // Shared execution helper (extracted from AWS runInternalScan)
     // -------------------------------------------------------------------------
+
+    private String maskCommand(List<String> command) {
+        if (command == null) return "";
+        List<String> masked = new ArrayList<>();
+        Set<String> sensitiveFlags = Set.of("--client-secret", "--credentials-file");
+
+        for (int i = 0; i < command.size(); i++) {
+            String arg = command.get(i);
+            masked.add(arg);
+            if (sensitiveFlags.contains(arg) && i + 1 < command.size()) {
+                masked.add("********");
+                i++; // Skip the actual sensitive value
+            }
+        }
+        return String.join(" ", masked);
+    }
 
     private List<ProwlerFinding> executeProwlerCommand(List<String> command, Map<String, String> extraEnv,
             String outputDir, String filenameBase) {
@@ -445,7 +465,7 @@ public class ProwlerService {
         builder.environment().put("PYTHONIOENCODING", "utf-8");
         builder.redirectErrorStream(true);
 
-        logger.info("Executing Prowler command: {}", String.join(" ", command));
+        logger.info("Executing Prowler command: {}", maskCommand(command));
 
         try {
             Process process = builder.start();
@@ -572,7 +592,7 @@ public class ProwlerService {
         builder.environment().put("PYTHONIOENCODING", "utf-8");
         builder.redirectErrorStream(true);
 
-        logger.info("Executing Prowler command: {}", String.join(" ", command));
+        logger.info("Executing Prowler command: {}", maskCommand(command));
 
         try {
             Process process = builder.start();
