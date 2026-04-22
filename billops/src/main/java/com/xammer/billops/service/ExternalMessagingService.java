@@ -66,7 +66,8 @@ public class ExternalMessagingService {
      * @param userEmail User's registered email (used for Slack auto-discovery)
      * @return external message ID or null if failed
      */
-    public String sendMessage(Long userId, String platform, String message, String adminName, String userEmail) {
+    public String sendMessage(Long userId, String platform, String message, String adminName,
+                              String userEmail, String attachmentUrl, String attachmentType, String attachmentName) {
         if (platform == null || platform.isBlank())
             return null;
 
@@ -96,7 +97,7 @@ public class ExternalMessagingService {
                 case "TEAMS":
                     return sendToTeams(conn, message, adminName);
                 case "GOOGLE_CHAT":
-                    return sendToGoogleChat(conn, message, adminName);
+                    return sendToGoogleChat(conn, message, adminName, attachmentUrl, attachmentType, attachmentName);
                 default:
                     log.warn("Unknown platform: {}", platform);
                     return null;
@@ -107,9 +108,14 @@ public class ExternalMessagingService {
         }
     }
 
-    /** Backwards-compatible overload (no email). */
+    /** Backwards-compatible overload (email, no attachment). */
+    public String sendMessage(Long userId, String platform, String message, String adminName, String userEmail) {
+        return sendMessage(userId, platform, message, adminName, userEmail, null, null, null);
+    }
+
+    /** Backwards-compatible overload (no email, no attachment). */
     public String sendMessage(Long userId, String platform, String message, String adminName) {
-        return sendMessage(userId, platform, message, adminName, null);
+        return sendMessage(userId, platform, message, adminName, null, null, null, null);
     }
 
     // ── SLACK ─────────────────────────────────────────────────────────────────
@@ -434,16 +440,17 @@ public class ExternalMessagingService {
 
     // ── GOOGLE CHAT ───────────────────────────────────────────────────────────
 
-    private String sendToGoogleChat(UserPlatformConnection conn, String message, String adminName) {
+    private String sendToGoogleChat(UserPlatformConnection conn, String message, String adminName,
+                                    String attachmentUrl, String attachmentType, String attachmentName) {
         MessagingIntegrationConfig config = configRepo.findByPlatform("GOOGLE_CHAT").orElse(null);
 
-        // ── Priority 1: Service Account API (bot DM — auto-setup, no webhook URL
-        // needed) ──
+        // ── Priority 1: Service Account API (bot DM — auto-setup, no webhook URL needed) ──
         if (config != null && config.getServiceAccountJson() != null && !config.getServiceAccountJson().isBlank()) {
             String spaceName = conn.getChannelId();
             if (spaceName != null && spaceName.startsWith("spaces/")) {
                 String result = googleChatService.sendMessage(
-                        config.getServiceAccountJson(), config.getAdminEmail(), spaceName, message, adminName);
+                        config.getServiceAccountJson(), config.getAdminEmail(), spaceName,
+                        message, adminName, attachmentUrl, attachmentType, attachmentName);
                 if (result != null)
                     return result;
                 log.warn("GChat: service account send failed for userId={}, falling back to webhook", conn.getUserId());

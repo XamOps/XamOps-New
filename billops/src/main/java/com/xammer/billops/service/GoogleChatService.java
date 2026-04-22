@@ -19,6 +19,7 @@ import java.security.Signature;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.ArrayList;
 
 /**
  * Google Chat integration using the new SPACE-type architecture:
@@ -112,26 +113,29 @@ public class GoogleChatService {
      * Falls back to DWD (message shows as admin's name) if bot token fails.
      */
     public String sendMessage(String serviceAccountJson, String spaceName, String message, String adminName) {
-        return sendMessage(serviceAccountJson, null, spaceName, message, adminName);
+        return sendMessage(serviceAccountJson, null, spaceName, message, adminName, null, null, null);
     }
 
     public String sendMessage(String serviceAccountJson, String adminEmail,
             String spaceName, String message, String adminName) {
-        // Try bot token first — message shows as "XamOps Support" (app name), no
-        // personal name
+        return sendMessage(serviceAccountJson, adminEmail, spaceName, message, adminName, null, null, null);
+    }
+
+    public String sendMessage(String serviceAccountJson, String adminEmail,
+            String spaceName, String message, String adminName,
+            String attachmentUrl, String attachmentType, String attachmentName) {
         String botToken = getAccessToken(serviceAccountJson);
         if (botToken != null) {
-            String result = doSend(botToken, spaceName, buildMessagePayload(message, adminName));
+            String result = doSend(botToken, spaceName, buildMessagePayload(message, adminName, attachmentUrl, attachmentType, attachmentName));
             if (result != null)
                 return result;
             log.warn("GChat: bot send failed for space {}, falling back to DWD", spaceName);
         }
 
-        // Fallback: DWD token — message shows as admin's name (e.g. "Aditya Mehta")
         if (adminEmail != null && !adminEmail.isBlank()) {
             String dwdToken = getAccessTokenDWDMessages(serviceAccountJson, adminEmail);
             if (dwdToken != null) {
-                String result = doSend(dwdToken, spaceName, Map.of("text", message));
+                String result = doSend(dwdToken, spaceName, buildMessagePayload(message, adminName, attachmentUrl, attachmentType, attachmentName));
                 if (result != null)
                     return result;
             }
@@ -579,14 +583,28 @@ public class GoogleChatService {
 
     // ── Message payload ───────────────────────────────────────────────────────
 
-    private Map<String, Object> buildMessagePayload(String message, String adminName) {
-        Map<String, Object> textPara = new LinkedHashMap<>();
-        textPara.put("text", message);
-        Map<String, Object> textWidget = new LinkedHashMap<>();
-        textWidget.put("textParagraph", textPara);
+    private Map<String, Object> buildMessagePayload(String message, String adminName,
+            String attachmentUrl, String attachmentType, String attachmentName) {
+        List<Map<String, Object>> widgets = new ArrayList<>();
+
+        if (message != null && !message.isBlank()) {
+            Map<String, Object> textWidget = new LinkedHashMap<>();
+            textWidget.put("textParagraph", Map.of("text", message));
+            widgets.add(textWidget);
+        }
+
+        if (attachmentUrl != null && !attachmentUrl.isBlank()) {
+            String label = attachmentName != null ? attachmentName : "View Attachment";
+            Map<String, Object> button = new LinkedHashMap<>();
+            button.put("text", label);
+            button.put("onClick", Map.of("openLink", Map.of("url", attachmentUrl)));
+            Map<String, Object> buttonWidget = new LinkedHashMap<>();
+            buttonWidget.put("buttonList", Map.of("buttons", List.of(button)));
+            widgets.add(buttonWidget);
+        }
 
         Map<String, Object> section = new LinkedHashMap<>();
-        section.put("widgets", List.of(textWidget));
+        section.put("widgets", widgets);
 
         Map<String, Object> card = new LinkedHashMap<>();
         card.put("header", Map.of("title", "XamOps Support", "subtitle", "From: " + adminName));
@@ -597,7 +615,9 @@ public class GoogleChatService {
         cardV2.put("card", card);
 
         Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("text", message); // plain text fallback
+        String plainText = (message != null && !message.isBlank()) ? message
+                : (attachmentName != null ? "📎 " + attachmentName : null);
+        if (plainText != null) payload.put("text", plainText);
         payload.put("cardsV2", List.of(cardV2));
         return payload;
     }

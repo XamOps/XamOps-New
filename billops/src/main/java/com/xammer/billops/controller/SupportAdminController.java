@@ -56,6 +56,9 @@ public class SupportAdminController {
     @Value("${support.upload.dir:${user.home}/billops-uploads}")
     private String uploadDir;
 
+    @Value("${messaging.portal.base-url:https://live.xamops.com}")
+    private String portalBaseUrl;
+
     public SupportAdminController(SupportMessageRepository messageRepository,
                                    CloudAccountRepository cloudAccountRepository,
                                    ClientRepository clientRepository,
@@ -355,8 +358,11 @@ public class SupportAdminController {
         // Route to external platform (Slack / Teams / Google Chat) if requested
         String externalPlatform = payload.get("externalPlatform");
         if (externalPlatform != null && !externalPlatform.isBlank()) {
+            String fullAttachmentUrl = attachmentUrl != null && !attachmentUrl.isEmpty()
+                    ? portalBaseUrl + attachmentUrl : null;
             String externalMsgId = externalMessagingService.sendMessage(
-                    userId, externalPlatform.toUpperCase(), messageContent, adminUsername, userEmail);
+                    userId, externalPlatform.toUpperCase(), messageContent, adminUsername, userEmail,
+                    fullAttachmentUrl, payload.get("attachmentType"), payload.get("attachmentName"));
             if (externalMsgId != null) {
                 saved.setExternalPlatform(externalPlatform.toUpperCase());
                 saved.setExternalMessageId(externalMsgId);

@@ -110,9 +110,13 @@ const TicketsPage: React.FC = () => {
         ? (await billopsRes.value.json()).map((t: Ticket) => ({ ...t, _source: 'billops' }))
         : [];
 
-      // Merge: billops tickets that are not already in xamops (by id collision is unlikely across systems)
-      // Use a compound key to avoid confusion; keep both sets
-      let data: Ticket[] = [...xamopsData, ...billopsData];
+      // Deduplicate by id — both endpoints may return the same tickets
+      const seen = new Set<number>();
+      let data: Ticket[] = [...xamopsData, ...billopsData].filter(t => {
+        if (seen.has(t.id)) return false;
+        seen.add(t.id);
+        return true;
+      });
 
       // Save unfiltered data to cache
       localStorage.setItem(CACHE_KEY, JSON.stringify(data));

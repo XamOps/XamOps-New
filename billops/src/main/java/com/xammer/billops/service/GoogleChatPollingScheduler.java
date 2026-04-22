@@ -15,11 +15,18 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
 
+import org.springframework.beans.factory.annotation.Value;
+
+import java.net.URI;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * Polls each active Google Chat space every 30 seconds for new messages.
@@ -36,6 +43,12 @@ public class GoogleChatPollingScheduler {
     private static final String CHAT_BASE = "https://chat.googleapis.com/v1";
     private static final DateTimeFormatter RFC3339 = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss'Z'")
             .withZone(java.time.ZoneOffset.UTC);
+
+    @Value("${support.upload.dir:${user.home}/billops-uploads}")
+    private String uploadDir;
+
+    @Value("${messaging.portal.base-url:https://live.xamops.com}")
+    private String portalBaseUrl;
 
     private final UserPlatformConnectionRepository connectionRepo;
     private final SupportMessageRepository messageRepository;
@@ -112,7 +125,7 @@ public class GoogleChatPollingScheduler {
             for (Object msgObj : messages) {
                 try {
                     JsonNode msg = objectMapper.valueToTree(msgObj);
-                    processMessage(conn, msg);
+                    processMessage(conn, msg, dwdToken);
                 } catch (Exception e) {
                     log.warn("GChat poll: error processing message: {}", e.getMessage());
                 }
@@ -124,21 +137,22 @@ public class GoogleChatPollingScheduler {
         }
     }
 
-    private void processMessage(UserPlatformConnection conn, JsonNode msg) {
-        // Skip bot messages
+    private void processMessage(UserPlatformConnection conn, JsonNode msg, String dwdToken) {
         String senderType = msg.path("sender").path("type").asText("");
         if ("BOT".equals(senderType)) return;
 
         String text = msg.path("text").asText("").trim();
-        if (text.isBlank()) return;
+        JsonNode attachments = msg.path("attachment");
+        boolean hasAttachment = attachments.isArray() && attachments.size() > 0;
 
-        // Deduplicate using message name as external ID
+        if (text.isBlank() && !hasAttachment) return;
+
         String messageName = msg.path("name").asText(null);
         if (messageName != null && messageRepository.existsByExternalMessageId(messageName)) return;
 
         SupportMessage saved = new SupportMessage();
         saved.setUserId(conn.getUserId());
-        saved.setContent(text);
+        saved.setContent(text.isBlank() ? null : text);
         saved.setUserMessage(true);
         saved.setStatus("UNREAD");
         saved.setTimestamp(LocalDateTime.now(IST));
@@ -146,7 +160,29 @@ public class GoogleChatPollingScheduler {
         saved.setExternalPlatform("GOOGLE_CHAT");
         saved.setExternalMessageId(messageName);
 
-        // Carry over account context from last message
+        // Download first attachment and store locally so the dashboard can display it
+        if (hasAttachment) {
+            JsonNode att = attachments.get(0);
+            String resourceName = att.path("attachmentDataRef").path("resourceName").asText(null);
+            String contentName = att.path("contentName").asText(null);
+            String contentType = att.path("contentType").asText("application/octet-stream");
+            log.info("GChat poll: attachment found — resourceName={} contentName={} contentType={} rawJson={}",
+                    resourceName, contentName, contentType, att);
+            if (resourceName != null && !resourceName.isBlank()) {
+                String mediaUrl = CHAT_BASE + "/media/" + resourceName + "?alt=media";
+                try {
+                    String localUrl = downloadAndStoreAttachment(mediaUrl, contentName, contentType, dwdToken);
+                    saved.setAttachmentUrl(localUrl);
+                    saved.setAttachmentName(contentName);
+                    saved.setAttachmentType(contentType);
+                } catch (Exception e) {
+                    log.warn("GChat poll: failed to download attachment for userId={}: {}", conn.getUserId(), e.getMessage());
+                }
+            } else {
+                log.warn("GChat poll: no resourceName in attachmentDataRef — att keys: {}", att.fieldNames());
+            }
+        }
+
         SupportMessage last = messageRepository.findFirstByUserIdOrderByTimestampDesc(conn.getUserId());
         if (last != null) {
             saved.setAccountId(last.getAccountId());
@@ -155,6 +191,27 @@ public class GoogleChatPollingScheduler {
         }
 
         messageRepository.save(saved);
-        log.info("GChat poll: saved inbound message for userId={} space={}", conn.getUserId(), conn.getChannelId());
+        log.info("GChat poll: saved inbound message for userId={} space={} hasAttachment={}", conn.getUserId(), conn.getChannelId(), hasAttachment);
+    }
+
+    private String downloadAndStoreAttachment(String downloadUri, String contentName, String contentType, String token) throws Exception {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(token);
+
+        ResponseEntity<byte[]> resp = restTemplate.exchange(
+                URI.create(downloadUri), HttpMethod.GET, new HttpEntity<>(headers), byte[].class);
+
+        if (!resp.getStatusCode().is2xxSuccessful() || resp.getBody() == null) {
+            throw new Exception("Download returned " + resp.getStatusCode());
+        }
+
+        String ext = contentName != null && contentName.contains(".") ? contentName.substring(contentName.lastIndexOf('.')) : "";
+        String filename = UUID.randomUUID().toString() + ext;
+
+        Path dir = Paths.get(uploadDir, "support", "gchat");
+        Files.createDirectories(dir);
+        Files.write(dir.resolve(filename), resp.getBody());
+
+        return "/api/billops/support/files/gchat/" + filename;
     }
 }

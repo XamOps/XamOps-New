@@ -56,7 +56,8 @@ public class SecurityConfig {
         return (web) -> web.ignoring()
                 .antMatchers("/api/billops/webhook/**")
                 .antMatchers("/api/billops/slack/oauth/callback")
-                .antMatchers("/api/billops/teams/app/manifest.zip");
+                .antMatchers("/api/billops/teams/app/manifest.zip")
+                .antMatchers("/api/billops/support/files/**");
     }
 
     @Bean
