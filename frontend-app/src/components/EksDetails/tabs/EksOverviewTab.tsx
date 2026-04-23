@@ -3,7 +3,7 @@
  */
 
 import React from 'react';
-import { QuickWin } from '../../../types/eksTypes';
+// import { QuickWin } from '../../../types/eksTypes';
 
 interface EksOverviewTabProps {
   eksData: any;
@@ -100,7 +100,7 @@ const UsageBar: React.FC<{ pct: number; color: string }> = ({ pct, color }) => (
 const EksOverviewTab: React.FC<EksOverviewTabProps> = ({ eksData }) => {
   const {
     dashboard, clusterHealthScore, healthScoreLabel, healthScoreColor,
-    resourceScore, costScore, securityScore, quickWins, potentialSavings, totalPodsCount,
+    resourceScore, costScore, securityScore, potentialSavings, totalPodsCount,
   } = eksData;
 
   if (!dashboard) return null;
@@ -500,8 +500,8 @@ const EksOverviewTab: React.FC<EksOverviewTabProps> = ({ eksData }) => {
         </div>
       </div>
 
-      {/* Section 6 — Quick Wins */}
-      {quickWins && quickWins.length > 0 && (
+      {/* Section 6 — Quick Wins (hidden) */}
+      {/* {quickWins && quickWins.length > 0 && (
         <div className="bg-white border border-[#d0d7de] rounded-lg overflow-hidden">
           <div className="px-5 py-3.5 border-b border-[#e8ecf0] flex items-center justify-between">
             <span className="text-sm font-semibold text-[#1a1f2e]">Quick Wins</span>
@@ -549,7 +549,7 @@ const EksOverviewTab: React.FC<EksOverviewTabProps> = ({ eksData }) => {
             })}
           </div>
         </div>
-      )}
+      )} */}
 
       {/* Section 7 — Cluster Events */}
       {warningEvents.length > 0 && (
