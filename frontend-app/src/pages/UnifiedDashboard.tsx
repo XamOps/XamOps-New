@@ -15,7 +15,7 @@
  */
 
 import React, { useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { Ticker } from '../components/Dashboard/Ticker';
 import { DashboardHeader } from '../components/Dashboard/DashboardHeader';
 import { MetricCard } from '../components/Dashboard/MetricCard';
@@ -368,12 +368,12 @@ export const UnifiedDashboard: React.FC = () => {
               <p className="text-slate-500 max-w-md">
                 Start visualizing your multi-cloud environment by connecting your first AWS, GCP, or Azure account.
               </p>
-              <a
-                href="/account-manager.html"
+              <Link
+                to="/account-manager"
                 className="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-lg hover:shadow-blue-500/30 transition-all duration-300 transform hover:-translate-y-1"
               >
                 Add Cloud Account
-              </a>
+              </Link>
             </div>
           )}
 

@@ -67,6 +67,13 @@ public class GcpFinOpsReportService {
      * ✅ Async wrapper for FinOps report generation
      */
     public CompletableFuture<GcpFinOpsReportDto> generateFinOpsReport(String gcpProjectId) {
+        return generateFinOpsReport(gcpProjectId, false);
+    }
+
+    public CompletableFuture<GcpFinOpsReportDto> generateFinOpsReport(String gcpProjectId, boolean forceRefresh) {
+        if (forceRefresh) {
+            return refreshFinOpsReport(gcpProjectId);
+        }
         return CompletableFuture.supplyAsync(() -> generateFinOpsReportSync(gcpProjectId), executor);
     }
 
@@ -84,15 +91,21 @@ public class GcpFinOpsReportService {
             return cached.get();
         }
 
-        // 2. Try DB snapshot
+        // 2. Try DB snapshot — only use if cost breakdown has actual data
         try {
             Optional<CachedData> dbSnapshot = cachedDataRepository.findById(dbKey);
             if (dbSnapshot.isPresent()) {
                 GcpFinOpsReportDto dbResult = objectMapper.readValue(
                         dbSnapshot.get().getJsonData(), GcpFinOpsReportDto.class);
-                logger.info("✅ Returning DB-cached FinOps report for project {} — re-warming Redis", gcpProjectId);
-                redisCacheService.put(cacheKey, dbResult, 60);
-                return dbResult;
+                boolean hasCostData = dbResult.getCostBreakdown() != null
+                        && dbResult.getCostBreakdown().getByService() != null
+                        && !dbResult.getCostBreakdown().getByService().isEmpty();
+                if (hasCostData) {
+                    logger.info("✅ Returning DB-cached FinOps report for project {} — re-warming Redis", gcpProjectId);
+                    redisCacheService.put(cacheKey, dbResult, 60);
+                    return dbResult;
+                }
+                logger.info("⚠️ DB snapshot for project {} has empty cost breakdown — regenerating fresh", gcpProjectId);
             }
         } catch (Exception e) {
             logger.warn("DB snapshot load failed for GCP FinOps {}: {}", gcpProjectId, e.getMessage());
@@ -386,7 +399,7 @@ public class GcpFinOpsReportService {
         String dbKey = DB_CACHE_KEY_PREFIX + gcpProjectId;
         redisCacheService.evict(cacheKey);
         cachedDataRepository.deleteById(dbKey);
-        logger.info("Forced refresh of FinOps report for project {} — evicted Redis + DB snapshot", gcpProjectId);
+        logger.info("Forced refresh of FinOps report for project {} — evicted Redis + both DB snapshots", gcpProjectId);
         return generateFinOpsReport(gcpProjectId);
     }
 

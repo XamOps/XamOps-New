@@ -66,40 +66,12 @@ public class GcpFinOpsController {
                                         });
                 }
 
-                log.info("Starting GCP FinOps report for accountId: {}", accountId);
+                log.info("Starting GCP FinOps report for accountId: {}, forceRefresh: {}", accountId, forceRefresh);
 
-                if (!forceRefresh) {
-                        // ⭐ NEW: Check database snapshot first
-                        GcpFinOpsReportDto cachedReport = dashboardDataService
-                                        .getGcpFinOpsSnapshot("gcp-finops-" + accountId);
-                        if (cachedReport != null) {
-                                log.info("Serving GCP FinOps report from database cache for account {}", accountId);
-                                return CompletableFuture.completedFuture(ResponseEntity.ok(cachedReport));
-                        }
-                }
-
-                if (forceRefresh) {
-                        return gcpFinOpsReportService.refreshFinOpsReport(accountId)
-                                        .<ResponseEntity<?>>thenApply(ResponseEntity::ok)
-                                        .exceptionally(ex -> {
-                                                log.error("Failed to generate GCP FinOps report for accountId: {}",
-                                                                accountId, ex);
-                                                return ResponseEntity
-                                                                .status(HttpStatus.INTERNAL_SERVER_ERROR)
-                                                                .body(Map.of("error",
-                                                                                "Failed to retrieve GCP FinOps report.",
-                                                                                "message",
-                                                                                ex.getMessage() != null
-                                                                                                ? ex.getMessage()
-                                                                                                : "Unknown error"));
-                                        });
-                }
-
-                return gcpFinOpsReportService.generateFinOpsReport(accountId)
+                return gcpFinOpsReportService.generateFinOpsReport(accountId, forceRefresh)
                                 .<ResponseEntity<?>>thenApply(ResponseEntity::ok)
                                 .exceptionally(ex -> {
-                                        log.error("Failed to generate GCP FinOps report for accountId: {}", accountId,
-                                                        ex);
+                                        log.error("Failed to generate GCP FinOps report for accountId: {}", accountId, ex);
                                         return ResponseEntity
                                                         .status(HttpStatus.INTERNAL_SERVER_ERROR)
                                                         .body(Map.of("error", "Failed to retrieve GCP FinOps report.",
