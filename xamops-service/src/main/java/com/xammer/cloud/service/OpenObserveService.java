@@ -811,6 +811,7 @@ public class OpenObserveService {
                 "        mute_process_name_error: true\n" +
                 "        mute_process_exe_error: true\n" +
                 "        mute_process_io_error: true\n" +
+                "        mute_process_user_error: true\n" +
                 "      paging: {}\n\n" +
                 "  # ── OTLP Receiver — application traces & custom spans ───────────────────────\n" +
                 "  otlp:\n" +
@@ -921,7 +922,16 @@ public class OpenObserveService {
                 "  sudo setfacl -Rm  u:otelcol-contrib:rX /var/lib/docker/containers/ 2>/dev/null || true\n" +
                 "  echo 'Docker detected — container log access granted'\n" +
                 "fi\n\n" +
-                "# ── Step 4: Start & enable on boot ──────────────────────────────────────────\n" +
+                "# ── Step 4: Configure auto-restart on failure ───────────────────────────────\n" +
+                "# Creates a systemd drop-in so the collector restarts automatically if it crashes\n" +
+                "sudo mkdir -p /etc/systemd/system/otelcol-contrib.service.d\n" +
+                "sudo tee /etc/systemd/system/otelcol-contrib.service.d/restart.conf > /dev/null << 'EOF'\n" +
+                "[Service]\n" +
+                "Restart=on-failure\n" +
+                "RestartSec=10\n" +
+                "EOF\n" +
+                "sudo systemctl daemon-reload\n\n" +
+                "# ── Step 5: Enable on boot and start ─────────────────────────────────────────\n" +
                 "sudo systemctl enable otelcol-contrib\n" +
                 "sudo systemctl restart otelcol-contrib\n" +
                 "sudo systemctl status otelcol-contrib\n\n" +

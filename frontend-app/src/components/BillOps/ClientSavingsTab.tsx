@@ -78,7 +78,7 @@ export default function ClientSavingsTab({ clientId }: Props) {
       {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <KpiCard label="Total Savings"  value={fmt(data.grandTotal)}        sub="Realized + Estimated"                                                                         realized />
-        <KpiCard label="Spot Savings"   value={fmt(data.realizedTotal)}      sub="Realized · across clouds"                                                                     realized />
+        <KpiCard label="Realized Savings" value={fmt(data.realizedTotal)}      sub="Realized · across clouds"                                                                     realized />
         <KpiCard label="Rightsizing"    value={`~${fmt(totalRightsizing)}`}  sub={data.cacheRefreshedAt ? `Potential · as of ${data.cacheRefreshedAt}` : 'Potential (est.)'}  realized={false} />
         <KpiCard label="Reservations"   value={`~${fmt(totalReservations)}`} sub={data.cacheRefreshedAt ? `Potential · as of ${data.cacheRefreshedAt}` : 'Potential (est.)'}  realized={false} />
       </div>

@@ -48,6 +48,9 @@ public class AgentController {
     private static final int DISK_AGENT_TTL_MINUTES = 360;
     /** Redis key prefix: ebs-disk-agent:{cloudAccountId}:{instanceId} */
     static final String DISK_AGENT_KEY_PREFIX = "ebs-disk-agent:";
+    /** Sentinel key written on every push; 24-hour TTL survives brief collection gaps (e.g. EBS ModifyVolume). */
+    static final String DISK_AGENT_SEEN_PREFIX = "ebs-disk-agent-seen:";
+    private static final int DISK_AGENT_SEEN_TTL_MINUTES = 1440; // 24 hours
 
     private final AgentIngestService agentIngestService;
     private final DbAgentService dbAgentService;
@@ -623,11 +626,15 @@ public class AgentController {
 
             // Cache each instance's disk data in Redis
             for (Map.Entry<String, List<Map<String, Object>>> entry : byInstance.entrySet()) {
-                String cacheKey = DISK_AGENT_KEY_PREFIX + cloudAccountId + ":" + entry.getKey();
+                String instanceId = entry.getKey();
+                String cacheKey = DISK_AGENT_KEY_PREFIX + cloudAccountId + ":" + instanceId;
                 redisCacheService.put(cacheKey, entry.getValue(), DISK_AGENT_TTL_MINUTES);
+                // Sentinel key survives brief collection gaps (e.g. EBS ModifyVolume "optimizing" phase)
+                String seenKey = DISK_AGENT_SEEN_PREFIX + cloudAccountId + ":" + instanceId;
+                redisCacheService.put(seenKey, Boolean.TRUE, DISK_AGENT_SEEN_TTL_MINUTES);
                 logger.info("[disk-agent] STORED key={} mounts={}", cacheKey, entry.getValue().size());
                 logger.debug("[disk-agent] cached {} mounts for instance {} account {}",
-                        entry.getValue().size(), entry.getKey(), cloudAccountId);
+                        entry.getValue().size(), instanceId, cloudAccountId);
             }
             logger.info("[disk-agent] stored disk data for {} instances (account {})",
                     byInstance.size(), cloudAccountId);

@@ -10,6 +10,7 @@ import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.DailySpotSavingsRepository;
 import com.xammer.cloud.repository.EbsVolumeActionRepository;
+import com.xammer.cloud.service.RedisCacheService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -29,6 +30,7 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class ClientSavingsServiceTest {
 
+    @Mock RedisCacheService redisCacheService;
     @Mock CloudAccountRepository cloudAccountRepository;
     @Mock DailySpotSavingsRepository dailySpotSavingsRepository;
     @Mock EbsVolumeActionRepository ebsVolumeActionRepository;
@@ -39,6 +41,8 @@ class ClientSavingsServiceTest {
     @BeforeEach
     void setUp() {
         service.objectMapper = new ObjectMapper();
+        when(redisCacheService.get(anyString(), any(com.fasterxml.jackson.core.type.TypeReference.class)))
+            .thenReturn(Optional.empty());
     }
 
     private CloudAccount makeAccount(Long id, String provider, String providerAccountId) {

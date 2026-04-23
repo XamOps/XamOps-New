@@ -136,11 +136,13 @@ const AlertsCloudGuardTable: React.FC<AlertsCloudGuardTableProps> = ({
                       {alert.type === 'QUOTA' ? 'Request Increase' : 'Investigate'}
                     </span>
                   </a>
-                  <SreInvestigateButton
-                    resourceType="EC2"
-                    resourceId={alert.id}
-                    resourceName={alert.name}
-                  />
+                  {alert.type === 'SECURITY' && (
+                    <SreInvestigateButton
+                      resourceType="EC2"
+                      resourceId={alert.id}
+                      resourceName={alert.name}
+                    />
+                  )}
                 </div>
               </td>
             </tr>

@@ -61,7 +61,7 @@ const SreInvestigationDetailPage: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+      <div className="flex flex-col h-screen overflow-hidden bg-gray-50 items-center justify-center">
         <div className="text-gray-400">Loading investigation...</div>
       </div>
     );
@@ -69,8 +69,8 @@ const SreInvestigationDetailPage: React.FC = () => {
 
   if (error || !inv) {
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-red-400">{error || 'Investigation not found.'}</div>
+      <div className="flex flex-col h-screen overflow-hidden bg-gray-50 items-center justify-center">
+        <div className="text-red-500">{error || 'Investigation not found.'}</div>
       </div>
     );
   }
@@ -78,35 +78,33 @@ const SreInvestigationDetailPage: React.FC = () => {
   const isRunning = inv.status === 'PENDING' || inv.status === 'RUNNING';
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white p-6">
-      <div className="max-w-4xl mx-auto">
+    <div className="flex flex-col h-screen overflow-hidden bg-gray-50">
+      <div className="flex-1 p-8 space-y-5 overflow-y-auto max-w-4xl w-full mx-auto">
+
         {/* Back button */}
         <button
           onClick={() => navigate('/sre/investigations')}
-          className="text-gray-400 hover:text-white text-sm mb-4 flex items-center gap-1"
+          className="text-gray-500 hover:text-gray-800 text-sm flex items-center gap-1 transition-colors"
         >
           ← Back to Investigations
         </button>
 
-        {/* Header */}
-        <div className="bg-gray-800 rounded-xl border border-gray-700 p-5 mb-5">
-          <div className="flex justify-between items-start">
+        {/* Header card */}
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
+          <div className="flex items-start gap-3">
+            <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${
+              inv.status === 'COMPLETED' ? 'bg-green-100 text-green-700' :
+              inv.status === 'FAILED' ? 'bg-red-100 text-red-600' :
+              'bg-yellow-100 text-yellow-700'
+            }`}>
+              {inv.status}
+            </span>
             <div>
-              <div className="flex items-center gap-3 mb-2">
-                <span className={`text-xs font-bold px-2 py-1 rounded ${
-                  inv.status === 'COMPLETED' ? 'bg-green-900 text-green-300' :
-                  inv.status === 'FAILED' ? 'bg-red-900 text-red-300' :
-                  'bg-yellow-900 text-yellow-300'
-                }`}>
-                  {inv.status}
-                </span>
-                <h1 className="text-xl font-bold">{inv.resourceName || inv.resourceId}</h1>
-                <span className="text-gray-400 text-sm">{inv.resourceType} · {inv.resourceId}</span>
-              </div>
-              <div className="text-gray-400 text-sm">
-                {inv.triggerType === 'AUTO' ? '🔔 Auto-triggered' : '👆 Manual'} ·{' '}
-                {inv.completedAt && inv.startedAt ? `Completed in ${duration(inv.startedAt, inv.completedAt)} · ` : ''}
-                {timeAgo(inv.createdAt)}
+              <h1 className="text-lg font-bold text-gray-800">{inv.resourceName || inv.resourceId}</h1>
+              <div className="text-gray-400 text-sm mt-0.5">
+                {inv.resourceType} · {inv.resourceId}
+                {inv.completedAt && inv.startedAt ? ` · Completed in ${duration(inv.startedAt, inv.completedAt)}` : ''}
+                {' · '}{timeAgo(inv.createdAt)}
               </div>
             </div>
           </div>
@@ -114,51 +112,49 @@ const SreInvestigationDetailPage: React.FC = () => {
 
         {/* Running state */}
         {isRunning && (
-          <div className="bg-yellow-900/30 border border-yellow-700 rounded-xl p-5 mb-5 flex items-center gap-3">
-            <div className="w-3 h-3 bg-yellow-400 rounded-full animate-pulse" />
+          <div className="bg-yellow-50 border border-yellow-200 rounded-2xl p-5 flex items-center gap-3">
+            <div className="w-3 h-3 bg-yellow-400 rounded-full animate-pulse shrink-0" />
             <div>
-              <div className="text-yellow-300 font-semibold">Investigation in progress</div>
-              <div className="text-yellow-400/70 text-sm">AI agents are gathering evidence and analyzing root cause…</div>
+              <div className="text-yellow-700 font-semibold">Investigation in progress</div>
+              <div className="text-yellow-600/80 text-sm">AI agents are gathering evidence and analyzing root cause…</div>
             </div>
           </div>
         )}
 
         {/* Failed state */}
         {inv.status === 'FAILED' && (
-          <div className="bg-red-900/30 border border-red-700 rounded-xl p-5 mb-5">
-            <div className="text-red-300 font-semibold">Investigation Failed</div>
-            <div className="text-red-400/80 text-sm mt-1">{inv.errorMessage || 'Unknown error occurred.'}</div>
+          <div className="bg-red-50 border border-red-200 rounded-2xl p-5">
+            <div className="text-red-600 font-semibold">Investigation Failed</div>
+            <div className="text-red-500/80 text-sm mt-1">{inv.errorMessage || 'Unknown error occurred.'}</div>
           </div>
         )}
 
         {/* Completed report */}
         {inv.status === 'COMPLETED' && (
           <div className="flex flex-col gap-5">
-            {/* Summary */}
             {inv.reportSummary && (
-              <div className="bg-blue-900/30 border border-blue-700 rounded-xl p-5">
-                <div className="text-blue-400 text-xs font-bold uppercase tracking-wider mb-3">📋 Summary</div>
-                <p className="text-gray-200 text-sm leading-relaxed">{inv.reportSummary}</p>
+              <div className="bg-blue-50 border border-blue-200 rounded-2xl p-5">
+                <div className="text-blue-600 text-xs font-bold uppercase tracking-wider mb-3">📋 Summary</div>
+                <p className="text-gray-700 text-sm leading-relaxed">{inv.reportSummary}</p>
               </div>
             )}
 
-            {/* Root Cause + Recommendations side by side */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               {inv.reportRootCause && (
-                <div className="bg-red-900/20 border border-red-800 rounded-xl p-5">
-                  <div className="text-red-400 text-xs font-bold uppercase tracking-wider mb-3">🔍 Root Cause</div>
-                  <p className="text-gray-200 text-sm leading-relaxed">{inv.reportRootCause}</p>
+                <div className="bg-red-50 border border-red-200 rounded-2xl p-5">
+                  <div className="text-red-600 text-xs font-bold uppercase tracking-wider mb-3">🔍 Root Cause</div>
+                  <p className="text-gray-700 text-sm leading-relaxed">{inv.reportRootCause}</p>
                 </div>
               )}
 
               {inv.reportRecommendations && inv.reportRecommendations.length > 0 && (
-                <div className="bg-green-900/20 border border-green-800 rounded-xl p-5">
-                  <div className="text-green-400 text-xs font-bold uppercase tracking-wider mb-3">✅ Recommendations</div>
+                <div className="bg-green-50 border border-green-200 rounded-2xl p-5">
+                  <div className="text-green-600 text-xs font-bold uppercase tracking-wider mb-3">✅ Recommendations</div>
                   <div className="flex flex-col gap-2">
                     {inv.reportRecommendations.map((rec, i) => (
                       <div key={i} className="flex gap-2 items-start">
-                        <span className="bg-green-900 text-green-400 text-xs font-bold px-2 py-0.5 rounded shrink-0">{i + 1}</span>
-                        <span className="text-gray-200 text-sm">{rec}</span>
+                        <span className="bg-green-100 text-green-700 text-xs font-bold px-2 py-0.5 rounded shrink-0">{i + 1}</span>
+                        <span className="text-gray-700 text-sm">{rec}</span>
                       </div>
                     ))}
                   </div>
@@ -166,11 +162,10 @@ const SreInvestigationDetailPage: React.FC = () => {
               )}
             </div>
 
-            {/* Full markdown report */}
             {inv.reportFullMarkdown && (
-              <div className="bg-gray-800 border border-gray-700 rounded-xl p-5">
+              <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm">
                 <div className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-3">📄 Full Report</div>
-                <pre className="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap font-mono overflow-x-auto">
+                <pre className="text-gray-600 text-sm leading-relaxed whitespace-pre-wrap font-mono overflow-x-auto">
                   {inv.reportFullMarkdown}
                 </pre>
               </div>

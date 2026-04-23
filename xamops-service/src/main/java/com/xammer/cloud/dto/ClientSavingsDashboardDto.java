@@ -1,7 +1,9 @@
 package com.xammer.cloud.dto;
 
+import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 import java.util.List;
 
@@ -39,11 +41,13 @@ public class ClientSavingsDashboardDto {
     private String cacheRefreshedAt;
 
     @Data
+    @AllArgsConstructor
+    @NoArgsConstructor
     public static class DailyPoint {
-        private final String date;
-        private final double awsSpot;
-        private final double gcpSpot;
-        private final double azureSpot;
-        private final double awsEbs;
+        private String date;
+        private double awsSpot;
+        private double gcpSpot;
+        private double azureSpot;
+        private double awsEbs;
     }
 }

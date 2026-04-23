@@ -200,7 +200,8 @@ func queryPostgresMetrics(ctx context.Context, db *sql.DB, alias, host string) (
 			COALESCE(sum(calls) FILTER (WHERE query ILIKE 'INSERT%'), 0),
 			COALESCE(sum(calls) FILTER (WHERE query ILIKE 'UPDATE%'), 0),
 			COALESCE(sum(calls) FILTER (WHERE query ILIKE 'DELETE%'), 0)
-		FROM pg_stat_statements`,
+		FROM pg_stat_statements
+		WHERE query != '<insufficient privilege>'`,
 	).Scan(&m.ComSelect, &m.ComInsert, &m.ComUpdate, &m.ComDelete)
 
 	// Deadlocks & active connections
@@ -333,6 +334,7 @@ SELECT
     shared_blks_read
 FROM pg_stat_statements
 WHERE calls > 0
+  AND query != '<insufficient privilege>'
 ORDER BY total_exec_time DESC
 LIMIT $1`
 

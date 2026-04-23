@@ -44,6 +44,13 @@ const EbsRightsizingPage: React.FC = () => {
   const uniqueRegions = Array.from(new Set(volumes.map(v => v.region))).sort();
   const uniqueTypes = Array.from(new Set(volumes.map(v => v.volumeType))).sort();
 
+  // Only prompt to install the agent for instances that have neither SSM nor XamOps agent data.
+  // Exclude instances where: (a) usedPercent is present (fresh data) or (b) agentDeployed is true
+  // (sentinel hit — agent exists but data is temporarily unavailable, e.g. during EBS ModifyVolume).
+  const instancesNeedingAgent = ssmUnavailableInstances.filter(instanceId =>
+    !volumes.some(v => v.instanceId === instanceId && (v.usedPercent !== undefined || v.agentDeployed))
+  );
+
   const filteredVolumes = volumes.filter(v => {
     if (filterSearch && !v.volumeId.includes(filterSearch) && !(v.volumeName ?? '').toLowerCase().includes(filterSearch.toLowerCase())) return false;
     if (filterRegion && v.region !== filterRegion) return false;
@@ -177,8 +184,8 @@ const EbsRightsizingPage: React.FC = () => {
                 )}
 
                 {/* SSM unavailable banner */}
-                {!isDiskUsageLoading && ssmUnavailableInstances.length > 0 && (
-                  <SsmSetupGuide count={ssmUnavailableInstances.length} awsAccountId={selectedAccountId} />
+                {!isDiskUsageLoading && instancesNeedingAgent.length > 0 && (
+                  <SsmSetupGuide count={instancesNeedingAgent.length} awsAccountId={selectedAccountId} />
                 )}
 
                 {/* All Volumes Table */}
@@ -374,28 +381,36 @@ const EbsRightsizingPage: React.FC = () => {
                                     <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
                                       vol.usedPercent !== undefined
                                         ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                                        : vol.instanceId && ssmUnavailableInstances.includes(vol.instanceId)
-                                          ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
-                                          : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'
+                                        : vol.agentDeployed
+                                          ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+                                          : vol.instanceId && ssmUnavailableInstances.includes(vol.instanceId)
+                                            ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                                            : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'
                                     }`}>
                                       {vol.usedPercent !== undefined
                                         ? 'Optimally sized'
-                                        : vol.instanceId && ssmUnavailableInstances.includes(vol.instanceId)
-                                          ? 'Agent not installed'
-                                          : 'No action needed'}
+                                        : vol.agentDeployed
+                                          ? 'Refreshing...'
+                                          : vol.instanceId && ssmUnavailableInstances.includes(vol.instanceId)
+                                            ? 'Agent not installed'
+                                            : 'No action needed'}
                                     </span>
                                     <div className={`text-xs leading-snug ${
                                       vol.usedPercent !== undefined
                                         ? 'text-green-600 dark:text-green-400'
-                                        : vol.instanceId && ssmUnavailableInstances.includes(vol.instanceId)
-                                          ? 'text-amber-600 dark:text-amber-400'
-                                          : 'text-gray-400 dark:text-gray-500'
+                                        : vol.agentDeployed
+                                          ? 'text-blue-600 dark:text-blue-400'
+                                          : vol.instanceId && ssmUnavailableInstances.includes(vol.instanceId)
+                                            ? 'text-amber-600 dark:text-amber-400'
+                                            : 'text-gray-400 dark:text-gray-500'
                                     }`}>
                                       {vol.usedPercent !== undefined
                                         ? `Usage is ${vol.usedPercent.toFixed(0)}% — volume is optimally sized`
-                                        : vol.instanceId && ssmUnavailableInstances.includes(vol.instanceId)
-                                          ? 'Install the disk agent to get SHRINK/EXPAND recommendations based on actual usage'
-                                          : 'No optimization opportunity detected by AWS Compute Optimizer'}
+                                        : vol.agentDeployed
+                                          ? 'Agent is deployed — disk data will refresh shortly'
+                                          : vol.instanceId && ssmUnavailableInstances.includes(vol.instanceId)
+                                            ? 'Install the disk agent to get SHRINK/EXPAND recommendations based on actual usage'
+                                            : 'No optimization opportunity detected by AWS Compute Optimizer'}
                                     </div>
                                   </div>
                                 )}

@@ -1,5 +1,6 @@
 package com.xammer.cloud.service.billops;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xammer.cloud.domain.CloudAccount;
@@ -8,6 +9,7 @@ import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.DailySpotSavingsRepository;
 import com.xammer.cloud.repository.EbsVolumeActionRepository;
+import com.xammer.cloud.service.RedisCacheService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,6 +23,10 @@ import java.util.stream.Collectors;
 @Service
 public class ClientSavingsService {
 
+    private static final String CACHE_KEY_PREFIX = "CLIENT_SAVINGS::";
+    private static final int CACHE_TTL_MINUTES = 60;
+
+    @Autowired RedisCacheService redisCacheService;
     @Autowired CloudAccountRepository cloudAccountRepository;
     @Autowired DailySpotSavingsRepository dailySpotSavingsRepository;
     @Autowired EbsVolumeActionRepository ebsVolumeActionRepository;
@@ -29,6 +35,10 @@ public class ClientSavingsService {
 
     @Transactional(readOnly = true)
     public ClientSavingsDashboardDto getSavings(Long clientId, LocalDate startDate, LocalDate endDate) {
+        String cacheKey = CACHE_KEY_PREFIX + clientId + "::" + startDate + "::" + endDate;
+        Optional<ClientSavingsDashboardDto> cached = redisCacheService.get(
+                cacheKey, new TypeReference<ClientSavingsDashboardDto>() {});
+        if (cached.isPresent()) return cached.get();
         List<CloudAccount> accounts = cloudAccountRepository.findByClientId(clientId);
         String clientName = accounts.isEmpty() ? "" : accounts.get(0).getClient().getName();
 
@@ -59,7 +69,7 @@ public class ClientSavingsService {
         double potentialTotal = awsRightsizing + gcpRightsizing + azureRightsizing
                               + awsReservations + gcpReservations + azureReservations;
 
-        return ClientSavingsDashboardDto.builder()
+        ClientSavingsDashboardDto result = ClientSavingsDashboardDto.builder()
             .realizedSpotAws(awsSpot)
             .realizedSpotGcp(gcpSpot)
             .realizedSpotAzure(azureSpot)
@@ -80,6 +90,8 @@ public class ClientSavingsService {
             .accountCount(accounts.size())
             .cacheRefreshedAt(findOldestCacheDate(accounts))
             .build();
+        redisCacheService.put(cacheKey, result, CACHE_TTL_MINUTES);
+        return result;
     }
 
     private double sumSpotSavings(List<CloudAccount> accounts, LocalDate start, LocalDate end) {
@@ -100,6 +112,7 @@ public class ClientSavingsService {
 
     private double sumCachedSavings(List<CloudAccount> accounts, String keyPrefix, String savingsField) {
         return accounts.stream()
+            .filter(a -> a.getProviderAccountId() != null)
             .mapToDouble(a -> cachedDataRepository.findById(keyPrefix + a.getProviderAccountId())
                 .map(cd -> extractSavingsFromJson(cd.getJsonData(), savingsField))
                 .orElse(0.0))
@@ -158,6 +171,7 @@ public class ClientSavingsService {
 
     private String findOldestCacheDate(List<CloudAccount> accounts) {
         return accounts.stream()
+            .filter(a -> a.getProviderAccountId() != null)
             .flatMap(a -> List.of(
                 "GCP_RIGHTSIZING::" + a.getProviderAccountId(),
                 "AZURE_RIGHTSIZING::" + a.getProviderAccountId(),

@@ -211,6 +211,9 @@ public class ProactiveCacheRefreshService {
                     try { costService.getCostBreakdown(accountId, "SERVICE", null, false, startDate, endDate).join(); }
                     catch (Exception e) { logger.debug("[Seed] Cost skipped for {}: {}", accountId, e.getMessage()); }
 
+                    try { costService.getCreditsApplied(accountId, false).join(); }
+                    catch (Exception e) { logger.debug("[Seed] Credits skipped for {}: {}", accountId, e.getMessage()); }
+
                     try { reservationService.getReservationPageData(accountId, false).join(); }
                     catch (Exception e) { logger.debug("[Seed] Reservations skipped for {}: {}", accountId, e.getMessage()); }
 
@@ -572,6 +575,7 @@ public class ProactiveCacheRefreshService {
                         costService.getCostBreakdownByServiceAndRegion(
                                 accountId, LocalDate.parse(startDate), LocalDate.parse(endDate), true).join();
                         costService.getHistoricalCost(accountId, null, null, 30, true).join();
+                        costService.getCreditsApplied(accountId, true).join();
                         dbOpsCostService.getDbCosts(accountId, true).join();
                         count++;
                     } catch (Exception e) {

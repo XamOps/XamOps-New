@@ -21,6 +21,7 @@ export interface EbsVolume {
   usedPercent?: number;
   usedGb?: number;
   freeGb?: number;
+  agentDeployed?: boolean;
   recommendation: 'DELETE_UNATTACHED' | 'UPGRADE_TYPE' | 'EXPAND' | 'SHRINK' | 'NONE';
   recommendationReason?: string;
   recommendedType: string;

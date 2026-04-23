@@ -11,10 +11,13 @@ import com.xammer.cloud.repository.SreNotificationRepository;
 import com.xammer.cloud.service.AwsClientProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import software.amazon.awssdk.auth.credentials.AwsCredentials;
+
+import javax.annotation.PostConstruct;
 
 import java.time.Instant;
 import java.util.*;
@@ -23,8 +26,8 @@ import java.util.*;
 public class SreInvestigationService {
 
     private static final Logger logger = LoggerFactory.getLogger(SreInvestigationService.class);
-    private static final int POLL_INTERVAL_MS = 5000;
-    private static final int MAX_POLLS = 60;
+    private static final int POLL_INTERVAL_MS = 3000;
+    private static final int MAX_POLLS = 100;
 
     private final SreInvestigationRepository investigationRepo;
     private final SreNotificationRepository notificationRepo;
@@ -34,6 +37,11 @@ public class SreInvestigationService {
     private final SreNotificationService notificationService;
     private final AwsClientProvider awsClientProvider;
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    // Self-injection via proxy to ensure @Async is honoured (Spring AOP self-invocation bypass)
+    @Lazy
+    @Autowired
+    private SreInvestigationService self;
 
     public SreInvestigationService(SreInvestigationRepository investigationRepo,
                                    SreNotificationRepository notificationRepo,
@@ -51,7 +59,6 @@ public class SreInvestigationService {
         this.awsClientProvider = awsClientProvider;
     }
 
-    @Transactional
     public SreInvestigation createInvestigation(Long clientId,
                                                 TriggerInvestigationRequest req,
                                                 SreInvestigation.TriggerType triggerType) {
@@ -65,8 +72,23 @@ public class SreInvestigationService {
         inv.setAlertPayload(req.getAlertPayload());
         inv.setStatus(SreInvestigation.InvestigationStatus.PENDING);
         SreInvestigation saved = investigationRepo.save(inv);
-        runInvestigationAsync(saved.getId(), clientId);
+        self.runInvestigationAsync(saved.getId(), clientId);
         return saved;
+    }
+
+    @PostConstruct
+    public void resetStaleInvestigations() {
+        List<SreInvestigation> stale = investigationRepo.findByStatus(SreInvestigation.InvestigationStatus.RUNNING);
+        stale.addAll(investigationRepo.findByStatus(SreInvestigation.InvestigationStatus.PENDING));
+        if (!stale.isEmpty()) {
+            logger.warn("Resetting {} stale investigation(s) left RUNNING/PENDING from previous server instance", stale.size());
+            for (SreInvestigation inv : stale) {
+                inv.setStatus(SreInvestigation.InvestigationStatus.FAILED);
+                inv.setErrorMessage("Interrupted by server restart.");
+                inv.setCompletedAt(Instant.now());
+                investigationRepo.save(inv);
+            }
+        }
     }
 
     public List<SreInvestigation> listForClient(Long clientId) {
@@ -80,49 +102,76 @@ public class SreInvestigationService {
 
     @Async
     public void runInvestigationAsync(Long investigationId, Long clientId) {
-        SreInvestigation inv = investigationRepo.findById(investigationId).orElse(null);
-        if (inv == null) return;
-
-        inv.setStatus(SreInvestigation.InvestigationStatus.RUNNING);
-        inv.setStartedAt(Instant.now());
-        investigationRepo.save(inv);
-
+        logger.info("SRE [{}] async task started on thread {}", investigationId, Thread.currentThread().getName());
+        SreInvestigation inv = null;
         try {
+            inv = investigationRepo.findById(investigationId).orElse(null);
+            if (inv == null) {
+                logger.warn("SRE [{}] investigation not found in DB — aborting", investigationId);
+                return;
+            }
+
+            inv.setStatus(SreInvestigation.InvestigationStatus.RUNNING);
+            inv.setStartedAt(Instant.now());
+            investigationRepo.save(inv);
+            logger.info("SRE [{}] status set to RUNNING, building input for resourceType={} resourceId={}",
+                    investigationId, inv.getResourceType(), inv.getResourceId());
+
             Map<String, Object> input = buildOpenSreInput(inv);
+            logger.info("SRE [{}] input built, creating OpenSRE thread", investigationId);
+
             String threadId = openSreClient.createThread();
+            logger.info("SRE [{}] thread created: {}", investigationId, threadId);
             inv.setOpensreThreadId(threadId);
             investigationRepo.save(inv);
 
+            logger.info("SRE [{}] starting run on thread {}", investigationId, threadId);
             openSreClient.startRun(threadId, input);
+            logger.info("SRE [{}] run started — polling every {}ms, max {} polls", investigationId, POLL_INTERVAL_MS, MAX_POLLS);
 
             int polls = 0;
             while (polls < MAX_POLLS) {
                 Thread.sleep(POLL_INTERVAL_MS);
                 polls++;
 
-                if (openSreClient.isCompleted(threadId)) {
-                    Map<String, Object> values = openSreClient.getValues(threadId);
-                    storeReport(inv, values);
-                    inv.setStatus(SreInvestigation.InvestigationStatus.COMPLETED);
-                    inv.setCompletedAt(Instant.now());
-                    investigationRepo.save(inv);
-                    notificationService.notifyComplete(inv, clientId);
-                    return;
+                // Single getState call per poll cycle
+                Map<String, Object> state = openSreClient.getState(threadId);
+                String status = (String) state.getOrDefault("status", "unknown");
+                logger.debug("SRE [{}] poll {}/{} — status={}", investigationId, polls, MAX_POLLS, status);
+
+                if ("idle".equals(status)) {
+                    Object values = state.get("values");
+                    if (values instanceof Map && !((Map<?, ?>) values).isEmpty()) {
+                            Map<String, Object> valuesMap = (Map<String, Object>) values;
+                        storeReport(inv, valuesMap);
+                        inv.setStatus(SreInvestigation.InvestigationStatus.COMPLETED);
+                        inv.setCompletedAt(Instant.now());
+                        investigationRepo.save(inv);
+                        logger.info("SRE [{}] COMPLETED after {} polls", investigationId, polls);
+                        notificationService.notifyComplete(inv, clientId);
+                        return;
+                    }
                 }
 
-                if (openSreClient.isFailed(threadId)) {
-                    throw new RuntimeException("OpenSRE investigation failed");
+                if ("error".equals(status) || "interrupted".equals(status)) {
+                    throw new RuntimeException("OpenSRE thread status: " + status);
                 }
             }
-            throw new RuntimeException("Investigation timed out after 5 minutes");
+            throw new RuntimeException("Investigation timed out after " + (MAX_POLLS * POLL_INTERVAL_MS / 1000) + "s");
 
         } catch (Exception e) {
-            logger.error("SRE investigation {} failed: {}", investigationId, e.getMessage());
-            inv.setStatus(SreInvestigation.InvestigationStatus.FAILED);
-            inv.setErrorMessage(e.getMessage());
-            inv.setCompletedAt(Instant.now());
-            investigationRepo.save(inv);
-            notificationService.notifyFailed(inv, clientId);
+            logger.error("SRE [{}] investigation FAILED: {}", investigationId, e.getMessage(), e);
+            if (inv != null) {
+                inv.setStatus(SreInvestigation.InvestigationStatus.FAILED);
+                inv.setErrorMessage(e.getMessage());
+                inv.setCompletedAt(Instant.now());
+                try {
+                    investigationRepo.save(inv);
+                } catch (Exception saveEx) {
+                    logger.error("SRE [{}] could not save FAILED status: {}", investigationId, saveEx.getMessage());
+                }
+                notificationService.notifyFailed(inv, clientId);
+            }
         }
     }
 

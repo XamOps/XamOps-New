@@ -703,7 +703,18 @@ public class BillOpsAdminController {
             };
         }
         if (startDate != null && endDate != null) {
-            return new LocalDate[]{ LocalDate.parse(startDate), LocalDate.parse(endDate) };
+            try {
+                LocalDate start = LocalDate.parse(startDate);
+                LocalDate end2 = LocalDate.parse(endDate);
+                if (start.isAfter(end2)) {
+                    throw new org.springframework.web.server.ResponseStatusException(
+                        org.springframework.http.HttpStatus.BAD_REQUEST, "startDate must be on or before endDate");
+                }
+                return new LocalDate[]{ start, end2 };
+            } catch (java.time.format.DateTimeParseException e) {
+                throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.BAD_REQUEST, "Invalid date format, expected YYYY-MM-DD");
+            }
         }
         return new LocalDate[]{ end.minusDays(30), end };
     }

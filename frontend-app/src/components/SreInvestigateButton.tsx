@@ -72,9 +72,10 @@ const SreInvestigateButton: React.FC<Props> = ({
     return (
       <button
         onClick={handleClick}
-        className="px-3 py-1.5 rounded text-xs font-semibold bg-green-900/50 text-green-400 border border-green-800 hover:bg-green-900 transition-colors whitespace-nowrap"
+        title="View Investigation Report"
+        className="w-8 h-8 rounded-lg flex items-center justify-center bg-green-100 text-green-600 hover:bg-green-200 transition-colors"
       >
-        ✅ View Report
+        <i className="fas fa-check-circle text-sm" />
       </button>
     );
   }
@@ -83,9 +84,10 @@ const SreInvestigateButton: React.FC<Props> = ({
     return (
       <button
         onClick={handleClick}
-        className="px-3 py-1.5 rounded text-xs font-semibold bg-gray-800 text-yellow-400 border border-yellow-800 cursor-pointer whitespace-nowrap"
+        title="Investigation in progress…"
+        className="w-8 h-8 rounded-lg flex items-center justify-center bg-yellow-100 text-yellow-600 cursor-pointer"
       >
-        ⏳ Investigating…
+        <i className="fas fa-spinner fa-spin text-sm" />
       </button>
     );
   }
@@ -94,9 +96,13 @@ const SreInvestigateButton: React.FC<Props> = ({
     <button
       onClick={handleClick}
       disabled={triggering}
-      className="px-3 py-1.5 rounded text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors whitespace-nowrap"
+      title="Investigate with AI"
+      className="w-8 h-8 rounded-lg flex items-center justify-center bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 transition-colors"
     >
-      {triggering ? '…' : '🔍 Investigate'}
+      {triggering
+        ? <i className="fas fa-spinner fa-spin text-sm" />
+        : <i className="fas fa-search text-sm" />
+      }
     </button>
   );
 };

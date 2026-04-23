@@ -1702,4 +1702,71 @@ public class CostService {
                                         return Collections.emptyMap();
                                 });
         }
+
+        /**
+         * Fetch AWS credits applied to the account in the current month.
+         * Credits appear in Cost Explorer as RECORD_TYPE=Credit with negative amounts.
+         * Returns the absolute value (positive number representing dollars saved via credits).
+         * Returns 0.0 on any error or if no credits were applied.
+         */
+        @Async("awsTaskExecutor")
+        public CompletableFuture<Double> getCreditsApplied(String accountId) {
+                return getCreditsApplied(accountId, false);
+        }
+
+        @Async("awsTaskExecutor")
+        public CompletableFuture<Double> getCreditsApplied(String accountId, boolean forceRefresh) {
+                String cacheKey = "creditsApplied-" + accountId;
+                if (!forceRefresh) {
+                        Optional<Double> cached = redisCache.get(cacheKey, Double.class);
+                        if (cached.isPresent()) {
+                                return CompletableFuture.completedFuture(cached.get());
+                        }
+                }
+
+                if (useMockData) {
+                        return CompletableFuture.completedFuture(0.0);
+                }
+
+                return CompletableFuture.supplyAsync(() -> {
+                        try {
+                                CloudAccount account = getAccount(accountId);
+                                CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
+
+                                LocalDate now = LocalDate.now();
+                                LocalDate start = now.withDayOfMonth(1);
+                                LocalDate end = now.plusDays(1);
+
+                                Expression creditFilter = Expression.builder()
+                                        .dimensions(DimensionValues.builder()
+                                                .key(Dimension.RECORD_TYPE)
+                                                .values("Credit")
+                                                .build())
+                                        .build();
+
+                                GetCostAndUsageRequest request = GetCostAndUsageRequest.builder()
+                                        .timePeriod(DateInterval.builder()
+                                                .start(start.toString())
+                                                .end(end.toString())
+                                                .build())
+                                        .granularity(Granularity.MONTHLY)
+                                        .metrics("UnblendedCost")
+                                        .filter(creditFilter)
+                                        .build();
+
+                                double credits = ce.getCostAndUsage(request).resultsByTime().stream()
+                                        .map(r -> r.total().getOrDefault("UnblendedCost",
+                                                MetricValue.builder().amount("0").unit("USD").build()).amount())
+                                        .mapToDouble(Double::parseDouble)
+                                        .map(Math::abs)
+                                        .sum();
+
+                                redisCache.put(cacheKey, credits, 60);
+                                return credits;
+                        } catch (Exception e) {
+                                logger.warn("Could not fetch credits for account {}: {}", accountId, e.getMessage());
+                                return 0.0;
+                        }
+                });
+        }
 }
