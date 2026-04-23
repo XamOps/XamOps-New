@@ -65,6 +65,26 @@ func collectTrivy(ctx context.Context, dc dynamic.Interface) (DataBatch, error) 
 					if !ok {
 						continue
 					}
+					// Extract CVSS score — try direct "score" field first, then nvd v3Score
+					var vulnScore float64
+					if s, ok := vm["score"]; ok {
+						vulnScore = float64(safeInt64(s))
+						if f, ok := s.(float64); ok {
+							vulnScore = f
+						}
+					}
+					if vulnScore == 0 {
+						if cvss, ok := vm["cvss"].(map[string]interface{}); ok {
+							for _, provider := range cvss {
+								if pm, ok := provider.(map[string]interface{}); ok {
+									if v3, ok := pm["v3Score"].(float64); ok && v3 > 0 {
+										vulnScore = v3
+										break
+									}
+								}
+							}
+						}
+					}
 					r.Report.Vulnerabilities = append(r.Report.Vulnerabilities, TrivyVulnerability{
 						VulnerabilityID:  safeString(vm, "vulnerabilityID"),
 						Severity:         safeString(vm, "severity"),
@@ -73,6 +93,7 @@ func collectTrivy(ctx context.Context, dc dynamic.Interface) (DataBatch, error) 
 						FixedVersion:     safeString(vm, "fixedVersion"),
 						Title:            safeString(vm, "title"),
 						PrimaryLink:      safeString(vm, "primaryLink"),
+						Score:            vulnScore,
 					})
 				}
 			}

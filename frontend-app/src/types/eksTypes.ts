@@ -16,6 +16,25 @@ export interface EksDashboard {
   trivy: TrivyData | null;
   karpenter: KarpenterData | null;
   podResourceMetrics?: PodResourceMetrics;
+  // ── Agent-sourced fields (from k8s-resources + prometheus-metrics collectors) ──
+  k8sNodes?: any[];
+  k8sPods?: any[];
+  k8sDeployments?: any[];
+  k8sStatefulSets?: any[];
+  k8sDaemonSets?: any[];
+  k8sServices?: any[];
+  k8sIngresses?: any[];
+  k8sHpas?: any[];
+  k8sPvcs?: any[];
+  k8sJobs?: any[];
+  k8sEvents?: any[];
+  nodeUtilization?: any[];
+  namespaceUtilization?: any[];
+  falcoEvents?: any[];
+  topCpuPods?: any[];
+  topMemoryPods?: any[];
+  networkMetrics?: any[];
+  agentCostMetrics?: any;
   // Caching metadata
   lastSyncedAt?: string; // ISO timestamp from server
 }
@@ -324,7 +343,7 @@ export interface KarpenterStatus {
   color: string;
 }
 
-export type TabType = 'overview' | 'cost' | 'performance' | 'security' | 'workloads' | 'pods' | 'containers' | 'nodes' | 'karpenter' | 'autoscaling';
+export type TabType = 'overview' | 'cost' | 'performance' | 'security' | 'workloads' | 'pods' | 'containers' | 'nodes' | 'resources' | 'karpenter' | 'autoscaling';
 
 // ─── XamOps Autoscaling Types (CAST.ai blueprint) ────────────────────────────
 
@@ -433,6 +452,54 @@ export interface AutoscalingKpis {
   totalManagedNodes: number;
 }
 
+// ── Node Optimizer types ──────────────────────────────────────────────────────
+
+export interface NodeOptimizerPolicy {
+  enabled: boolean;
+  idleCpuThresholdPct: number;
+  idleMemThresholdPct: number;
+  autoCordonIdleNodes: boolean;
+  autoDrainIdleNodes: boolean;
+  handleSpotInterruptions: boolean;
+  /** Target % of nodes to run as spot (0 = disabled). e.g. 60 → maintain 60% spot. */
+  spotRatioTargetPct: number;
+  /** Whether Karpenter is installed — enables NodePool CRD patching. */
+  karpenterEnabled: boolean;
+  /** Max nodes to drain in parallel for spot conversion (default 1). */
+  maxParallelDrains: number;
+}
+
+export interface IdleNodeInfo {
+  nodeName: string;
+  instanceType: string;
+  cpuUsagePct: number;
+  memUsagePct: number;
+  podCount: number;
+  systemPodsOnly: boolean;
+  recommendDrain: boolean;
+  capacityType: string;
+}
+
+export interface SpotCandidateInfo {
+  nodeName: string;
+  instanceType: string;
+  cpuUsagePct: number;
+  memUsagePct: number;
+  savingsPct: number;
+  interruptible: boolean;
+}
+
+export interface NodeFleetReport {
+  totalNodes: number;
+  onDemandNodes: number;
+  spotNodes: number;
+  idleNodes: IdleNodeInfo[];
+  spotCandidates: SpotCandidateInfo[];
+  interruptedNodes: string[];
+  estimatedSavingsPct: number;
+  collectedAt: string;
+}
+
 export interface AutoscalerDashboard {
   autoscalingEnabled: boolean;
   agentStatus: AutoscalerAgentStatus;
@@ -444,6 +511,8 @@ export interface AutoscalerDashboard {
   rebalancer: RebalancerConfig;
   safetyGuards: SafetyGuards;
   recentEvents: AutoscalingEvent[];
+  nodeOptimizerPolicy: NodeOptimizerPolicy;
+  nodeFleetReport: NodeFleetReport | null;
 }
 
 // NEW: Node Claim interface for Karpenter

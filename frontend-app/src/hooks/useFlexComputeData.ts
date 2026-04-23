@@ -14,6 +14,7 @@ import type {
   CapacityPricing,
 } from '../types/flexCompute';
 
+
 const defaultKPIs: FlexComputeKPIs = {
   totalSavings: 0,
   totalCost: 0,

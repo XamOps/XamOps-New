@@ -519,13 +519,13 @@ public class AgentController {
 
     // =========================================================================
     // AUTOSCALING CONTROLLER ENDPOINTS
-    // Used by xamops-autoscaler agent (authenticated with same global API key)
+    // Used by xamops-automation agent (authenticated with same global API key)
     // =========================================================================
 
     /**
      * GET /api/v1/agent/autoscaling-policy?clusterName=xxx&cloudAccountId=xxx
      *
-     * Called by xamops-autoscaler on every policy poll cycle.
+     * Called by xamops-automation on every policy poll cycle.
      * Returns the PolicyBundle JSON (from agent_data_cache dataType="autoscaling-policy")
      * so the controller knows the current user-configured autoscaling settings.
      *

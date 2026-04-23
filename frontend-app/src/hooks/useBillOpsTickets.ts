@@ -13,12 +13,11 @@ import {
   TicketCacheData
 } from '../types/billopsTickets';
 import { useAccounts } from '../contexts/AccountContext';
+import { useAuth } from '../contexts/AuthContext';
 import {
   initNotificationService,
   notifyNewTicketCreated
 } from '../utils/notificationService';
-
-const CACHE_KEY = 'billops_account_tickets_v1';
 
 interface UseBillOpsTicketsReturn {
   tickets: BillOpsTicket[];
@@ -33,7 +32,12 @@ interface UseBillOpsTicketsReturn {
 }
 
 export const useBillOpsTickets = (): UseBillOpsTicketsReturn => {
-  const { selectedAccountIds } = useAccounts();
+  const { selectedAccountIds, accounts, isLoading: accountsLoading } = useAccounts();
+  const { userProfile } = useAuth();
+  const cacheKeyRef = useRef(`billops_account_tickets_v1:${userProfile?.username ?? 'unknown'}`);
+  useEffect(() => {
+    cacheKeyRef.current = `billops_account_tickets_v1:${userProfile?.username ?? 'unknown'}`;
+  }, [userProfile?.username]);
   const [tickets, setTickets] = useState<BillOpsTicket[]>([]);
   const [loading, setLoading] = useState(true);
   const [isUpdating, setIsUpdating] = useState(false);
@@ -47,50 +51,6 @@ export const useBillOpsTickets = (): UseBillOpsTicketsReturn => {
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const hasData = tickets.length > 0;
-
-  /**
-   * Load tickets from localStorage cache
-   */
-  const loadFromCache = useCallback((): boolean => {
-    try {
-      const cached = localStorage.getItem(CACHE_KEY);
-      if (cached) {
-        let cacheData: TicketCacheData;
-        const parsed = JSON.parse(cached);
-
-        // Handle backward compatibility if cached data was just the array
-        if (Array.isArray(parsed)) {
-          cacheData = { data: parsed, timestamp: Date.now() };
-        } else {
-          cacheData = parsed as TicketCacheData;
-        }
-
-        if (cacheData.data && Array.isArray(cacheData.data)) {
-          console.log('⚡ [BillOps Tickets] Loaded from cache.');
-
-          // Apply client-side filtering to cached data
-          let filteredTickets = cacheData.data;
-          if (selectedAccountId) {
-            filteredTickets = cacheData.data.filter(
-              t => t.accountId === selectedAccountId
-            );
-          }
-
-          setTickets(filteredTickets);
-
-          if (cacheData.timestamp) {
-            setLastUpdated(cacheData.timestamp);
-          }
-
-          setLoading(false);
-          return true;
-        }
-      }
-    } catch (err) {
-      console.error('Error reading cache:', err);
-    }
-    return false;
-  }, [selectedAccountId]);
 
   /**
    * Fetch fresh tickets from API
@@ -131,7 +91,7 @@ export const useBillOpsTickets = (): UseBillOpsTicketsReturn => {
         data: allTickets,
         timestamp: now
       };
-      localStorage.setItem(CACHE_KEY, JSON.stringify(cacheData));
+      localStorage.setItem(cacheKeyRef.current, JSON.stringify(cacheData));
 
       setLastUpdated(now);
 
@@ -202,12 +162,14 @@ export const useBillOpsTickets = (): UseBillOpsTicketsReturn => {
    * Load data on mount and when selected account changes
    */
   useEffect(() => {
-    // Attempt instant load from cache
-    loadFromCache();
-
-    // Trigger background sync (stale-while-revalidate)
+    // Don't fetch if accounts are still loading or user has no accounts
+    if (accountsLoading) return;
+    if (accounts.length === 0) {
+      setLoading(false);
+      return;
+    }
     fetchTickets(false);
-  }, [selectedAccountId]); // Re-fetch when account changes
+  }, [selectedAccountId, accounts.length, accountsLoading]);
 
   /**
    * Listen for account changes and navigation events

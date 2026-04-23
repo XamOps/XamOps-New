@@ -353,7 +353,9 @@ const ServicesSection: React.FC<{ services: any[] }> = ({ services }) => {
             {filtered.length === 0 ? (
               <tr><td colSpan={6} className="py-12 text-center text-gray-400 text-sm">No services found</td></tr>
             ) : filtered.map((svc: any, i: number) => {
-              const externalIp = svc.externalIp || svc.loadBalancerIngress || svc.externalName || '—';
+              const externalIp = svc.loadBalancerHostname || svc.loadBalancerIp
+                || (Array.isArray(svc.externalIps) && svc.externalIps[0])
+                || svc.externalIp || svc.externalName || '—';
               const ports = Array.isArray(svc.ports)
                 ? svc.ports.map((p: any) => typeof p === 'object' ? `${p.port || p.targetPort}/${p.protocol || 'TCP'}` : p).join(', ')
                 : (svc.ports || '—');

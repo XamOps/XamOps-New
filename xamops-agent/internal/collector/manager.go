@@ -162,8 +162,15 @@ func (m *Manager) CollectAll() (*AgentPayload, error) {
 		return payload, nil
 	}
 
-	// ── 1. Cluster metadata (always on if CollectorMetrics) ──────────────
-	if m.cfg.CollectorMetrics {
+	// ── 1. Full K8s resource snapshot (nodes, pods, deployments, HPAs, etc.) ─
+	if m.cfg.CollectorK8sResources {
+		if batch, err := collectK8sResources(ctx, m.k8sClient, m.metricsClient); err == nil {
+			payload.Batches = append(payload.Batches, batch)
+		} else {
+			log.Printf("WARN: k8s-resources: %v", err)
+		}
+	} else if m.cfg.CollectorMetrics {
+		// Fallback: keep old lightweight cluster-metadata for backward compat
 		if batch, err := collectClusterMetadata(ctx, m.k8sClient); err == nil {
 			payload.Batches = append(payload.Batches, batch)
 		} else {
@@ -207,7 +214,18 @@ func (m *Manager) CollectAll() (*AgentPayload, error) {
 		}
 	}
 
-	// ── 6. Autoscaling metrics (observation-only) ────────────────────────
+	// ── 6. Prometheus metrics (utilization, cost, Falco, top pods) ──────────
+	if m.cfg.CollectorPrometheusMetrics && m.cfg.PrometheusURL != "" {
+		if batch, err := collectPrometheusMetrics(ctx, m.cfg.PrometheusURL, m.httpClient); err == nil {
+			if batch.Count > 0 {
+				payload.Batches = append(payload.Batches, batch)
+			}
+		} else {
+			log.Printf("WARN: prometheus-metrics: %v", err)
+		}
+	}
+
+	// ── 7. Autoscaling metrics (observation-only) ────────────────────────
 	// Pushes autoscaling-metrics (single KPI object) and autoscaling-events (list).
 	// Does NOT change any cluster state — read-only Prometheus + k8s API queries.
 	if m.cfg.CollectorAutoscaling {

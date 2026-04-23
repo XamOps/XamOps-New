@@ -12,7 +12,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
-	"github.com/xamops/autoscaler/internal/policy"
+	"github.com/xamops/automation/internal/policy"
 )
 
 // EvictorResult is returned after each evictor cycle.

@@ -63,4 +63,7 @@ public interface SupportMessageRepository extends JpaRepository<SupportMessage, 
 
     // Auto-ping: legacy accountId-based check (fallback for old records)
     boolean existsByAccountIdAndIsUserMessageTrueAndTimestampAfter(String accountId, LocalDateTime after);
+
+    // Deduplication: check if an inbound message from an external platform was already saved
+    boolean existsByExternalMessageId(String externalMessageId);
 }

@@ -1,13 +1,17 @@
 # =============================================================================
 # XamOps Agent - Complete Kubernetes Deployment
 # =============================================================================
-# This agent collects data from:
-# - Trivy (VulnerabilityReports)
-# - Kubescape (ConfigurationScanSummaries)
-# - OpenCost (Allocation API)
-# - Karpenter (NodePools, NodeClaims, EC2NodeClasses)
+# Tier 1: Read-Only Observability Agent
+# Collects data from:
+#   - Full K8s resource snapshot  (nodes, pods, deployments, HPAs, PVCs, events)
+#   - Prometheus metrics           (node/namespace utilization, cost, Falco, top pods)
+#   - Trivy                        (VulnerabilityReports)
+#   - Kubescape                    (ConfigurationScanSummaries)
+#   - OpenCost                     (Allocation API)
+#   - Karpenter                    (NodePools, NodeClaims, EC2NodeClasses)
 #
 # Works for: Public clusters, Private clusters, Any size (small to large)
+# No inbound connections required — agent PUSHES data to live.xamops.com:443
 # =============================================================================
 
 ---
@@ -181,9 +185,15 @@ rules:
     verbs: [get, list, watch]
 
   # -------------------------------------------------------------------------
-  # Autoscaling (HPA/VPA)
+  # Autoscaling (HPA v2 + VPA)
   # -------------------------------------------------------------------------
   - apiGroups: [autoscaling]
+    resources:
+      - horizontalpodautoscalers
+    verbs: [get, list, watch]
+
+  # HPA v2 (autoscaling/v2) — used by k8s-resources collector
+  - apiGroups: [autoscaling/v2, "autoscaling"]
     resources:
       - horizontalpodautoscalers
     verbs: [get, list, watch]
@@ -227,26 +237,44 @@ data:
   PUSH_INTERVAL: "300"           # How often to push to XamOps server
   HEARTBEAT_INTERVAL: "60"       # How often to send heartbeat (1 minute)
 
-  # Collectors to enable (true/false)
+  # ── Core collectors (always-on) ────────────────────────────────────────────
+  # Full K8s resource snapshot: nodes, pods, deployments, statefulsets,
+  # daemonsets, services, ingresses, HPAs, PVCs, jobs, cronjobs, events.
+  # Replaces the old cluster-metadata collector.
+  COLLECTOR_K8S_RESOURCES: "true"
+
+  # Security & compliance tools
   COLLECTOR_TRIVY: "true"
   COLLECTOR_KUBESCAPE: "true"
+
+  # Cost & capacity
   COLLECTOR_OPENCOST: "true"
   COLLECTOR_KARPENTER: "true"
-  COLLECTOR_METRICS: "true"
+
+  # In-cluster Prometheus metrics: node/namespace utilization, cost metrics
+  # (if opencost or node-cost-exporter is installed), Falco security events,
+  # pod restart rates, top CPU/memory consumers, network I/O per namespace.
+  # Requires Prometheus deployed in the monitoring namespace (see onboarding guide).
+  COLLECTOR_PROMETHEUS_METRICS: "true"
 
   # Autoscaling KPI observation (read-only Prometheus + k8s metrics).
-  # Pushes autoscaling-metrics and autoscaling-events to XamOps so the
-  # Autoscaling tab KPI cards are populated from real cluster data.
-  # Set to "true" once you enable autoscaling for any cluster in XamOps UI.
+  # Pushes autoscaling-metrics and autoscaling-events KPI cards.
+  # Enable once autoscaling is configured in XamOps UI.
   COLLECTOR_AUTOSCALING: "false"
 
-  # OpenCost configuration (internal cluster service)
+  # Legacy lightweight cluster-metadata collector (superseded by COLLECTOR_K8S_RESOURCES).
+  # Keep false to avoid duplicate data.
+  COLLECTOR_METRICS: "false"
+
+  # ── OpenCost configuration ──────────────────────────────────────────────────
   OPENCOST_SERVICE_URL: "http://opencost.opencost.svc.cluster.local:9003"
   OPENCOST_ALLOCATION_WINDOW: "1d"
 
-  # Prometheus URL (used by COLLECTOR_AUTOSCALING for node CPU/memory utilization)
-  # Change this to match your Prometheus service location.
-  # Leave blank to fall back to metrics-server.
+  # ── Prometheus endpoint ─────────────────────────────────────────────────────
+  # In-cluster Prometheus service (installed in the monitoring namespace).
+  # Used by COLLECTOR_PROMETHEUS_METRICS and COLLECTOR_AUTOSCALING.
+  # If Prometheus is unavailable, the agent falls back to metrics-server for
+  # basic CPU/memory utilization only.
   PROMETHEUS_URL: "http://prometheus-server.monitoring.svc.cluster.local:9090"
 
   # Batch settings (for large clusters)

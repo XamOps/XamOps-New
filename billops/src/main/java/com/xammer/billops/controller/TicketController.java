@@ -5,11 +5,14 @@ import com.xammer.billops.dto.AssignTicketRequest;
 import com.xammer.billops.dto.RcaRequestDto;
 import com.xammer.billops.dto.TicketDto;
 import com.xammer.billops.dto.TicketReplyDto;
+import com.xammer.billops.domain.Client;
+import com.xammer.billops.repository.AppUserRepository;
 import com.xammer.billops.repository.ClientRepository;
 import com.xammer.billops.repository.CloudAccountRepository;
 import com.xammer.billops.repository.TicketReplyRepository;
 import com.xammer.billops.service.RcaService;
 import com.xammer.billops.service.TicketService;
+import com.xammer.cloud.domain.AppUser;
 import com.xammer.cloud.security.ClientUserDetails;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,6 +39,9 @@ public class TicketController {
     private static final Logger logger = LoggerFactory.getLogger(TicketController.class);
     private final TicketService ticketService;
     private final RcaService rcaService;
+
+    @Autowired
+    private AppUserRepository appUserRepository;
 
     @Autowired
     private ClientRepository clientRepository;
@@ -91,7 +97,7 @@ public class TicketController {
         try {
             boolean isAdmin = authentication != null &&
                     authentication.getAuthorities().stream()
-                            .anyMatch(a -> a.getAuthority().equals("ROLE_BILLOPS_ADMIN"));
+                            .anyMatch(a -> a.getAuthority().equals("ROLE_BILLOPS_ADMIN") || a.getAuthority().equals("ROLE_BILLOPS_ADMIN_SUB"));
             return ResponseEntity.ok(ticketService.getTicketById(id, isAdmin));
         } catch (RuntimeException e) {
             logger.warn("Ticket not found for ID: {}", id);
@@ -100,7 +106,7 @@ public class TicketController {
     }
 
     @PostMapping("/tickets/{id}/assign")
-    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
+    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
     public ResponseEntity<Void> assignTicket(@PathVariable Long id, @RequestBody AssignTicketRequest req) {
         try {
             ticketService.assignTicket(id, req.getAssignedToId(), req.getAssignedToUsername());
@@ -112,7 +118,7 @@ public class TicketController {
     }
 
     @GetMapping("/admins")
-    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
+    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
     public ResponseEntity<List<AdminUserDto>> getAdmins() {
         List<AdminUserDto> admins = ticketService.getAdminUsers().stream()
                 .map(u -> new AdminUserDto(u.getId(), u.getUsername(), u.getEmail()))
@@ -122,7 +128,7 @@ public class TicketController {
 
     // --- NEW ENDPOINT: GENERATE AND SUBMIT RCA ---
     @PostMapping("/tickets/{id}/rca")
-    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
+    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
     public ResponseEntity<Void> submitRcaAndClose(
             @PathVariable Long id,
             @RequestBody RcaRequestDto rcaDto,
@@ -163,7 +169,7 @@ public class TicketController {
 
             // Only admins can post internal notes
             boolean isAdmin = authentication.getAuthorities().stream()
-                    .anyMatch(a -> a.getAuthority().equals("ROLE_BILLOPS_ADMIN"));
+                    .anyMatch(a -> a.getAuthority().equals("ROLE_BILLOPS_ADMIN") || a.getAuthority().equals("ROLE_BILLOPS_ADMIN_SUB"));
 
             String username = authentication.getName();
 
@@ -245,7 +251,7 @@ public class TicketController {
             }
             Long userId = ((ClientUserDetails) authentication.getPrincipal()).getId();
             boolean isAdmin = authentication.getAuthorities().stream()
-                    .anyMatch(a -> a.getAuthority().equals("ROLE_BILLOPS_ADMIN"));
+                    .anyMatch(a -> a.getAuthority().equals("ROLE_BILLOPS_ADMIN") || a.getAuthority().equals("ROLE_BILLOPS_ADMIN_SUB"));
 
             return ticketReplyRepository.findById(replyId).map(reply -> {
                 // Author can delete own message, admin can delete any
@@ -269,7 +275,7 @@ public class TicketController {
     // ───────────────────────────────────────────────────────────────────────
 
     @PostMapping("/tickets/{id}/close")
-    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
+    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
     public ResponseEntity<TicketDto> closeTicket(@PathVariable Long id) {
         try {
             return ResponseEntity.ok(ticketService.closeTicket(id));
@@ -280,7 +286,7 @@ public class TicketController {
     }
 
     @PostMapping("/tickets/{id}/email")
-    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
+    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
     public ResponseEntity<Void> sendTicketEmail(
             @PathVariable Long id,
             @RequestBody Map<String, Object> body) {
@@ -316,30 +322,58 @@ public class TicketController {
         }
     }
 
+    @PostMapping("/tickets/{id}/meeting")
+    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
+    public ResponseEntity<Void> sendMeetingInvite(
+            @PathVariable Long id,
+            @RequestBody com.xammer.billops.dto.MeetingInviteRequest req) {
+        try {
+            if (req.getRecipientEmails() == null || req.getRecipientEmails().isEmpty()) {
+                return ResponseEntity.badRequest().build();
+            }
+            ticketService.sendMeetingInviteEmail(id, req);
+            return ResponseEntity.ok().build();
+        } catch (RuntimeException e) {
+            logger.error("Error sending meeting invite for ticket {}: {}", id, e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
     // ─── ADMIN TICKET INITIATION ─────────────────────────────────────────────
 
     /**
      * Returns all clients (id + name) — for admin ticket initiation flow.
      */
     @GetMapping("/clients")
-    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
-    public ResponseEntity<List<Map<String, Object>>> getAllClients() {
-        List<Map<String, Object>> clients = clientRepository.findAll().stream()
+    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
+    public ResponseEntity<List<Map<String, Object>>> getAllClients(Authentication authentication) {
+        // Scope to owned clients for ROLE_BILLOPS_ADMIN_SUB
+        boolean isSubAdmin = authentication.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_BILLOPS_ADMIN_SUB"));
+
+        List<Client> clients;
+        if (isSubAdmin) {
+            AppUser caller = appUserRepository.findByUsername(authentication.getName()).orElse(null);
+            clients = (caller != null) ? clientRepository.findByOwnerAdminId(caller.getId()) : List.of();
+        } else {
+            clients = clientRepository.findAll();
+        }
+
+        return ResponseEntity.ok(clients.stream()
                 .map(c -> {
                     Map<String, Object> m = new LinkedHashMap<>();
                     m.put("id", c.getId());
                     m.put("name", c.getName());
                     return m;
                 })
-                .collect(Collectors.toList());
-        return ResponseEntity.ok(clients);
+                .collect(Collectors.toList()));
     }
 
     /**
      * Returns cloud accounts for a specific client — for admin ticket initiation flow.
      */
     @GetMapping("/clients/{clientId}/accounts")
-    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
+    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
     public ResponseEntity<List<Map<String, Object>>> getAccountsForClient(@PathVariable Long clientId) {
         List<Map<String, Object>> accounts = cloudAccountRepository.findByClientId(clientId).stream()
                 .map(ca -> {
@@ -363,7 +397,7 @@ public class TicketController {
      * The target client is set via clientId in the request body.
      */
     @PostMapping("/tickets/admin-create")
-    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
+    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
     public ResponseEntity<TicketDto> adminCreateTicket(@RequestBody TicketDto ticketDto, Authentication authentication) {
         try {
             return ResponseEntity.ok(ticketService.adminCreateTicket(ticketDto, authentication));

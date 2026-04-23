@@ -47,7 +47,7 @@ export interface TabConfig {
 }
 
 export const ADMIN_TICKET_TABS: TabConfig[] = [
+  { id: 'All', label: 'All Tickets', icon: 'fas fa-list' },
   { id: 'Account and Billing', label: 'Account & Billing', icon: 'fas fa-file-invoice-dollar' },
-  { id: 'Technical', label: 'Technical Support', icon: 'fas fa-server' },
-  { id: 'All', label: 'All Tickets', icon: 'fas fa-list' }
+  { id: 'Technical', label: 'Technical Support', icon: 'fas fa-server' }
 ];

@@ -14,6 +14,8 @@ import {
   CloudProvider,
   ReplyPayload,
   TicketStatus,
+  UserPlatformConnection,
+  IntegrationConfig,
 } from '../types/supportDashboard';
 import { initNotificationService } from '../utils/notificationService';
 
@@ -45,11 +47,25 @@ interface UseSupportDashboardReturn {
   searchQuery: string;
   providerFilter: CloudProvider | '';
 
+  // Platform messaging
+  selectedPlatform: string;
+  setSelectedPlatform: (platform: string) => void;
+  userConnections: UserPlatformConnection[];
+  integrationConfigs: IntegrationConfig[];
+  loadUserConnections: (userId: number) => Promise<void>;
+  saveUserConnection: (userId: number, platform: string, webhookUrl?: string, channelId?: string) => Promise<boolean>;
+  removeUserConnection: (userId: number, platform: string) => Promise<boolean>;
+  loadIntegrationConfigs: () => Promise<void>;
+  saveIntegrationConfig: (platform: string, botToken?: string, signingSecret?: string, clientId?: string, clientSecret?: string) => Promise<boolean>;
+  sendSlackInstallLink: (userId: number) => Promise<{ sent: boolean; email?: string; error?: string }>;
+  setupGoogleChat: (userId: number) => Promise<{ invited?: boolean; connected: boolean; spaceName?: string; error?: string; message?: string; errorCode?: string; suggestion?: string }>;
+  sendTeamsInvite: (userId: number) => Promise<{ invited: boolean; email?: string; error?: string; message?: string }>;
+
   // Actions
   setSearchQuery: (query: string) => void;
   setProviderFilter: (provider: CloudProvider | '') => void;
   selectConversation: (account: SupportConversation) => Promise<void>;
-  sendReply: (message: string, attachment?: AttachmentInfo) => Promise<boolean>;
+  sendReply: (message: string, attachment?: AttachmentInfo, externalPlatform?: string) => Promise<boolean>;
   startConversation: (
     profile: SupportProfile,
     message: string,
@@ -86,6 +102,11 @@ export const useSupportDashboard = (): UseSupportDashboardReturn => {
   const [loadingClients, setLoadingClients] = useState(false);
   const [loadingProfiles, setLoadingProfiles] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Platform messaging state
+  const [selectedPlatform, setSelectedPlatform] = useState<string>('');
+  const [userConnections, setUserConnections] = useState<UserPlatformConnection[]>([]);
+  const [integrationConfigs, setIntegrationConfigs] = useState<IntegrationConfig[]>([]);
 
   const inboxIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const chatIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -185,17 +206,22 @@ export const useSupportDashboard = (): UseSupportDashboardReturn => {
   const selectConversation = useCallback(async (account: SupportConversation) => {
     setActiveAccount(account);
     setMessages([]);
+    setUserConnections([]);
+    setSelectedPlatform('');
     setChatLoading(true);
     previousMessageCountRef.current = 0;
     setConversations(prev => prev.map(c =>
       c.userId === account.userId ? { ...c, unreadCount: 0 } : c
     ));
     try {
-      const data = await apiClient.get<ChatMessage[]>(`/api/billops/support/chat/user/${account.userId}`);
+      const [chatData, connData] = await Promise.all([
+        apiClient.get<ChatMessage[]>(`/api/billops/support/chat/user/${account.userId}`),
+        account.userId ? apiClient.get<UserPlatformConnection[]>(`/api/billops/messaging/users/${account.userId}/connections`).catch(() => []) : Promise.resolve([]),
+      ]);
       if (isMountedRef.current) {
-        const chatData = data || [];
-        setMessages(chatData);
-        previousMessageCountRef.current = chatData.length;
+        setMessages(chatData || []);
+        previousMessageCountRef.current = (chatData || []).length;
+        setUserConnections((connData || []).filter((c: UserPlatformConnection) => c.active));
       }
     } catch (err) {
       console.error('Chat Error:', err);
@@ -217,7 +243,7 @@ export const useSupportDashboard = (): UseSupportDashboardReturn => {
     }
   }, []);
 
-  const sendReply = useCallback(async (message: string, attachment?: AttachmentInfo): Promise<boolean> => {
+  const sendReply = useCallback(async (message: string, attachment?: AttachmentInfo, externalPlatform?: string): Promise<boolean> => {
     if (!activeAccount || (!message.trim() && !attachment)) return false;
     setSending(true);
     try {
@@ -225,6 +251,7 @@ export const useSupportDashboard = (): UseSupportDashboardReturn => {
         userId: activeAccount.userId != null ? String(activeAccount.userId) : undefined,
         accountId: activeAccount.accountId ?? undefined,
         message: message.trim(),
+        ...(externalPlatform && { externalPlatform }),
         ...(attachment && {
           attachmentUrl: attachment.url,
           attachmentName: attachment.name,
@@ -368,15 +395,26 @@ export const useSupportDashboard = (): UseSupportDashboardReturn => {
     });
   }, [conversations, searchQuery]);
 
+  // defined early so mount useEffect can reference it
+  const loadIntegrationConfigsEarly = useCallback(async () => {
+    try {
+      const data = await apiClient.get<IntegrationConfig[]>('/api/billops/messaging/config');
+      if (isMountedRef.current) setIntegrationConfigs(data || []);
+    } catch (err) {
+      console.error('Load integration configs error:', err);
+    }
+  }, []);
+
   useEffect(() => {
     if (!notificationInitializedRef.current) {
       notificationInitializedRef.current = true;
       initNotificationService();
     }
     fetchInbox();
+    loadIntegrationConfigsEarly();
     inboxIntervalRef.current = setInterval(() => fetchInbox(true), INBOX_REFRESH_INTERVAL);
     return () => { if (inboxIntervalRef.current) clearInterval(inboxIntervalRef.current); };
-  }, [fetchInbox]);
+  }, [fetchInbox, loadIntegrationConfigsEarly]);
 
   useEffect(() => {
     if (chatIntervalRef.current) { clearInterval(chatIntervalRef.current); chatIntervalRef.current = null; }
@@ -397,11 +435,112 @@ export const useSupportDashboard = (): UseSupportDashboardReturn => {
     return () => window.removeEventListener('newCustomerMessage', handleNewCustomerMessage as EventListener);
   }, [fetchInbox, fetchChat]);
 
+  // ── Platform messaging functions ──────────────────────────────────────────
+
+  const loadUserConnections = useCallback(async (userId: number) => {
+    try {
+      const data = await apiClient.get<UserPlatformConnection[]>(`/api/billops/messaging/users/${userId}/connections`);
+      if (isMountedRef.current) setUserConnections((data || []).filter(c => c.active));
+    } catch (err) {
+      console.error('Load user connections error:', err);
+    }
+  }, []);
+
+  const saveUserConnection = useCallback(async (userId: number, platform: string, webhookUrl?: string, channelId?: string): Promise<boolean> => {
+    try {
+      const body: Record<string, string> = { platform };
+      if (webhookUrl) body.webhookUrl = webhookUrl;
+      if (channelId) body.channelId = channelId;
+      await apiClient.post(`/api/billops/messaging/users/${userId}/connections`, body);
+      await loadUserConnections(userId);
+      return true;
+    } catch (err) {
+      console.error('Save user connection error:', err);
+      return false;
+    }
+  }, [loadUserConnections]);
+
+  const removeUserConnection = useCallback(async (userId: number, platform: string): Promise<boolean> => {
+    try {
+      await apiClient.fetch(`/api/billops/messaging/users/${userId}/connections/${platform}`, { method: 'DELETE' });
+      await loadUserConnections(userId);
+      return true;
+    } catch (err) {
+      console.error('Remove user connection error:', err);
+      return false;
+    }
+  }, [loadUserConnections]);
+
+  const loadIntegrationConfigs = loadIntegrationConfigsEarly;
+
+  const saveIntegrationConfig = useCallback(async (
+    platform: string,
+    botToken?: string,
+    signingSecret?: string,
+    clientId?: string,
+    clientSecret?: string,
+  ): Promise<boolean> => {
+    try {
+      const body: Record<string, string> = { platform, enabled: 'true' };
+      if (botToken) body.botToken = botToken;
+      if (signingSecret) body.signingSecret = signingSecret;
+      if (clientId) body.clientId = clientId;
+      if (clientSecret) body.clientSecret = clientSecret;
+      await apiClient.post('/api/billops/messaging/config', body);
+      await loadIntegrationConfigs();
+      return true;
+    } catch (err) {
+      console.error('Save integration config error:', err);
+      return false;
+    }
+  }, [loadIntegrationConfigs]);
+
+  const sendSlackInstallLink = useCallback(async (userId: number): Promise<{ sent: boolean; email?: string; error?: string }> => {
+    try {
+      const result = await apiClient.post<{ sent: boolean; email?: string; error?: string }>(
+        `/api/billops/slack/oauth/install/${userId}`, {}
+      );
+      return result || { sent: false, error: 'No response' };
+    } catch (err: any) {
+      console.error('Send Slack install link error:', err);
+      return { sent: false, error: err?.message || 'Failed to send install link' };
+    }
+  }, []);
+
+  const setupGoogleChat = useCallback(async (userId: number): Promise<{ invited?: boolean; connected: boolean; spaceName?: string; error?: string; message?: string; errorCode?: string; suggestion?: string }> => {
+    try {
+      const result = await apiClient.post<{ invited?: boolean; connected: boolean; spaceName?: string; error?: string; message?: string; errorCode?: string; suggestion?: string }>(
+        `/api/billops/gchat/setup/${userId}`, {}
+      );
+      if (result?.connected) await loadUserConnections(userId);
+      return result || { connected: false, error: 'No response' };
+    } catch (err: any) {
+      console.error('Setup Google Chat error:', err);
+      return { connected: false, error: err?.message || 'Failed to setup Google Chat' };
+    }
+  }, [loadUserConnections]);
+
+  const sendTeamsInvite = useCallback(async (userId: number): Promise<{ invited: boolean; email?: string; error?: string; message?: string }> => {
+    try {
+      const result = await apiClient.post<{ invited: boolean; email?: string; error?: string; message?: string }>(
+        `/api/billops/teams/invite/${userId}`, {}
+      );
+      return result || { invited: false, error: 'No response' };
+    } catch (err: any) {
+      console.error('Send Teams invite error:', err);
+      return { invited: false, error: err?.message || 'Failed to send Teams invite' };
+    }
+  }, []);
+
   return {
     conversations, filteredConversations, messages, activeAccount, accounts,
     clients, clientProfiles,
     loading, chatLoading, sending, loadingAccounts, loadingClients, loadingProfiles, error,
     searchQuery, providerFilter,
+    selectedPlatform, setSelectedPlatform,
+    userConnections, integrationConfigs,
+    loadUserConnections, saveUserConnection, removeUserConnection,
+    loadIntegrationConfigs, saveIntegrationConfig, sendSlackInstallLink, setupGoogleChat, sendTeamsInvite,
     setSearchQuery, setProviderFilter, selectConversation,
     sendReply, startConversation, uploadAttachment,
     editAdminMessage, deleteAdminMessage,

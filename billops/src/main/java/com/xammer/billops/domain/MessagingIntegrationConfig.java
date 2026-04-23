@@ -1,0 +1,185 @@
+package com.xammer.billops.domain;
+
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import javax.persistence.*;
+import java.time.LocalDateTime;
+
+/**
+ * Stores per-tenant admin credentials for each messaging platform (Slack /
+ * Teams / Google Chat).
+ * One row per platform per tenant schema.
+ */
+@Entity
+@Data
+@NoArgsConstructor
+@Table(name = "messaging_integration_config")
+public class MessagingIntegrationConfig {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    /**
+     * Platform identifier: SLACK | TEAMS | GOOGLE_CHAT
+     */
+    @Column(name = "platform", nullable = false, length = 20)
+    private String platform;
+
+    /**
+     * Slack: Bot Token (xoxb-...)
+     * Teams: not used (Teams uses per-user webhook URLs)
+     * Google Chat: not used (GChat uses per-user webhook URLs)
+     */
+    @Column(name = "bot_token", length = 500)
+    private String botToken;
+
+    /**
+     * Slack: Signing Secret — used to verify inbound webhook payloads
+     * (X-Slack-Signature).
+     */
+    @Column(name = "signing_secret", length = 300)
+    private String signingSecret;
+
+    /**
+     * Google Chat service account JSON key — downloaded from Google Cloud Console.
+     * Used for server-to-server calls to the Google Chat REST API (create DM
+     * spaces, send messages).
+     * Stored as TEXT because JSON keys are large (~2KB).
+     */
+    @Column(name = "service_account_json", columnDefinition = "TEXT")
+    private String serviceAccountJson;
+
+    /**
+     * Slack App Client ID — from api.slack.com → Your App → Basic Information.
+     * Required for the OAuth 2.0 distributed app install flow.
+     */
+    @Column(name = "client_id", length = 200)
+    private String clientId;
+
+    /**
+     * Slack App Client Secret — from api.slack.com → Your App → Basic Information.
+     * Used to exchange the OAuth code for a bot token (never exposed to frontend).
+     */
+    @Column(name = "client_secret", length = 300)
+    private String clientSecret;
+
+    /**
+     * Google Chat: admin Workspace email used for Domain-Wide Delegation impersonation.
+     * The service account acts on behalf of this user to create spaces and invite members.
+     */
+    @Column(name = "admin_email", length = 300)
+    private String adminEmail;
+
+    /**
+     * Human-readable label/description for this integration (e.g. "XamOps
+     * Workspace").
+     */
+    @Column(name = "label", length = 200)
+    private String label;
+
+    @Column(name = "enabled", nullable = false)
+    private boolean enabled = false;
+
+    @Column(name = "created_at")
+    private LocalDateTime createdAt;
+
+    @Column(name = "updated_at")
+    private LocalDateTime updatedAt;
+
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+
+    public String getPlatform() {
+        return platform;
+    }
+
+    public void setPlatform(String platform) {
+        this.platform = platform;
+    }
+
+    public String getBotToken() {
+        return botToken;
+    }
+
+    public void setBotToken(String botToken) {
+        this.botToken = botToken;
+    }
+
+    public String getSigningSecret() {
+        return signingSecret;
+    }
+
+    public void setSigningSecret(String signingSecret) {
+        this.signingSecret = signingSecret;
+    }
+
+    public String getServiceAccountJson() {
+        return serviceAccountJson;
+    }
+
+    public void setServiceAccountJson(String serviceAccountJson) {
+        this.serviceAccountJson = serviceAccountJson;
+    }
+
+    public String getClientId() {
+        return clientId;
+    }
+
+    public void setClientId(String clientId) {
+        this.clientId = clientId;
+    }
+
+    public String getClientSecret() {
+        return clientSecret;
+    }
+
+    public void setClientSecret(String clientSecret) {
+        this.clientSecret = clientSecret;
+    }
+
+    public String getAdminEmail() {
+        return adminEmail;
+    }
+
+    public void setAdminEmail(String adminEmail) {
+        this.adminEmail = adminEmail;
+    }
+
+    public String getLabel() {
+        return label;
+    }
+
+    public void setLabel(String label) {
+        this.label = label;
+    }
+
+    public boolean isEnabled() {
+        return enabled;
+    }
+
+    public void setEnabled(boolean enabled) {
+        this.enabled = enabled;
+    }
+
+    public LocalDateTime getCreatedAt() {
+        return createdAt;
+    }
+
+    public void setCreatedAt(LocalDateTime createdAt) {
+        this.createdAt = createdAt;
+    }
+
+    public LocalDateTime getUpdatedAt() {
+        return updatedAt;
+    }
+
+    public void setUpdatedAt(LocalDateTime updatedAt) {
+        this.updatedAt = updatedAt;
+    }
+}

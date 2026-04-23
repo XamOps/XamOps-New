@@ -26,6 +26,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import Chart from 'chart.js/auto';
 import { useBilling } from '../hooks/useBilling';
+import { useAccounts } from '../contexts/AccountContext';
 import type {
   DetailedServiceBreakdown,
   RegionCost,
@@ -34,6 +35,9 @@ import type {
 } from '../types/billing';
 
 const BillingPage: React.FC = () => {
+  const { accounts, isLoading: accountsLoading } = useAccounts();
+  const hasAccounts = accounts.length > 0;
+
   const {
     billingData,
     detailedBreakdown,
@@ -340,6 +344,30 @@ const BillingPage: React.FC = () => {
     <div className="billing-page flex-1 flex flex-col h-screen overflow-hidden bg-gray-50/50">
       <main className="flex-1 overflow-y-auto p-8 custom-scrollbar">
         <div className="w-full">
+
+          {/* No Accounts Empty State */}
+          {!accountsLoading && !hasAccounts && (
+            <div className="text-center py-24 bg-white border border-amber-100 rounded-2xl shadow-sm">
+              <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-amber-50 mb-6">
+                <i className="fas fa-plug text-amber-400 text-4xl" />
+              </div>
+              <h3 className="text-xl font-bold text-gray-900 mb-2">No Accounts Connected</h3>
+              <p className="text-gray-500 max-w-sm mx-auto mb-6">
+                Connect a cloud account to view your billing data.
+              </p>
+              <a
+                href="/account-manager"
+                className="inline-flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-500/20"
+              >
+                <i className="fas fa-plus" />
+                Add Account
+              </a>
+            </div>
+          )}
+
+          {/* Billing content — only when accounts exist */}
+          {(accountsLoading || hasAccounts) && <>
+
           {/* Loading Header Skeleton */}
           {loading && (
             <div className="animate-pulse mb-8">
@@ -668,6 +696,9 @@ const BillingPage: React.FC = () => {
               </div>
             </div>
           )}
+
+          </> /* end accountsLoading || hasAccounts */
+          }
         </div>
       </main>
     </div>

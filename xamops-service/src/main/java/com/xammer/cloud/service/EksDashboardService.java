@@ -766,6 +766,18 @@ public class EksDashboardService {
                                             double cpuUsedMillicores = ov.getCpuUsageMillicores() != null ? ov.getCpuUsageMillicores() : 0.0;
                                             double memCapBytes = ov.getMemoryCapacityBytes() != null ? ov.getMemoryCapacityBytes() : 0.0;
                                             double memUsedBytes = ov.getMemoryUsageBytes() != null ? ov.getMemoryUsageBytes() : 0.0;
+
+                                            // If cpuCapacity is 0 (no prometheus-metrics), sum from resUtil nodes
+                                            if (cpuCapMillicores == 0.0) {
+                                                for (ResourceUtilization.NodeResource nr : resUtil.getNodes()) {
+                                                    cpuCapMillicores += nr.getCpuCapacity() != null ? nr.getCpuCapacity() : 0.0;
+                                                    cpuUsedMillicores += nr.getCpuUsageMillicores() != null ? nr.getCpuUsageMillicores() : 0.0;
+                                                    // memoryCapacity in node is in MB
+                                                    memCapBytes += (nr.getMemoryCapacity() != null ? nr.getMemoryCapacity() : 0.0) * 1024.0 * 1024.0;
+                                                    memUsedBytes += (nr.getMemoryUsageMB() != null ? nr.getMemoryUsageMB() : 0.0) * 1024.0 * 1024.0;
+                                                }
+                                            }
+
                                             prm.setTotalCpuCapacity(cpuCapMillicores);
                                             prm.setTotalCpuUsage(cpuUsedMillicores);
                                             // requests/limits not available from prometheus; estimate as 80%/110% of usage
@@ -2815,71 +2827,29 @@ public class EksDashboardService {
         return metrics;
     }
 
-    // =========================================================================
-    // AGENT DATA HELPER METHODS
-    // =========================================================================
-
-    /**
-     * Parse Kubernetes CPU string to millicores.
-     * Examples: "1930m" → 1930, "2" → 2000, "500m" → 500
-     */
     private double parseCpuToMillicores(String cpu) {
-        if (cpu == null || cpu.isEmpty()) return 0.0;
-        try {
-            if (cpu.endsWith("m")) {
-                return Double.parseDouble(cpu.substring(0, cpu.length() - 1));
-            }
-            return Double.parseDouble(cpu) * 1000.0;
-        } catch (NumberFormatException e) {
-            logger.warn("Cannot parse CPU value: {}", cpu);
-            return 0.0;
-        }
+        if (cpu == null || cpu.isEmpty()) return 0;
+        if (cpu.endsWith("m")) return Double.parseDouble(cpu.replace("m", ""));
+        return Double.parseDouble(cpu) * 1000;
     }
 
-    /**
-     * Parse Kubernetes memory string to bytes.
-     * Examples: "3209208Ki" → bytes, "4Gi" → bytes, "512Mi" → bytes
-     */
-    private long parseMemoryToBytes(String memory) {
-        if (memory == null || memory.isEmpty()) return 0L;
-        try {
-            if (memory.endsWith("Ki")) return Long.parseLong(memory.substring(0, memory.length() - 2)) * 1024L;
-            if (memory.endsWith("Mi")) return Long.parseLong(memory.substring(0, memory.length() - 2)) * 1024L * 1024L;
-            if (memory.endsWith("Gi")) return Long.parseLong(memory.substring(0, memory.length() - 2)) * 1024L * 1024L * 1024L;
-            if (memory.endsWith("Ti")) return Long.parseLong(memory.substring(0, memory.length() - 2)) * 1024L * 1024L * 1024L * 1024L;
-            if (memory.endsWith("K"))  return Long.parseLong(memory.substring(0, memory.length() - 1)) * 1000L;
-            if (memory.endsWith("M"))  return Long.parseLong(memory.substring(0, memory.length() - 1)) * 1000L * 1000L;
-            if (memory.endsWith("G"))  return Long.parseLong(memory.substring(0, memory.length() - 1)) * 1000L * 1000L * 1000L;
-            return Long.parseLong(memory);
-        } catch (NumberFormatException e) {
-            logger.warn("Cannot parse memory value: {}", memory);
-            return 0L;
-        }
+    private double parseMemoryToBytes(String mem) {
+        if (mem == null || mem.isEmpty()) return 0;
+        if (mem.endsWith("Ki")) return Double.parseDouble(mem.replace("Ki", "")) * 1024;
+        if (mem.endsWith("Mi")) return Double.parseDouble(mem.replace("Mi", "")) * 1024 * 1024;
+        if (mem.endsWith("Gi")) return Double.parseDouble(mem.replace("Gi", "")) * 1024 * 1024 * 1024;
+        return Double.parseDouble(mem);
     }
 
-    /**
-     * Safely extract a double value from a Map, returning 0.0 on null/error.
-     */
     private double getDoubleFromMap(Map<String, Object> map, String key) {
-        if (map == null) return 0.0;
-        Object val = map.get(key);
-        if (val instanceof Number) return ((Number) val).doubleValue();
-        if (val instanceof String) {
-            try { return Double.parseDouble((String) val); } catch (Exception ignored) {}
-        }
+        Object v = map.get(key);
+        if (v instanceof Number) return ((Number) v).doubleValue();
         return 0.0;
     }
 
-    /**
-     * Safely extract an int value from a Map, returning 0 on null/error.
-     */
     private int getIntFromMap(Map<String, Object> map, String key) {
-        if (map == null) return 0;
-        Object val = map.get(key);
-        if (val instanceof Number) return ((Number) val).intValue();
-        if (val instanceof String) {
-            try { return Integer.parseInt((String) val); } catch (Exception ignored) {}
-        }
+        Object v = map.get(key);
+        if (v instanceof Number) return ((Number) v).intValue();
         return 0;
     }
 }

@@ -29,17 +29,17 @@ public class GcpCostController {
     @GetMapping("/breakdown")
     public CompletableFuture<ResponseEntity<List<GcpCostDto>>> getCostBreakdown(
             @RequestParam String accountId,
-            @RequestParam(defaultValue = "SERVICE") String groupBy) {
+            @RequestParam(defaultValue = "SERVICE") String groupBy,
+            @RequestParam(defaultValue = "false") boolean forceRefresh) {
 
-        log.info("Received request for GCP cost breakdown for accountId: {}, groupBy: {}", accountId, groupBy);
+        log.info("Received request for GCP cost breakdown for accountId: {}, groupBy: {}, forceRefresh: {}", accountId, groupBy, forceRefresh);
 
-        return gcpCostService.getCostBreakdown(accountId, groupBy)
+        return gcpCostService.getCostBreakdown(accountId, groupBy, forceRefresh)
                 .thenApply(costData -> {
                     log.info("Successfully fetched {} cost breakdown items for accountId: {}", costData.size(), accountId);
                     return ResponseEntity.ok(costData);
                 })
                 .exceptionally(ex -> {
-                    // This block will catch any exception from the async service call
                     log.error("Critical error fetching GCP cost breakdown for accountId: {}. Returning an error response.", accountId, ex);
                     return ResponseEntity.internalServerError().body(Collections.emptyList());
                 });

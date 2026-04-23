@@ -18,10 +18,16 @@ const EksWorkloadsTab: React.FC<{ eksData: any }> = ({ eksData }) => {
 
   if (!dashboard) return null;
 
-  // Correct field mapping from backend
-  const deployments = dashboard.workloadHealth?.deployments || [];
-  const statefulSets = dashboard.workloadHealth?.statefulsets || [];
-  const daemonSets = dashboard.workloadHealth?.daemonsets || [];
+  // Primary: new k8s-resources collector data; fallback: old workloadHealth
+  const deployments = dashboard.k8sDeployments?.length
+    ? dashboard.k8sDeployments
+    : (dashboard.workloadHealth?.deployments || []);
+  const statefulSets = dashboard.k8sStatefulSets?.length
+    ? dashboard.k8sStatefulSets
+    : (dashboard.workloadHealth?.statefulsets || []);
+  const daemonSets = dashboard.k8sDaemonSets?.length
+    ? dashboard.k8sDaemonSets
+    : (dashboard.workloadHealth?.daemonsets || []);
 
   // Combine and filter data
   const filteredWorkloads = useMemo(() => {

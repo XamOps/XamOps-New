@@ -151,7 +151,14 @@ const GcpFinOpsCharts: React.FC<GcpFinOpsChartsProps> = ({ costBreakdown }) => {
           </div>
         </div>
         <div className="relative h-80">
-          <canvas ref={serviceChartRef}></canvas>
+          {(costBreakdown?.byService?.length ?? 0) === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-gray-400">
+              <i className="fas fa-chart-pie text-4xl mb-3"></i>
+              <p className="text-sm">No service cost data available</p>
+            </div>
+          ) : (
+            <canvas ref={serviceChartRef}></canvas>
+          )}
         </div>
       </div>
 
@@ -167,7 +174,14 @@ const GcpFinOpsCharts: React.FC<GcpFinOpsChartsProps> = ({ costBreakdown }) => {
           </div>
         </div>
         <div className="relative h-80">
-          <canvas ref={regionChartRef}></canvas>
+          {(costBreakdown?.byRegion?.length ?? 0) === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-gray-400">
+              <i className="fas fa-globe text-4xl mb-3"></i>
+              <p className="text-sm">No region cost data available</p>
+            </div>
+          ) : (
+            <canvas ref={regionChartRef}></canvas>
+          )}
         </div>
       </div>
     </div>

@@ -23,16 +23,18 @@ const TABS: TabItem[] = [
   { id: 'pods',        label: 'Pods',        icon: 'fas fa-box' },
   { id: 'containers',  label: 'Containers',  icon: 'fas fa-layer-group' },
   { id: 'nodes',       label: 'Nodes',       icon: 'fas fa-server' },
+  { id: 'resources',   label: 'Resources',   icon: 'fas fa-layer-group' },
   { id: 'karpenter',   label: 'Karpenter',   icon: 'fas fa-rocket' },
   { id: 'autoscaling', label: 'Autoscaling', icon: 'fas fa-expand-arrows-alt' },
 ];
 
 const EksTabs: React.FC<EksTabsProps> = ({ activeTab, onTabChange }) => (
-  <div className="mb-6">
+  <div className="mb-6 overflow-x-auto">
     <AriaTabGroup
       tabs={TABS}
       selectedKey={activeTab}
       onSelectionChange={(key) => onTabChange(key as TabType)}
+      className="min-w-max"
     />
   </div>
 );

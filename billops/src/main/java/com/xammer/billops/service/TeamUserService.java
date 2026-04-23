@@ -5,7 +5,9 @@ import com.xammer.billops.domain.UserCloudAccountAccess;
 import com.xammer.billops.domain.UserTabAccess;
 import com.xammer.billops.dto.ProfileDTO;
 import com.xammer.billops.dto.TeamUserDTO;
+import com.xammer.billops.domain.Client;
 import com.xammer.billops.repository.AppUserRepository;
+import com.xammer.billops.repository.ClientRepository;
 import com.xammer.billops.repository.CloudAccountRepository;
 import com.xammer.billops.repository.UserCloudAccountAccessRepository;
 import com.xammer.billops.repository.UserTabAccessRepository;
@@ -15,6 +17,8 @@ import com.xammer.billops.config.multitenancy.TenantContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,6 +39,9 @@ public class TeamUserService {
     private AppUserRepository appUserRepository;
 
     @Autowired
+    private ClientRepository clientRepository;
+
+    @Autowired
     private CloudAccountRepository cloudAccountRepository;
 
     @Autowired
@@ -52,12 +59,38 @@ public class TeamUserService {
     @Autowired
     private EmailService emailService;
 
+    @Transactional(readOnly = true)
     public ProfileDTO getMyProfile() {
         Long currentUserId = SecurityUtils.getCurrentUserId();
         log.info("Getting profile for user ID: {}", currentUserId);
 
-        AppUser currentUser = appUserRepository.findById(currentUserId)
-                .orElseThrow(() -> new RuntimeException("User not found"));
+        // Try ID first, then fall back to username (covers ROLE_BILLOPS_ADMIN_SUB users
+        // whose JWT ID may differ from the tenant app_user table ID)
+        AppUser currentUser = appUserRepository.findById(currentUserId).orElse(null);
+        if (currentUser == null) {
+            Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+            if (auth != null) {
+                currentUser = appUserRepository.findByUsername(auth.getName()).orElse(null);
+                log.info("User not found by ID {}, username fallback '{}': {}",
+                        currentUserId, auth.getName(), currentUser != null ? "found" : "not found");
+            }
+        }
+        if (currentUser == null) {
+            // Build a minimal profile from the security context so the page doesn't 500
+            Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+            String username = auth != null ? auth.getName() : "unknown";
+            String role = (auth != null) ? auth.getAuthorities().stream()
+                    .map(a -> a.getAuthority()).findFirst().orElse(null) : null;
+            log.warn("User ID {} / username '{}' not found in app_user table — returning minimal profile", currentUserId, username);
+            ProfileDTO minimal = new ProfileDTO();
+            minimal.setId(currentUserId);
+            minimal.setUsername(username);
+            minimal.setRole(role);
+            minimal.setClientName("Unknown");
+            minimal.setPrimaryUser(false);
+            minimal.setCloudAccounts(new ArrayList<>());
+            return minimal;
+        }
 
         log.info("User: {}, createdBy: {}, isPrimary: {}",
                 currentUser.getUsername(), currentUser.getCreatedBy(), currentUser.getCreatedBy() == null);
@@ -70,10 +103,38 @@ public class TeamUserService {
         profile.setClientName(currentUser.getClient() != null ? currentUser.getClient().getName() : "Unknown");
         profile.setPrimaryUser(currentUser.getCreatedBy() == null);
 
+        // Resolve effective role from Security context (covers cases where DB role is null)
+        Authentication profileAuth = SecurityContextHolder.getContext().getAuthentication();
+        String effectiveRole = currentUser.getRole();
+        if (effectiveRole == null && profileAuth != null) {
+            effectiveRole = profileAuth.getAuthorities().stream()
+                    .map(a -> a.getAuthority()).findFirst().orElse(null);
+        }
+
         // Get cloud accounts based on user type
         List<CloudAccount> accounts = new ArrayList<>();
 
-        if (currentUser.getCreatedBy() == null) {
+        if ("ROLE_BILLOPS_ADMIN_SUB".equals(effectiveRole)) {
+            // Sub-admin: scope to accounts belonging to their owned clients
+            if (currentUser.isAllAccountsAccess()) {
+                accounts = cloudAccountRepository.findAll();
+                log.info("SUB_ADMIN {} has allAccountsAccess — fetching ALL {} accounts",
+                        currentUser.getId(), accounts.size());
+            } else {
+                List<Client> ownedClients =
+                        clientRepository.findByOwnerAdminId(currentUser.getId());
+                log.info("SUB_ADMIN {} ownedClients count={}", currentUser.getId(), ownedClients.size());
+                if (!ownedClients.isEmpty()) {
+                    Set<Long> ownedClientIds = ownedClients.stream()
+                            .map(Client::getId)
+                            .collect(Collectors.toSet());
+                    accounts = cloudAccountRepository.findAll().stream()
+                            .filter(a -> a.getClient() != null && ownedClientIds.contains(a.getClient().getId()))
+                            .collect(Collectors.toList());
+                }
+                log.info("SUB_ADMIN {} — fetching {} owned accounts", currentUser.getId(), accounts.size());
+            }
+        } else if (currentUser.getCreatedBy() == null) {
             // Primary ROLE_BILLOPS_ADMIN: see ALL accounts across all clients
             accounts = cloudAccountRepository.findAll();
             log.info("Primary BILLOPS_ADMIN user {} — fetching ALL {} accounts across all clients",
@@ -186,12 +247,24 @@ public class TeamUserService {
             }
         }
 
-        // Create new user with same role and client as current user
+        // Determine the role for the new user.
+        // A primary ROLE_BILLOPS_ADMIN may explicitly create a ROLE_BILLOPS_ADMIN_SUB user.
+        // All other cases inherit the parent's role.
+        String newRole;
+        if ("ROLE_BILLOPS_ADMIN_SUB".equals(dto.getRole())
+                && "ROLE_BILLOPS_ADMIN".equals(currentUser.getRole())
+                && currentUser.getCreatedBy() == null) {
+            newRole = "ROLE_BILLOPS_ADMIN_SUB";
+        } else {
+            newRole = currentUser.getRole();
+        }
+
+        // Create new user with determined role and same client as current user
         AppUser newUser = new AppUser();
         newUser.setUsername(dto.getUsername());
         newUser.setEmail(dto.getEmail());
         newUser.setPassword(passwordEncoder.encode(dto.getPassword()));
-        newUser.setRole(currentUser.getRole()); // Inherit role from parent
+        newUser.setRole(newRole);
         newUser.setClient(currentUser.getClient()); // Same client
         newUser.setCreatedBy(currentUserId);
         newUser.setAllAccountsAccess(dto.isAllAccountsAccess());
@@ -228,7 +301,7 @@ public class TeamUserService {
         result.setId(saved.getId());
         result.setUsername(saved.getUsername());
         result.setEmail(saved.getEmail());
-        result.setRole(saved.getRole());
+        result.setRole(saved.getRole()); // reflects the actual stored role
         result.setAllAccountsAccess(saved.isAllAccountsAccess());
         result.setAccountIds(dto.getAccountIds());
         result.setAllowedTabs(dto.getAllowedTabs());

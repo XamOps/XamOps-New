@@ -37,6 +37,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import com.xammer.cloud.service.billops.ClientSavingsService;
 import com.xammer.cloud.dto.ClientSavingsDashboardDto;
 import java.time.LocalDate;
@@ -230,7 +232,7 @@ class BillOpsClientDetailsDto {
 
 @RestController
 @RequestMapping("/api/xamops/billops-admin")
-@PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN') or hasAuthority('ROLE_SUPER_ADMIN')")
+@PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN') or hasAuthority('ROLE_BILLOPS_ADMIN_SUB') or hasAuthority('ROLE_SUPER_ADMIN')")
 public class BillOpsAdminController {
 
     private static final Logger log = LoggerFactory.getLogger(BillOpsAdminController.class);
@@ -307,7 +309,37 @@ public class BillOpsAdminController {
     public List<BillOpsClientDetailsDto> getClients() {
         log.info("Fetching client details for BillOps Admin (Optimised)");
 
-        // 0. Return cached response if available
+        // Detect ROLE_BILLOPS_ADMIN_SUB — scope to their owned clients only
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        boolean isSubAdmin = auth != null && auth.getAuthorities().stream()
+                .anyMatch(a -> "ROLE_BILLOPS_ADMIN_SUB".equals(a.getAuthority()));
+
+        if (isSubAdmin) {
+            // Sub-admin: find their DB user record by username to get their ID
+            String username = auth.getName();
+            Optional<User> subAdminUser = userRepository.findByUsername(username);
+            if (!subAdminUser.isPresent()) {
+                log.warn("SUB_ADMIN '{}' not found in user table — returning empty client list", username);
+                return new ArrayList<>();
+            }
+            Long subAdminId = subAdminUser.get().getId();
+            // Use a per-user cache key so sub-admins never share the primary admin cache
+            String subCacheKey = CLIENTS_CACHE_KEY + ":sub:" + subAdminId;
+            Optional<List<BillOpsClientDetailsDto>> subCached = redisCacheService.get(
+                    subCacheKey, new TypeReference<List<BillOpsClientDetailsDto>>() {});
+            if (subCached.isPresent()) {
+                log.info("Returning cached sub-admin client details for user {}", subAdminId);
+                return subCached.get();
+            }
+            List<Client> clients = clientRepository.findByOwnerAdminId(subAdminId);
+            log.info("SUB_ADMIN {} owned clients: {}", subAdminId, clients.size());
+            if (clients.isEmpty()) return new ArrayList<>();
+            List<BillOpsClientDetailsDto> result = buildClientDtos(clients);
+            redisCacheService.put(subCacheKey, result, CLIENTS_CACHE_TTL_MINUTES);
+            return result;
+        }
+
+        // 0. Return cached response if available (primary admin only)
         Optional<List<BillOpsClientDetailsDto>> cached = redisCacheService.get(
                 CLIENTS_CACHE_KEY, new TypeReference<List<BillOpsClientDetailsDto>>() {});
         if (cached.isPresent()) {
@@ -315,23 +347,31 @@ public class BillOpsAdminController {
             return cached.get();
         }
 
-        // 1. Fetch all clients in ONE query
+        // 1. Fetch all clients and build response
         List<Client> clients = clientRepository.findAll();
+        if (clients.isEmpty()) return new ArrayList<>();
+        List<BillOpsClientDetailsDto> result = buildClientDtos(clients);
+        redisCacheService.put(CLIENTS_CACHE_KEY, result, CLIENTS_CACHE_TTL_MINUTES);
+        return result;
+    }
+
+    /** Builds BillOpsClientDetailsDto list for a given set of clients (fetches costs in parallel). */
+    private List<BillOpsClientDetailsDto> buildClientDtos(List<Client> clients) {
         if (clients.isEmpty()) return new ArrayList<>();
 
         List<Long> clientIds = clients.stream().map(Client::getId).collect(Collectors.toList());
 
-        // 2. Fetch ALL accounts for ALL clients in ONE query (no N+1)
+        // Fetch ALL accounts for ALL clients in ONE query (no N+1)
         List<CloudAccount> allAccounts = cloudAccountRepository.findByClientIdIn(clientIds);
         Map<Long, List<CloudAccount>> accountsByClientId = allAccounts.stream()
                 .collect(Collectors.groupingBy(a -> a.getClient().getId()));
 
-        // 3. Fetch ALL users for ALL clients in ONE query (no N+1)
+        // Fetch ALL users for ALL clients in ONE query (no N+1)
         List<User> allUsers = userRepository.findByClientIdIn(clientIds);
         Map<Long, List<User>> usersByClientId = allUsers.stream()
                 .collect(Collectors.groupingBy(u -> u.getClient().getId()));
 
-        // 4. Fetch ALL user-account-access records in ONE query (no N*M+1)
+        // Fetch ALL user-account-access records in ONE query (no N*M+1)
         List<Long> allUserIds = allUsers.stream().map(User::getId).collect(Collectors.toList());
         Map<Long, List<Long>> accountAccessByUserId = new HashMap<>();
         if (!allUserIds.isEmpty()) {
@@ -344,7 +384,7 @@ public class BillOpsAdminController {
             }
         }
 
-        // 5. Kick off ALL cloud cost API calls in PARALLEL (not sequential)
+        // Kick off ALL cloud cost API calls in PARALLEL
         List<CompletableFuture<Double>> costFutures = allAccounts.stream().map(account -> {
             String providerAccId = account.getProviderAccountId();
             String provider = account.getProvider();
@@ -379,27 +419,24 @@ public class BillOpsAdminController {
             return CompletableFuture.completedFuture(0.0);
         }).collect(Collectors.toList());
 
-        // Wait for ALL cloud calls to finish at once (parallel, not sequential)
-        List<CompletableFuture<Double>> allFutures = new ArrayList<>();
-        allFutures.addAll(costFutures);
-        allFutures.addAll(creditFutures);
-        CompletableFuture.allOf(allFutures.toArray(new CompletableFuture[0])).join();
+        CompletableFuture.allOf(costFutures.toArray(new CompletableFuture[0])).join();
 
-        // Build cost map: accountId → consumption
         Map<Long, Double> costByAccountId = new HashMap<>();
         for (int i = 0; i < allAccounts.size(); i++) {
             Double cost = costFutures.get(i).join();
             costByAccountId.put(allAccounts.get(i).getId(), cost != null ? cost : 0.0);
         }
-
-        // Build credits map: accountId → creditsApplied
         Map<Long, Double> creditsByAccountId = new HashMap<>();
-        for (int i = 0; i < allAccounts.size(); i++) {
-            Double credits = creditFutures.get(i).join();
-            creditsByAccountId.put(allAccounts.get(i).getId(), credits != null ? credits : 0.0);
-        }
 
-        // 6. Assemble response
+// Ensure all credit futures are completed
+CompletableFuture.allOf(creditFutures.toArray(new CompletableFuture[0])).join();
+
+for (int i = 0; i < allAccounts.size(); i++) {
+    Double credits = creditFutures.get(i).join();
+    creditsByAccountId.put(allAccounts.get(i).getId(), credits != null ? credits : 0.0);
+}
+
+        // Assemble response
         List<BillOpsClientDetailsDto> result = new ArrayList<>();
         for (Client client : clients) {
             BillOpsClientDetailsDto clientDto = new BillOpsClientDetailsDto();
@@ -441,9 +478,6 @@ public class BillOpsAdminController {
             clientDto.setUsers(userDtos);
             result.add(clientDto);
         }
-
-        // Cache for next requests
-        redisCacheService.put(CLIENTS_CACHE_KEY, result, CLIENTS_CACHE_TTL_MINUTES);
         return result;
     }
 

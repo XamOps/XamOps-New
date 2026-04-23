@@ -682,19 +682,19 @@ const RuntimeSecurityView: React.FC<RuntimeSecurityViewProps> = ({ securityMetri
               {/* Center Info - Dynamic and professional */}
               <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center pointer-events-none">
                 {hoveredSegment ? (
-                  <div className="bg-white px-3 py-2 rounded-xl shadow-lg border-2 border-gray-200">
-                    <div className="text-2xl font-black text-gray-900 mb-1">
+                  <div className="bg-white px-3 py-2 rounded-md border border-[#d0d7de]">
+                    <div className="text-[20px] font-semibold text-[#1a1f2e] mb-0.5">
                       {namespaceData.find(ns => ns.name === hoveredSegment)?.count || 0}
                     </div>
-                    <div className="text-[10px] text-gray-600 font-bold uppercase tracking-wide mb-0.5">Alerts</div>
-                    <div className="text-[10px] text-gray-700 font-mono font-semibold max-w-[80px] truncate">
+                    <div className="text-[10px] text-[#8b949e] uppercase tracking-wide mb-0.5">Alerts</div>
+                    <div className="text-[10px] text-[#57606a] font-mono max-w-[80px] truncate">
                       {hoveredSegment}
                     </div>
                   </div>
                 ) : (
                   <>
-                    <div className="text-3xl font-black text-gray-900 mb-1">{totalCount}</div>
-                    <div className="text-[10px] text-gray-600 font-bold uppercase tracking-wide">Total Alerts</div>
+                    <div className="text-[26px] font-semibold text-[#1a1f2e] mb-0.5">{totalCount}</div>
+                    <div className="text-[10px] text-[#8b949e] uppercase tracking-wide">Total Alerts</div>
                   </>
                 )}
               </div>
@@ -705,32 +705,26 @@ const RuntimeSecurityView: React.FC<RuntimeSecurityViewProps> = ({ securityMetri
               {namespaceData.map((ns, index) => (
                 <div
                   key={index}
-                  className={`flex items-center gap-3 p-4 rounded-xl border-2 transition-all cursor-pointer ${hoveredSegment === ns.name
-                    ? 'shadow-lg scale-105 border-gray-400'
-                    : 'border-gray-200 hover:border-gray-300 hover:shadow-md'
+                  className={`flex items-center gap-3 p-3 rounded-md border transition-all cursor-pointer ${hoveredSegment === ns.name
+                    ? 'border-[#d0d7de] bg-[#f6f8fa]'
+                    : 'border-[#e8ecf0] hover:border-[#d0d7de]'
                     }`}
-                  style={{
-                    backgroundColor: hoveredSegment === ns.name ? `${ns.color}20` : 'white'
-                  }}
                   onMouseEnter={() => setHoveredSegment(ns.name)}
                   onMouseLeave={() => setHoveredSegment(null)}
                 >
                   <div className="flex-shrink-0">
                     <div
-                      className="w-6 h-6 rounded-lg shadow-md border-2"
-                      style={{
-                        backgroundColor: ns.color,
-                        borderColor: ns.strokeColor || '#FFFFFF'
-                      }}
+                      className="w-5 h-5 rounded"
+                      style={{ backgroundColor: ns.color }}
                     ></div>
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-black text-gray-900 truncate font-mono mb-1">
+                    <div className="text-[12px] font-medium text-[#1a1f2e] truncate font-mono">
                       {ns.name}
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold text-gray-900">{ns.count}</span>
-                      <span className="text-xs text-gray-600 font-semibold">({ns.percentage.toFixed(1)}%)</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[12px] font-semibold text-[#1a1f2e]">{ns.count}</span>
+                      <span className="text-[11px] text-[#8b949e]">({ns.percentage.toFixed(1)}%)</span>
                     </div>
                   </div>
                 </div>
@@ -739,12 +733,12 @@ const RuntimeSecurityView: React.FC<RuntimeSecurityViewProps> = ({ securityMetri
           </div>
 
           {/* Horizontal Bar Chart View */}
-          <div className="mt-8 pt-6 border-t-2 border-gray-200">
-            <h4 className="text-sm font-black text-gray-800 mb-5 uppercase tracking-wide flex items-center gap-2">
-              <i className="fas fa-chart-bar text-red-600"></i>
+          <div className="mt-6 pt-5 border-t border-[#e8ecf0]">
+            <h4 className="text-[11px] font-medium text-[#8b949e] mb-4 uppercase tracking-wider flex items-center gap-2">
+              <i className="fas fa-chart-bar text-[#cf222e]"></i>
               Alert Distribution by Namespace
             </h4>
-            <div className="space-y-3">
+            <div className="space-y-2.5">
               {namespaceData.map((ns, index) => (
                 <div
                   key={index}
@@ -752,28 +746,25 @@ const RuntimeSecurityView: React.FC<RuntimeSecurityViewProps> = ({ securityMetri
                   onMouseEnter={() => setHoveredSegment(ns.name)}
                   onMouseLeave={() => setHoveredSegment(null)}
                 >
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-3">
-                      <div
-                        className="w-4 h-4 rounded-md shadow-sm border-2"
-                        style={{
-                          backgroundColor: ns.color,
-                          borderColor: ns.strokeColor || '#FFFFFF'
-                        }}
-                      ></div>
-                      <span className="text-sm font-bold text-gray-800 font-mono">{ns.name}</span>
-                    </div>
+                  <div className="flex items-center justify-between mb-1">
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-black text-gray-900">{ns.count}</span>
-                      <span className="text-xs text-gray-600 font-semibold">alerts</span>
+                      <div
+                        className="w-3 h-3 rounded-sm"
+                        style={{ backgroundColor: ns.color }}
+                      ></div>
+                      <span className="text-[12px] font-medium text-[#57606a] font-mono">{ns.name}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[12px] font-semibold text-[#1a1f2e]">{ns.count}</span>
+                      <span className="text-[11px] text-[#8b949e]">alerts</span>
                     </div>
                   </div>
-                  <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden shadow-inner">
+                  <div className="w-full bg-[#e8ecf0] rounded-full h-1.5 overflow-hidden">
                     <div
-                      className="h-4 rounded-full transition-all duration-500 group-hover:brightness-110 shadow-sm"
+                      className="h-1.5 rounded-full transition-all duration-500"
                       style={{
                         width: `${ns.percentage}%`,
-                        background: `linear-gradient(90deg, ${ns.strokeColor} 0%, ${ns.color} 100%)`
+                        backgroundColor: ns.color
                       }}
                     ></div>
                   </div>

@@ -34,7 +34,8 @@ import { DialogRoot, DialogPanel } from '../components/ui';
 
 const BillOpsTicketsPage: React.FC = () => {
   const navigate = useNavigate();
-  const { accounts } = useAccounts();
+  const { accounts, isLoading: accountsLoading } = useAccounts();
+  const hasAccounts = accounts.length > 0;
 
   const getAccountName = (accountId?: string): string | null => {
     if (!accountId) return null;
@@ -399,8 +400,27 @@ const BillOpsTicketsPage: React.FC = () => {
             </div>
           )}
 
-          {/* Empty State */}
-          {!loading && !error && tickets.length === 0 && renderEmptyState()}
+          {/* No Accounts State */}
+          {!loading && !accountsLoading && !hasAccounts && (
+            <div className="text-center py-20 bg-white/60 backdrop-blur-sm rounded-2xl border border-gray-200 shadow-sm">
+              <div className="w-20 h-20 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-6">
+                <i className="fas fa-plug text-amber-300 text-4xl"></i>
+              </div>
+              <h3 className="text-xl font-bold text-gray-900 mb-2">No Accounts Connected</h3>
+              <p className="text-gray-500 max-w-sm mx-auto mb-8">
+                You don't have any cloud accounts linked yet. Add an account to start creating billing support tickets.
+              </p>
+              <a
+                href="/account-manager"
+                className="inline-flex items-center px-6 py-3 text-base font-medium rounded-xl shadow-sm text-white bg-amber-500 hover:bg-amber-600 transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5"
+              >
+                <i className="fas fa-plus mr-2"></i> Add Account
+              </a>
+            </div>
+          )}
+
+          {/* Empty State — has accounts but no tickets */}
+          {!loading && !error && hasAccounts && tickets.length === 0 && renderEmptyState()}
 
           {/* Tickets List */}
           {!loading && tickets.length > 0 && (

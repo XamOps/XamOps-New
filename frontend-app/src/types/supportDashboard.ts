@@ -52,6 +52,8 @@ export interface ChatMessage {
   isEdited?: boolean;
   isDeleted?: boolean;
   status?: string;  // 'UNREAD' | 'READ' | 'DELIVERED'
+  externalPlatform?: string;    // 'SLACK' | 'TEAMS' | 'GOOGLE_CHAT' — set when sent/received via a platform
+  externalMessageId?: string;   // Message ID/TS from the external platform
 }
 
 /**
@@ -108,6 +110,49 @@ export interface ReplyPayload {
   attachmentName?: string;
   attachmentType?: string;
   attachmentSize?: string;   // String because backend uses Map<String, String>
+  externalPlatform?: string; // 'SLACK' | 'TEAMS' | 'GOOGLE_CHAT' — routes message to that platform
+}
+
+/**
+ * Per-user platform connection (webhook URL stored for Slack/Teams/Google Chat)
+ */
+export interface UserPlatformConnection {
+  id?: number;
+  userId: number;
+  platform: string;          // 'SLACK' | 'TEAMS' | 'GOOGLE_CHAT'
+  webhookUrl?: string;
+  channelId?: string;
+  platformUserId?: string;
+  workspaceId?: string;
+  /** true when the user has completed the Slack OAuth install flow */
+  oauthConnected?: boolean;
+  active: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+/**
+ * Admin integration config for a platform (bot token etc. — tokens are masked)
+ */
+export interface IntegrationConfig {
+  id?: number;
+  platform: string;
+  label?: string;
+  enabled: boolean;
+  botTokenConfigured: boolean;
+  signingSecretConfigured: boolean;
+  /** true when Client ID has been saved (OAuth distributed app flow) */
+  clientIdConfigured: boolean;
+  /** true when Client Secret has been saved */
+  clientSecretConfigured: boolean;
+  /** Slack App Client ID — safe to expose (not the secret) */
+  clientId?: string;
+  /** true when Google Chat service account JSON has been saved */
+  serviceAccountConfigured: boolean;
+  /** admin Workspace email for DWD impersonation */
+  adminEmail?: string;
+  adminEmailConfigured?: boolean;
+  updatedAt?: string;
 }
 
 /**

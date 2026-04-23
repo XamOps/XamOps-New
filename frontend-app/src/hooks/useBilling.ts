@@ -69,7 +69,7 @@ const AVAILABLE_MONTHS: MonthOption[] = [
 ];
 
 export const useBilling = (): UseBillingResult => {
-  const { selectedAccountIds } = useAccounts();
+  const { selectedAccountIds, accounts, isLoading: accountsLoading } = useAccounts();
 
   // Get account ID from URL or context
   const getAccountId = useCallback((): string | null => {
@@ -212,10 +212,15 @@ export const useBilling = (): UseBillingResult => {
 
   // Initial data fetch
   useEffect(() => {
+    if (accountsLoading) return;
+    if (accounts.length === 0) {
+      setLoading(false);
+      return;
+    }
     if (accountId) {
       fetchData(false);
     }
-  }, [accountId, selectedYear, selectedMonth]);
+  }, [accountId, selectedYear, selectedMonth, accounts.length, accountsLoading]);
 
   // Listen for account changes
   useEffect(() => {

@@ -10,6 +10,7 @@ import apiClient from '../utils/apiClient';
 import {
   EksDashboard,
   ContainerWithMetrics,
+  ContainerStatus,
   PotentialSavings,
   QuickWin,
   KarpenterStatus,
@@ -514,7 +515,9 @@ export const useEksDashboard = ({
   }, [dashboard]);
 
   const allContainersWithMetrics = useMemo((): ContainerWithMetrics[] => {
-    const pods = dashboard?.workloadHealth?.pods || [];
+    // prefer k8sPods (from k8s-resources collector) over workloadHealth.pods (from prometheus)
+    const wlPods = dashboard?.workloadHealth?.pods || [];
+    const pods = (dashboard?.k8sPods?.length ? dashboard.k8sPods : wlPods);
     const containers: ContainerWithMetrics[] = [];
 
     const metricsMap: Record<string, any> = {};
@@ -527,7 +530,7 @@ export const useEksDashboard = ({
     pods.forEach(pod => {
       if (!pod.containerStatuses) return;
 
-      pod.containerStatuses.forEach(containerStatus => {
+      pod.containerStatuses.forEach((containerStatus: ContainerStatus) => {
         const key = `${pod.name}/${containerStatus.name}`;
         const metrics = metricsMap[key] || {};
 
@@ -551,9 +554,10 @@ export const useEksDashboard = ({
   }, [dashboard]);
 
   const uniqueNamespaces = useMemo(() => {
-    const pods = dashboard?.workloadHealth?.pods || [];
+    const wlPods = dashboard?.workloadHealth?.pods || [];
+    const pods = (dashboard?.k8sPods?.length ? dashboard.k8sPods : wlPods);
     const namespaces = new Set<string>();
-    pods.forEach(pod => {
+    pods.forEach((pod: any) => {
       if (pod.namespace) namespaces.add(pod.namespace);
     });
     return Array.from(namespaces).sort();

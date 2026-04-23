@@ -39,7 +39,7 @@ const EMPTY_FORM: BillOpsUserFormData = {
     parentId: '',
 };
 
-const AVAILABLE_ROLES: BillOpsRole[] = ['ROLE_BILLOPS', 'ROLE_BILLOPS_ADMIN', 'ROLE_XAMOPS'];
+const AVAILABLE_ROLES: BillOpsRole[] = ['ROLE_BILLOPS', 'ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB', 'ROLE_XAMOPS'];
 
 export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
     // State
