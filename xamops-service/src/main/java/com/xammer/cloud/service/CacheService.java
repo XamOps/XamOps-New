@@ -18,6 +18,9 @@ public class CacheService {
     @Autowired
     private CacheManager cacheManager;
 
+    @Autowired
+    private RedisCacheService redisCacheService;
+
     @Scheduled(fixedRateString = "${caching.eviction.fixedRate.ms:3600000}")
     public void evictAllCachesAtIntervals() {
         logger.info("Executing scheduled cache eviction...");
@@ -68,5 +71,13 @@ public class CacheService {
             wasteCache.evict(cacheKey);
             logger.info("Evicted gcpWasteReport cache for project: {}", gcpProjectId);
         }
+    }
+
+    public void evictGcpReservationCache(String gcpProjectId) {
+        redisCacheService.evict("gcp:cud-recommendations:" + gcpProjectId);
+        redisCacheService.evict("gcp:cud-inventory:" + gcpProjectId);
+        redisCacheService.evict("gcp:cud-util-summary:" + gcpProjectId);
+        redisCacheService.evict("gcp:cud-mod-recs:" + gcpProjectId);
+        logger.info("Evicted GCP reservation Redis caches for project: {}", gcpProjectId);
     }
 }

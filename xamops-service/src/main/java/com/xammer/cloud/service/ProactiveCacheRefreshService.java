@@ -281,7 +281,11 @@ public class ProactiveCacheRefreshService {
                     try { gcpCostService.getDailyCostsForForecastSync(gcpProjectId, null, 30); }
                     catch (Exception e) { logger.debug("[Seed] GCP Cost Trend skipped for {}: {}", gcpProjectId, e.getMessage()); }
 
-                    try { gcpSecurityService.getSecurityFindings(gcpProjectId).join(); }
+                    // Gap 1: seed CloudList flat + grouped (DB → Redis, zero GCP API calls if DB is warm)
+                    try { gcpDataService.getAllResources(gcpProjectId, false).join(); }
+                    catch (Exception e) { logger.debug("[Seed] GCP CloudList skipped for {}: {}", gcpProjectId, e.getMessage()); }
+
+                    try { gcpSecurityService.getSecurityFindings(gcpProjectId, false).join(); }
                     catch (Exception e) { logger.debug("[Seed] GCP Security skipped for {}: {}", gcpProjectId, e.getMessage()); }
 
                     try { gcpPerformanceInsightsService.getInsights(gcpProjectId, "ALL", false); }
@@ -1157,8 +1161,13 @@ public class ProactiveCacheRefreshService {
                     String gcpProjectId = account.getGcpProjectId();
                     if (gcpProjectId == null || gcpProjectId.isEmpty()) continue;
                     try {
-                        gcpSecurityService.refreshSecurityFindings(gcpProjectId).join();
-                        logger.info("✓ GCP Security refreshed for project {}", gcpProjectId);
+                        // Gap E: trigger Prowler first so its findings are available when SCC merge runs
+                        gcpSecurityService.triggerProwlerScan(gcpProjectId);
+
+                        // Gap F: refreshSecurityFindings now guards against overwriting a good snapshot with empty
+                        List<com.xammer.cloud.dto.gcp.GcpSecurityFinding> findings =
+                                gcpSecurityService.refreshSecurityFindings(gcpProjectId).join();
+                        logger.info("✓ GCP Security refreshed for project {} — {} findings", gcpProjectId, findings.size());
                         count++;
                     } catch (Exception e) {
                         logger.error("Failed GCP Security refresh for {}: {}", gcpProjectId, e.getMessage());
@@ -1172,6 +1181,54 @@ public class ProactiveCacheRefreshService {
 
             } catch (Exception e) {
                 logger.error("❌ Failed GCP Security refresh for tenant {}", tenantId, e);
+                if (jobHistory.getId() != null) {
+                    jobHistory.setStatus("FAILURE");
+                    jobHistory.setErrorMessage(e.getMessage());
+                    jobHistory.setEndTime(LocalDateTime.now());
+                    jobExecutionHistoryRepository.save(jobHistory);
+                }
+            } finally {
+                TenantContext.clear();
+            }
+        }
+    }
+
+    // ===================================================================================
+    // 3:08 AM -> GCP CloudList Refresh (Daily — every night, Gap 6)
+    // ===================================================================================
+    @Scheduled(cron = "0 8 3 * * *")
+    public void refreshGcpCloudListData() {
+        logger.info("--- [3:08 AM] Starting GCP CloudList Refresh ---");
+        List<String> tenants = fetchActiveTenants();
+
+        for (String tenantId : tenants) {
+            JobExecutionHistory jobHistory = new JobExecutionHistory("REFRESH_GCP_CLOUDLIST", tenantId,
+                    LocalDateTime.now(), "RUNNING");
+            try {
+                TenantContext.setCurrentTenant(tenantId);
+                jobHistory = jobExecutionHistoryRepository.save(jobHistory);
+
+                int count = 0;
+                for (CloudAccount account : getAllAccounts()) {
+                    if (!"GCP".equalsIgnoreCase(account.getProvider())) continue;
+                    String gcpProjectId = account.getGcpProjectId();
+                    if (gcpProjectId == null || gcpProjectId.isEmpty()) continue;
+                    try {
+                        gcpDataService.getAllResources(gcpProjectId, true).join();
+                        logger.info("✓ GCP CloudList refreshed for project {}", gcpProjectId);
+                        count++;
+                    } catch (Exception e) {
+                        logger.error("Failed GCP CloudList refresh for {}: {}", gcpProjectId, e.getMessage());
+                    }
+                }
+
+                jobHistory.setStatus("SUCCESS");
+                jobHistory.setItemsProcessed(count);
+                jobHistory.setEndTime(LocalDateTime.now());
+                jobExecutionHistoryRepository.save(jobHistory);
+
+            } catch (Exception e) {
+                logger.error("❌ Failed GCP CloudList refresh for tenant {}", tenantId, e);
                 if (jobHistory.getId() != null) {
                     jobHistory.setStatus("FAILURE");
                     jobHistory.setErrorMessage(e.getMessage());
