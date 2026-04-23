@@ -19,6 +19,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 @Service
 public class GcpFinOpsReportService {
@@ -117,64 +118,45 @@ public class GcpFinOpsReportService {
         GcpFinOpsReportDto.CostBreakdown costBreakdown = new GcpFinOpsReportDto.CostBreakdown();
 
         try {
-            // Asynchronously gather all data points with exception handling
+            // 9 parallel futures — each with 55s per-future timeout (mirrors AWS FinOps section timeouts)
             CompletableFuture<List<GcpCostDto>> costByServiceFuture = gcpCostService.getBillingSummary(gcpProjectId)
-                    .exceptionally(ex -> {
-                        logger.error("Failed to get cost by service for project {}", gcpProjectId, ex);
-                        return Collections.emptyList();
-                    });
+                    .orTimeout(55, TimeUnit.SECONDS)
+                    .exceptionally(ex -> { logger.warn("[GcpFinOps] cost-by-service timed out/failed for {}: {}", gcpProjectId, ex.getMessage()); return Collections.emptyList(); });
 
             CompletableFuture<List<GcpCostDto>> costByRegionFuture = gcpCostService.getCostByRegion(gcpProjectId)
-                    .exceptionally(ex -> {
-                        logger.error("Failed to get cost by region for project {}", gcpProjectId, ex);
-                        return Collections.emptyList();
-                    });
+                    .orTimeout(55, TimeUnit.SECONDS)
+                    .exceptionally(ex -> { logger.warn("[GcpFinOps] cost-by-region timed out/failed for {}: {}", gcpProjectId, ex.getMessage()); return Collections.emptyList(); });
 
             CompletableFuture<Double> mtdSpendFuture = gcpCostService.getUnfilteredMonthToDateSpend(gcpProjectId)
-                    .exceptionally(ex -> {
-                        logger.error("Failed to get MTD spend for project {}", gcpProjectId, ex);
-                        return 0.0;
-                    });
+                    .orTimeout(55, TimeUnit.SECONDS)
+                    .exceptionally(ex -> { logger.warn("[GcpFinOps] MTD spend timed out/failed for {}: {}", gcpProjectId, ex.getMessage()); return 0.0; });
 
             CompletableFuture<Double> lastMonthSpendFuture = gcpCostService.getLastMonthSpend(gcpProjectId)
-                    .exceptionally(ex -> {
-                        logger.error("Failed to get last month spend for project {}", gcpProjectId, ex);
-                        return 0.0;
-                    });
+                    .orTimeout(55, TimeUnit.SECONDS)
+                    .exceptionally(ex -> { logger.warn("[GcpFinOps] last-month spend timed out/failed for {}: {}", gcpProjectId, ex.getMessage()); return 0.0; });
 
-            // ✅ These now return actual data from Redis cache or fresh data
             CompletableFuture<List<GcpWasteItem>> wasteFuture = CompletableFuture.supplyAsync(
                             () -> gcpOptimizationService.getWasteReport(gcpProjectId), executor)
-                    .exceptionally(ex -> {
-                        logger.error("Failed to get waste report for project {}", gcpProjectId, ex);
-                        return Collections.emptyList();
-                    });
+                    .orTimeout(55, TimeUnit.SECONDS)
+                    .exceptionally(ex -> { logger.warn("[GcpFinOps] waste timed out/failed for {}: {}", gcpProjectId, ex.getMessage()); return Collections.emptyList(); });
 
             CompletableFuture<List<GcpOptimizationRecommendation>> recommendationsFuture = CompletableFuture.supplyAsync(
                             () -> gcpOptimizationService.getRightsizingRecommendations(gcpProjectId), executor)
-                    .exceptionally(ex -> {
-                        logger.error("Failed to get rightsizing recommendations for project {}", gcpProjectId, ex);
-                        return Collections.emptyList();
-                    });
+                    .orTimeout(55, TimeUnit.SECONDS)
+                    .exceptionally(ex -> { logger.warn("[GcpFinOps] rightsizing timed out/failed for {}: {}", gcpProjectId, ex.getMessage()); return Collections.emptyList(); });
 
             CompletableFuture<DashboardData.OptimizationSummary> optimizationSummaryFuture = CompletableFuture.supplyAsync(
                             () -> gcpOptimizationService.getOptimizationSummary(gcpProjectId), executor)
-                    .exceptionally(ex -> {
-                        logger.error("Failed to get optimization summary for project {}", gcpProjectId, ex);
-                        return new DashboardData.OptimizationSummary(0.0, 0);
-                    });
+                    .orTimeout(55, TimeUnit.SECONDS)
+                    .exceptionally(ex -> { logger.warn("[GcpFinOps] opt-summary timed out/failed for {}: {}", gcpProjectId, ex.getMessage()); return new DashboardData.OptimizationSummary(0.0, 0); });
 
             CompletableFuture<List<GcpBudgetDto>> budgetsFuture = gcpBudgetService.getBudgets(gcpProjectId)
-                    .exceptionally(ex -> {
-                        logger.error("Failed to get budgets for project {}", gcpProjectId, ex);
-                        return Collections.emptyList();
-                    });
+                    .orTimeout(55, TimeUnit.SECONDS)
+                    .exceptionally(ex -> { logger.warn("[GcpFinOps] budgets timed out/failed for {}: {}", gcpProjectId, ex.getMessage()); return Collections.emptyList(); });
 
-            CompletableFuture<List<DashboardData.CostAnomaly>> costAnomaliesFuture = gcpCostService.getCostAnomalies(gcpProjectId)
-                    .exceptionally(ex -> {
-                        logger.error("Failed to detect cost anomalies for project {}", gcpProjectId, ex);
-                        return Collections.emptyList();
-                    });
+            CompletableFuture<List<DashboardData.CostAnomaly>> costAnomaliesFuture = gcpCostService.getCostAnomalies(gcpProjectId, false)
+                    .orTimeout(55, TimeUnit.SECONDS)
+                    .exceptionally(ex -> { logger.warn("[GcpFinOps] anomalies timed out/failed for {}: {}", gcpProjectId, ex.getMessage()); return Collections.emptyList(); });
 
             // Wait for all futures to complete
             CompletableFuture.allOf(
@@ -252,13 +234,47 @@ public class GcpFinOpsReportService {
             String gcpProjectId, String startDate, String endDate, boolean forceRefresh) {
 
         String cacheKey = FINOPS_REPORT_CACHE_PREFIX + gcpProjectId + ":" + startDate + ":" + endDate;
+        String dbKey    = DB_CACHE_KEY_PREFIX + gcpProjectId + ":" + startDate + ":" + endDate;
 
         if (!forceRefresh) {
             Optional<GcpFinOpsReportDto> cached = redisCacheService.get(cacheKey, GcpFinOpsReportDto.class);
             if (cached.isPresent()) {
-                logger.info("Returning cached FinOps report for project {} (dates: {} to {})",
-                        gcpProjectId, startDate, endDate);
+                logger.info("✅ Returning Redis-cached FinOps report for project {} (dates: {} to {})", gcpProjectId, startDate, endDate);
                 return cached.get();
+            }
+            // DB fallback — survives Redis restarts
+            try {
+                Optional<CachedData> dbSnapshot = cachedDataRepository.findById(dbKey);
+                if (dbSnapshot.isPresent()) {
+                    GcpFinOpsReportDto dbResult = objectMapper.readValue(dbSnapshot.get().getJsonData(), GcpFinOpsReportDto.class);
+                    boolean hasCostData = dbResult.getCostBreakdown() != null
+                            && dbResult.getCostBreakdown().getByService() != null
+                            && !dbResult.getCostBreakdown().getByService().isEmpty();
+                    if (hasCostData) {
+                        logger.info("✅ Returning DB-cached FinOps report for project {} (dates {} to {}) — re-warming Redis", gcpProjectId, startDate, endDate);
+                        redisCacheService.put(cacheKey, dbResult, 60);
+                        return dbResult;
+                    }
+                }
+            } catch (Exception e) {
+                logger.warn("DB snapshot load failed for GCP FinOps date-range {}: {}", gcpProjectId, e.getMessage());
+            }
+            // Stable key fallback — try the nightly-warmed default key when date-range key misses
+            try {
+                Optional<CachedData> stableSnap = cachedDataRepository.findById(DB_CACHE_KEY_PREFIX + gcpProjectId);
+                if (stableSnap.isPresent()) {
+                    GcpFinOpsReportDto stable = objectMapper.readValue(stableSnap.get().getJsonData(), GcpFinOpsReportDto.class);
+                    boolean hasCostData = stable.getCostBreakdown() != null
+                            && stable.getCostBreakdown().getByService() != null
+                            && !stable.getCostBreakdown().getByService().isEmpty();
+                    if (hasCostData) {
+                        logger.info("✅ Stable DB snapshot fallback for project {} (date-range miss)", gcpProjectId);
+                        redisCacheService.put(cacheKey, stable, 60);
+                        return stable;
+                    }
+                }
+            } catch (Exception e) {
+                logger.warn("Stable key fallback failed for {}: {}", gcpProjectId, e.getMessage());
             }
         }
 
@@ -270,69 +286,47 @@ public class GcpFinOpsReportService {
         GcpFinOpsReportDto.CostBreakdown costBreakdown = new GcpFinOpsReportDto.CostBreakdown();
 
         try {
-            // Fetch data with date range filtering
+            // 9 parallel futures — each with 55s per-future timeout
             CompletableFuture<List<GcpCostDto>> costByServiceFuture = gcpCostService
-                    .getBillingSummaryWithDateRange(gcpProjectId, startDate, endDate)
-                    .exceptionally(ex -> {
-                        logger.error("Failed to get cost by service for project {} (dates: {} to {})",
-                                gcpProjectId, startDate, endDate, ex);
-                        return Collections.emptyList();
-                    });
+                    .getBillingSummaryWithDateRange(gcpProjectId, startDate, endDate, forceRefresh)
+                    .orTimeout(55, TimeUnit.SECONDS)
+                    .exceptionally(ex -> { logger.warn("[GcpFinOps] cost-by-service timed out/failed for {} ({}-{}): {}", gcpProjectId, startDate, endDate, ex.getMessage()); return Collections.emptyList(); });
 
             CompletableFuture<List<GcpCostDto>> costByRegionFuture = gcpCostService
-                    .getCostByRegionWithDateRange(gcpProjectId, startDate, endDate)
-                    .exceptionally(ex -> {
-                        logger.error("Failed to get cost by region for project {} (dates: {} to {})",
-                                gcpProjectId, startDate, endDate, ex);
-                        return Collections.emptyList();
-                    });
+                    .getCostByRegionWithDateRange(gcpProjectId, startDate, endDate, forceRefresh)
+                    .orTimeout(55, TimeUnit.SECONDS)
+                    .exceptionally(ex -> { logger.warn("[GcpFinOps] cost-by-region timed out/failed for {}: {}", gcpProjectId, ex.getMessage()); return Collections.emptyList(); });
 
-            // MTD and last month spend are not filtered by date range
             CompletableFuture<Double> mtdSpendFuture = gcpCostService.getUnfilteredMonthToDateSpend(gcpProjectId)
-                    .exceptionally(ex -> {
-                        logger.error("Failed to get MTD spend for project {}", gcpProjectId, ex);
-                        return 0.0;
-                    });
+                    .orTimeout(55, TimeUnit.SECONDS)
+                    .exceptionally(ex -> { logger.warn("[GcpFinOps] MTD spend timed out/failed for {}: {}", gcpProjectId, ex.getMessage()); return 0.0; });
 
             CompletableFuture<Double> lastMonthSpendFuture = gcpCostService.getLastMonthSpend(gcpProjectId)
-                    .exceptionally(ex -> {
-                        logger.error("Failed to get last month spend for project {}", gcpProjectId, ex);
-                        return 0.0;
-                    });
+                    .orTimeout(55, TimeUnit.SECONDS)
+                    .exceptionally(ex -> { logger.warn("[GcpFinOps] last-month spend timed out/failed for {}: {}", gcpProjectId, ex.getMessage()); return 0.0; });
 
-            // Optimization data
             CompletableFuture<List<GcpWasteItem>> wasteFuture = CompletableFuture.supplyAsync(
                             () -> gcpOptimizationService.getWasteReport(gcpProjectId), executor)
-                    .exceptionally(ex -> {
-                        logger.error("Failed to get waste report for project {}", gcpProjectId, ex);
-                        return Collections.emptyList();
-                    });
+                    .orTimeout(55, TimeUnit.SECONDS)
+                    .exceptionally(ex -> { logger.warn("[GcpFinOps] waste timed out/failed for {}: {}", gcpProjectId, ex.getMessage()); return Collections.emptyList(); });
 
             CompletableFuture<List<GcpOptimizationRecommendation>> recommendationsFuture = CompletableFuture.supplyAsync(
                             () -> gcpOptimizationService.getRightsizingRecommendations(gcpProjectId), executor)
-                    .exceptionally(ex -> {
-                        logger.error("Failed to get rightsizing recommendations for project {}", gcpProjectId, ex);
-                        return Collections.emptyList();
-                    });
+                    .orTimeout(55, TimeUnit.SECONDS)
+                    .exceptionally(ex -> { logger.warn("[GcpFinOps] rightsizing timed out/failed for {}: {}", gcpProjectId, ex.getMessage()); return Collections.emptyList(); });
 
             CompletableFuture<DashboardData.OptimizationSummary> optimizationSummaryFuture = CompletableFuture.supplyAsync(
                             () -> gcpOptimizationService.getOptimizationSummary(gcpProjectId), executor)
-                    .exceptionally(ex -> {
-                        logger.error("Failed to get optimization summary for project {}", gcpProjectId, ex);
-                        return new DashboardData.OptimizationSummary(0.0, 0);
-                    });
+                    .orTimeout(55, TimeUnit.SECONDS)
+                    .exceptionally(ex -> { logger.warn("[GcpFinOps] opt-summary timed out/failed for {}: {}", gcpProjectId, ex.getMessage()); return new DashboardData.OptimizationSummary(0.0, 0); });
 
             CompletableFuture<List<GcpBudgetDto>> budgetsFuture = gcpBudgetService.getBudgets(gcpProjectId)
-                    .exceptionally(ex -> {
-                        logger.error("Failed to get budgets for project {}", gcpProjectId, ex);
-                        return Collections.emptyList();
-                    });
+                    .orTimeout(55, TimeUnit.SECONDS)
+                    .exceptionally(ex -> { logger.warn("[GcpFinOps] budgets timed out/failed for {}: {}", gcpProjectId, ex.getMessage()); return Collections.emptyList(); });
 
-            CompletableFuture<List<DashboardData.CostAnomaly>> costAnomaliesFuture = gcpCostService.getCostAnomalies(gcpProjectId)
-                    .exceptionally(ex -> {
-                        logger.error("Failed to detect cost anomalies for project {}", gcpProjectId, ex);
-                        return Collections.emptyList();
-                    });
+            CompletableFuture<List<DashboardData.CostAnomaly>> costAnomaliesFuture = gcpCostService.getCostAnomalies(gcpProjectId, forceRefresh)
+                    .orTimeout(55, TimeUnit.SECONDS)
+                    .exceptionally(ex -> { logger.warn("[GcpFinOps] anomalies timed out/failed for {}: {}", gcpProjectId, ex.getMessage()); return Collections.emptyList(); });
 
             // Wait for all futures
             CompletableFuture.allOf(
@@ -373,10 +367,10 @@ public class GcpFinOpsReportService {
 
             report.setCostAnomalies(costAnomaliesFuture.join());
 
-            // Cache the report
+            // Save to Redis (60 min) AND DB — same as non-date-range path
             redisCacheService.put(cacheKey, report, 60);
-            logger.info("Successfully generated and cached FinOps report for GCP project {} (dates: {} to {})",
-                    gcpProjectId, startDate, endDate);
+            saveToDb(dbKey, report);
+            logger.info("💾 Generated and cached FinOps report for GCP project {} (dates: {} to {})", gcpProjectId, startDate, endDate);
 
             return report;
 
@@ -408,8 +402,10 @@ public class GcpFinOpsReportService {
      */
     public void clearFinOpsReportCache(String gcpProjectId) {
         String cacheKey = FINOPS_REPORT_CACHE_PREFIX + gcpProjectId;
+        String dbKey    = DB_CACHE_KEY_PREFIX + gcpProjectId;
         redisCacheService.evict(cacheKey);
-        logger.info("🗑️ Cleared FinOps report cache for project {}", gcpProjectId);
+        cachedDataRepository.deleteById(dbKey);
+        logger.info("🗑️ Cleared FinOps report cache (Redis + DB) for project {}", gcpProjectId);
     }
 
     /**

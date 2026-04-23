@@ -102,13 +102,27 @@ const TicketsPage: React.FC = () => {
         fetch('/api/billops/tickets/category/Technical', { credentials: 'include' }),
       ]);
 
-      const xamopsData: Ticket[] = xamopsRes.status === 'fulfilled' && xamopsRes.value.ok
-        ? await xamopsRes.value.json()
-        : [];
+      let xamopsData: Ticket[] = [];
+      if (xamopsRes.status === 'fulfilled' && xamopsRes.value.ok) {
+        try {
+          const parsed = await xamopsRes.value.json();
+          xamopsData = Array.isArray(parsed) ? parsed : [];
+        } catch {
+          console.warn('xamops tickets response was not valid JSON');
+        }
+      }
 
-      const billopsData: Ticket[] = billopsRes.status === 'fulfilled' && billopsRes.value.ok
-        ? (await billopsRes.value.json()).map((t: Ticket) => ({ ...t, _source: 'billops' }))
-        : [];
+      let billopsData: Ticket[] = [];
+      if (billopsRes.status === 'fulfilled' && billopsRes.value.ok) {
+        try {
+          const parsed = await billopsRes.value.json();
+          billopsData = Array.isArray(parsed)
+            ? parsed.map((t: Ticket) => ({ ...t, _source: 'billops' }))
+            : [];
+        } catch {
+          console.warn('billops tickets response was not valid JSON');
+        }
+      }
 
       // Deduplicate by id — both endpoints may return the same tickets
       const seen = new Set<number>();

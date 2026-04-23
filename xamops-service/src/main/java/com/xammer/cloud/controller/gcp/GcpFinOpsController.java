@@ -15,6 +15,9 @@ import java.security.Principal;
 import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+
 
 @RestController
 @RequestMapping("/api/xamops/gcp/finops")
@@ -24,16 +27,13 @@ public class GcpFinOpsController {
         private final GcpFinOpsReportService gcpFinOpsReportService;
         private final GcpBudgetService gcpBudgetService;
         private final GcpCostService gcpCostService;
-        private final com.xammer.cloud.service.DashboardDataService dashboardDataService;
 
         public GcpFinOpsController(GcpFinOpsReportService gcpFinOpsReportService,
                         GcpBudgetService gcpBudgetService,
-                        GcpCostService gcpCostService,
-                        com.xammer.cloud.service.DashboardDataService dashboardDataService) {
+                        GcpCostService gcpCostService) {
                 this.gcpFinOpsReportService = gcpFinOpsReportService;
                 this.gcpBudgetService = gcpBudgetService;
                 this.gcpCostService = gcpCostService;
-                this.dashboardDataService = dashboardDataService;
         }
 
         /**
@@ -46,39 +46,31 @@ public class GcpFinOpsController {
                         @RequestParam(required = false) String startDate,
                         @RequestParam(required = false) String endDate) {
 
-                if (startDate != null && endDate != null) {
-                        log.info("Starting GCP FinOps report for accountId: {} with date range: {} to {}",
-                                        accountId, startDate, endDate);
-                        return gcpFinOpsReportService
+                log.info("[GcpFinOps] /report START — accountId={} forceRefresh={} dates={}-{}", accountId, forceRefresh, startDate, endDate);
+                try {
+                        GcpFinOpsReportDto report;
+                        if (startDate != null && endDate != null) {
+                                report = gcpFinOpsReportService
                                         .generateFinOpsReportWithDateRange(accountId, startDate, endDate, forceRefresh)
-                                        .<ResponseEntity<?>>thenApply(ResponseEntity::ok)
-                                        .exceptionally(ex -> {
-                                                log.error("Failed to generate GCP FinOps report for accountId: {} (dates: {} to {})",
-                                                                accountId, startDate, endDate, ex);
-                                                return ResponseEntity
-                                                                .status(HttpStatus.INTERNAL_SERVER_ERROR)
-                                                                .body(Map.of("error",
-                                                                                "Failed to retrieve GCP FinOps report.",
-                                                                                "message",
-                                                                                ex.getMessage() != null
-                                                                                                ? ex.getMessage()
-                                                                                                : "Unknown error"));
-                                        });
+                                        .get(120, TimeUnit.SECONDS);
+                        } else {
+                                report = gcpFinOpsReportService
+                                        .generateFinOpsReport(accountId, forceRefresh)
+                                        .get(120, TimeUnit.SECONDS);
+                        }
+                        if (report == null) return CompletableFuture.completedFuture(ResponseEntity.noContent().build());
+                        log.info("[GcpFinOps] /report OK — accountId={}", accountId);
+                        return CompletableFuture.completedFuture(ResponseEntity.ok(report));
+                } catch (TimeoutException e) {
+                        log.warn("[GcpFinOps] /report TIMEOUT — accountId={}", accountId);
+                        return CompletableFuture.completedFuture(ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                                .body(Map.of("error", "GCP FinOps report timed out. Please try again.")));
+                } catch (Exception e) {
+                        log.error("[GcpFinOps] /report ERROR — accountId={}", accountId, e);
+                        return CompletableFuture.completedFuture(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                                .body(Map.of("error", "Failed to retrieve GCP FinOps report.",
+                                             "message", e.getMessage() != null ? e.getMessage() : "Unknown error")));
                 }
-
-                log.info("Starting GCP FinOps report for accountId: {}, forceRefresh: {}", accountId, forceRefresh);
-
-                return gcpFinOpsReportService.generateFinOpsReport(accountId, forceRefresh)
-                                .<ResponseEntity<?>>thenApply(ResponseEntity::ok)
-                                .exceptionally(ex -> {
-                                        log.error("Failed to generate GCP FinOps report for accountId: {}", accountId, ex);
-                                        return ResponseEntity
-                                                        .status(HttpStatus.INTERNAL_SERVER_ERROR)
-                                                        .body(Map.of("error", "Failed to retrieve GCP FinOps report.",
-                                                                        "message",
-                                                                        ex.getMessage() != null ? ex.getMessage()
-                                                                                        : "Unknown error"));
-                                });
         }
 
         /**
@@ -87,19 +79,24 @@ public class GcpFinOpsController {
         @GetMapping("/cost-by-service")
         public CompletableFuture<ResponseEntity<?>> getCostByService(
                         @RequestParam String accountId,
+                        @RequestParam(defaultValue = "false") boolean forceRefresh,
                         @RequestParam(required = false) String startDate,
                         @RequestParam(required = false) String endDate) {
 
-                log.info("Fetching cost by service for GCP project: {} (dates: {} to {})", accountId, startDate,
-                                endDate);
+                log.info("[GcpFinOps] cost-by-service START — account={} forceRefresh={} dates={}-{}", accountId, forceRefresh, startDate, endDate);
+                final long startMs = System.currentTimeMillis();
 
-                return gcpCostService.getBillingSummaryWithDateRange(accountId, startDate, endDate)
-                                .<ResponseEntity<?>>thenApply(ResponseEntity::ok)
+                return gcpCostService.getBillingSummaryWithDateRange(accountId, startDate, endDate, forceRefresh)
+                                .orTimeout(55, TimeUnit.SECONDS)
+                                .<ResponseEntity<?>>thenApply(data -> {
+                                        log.info("[GcpFinOps] cost-by-service OK — account={} durationMs={}", accountId, System.currentTimeMillis() - startMs);
+                                        return ResponseEntity.ok(data);
+                                })
                                 .exceptionally(ex -> {
-                                        log.error("Failed to fetch cost by service for project {}", accountId, ex);
-                                        return ResponseEntity
-                                                        .status(HttpStatus.INTERNAL_SERVER_ERROR)
-                                                        .body(Map.of("error", "Failed to retrieve cost by service."));
+                                        Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                                        if (cause instanceof TimeoutException) { log.warn("[GcpFinOps] cost-by-service TIMEOUT — account={} durationMs={}", accountId, System.currentTimeMillis() - startMs); return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Collections.emptyList()); }
+                                        log.error("[GcpFinOps] cost-by-service ERROR — account={}", accountId, ex);
+                                        return ResponseEntity.ok(Collections.emptyList());
                                 });
         }
 
@@ -109,19 +106,24 @@ public class GcpFinOpsController {
         @GetMapping("/cost-by-region")
         public CompletableFuture<ResponseEntity<?>> getCostByRegion(
                         @RequestParam String accountId,
+                        @RequestParam(defaultValue = "false") boolean forceRefresh,
                         @RequestParam(required = false) String startDate,
                         @RequestParam(required = false) String endDate) {
 
-                log.info("Fetching cost by region for GCP project: {} (dates: {} to {})", accountId, startDate,
-                                endDate);
+                log.info("[GcpFinOps] cost-by-region START — account={} forceRefresh={} dates={}-{}", accountId, forceRefresh, startDate, endDate);
+                final long startMs = System.currentTimeMillis();
 
-                return gcpCostService.getCostByRegionWithDateRange(accountId, startDate, endDate)
-                                .<ResponseEntity<?>>thenApply(ResponseEntity::ok)
+                return gcpCostService.getCostByRegionWithDateRange(accountId, startDate, endDate, forceRefresh)
+                                .orTimeout(55, TimeUnit.SECONDS)
+                                .<ResponseEntity<?>>thenApply(data -> {
+                                        log.info("[GcpFinOps] cost-by-region OK — account={} durationMs={}", accountId, System.currentTimeMillis() - startMs);
+                                        return ResponseEntity.ok(data);
+                                })
                                 .exceptionally(ex -> {
-                                        log.error("Failed to fetch cost by region for project {}", accountId, ex);
-                                        return ResponseEntity
-                                                        .status(HttpStatus.INTERNAL_SERVER_ERROR)
-                                                        .body(Map.of("error", "Failed to retrieve cost by region."));
+                                        Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                                        if (cause instanceof TimeoutException) { log.warn("[GcpFinOps] cost-by-region TIMEOUT — account={} durationMs={}", accountId, System.currentTimeMillis() - startMs); return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Collections.emptyList()); }
+                                        log.error("[GcpFinOps] cost-by-region ERROR — account={}", accountId, ex);
+                                        return ResponseEntity.ok(Collections.emptyList());
                                 });
         }
 
@@ -132,19 +134,24 @@ public class GcpFinOpsController {
         public CompletableFuture<ResponseEntity<?>> getCostByLabel(
                         @RequestParam String accountId,
                         @RequestParam String labelKey,
+                        @RequestParam(defaultValue = "false") boolean forceRefresh,
                         @RequestParam(required = false) String startDate,
                         @RequestParam(required = false) String endDate) {
 
-                log.info("Fetching cost by label '{}' for GCP project: {} (dates: {} to {})",
-                                labelKey, accountId, startDate, endDate);
+                log.info("[GcpFinOps] cost-by-label START — account={} label={} forceRefresh={} dates={}-{}", accountId, labelKey, forceRefresh, startDate, endDate);
+                final long startMs = System.currentTimeMillis();
 
-                return gcpCostService.getCostByLabel(accountId, labelKey, startDate, endDate)
-                                .<ResponseEntity<?>>thenApply(ResponseEntity::ok)
+                return gcpCostService.getCostByLabel(accountId, labelKey, startDate, endDate, forceRefresh)
+                                .orTimeout(55, TimeUnit.SECONDS)
+                                .<ResponseEntity<?>>thenApply(data -> {
+                                        log.info("[GcpFinOps] cost-by-label OK — account={} label={} durationMs={}", accountId, labelKey, System.currentTimeMillis() - startMs);
+                                        return ResponseEntity.ok(data);
+                                })
                                 .exceptionally(ex -> {
-                                        log.error("Failed to fetch cost by label for project {}", accountId, ex);
-                                        return ResponseEntity
-                                                        .status(HttpStatus.INTERNAL_SERVER_ERROR)
-                                                        .body(Map.of("error", "Failed to retrieve cost by label."));
+                                        Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                                        if (cause instanceof TimeoutException) { log.warn("[GcpFinOps] cost-by-label TIMEOUT — account={} durationMs={}", accountId, System.currentTimeMillis() - startMs); return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Collections.emptyList()); }
+                                        log.error("[GcpFinOps] cost-by-label ERROR — account={}", accountId, ex);
+                                        return ResponseEntity.ok(Collections.emptyList());
                                 });
         }
 
@@ -157,11 +164,13 @@ public class GcpFinOpsController {
         public CompletableFuture<ResponseEntity<?>> getBudgets(@RequestParam String accountId) {
                 log.info("Fetching budgets for GCP project: {}", accountId);
                 return gcpBudgetService.getBudgets(accountId)
+                                .orTimeout(55, TimeUnit.SECONDS)
                                 .<ResponseEntity<?>>thenApply(ResponseEntity::ok)
                                 .exceptionally(ex -> {
-                                        log.error("Failed to fetch budgets for project {}", accountId, ex);
-                                        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                                                        .body(Collections.emptyList());
+                                        Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                                        if (cause instanceof TimeoutException) { log.warn("[GcpFinOps] budgets TIMEOUT for {}", accountId); return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Collections.emptyList()); }
+                                        log.error("[GcpFinOps] budgets ERROR for {}", accountId, ex);
+                                        return ResponseEntity.ok(Collections.emptyList());
                                 });
         }
 
@@ -181,8 +190,8 @@ public class GcpFinOpsController {
 
                         GcpBudgetDto createdBudget = gcpBudgetService.createBudget(accountId, budgetRequest, username);
 
-                        // Invalidate database snapshot to ensure dashboard reflects new budget
-                        dashboardDataService.deleteSnapshot("gcp-finops-" + accountId);
+                        // Invalidate FinOps cache (Redis + DB) so next load reflects the new budget
+                        gcpFinOpsReportService.clearFinOpsReportCache(accountId);
 
                         return ResponseEntity.status(HttpStatus.CREATED).body(createdBudget);
                 } catch (Exception e) {
@@ -205,8 +214,8 @@ public class GcpFinOpsController {
                         log.info("Deleting budget '{}' for GCP project {}", budgetName, accountId);
                         gcpBudgetService.deleteBudget(accountId, budgetName);
 
-                        // Invalidate database snapshot
-                        dashboardDataService.deleteSnapshot("gcp-finops-" + accountId);
+                        // Invalidate FinOps cache (Redis + DB) so next load reflects the deletion
+                        gcpFinOpsReportService.clearFinOpsReportCache(accountId);
 
                         return ResponseEntity.ok(Map.of("message", "Budget deleted successfully"));
                 } catch (Exception e) {
@@ -223,16 +232,24 @@ public class GcpFinOpsController {
          * Get cost anomalies for a GCP project.
          */
         @GetMapping("/anomalies")
-        public CompletableFuture<ResponseEntity<?>> getCostAnomalies(@RequestParam String accountId) {
-                log.info("Fetching cost anomalies for GCP project: {}", accountId);
+        public CompletableFuture<ResponseEntity<?>> getCostAnomalies(
+                        @RequestParam String accountId,
+                        @RequestParam(defaultValue = "false") boolean forceRefresh) {
 
-                return gcpCostService.getCostAnomalies(accountId)
-                                .<ResponseEntity<?>>thenApply(ResponseEntity::ok)
+                log.info("[GcpFinOps] anomalies START — account={} forceRefresh={}", accountId, forceRefresh);
+                final long startMs = System.currentTimeMillis();
+
+                return gcpCostService.getCostAnomalies(accountId, forceRefresh)
+                                .orTimeout(55, TimeUnit.SECONDS)
+                                .<ResponseEntity<?>>thenApply(data -> {
+                                        log.info("[GcpFinOps] anomalies OK — account={} durationMs={}", accountId, System.currentTimeMillis() - startMs);
+                                        return ResponseEntity.ok(data);
+                                })
                                 .exceptionally(ex -> {
-                                        log.error("Failed to fetch cost anomalies for project {}", accountId, ex);
-                                        return ResponseEntity
-                                                        .status(HttpStatus.INTERNAL_SERVER_ERROR)
-                                                        .body(Map.of("error", "Failed to retrieve cost anomalies."));
+                                        Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                                        if (cause instanceof TimeoutException) { log.warn("[GcpFinOps] anomalies TIMEOUT — account={} durationMs={}", accountId, System.currentTimeMillis() - startMs); return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Collections.emptyList()); }
+                                        log.error("[GcpFinOps] anomalies ERROR — account={}", accountId, ex);
+                                        return ResponseEntity.ok(Collections.emptyList());
                                 });
         }
 

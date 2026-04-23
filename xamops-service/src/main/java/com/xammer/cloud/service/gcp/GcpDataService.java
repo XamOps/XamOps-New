@@ -45,6 +45,7 @@ import com.google.cloud.apigateway.v1.ApiGatewayServiceClient;
 import com.google.cloud.bigquery.BigQuery;
 import com.google.cloud.bigquery.Dataset;
 
+import com.xammer.cloud.config.multitenancy.TenantContext;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import java.io.IOException;
@@ -53,6 +54,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -77,8 +79,21 @@ public class GcpDataService {
     private final ObjectMapper objectMapper;
     private final RedisCacheService redisCache;
 
-    private static final String DASHBOARD_CACHE_PREFIX = "gcp:dashboard:";
+    private static final String DASHBOARD_CACHE_PREFIX    = "gcp:dashboard:";
     private static final String DB_DASHBOARD_CACHE_PREFIX = "GCP_DASHBOARD::";
+
+    // Granular per-widget cache prefixes (mirror AWS DASHBOARD_KPI / DASHBOARD_COST etc.)
+    private static final String GCP_GRANULAR_KPI_REDIS  = "gcp:granular:kpi:";
+    private static final String GCP_GRANULAR_INV_REDIS  = "gcp:granular:inventory:";
+    private static final String GCP_GRANULAR_COST_REDIS = "gcp:granular:cost:";
+    private static final String GCP_GRANULAR_OPT_REDIS  = "gcp:granular:opt:";
+    private static final String GCP_GRANULAR_MAP_REDIS  = "gcp:granular:map:";
+
+    private static final String GCP_GRANULAR_KPI_DB  = "GCP_GRANULAR_KPI::";
+    private static final String GCP_GRANULAR_INV_DB  = "GCP_GRANULAR_INVENTORY::";
+    private static final String GCP_GRANULAR_COST_DB = "GCP_GRANULAR_COST::";
+    private static final String GCP_GRANULAR_OPT_DB  = "GCP_GRANULAR_OPT::";
+    private static final String GCP_GRANULAR_MAP_DB  = "GCP_GRANULAR_MAP::";
     private static final String ALL_RESOURCES_CACHE_PREFIX = "gcp:all-resources:";
     private static final String IAM_RESOURCES_CACHE_PREFIX = "gcp:iam-resources:";
     private static final String COMPUTE_INSTANCES_CACHE_PREFIX = "gcp:compute-instances:";
@@ -181,94 +196,109 @@ public class GcpDataService {
     }
 
     public CompletableFuture<GcpDashboardData> getDashboardData(String gcpProjectId, boolean forceRefresh) {
-        String redisCacheKey = DASHBOARD_CACHE_PREFIX + gcpProjectId;
-        String dbCacheKey = DB_DASHBOARD_CACHE_PREFIX + gcpProjectId;
+        String tenantPrefix  = tenantPrefix();
+        String redisCacheKey = DASHBOARD_CACHE_PREFIX + tenantPrefix + gcpProjectId;
+        String dbCacheKey    = DB_DASHBOARD_CACHE_PREFIX + tenantPrefix + gcpProjectId;
 
-        // Check cache first (unless force refresh)
+        // TIER 1: Redis (fastest) — TIER 2: DB fallback (survives restarts)
         if (!forceRefresh) {
-            // 1. First try Redis cache (fastest)
             Optional<GcpDashboardData> redisCached = redisCache.get(redisCacheKey, GcpDashboardData.class);
             if (redisCached.isPresent()) {
-                log.info("✅ Returning Redis-cached GCP dashboard data for project: {}", gcpProjectId);
+                log.info("✅ Redis hit for GCP dashboard: {}", gcpProjectId);
                 return CompletableFuture.completedFuture(redisCached.get());
             }
 
-            // 2. Fall back to database cache (persistent)
             GcpDashboardData dbCached = getGcpDashboardSnapshot(dbCacheKey);
             if (dbCached != null) {
-                log.info("✅ Returning DB-cached GCP dashboard data for project: {}", gcpProjectId);
-                // Also populate Redis for faster subsequent access
+                log.info("✅ DB hit for GCP dashboard — repopulating Redis: {}", gcpProjectId);
                 redisCache.put(redisCacheKey, dbCached, 60);
                 return CompletableFuture.completedFuture(dbCached);
             }
         }
 
-        log.info("🔍 Fetching fresh GCP dashboard data for project {}", gcpProjectId);
-        log.info("--- LAUNCHING EXPANDED ASYNC DATA AGGREGATION FOR GCP project {} ---", gcpProjectId);
+        // TIER 3: Live GCP API calls — 12 parallel futures, each with 55 s timeout
+        log.info("🔍 Fetching live GCP dashboard data for project: {}", gcpProjectId);
 
         CompletableFuture<List<GcpResourceDto>> resourcesFuture = getAllResources(gcpProjectId, forceRefresh)
+                .orTimeout(55, TimeUnit.SECONDS)
                 .exceptionally(ex -> {
-                    log.error("Failed to get all resources for project {}: {}", gcpProjectId, ex.getMessage());
+                    log.warn("⚠️ GCP resources timed out / failed for {}: {}", gcpProjectId, ex.getMessage());
                     return Collections.emptyList();
                 });
 
         CompletableFuture<List<GcpSecurityFinding>> securityFindingsFuture = gcpSecurityService
                 .getSecurityFindings(gcpProjectId)
+                .orTimeout(55, TimeUnit.SECONDS)
                 .exceptionally(ex -> {
-                    log.error("Failed to get security findings for project {}: {}", gcpProjectId, ex.getMessage());
+                    log.warn("⚠️ GCP security findings timed out / failed for {}: {}", gcpProjectId, ex.getMessage());
                     return Collections.emptyList();
                 });
 
         CompletableFuture<DashboardData.IamResources> iamResourcesFuture = getIamResources(gcpProjectId, forceRefresh)
+                .orTimeout(55, TimeUnit.SECONDS)
                 .exceptionally(ex -> {
-                    log.error("Failed to get IAM resources for project {}: {}", gcpProjectId, ex.getMessage());
+                    log.warn("⚠️ GCP IAM resources timed out / failed for {}: {}", gcpProjectId, ex.getMessage());
                     return new DashboardData.IamResources(0, 0, 0, 0);
                 });
 
-        CompletableFuture<Double> unfilteredMtdSpendFuture = gcpCostService.getUnfilteredMonthToDateSpend(gcpProjectId)
+        // IAM Details promoted to proper async future (was blocking .get() inside thenApply)
+        CompletableFuture<DashboardData.IamDetail> iamDetailsFuture = getIamDetails(gcpProjectId)
+                .orTimeout(55, TimeUnit.SECONDS)
                 .exceptionally(ex -> {
-                    log.error("Failed to get unfiltered MTD spend for project {}: {}", gcpProjectId, ex.getMessage());
+                    log.warn("⚠️ GCP IAM details timed out / failed for {}: {}", gcpProjectId, ex.getMessage());
+                    return new DashboardData.IamDetail(Collections.emptyList(), Collections.emptyList());
+                });
+
+        CompletableFuture<Double> unfilteredMtdSpendFuture = gcpCostService.getUnfilteredMonthToDateSpend(gcpProjectId)
+                .orTimeout(55, TimeUnit.SECONDS)
+                .exceptionally(ex -> {
+                    log.warn("⚠️ GCP MTD spend timed out / failed for {}: {}", gcpProjectId, ex.getMessage());
                     return 0.0;
                 });
 
         CompletableFuture<List<GcpCostDto>> costHistoryFuture = gcpCostService.getHistoricalCosts(gcpProjectId)
+                .orTimeout(55, TimeUnit.SECONDS)
                 .exceptionally(ex -> {
-                    log.error("Failed to get cost history for project {}: {}", gcpProjectId, ex.getMessage());
+                    log.warn("⚠️ GCP cost history timed out / failed for {}: {}", gcpProjectId, ex.getMessage());
                     return Collections.emptyList();
                 });
 
         CompletableFuture<List<GcpCostDto>> billingSummaryFuture = gcpCostService.getBillingSummary(gcpProjectId)
+                .orTimeout(55, TimeUnit.SECONDS)
                 .exceptionally(ex -> {
-                    log.error("Failed to get billing summary for project {}: {}", gcpProjectId, ex.getMessage());
+                    log.warn("⚠️ GCP billing summary timed out / failed for {}: {}", gcpProjectId, ex.getMessage());
                     return Collections.emptyList();
                 });
 
         CompletableFuture<List<GcpWasteItem>> wasteReportFuture = CompletableFuture
                 .supplyAsync(() -> gcpOptimizationService.getWasteReport(gcpProjectId), backgroundTaskExecutor)
+                .orTimeout(55, TimeUnit.SECONDS)
                 .exceptionally(ex -> {
-                    log.error("Failed to get waste report for project {}: {}", gcpProjectId, ex.getMessage());
+                    log.warn("⚠️ GCP waste report timed out / failed for {}: {}", gcpProjectId, ex.getMessage());
                     return Collections.emptyList();
                 });
 
         CompletableFuture<List<GcpOptimizationRecommendation>> rightsizingFuture = CompletableFuture
                 .supplyAsync(() -> gcpOptimizationService.getRightsizingRecommendations(gcpProjectId), backgroundTaskExecutor)
+                .orTimeout(55, TimeUnit.SECONDS)
                 .exceptionally(ex -> {
-                    log.error("Failed to get rightsizing recommendations for project {}: {}", gcpProjectId,
-                            ex.getMessage());
+                    log.warn("⚠️ GCP rightsizing timed out / failed for {}: {}", gcpProjectId, ex.getMessage());
                     return Collections.emptyList();
                 });
 
         CompletableFuture<DashboardData.SavingsSummary> savingsSummaryFuture = CompletableFuture
                 .supplyAsync(() -> gcpOptimizationService.getSavingsSummary(gcpProjectId), backgroundTaskExecutor)
+                .orTimeout(55, TimeUnit.SECONDS)
                 .exceptionally(ex -> {
-                    log.error("Failed to get savings summary for project {}: {}", gcpProjectId, ex.getMessage());
+                    log.warn("⚠️ GCP savings summary timed out / failed for {}: {}", gcpProjectId, ex.getMessage());
                     return new DashboardData.SavingsSummary(0.0, 0.0);
                 });
 
         CompletableFuture<DashboardData.OptimizationSummary> optimizationSummaryFuture = CompletableFuture
                 .supplyAsync(() -> gcpOptimizationService.getOptimizationSummary(gcpProjectId), backgroundTaskExecutor)
+                .orTimeout(55, TimeUnit.SECONDS)
                 .exceptionally(ex -> {
-                    log.error("Failed to get optimization summary for project {}: {}", gcpProjectId, ex.getMessage());
+                    log.warn("⚠️ GCP optimization summary timed out / failed for {}: {}", gcpProjectId, ex.getMessage());
                     return new DashboardData.OptimizationSummary(0.0, 0);
                 });
 
@@ -276,22 +306,21 @@ public class GcpDataService {
                 .thenCompose(this::getRegionStatusForGcp);
 
         return CompletableFuture.allOf(
-                resourcesFuture, securityFindingsFuture, iamResourcesFuture, costHistoryFuture,
-                billingSummaryFuture, wasteReportFuture, rightsizingFuture, savingsSummaryFuture,
-                optimizationSummaryFuture, regionStatusFuture, unfilteredMtdSpendFuture).thenApply(v -> {
-                    log.info("--- ALL EXPANDED GCP ASYNC DATA FETCHES COMPLETE, assembling DTO for project {} ---",
-                            gcpProjectId);
+                resourcesFuture, securityFindingsFuture, iamResourcesFuture, iamDetailsFuture,
+                costHistoryFuture, billingSummaryFuture, wasteReportFuture, rightsizingFuture,
+                savingsSummaryFuture, optimizationSummaryFuture, regionStatusFuture,
+                unfilteredMtdSpendFuture).thenApply(v -> {
+                    log.info("✅ All GCP async fetches complete — assembling DTO for project: {}", gcpProjectId);
 
                     GcpDashboardData data = new GcpDashboardData();
 
                     data.setRegionStatus(regionStatusFuture.join());
-                    // Convert List<GcpCostDto> to DashboardData.CostHistory
+
                     List<GcpCostDto> historyList = costHistoryFuture.join();
                     DashboardData.CostHistory costHistory = new DashboardData.CostHistory();
                     costHistory.setLabels(historyList.stream().map(GcpCostDto::getName).collect(Collectors.toList()));
                     costHistory.setCosts(historyList.stream().map(GcpCostDto::getAmount).collect(Collectors.toList()));
-                    costHistory
-                            .setAnomalies(historyList.stream().map(GcpCostDto::isAnomaly).collect(Collectors.toList()));
+                    costHistory.setAnomalies(historyList.stream().map(GcpCostDto::isAnomaly).collect(Collectors.toList()));
                     data.setCostHistory(costHistory);
 
                     data.setBillingSummary(billingSummaryFuture.join());
@@ -322,7 +351,6 @@ public class GcpDataService {
                     inventory.setCloudBuildTriggers((int) counts.getOrDefault("Cloud Build", 0L).longValue());
                     inventory.setSecretManagerSecrets((int) counts.getOrDefault("Secret Manager", 0L).longValue());
                     inventory.setCloudArmorPolicies((int) counts.getOrDefault("Cloud Armor", 0L).longValue());
-
                     data.setResourceInventory(inventory);
 
                     double currentMtdSpend = unfilteredMtdSpendFuture.join();
@@ -337,7 +365,6 @@ public class GcpDataService {
                     data.setLastMonthSpend(lastMonthSpend);
 
                     data.setSecurityScore(gcpSecurityService.calculateSecurityScore(securityFindings));
-
                     List<DashboardData.SecurityInsight> securityInsights = securityFindings.stream()
                             .collect(Collectors.groupingBy(GcpSecurityFinding::getCategory, Collectors.counting()))
                             .entrySet().stream()
@@ -345,65 +372,24 @@ public class GcpDataService {
                                 String category = entry.getKey() != null ? entry.getKey() : "Uncategorized";
                                 return new DashboardData.SecurityInsight(
                                         String.format("%s has potential issues", category),
-                                        category,
-                                        "High",
-                                        entry.getValue().intValue());
+                                        category, "High", entry.getValue().intValue());
                             }).collect(Collectors.toList());
+                    data.setSecurityInsights(securityInsights);
 
-                    data.setSecurityInsights(securityInsights);
-                    data.setSecurityInsights(securityInsights);
                     data.setIamResources(iamResourcesFuture.join());
+                    data.setIamDetails(iamDetailsFuture.join()); // now properly async
 
-                    // Fetch IAM Details (Service Accounts & Roles)
-                    // We do this synchronously here or could add to futures, but for simplicity
-                    // let's do sync or simple join if I add method
-                    try {
-                        data.setIamDetails(getIamDetails(gcpProjectId).get());
-                    } catch (Exception e) {
-                        log.error("Failed to fetch detailed IAM info for project {}", gcpProjectId, e);
-                        data.setIamDetails(
-                                new DashboardData.IamDetail(Collections.emptyList(), Collections.emptyList()));
-                    }
-
-                    // Set lastUpdated timestamp
                     data.setLastUpdated(java.time.LocalDateTime.now()
                             .format(java.time.format.DateTimeFormatter.ofPattern("MMM dd, HH:mm:ss")));
 
-                    // ✅ Cache the result in Redis for 10 minutes
-                    redisCache.put(redisCacheKey, data, 60);
+                    // Save to Redis (60 min) AND DB (permanent) — atomic, same as AWS saveSnapshot()
+                    saveGcpSnapshot(redisCacheKey, dbCacheKey, data);
 
-                    // ✅ Also persist to database for long-term caching (run synchronously to ensure
-                    // it completes)
-                    try {
-                        saveGcpDashboardSnapshot(dbCacheKey, data);
-                    } catch (Exception e) {
-                        log.error("Failed to persist GCP dashboard to database for {}: {}", gcpProjectId,
-                                e.getMessage());
-                    }
+                    // Pre-fill all 5 granular keys from this fetch — zero extra API calls (mirrors AWS updateGranularSnapshots)
+                    updateGcpGranularSnapshots(gcpProjectId, data);
 
                     return data;
                 });
-    }
-
-    private double calculateForecastedSpend(double currentMtdSpend) {
-        LocalDate now = LocalDate.now();
-        int currentDay = now.getDayOfMonth();
-        int totalDaysInMonth = now.lengthOfMonth();
-
-        // If we're at the end of the month, return current spend
-        if (currentDay >= totalDaysInMonth) {
-            log.info("✅ End of month reached - Forecast = MTD: ${}", currentMtdSpend);
-            return currentMtdSpend;
-        }
-
-        // Calculate daily average and project to end of month
-        double dailyAverage = currentMtdSpend / currentDay;
-        double forecastedSpend = dailyAverage * totalDaysInMonth;
-
-        log.info("✅ Forecast calculation - Day {}/{}: MTD=${}, Daily Avg=${}, Forecast=${}",
-                currentDay, totalDaysInMonth, currentMtdSpend, dailyAverage, forecastedSpend);
-
-        return forecastedSpend;
     }
 
     private GcpResourceDto mapInstanceToDto(com.google.cloud.compute.v1.Instance instance) {
@@ -666,8 +652,8 @@ public class GcpDataService {
                             .flatMap(List::stream)
                             .collect(Collectors.toList());
 
-                    // ✅ Cache for 15 minutes
-                    redisCache.put(cacheKey, allResources, 15);
+                    // Cache for 60 minutes — same TTL as AWS dashboard
+                    redisCache.put(cacheKey, allResources, 60);
 
                     return allResources;
                 });
@@ -1697,15 +1683,330 @@ public class GcpDataService {
     /**
      * Clear all caches for a specific GCP project
      */
+    // ============================================================================================
+    // GRANULAR PER-WIDGET ENDPOINTS — mirrors AWS /granular/{kpi,inventory,cost,opt,map}
+    // Each method fetches only the relevant futures, stores in its own DB+Redis key.
+    // ============================================================================================
+
+    public GcpDashboardData getGranularKpi(String gcpProjectId, boolean forceRefresh) {
+        String tenantPrefix = tenantPrefix();
+        String redisKey = GCP_GRANULAR_KPI_REDIS + tenantPrefix + gcpProjectId;
+        String dbKey    = GCP_GRANULAR_KPI_DB    + tenantPrefix + gcpProjectId;
+
+        if (!forceRefresh) {
+            Optional<GcpDashboardData> r = redisCache.get(redisKey, GcpDashboardData.class);
+            if (r.isPresent()) { log.info("✅ [GCP-KPI] Redis hit: {}", gcpProjectId); return r.get(); }
+            GcpDashboardData db = getGcpDashboardSnapshot(dbKey);
+            if (db != null) { log.info("✅ [GCP-KPI] DB hit: {}", gcpProjectId); redisCache.put(redisKey, db, 60); return db; }
+        }
+
+        log.info("🔍 [GCP-KPI] Live fetch for: {}", gcpProjectId);
+        CompletableFuture<Double> mtdFuture = gcpCostService.getUnfilteredMonthToDateSpend(gcpProjectId)
+                .orTimeout(55, TimeUnit.SECONDS).exceptionally(ex -> 0.0);
+        CompletableFuture<List<GcpCostDto>> histFuture = gcpCostService.getHistoricalCosts(gcpProjectId)
+                .orTimeout(55, TimeUnit.SECONDS).exceptionally(ex -> Collections.emptyList());
+        CompletableFuture<DashboardData.OptimizationSummary> optFuture = CompletableFuture
+                .supplyAsync(() -> gcpOptimizationService.getOptimizationSummary(gcpProjectId), backgroundTaskExecutor)
+                .orTimeout(55, TimeUnit.SECONDS).exceptionally(ex -> new DashboardData.OptimizationSummary(0.0, 0));
+        CompletableFuture<DashboardData.SavingsSummary> savFuture = CompletableFuture
+                .supplyAsync(() -> gcpOptimizationService.getSavingsSummary(gcpProjectId), backgroundTaskExecutor)
+                .orTimeout(55, TimeUnit.SECONDS).exceptionally(ex -> new DashboardData.SavingsSummary(0.0, 0.0));
+
+        CompletableFuture.allOf(mtdFuture, histFuture, optFuture, savFuture).join();
+
+        double mtd = mtdFuture.join();
+        List<GcpCostDto> hist = histFuture.join();
+        String lastMonthStr = java.time.LocalDate.now().minusMonths(1)
+                .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM"));
+
+        GcpDashboardData data = new GcpDashboardData();
+        data.setMonthToDateSpend(mtd);
+        data.setForecastedSpend(gcpCostService.calculateForecastedSpend(mtd));
+        data.setLastMonthSpend(hist.stream().filter(c -> c.getName().equals(lastMonthStr))
+                .mapToDouble(GcpCostDto::getAmount).findFirst().orElse(0.0));
+        DashboardData.CostHistory ch = new DashboardData.CostHistory();
+        ch.setLabels(hist.stream().map(GcpCostDto::getName).collect(Collectors.toList()));
+        ch.setCosts(hist.stream().map(GcpCostDto::getAmount).collect(Collectors.toList()));
+        ch.setAnomalies(hist.stream().map(GcpCostDto::isAnomaly).collect(Collectors.toList()));
+        data.setCostHistory(ch);
+        data.setOptimizationSummary(optFuture.join());
+        data.setSavingsSummary(savFuture.join());
+        data.setLastUpdated(java.time.LocalDateTime.now()
+                .format(java.time.format.DateTimeFormatter.ofPattern("MMM dd, HH:mm:ss")));
+
+        saveGcpSnapshot(redisKey, dbKey, data);
+        return data;
+    }
+
+    public GcpDashboardData getGranularInventory(String gcpProjectId, boolean forceRefresh) {
+        String tenantPrefix = tenantPrefix();
+        String redisKey = GCP_GRANULAR_INV_REDIS + tenantPrefix + gcpProjectId;
+        String dbKey    = GCP_GRANULAR_INV_DB    + tenantPrefix + gcpProjectId;
+
+        if (!forceRefresh) {
+            Optional<GcpDashboardData> r = redisCache.get(redisKey, GcpDashboardData.class);
+            if (r.isPresent()) { log.info("✅ [GCP-Inventory] Redis hit: {}", gcpProjectId); return r.get(); }
+            GcpDashboardData db = getGcpDashboardSnapshot(dbKey);
+            if (db != null) { log.info("✅ [GCP-Inventory] DB hit: {}", gcpProjectId); redisCache.put(redisKey, db, 60); return db; }
+        }
+
+        log.info("🔍 [GCP-Inventory] Live fetch for: {}", gcpProjectId);
+        CompletableFuture<List<GcpResourceDto>> resFuture = getAllResources(gcpProjectId, forceRefresh)
+                .orTimeout(55, TimeUnit.SECONDS).exceptionally(ex -> Collections.emptyList());
+        CompletableFuture<DashboardData.IamResources> iamResFuture = getIamResources(gcpProjectId, forceRefresh)
+                .orTimeout(55, TimeUnit.SECONDS).exceptionally(ex -> new DashboardData.IamResources(0, 0, 0, 0));
+        CompletableFuture<DashboardData.IamDetail> iamDetFuture = getIamDetails(gcpProjectId)
+                .orTimeout(55, TimeUnit.SECONDS).exceptionally(ex -> new DashboardData.IamDetail(Collections.emptyList(), Collections.emptyList()));
+
+        CompletableFuture.allOf(resFuture, iamResFuture, iamDetFuture).join();
+
+        List<GcpResourceDto> resources = resFuture.join();
+        Map<String, Long> counts = resources.stream()
+                .collect(Collectors.groupingBy(GcpResourceDto::getType, Collectors.counting()));
+
+        DashboardData.ResourceInventory inventory = new DashboardData.ResourceInventory();
+        inventory.setEc2((int) counts.getOrDefault("Compute Engine", 0L).longValue());
+        inventory.setS3Buckets((int) counts.getOrDefault("Cloud Storage", 0L).longValue());
+        inventory.setRdsInstances((int) counts.getOrDefault("Cloud SQL", 0L).longValue());
+        inventory.setKubernetes((int) counts.getOrDefault("Kubernetes Engine", 0L).longValue());
+        inventory.setVpc((int) counts.getOrDefault("VPC Network", 0L).longValue());
+        inventory.setRoute53Zones((int) counts.getOrDefault("Cloud DNS", 0L).longValue());
+        inventory.setLoadBalancers((int) counts.getOrDefault("Load Balancer", 0L).longValue());
+        inventory.setFirewalls((int) counts.getOrDefault("Firewall Rule", 0L).longValue());
+        inventory.setCloudNatRouters((int) counts.getOrDefault("Cloud NAT", 0L).longValue());
+        inventory.setArtifactRepositories((int) counts.getOrDefault("Artifact Registry", 0L).longValue());
+        inventory.setKmsKeys((int) counts.getOrDefault("Cloud KMS", 0L).longValue());
+        inventory.setCloudFunctions((int) counts.getOrDefault("Cloud Function", 0L).longValue());
+        inventory.setCloudBuildTriggers((int) counts.getOrDefault("Cloud Build", 0L).longValue());
+        inventory.setSecretManagerSecrets((int) counts.getOrDefault("Secret Manager", 0L).longValue());
+        inventory.setCloudArmorPolicies((int) counts.getOrDefault("Cloud Armor", 0L).longValue());
+
+        GcpDashboardData data = new GcpDashboardData();
+        data.setResourceInventory(inventory);
+        data.setIamResources(iamResFuture.join());
+        data.setIamDetails(iamDetFuture.join());
+        data.setLastUpdated(java.time.LocalDateTime.now()
+                .format(java.time.format.DateTimeFormatter.ofPattern("MMM dd, HH:mm:ss")));
+
+        saveGcpSnapshot(redisKey, dbKey, data);
+        return data;
+    }
+
+    public GcpDashboardData getGranularCost(String gcpProjectId, boolean forceRefresh) {
+        String tenantPrefix = tenantPrefix();
+        String redisKey = GCP_GRANULAR_COST_REDIS + tenantPrefix + gcpProjectId;
+        String dbKey    = GCP_GRANULAR_COST_DB    + tenantPrefix + gcpProjectId;
+
+        if (!forceRefresh) {
+            Optional<GcpDashboardData> r = redisCache.get(redisKey, GcpDashboardData.class);
+            if (r.isPresent()) { log.info("✅ [GCP-Cost] Redis hit: {}", gcpProjectId); return r.get(); }
+            GcpDashboardData db = getGcpDashboardSnapshot(dbKey);
+            if (db != null) { log.info("✅ [GCP-Cost] DB hit: {}", gcpProjectId); redisCache.put(redisKey, db, 60); return db; }
+        }
+
+        log.info("🔍 [GCP-Cost] Live fetch for: {}", gcpProjectId);
+        CompletableFuture<Double> mtdFuture = gcpCostService.getUnfilteredMonthToDateSpend(gcpProjectId)
+                .orTimeout(55, TimeUnit.SECONDS).exceptionally(ex -> 0.0);
+        CompletableFuture<List<GcpCostDto>> histFuture = gcpCostService.getHistoricalCosts(gcpProjectId)
+                .orTimeout(55, TimeUnit.SECONDS).exceptionally(ex -> Collections.emptyList());
+        CompletableFuture<List<GcpCostDto>> billFuture = gcpCostService.getBillingSummary(gcpProjectId)
+                .orTimeout(55, TimeUnit.SECONDS).exceptionally(ex -> Collections.emptyList());
+
+        CompletableFuture.allOf(mtdFuture, histFuture, billFuture).join();
+
+        double mtd = mtdFuture.join();
+        List<GcpCostDto> hist = histFuture.join();
+        String lastMonthStr = java.time.LocalDate.now().minusMonths(1)
+                .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM"));
+
+        DashboardData.CostHistory ch = new DashboardData.CostHistory();
+        ch.setLabels(hist.stream().map(GcpCostDto::getName).collect(Collectors.toList()));
+        ch.setCosts(hist.stream().map(GcpCostDto::getAmount).collect(Collectors.toList()));
+        ch.setAnomalies(hist.stream().map(GcpCostDto::isAnomaly).collect(Collectors.toList()));
+
+        GcpDashboardData data = new GcpDashboardData();
+        data.setMonthToDateSpend(mtd);
+        data.setForecastedSpend(gcpCostService.calculateForecastedSpend(mtd));
+        data.setLastMonthSpend(hist.stream().filter(c -> c.getName().equals(lastMonthStr))
+                .mapToDouble(GcpCostDto::getAmount).findFirst().orElse(0.0));
+        data.setCostHistory(ch);
+        data.setBillingSummary(billFuture.join());
+        data.setLastUpdated(java.time.LocalDateTime.now()
+                .format(java.time.format.DateTimeFormatter.ofPattern("MMM dd, HH:mm:ss")));
+
+        saveGcpSnapshot(redisKey, dbKey, data);
+        return data;
+    }
+
+    public GcpDashboardData getGranularOptimization(String gcpProjectId, boolean forceRefresh) {
+        String tenantPrefix = tenantPrefix();
+        String redisKey = GCP_GRANULAR_OPT_REDIS + tenantPrefix + gcpProjectId;
+        String dbKey    = GCP_GRANULAR_OPT_DB    + tenantPrefix + gcpProjectId;
+
+        if (!forceRefresh) {
+            Optional<GcpDashboardData> r = redisCache.get(redisKey, GcpDashboardData.class);
+            if (r.isPresent()) { log.info("✅ [GCP-Opt] Redis hit: {}", gcpProjectId); return r.get(); }
+            GcpDashboardData db = getGcpDashboardSnapshot(dbKey);
+            if (db != null) { log.info("✅ [GCP-Opt] DB hit: {}", gcpProjectId); redisCache.put(redisKey, db, 60); return db; }
+        }
+
+        log.info("🔍 [GCP-Optimization] Live fetch for: {}", gcpProjectId);
+        CompletableFuture<List<GcpWasteItem>> wasteFuture = CompletableFuture
+                .supplyAsync(() -> gcpOptimizationService.getWasteReport(gcpProjectId), backgroundTaskExecutor)
+                .orTimeout(55, TimeUnit.SECONDS).exceptionally(ex -> Collections.emptyList());
+        CompletableFuture<List<GcpOptimizationRecommendation>> rightsizeFuture = CompletableFuture
+                .supplyAsync(() -> gcpOptimizationService.getRightsizingRecommendations(gcpProjectId), backgroundTaskExecutor)
+                .orTimeout(55, TimeUnit.SECONDS).exceptionally(ex -> Collections.emptyList());
+        CompletableFuture<DashboardData.OptimizationSummary> optFuture = CompletableFuture
+                .supplyAsync(() -> gcpOptimizationService.getOptimizationSummary(gcpProjectId), backgroundTaskExecutor)
+                .orTimeout(55, TimeUnit.SECONDS).exceptionally(ex -> new DashboardData.OptimizationSummary(0.0, 0));
+        CompletableFuture<DashboardData.SavingsSummary> savFuture = CompletableFuture
+                .supplyAsync(() -> gcpOptimizationService.getSavingsSummary(gcpProjectId), backgroundTaskExecutor)
+                .orTimeout(55, TimeUnit.SECONDS).exceptionally(ex -> new DashboardData.SavingsSummary(0.0, 0.0));
+
+        CompletableFuture.allOf(wasteFuture, rightsizeFuture, optFuture, savFuture).join();
+
+        GcpDashboardData data = new GcpDashboardData();
+        data.setWastedResources(wasteFuture.join());
+        data.setRightsizingRecommendations(rightsizeFuture.join());
+        data.setOptimizationSummary(optFuture.join());
+        data.setSavingsSummary(savFuture.join());
+        data.setLastUpdated(java.time.LocalDateTime.now()
+                .format(java.time.format.DateTimeFormatter.ofPattern("MMM dd, HH:mm:ss")));
+
+        saveGcpSnapshot(redisKey, dbKey, data);
+        return data;
+    }
+
+    public GcpDashboardData getGranularMap(String gcpProjectId, boolean forceRefresh) {
+        String tenantPrefix = tenantPrefix();
+        String redisKey = GCP_GRANULAR_MAP_REDIS + tenantPrefix + gcpProjectId;
+        String dbKey    = GCP_GRANULAR_MAP_DB    + tenantPrefix + gcpProjectId;
+
+        if (!forceRefresh) {
+            Optional<GcpDashboardData> r = redisCache.get(redisKey, GcpDashboardData.class);
+            if (r.isPresent()) { log.info("✅ [GCP-Map] Redis hit: {}", gcpProjectId); return r.get(); }
+            GcpDashboardData db = getGcpDashboardSnapshot(dbKey);
+            if (db != null) { log.info("✅ [GCP-Map] DB hit: {}", gcpProjectId); redisCache.put(redisKey, db, 60); return db; }
+        }
+
+        log.info("🔍 [GCP-Map] Live fetch for: {}", gcpProjectId);
+        CompletableFuture<List<GcpResourceDto>> resFuture = getAllResources(gcpProjectId, forceRefresh)
+                .orTimeout(55, TimeUnit.SECONDS).exceptionally(ex -> Collections.emptyList());
+        CompletableFuture<List<GcpSecurityFinding>> secFuture = gcpSecurityService.getSecurityFindings(gcpProjectId)
+                .orTimeout(55, TimeUnit.SECONDS).exceptionally(ex -> Collections.emptyList());
+        CompletableFuture<List<DashboardData.RegionStatus>> regionFuture = resFuture
+                .thenCompose(this::getRegionStatusForGcp);
+
+        CompletableFuture.allOf(regionFuture, secFuture).join();
+
+        List<GcpSecurityFinding> findings = secFuture.join();
+        List<DashboardData.SecurityInsight> insights = findings.stream()
+                .collect(Collectors.groupingBy(GcpSecurityFinding::getCategory, Collectors.counting()))
+                .entrySet().stream()
+                .map(e -> new DashboardData.SecurityInsight(
+                        String.format("%s has potential issues", e.getKey() != null ? e.getKey() : "Uncategorized"),
+                        e.getKey() != null ? e.getKey() : "Uncategorized", "High", e.getValue().intValue()))
+                .collect(Collectors.toList());
+
+        GcpDashboardData data = new GcpDashboardData();
+        data.setRegionStatus(regionFuture.join());
+        data.setSecurityScore(gcpSecurityService.calculateSecurityScore(findings));
+        data.setSecurityInsights(insights);
+        data.setLastUpdated(java.time.LocalDateTime.now()
+                .format(java.time.format.DateTimeFormatter.ofPattern("MMM dd, HH:mm:ss")));
+
+        saveGcpSnapshot(redisKey, dbKey, data);
+        return data;
+    }
+
+    /**
+     * Pre-fills all 5 granular DB+Redis keys from a just-fetched full dashboard payload.
+     * Called inside getDashboardData.thenApply() — zero extra API calls, mirrors AWS updateGranularSnapshots().
+     */
+    private void updateGcpGranularSnapshots(String gcpProjectId, GcpDashboardData full) {
+        try {
+            String tp = tenantPrefix();
+
+            // 1. KPI — spend numbers + sparkline + optimization/savings summaries
+            if (full.getCostHistory() != null) {
+                GcpDashboardData kpi = new GcpDashboardData();
+                kpi.setMonthToDateSpend(full.getMonthToDateSpend());
+                kpi.setForecastedSpend(full.getForecastedSpend());
+                kpi.setLastMonthSpend(full.getLastMonthSpend());
+                kpi.setCostHistory(full.getCostHistory());
+                kpi.setOptimizationSummary(full.getOptimizationSummary());
+                kpi.setSavingsSummary(full.getSavingsSummary());
+                kpi.setLastUpdated(full.getLastUpdated());
+                saveGcpSnapshot(GCP_GRANULAR_KPI_REDIS + tp + gcpProjectId,
+                                GCP_GRANULAR_KPI_DB   + tp + gcpProjectId, kpi);
+            }
+
+            // 2. Inventory — resource counts + IAM
+            if (full.getResourceInventory() != null) {
+                GcpDashboardData inv = new GcpDashboardData();
+                inv.setResourceInventory(full.getResourceInventory());
+                inv.setIamResources(full.getIamResources());
+                inv.setIamDetails(full.getIamDetails());
+                inv.setLastUpdated(full.getLastUpdated());
+                saveGcpSnapshot(GCP_GRANULAR_INV_REDIS + tp + gcpProjectId,
+                                GCP_GRANULAR_INV_DB   + tp + gcpProjectId, inv);
+            }
+
+            // 3. Cost — history + billing breakdown
+            if (full.getCostHistory() != null) {
+                GcpDashboardData cost = new GcpDashboardData();
+                cost.setMonthToDateSpend(full.getMonthToDateSpend());
+                cost.setForecastedSpend(full.getForecastedSpend());
+                cost.setLastMonthSpend(full.getLastMonthSpend());
+                cost.setCostHistory(full.getCostHistory());
+                cost.setBillingSummary(full.getBillingSummary());
+                cost.setLastUpdated(full.getLastUpdated());
+                saveGcpSnapshot(GCP_GRANULAR_COST_REDIS + tp + gcpProjectId,
+                                GCP_GRANULAR_COST_DB   + tp + gcpProjectId, cost);
+            }
+
+            // 4. Optimization — waste + rightsizing + summaries
+            GcpDashboardData opt = new GcpDashboardData();
+            opt.setWastedResources(full.getWastedResources());
+            opt.setRightsizingRecommendations(full.getRightsizingRecommendations());
+            opt.setOptimizationSummary(full.getOptimizationSummary());
+            opt.setSavingsSummary(full.getSavingsSummary());
+            opt.setLastUpdated(full.getLastUpdated());
+            saveGcpSnapshot(GCP_GRANULAR_OPT_REDIS + tp + gcpProjectId,
+                            GCP_GRANULAR_OPT_DB   + tp + gcpProjectId, opt);
+
+            // 5. Map — region status + security score + insights
+            if (full.getRegionStatus() != null) {
+                GcpDashboardData map = new GcpDashboardData();
+                map.setRegionStatus(full.getRegionStatus());
+                map.setSecurityScore(full.getSecurityScore());
+                map.setSecurityInsights(full.getSecurityInsights());
+                map.setLastUpdated(full.getLastUpdated());
+                saveGcpSnapshot(GCP_GRANULAR_MAP_REDIS + tp + gcpProjectId,
+                                GCP_GRANULAR_MAP_DB   + tp + gcpProjectId, map);
+            }
+
+            log.info("✅ [GCP] Granular snapshots pre-filled for project: {}", gcpProjectId);
+        } catch (Exception e) {
+            log.warn("[GCP] updateGcpGranularSnapshots failed for {}: {}", gcpProjectId, e.getMessage());
+        }
+    }
+
+    /** Tenant prefix helper — shared by all granular and full-dashboard methods. */
+    private String tenantPrefix() {
+        String t = TenantContext.getCurrentTenant();
+        return (t != null) ? t + ":" : "";
+    }
+
     public void clearProjectCache(String gcpProjectId) {
-        log.info("🗑️ Clearing all cache for GCP project: {}", gcpProjectId);
+        String tenantId = TenantContext.getCurrentTenant();
+        String tenantPrefix = (tenantId != null) ? tenantId + ":" : "";
+        log.info("🗑️ Clearing all cache for GCP project: {} (tenant: {})", gcpProjectId, tenantId);
 
-        // Dashboard and main resources
-        redisCache.evict(DASHBOARD_CACHE_PREFIX + gcpProjectId);
-        redisCache.evict(ALL_RESOURCES_CACHE_PREFIX + gcpProjectId);
+        redisCache.evict(DASHBOARD_CACHE_PREFIX + tenantPrefix + gcpProjectId);
+        redisCache.evict(ALL_RESOURCES_CACHE_PREFIX + tenantPrefix + gcpProjectId);
         redisCache.evict(IAM_RESOURCES_CACHE_PREFIX + gcpProjectId);
-
-        // Individual resource caches
         redisCache.evict(COMPUTE_INSTANCES_CACHE_PREFIX + gcpProjectId);
         redisCache.evict(STORAGE_BUCKETS_CACHE_PREFIX + gcpProjectId);
         redisCache.evict(GKE_CLUSTERS_CACHE_PREFIX + gcpProjectId);
@@ -1718,30 +2019,40 @@ public class GcpDataService {
         redisCache.evict(KMS_KEYS_CACHE_PREFIX + gcpProjectId);
         redisCache.evict(CLOUD_FUNCTIONS_CACHE_PREFIX + gcpProjectId);
         redisCache.evict(SECRET_MANAGER_CACHE_PREFIX + gcpProjectId);
-
-        // Also clear cost-related caches
+        // Granular widget caches
+        redisCache.evict(GCP_GRANULAR_KPI_REDIS  + tenantPrefix + gcpProjectId);
+        redisCache.evict(GCP_GRANULAR_INV_REDIS  + tenantPrefix + gcpProjectId);
+        redisCache.evict(GCP_GRANULAR_COST_REDIS + tenantPrefix + gcpProjectId);
+        redisCache.evict(GCP_GRANULAR_OPT_REDIS  + tenantPrefix + gcpProjectId);
+        redisCache.evict(GCP_GRANULAR_MAP_REDIS  + tenantPrefix + gcpProjectId);
         gcpCostService.clearCostCacheForProject(gcpProjectId);
-
         log.info("✅ Cleared all cache for GCP project: {}", gcpProjectId);
     }
 
-    /**
-     * Clear specific cache types
-     */
     public void clearDashboardCache(String gcpProjectId) {
-        redisCache.evict(DASHBOARD_CACHE_PREFIX + gcpProjectId);
-        log.info("🗑️ Cleared dashboard cache for project {}", gcpProjectId);
+        String tenantId = TenantContext.getCurrentTenant();
+        String tenantPrefix = (tenantId != null) ? tenantId + ":" : "";
+        redisCache.evict(DASHBOARD_CACHE_PREFIX + tenantPrefix + gcpProjectId);
+        log.info("🗑️ Cleared dashboard cache for project {} (tenant: {})", gcpProjectId, tenantId);
     }
 
     public void clearResourcesCache(String gcpProjectId) {
-        redisCache.evict(ALL_RESOURCES_CACHE_PREFIX + gcpProjectId);
-        log.info("🗑️ Cleared resources cache for project {}", gcpProjectId);
+        String tenantId = TenantContext.getCurrentTenant();
+        String tenantPrefix = (tenantId != null) ? tenantId + ":" : "";
+        redisCache.evict(ALL_RESOURCES_CACHE_PREFIX + tenantPrefix + gcpProjectId);
+        log.info("🗑️ Cleared resources cache for project {} (tenant: {})", gcpProjectId, tenantId);
     }
 
     // ============================================================================================
     // DATABASE SNAPSHOT METHODS (for persistent caching - same approach as AWS
     // dashboard)
     // ============================================================================================
+
+    /** Saves both Redis (60 min) and DB atomically — mirrors AWS DashboardDataService.saveSnapshot(). */
+    private void saveGcpSnapshot(String redisCacheKey, String dbCacheKey, GcpDashboardData data) {
+        saveGcpDashboardSnapshot(dbCacheKey, data);
+        redisCache.put(redisCacheKey, data, 60);
+    }
 
     /**
      * Save GCP dashboard data to database cache for persistent storage.

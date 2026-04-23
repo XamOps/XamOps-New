@@ -37,43 +37,34 @@ public class GcpDashboardController {
     }
 
     /**
-     * ✅ MAIN ENDPOINT: Get GCP dashboard data from DATABASE CACHE
+     * GET /api/xamops/gcp/dashboard?accountId=my-gcp-project&forceRefresh=false
      *
-     * Data is pre-cached by nightly scheduled job (4:00 AM IST).
-     * This endpoint ALWAYS returns cached data - no live API calls.
-     * forceRefresh parameter is ignored for security (only scheduled jobs can
-     * refresh).
+     * Cache flow (same as AWS dashboard):
+     *   forceRefresh=false → Redis (60 min) → DB snapshot → live GCP API calls → save both
+     *   forceRefresh=true  → skip cache → live GCP API calls → overwrite Redis + DB
      *
-     * Example: GET /api/xamops/gcp/dashboard?accountId=my-gcp-project
+     * Nightly scheduled job (1:30 AM Wed/Sun) calls with forceRefresh=true to keep data fresh.
      */
     @GetMapping
     public CompletableFuture<ResponseEntity<?>> getDashboardData(
             @RequestParam String accountId,
             @RequestParam(defaultValue = "false") boolean forceRefresh) {
 
-        // IGNORE forceRefresh from user requests - always return cached data
-        // Live data fetch is ONLY allowed via scheduled nightly jobs
-        logger.info("📊 GCP Dashboard request - Project: {} (returning cached data)", accountId);
+        logger.info("📊 GCP Dashboard request - Project: {} forceRefresh: {}", accountId, forceRefresh);
 
         return gcpDataService.getDashboardData(accountId, forceRefresh)
                 .<ResponseEntity<?>>thenApply(data -> {
-                    logger.info("✅ GCP Dashboard data retrieved for project: {} (MonthToDate: ${})",
+                    logger.info("✅ GCP Dashboard served for project: {} (MTD: ${})",
                             accountId, data.getMonthToDateSpend());
-
-                    // ✅ Return data directly (no wrapper) to match frontend expectations
                     return ResponseEntity.ok(data);
                 })
                 .exceptionally(ex -> {
-                    logger.error("❌ Failed to fetch GCP dashboard data for project: {}", accountId, ex);
-
+                    logger.error("❌ Failed to fetch GCP dashboard for project: {}", accountId, ex);
                     Map<String, Object> errorResponse = new HashMap<>();
                     errorResponse.put("error", "Failed to retrieve GCP dashboard data");
                     errorResponse.put("message", ex.getMessage());
                     errorResponse.put("timestamp", System.currentTimeMillis());
-
-                    return ResponseEntity
-                            .status(HttpStatus.INTERNAL_SERVER_ERROR)
-                            .body(errorResponse);
+                    return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
                 });
     }
 
@@ -133,25 +124,95 @@ public class GcpDashboardController {
         }
     }
 
+    // ============================================================================================
+    // GRANULAR PER-WIDGET ENDPOINTS — mirrors /api/xamops/dashboard/granular/{kpi,…}
+    // Each widget fetches only its own futures and stores in its own DB+Redis key.
+    // ============================================================================================
+
     /**
-     * ⚠️ DEPRECATED: Manual refresh is disabled.
-     * Dashboard data is refreshed ONLY by nightly scheduled job (4:00 AM IST).
-     * Users should wait for the nightly refresh to see updated data.
-     *
-     * Example: POST /api/xamops/gcp/dashboard/refresh?accountId=my-gcp-project
+     * GET /api/xamops/gcp/dashboard/granular/kpi?accountId=my-project&forceRefresh=false
+     * Returns: monthToDateSpend, forecastedSpend, lastMonthSpend, costHistory (sparkline),
+     *          optimizationSummary, savingsSummary
      */
-    @PostMapping("/refresh")
-    public ResponseEntity<?> refreshDashboard(@RequestParam String accountId) {
-        logger.warn("⚠️ Manual refresh requested for GCP project: {} - DISABLED (use nightly job)", accountId);
+    @GetMapping("/granular/kpi")
+    public ResponseEntity<?> getGranularKpi(
+            @RequestParam String accountId,
+            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+        try {
+            return ResponseEntity.ok(gcpDataService.getGranularKpi(accountId, forceRefresh));
+        } catch (Exception ex) {
+            logger.error("❌ GCP granular KPI failed for {}", accountId, ex);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to fetch GCP KPI data", "message", ex.getMessage()));
+        }
+    }
 
-        Map<String, Object> response = new HashMap<>();
-        response.put("status", "disabled");
-        response.put("message",
-                "Manual refresh is disabled. Dashboard data is updated automatically every night at 4:00 AM IST.");
-        response.put("projectId", accountId);
-        response.put("nextRefresh", "4:00 AM IST (daily)");
+    /**
+     * GET /api/xamops/gcp/dashboard/granular/inventory?accountId=my-project&forceRefresh=false
+     * Returns: resourceInventory, iamResources, iamDetails
+     */
+    @GetMapping("/granular/inventory")
+    public ResponseEntity<?> getGranularInventory(
+            @RequestParam String accountId,
+            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+        try {
+            return ResponseEntity.ok(gcpDataService.getGranularInventory(accountId, forceRefresh));
+        } catch (Exception ex) {
+            logger.error("❌ GCP granular Inventory failed for {}", accountId, ex);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to fetch GCP Inventory data", "message", ex.getMessage()));
+        }
+    }
 
-        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
+    /**
+     * GET /api/xamops/gcp/dashboard/granular/cost?accountId=my-project&forceRefresh=false
+     * Returns: monthToDateSpend, forecastedSpend, lastMonthSpend, costHistory, billingSummary
+     */
+    @GetMapping("/granular/cost")
+    public ResponseEntity<?> getGranularCost(
+            @RequestParam String accountId,
+            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+        try {
+            return ResponseEntity.ok(gcpDataService.getGranularCost(accountId, forceRefresh));
+        } catch (Exception ex) {
+            logger.error("❌ GCP granular Cost failed for {}", accountId, ex);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to fetch GCP Cost data", "message", ex.getMessage()));
+        }
+    }
+
+    /**
+     * GET /api/xamops/gcp/dashboard/granular/optimization?accountId=my-project&forceRefresh=false
+     * Returns: wastedResources, rightsizingRecommendations, optimizationSummary, savingsSummary
+     */
+    @GetMapping("/granular/optimization")
+    public ResponseEntity<?> getGranularOptimization(
+            @RequestParam String accountId,
+            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+        try {
+            return ResponseEntity.ok(gcpDataService.getGranularOptimization(accountId, forceRefresh));
+        } catch (Exception ex) {
+            logger.error("❌ GCP granular Optimization failed for {}", accountId, ex);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to fetch GCP Optimization data", "message", ex.getMessage()));
+        }
+    }
+
+    /**
+     * GET /api/xamops/gcp/dashboard/granular/map?accountId=my-project&forceRefresh=false
+     * Returns: regionStatus, securityScore, securityInsights
+     */
+    @GetMapping("/granular/map")
+    public ResponseEntity<?> getGranularMap(
+            @RequestParam String accountId,
+            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+        try {
+            return ResponseEntity.ok(gcpDataService.getGranularMap(accountId, forceRefresh));
+        } catch (Exception ex) {
+            logger.error("❌ GCP granular Map failed for {}", accountId, ex);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to fetch GCP Map data", "message", ex.getMessage()));
+        }
     }
 
     /**

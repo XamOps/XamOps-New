@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -34,6 +35,7 @@ public class GcpCostService {
     private final CloudAccountRepository cloudAccountRepository;
     private final CachedDataRepository cachedDataRepository;
     private final ObjectMapper objectMapper;
+    private final GcpCostDataSnapshotService gcpCostDataSnapshotService;
     private final ExecutorService executor = Executors.newCachedThreadPool();
 
     @Value("${gcp.billing.export-table-name:}")
@@ -50,15 +52,32 @@ public class GcpCostService {
     // --- NEW CACHE KEY ---
     private static final String COST_BY_SERVICE_REGION_CACHE_PREFIX = "gcp:cost-by-service-region:";
 
+    // DB snapshot key prefixes for section-level cache (permanent, survives Redis restarts)
+    private static final String GCP_FINOPS_BILLING_SVC_DB  = "GCP_FINOPS_BILLING_SVC::";
+    private static final String GCP_FINOPS_COST_REGION_DB  = "GCP_FINOPS_COST_REGION::";
+    private static final String GCP_FINOPS_COST_LABEL_DB   = "GCP_FINOPS_COST_LABEL::";
+    private static final String GCP_FINOPS_ANOMALIES_DB    = "GCP_FINOPS_ANOMALIES::";
+
+    // DB snapshot key prefixes for cost-page methods
+    private static final String GCP_COST_BREAKDOWN_DB      = "GCP_COST_BREAKDOWN::";
+    private static final String GCP_COST_BREAKDOWN_DATE_DB = "GCP_COST_BREAKDOWN_DATE::";
+    private static final String GCP_COST_HISTORY_DB        = "GCP_COST_HISTORY::";
+    private static final String GCP_COST_BY_REGION_DB      = "GCP_COST_BY_REGION::";
+    private static final String GCP_COST_DAILY_FORECAST_DB = "GCP_COST_DAILY_FORECAST::";
+    private static final String GCP_COST_BY_TAG_DB         = "GCP_COST_BY_TAG::";
+    private static final String GCP_COST_SVC_REGION_DB     = "GCP_COST_SVC_REGION::";
+
     public GcpCostService(GcpClientProvider gcpClientProvider, RedisCacheService redisCacheService,
             CloudAccountRepository cloudAccountRepository,
             CachedDataRepository cachedDataRepository,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            GcpCostDataSnapshotService gcpCostDataSnapshotService) {
         this.gcpClientProvider = gcpClientProvider;
         this.redisCacheService = redisCacheService;
         this.cloudAccountRepository = cloudAccountRepository;
         this.cachedDataRepository = cachedDataRepository;
         this.objectMapper = objectMapper;
+        this.gcpCostDataSnapshotService = gcpCostDataSnapshotService;
     }
 
     /** Persist data to DB snapshot, ignoring failures so main flow is never blocked. */
@@ -75,40 +94,55 @@ public class GcpCostService {
         }
     }
 
-    // --- NEW METHOD FOR DETAILED REPORTING ---
+    // --- DETAILED REPORTING (service × region breakdown) ---
     public List<DetailedCostDto> getCostBreakdownByServiceAndRegionSync(String gcpProjectId, LocalDate startDate,
             LocalDate endDate) {
+        return getCostBreakdownByServiceAndRegionSync(gcpProjectId, startDate, endDate, false);
+    }
+
+    public List<DetailedCostDto> getCostBreakdownByServiceAndRegionSync(String gcpProjectId, LocalDate startDate,
+            LocalDate endDate, boolean forceRefresh) {
         String cacheKey = COST_BY_SERVICE_REGION_CACHE_PREFIX + gcpProjectId + ":" + startDate + ":" + endDate;
+        String dbKey    = GCP_COST_SVC_REGION_DB + gcpProjectId + "::" + startDate + "::" + endDate;
 
-        Optional<List<DetailedCostDto>> cached = redisCacheService.get(
-                cacheKey,
-                new TypeReference<List<DetailedCostDto>>() {
-                });
+        if (!forceRefresh) {
+            Optional<List<DetailedCostDto>> cached = redisCacheService.get(
+                    cacheKey,
+                    new TypeReference<List<DetailedCostDto>>() {
+                    });
 
-        if (cached.isPresent()) {
-            log.info("✅ Returning cached cost by service/region for project {}", gcpProjectId);
-            return cached.get();
+            if (cached.isPresent()) {
+                log.info("✅ Returning cached cost by service/region for project {}", gcpProjectId);
+                return cached.get();
+            }
+
+            try {
+                Optional<CachedData> dbSnap = cachedDataRepository.findById(dbKey);
+                if (dbSnap.isPresent()) {
+                    List<DetailedCostDto> dbData = objectMapper.readValue(dbSnap.get().getJsonData(), new TypeReference<List<DetailedCostDto>>() {});
+                    if (dbData != null) {
+                        redisCacheService.put(cacheKey, dbData, 60 * 24);
+                        log.info("✅ DB hit — re-warmed Redis: {}", dbKey);
+                        return dbData;
+                    }
+                }
+            } catch (Exception e) { log.warn("DB cache miss for {}: {}", dbKey, e.getMessage()); }
         }
 
         log.info("🔍 Fetching cost by service/region for project {} from {} to {}", gcpProjectId, startDate, endDate);
 
         Optional<BigQuery> bqOpt = gcpClientProvider.getBigQueryClient(gcpProjectId);
         if (bqOpt.isEmpty()) {
-            log.error(
-                    "❌ Failed to get BigQuery client for project {}. Check service account credentials and permissions.",
-                    gcpProjectId);
+            log.error("❌ Failed to get BigQuery client for project {}.", gcpProjectId);
             return Collections.emptyList();
         }
 
         BigQuery bigquery = bqOpt.get();
         Optional<String> tableNameOpt = getBillingTableName(bigquery, gcpProjectId);
         if (tableNameOpt.isEmpty()) {
-            log.error("❌ Failed to find billing table for project {}. Ensure BigQuery billing export is configured.",
-                    gcpProjectId);
+            log.error("❌ Failed to find billing table for project {}.", gcpProjectId);
             return Collections.emptyList();
         }
-
-        log.info("✅ Using billing table: {}", tableNameOpt.get());
 
         String query = String.format(
                 "SELECT " +
@@ -125,7 +159,6 @@ public class GcpCostService {
                 endDate.format(DateTimeFormatter.ISO_LOCAL_DATE));
 
         try {
-            log.info("Executing BigQuery query for project {}: {}", gcpProjectId, query);
             TableResult results = bigquery.query(QueryJobConfiguration.newBuilder(query).build());
             List<DetailedCostDto> resultList = StreamSupport.stream(results.iterateAll().spliterator(), false)
                     .map(row -> new DetailedCostDto(
@@ -138,12 +171,11 @@ public class GcpCostService {
                     resultList.size(), gcpProjectId, startDate, endDate);
             if (resultList.isEmpty()) {
                 log.warn("⚠️ No cost data found for project {} in date range {} to {}. " +
-                        "Possible reasons: (1) No usage in this period, (2) Billing export not configured, " +
-                        "(3) Billing table has no recent data",
-                        gcpProjectId, startDate, endDate);
+                        "Possible reasons: billing export not configured or no usage in this period.", gcpProjectId, startDate, endDate);
             }
 
-            redisCacheService.put(cacheKey, resultList, 60 * 6); // Cache for 6 hours
+            redisCacheService.put(cacheKey, resultList, 60 * 24);
+            saveToDb(dbKey, resultList);
             return resultList;
         } catch (Exception e) {
             log.error("❌ BigQuery query failed for cost by service/region on project {}: {}", gcpProjectId,
@@ -153,25 +185,48 @@ public class GcpCostService {
             return Collections.emptyList();
         }
     }
-    // --- END OF NEW METHOD ---
+    // --- END OF DETAILED REPORTING ---
 
     // ===== COST BY TAG =====
 
     public CompletableFuture<List<GcpCostDto>> getCostByTag(String gcpProjectId, String tagKey) {
-        return CompletableFuture.supplyAsync(() -> getCostByTagSync(gcpProjectId, tagKey), executor);
+        return CompletableFuture.supplyAsync(() -> getCostByTagSync(gcpProjectId, tagKey, false), executor);
+    }
+
+    public CompletableFuture<List<GcpCostDto>> getCostByTag(String gcpProjectId, String tagKey, boolean forceRefresh) {
+        return CompletableFuture.supplyAsync(() -> getCostByTagSync(gcpProjectId, tagKey, forceRefresh), executor);
     }
 
     public List<GcpCostDto> getCostByTagSync(String gcpProjectId, String tagKey) {
+        return getCostByTagSync(gcpProjectId, tagKey, false);
+    }
+
+    public List<GcpCostDto> getCostByTagSync(String gcpProjectId, String tagKey, boolean forceRefresh) {
         String cacheKey = COST_BY_TAG_CACHE_PREFIX + gcpProjectId + ":" + tagKey;
+        String dbKey    = GCP_COST_BY_TAG_DB + gcpProjectId + "::" + tagKey;
 
-        Optional<List<GcpCostDto>> cached = redisCacheService.get(
-                cacheKey,
-                new TypeReference<List<GcpCostDto>>() {
-                });
+        if (!forceRefresh) {
+            Optional<List<GcpCostDto>> cached = redisCacheService.get(
+                    cacheKey,
+                    new TypeReference<List<GcpCostDto>>() {
+                    });
 
-        if (cached.isPresent()) {
-            log.info("✅ Returning cached cost by tag for project {} / tag {}", gcpProjectId, tagKey);
-            return cached.get();
+            if (cached.isPresent()) {
+                log.info("✅ Returning cached cost by tag for project {} / tag {}", gcpProjectId, tagKey);
+                return cached.get();
+            }
+
+            try {
+                Optional<CachedData> dbSnap = cachedDataRepository.findById(dbKey);
+                if (dbSnap.isPresent()) {
+                    List<GcpCostDto> dbData = objectMapper.readValue(dbSnap.get().getJsonData(), new TypeReference<List<GcpCostDto>>() {});
+                    if (dbData != null) {
+                        redisCacheService.put(cacheKey, dbData, 60 * 24);
+                        log.info("✅ DB hit — re-warmed Redis: {}", dbKey);
+                        return dbData;
+                    }
+                }
+            } catch (Exception e) { log.warn("DB cache miss for {}: {}", dbKey, e.getMessage()); }
         }
 
         log.info("🔍 Fetching cost by tag for project {} / tag {}", gcpProjectId, tagKey);
@@ -197,7 +252,8 @@ public class GcpCostService {
                 today.format(DateTimeFormatter.ISO_LOCAL_DATE));
 
         List<GcpCostDto> result = executeQuery(bigquery, query, gcpProjectId);
-        redisCacheService.put(cacheKey, result, 60);
+        redisCacheService.put(cacheKey, result, 60 * 24);
+        saveToDb(dbKey, result);
         return result;
     }
 
@@ -212,8 +268,23 @@ public class GcpCostService {
 
         Optional<Double> cached = redisCacheService.get(cacheKey, Double.class);
         if (cached.isPresent()) {
-            log.info("✅ Returning cached MTD spend for project {}", gcpProjectId);
+            log.info("✅ Returning Redis-cached MTD spend for project {}", gcpProjectId);
             return cached.get();
+        }
+
+        // DB fallback — re-warms Redis, avoids BigQuery on cold starts
+        try {
+            Optional<CachedData> dbSnap = cachedDataRepository.findById(cacheKey);
+            if (dbSnap.isPresent()) {
+                Double dbVal = objectMapper.readValue(dbSnap.get().getJsonData(), Double.class);
+                if (dbVal != null) {
+                    log.info("✅ Returning DB-cached MTD spend for project {} — re-warming Redis", gcpProjectId);
+                    redisCacheService.put(cacheKey, dbVal, 60);
+                    return dbVal;
+                }
+            }
+        } catch (Exception e) {
+            log.warn("DB snapshot load failed for MTD spend {}: {}", gcpProjectId, e.getMessage());
         }
 
         log.info("🔍 Fetching MTD spend for project {}", gcpProjectId);
@@ -300,7 +371,7 @@ public class GcpCostService {
         LocalDate startDate = endDate.withDayOfMonth(1);
 
         List<GcpCostDto> result = queryCostData(bqOpt.get(), gcpProjectId, "service.description", startDate, endDate);
-        redisCacheService.put(cacheKey, result, 60);
+        redisCacheService.put(cacheKey, result, 60 * 24);
         saveToDb(cacheKey, result);
         return result;
     }
@@ -308,7 +379,11 @@ public class GcpCostService {
     // ===== HISTORICAL COSTS =====
 
     public CompletableFuture<List<GcpCostDto>> getHistoricalCosts(String gcpProjectId) {
-        return CompletableFuture.supplyAsync(() -> getHistoricalCostsSync(gcpProjectId), executor);
+        return CompletableFuture.supplyAsync(() -> getHistoricalCostsSync(gcpProjectId, false), executor);
+    }
+
+    public CompletableFuture<List<GcpCostDto>> getHistoricalCosts(String gcpProjectId, boolean forceRefresh) {
+        return CompletableFuture.supplyAsync(() -> getHistoricalCostsSync(gcpProjectId, forceRefresh), executor);
     }
 
     public List<GcpCostDto> getHistoricalCostsSync(String gcpProjectId) {
@@ -317,6 +392,7 @@ public class GcpCostService {
 
     public List<GcpCostDto> getHistoricalCostsSync(String gcpProjectId, boolean forceRefresh) {
         String cacheKey = HISTORICAL_COSTS_CACHE_PREFIX + gcpProjectId;
+        String dbKey    = GCP_COST_HISTORY_DB + gcpProjectId;
 
         if (!forceRefresh) {
             Optional<List<GcpCostDto>> cached = redisCacheService.get(
@@ -331,11 +407,11 @@ public class GcpCostService {
 
             // Try DB snapshot
             try {
-                Optional<CachedData> dbSnapshot = cachedDataRepository.findById(cacheKey);
+                Optional<CachedData> dbSnapshot = cachedDataRepository.findById(dbKey);
                 if (dbSnapshot.isPresent()) {
                     List<GcpCostDto> dbResult = objectMapper.readValue(dbSnapshot.get().getJsonData(), new TypeReference<>() {});
                     log.info("✅ Returning DB-cached historical costs for project {} — re-warming Redis", gcpProjectId);
-                    redisCacheService.put(cacheKey, dbResult, 60);
+                    redisCacheService.put(cacheKey, dbResult, 60 * 24);
                     return dbResult;
                 }
             } catch (Exception e) {
@@ -345,32 +421,77 @@ public class GcpCostService {
             redisCacheService.evict(cacheKey);
         }
 
-        log.info("🔍 Fetching historical costs for project {}", gcpProjectId);
+        log.info("🔍 Fetching historical costs for project {} — composing from snapshots + BigQuery", gcpProjectId);
 
+        // Build 6-month list: closed months from DB snapshots, current month from BigQuery
+        YearMonth currentYm = YearMonth.now();
+        List<GcpCostDto> result = new ArrayList<>();
+
+        for (int i = 5; i >= 1; i--) {
+            YearMonth ym = currentYm.minusMonths(i);
+            Optional<Double> snapshotTotal = gcpCostDataSnapshotService.readMonthlyTotal(gcpProjectId, ym);
+            if (snapshotTotal.isPresent()) {
+                result.add(new GcpCostDto(ym.toString(), snapshotTotal.get(), false));
+            } else {
+                // Snapshot missing — fall through to BigQuery for the full range below
+                result.clear();
+                break;
+            }
+        }
+
+        // Current month always from BigQuery (data is still accumulating)
         Optional<BigQuery> bqOpt = gcpClientProvider.getBigQueryClient(gcpProjectId);
-        if (bqOpt.isEmpty())
-            return Collections.emptyList();
+        if (bqOpt.isEmpty()) {
+            if (!result.isEmpty()) {
+                redisCacheService.put(cacheKey, result, 60 * 24);
+                saveToDb(dbKey, result);
+            }
+            return result.isEmpty() ? Collections.emptyList() : result;
+        }
 
         BigQuery bigquery = bqOpt.get();
         Optional<String> tableNameOpt = getBillingTableName(bigquery, gcpProjectId);
-        if (tableNameOpt.isEmpty())
-            return Collections.emptyList();
 
-        LocalDate today = LocalDate.now();
-        String endDate = today.format(DateTimeFormatter.ISO_LOCAL_DATE);
-        String startDate = today.minusMonths(6).withDayOfMonth(1).format(DateTimeFormatter.ISO_LOCAL_DATE);
+        if (result.size() == 5 && tableNameOpt.isPresent()) {
+            // All 5 closed months came from snapshots — only query current month
+            LocalDate today = LocalDate.now();
+            String monthStart = today.withDayOfMonth(1).format(DateTimeFormatter.ISO_LOCAL_DATE);
+            String monthEnd   = today.format(DateTimeFormatter.ISO_LOCAL_DATE);
+            String currentQuery = String.format(
+                    "SELECT SUM(cost) as total_cost FROM `%s` WHERE project.id = '%s' " +
+                    "AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s'",
+                    tableNameOpt.get(), gcpProjectId, monthStart, monthEnd);
+            try {
+                TableResult r = bigquery.query(QueryJobConfiguration.newBuilder(currentQuery).build());
+                FieldValue fv = r.getValues().iterator().next().get("total_cost");
+                double currentTotal = fv.isNull() ? 0.0 : fv.getDoubleValue();
+                result.add(new GcpCostDto(currentYm.toString(), currentTotal, false));
+            } catch (Exception e) {
+                log.warn("BigQuery current-month query failed for {}: {}", gcpProjectId, e.getMessage());
+                result.add(new GcpCostDto(currentYm.toString(), 0.0, false));
+            }
+            // Compute anomaly flag inline (month > prev * 1.2 && prev > 10)
+            for (int i = 1; i < result.size(); i++) {
+                double prev = result.get(i - 1).getAmount();
+                double curr = result.get(i).getAmount();
+                result.get(i).setAnomaly(curr > prev * 1.2 && prev > 10);
+            }
+        } else {
+            // Snapshot incomplete — fall back to full BigQuery range query
+            if (tableNameOpt.isEmpty()) return Collections.emptyList();
+            LocalDate today = LocalDate.now();
+            String endDate   = today.format(DateTimeFormatter.ISO_LOCAL_DATE);
+            String startDate = today.minusMonths(6).withDayOfMonth(1).format(DateTimeFormatter.ISO_LOCAL_DATE);
+            String query = String.format(
+                    "WITH MonthlyCosts AS (SELECT FORMAT_DATE('%%Y-%%m', DATE(usage_start_time)) as name, SUM(cost) as total_cost FROM `%s` WHERE project.id = '%s' AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' GROUP BY 1), "
+                            + "MonthlyCostsWithLag AS (SELECT name, total_cost, LAG(total_cost, 1, 0) OVER (ORDER BY name) as prev_month_cost FROM MonthlyCosts) "
+                            + "SELECT name, total_cost, (total_cost > prev_month_cost * 1.2 AND prev_month_cost > 10) as is_anomaly FROM MonthlyCostsWithLag ORDER BY name",
+                    tableNameOpt.get(), gcpProjectId, startDate, endDate);
+            result = executeQuery(bigquery, query, gcpProjectId);
+        }
 
-        String query = String.format(
-                "WITH MonthlyCosts AS (SELECT FORMAT_DATE('%%Y-%%m', DATE(usage_start_time)) as name, SUM(cost) as total_cost FROM `%s` WHERE project.id = '%s' AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' GROUP BY 1), "
-                        +
-                        "MonthlyCostsWithLag AS (SELECT name, total_cost, LAG(total_cost, 1, 0) OVER (ORDER BY name) as prev_month_cost FROM MonthlyCosts) "
-                        +
-                        "SELECT name, total_cost, (total_cost > prev_month_cost * 1.2 AND prev_month_cost > 10) as is_anomaly FROM MonthlyCostsWithLag ORDER BY name",
-                tableNameOpt.get(), gcpProjectId, startDate, endDate);
-
-        List<GcpCostDto> result = executeQuery(bigquery, query, gcpProjectId);
-        redisCacheService.put(cacheKey, result, 60);
-        saveToDb(cacheKey, result);
+        redisCacheService.put(cacheKey, result, 60 * 24);
+        saveToDb(dbKey, result);
         return result;
     }
 
@@ -386,6 +507,7 @@ public class GcpCostService {
 
     public List<GcpCostDto> getCostByRegionSync(String gcpProjectId, boolean forceRefresh) {
         String cacheKey = COST_BY_REGION_CACHE_PREFIX + gcpProjectId;
+        String dbKey    = GCP_COST_BY_REGION_DB + gcpProjectId;
 
         if (!forceRefresh) {
             Optional<List<GcpCostDto>> cached = redisCacheService.get(
@@ -400,11 +522,11 @@ public class GcpCostService {
 
             // Try DB snapshot
             try {
-                Optional<CachedData> dbSnapshot = cachedDataRepository.findById(cacheKey);
+                Optional<CachedData> dbSnapshot = cachedDataRepository.findById(dbKey);
                 if (dbSnapshot.isPresent()) {
                     List<GcpCostDto> dbResult = objectMapper.readValue(dbSnapshot.get().getJsonData(), new TypeReference<>() {});
                     log.info("✅ Returning DB-cached cost by region for project {} — re-warming Redis", gcpProjectId);
-                    redisCacheService.put(cacheKey, dbResult, 60);
+                    redisCacheService.put(cacheKey, dbResult, 60 * 24);
                     return dbResult;
                 }
             } catch (Exception e) {
@@ -424,8 +546,8 @@ public class GcpCostService {
         LocalDate startDate = endDate.withDayOfMonth(1);
 
         List<GcpCostDto> result = queryCostData(bqOpt.get(), gcpProjectId, "location.region", startDate, endDate);
-        redisCacheService.put(cacheKey, result, 60);
-        saveToDb(cacheKey, result);
+        redisCacheService.put(cacheKey, result, 60 * 24);
+        saveToDb(dbKey, result);
         return result;
     }
 
@@ -433,21 +555,46 @@ public class GcpCostService {
 
     public CompletableFuture<List<Map<String, Object>>> getDailyCostsForForecast(String gcpProjectId,
             String serviceName, int days) {
-        return CompletableFuture.supplyAsync(() -> getDailyCostsForForecastSync(gcpProjectId, serviceName, days),
+        return CompletableFuture.supplyAsync(() -> getDailyCostsForForecastSync(gcpProjectId, serviceName, days, false),
+                executor);
+    }
+
+    public CompletableFuture<List<Map<String, Object>>> getDailyCostsForForecast(String gcpProjectId,
+            String serviceName, int days, boolean forceRefresh) {
+        return CompletableFuture.supplyAsync(() -> getDailyCostsForForecastSync(gcpProjectId, serviceName, days, forceRefresh),
                 executor);
     }
 
     public List<Map<String, Object>> getDailyCostsForForecastSync(String gcpProjectId, String serviceName, int days) {
-        String cacheKey = DAILY_COSTS_FORECAST_CACHE_PREFIX + gcpProjectId + ":" + serviceName + ":" + days;
+        return getDailyCostsForForecastSync(gcpProjectId, serviceName, days, false);
+    }
 
-        Optional<List<Map<String, Object>>> cached = redisCacheService.get(
-                cacheKey,
-                new TypeReference<List<Map<String, Object>>>() {
-                });
+    public List<Map<String, Object>> getDailyCostsForForecastSync(String gcpProjectId, String serviceName, int days, boolean forceRefresh) {
+        String cacheKey = DAILY_COSTS_FORECAST_CACHE_PREFIX + gcpProjectId + ":" + (serviceName != null ? serviceName : "ALL") + ":" + days;
+        String dbKey    = GCP_COST_DAILY_FORECAST_DB + gcpProjectId + "::" + (serviceName != null ? serviceName : "ALL") + "::" + days;
 
-        if (cached.isPresent()) {
-            log.info("✅ Returning cached daily costs forecast for project {}", gcpProjectId);
-            return cached.get();
+        if (!forceRefresh) {
+            Optional<List<Map<String, Object>>> cached = redisCacheService.get(
+                    cacheKey,
+                    new TypeReference<List<Map<String, Object>>>() {
+                    });
+
+            if (cached.isPresent()) {
+                log.info("✅ Returning cached daily costs forecast for project {}", gcpProjectId);
+                return cached.get();
+            }
+
+            try {
+                Optional<CachedData> dbSnap = cachedDataRepository.findById(dbKey);
+                if (dbSnap.isPresent()) {
+                    List<Map<String, Object>> dbData = objectMapper.readValue(dbSnap.get().getJsonData(), new TypeReference<List<Map<String, Object>>>() {});
+                    if (dbData != null) {
+                        redisCacheService.put(cacheKey, dbData, 60 * 24);
+                        log.info("✅ DB hit — re-warmed Redis: {}", dbKey);
+                        return dbData;
+                    }
+                }
+            } catch (Exception e) { log.warn("DB cache miss for {}: {}", dbKey, e.getMessage()); }
         }
 
         log.info("🔍 Fetching daily costs forecast for project {}", gcpProjectId);
@@ -481,8 +628,8 @@ public class GcpCostService {
                     .map(row -> Map.<String, Object>of("date", row.get("date").getStringValue(), "cost",
                             row.get("cost").getDoubleValue()))
                     .collect(Collectors.toList());
-            redisCacheService.put(cacheKey, result, 60);
-            saveToDb(cacheKey, result);
+            redisCacheService.put(cacheKey, result, 60 * 24);
+            saveToDb(dbKey, result);
             return result;
         } catch (Exception e) {
             log.error("Error fetching daily GCP costs for forecast", e);
@@ -503,16 +650,21 @@ public class GcpCostService {
         return CompletableFuture.supplyAsync(() -> getCostBreakdownSync(gcpProjectId, groupBy, forceRefresh), executor);
     }
 
+    public CompletableFuture<List<GcpCostDto>> getCostBreakdown(String gcpProjectId, String groupBy, String startDate, String endDate, boolean forceRefresh) {
+        return CompletableFuture.supplyAsync(() -> getCostBreakdownSync(gcpProjectId, groupBy, startDate, endDate, forceRefresh), executor);
+    }
+
     public List<GcpCostDto> getCostBreakdownSync(String gcpProjectId, String groupBy) {
         return getCostBreakdownSync(gcpProjectId, groupBy, false);
     }
 
     public List<GcpCostDto> getCostBreakdownSync(String gcpProjectId, String groupBy, boolean forceRefresh) {
         String cacheKey = COST_BREAKDOWN_CACHE_PREFIX + gcpProjectId + ":" + groupBy;
+        String dbKey    = GCP_COST_BREAKDOWN_DB + gcpProjectId + "::" + groupBy;
 
         if (forceRefresh) {
             redisCacheService.evict(cacheKey);
-            cachedDataRepository.deleteById(cacheKey);
+            cachedDataRepository.deleteById(dbKey);
             log.info("🔄 Force refresh: evicted cache for project {} / groupBy {}", gcpProjectId, groupBy);
         } else {
             Optional<List<GcpCostDto>> cached = redisCacheService.get(
@@ -527,11 +679,11 @@ public class GcpCostService {
 
             // Try DB snapshot
             try {
-                Optional<CachedData> dbSnapshot = cachedDataRepository.findById(cacheKey);
+                Optional<CachedData> dbSnapshot = cachedDataRepository.findById(dbKey);
                 if (dbSnapshot.isPresent()) {
                     List<GcpCostDto> dbResult = objectMapper.readValue(dbSnapshot.get().getJsonData(), new TypeReference<>() {});
                     log.info("✅ Returning DB-cached cost breakdown for project {} / groupBy {} — re-warming Redis", gcpProjectId, groupBy);
-                    redisCacheService.put(cacheKey, dbResult, 60);
+                    redisCacheService.put(cacheKey, dbResult, 60 * 24);
                     return dbResult;
                 }
             } catch (Exception e) {
@@ -556,8 +708,45 @@ public class GcpCostService {
         LocalDate startDate = endDate.withDayOfMonth(1);
 
         List<GcpCostDto> result = queryCostData(bqOpt.get(), gcpProjectId, dimension, startDate, endDate);
-        redisCacheService.put(cacheKey, result, 60);
-        saveToDb(cacheKey, result);
+        redisCacheService.put(cacheKey, result, 60 * 24);
+        saveToDb(dbKey, result);
+        return result;
+    }
+
+    public List<GcpCostDto> getCostBreakdownSync(String gcpProjectId, String groupBy, String startDate, String endDate, boolean forceRefresh) {
+        LocalDate start = startDate != null ? LocalDate.parse(startDate) : LocalDate.now().withDayOfMonth(1);
+        LocalDate end   = endDate   != null ? LocalDate.parse(endDate)   : LocalDate.now();
+
+        String cacheKey = COST_BREAKDOWN_CACHE_PREFIX + gcpProjectId + ":" + groupBy + ":" + start + ":" + end;
+        String dbKey    = GCP_COST_BREAKDOWN_DATE_DB + gcpProjectId + "::" + groupBy + "::" + start + "::" + end;
+
+        if (!forceRefresh) {
+            Optional<List<GcpCostDto>> cached = redisCacheService.get(cacheKey, new TypeReference<List<GcpCostDto>>() {});
+            if (cached.isPresent()) {
+                log.info("✅ Redis hit for cost breakdown (date-range) project {} / groupBy {}", gcpProjectId, groupBy);
+                return cached.get();
+            }
+            try {
+                Optional<CachedData> dbSnap = cachedDataRepository.findById(dbKey);
+                if (dbSnap.isPresent()) {
+                    List<GcpCostDto> dbData = objectMapper.readValue(dbSnap.get().getJsonData(), new TypeReference<List<GcpCostDto>>() {});
+                    if (dbData != null) { redisCacheService.put(cacheKey, dbData, 60 * 24); log.info("✅ DB hit — re-warmed Redis: {}", dbKey); return dbData; }
+                }
+            } catch (Exception e) { log.warn("DB cache miss for {}: {}", dbKey, e.getMessage()); }
+        }
+
+        log.info("🔍 Fetching cost breakdown (date-range) for project {} / groupBy {} ({} to {})", gcpProjectId, groupBy, start, end);
+
+        Optional<BigQuery> bqOpt = gcpClientProvider.getBigQueryClient(gcpProjectId);
+        if (bqOpt.isEmpty()) return Collections.emptyList();
+
+        String dimension = "service.description";
+        if ("REGION".equalsIgnoreCase(groupBy)) dimension = "location.region";
+        else if ("PROJECT".equalsIgnoreCase(groupBy)) dimension = "project.name";
+
+        List<GcpCostDto> result = queryCostData(bqOpt.get(), gcpProjectId, dimension, start, end);
+        redisCacheService.put(cacheKey, result, 60 * 24);
+        saveToDb(dbKey, result);
         return result;
     }
 
@@ -671,18 +860,27 @@ public class GcpCostService {
      * Get billing summary (cost by service) with optional date range filtering.
      */
     public CompletableFuture<List<GcpCostDto>> getBillingSummaryWithDateRange(String gcpProjectId, String startDate,
-            String endDate) {
+            String endDate, boolean forceRefresh) {
         return CompletableFuture.supplyAsync(() -> {
             LocalDate start = startDate != null ? LocalDate.parse(startDate) : LocalDate.now().withDayOfMonth(1);
             LocalDate end = endDate != null ? LocalDate.parse(endDate) : LocalDate.now();
 
             String cacheKey = BILLING_SUMMARY_CACHE_PREFIX + gcpProjectId + ":" + start + ":" + end;
+            String dbKey    = GCP_FINOPS_BILLING_SVC_DB + gcpProjectId + ":" + start + ":" + end;
 
-            Optional<List<GcpCostDto>> cached = redisCacheService.get(cacheKey, new TypeReference<List<GcpCostDto>>() {
-            });
-            if (cached.isPresent()) {
-                log.info("Returning cached billing summary for project {} (dates: {} to {})", gcpProjectId, start, end);
-                return cached.get();
+            if (!forceRefresh) {
+                Optional<List<GcpCostDto>> cached = redisCacheService.get(cacheKey, new TypeReference<List<GcpCostDto>>() {});
+                if (cached.isPresent()) {
+                    log.info("Returning cached billing summary for project {} (dates: {} to {})", gcpProjectId, start, end);
+                    return cached.get();
+                }
+                try {
+                    Optional<CachedData> dbSnap = cachedDataRepository.findById(dbKey);
+                    if (dbSnap.isPresent()) {
+                        List<GcpCostDto> dbData = objectMapper.readValue(dbSnap.get().getJsonData(), new TypeReference<List<GcpCostDto>>() {});
+                        if (dbData != null) { redisCacheService.put(cacheKey, dbData, 60); log.info("✅ DB hit — re-warmed Redis: {}", dbKey); return dbData; }
+                    }
+                } catch (Exception e) { log.warn("DB cache miss for {}: {}", dbKey, e.getMessage()); }
             }
 
             log.info("Fetching billing summary for project {} from {} to {}", gcpProjectId, start, end);
@@ -692,7 +890,8 @@ public class GcpCostService {
                 return Collections.emptyList();
 
             List<GcpCostDto> result = queryCostData(bqOpt.get(), gcpProjectId, "service.description", start, end);
-            redisCacheService.put(cacheKey, result, 10);
+            redisCacheService.put(cacheKey, result, 60);
+            saveToDb(dbKey, result);
             return result;
         }, executor);
     }
@@ -701,18 +900,27 @@ public class GcpCostService {
      * Get cost by region with optional date range filtering.
      */
     public CompletableFuture<List<GcpCostDto>> getCostByRegionWithDateRange(String gcpProjectId, String startDate,
-            String endDate) {
+            String endDate, boolean forceRefresh) {
         return CompletableFuture.supplyAsync(() -> {
             LocalDate start = startDate != null ? LocalDate.parse(startDate) : LocalDate.now().withDayOfMonth(1);
             LocalDate end = endDate != null ? LocalDate.parse(endDate) : LocalDate.now();
 
             String cacheKey = COST_BY_REGION_CACHE_PREFIX + gcpProjectId + ":" + start + ":" + end;
+            String dbKey    = GCP_FINOPS_COST_REGION_DB + gcpProjectId + ":" + start + ":" + end;
 
-            Optional<List<GcpCostDto>> cached = redisCacheService.get(cacheKey, new TypeReference<List<GcpCostDto>>() {
-            });
-            if (cached.isPresent()) {
-                log.info("Returning cached cost by region for project {} (dates: {} to {})", gcpProjectId, start, end);
-                return cached.get();
+            if (!forceRefresh) {
+                Optional<List<GcpCostDto>> cached = redisCacheService.get(cacheKey, new TypeReference<List<GcpCostDto>>() {});
+                if (cached.isPresent()) {
+                    log.info("Returning cached cost by region for project {} (dates: {} to {})", gcpProjectId, start, end);
+                    return cached.get();
+                }
+                try {
+                    Optional<CachedData> dbSnap = cachedDataRepository.findById(dbKey);
+                    if (dbSnap.isPresent()) {
+                        List<GcpCostDto> dbData = objectMapper.readValue(dbSnap.get().getJsonData(), new TypeReference<List<GcpCostDto>>() {});
+                        if (dbData != null) { redisCacheService.put(cacheKey, dbData, 60); log.info("✅ DB hit — re-warmed Redis: {}", dbKey); return dbData; }
+                    }
+                } catch (Exception e) { log.warn("DB cache miss for {}: {}", dbKey, e.getMessage()); }
             }
 
             log.info("Fetching cost by region for project {} from {} to {}", gcpProjectId, start, end);
@@ -722,7 +930,8 @@ public class GcpCostService {
                 return Collections.emptyList();
 
             List<GcpCostDto> result = queryCostData(bqOpt.get(), gcpProjectId, "location.region", start, end);
-            redisCacheService.put(cacheKey, result, 10);
+            redisCacheService.put(cacheKey, result, 60);
+            saveToDb(dbKey, result);
             return result;
         }, executor);
     }
@@ -731,20 +940,29 @@ public class GcpCostService {
      * Get cost by label (tag) with optional date range filtering.
      */
     public CompletableFuture<List<Map<String, Object>>> getCostByLabel(String gcpProjectId, String labelKey,
-            String startDate, String endDate) {
+            String startDate, String endDate, boolean forceRefresh) {
         return CompletableFuture.supplyAsync(() -> {
             LocalDate start = startDate != null ? LocalDate.parse(startDate) : LocalDate.now().withDayOfMonth(1);
             LocalDate end = endDate != null ? LocalDate.parse(endDate) : LocalDate.now();
 
             String cacheKey = COST_BY_TAG_CACHE_PREFIX + gcpProjectId + ":" + labelKey + ":" + start + ":" + end;
+            String dbKey    = GCP_FINOPS_COST_LABEL_DB + gcpProjectId + ":" + labelKey + ":" + start + ":" + end;
 
-            Optional<List<Map<String, Object>>> cached = redisCacheService.get(cacheKey,
-                    new TypeReference<List<Map<String, Object>>>() {
-                    });
-            if (cached.isPresent()) {
-                log.info("Returning cached cost by label for project {} / label {} (dates: {} to {})",
-                        gcpProjectId, labelKey, start, end);
-                return cached.get();
+            if (!forceRefresh) {
+                Optional<List<Map<String, Object>>> cached = redisCacheService.get(cacheKey,
+                        new TypeReference<List<Map<String, Object>>>() {});
+                if (cached.isPresent()) {
+                    log.info("Returning cached cost by label for project {} / label {} (dates: {} to {})",
+                            gcpProjectId, labelKey, start, end);
+                    return cached.get();
+                }
+                try {
+                    Optional<CachedData> dbSnap = cachedDataRepository.findById(dbKey);
+                    if (dbSnap.isPresent()) {
+                        List<Map<String, Object>> dbData = objectMapper.readValue(dbSnap.get().getJsonData(), new TypeReference<List<Map<String, Object>>>() {});
+                        if (dbData != null) { redisCacheService.put(cacheKey, dbData, 60); log.info("✅ DB hit — re-warmed Redis: {}", dbKey); return dbData; }
+                    }
+                } catch (Exception e) { log.warn("DB cache miss for {}: {}", dbKey, e.getMessage()); }
             }
 
             log.info("Fetching cost by label '{}' for project {} from {} to {}", labelKey, gcpProjectId, start, end);
@@ -775,7 +993,8 @@ public class GcpCostService {
                                 "labelValue", row.get("labelValue").getStringValue(),
                                 "cost", row.get("cost").getDoubleValue()))
                         .collect(Collectors.toList());
-                redisCacheService.put(cacheKey, result, 10);
+                redisCacheService.put(cacheKey, result, 60);
+                saveToDb(dbKey, result);
                 return result;
             } catch (Exception e) {
                 log.error("BigQuery query failed for cost by label on project {}: {}", gcpProjectId, e.getMessage(), e);
@@ -797,21 +1016,30 @@ public class GcpCostService {
      * the previous period.
      */
     public CompletableFuture<List<com.xammer.cloud.dto.DashboardData.CostAnomaly>> getCostAnomalies(
-            String gcpProjectId) {
-        return CompletableFuture.supplyAsync(() -> getCostAnomaliesSync(gcpProjectId), executor);
+            String gcpProjectId, boolean forceRefresh) {
+        return CompletableFuture.supplyAsync(() -> getCostAnomaliesSync(gcpProjectId, forceRefresh), executor);
     }
 
-    public List<com.xammer.cloud.dto.DashboardData.CostAnomaly> getCostAnomaliesSync(String gcpProjectId) {
+    public List<com.xammer.cloud.dto.DashboardData.CostAnomaly> getCostAnomaliesSync(String gcpProjectId, boolean forceRefresh) {
         String cacheKey = COST_ANOMALIES_CACHE_PREFIX + gcpProjectId;
+        String dbKey    = GCP_FINOPS_ANOMALIES_DB + gcpProjectId;
 
-        Optional<List<com.xammer.cloud.dto.DashboardData.CostAnomaly>> cached = redisCacheService.get(
-                cacheKey,
-                new TypeReference<List<com.xammer.cloud.dto.DashboardData.CostAnomaly>>() {
-                });
-
-        if (cached.isPresent()) {
-            log.info("Returning cached cost anomalies for project {}", gcpProjectId);
-            return cached.get();
+        if (!forceRefresh) {
+            Optional<List<com.xammer.cloud.dto.DashboardData.CostAnomaly>> cached = redisCacheService.get(
+                    cacheKey,
+                    new TypeReference<List<com.xammer.cloud.dto.DashboardData.CostAnomaly>>() {});
+            if (cached.isPresent()) {
+                log.info("Returning cached cost anomalies for project {}", gcpProjectId);
+                return cached.get();
+            }
+            try {
+                Optional<CachedData> dbSnap = cachedDataRepository.findById(dbKey);
+                if (dbSnap.isPresent()) {
+                    List<com.xammer.cloud.dto.DashboardData.CostAnomaly> dbData = objectMapper.readValue(
+                            dbSnap.get().getJsonData(), new TypeReference<List<com.xammer.cloud.dto.DashboardData.CostAnomaly>>() {});
+                    if (dbData != null) { redisCacheService.put(cacheKey, dbData, 60); log.info("✅ DB hit — re-warmed Redis: {}", dbKey); return dbData; }
+                }
+            } catch (Exception e) { log.warn("DB cache miss for {}: {}", dbKey, e.getMessage()); }
         }
 
         log.info("Detecting cost anomalies for project {}", gcpProjectId);
@@ -874,7 +1102,8 @@ public class GcpCostService {
                         costDate));
             }
 
-            redisCacheService.put(cacheKey, anomalies, 10);
+            redisCacheService.put(cacheKey, anomalies, 60);
+            saveToDb(dbKey, anomalies);
             log.info("Found {} cost anomalies for project {}", anomalies.size(), gcpProjectId);
             return anomalies;
 
