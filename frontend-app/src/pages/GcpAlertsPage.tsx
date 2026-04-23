@@ -17,6 +17,7 @@ import { useAccounts } from '../contexts/AccountContext';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useGcpAlertsData } from '../hooks/useGcpAlertsData';
 import clsx from 'clsx';
+import SreInvestigateButton from '../components/SreInvestigateButton';
 
 const GcpAlertsPage: React.FC = () => {
     const { selectedAccountIds } = useAccounts();
@@ -351,15 +352,23 @@ const GcpAlertsPage: React.FC = () => {
 
                                                 {/* Action Column */}
                                                 <td className="px-6 py-4 text-center">
-                                                    <a
-                                                        href={getGcpConsoleLink(alert)}
-                                                        target="_blank"
-                                                        rel="noopener noreferrer"
-                                                        className="inline-flex items-center px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg shadow-md transition-all duration-200 hover:shadow-lg"
-                                                    >
-                                                        <i className="fas fa-external-link-alt mr-2"></i>
-                                                        {getGcpActionText(alert)}
-                                                    </a>
+                                                    <div className="flex flex-col gap-2 items-center">
+                                                        <a
+                                                            href={getGcpConsoleLink(alert)}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="inline-flex items-center px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg shadow-md transition-all duration-200 hover:shadow-lg"
+                                                        >
+                                                            <i className="fas fa-external-link-alt mr-2"></i>
+                                                            {getGcpActionText(alert)}
+                                                        </a>
+                                                        <SreInvestigateButton
+                                                            resourceType="GCP_VM"
+                                                            resourceId={alert.id}
+                                                            resourceName={alert.name}
+                                                            cloudAccountId={selectedAccountId ? Number(selectedAccountId) : undefined}
+                                                        />
+                                                    </div>
                                                 </td>
                                             </tr>
                                         ))}

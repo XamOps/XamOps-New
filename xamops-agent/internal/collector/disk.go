@@ -16,15 +16,38 @@ import (
 	"time"
 )
 
-// collectDiskUsage collects per-mount-point disk usage for this EC2 instance.
-// Requires COLLECTOR_DISK=true. Returns error if not running on EC2 (IMDS unreachable).
+// collectDiskUsage collects per-mount-point disk usage for this instance.
+// Supports both AWS EC2 (IMDSv2) and GCP Compute Engine (GCE metadata).
+// The CLOUD_PROVIDER env var selects the provider; empty = auto-detect.
 func collectDiskUsage(ctx context.Context) (DataBatch, error) {
 	client := &http.Client{Timeout: 5 * time.Second}
 
-	// Get EC2 instance ID from IMDSv2
-	instanceID, err := imdsInstanceID(ctx, client)
-	if err != nil {
-		return DataBatch{}, fmt.Errorf("IMDS unavailable (not running on EC2?): %w", err)
+	provider := strings.ToUpper(strings.TrimSpace(os.Getenv("CLOUD_PROVIDER")))
+
+	var instanceID string
+	var err error
+
+	switch provider {
+	case "GCP":
+		instanceID, err = gcpInstanceNameWithRetry(ctx, client)
+		if err != nil {
+			return DataBatch{}, fmt.Errorf("GCP metadata unavailable: %w", err)
+		}
+	case "AWS", "":
+		// Auto-detect: try GCP first (fast fail), then AWS IMDS with retry
+		if provider == "" {
+			gcpID, gcpErr := gcpInstanceName(ctx, client)
+			if gcpErr == nil && gcpID != "" {
+				instanceID = gcpID
+				break
+			}
+		}
+		instanceID, err = imdsInstanceIDWithRetry(ctx, client)
+		if err != nil {
+			return DataBatch{}, fmt.Errorf("IMDS unavailable (not running on EC2/GCP?): %w", err)
+		}
+	default:
+		return DataBatch{}, fmt.Errorf("unsupported CLOUD_PROVIDER: %q", provider)
 	}
 
 	mounts, err := parseDfOutput()
@@ -70,6 +93,31 @@ func imdsInstanceID(ctx context.Context, client *http.Client) (string, error) {
 	return imdsGet(ctx, client, token, "instance-id")
 }
 
+// imdsInstanceIDWithRetry retries IMDS up to 12 times (60s total) with linear backoff.
+// On EC2 boot, IMDS can take 20-30s to become available, especially after stop/start.
+func imdsInstanceIDWithRetry(ctx context.Context, client *http.Client) (string, error) {
+	const maxAttempts = 12
+	const retryDelay = 5 * time.Second
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		id, err := imdsInstanceID(ctx, client)
+		if err == nil {
+			if attempt > 1 {
+				log.Printf("[disk] IMDS ready after %d attempts", attempt)
+			}
+			return id, nil
+		}
+		lastErr = err
+		log.Printf("[disk] IMDS attempt %d/%d failed: %v — retrying in %s", attempt, maxAttempts, err, retryDelay)
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(retryDelay):
+		}
+	}
+	return "", lastErr
+}
+
 func imdsToken(ctx context.Context, client *http.Client) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut,
 		"http://169.254.169.254/latest/api/token", nil)
@@ -111,6 +159,56 @@ func imdsGet(ctx context.Context, client *http.Client, token, path string) (stri
 		return "", err
 	}
 	return strings.TrimSpace(string(b)), nil
+}
+
+// ── GCP metadata helpers ──────────────────────────────────────────────────────
+
+// gcpInstanceName returns the GCE instance name (used as the Redis key, since
+// PD disk users[] exposes instance names, not numeric IDs).
+func gcpInstanceName(ctx context.Context, client *http.Client) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		"http://169.254.169.254/computeMetadata/v1/instance/name", nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Metadata-Flavor", "Google")
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("GCP metadata HTTP %d", resp.StatusCode)
+	}
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(b)), nil
+}
+
+// gcpInstanceNameWithRetry retries GCP metadata up to 12 times (60s total).
+func gcpInstanceNameWithRetry(ctx context.Context, client *http.Client) (string, error) {
+	const maxAttempts = 12
+	const retryDelay = 5 * time.Second
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		name, err := gcpInstanceName(ctx, client)
+		if err == nil {
+			if attempt > 1 {
+				log.Printf("[disk] GCP metadata ready after %d attempts", attempt)
+			}
+			return name, nil
+		}
+		lastErr = err
+		log.Printf("[disk] GCP metadata attempt %d/%d failed: %v — retrying in %s", attempt, maxAttempts, err, retryDelay)
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(retryDelay):
+		}
+	}
+	return "", lastErr
 }
 
 // ── df parsing ────────────────────────────────────────────────────────────────

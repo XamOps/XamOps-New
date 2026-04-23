@@ -85,6 +85,7 @@ const GcpAlertsPage = lazy(() => import('./pages/GcpAlertsPage'));
 const GcpBillingPage = lazy(() => import('./pages/GcpBillingPage'));
 const GcpSpotAutomationPage = lazy(() => import('./pages/GcpSpotAutomationPage'));
 const GcpDataOpsPage = lazy(() => import('./pages/GcpDataOpsPage'));
+const GcpDiskRightsizingPage = lazy(() => import('./pages/GcpDiskRightsizingPage'));
 
 // Azure
 const AzureFinOpsPage = lazy(() => import('./pages/AzureFinOpsPage'));
@@ -213,74 +214,74 @@ import './styles/autoscaling.css';
 // Helper function to check authentication
 // Note: Since cookies might be HttpOnly, we check by making an API call
 const checkAuth = async (): Promise<boolean> => {
-  try {
-    console.log('🔐 Checking auth... Cookies:', document.cookie);
-    const response = await fetch('/api/xamops/user/profile', {
-      credentials: 'include',
-      headers: {
-        'Accept': 'application/json'
-      }
-    });
-    console.log('🔐 Auth check response:', response.status, response.statusText);
-    console.log('🔐 Auth check URL:', response.url);
+ try {
+ console.log('🔐 Checking auth... Cookies:', document.cookie);
+ const response = await fetch('/api/xamops/user/profile', {
+ credentials: 'include',
+ headers: {
+ 'Accept': 'application/json'
+ }
+ });
+ console.log('🔐 Auth check response:', response.status, response.statusText);
+ console.log('🔐 Auth check URL:', response.url);
 
-    if (response.ok) {
-      const data = await response.json();
-      console.log('🔐 Auth check data:', data);
-    }
+ if (response.ok) {
+ const data = await response.json();
+ console.log('🔐 Auth check data:', data);
+ }
 
-    return response.ok;
-  } catch (error) {
-    console.error('❌ Auth check failed:', error);
-    return false;
-  }
+ return response.ok;
+ } catch (error) {
+ console.error('❌ Auth check failed:', error);
+ return false;
+ }
 };
 
 // Protected Route wrapper
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const location = useLocation();
-  const [isAuthenticated, setIsAuthenticated] = React.useState<boolean | null>(null);
+ const location = useLocation();
+ const [isAuthenticated, setIsAuthenticated] = React.useState<boolean | null>(null);
 
-  React.useEffect(() => {
-    console.log('🔐 ProtectedRoute: Checking auth for path:', location.pathname);
+ React.useEffect(() => {
+ console.log('🔐 ProtectedRoute: Checking auth for path:', location.pathname);
 
-    checkAuth().then(authenticated => {
-      console.log('🔐 ProtectedRoute: isAuthenticated =', authenticated);
-      setIsAuthenticated(authenticated);
-    }).catch(() => {
-      console.log('🔐 ProtectedRoute: Auth check error');
-      setIsAuthenticated(false);
-    });
-  }, []); // Only check on mount, not on every path change
+ checkAuth().then(authenticated => {
+ console.log('🔐 ProtectedRoute: isAuthenticated =', authenticated);
+ setIsAuthenticated(authenticated);
+ }).catch(() => {
+ console.log('🔐 ProtectedRoute: Auth check error');
+ setIsAuthenticated(false);
+ });
+ }, []); // Only check on mount, not on every path change
 
-  // Show loading while checking auth
-  if (isAuthenticated === null) {
-    return (
-      <div className="flex items-center justify-center h-screen">
-        <div className="text-gray-600">Loading...</div>
-      </div>
-    );
-  }
+ // Show loading while checking auth
+ if (isAuthenticated === null) {
+ return (
+ <div className="flex items-center justify-center h-screen">
+ <div className="text-gray-600">Loading...</div>
+ </div>
+ );
+ }
 
-  if (!isAuthenticated) {
-    console.log('Not authenticated, redirecting to login');
-    return <Navigate to="/" replace state={{ from: location }} />;
-  }
+ if (!isAuthenticated) {
+ console.log('Not authenticated, redirecting to login');
+ return <Navigate to="/" replace state={{ from: location }} />;
+ }
 
-  return <>{children}</>;
+ return <>{children}</>;
 };
 
 /** Tab key → React route mapping for BillOps admin tabs */
 const BILLOPS_ADMIN_TAB_ROUTES: Record<string, string> = {
-  'admin-dashboard': '/billops-admin-dashboard',
-  'support-inbox': '/billops-support-dashboard',
-  'all-tickets': '/billops-admin-tickets',
-  'all-invoices': '/billops-admin-invoices',
-  'credit-requests': '/billops-admin-credits',
-  'agreement-admin': '/billops-admin-agreements',
-  'client-details': '/billops-client-details',
-  'autospotting-admin': '/autospotting-admin',
-  'historical-billing': '/billops-admin-historical-billing',
+ 'admin-dashboard': '/billops-admin-dashboard',
+ 'support-inbox': '/billops-support-dashboard',
+ 'all-tickets': '/billops-admin-tickets',
+ 'all-invoices': '/billops-admin-invoices',
+ 'credit-requests': '/billops-admin-credits',
+ 'agreement-admin': '/billops-admin-agreements',
+ 'client-details': '/billops-client-details',
+ 'autospotting-admin': '/autospotting-admin',
+ 'historical-billing': '/billops-admin-historical-billing',
 };
 const BILLOPS_ADMIN_TAB_ORDER = Object.keys(BILLOPS_ADMIN_TAB_ROUTES);
 
@@ -291,259 +292,260 @@ const BILLOPS_ADMIN_TAB_ORDER = Object.keys(BILLOPS_ADMIN_TAB_ROUTES);
  * of always landing on the admin dashboard they may not have access to.
  */
 const DashboardGuard: React.FC = () => {
-  const { hasAnyRole, isLoading } = useAuth();
-  const [billopsRedirect, setBillopsRedirect] = React.useState<string | null>(null);
+ const { hasAnyRole, isLoading } = useAuth();
+ const [billopsRedirect, setBillopsRedirect] = React.useState<string | null>(null);
 
-  React.useEffect(() => {
-    if (isLoading || (!hasAnyRole('ROLE_BILLOPS_ADMIN') && !hasAnyRole('ROLE_BILLOPS_ADMIN_SUB')) || hasAnyRole('ROLE_SUPER_ADMIN')) return;
+ React.useEffect(() => {
+ if (isLoading || (!hasAnyRole('ROLE_BILLOPS_ADMIN') && !hasAnyRole('ROLE_BILLOPS_ADMIN_SUB')) || hasAnyRole('ROLE_SUPER_ADMIN')) return;
 
-    fetch('/api/billops/team/profile', { credentials: 'include' })
-      .then(r => r.ok ? r.json() : null)
-      .then(data => {
-        if (!data || data.isPrimaryUser) {
-          setBillopsRedirect('/billops-admin-dashboard');
-          return;
-        }
-        // Sub-user: redirect to their first allowed tab
-        const allowedTabs: string[] = data.allowedTabs || [];
-        const firstTab = BILLOPS_ADMIN_TAB_ORDER.find(t => allowedTabs.includes(t));
-        setBillopsRedirect(firstTab ? BILLOPS_ADMIN_TAB_ROUTES[firstTab] : '/billops-admin-dashboard');
-      })
-      .catch(() => setBillopsRedirect('/billops-admin-dashboard'));
-  }, [isLoading]);
+ fetch('/api/billops/team/profile', { credentials: 'include' })
+ .then(r => r.ok ? r.json() : null)
+ .then(data => {
+ if (!data || data.isPrimaryUser) {
+ setBillopsRedirect('/billops-admin-dashboard');
+ return;
+ }
+ // Sub-user: redirect to their first allowed tab
+ const allowedTabs: string[] = data.allowedTabs || [];
+ const firstTab = BILLOPS_ADMIN_TAB_ORDER.find(t => allowedTabs.includes(t));
+ setBillopsRedirect(firstTab ? BILLOPS_ADMIN_TAB_ROUTES[firstTab] : '/billops-admin-dashboard');
+ })
+ .catch(() => setBillopsRedirect('/billops-admin-dashboard'));
+ }, [isLoading]);
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-screen">
-        <div className="text-gray-600">Checking permissions...</div>
-      </div>
-    );
-  }
+ if (isLoading) {
+ return (
+ <div className="flex items-center justify-center h-screen">
+ <div className="text-gray-600">Checking permissions...</div>
+ </div>
+ );
+ }
 
-  if ((hasAnyRole('ROLE_BILLOPS_ADMIN') || hasAnyRole('ROLE_BILLOPS_ADMIN_SUB')) && !hasAnyRole('ROLE_SUPER_ADMIN')) {
-    if (!billopsRedirect) {
-      // Profile fetch still in-flight — show spinner to avoid flash to wrong page
-      return (
-        <div className="flex items-center justify-center h-screen">
-          <div className="text-gray-600">Checking permissions...</div>
-        </div>
-      );
-    }
-    console.log('🚫 BILLOPS_ADMIN redirecting to:', billopsRedirect);
-    return <Navigate to={billopsRedirect} replace />;
-  }
+ if ((hasAnyRole('ROLE_BILLOPS_ADMIN') || hasAnyRole('ROLE_BILLOPS_ADMIN_SUB')) && !hasAnyRole('ROLE_SUPER_ADMIN')) {
+ if (!billopsRedirect) {
+ // Profile fetch still in-flight — show spinner to avoid flash to wrong page
+ return (
+ <div className="flex items-center justify-center h-screen">
+ <div className="text-gray-600">Checking permissions...</div>
+ </div>
+ );
+ }
+ console.log('🚫 BILLOPS_ADMIN redirecting to:', billopsRedirect);
+ return <Navigate to={billopsRedirect} replace />;
+ }
 
-  if (hasAnyRole('ROLE_BILLOPS') && !hasAnyRole('ROLE_XAMOPS') && !hasAnyRole('ROLE_SUPER_ADMIN')) {
-    console.log('🚫 Restricted role detected, redirecting to BillOps dashboard');
-    return <Navigate to="/billops-dashboard" replace />;
-  }
+ if (hasAnyRole('ROLE_BILLOPS') && !hasAnyRole('ROLE_XAMOPS') && !hasAnyRole('ROLE_SUPER_ADMIN')) {
+ console.log('🚫 Restricted role detected, redirecting to BillOps dashboard');
+ return <Navigate to="/billops-dashboard" replace />;
+ }
 
-  return <Outlet />;
+ return <Outlet />;
 };
 
 // Authenticated Layout - Just handles the visual wrapper for protected routes
 const AuthenticatedLayout: React.FC = () => {
-  const location = useLocation();
-  const mainContentRef = React.useRef<HTMLDivElement>(null);
-  const { theme } = useTheme();
+ const location = useLocation();
+ const mainContentRef = React.useRef<HTMLDivElement>(null);
+ const { theme } = useTheme();
 
-  // Scroll to top when route changes
-  React.useEffect(() => {
-    console.log('🔄 [App] Route changed to:', location.pathname);
-    if (mainContentRef.current) {
-      mainContentRef.current.scrollTo(0, 0);
-    }
-  }, [location.pathname]);
+ // Scroll to top when route changes
+ React.useEffect(() => {
+ console.log('🔄 [App] Route changed to:', location.pathname);
+ if (mainContentRef.current) {
+ mainContentRef.current.scrollTo(0, 0);
+ }
+ }, [location.pathname]);
 
-  // Debug theme
-  console.log('🌗 [App] Render - theme:', theme);
+ // Debug theme
+ console.log('🌗 [App] Render - theme:', theme);
 
-  return (
-    <ErrorBoundary>
-      <div className={clsx(
-        'flex h-screen overflow-hidden',
-        theme === 'dark' ? 'bg-[#020617] text-slate-100' : 'bg-gray-50 text-gray-900'
-      )}>
-        <Sidebar />
-        <div
-          id="main-content"
-          ref={mainContentRef}
-          className={clsx(
-            'flex-1 flex flex-col h-full overflow-y-auto relative scroll-smooth',
-            'lg:pl-72',
-            theme === 'dark' ? 'bg-[#020617]' : 'bg-gray-50'
-          )}
-          style={{ WebkitOverflowScrolling: 'touch' }}
-        >
-          <Topbar />
-          <div className="flex-1 pt-6">
-            <Suspense fallback={
-              <div className="flex items-center justify-center h-full min-h-[60vh]">
-                <div className="flex flex-col items-center gap-3">
-                  <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-                  <span className="text-sm text-gray-400">Loading...</span>
-                </div>
-              </div>
-            }>
-              <Outlet />
-            </Suspense>
-          </div>
-        </div>
-        {/* Global Command Palette — open with Cmd+K / Ctrl+K */}
-        <CommandPalette />
-        {/* Support Chat Widget - Visible on all authenticated pages for ROLE_XAMOPS users */}
-        <SupportChatWidget />
-        {/* Admin Support Notifications - Background listener for ROLE_BILLOPS_ADMIN */}
-        <AdminSupportNotificationListener />
-        {/* User Support Notifications - Background listener for ROLE_XAMOPS users */}
-        <UserSupportNotificationListener />
-      </div>
-      <GooeyToaster position="bottom-right" />
-    </ErrorBoundary>
-  );
+ return (
+ <ErrorBoundary>
+ <div className={clsx(
+ 'flex h-screen overflow-hidden',
+ theme === 'dark' ? 'bg-[#020617] text-slate-100' : 'bg-gray-50 text-gray-900'
+ )}>
+ <Sidebar />
+ <div
+ id="main-content"
+ ref={mainContentRef}
+ className={clsx(
+ 'flex-1 flex flex-col h-full overflow-y-auto relative scroll-smooth',
+ 'lg:pl-72',
+ theme === 'dark' ? 'bg-[#020617]' : 'bg-gray-50'
+ )}
+ style={{ WebkitOverflowScrolling: 'touch' }}
+ >
+ <Topbar />
+ <div className="flex-1 pt-6">
+ <Suspense fallback={
+ <div className="flex items-center justify-center h-full min-h-[60vh]">
+ <div className="flex flex-col items-center gap-3">
+ <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+ <span className="text-sm text-gray-400">Loading...</span>
+ </div>
+ </div>
+ }>
+ <Outlet />
+ </Suspense>
+ </div>
+ </div>
+ {/* Global Command Palette — open with Cmd+K / Ctrl+K */}
+ <CommandPalette />
+ {/* Support Chat Widget - Visible on all authenticated pages for ROLE_XAMOPS users */}
+ <SupportChatWidget />
+ {/* Admin Support Notifications - Background listener for ROLE_BILLOPS_ADMIN */}
+ <AdminSupportNotificationListener />
+ {/* User Support Notifications - Background listener for ROLE_XAMOPS users */}
+ <UserSupportNotificationListener />
+ </div>
+ <GooeyToaster position="bottom-right" />
+ </ErrorBoundary>
+ );
 };
 
 // Main App Content (needs to be inside Router to use hooks)
 const AppContent: React.FC = () => {
-  return (
-    <ThemeProvider>
-      <TopbarProvider>
-        <Routes>
-          {/* Login Route - No Auth/Account providers */}
-          <Route path="/" element={<LoginPage />} />
+ return (
+ <ThemeProvider>
+ <TopbarProvider>
+ <Routes>
+ {/* Login Route - No Auth/Account providers */}
+ <Route path="/" element={<LoginPage />} />
 
-          {/* Protected Routes Wrapper */}
-          <Route
-            element={
-              <ProtectedRoute>
-                <AuthenticatedLayout />
-              </ProtectedRoute>
-            }
-          >
-            {/* Route Change Handler - Forces remounts */}
-            <Route element={<RouteChangeHandler />}>
-              <Route element={<DashboardGuard />}>
-                <Route path="/unified-dashboard" element={<UnifiedDashboard />} />
-                <Route path="/dashboard" element={<Dashboard />} />
-                <Route path="/gcp-dashboard" element={<GcpDashboard />} />
-                <Route path="/azure-dashboard" element={<AzureDashboard />} />
-              </Route>
+ {/* Protected Routes Wrapper */}
+ <Route
+ element={
+ <ProtectedRoute>
+ <AuthenticatedLayout />
+ </ProtectedRoute>
+ }
+ >
+ {/* Route Change Handler - Forces remounts */}
+ <Route element={<RouteChangeHandler />}>
+ <Route element={<DashboardGuard />}>
+ <Route path="/unified-dashboard" element={<UnifiedDashboard />} />
+ <Route path="/dashboard" element={<Dashboard />} />
+ <Route path="/gcp-dashboard" element={<GcpDashboard />} />
+ <Route path="/azure-dashboard" element={<AzureDashboard />} />
+ </Route>
 
-              {/* Core FinOps & CloudOps Routes */}
-              <Route path="/azure-finops" element={<AzureFinOpsPage />} />
-              <Route path="/finops" element={<FinOpsPage />} />
-              <Route path="/gcp-finops" element={<GcpFinOpsPage />} />
-              <Route path="/cost" element={<CostPage />} />
-              <Route path="/gcp-cost" element={<GcpCostPage />} />
-              <Route path="/azure-cost" element={<AzureCostPage />} />
-              <Route path="/waste" element={<WastePage />} />
-              <Route path="/gcp-waste" element={<GcpWastePage />} />
-              <Route path="/azure-waste" element={<AzureWastePage />} />
-              <Route path="/rightsizing" element={<RightsizingPage />} />
-              <Route path="/gcp-rightsizing" element={<GcpRightsizingPage />} />
-              <Route path="/azure-rightsizing" element={<AzureRightsizingPage />} />
-              <Route path="/reservation" element={<ReservationPage />} />
-              <Route path="/gcp-reservations" element={<GcpReservationsPage />} />
-              <Route path="/azure-reservations" element={<AzureReservationsPage />} />
-              <Route path="/cloudsitter" element={<CloudSitterPage />} />
-              <Route path="/spot-automation" element={<SpotAutomationPage />} />
-              <Route path="/autospotting" element={<SpotAutomationPage />} />
-              <Route path="/asg-detail" element={<ASGDetailPage />} />
-              <Route path="/asg-config" element={<ASGConfigPage />} />
-              <Route path="/flex-compute" element={<FlexComputePage />} />
-              <Route path="/ebs-rightsizing" element={<EbsRightsizingPage />} />
-              <Route path="/grafana-dashboard" element={<GrafanaDashboardPage />} />
-              <Route path="/cloudk8s" element={<CloudK8sPage />} />
-              <Route path="/gcp-cloudk8s" element={<GcpCloudK8sPage />} />
-              <Route path="/azure-cloudk8s" element={<AzureCloudK8sPage />} />
-              <Route path="/eks-details" element={<EksDetailsPage />} />
-              <Route path="/gke-details" element={<GkeDetailsPage />} />
-              <Route path="/aks-details" element={<AksDetailsPage />} />
-              <Route path="/security" element={<SecurityPage />} />
-              <Route path="/gcp-security" element={<GcpSecurityPage />} />
-              <Route path="/azure-security" element={<AzureSecurityPage />} />
-              <Route path="/performance" element={<PerformancePage />} />
-              <Route path="/gcp-performance" element={<GcpPerformancePage />} />
-              <Route path="/azure-performance" element={<AzurePerformancePage />} />
-              <Route path="/alerts" element={<AlertsPage />} />
-              <Route path="/gcp-alerts" element={<GcpAlertsPage />} />
-              <Route path="/azure-alerts" element={<AzureAlertsPage />} />
-              <Route path="/tickets" element={<TicketsPage />} />
-              <Route path="/ticket-detail" element={<TicketDetailPage />} />
-              <Route path="/cloudlist" element={<CloudListPage />} />
-              <Route path="/resource-labels" element={<ResourceLabelsPage />} />
-              <Route path="/cloudshell" element={<CloudShellPage />} />
-              <Route path="/account-manager" element={<AccountManagerPage />} />
-              <Route path="/cloudmap" element={<CloudMapPage />} />
-              <Route path="/gcp-cloudmap" element={<GcpCloudMapPage />} />
-              <Route path="/add-account" element={<AddAccountPage />} />
-              <Route path="/add-gcp-account" element={<AddGcpAccountPage />} />
-              <Route path="/add-github-config" element={<GitHubConfigPage />} />
-              <Route path="/devops-in-the-box" element={<DevOpsInTheBoxPage />} />
-              <Route path="/cicd-pipelines" element={<CICDPipelinesPage />} />
-              <Route path="/sonarqube" element={<SonarQubePage />} />
-              <Route path="/aiops" element={<AIOpsPage />} />
-              <Route path="/dataops" element={<DataOpsPage />} />
-              <Route path="/gcp-dataops" element={<GcpDataOpsPage />} />
-              <Route path="/observability/*" element={<ObservabilityPage />} />
+ {/* Core FinOps & CloudOps Routes */}
+ <Route path="/azure-finops" element={<AzureFinOpsPage />} />
+ <Route path="/finops" element={<FinOpsPage />} />
+ <Route path="/gcp-finops" element={<GcpFinOpsPage />} />
+ <Route path="/cost" element={<CostPage />} />
+ <Route path="/gcp-cost" element={<GcpCostPage />} />
+ <Route path="/azure-cost" element={<AzureCostPage />} />
+ <Route path="/waste" element={<WastePage />} />
+ <Route path="/gcp-waste" element={<GcpWastePage />} />
+ <Route path="/azure-waste" element={<AzureWastePage />} />
+ <Route path="/rightsizing" element={<RightsizingPage />} />
+ <Route path="/gcp-rightsizing" element={<GcpRightsizingPage />} />
+ <Route path="/azure-rightsizing" element={<AzureRightsizingPage />} />
+ <Route path="/reservation" element={<ReservationPage />} />
+ <Route path="/gcp-reservations" element={<GcpReservationsPage />} />
+ <Route path="/azure-reservations" element={<AzureReservationsPage />} />
+ <Route path="/cloudsitter" element={<CloudSitterPage />} />
+ <Route path="/spot-automation" element={<SpotAutomationPage />} />
+ <Route path="/autospotting" element={<SpotAutomationPage />} />
+ <Route path="/asg-detail" element={<ASGDetailPage />} />
+ <Route path="/asg-config" element={<ASGConfigPage />} />
+ <Route path="/flex-compute" element={<FlexComputePage />} />
+ <Route path="/ebs-rightsizing" element={<EbsRightsizingPage />} />
+ <Route path="/gcp-disk-rightsizing" element={<GcpDiskRightsizingPage />} />
+ <Route path="/grafana-dashboard" element={<GrafanaDashboardPage />} />
+ <Route path="/cloudk8s" element={<CloudK8sPage />} />
+ <Route path="/gcp-cloudk8s" element={<GcpCloudK8sPage />} />
+ <Route path="/azure-cloudk8s" element={<AzureCloudK8sPage />} />
+ <Route path="/eks-details" element={<EksDetailsPage />} />
+ <Route path="/gke-details" element={<GkeDetailsPage />} />
+ <Route path="/aks-details" element={<AksDetailsPage />} />
+ <Route path="/security" element={<SecurityPage />} />
+ <Route path="/gcp-security" element={<GcpSecurityPage />} />
+ <Route path="/azure-security" element={<AzureSecurityPage />} />
+ <Route path="/performance" element={<PerformancePage />} />
+ <Route path="/gcp-performance" element={<GcpPerformancePage />} />
+ <Route path="/azure-performance" element={<AzurePerformancePage />} />
+ <Route path="/alerts" element={<AlertsPage />} />
+ <Route path="/gcp-alerts" element={<GcpAlertsPage />} />
+ <Route path="/azure-alerts" element={<AzureAlertsPage />} />
+ <Route path="/tickets" element={<TicketsPage />} />
+ <Route path="/ticket-detail" element={<TicketDetailPage />} />
+ <Route path="/cloudlist" element={<CloudListPage />} />
+ <Route path="/resource-labels" element={<ResourceLabelsPage />} />
+ <Route path="/cloudshell" element={<CloudShellPage />} />
+ <Route path="/account-manager" element={<AccountManagerPage />} />
+ <Route path="/cloudmap" element={<CloudMapPage />} />
+ <Route path="/gcp-cloudmap" element={<GcpCloudMapPage />} />
+ <Route path="/add-account" element={<AddAccountPage />} />
+ <Route path="/add-gcp-account" element={<AddGcpAccountPage />} />
+ <Route path="/add-github-config" element={<GitHubConfigPage />} />
+ <Route path="/devops-in-the-box" element={<DevOpsInTheBoxPage />} />
+ <Route path="/cicd-pipelines" element={<CICDPipelinesPage />} />
+ <Route path="/sonarqube" element={<SonarQubePage />} />
+ <Route path="/aiops" element={<AIOpsPage />} />
+ <Route path="/dataops" element={<DataOpsPage />} />
+ <Route path="/gcp-dataops" element={<GcpDataOpsPage />} />
+ <Route path="/observability/*" element={<ObservabilityPage />} />
 
-              {/* BillOps Routes */}
-              <Route path="/billops-dashboard" element={<BillOpsUserDashboardPage />} />
-              <Route path="/billops-billing" element={<BillingPage />} />
-              <Route path="/billops-invoices" element={<InvoicesPage />} />
-              <Route path="/billops-gcp-billing" element={<GcpBillingPage />} />
-              <Route path="/billops-client-details" element={<ClientDetailsPage />} />
-              <Route path="/billops-credits" element={<CreditsPage />} />
-              <Route path="/billops-tickets" element={<BillOpsTicketsPage />} />
-              <Route path="/billops-ticket-detail" element={<BillOpsTicketDetailPage />} />
-              <Route path="/billops-support-dashboard" element={<BillOpsSupportDashboardPage />} />
-              <Route path="/billops-admin-dashboard" element={<BillOpsAdminDashboardPage />} />
-              <Route path="/autospotting-admin" element={<AutoSpottingAdminDashboardPage />} />
-              <Route path="/billops-admin-invoices" element={<BillOpsAdminInvoicesPage />} />
-              <Route path="/billops-admin-invoice-detail" element={<BillOpsAdminInvoiceDetailPage />} />
-              <Route path="/billops-admin-credits" element={<BillOpsAdminCreditsPage />} />
-              <Route path="/billops-admin-tickets" element={<BillOpsAdminTicketsPage />} />
-              <Route path="/billops-agreements" element={<AgreementsPage />} />
-              <Route path="/billops-admin-agreements" element={<BillOpsAdminAgreementsPage />} />
-              <Route path="/billops-admin-historical-billing" element={<BillOpsAdminMarketplaceBillingPage />} />
-              <Route path="/marketplace-purchases" element={<MarketplacePurchasesPage />} />
-              <Route path="/workspace-licenses" element={<WorkspaceLicensesPage />} />
-              <Route path="/user-management" element={<UserManagementPage />} />
-              <Route path="/my-profile" element={<MyProfilePage />} />
-              <Route path="/complianceops" element={<ComplianceOpsPage />} />
-              <Route path="/billops-admin-user-manager" element={<BillOpsAdminUserManagerPage />} />
-              <Route path="/gcp-autospotting" element={<GcpSpotAutomationPage />} />
-              <Route path="/azure-autospotting" element={<AzureSpotAutomationPage />} />
-              <Route path="/calculator" element={<CalculatorPage />} />
-              <Route path="/gcp-cloudlist" element={<GcpCloudListPage />} />
-              <Route path="/azure-cloudlist" element={<AzureCloudList />} />
-            </Route> {/* Close RouteChangeHandler */}
+ {/* BillOps Routes */}
+ <Route path="/billops-dashboard" element={<BillOpsUserDashboardPage />} />
+ <Route path="/billops-billing" element={<BillingPage />} />
+ <Route path="/billops-invoices" element={<InvoicesPage />} />
+ <Route path="/billops-gcp-billing" element={<GcpBillingPage />} />
+ <Route path="/billops-client-details" element={<ClientDetailsPage />} />
+ <Route path="/billops-credits" element={<CreditsPage />} />
+ <Route path="/billops-tickets" element={<BillOpsTicketsPage />} />
+ <Route path="/billops-ticket-detail" element={<BillOpsTicketDetailPage />} />
+ <Route path="/billops-support-dashboard" element={<BillOpsSupportDashboardPage />} />
+ <Route path="/billops-admin-dashboard" element={<BillOpsAdminDashboardPage />} />
+ <Route path="/autospotting-admin" element={<AutoSpottingAdminDashboardPage />} />
+ <Route path="/billops-admin-invoices" element={<BillOpsAdminInvoicesPage />} />
+ <Route path="/billops-admin-invoice-detail" element={<BillOpsAdminInvoiceDetailPage />} />
+ <Route path="/billops-admin-credits" element={<BillOpsAdminCreditsPage />} />
+ <Route path="/billops-admin-tickets" element={<BillOpsAdminTicketsPage />} />
+ <Route path="/billops-agreements" element={<AgreementsPage />} />
+ <Route path="/billops-admin-agreements" element={<BillOpsAdminAgreementsPage />} />
+ <Route path="/billops-admin-historical-billing" element={<BillOpsAdminMarketplaceBillingPage />} />
+ <Route path="/marketplace-purchases" element={<MarketplacePurchasesPage />} />
+ <Route path="/workspace-licenses" element={<WorkspaceLicensesPage />} />
+ <Route path="/user-management" element={<UserManagementPage />} />
+ <Route path="/my-profile" element={<MyProfilePage />} />
+ <Route path="/complianceops" element={<ComplianceOpsPage />} />
+ <Route path="/billops-admin-user-manager" element={<BillOpsAdminUserManagerPage />} />
+ <Route path="/gcp-autospotting" element={<GcpSpotAutomationPage />} />
+ <Route path="/azure-autospotting" element={<AzureSpotAutomationPage />} />
+ <Route path="/calculator" element={<CalculatorPage />} />
+ <Route path="/gcp-cloudlist" element={<GcpCloudListPage />} />
+ <Route path="/azure-cloudlist" element={<AzureCloudList />} />
+ </Route> {/* Close RouteChangeHandler */}
 
-            {/* Catch all - redirect to login */}
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Route> {/* Close ProtectedRoute wrapper */}
-        </Routes>
-      </TopbarProvider>
-    </ThemeProvider>
-  );
+ {/* Catch all - redirect to login */}
+ <Route path="*" element={<Navigate to="/" replace />} />
+ </Route> {/* Close ProtectedRoute wrapper */}
+ </Routes>
+ </TopbarProvider>
+ </ThemeProvider>
+ );
 };
 
 const App: React.FC = () => {
-  return (
-    <Router>
-      <AuthProvider>
-        <AccountProvider>
-          <VPCProvider>
-            <EksDashboardCacheProvider>
-              <AutoSpottingCacheProvider>
-                <AppContent />
-              </AutoSpottingCacheProvider>
-            </EksDashboardCacheProvider>
-          </VPCProvider>
-        </AccountProvider>
-      </AuthProvider>
-    </Router>
-  );
+ return (
+ <Router>
+ <AuthProvider>
+ <AccountProvider>
+ <VPCProvider>
+ <EksDashboardCacheProvider>
+ <AutoSpottingCacheProvider>
+ <AppContent />
+ </AutoSpottingCacheProvider>
+ </EksDashboardCacheProvider>
+ </VPCProvider>
+ </AccountProvider>
+ </AuthProvider>
+ </Router>
+ );
 };
 
 export default App;

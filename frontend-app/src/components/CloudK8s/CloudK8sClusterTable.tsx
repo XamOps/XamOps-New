@@ -7,6 +7,7 @@
 import React from 'react';
 import { EKSCluster } from '../../pages/CloudK8sPage';
 import Skeleton from '../Shared/Skeleton';
+import SreInvestigateButton from '../SreInvestigateButton';
 
 interface CloudK8sClusterTableProps {
   clusters: EKSCluster[];
@@ -100,13 +101,20 @@ const CloudK8sClusterTable: React.FC<CloudK8sClusterTableProps> = ({
                     )}
                   </td>
                   <td className="px-6 py-4 text-center">
-                    <button
-                      onClick={() => onViewDetails(cluster)}
-                      className="inline-flex items-center px-4 py-2 text-xs font-semibold rounded-lg bg-gradient-to-r from-blue-500 to-indigo-600 text-white hover:from-blue-600 hover:to-indigo-700 transition-all shadow-sm hover:shadow"
-                    >
-                      <i className="fas fa-external-link-alt mr-1.5"></i>
-                      Details
-                    </button>
+                    <div className="flex flex-col gap-2 items-center">
+                      <button
+                        onClick={() => onViewDetails(cluster)}
+                        className="inline-flex items-center px-4 py-2 text-xs font-semibold rounded-lg bg-gradient-to-r from-blue-500 to-indigo-600 text-white hover:from-blue-600 hover:to-indigo-700 transition-all shadow-sm hover:shadow"
+                      >
+                        <i className="fas fa-external-link-alt mr-1.5"></i>
+                        Details
+                      </button>
+                      <SreInvestigateButton
+                        resourceType="K8S_POD"
+                        resourceId={cluster.name}
+                        resourceName={cluster.name}
+                      />
+                    </div>
                   </td>
                 </tr>
               ))}

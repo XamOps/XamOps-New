@@ -35,9 +35,13 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import com.xammer.cloud.service.billops.ClientSavingsService;
+import com.xammer.cloud.dto.ClientSavingsDashboardDto;
+import java.time.LocalDate;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -56,6 +60,7 @@ class BillOpsAccountDto {
     private String providerAccountId;
     private String provider;
     private Double consumption;
+    private Double creditsApplied;
 
     // Getters and Setters
     public Long getId() {
@@ -96,6 +101,14 @@ class BillOpsAccountDto {
 
     public void setConsumption(Double consumption) {
         this.consumption = consumption;
+    }
+
+    public Double getCreditsApplied() {
+        return creditsApplied;
+    }
+
+    public void setCreditsApplied(Double creditsApplied) {
+        this.creditsApplied = creditsApplied;
     }
 }
 
@@ -268,6 +281,9 @@ public class BillOpsAdminController {
     @Autowired
     private CostDataSnapshotService costDataSnapshotService;
 
+    @Autowired
+    private ClientSavingsService clientSavingsService;
+
     /** Evict the clients cache (call this after creating a client or user) */
     @DeleteMapping("/clients/cache")
     public ResponseEntity<String> evictClientsCache() {
@@ -392,6 +408,17 @@ public class BillOpsAdminController {
             return CompletableFuture.completedFuture(0.0);
         }).collect(Collectors.toList());
 
+        // 5b. Kick off AWS credits fetch in parallel (AWS only; GCP/Azure return 0.0 immediately)
+        List<CompletableFuture<Double>> creditFutures = allAccounts.stream().map(account -> {
+            String providerAccId = account.getProviderAccountId();
+            String provider = account.getProvider();
+            if ("AWS".equalsIgnoreCase(provider) && providerAccId != null && !providerAccId.isEmpty()) {
+                return costService.getCreditsApplied(providerAccId)
+                        .exceptionally(e -> { log.warn("Credits fetch error for {}: {}", account.getId(), e.getMessage()); return 0.0; });
+            }
+            return CompletableFuture.completedFuture(0.0);
+        }).collect(Collectors.toList());
+
         CompletableFuture.allOf(costFutures.toArray(new CompletableFuture[0])).join();
 
         Map<Long, Double> costByAccountId = new HashMap<>();
@@ -399,6 +426,15 @@ public class BillOpsAdminController {
             Double cost = costFutures.get(i).join();
             costByAccountId.put(allAccounts.get(i).getId(), cost != null ? cost : 0.0);
         }
+        Map<Long, Double> creditsByAccountId = new HashMap<>();
+
+// Ensure all credit futures are completed
+CompletableFuture.allOf(creditFutures.toArray(new CompletableFuture[0])).join();
+
+for (int i = 0; i < allAccounts.size(); i++) {
+    Double credits = creditFutures.get(i).join();
+    creditsByAccountId.put(allAccounts.get(i).getId(), credits != null ? credits : 0.0);
+}
 
         // Assemble response
         List<BillOpsClientDetailsDto> result = new ArrayList<>();
@@ -421,6 +457,7 @@ public class BillOpsAdminController {
                 double consumption = costByAccountId.getOrDefault(account.getId(), 0.0);
                 accDto.setConsumption(consumption);
                 totalConsumption += consumption;
+                accDto.setCreditsApplied(creditsByAccountId.getOrDefault(account.getId(), 0.0));
                 accountDtos.add(accDto);
             }
             clientDto.setAccounts(accountDtos);
@@ -671,5 +708,48 @@ public class BillOpsAdminController {
         log.info("Fetching snapshot coverage status...");
         Map<String, Object> report = costDataSnapshotService.getSnapshotStatusReport();
         return ResponseEntity.ok(report);
+    }
+
+    // =========================================================
+    // CLIENT SAVINGS ENDPOINT
+    // =========================================================
+
+    @GetMapping("/clients/{clientId}/savings")
+    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN') or hasAuthority('ROLE_SUPER_ADMIN')")
+    public ResponseEntity<ClientSavingsDashboardDto> getClientSavings(
+            @PathVariable Long clientId,
+            @RequestParam(required = false) String preset,
+            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate) {
+
+        LocalDate[] range = resolveSavingsRange(preset, startDate, endDate);
+        ClientSavingsDashboardDto dto = clientSavingsService.getSavings(clientId, range[0], range[1]);
+        return ResponseEntity.ok(dto);
+    }
+
+    private LocalDate[] resolveSavingsRange(String preset, String startDate, String endDate) {
+        LocalDate end = LocalDate.now();
+        if (preset != null) {
+            return switch (preset) {
+                case "7d"  -> new LocalDate[]{ end.minusDays(7),  end };
+                case "90d" -> new LocalDate[]{ end.minusDays(90), end };
+                default    -> new LocalDate[]{ end.minusDays(30), end };
+            };
+        }
+        if (startDate != null && endDate != null) {
+            try {
+                LocalDate start = LocalDate.parse(startDate);
+                LocalDate end2 = LocalDate.parse(endDate);
+                if (start.isAfter(end2)) {
+                    throw new org.springframework.web.server.ResponseStatusException(
+                        org.springframework.http.HttpStatus.BAD_REQUEST, "startDate must be on or before endDate");
+                }
+                return new LocalDate[]{ start, end2 };
+            } catch (java.time.format.DateTimeParseException e) {
+                throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.BAD_REQUEST, "Invalid date format, expected YYYY-MM-DD");
+            }
+        }
+        return new LocalDate[]{ end.minusDays(30), end };
     }
 }

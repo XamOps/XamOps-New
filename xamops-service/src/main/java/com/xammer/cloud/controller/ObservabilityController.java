@@ -266,6 +266,23 @@ public class ObservabilityController {
     }
 
     /**
+     * GET /api/observability/setup/gce-otel
+     * Returns the OTel Collector install script + config for a Linux GCE instance.
+     */
+    @GetMapping("/setup/gce-otel")
+    public ResponseEntity<String> getGceOtelConfig(
+            @AuthenticationPrincipal ClientUserDetails userDetails,
+            @RequestParam(required = false) String providerAccountId) {
+        try {
+            return ResponseEntity.ok()
+                    .header("Content-Type", "text/plain")
+                    .body(openObserveService.generateGceOtelConfig(userDetails.getClientId(), providerAccountId));
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body("Error: " + e.getMessage());
+        }
+    }
+
+    /**
      * GET /api/observability/setup/agent-secret
      * Returns a ready-to-apply K8s Secret YAML with org ID + credentials pre-filled.
      */

@@ -32,6 +32,12 @@ public class AgentIngestPayload {
     private String cloudAccountId;
 
     /**
+     * Cloud provider: "AWS", "GCP", "AZURE". Optional — used by disk-agent to select
+     * the correct Redis key prefix on the backend.
+     */
+    private String provider;
+
+    /**
      * Timestamp when data was collected
      */
     private LocalDateTime collectedAt;
@@ -72,6 +78,14 @@ public class AgentIngestPayload {
 
     public void setCloudAccountId(String cloudAccountId) {
         this.cloudAccountId = cloudAccountId;
+    }
+
+    public String getProvider() {
+        return provider;
+    }
+
+    public void setProvider(String provider) {
+        this.provider = provider;
     }
 
     public LocalDateTime getCollectedAt() {

@@ -197,6 +197,7 @@ export default defineConfig({
       '/api/dbops': { target: 'http://localhost:8080', changeOrigin: true, secure: false }, // DbOps
       '/api/observability': { target: 'http://localhost:8080', changeOrigin: true, secure: false }, // Observability
       '/api/v1': { target: 'http://localhost:8080', changeOrigin: true, secure: false }, // Agent endpoints
+      '/api/sre': { target: 'http://localhost:8080', changeOrigin: true, secure: false }, // SRE Investigations
 
 
     }

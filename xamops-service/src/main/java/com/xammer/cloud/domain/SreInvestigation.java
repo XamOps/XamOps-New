@@ -1,0 +1,79 @@
+package com.xammer.cloud.domain;
+
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import javax.persistence.*;
+import java.time.Instant;
+
+@Entity
+@Data
+@NoArgsConstructor
+@Table(name = "sre_investigation")
+public class SreInvestigation {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "sre_inv_seq_gen")
+    @SequenceGenerator(name = "sre_inv_seq_gen", sequenceName = "sre_investigation_id_seq", allocationSize = 1)
+    private Long id;
+
+    @Column(name = "client_id", nullable = false)
+    private Long clientId;
+
+    @Column(name = "cloud_account_id")
+    private Long cloudAccountId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "trigger_type", nullable = false, length = 10)
+    private TriggerType triggerType;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "resource_type", nullable = false, length = 20)
+    private ResourceType resourceType;
+
+    @Column(name = "resource_id", nullable = false)
+    private String resourceId;
+
+    @Column(name = "resource_name")
+    private String resourceName;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 10)
+    private InvestigationStatus status = InvestigationStatus.PENDING;
+
+    @Column(name = "alert_payload", columnDefinition = "TEXT")
+    private String alertPayload;
+
+    @Column(name = "report_summary", columnDefinition = "TEXT")
+    private String reportSummary;
+
+    @Column(name = "report_root_cause", columnDefinition = "TEXT")
+    private String reportRootCause;
+
+    @Column(name = "report_recommendations", columnDefinition = "TEXT")
+    private String reportRecommendations;
+
+    @Column(name = "report_full_markdown", columnDefinition = "TEXT")
+    private String reportFullMarkdown;
+
+    @Column(name = "opensre_thread_id")
+    private String opensreThreadId;
+
+    @Column(name = "error_message", columnDefinition = "TEXT")
+    private String errorMessage;
+
+    @Column(name = "created_at", nullable = false)
+    private Instant createdAt = Instant.now();
+
+    @Column(name = "started_at")
+    private Instant startedAt;
+
+    @Column(name = "completed_at")
+    private Instant completedAt;
+
+    public enum TriggerType { AUTO, MANUAL }
+
+    public enum ResourceType { K8S_POD, EC2, RDS, AZURE_VM, GCP_VM }
+
+    public enum InvestigationStatus { PENDING, RUNNING, COMPLETED, FAILED }
+}

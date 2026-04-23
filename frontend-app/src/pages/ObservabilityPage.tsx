@@ -749,7 +749,7 @@ function DeployStep({ num, title, children }: { num: number; title: string; chil
 
 // ── Setup Tab ─────────────────────────────────────────────────────────────────
 
-type SetupType = 'eks-helm' | 'ec2' | 'eks-manual';
+type SetupType = 'eks-helm' | 'ec2' | 'gce' | 'eks-manual';
 
 function SetupTab() {
   const { theme } = useTheme();
@@ -763,6 +763,10 @@ function SetupTab() {
   // EC2
   const [ec2Config, setEc2Config] = useState('');
   const [ec2Loading, setEc2Loading] = useState(false);
+
+  // GCE
+  const [gceConfig, setGceConfig] = useState('');
+  const [gceLoading, setGceLoading] = useState(false);
 
   // EKS Manual
   const [agentSecret, setAgentSecret] = useState('');
@@ -794,6 +798,10 @@ function SetupTab() {
       setEc2Loading(true);
       fetchSetupConfig('ec2-otel').then(v => { setEc2Config(v || ''); setEc2Loading(false); });
     }
+    if (activeSetup === 'gce' && !gceConfig) {
+      setGceLoading(true);
+      fetchSetupConfig('gce-otel').then(v => { setGceConfig(v || ''); setGceLoading(false); });
+    }
     if (activeSetup === 'eks-manual' && !agentSecret) {
       setSecretLoading(true);
       setSecretError(false);
@@ -817,6 +825,13 @@ function SetupTab() {
       icon: 'fas fa-server',
       badge: 'Available',
       description: 'Install OTel Collector as a systemd service on any EC2 or Linux host',
+    },
+    {
+      id: 'gce',
+      label: 'GCE / Linux VM',
+      icon: 'fab fa-google',
+      badge: 'Available',
+      description: 'Install OTel Collector as a systemd service on any GCE or Linux host',
     },
     {
       id: 'eks-helm',
@@ -863,7 +878,7 @@ function SetupTab() {
       </div>
 
       {/* Setup type selector */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
         {setups.map(s => (
           <div key={s.id} className="relative">
             <button
@@ -1052,6 +1067,60 @@ function SetupTab() {
                     ['Logs → ec2-logs', '/var/log/syslog, auth.log, messages, your app logs'],
                     ['Metrics → system_cpu_utilization', 'EC2 CPU usage per state'],
                     ['Metrics → system_memory_utilization', 'EC2 memory usage'],
+                    ['Metrics → system_disk_io', 'Disk read/write bytes'],
+                    ['Metrics → system_network_io', 'Network receive/transmit bytes'],
+                    ['Metrics → system_load_average', 'System load (1m, 5m, 15m)'],
+                  ].map(([label, desc]) => (
+                    <div key={label} className="flex gap-2">
+                      <span className={clsx('font-mono font-medium flex-shrink-0 text-[11px]', theme === 'dark' ? 'text-sky-400' : 'text-sky-700')}>{label}</span>
+                      <span className={clsx('text-[11px]', theme === 'dark' ? 'text-slate-400' : 'text-gray-600')}>— {desc}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <p className={clsx('text-xs', theme === 'dark' ? 'text-amber-400' : 'text-amber-600')}>
+              Could not load config — try restarting the backend.
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* ── GCE / Linux VM ───────────────────────────────────────────────────── */}
+      {activeSetup === 'gce' && (
+        <div className={cardCls}>
+          <div className="flex items-center gap-2">
+            <i className="fab fa-google text-violet-500" />
+            <span className={clsx('font-semibold text-sm', theme === 'dark' ? 'text-white' : 'text-gray-800')}>
+              Install on GCE / Linux VM
+            </span>
+          </div>
+          <p className={clsx('text-xs', theme === 'dark' ? 'text-slate-400' : 'text-gray-500')}>
+            Installs <strong>OpenTelemetry Collector</strong> as a <code className="px-1 rounded bg-gray-100 dark:bg-slate-700">systemd</code> service.
+            Collects system logs (<code>/var/log/syslog</code>, auth logs, app logs) and host metrics (CPU, memory, disk, network).
+            GCE instance metadata (zone, project, machine-type) is auto-detected. Your <strong>org ID and credentials are pre-filled</strong> in the config.
+          </p>
+
+          {divider}
+
+          {gceLoading ? (
+            <LoadingSpinner />
+          ) : gceConfig ? (
+            <div className="space-y-4">
+              <p className={clsx('text-xs font-medium', theme === 'dark' ? 'text-slate-300' : 'text-gray-700')}>
+                Copy the script below and run it on your GCE instance as root / sudo:
+              </p>
+              <CodeBlock label="bash — run on GCE" code={gceConfig} />
+              <div className={clsx('rounded-xl p-4', theme === 'dark' ? 'bg-slate-900/60' : 'bg-sky-50')}>
+                <p className={clsx('text-xs font-semibold mb-2', theme === 'dark' ? 'text-sky-400' : 'text-sky-700')}>
+                  After install, data flows into:
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5 text-xs">
+                  {[
+                    ['Logs → gce-logs', '/var/log/syslog, auth.log, messages, your app logs'],
+                    ['Metrics → system_cpu_utilization', 'GCE CPU usage per state'],
+                    ['Metrics → system_memory_utilization', 'GCE memory usage'],
                     ['Metrics → system_disk_io', 'Disk read/write bytes'],
                     ['Metrics → system_network_io', 'Network receive/transmit bytes'],
                     ['Metrics → system_load_average', 'System load (1m, 5m, 15m)'],

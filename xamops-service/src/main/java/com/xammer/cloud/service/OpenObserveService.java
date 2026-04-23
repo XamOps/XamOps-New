@@ -811,6 +811,7 @@ public class OpenObserveService {
                 "        mute_process_name_error: true\n" +
                 "        mute_process_exe_error: true\n" +
                 "        mute_process_io_error: true\n" +
+                "        mute_process_user_error: true\n" +
                 "      paging: {}\n\n" +
                 "  # ── OTLP Receiver — application traces & custom spans ───────────────────────\n" +
                 "  otlp:\n" +
@@ -921,7 +922,16 @@ public class OpenObserveService {
                 "  sudo setfacl -Rm  u:otelcol-contrib:rX /var/lib/docker/containers/ 2>/dev/null || true\n" +
                 "  echo 'Docker detected — container log access granted'\n" +
                 "fi\n\n" +
-                "# ── Step 4: Start & enable on boot ──────────────────────────────────────────\n" +
+                "# ── Step 4: Configure auto-restart on failure ───────────────────────────────\n" +
+                "# Creates a systemd drop-in so the collector restarts automatically if it crashes\n" +
+                "sudo mkdir -p /etc/systemd/system/otelcol-contrib.service.d\n" +
+                "sudo tee /etc/systemd/system/otelcol-contrib.service.d/restart.conf > /dev/null << 'EOF'\n" +
+                "[Service]\n" +
+                "Restart=on-failure\n" +
+                "RestartSec=10\n" +
+                "EOF\n" +
+                "sudo systemctl daemon-reload\n\n" +
+                "# ── Step 5: Enable on boot and start ─────────────────────────────────────────\n" +
                 "sudo systemctl enable otelcol-contrib\n" +
                 "sudo systemctl restart otelcol-contrib\n" +
                 "sudo systemctl status otelcol-contrib\n\n" +
@@ -931,6 +941,269 @@ public class OpenObserveService {
                 "# Health check (should return {\\\"status\\\":\\\"Server available\\\"})\n" +
                 "curl -s http://127.0.0.1:13133/\n\n" +
                 "# View agent self-metrics (queue depth, drop rate, etc.)\n" +
+                "curl -s http://127.0.0.1:8888/metrics | grep -E 'otelcol_(exporter|processor|receiver)'\n";
+    }
+
+    /**
+     * Generates the OTel Collector config + install script for a Linux GCE instance.
+     * Same as generateEc2OtelConfig but uses GCE resource detection and GCP labels.
+     */
+    public String generateGceOtelConfig(Long clientId, String providerAccountId) {
+        String[] creds = getEffectiveOrgCredentials(clientId, providerAccountId);
+        String orgId = creds[0];
+        String authBase64 = Base64.getEncoder()
+                .encodeToString((adminEmail + ":" + adminPassword).getBytes(StandardCharsets.UTF_8));
+        String o2Endpoint = getExternalO2Url() + "/api/" + orgId;
+
+        return "# ════════════════════════════════════════════════════════════════════════════\n" +
+                "# XamOps Observability — GCE / Linux VM Setup  (production-grade)\n" +
+                "# Collects: structured logs (syslog / auth / nginx / app) +\n" +
+                "#           full host metrics (CPU / mem / disk / net / process / paging) +\n" +
+                "#           application traces via OTLP receiver\n" +
+                "# ════════════════════════════════════════════════════════════════════════════\n\n" +
+                "# ── Step 1: Install OTel Collector Contrib ───────────────────────────────────\n" +
+                "if command -v rpm &>/dev/null; then\n" +
+                "  # RHEL / CentOS\n" +
+                "  curl -sLO https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v0.103.0/otelcol-contrib_0.103.0_linux_amd64.rpm\n" +
+                "  sudo rpm -ivh otelcol-contrib_0.103.0_linux_amd64.rpm\n" +
+                "else\n" +
+                "  # Ubuntu / Debian (default on GCE)\n" +
+                "  curl -sLO https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v0.103.0/otelcol-contrib_0.103.0_linux_amd64.deb\n" +
+                "  sudo dpkg -i otelcol-contrib_0.103.0_linux_amd64.deb\n" +
+                "fi\n\n" +
+                "# ── Step 2: Write production-grade config ────────────────────────────────────\n" +
+                "sudo mkdir -p /etc/otelcol-contrib\n" +
+                "sudo tee /etc/otelcol-contrib/config.yaml > /dev/null << 'EOF'\n" +
+                "receivers:\n" +
+                "  # ── Log Receivers ───────────────────────────────────────────────────────────\n" +
+                "  filelog/system:\n" +
+                "    include:\n" +
+                "      - /var/log/messages\n" +
+                "      - /var/log/syslog\n" +
+                "    start_at: end\n" +
+                "    multiline:\n" +
+                "      line_start_pattern: '^\\w{3}\\s+\\d{1,2}\\s+\\d{2}:\\d{2}:\\d{2}'\n" +
+                "    operators:\n" +
+                "      - type: regex_parser\n" +
+                "        regex: '^(?P<timestamp>\\w{3}\\s+\\d{1,2}\\s+\\d{2}:\\d{2}:\\d{2})\\s+(?P<host>\\S+)\\s+(?P<process>[^\\[]+)(?:\\[(?P<pid>\\d+)\\])?\\s*:\\s*(?P<message>.*)$'\n" +
+                "        timestamp:\n" +
+                "          parse_from: attributes.timestamp\n" +
+                "          layout_type: gotime\n" +
+                "          layout: 'Jan _2 15:04:05'\n" +
+                "        on_error: send\n" +
+                "      - type: severity_parser\n" +
+                "        parse_from: attributes.message\n" +
+                "        on_error: send\n\n" +
+                "  filelog/auth:\n" +
+                "    include:\n" +
+                "      - /var/log/auth.log\n" +
+                "      - /var/log/secure\n" +
+                "    start_at: end\n" +
+                "    operators:\n" +
+                "      - type: regex_parser\n" +
+                "        regex: '^(?P<timestamp>\\w{3}\\s+\\d{1,2}\\s+\\d{2}:\\d{2}:\\d{2})\\s+(?P<host>\\S+)\\s+(?P<process>[^\\[]+)(?:\\[(?P<pid>\\d+)\\])?\\s*:\\s*(?P<message>.*)$'\n" +
+                "        timestamp:\n" +
+                "          parse_from: attributes.timestamp\n" +
+                "          layout_type: gotime\n" +
+                "          layout: 'Jan _2 15:04:05'\n" +
+                "        on_error: send\n" +
+                "      - type: add\n" +
+                "        field: attributes.log.file.type\n" +
+                "        value: auth\n" +
+                "      - type: severity_parser\n" +
+                "        parse_from: attributes.message\n" +
+                "        on_error: send\n\n" +
+                "  filelog/nginx:\n" +
+                "    include:\n" +
+                "      - /var/log/nginx/access.log\n" +
+                "      - /var/log/nginx/error.log\n" +
+                "    start_at: end\n" +
+                "    operators:\n" +
+                "      - type: regex_parser\n" +
+                "        regex: '^(?P<client_ip>\\S+)\\s+\\S+\\s+\\S+\\s+\\[(?P<timestamp>[^\\]]+)\\]\\s+\"(?P<method>\\w+)\\s+(?P<path>\\S+)\\s+\\S+\"\\s+(?P<status>\\d{3})\\s+(?P<bytes>\\d+)'\n" +
+                "        timestamp:\n" +
+                "          parse_from: attributes.timestamp\n" +
+                "          layout_type: gotime\n" +
+                "          layout: '02/Jan/2006:15:04:05 -0700'\n" +
+                "        on_error: send\n" +
+                "      - type: add\n" +
+                "        field: attributes.service.name\n" +
+                "        value: nginx\n\n" +
+                "  filelog/app:\n" +
+                "    include:\n" +
+                "      - /var/log/app/*.log\n" +
+                "      - /opt/app/logs/*.log\n" +
+                "    start_at: end\n" +
+                "    multiline:\n" +
+                "      line_start_pattern: '^({|\\d{4}-\\d{2}-\\d{2})'\n" +
+                "    operators:\n" +
+                "      - type: json_parser\n" +
+                "        if: 'body matches \"^{\"'\n" +
+                "        timestamp:\n" +
+                "          parse_from: attributes.timestamp\n" +
+                "          layout_type: strptime\n" +
+                "          layout: '%Y-%m-%dT%H:%M:%S'\n" +
+                "        on_error: send\n" +
+                "      - type: severity_parser\n" +
+                "        parse_from: attributes.level\n" +
+                "        preset: default\n" +
+                "        on_error: send\n\n" +
+                "  filelog/docker:\n" +
+                "    include:\n" +
+                "      - /var/lib/docker/containers/*/*.log\n" +
+                "    include_file_path: true\n" +
+                "    include_file_name: false\n" +
+                "    start_at: end\n" +
+                "    operators:\n" +
+                "      - type: json_parser\n" +
+                "        timestamp:\n" +
+                "          parse_from: attributes.time\n" +
+                "          layout_type: gotime\n" +
+                "          layout: '2006-01-02T15:04:05.999999999Z07:00'\n" +
+                "        on_error: send\n" +
+                "      - type: move\n" +
+                "        from: attributes.log\n" +
+                "        to: body\n" +
+                "      - type: add\n" +
+                "        field: attributes.source\n" +
+                "        value: docker\n\n" +
+                "  hostmetrics:\n" +
+                "    collection_interval: 30s\n" +
+                "    scrapers:\n" +
+                "      cpu:\n" +
+                "        metrics:\n" +
+                "          system.cpu.utilization:\n" +
+                "            enabled: true\n" +
+                "      memory:\n" +
+                "        metrics:\n" +
+                "          system.memory.utilization:\n" +
+                "            enabled: true\n" +
+                "      disk: {}\n" +
+                "      network: {}\n" +
+                "      load: {}\n" +
+                "      filesystem:\n" +
+                "        exclude_mount_points:\n" +
+                "          mount_points: [/proc, /sys, /dev, /run, /snap]\n" +
+                "          match_type: strict\n" +
+                "      process:\n" +
+                "        mute_process_name_error: true\n" +
+                "        mute_process_exe_error: true\n" +
+                "        mute_process_io_error: true\n" +
+                "        mute_process_user_error: true\n" +
+                "      paging: {}\n\n" +
+                "  otlp:\n" +
+                "    protocols:\n" +
+                "      grpc:\n" +
+                "        endpoint: 0.0.0.0:4317\n" +
+                "      http:\n" +
+                "        endpoint: 0.0.0.0:4318\n\n" +
+                "processors:\n" +
+                "  memory_limiter:\n" +
+                "    check_interval: 5s\n" +
+                "    limit_mib: 512\n" +
+                "    spike_limit_mib: 128\n\n" +
+                "  # Auto-detect GCE instance metadata (instance-id, zone, project-id, machine-type)\n" +
+                "  resourcedetection:\n" +
+                "    detectors: [gce, system]\n" +
+                "    timeout: 5s\n" +
+                "    override: false\n\n" +
+                "  resource:\n" +
+                "    attributes:\n" +
+                "      - key: service.name\n" +
+                "        value: gce-host\n" +
+                "        action: upsert\n" +
+                "      - key: source\n" +
+                "        value: gcp\n" +
+                "        action: upsert\n" +
+                "      - key: deployment.environment\n" +
+                "        value: prod\n" +
+                "        action: upsert\n" +
+                "      - key: service.instance.id\n" +
+                "        from_attribute: host.id\n" +
+                "        action: upsert\n\n" +
+                "  filter/healthcheck:\n" +
+                "    logs:\n" +
+                "      exclude:\n" +
+                "        match_type: regexp\n" +
+                "        bodies:\n" +
+                "          - '.*GET /health.*'\n" +
+                "          - '.*GET /healthz.*'\n" +
+                "          - '.*GET /readyz.*'\n" +
+                "          - '.*GET /livez.*'\n" +
+                "          - '.*GoogleHC.*'\n" +
+                "          - '.*kube-probe.*'\n\n" +
+                "  batch:\n" +
+                "    timeout: 5s\n" +
+                "    send_batch_size: 512\n" +
+                "    send_batch_max_size: 1024\n\n" +
+                "exporters:\n" +
+                "  otlphttp:\n" +
+                "    endpoint: \"" + o2Endpoint + "\"\n" +
+                "    headers:\n" +
+                "      Authorization: \"Basic " + authBase64 + "\"\n" +
+                "      ngrok-skip-browser-warning: \"true\"\n" +
+                "    compression: gzip\n" +
+                "    retry_on_failure:\n" +
+                "      enabled: true\n" +
+                "      initial_interval: 5s\n" +
+                "      max_interval: 30s\n" +
+                "      max_elapsed_time: 300s\n" +
+                "    sending_queue:\n" +
+                "      enabled: true\n" +
+                "      queue_size: 1000\n" +
+                "      num_consumers: 4\n\n" +
+                "extensions:\n" +
+                "  health_check:\n" +
+                "    endpoint: 127.0.0.1:13133\n\n" +
+                "service:\n" +
+                "  telemetry:\n" +
+                "    metrics:\n" +
+                "      address: 127.0.0.1:8888\n" +
+                "  extensions: [health_check]\n" +
+                "  pipelines:\n" +
+                "    logs:\n" +
+                "      receivers: [filelog/system, filelog/auth, filelog/nginx, filelog/app, filelog/docker]\n" +
+                "      processors: [memory_limiter, resourcedetection, resource, filter/healthcheck, batch]\n" +
+                "      exporters: [otlphttp]\n" +
+                "    metrics:\n" +
+                "      receivers: [hostmetrics]\n" +
+                "      processors: [memory_limiter, resourcedetection, resource, batch]\n" +
+                "      exporters: [otlphttp]\n" +
+                "    traces:\n" +
+                "      receivers: [otlp]\n" +
+                "      processors: [memory_limiter, resourcedetection, resource, batch]\n" +
+                "      exporters: [otlphttp]\n" +
+                "EOF\n\n" +
+                "# ── Step 3: Grant log file read access ──────────────────────────────────────\n" +
+                "if ! command -v setfacl &>/dev/null; then\n" +
+                "  sudo apt-get install -y acl 2>/dev/null || sudo yum install -y acl 2>/dev/null || true\n" +
+                "fi\n" +
+                "sudo usermod -aG adm otelcol-contrib 2>/dev/null || true\n" +
+                "sudo setfacl -m    u:otelcol-contrib:r  /var/log/messages /var/log/secure 2>/dev/null || true\n" +
+                "sudo setfacl -d -m u:otelcol-contrib:r  /var/log/ 2>/dev/null || true\n" +
+                "if [ -d /var/log/nginx ]; then\n" +
+                "  sudo setfacl -Rm   u:otelcol-contrib:r  /var/log/nginx/ 2>/dev/null || true\n" +
+                "  sudo setfacl -d -m u:otelcol-contrib:r  /var/log/nginx/ 2>/dev/null || true\n" +
+                "fi\n" +
+                "if command -v docker &>/dev/null; then\n" +
+                "  sudo setfacl -Rdm u:otelcol-contrib:rX /var/lib/docker/containers/ 2>/dev/null || true\n" +
+                "  sudo setfacl -Rm  u:otelcol-contrib:rX /var/lib/docker/containers/ 2>/dev/null || true\n" +
+                "fi\n\n" +
+                "# ── Step 4: Configure auto-restart on failure ───────────────────────────────\n" +
+                "sudo mkdir -p /etc/systemd/system/otelcol-contrib.service.d\n" +
+                "sudo tee /etc/systemd/system/otelcol-contrib.service.d/restart.conf > /dev/null << 'EOF'\n" +
+                "[Service]\n" +
+                "Restart=on-failure\n" +
+                "RestartSec=10\n" +
+                "EOF\n" +
+                "sudo systemctl daemon-reload\n\n" +
+                "# ── Step 5: Enable on boot and start ─────────────────────────────────────────\n" +
+                "sudo systemctl enable otelcol-contrib\n" +
+                "sudo systemctl restart otelcol-contrib\n" +
+                "sudo systemctl status otelcol-contrib\n\n" +
+                "# ── Verify data is flowing ───────────────────────────────────────────────────\n" +
+                "sudo journalctl -u otelcol-contrib -f\n" +
+                "curl -s http://127.0.0.1:13133/\n" +
                 "curl -s http://127.0.0.1:8888/metrics | grep -E 'otelcol_(exporter|processor|receiver)'\n";
     }
 

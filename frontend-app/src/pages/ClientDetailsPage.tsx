@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import apiClient from '../utils/apiClient';
 import ClientDetailsSkeleton from '../components/Shared/ClientDetailsSkeleton';
+import ClientSavingsTab from '../components/BillOps/ClientSavingsTab';
 import { useCurrency } from '../hooks/useCurrency';
 import { useTopbarActions } from '../contexts/TopbarContext';
 import '../styles/billopsAdminDashboard.css';
@@ -12,6 +13,7 @@ interface BillOpsAccount {
     providerAccountId: string;
     provider: string;
     consumption: number;
+    creditsApplied?: number;
 }
 
 interface BillOpsUser {
@@ -58,7 +60,7 @@ const ClientDetailsPage: React.FC = () => {
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [expandedClient, setExpandedClient] = useState<number | null>(null);
-    const [expandedSection, setExpandedSection] = useState<'accounts' | 'users' | null>(null);
+    const [expandedSection, setExpandedSection] = useState<'accounts' | 'users' | 'savings' | null>(null);
     const [expandedPrimaryUsers, setExpandedPrimaryUsers] = useState<Set<string>>(new Set());
     const [search, setSearch] = useState('');
     const [filterProvider, setFilterProvider] = useState('');
@@ -457,6 +459,15 @@ const ClientDetailsPage: React.FC = () => {
                                         Access Management
                                         {expandedSection === 'users' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600"></div>}
                                     </button>
+                                    <button
+                                        className={`py-4 text-xs font-bold uppercase tracking-widest transition-all relative ${expandedSection === 'savings' ? 'text-indigo-600' : 'text-slate-400 hover:text-slate-600'
+                                            }`}
+                                        onClick={() => setExpandedSection('savings')}
+                                    >
+                                        <i className="fas fa-piggy-bank mr-2 text-slate-400"></i>
+                                        Savings
+                                        {expandedSection === 'savings' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600"></div>}
+                                    </button>
                                 </div>
 
                                 <div className="p-6">
@@ -476,6 +487,17 @@ const ClientDetailsPage: React.FC = () => {
                                                         </span>
                                                     </div>
                                                     <h3 className="font-extrabold text-gray-800 line-clamp-1 text-sm">{acc.name}</h3>
+                                                    {acc.provider === 'AWS' && acc.creditsApplied != null && acc.creditsApplied > 0 && (
+                                                        <div className="mt-2 flex items-center justify-between">
+                                                            <span className="text-[10px] font-semibold text-emerald-600 flex items-center gap-1">
+                                                                <i className="fas fa-tag text-emerald-500"></i>
+                                                                Credits Applied
+                                                            </span>
+                                                            <span className="text-[10px] font-black text-emerald-600">
+                                                                -${convertConsumption(acc.creditsApplied, 'AWS').toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                            </span>
+                                                        </div>
+                                                    )}
                                                     <p className="text-[10px] text-gray-400 mt-2 font-mono bg-gray-50 p-1.5 rounded-md border border-gray-100">{acc.providerAccountId}</p>
                                                 </div>
                                             ))}
@@ -485,6 +507,10 @@ const ClientDetailsPage: React.FC = () => {
                                                 </div>
                                             )}
                                         </div>
+                                    )}
+
+                                    {expandedSection === 'savings' && (
+                                        <ClientSavingsTab clientId={client.id} />
                                     )}
 
                                     {expandedSection === 'users' && (() => {

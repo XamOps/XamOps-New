@@ -1,0 +1,21 @@
+services:
+  opensre:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: xamops-opensre
+    ports:
+      - "2024:2024"
+    environment:
+      - LLM_PROVIDER=gemini
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - LANGSMITH_API_KEY=${LANGSMITH_API_KEY}
+      - OPENSRE_DISABLE_KEYRING=1
+      - OPENSRE_DISABLE_AUTH=1
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:2024/ok', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 120s
+      retries: 5
+    restart: unless-stopped

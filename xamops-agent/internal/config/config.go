@@ -32,7 +32,10 @@ type Config struct {
 	CollectorK8sResources      bool // full K8s resource snapshot (nodes/pods/deployments/etc.)
 	CollectorPrometheusMetrics bool // in-cluster Prometheus: utilization, cost, Falco, top pods
 	CollectorDB                bool // DB query stats collector (opt-in)
-	CollectorDisk              bool // EC2 disk usage collector (opt-in, for EBS rightsizing)
+	CollectorDisk              bool // disk usage collector (opt-in, for EBS/GCP disk rightsizing)
+
+	// Cloud provider — "AWS", "GCP", or empty for auto-detect via IMDS
+	CloudProvider string
 
 	// DB collector settings
 	// DB_DSN_0, DB_DSN_1, ... — one DSN per database instance
@@ -97,6 +100,9 @@ func Load() (*Config, error) {
 
 		// Logging
 		LogLevel: getEnv("LOG_LEVEL", "info"),
+
+		// Cloud provider
+		CloudProvider: getEnv("CLOUD_PROVIDER", ""),
 	}
 
 	// Validate required fields

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import type { AzureMonitorAlert } from '../../types/azureAlerts';
+import SreInvestigateButton from '../SreInvestigateButton';
 
 interface AzureAlertsTableProps {
   alerts: AzureMonitorAlert[];
@@ -32,6 +33,7 @@ const SkeletonRow = () => (
     <td className="px-4 py-4"><div className="h-3 bg-gray-200 rounded w-16"></div></td>
     <td className="px-4 py-4"><div className="h-3 bg-gray-200 rounded w-28"></div></td>
     <td className="px-4 py-4"><div className="h-3 bg-gray-200 rounded w-24"></div></td>
+    <td className="px-4 py-4"><div className="h-6 bg-gray-200 rounded w-20"></div></td>
   </tr>
 );
 
@@ -133,6 +135,7 @@ const AzureAlertsTable: React.FC<AzureAlertsTableProps> = ({ alerts, isLoading }
                 <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Signal</th>
                 <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Resource</th>
                 <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Fired</th>
+                <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider text-gray-500">SRE</th>
               </tr>
             </thead>
             <tbody>
@@ -175,6 +178,13 @@ const AzureAlertsTable: React.FC<AzureAlertsTableProps> = ({ alerts, isLoading }
                     </td>
                     <td className="px-4 py-3">
                       <span className="text-gray-500 text-xs">{formatTime(alert.startDateTime)}</span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <SreInvestigateButton
+                        resourceType="AZURE_VM"
+                        resourceId={alert.alertId || alert.resourceName || ''}
+                        resourceName={alert.resourceName}
+                      />
                     </td>
                   </tr>
                 );

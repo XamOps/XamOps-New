@@ -8,6 +8,7 @@ type AgentPayload struct {
 	AgentVersion   string      `json:"agentVersion"`
 	ClusterName    string      `json:"clusterName"`
 	CloudAccountID string      `json:"cloudAccountId"`
+	Provider       string      `json:"provider,omitempty"` // "AWS" | "GCP" — set by disk/standalone agents
 	CollectedAt    time.Time   `json:"collectedAt"`
 	Batches        []DataBatch `json:"batches"`
 }

@@ -46,8 +46,14 @@ public class AgentController {
 
     /** Redis TTL for agent-reported disk data (6 hours — agent collects every 5 min). */
     private static final int DISK_AGENT_TTL_MINUTES = 360;
-    /** Redis key prefix: ebs-disk-agent:{cloudAccountId}:{instanceId} */
+    /** Redis key prefix: ebs-disk-agent:{cloudAccountId}:{instanceId} (AWS) */
     static final String DISK_AGENT_KEY_PREFIX = "ebs-disk-agent:";
+    /** Redis key prefix: gcp-disk-agent:{projectId}:{instanceName} (GCP) */
+    static final String GCP_DISK_AGENT_KEY_PREFIX = "gcp-disk-agent:";
+    /** Sentinel key written on every push; 24-hour TTL survives brief collection gaps. */
+    static final String DISK_AGENT_SEEN_PREFIX = "ebs-disk-agent-seen:";
+    static final String GCP_DISK_AGENT_SEEN_PREFIX = "gcp-disk-agent-seen:";
+    private static final int DISK_AGENT_SEEN_TTL_MINUTES = 1440; // 24 hours
 
     private final AgentIngestService agentIngestService;
     private final DbAgentService dbAgentService;
@@ -621,16 +627,25 @@ public class AgentController {
                 byInstance.computeIfAbsent(instanceId, k -> new ArrayList<>()).add(mount);
             }
 
+            // Select key prefix based on cloud provider
+            boolean isGcp = "GCP".equalsIgnoreCase(payload.getProvider());
+            String keyPrefix  = isGcp ? GCP_DISK_AGENT_KEY_PREFIX  : DISK_AGENT_KEY_PREFIX;
+            String seenPrefix = isGcp ? GCP_DISK_AGENT_SEEN_PREFIX : DISK_AGENT_SEEN_PREFIX;
+
             // Cache each instance's disk data in Redis
             for (Map.Entry<String, List<Map<String, Object>>> entry : byInstance.entrySet()) {
-                String cacheKey = DISK_AGENT_KEY_PREFIX + cloudAccountId + ":" + entry.getKey();
+                String instanceId = entry.getKey();
+                String cacheKey = keyPrefix + cloudAccountId + ":" + instanceId;
                 redisCacheService.put(cacheKey, entry.getValue(), DISK_AGENT_TTL_MINUTES);
+                // Sentinel key survives brief collection gaps (e.g. EBS resize / GCE disk resize)
+                String seenKey = seenPrefix + cloudAccountId + ":" + instanceId;
+                redisCacheService.put(seenKey, Boolean.TRUE, DISK_AGENT_SEEN_TTL_MINUTES);
                 logger.info("[disk-agent] STORED key={} mounts={}", cacheKey, entry.getValue().size());
                 logger.debug("[disk-agent] cached {} mounts for instance {} account {}",
-                        entry.getValue().size(), entry.getKey(), cloudAccountId);
+                        entry.getValue().size(), instanceId, cloudAccountId);
             }
-            logger.info("[disk-agent] stored disk data for {} instances (account {})",
-                    byInstance.size(), cloudAccountId);
+            logger.info("[disk-agent] stored disk data for {} instances (account {} provider={})",
+                    byInstance.size(), cloudAccountId, isGcp ? "GCP" : "AWS");
         }
     }
 

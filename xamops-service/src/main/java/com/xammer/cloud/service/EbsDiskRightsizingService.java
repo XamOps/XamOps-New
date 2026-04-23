@@ -953,7 +953,16 @@ public class EbsDiskRightsizingService {
             Optional<List<Map<String, Object>>> agentData = redisCacheService.get(
                     cacheKey, new TypeReference<List<Map<String, Object>>>() {});
             logger.info("[disk-agent-debug] key={} found={}", cacheKey, agentData.isPresent());
-            if (agentData.isEmpty()) continue;
+            if (agentData.isEmpty()) {
+                // Data gap (e.g. EBS resize in progress) — check sentinel to distinguish "never installed" from "temporarily unavailable"
+                String seenKey = "ebs-disk-agent-seen:" + awsAccountId + ":" + instanceId;
+                Optional<Boolean> seen = redisCacheService.get(seenKey, new TypeReference<Boolean>() {});
+                if (seen.isPresent()) {
+                    vol.put("agentDeployed", true);
+                    logger.info("[disk-agent-debug] sentinel hit for instance={} — marking agentDeployed but no fresh data", instanceId);
+                }
+                continue;
+            }
 
             String volVolumeId = (String) vol.get("volumeId");
             String baseDevice = device.replaceAll("^/dev/", "");
@@ -991,6 +1000,7 @@ public class EbsDiskRightsizingService {
                 if (usedPct != null) {
                     int sizeGb = ((Number) vol.get("sizeGb")).intValue();
                     double up = usedPct.doubleValue();
+                    vol.put("agentDeployed", true);
                     vol.put("usedPercent", Math.round(up * 10.0) / 10.0);
                     vol.put("usedGb",  Math.round(sizeGb * up / 100.0 * 100.0) / 100.0);
                     vol.put("freeGb",  Math.round(sizeGb * (1 - up / 100.0) * 100.0) / 100.0);

@@ -6,6 +6,7 @@
 
 import React from 'react';
 import type { Alert, AlertSeverityClass } from '../../types/alerts';
+import SreInvestigateButton from '../SreInvestigateButton';
 
 interface AlertsCloudGuardTableProps {
   alerts: Alert[];
@@ -123,17 +124,26 @@ const AlertsCloudGuardTable: React.FC<AlertsCloudGuardTableProps> = ({
                 )}
               </td>
               <td className="alerts-action-cell">
-                <a
-                  href={getAwsConsoleLink(alert)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="alerts-btn alerts-btn-action"
-                >
-                  <i className="fas fa-external-link-alt"></i>
-                  <span>
-                    {alert.type === 'QUOTA' ? 'Request Increase' : 'Investigate'}
-                  </span>
-                </a>
+                <div className="flex flex-col gap-1.5 items-start">
+                  <a
+                    href={getAwsConsoleLink(alert)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="alerts-btn alerts-btn-action"
+                  >
+                    <i className="fas fa-external-link-alt"></i>
+                    <span>
+                      {alert.type === 'QUOTA' ? 'Request Increase' : 'Investigate'}
+                    </span>
+                  </a>
+                  {alert.type === 'SECURITY' && (
+                    <SreInvestigateButton
+                      resourceType="EC2"
+                      resourceId={alert.id}
+                      resourceName={alert.name}
+                    />
+                  )}
+                </div>
               </td>
             </tr>
           ))}
