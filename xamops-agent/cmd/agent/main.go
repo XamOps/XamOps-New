@@ -58,8 +58,8 @@ func main() {
 }
 
 func runCollectionLoop(ctx context.Context, cfg *config.Config, collectors *collector.Manager, dataPusher *pusher.Pusher) {
-	// Initial collection after 10 seconds
-	time.Sleep(10 * time.Second)
+	// Collect immediately on startup — IMDS retry logic inside each collector handles boot delays.
+	collectAndPush(cfg, collectors, dataPusher)
 
 	ticker := time.NewTicker(time.Duration(cfg.CollectInterval) * time.Second)
 	defer ticker.Stop()
@@ -70,10 +70,6 @@ func runCollectionLoop(ctx context.Context, cfg *config.Config, collectors *coll
 			return
 		case <-ticker.C:
 			collectAndPush(cfg, collectors, dataPusher)
-		default:
-			// First run
-			collectAndPush(cfg, collectors, dataPusher)
-			<-ticker.C
 		}
 	}
 }

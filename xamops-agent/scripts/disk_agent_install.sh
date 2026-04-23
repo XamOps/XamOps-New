@@ -131,9 +131,13 @@ Wants=network-online.target
 [Service]
 Type=simple
 EnvironmentFile=/etc/xamops/disk-agent.env
+# Wait for EC2 metadata service before starting — IMDS can take 20-30s after instance boot/restart
+ExecStartPre=/bin/sh -c 'i=0; until curl -sf --max-time 3 http://169.254.169.254/latest/meta-data/instance-id >/dev/null 2>&1; do i=$((i+1)); [ $i -ge 20 ] && exit 1; sleep 3; done'
 ExecStart=/usr/local/bin/xamops-agent
 Restart=always
-RestartSec=30
+RestartSec=15
+# Disable start-rate limit so systemd never permanently stops retrying after repeated boot failures
+StartLimitIntervalSec=0
 User=root
 
 [Install]

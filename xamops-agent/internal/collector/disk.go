@@ -21,8 +21,8 @@ import (
 func collectDiskUsage(ctx context.Context) (DataBatch, error) {
 	client := &http.Client{Timeout: 5 * time.Second}
 
-	// Get EC2 instance ID from IMDSv2
-	instanceID, err := imdsInstanceID(ctx, client)
+	// Retry IMDS — on fresh EC2 boot, metadata service can take up to ~30s to respond.
+	instanceID, err := imdsInstanceIDWithRetry(ctx, client)
 	if err != nil {
 		return DataBatch{}, fmt.Errorf("IMDS unavailable (not running on EC2?): %w", err)
 	}
@@ -68,6 +68,31 @@ func imdsInstanceID(ctx context.Context, client *http.Client) (string, error) {
 		return imdsGet(ctx, client, "", "instance-id")
 	}
 	return imdsGet(ctx, client, token, "instance-id")
+}
+
+// imdsInstanceIDWithRetry retries IMDS up to 12 times (60s total) with linear backoff.
+// On EC2 boot, IMDS can take 20-30s to become available, especially after stop/start.
+func imdsInstanceIDWithRetry(ctx context.Context, client *http.Client) (string, error) {
+	const maxAttempts = 12
+	const retryDelay = 5 * time.Second
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		id, err := imdsInstanceID(ctx, client)
+		if err == nil {
+			if attempt > 1 {
+				log.Printf("[disk] IMDS ready after %d attempts", attempt)
+			}
+			return id, nil
+		}
+		lastErr = err
+		log.Printf("[disk] IMDS attempt %d/%d failed: %v — retrying in %s", attempt, maxAttempts, err, retryDelay)
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(retryDelay):
+		}
+	}
+	return "", lastErr
 }
 
 func imdsToken(ctx context.Context, client *http.Client) (string, error) {
