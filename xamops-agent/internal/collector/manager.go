@@ -78,6 +78,7 @@ func (m *Manager) CollectAll() (*AgentPayload, error) {
 		AgentVersion:   agentVersion,
 		ClusterName:    m.cfg.ClusterName,
 		CloudAccountID: m.cfg.CloudAccountID,
+		Provider:       strings.ToUpper(strings.TrimSpace(m.cfg.CloudProvider)),
 		CollectedAt:    time.Now().UTC(),
 		Batches:        []DataBatch{},
 	}

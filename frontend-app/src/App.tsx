@@ -85,6 +85,7 @@ const GcpAlertsPage = lazy(() => import('./pages/GcpAlertsPage'));
 const GcpBillingPage = lazy(() => import('./pages/GcpBillingPage'));
 const GcpSpotAutomationPage = lazy(() => import('./pages/GcpSpotAutomationPage'));
 const GcpDataOpsPage = lazy(() => import('./pages/GcpDataOpsPage'));
+const GcpDiskRightsizingPage = lazy(() => import('./pages/GcpDiskRightsizingPage'));
 
 // Azure
 const AzureFinOpsPage = lazy(() => import('./pages/AzureFinOpsPage'));
@@ -452,6 +453,7 @@ const AppContent: React.FC = () => {
  <Route path="/asg-config" element={<ASGConfigPage />} />
  <Route path="/flex-compute" element={<FlexComputePage />} />
  <Route path="/ebs-rightsizing" element={<EbsRightsizingPage />} />
+ <Route path="/gcp-disk-rightsizing" element={<GcpDiskRightsizingPage />} />
  <Route path="/grafana-dashboard" element={<GrafanaDashboardPage />} />
  <Route path="/cloudk8s" element={<CloudK8sPage />} />
  <Route path="/gcp-cloudk8s" element={<GcpCloudK8sPage />} />
