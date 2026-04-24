@@ -11,6 +11,7 @@ import LogoutModal from './LogoutModal';
 import NotificationDropdown from './NotificationDropdown';
 import BillOpsUserNotificationDropdown from '../BillOps/BillOpsUserNotificationDropdown';
 import { useTheme } from '../../contexts/ThemeContext';
+import { TooltipWrapper } from '../ui/Tooltip';
 
 const Topbar: React.FC = () => {
     const location = useLocation();
@@ -134,21 +135,24 @@ const Topbar: React.FC = () => {
                         {/* Notifications - Show for XamOps and BillOps users, but not BillOps Admin (they have their own on dashboard) */}
                         {!isBillOpsAdmin && (
                             <div className="relative" ref={notificationRef}>
-                                <button
-                                    onClick={toggleNotifications}
-                                    className={clsx(
-                                        'w-10 h-10 flex items-center justify-center rounded-xl transition-all relative',
-                                        theme === 'dark' ? 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-indigo-400' : 'bg-slate-100/50 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600'
-                                    )}
-                                >
-                                    <i className="fas fa-bell"></i>
-                                    {counts.total > 0 && (
-                                        <span className={clsx(
-                                            'absolute top-2 right-2 w-2 h-2 bg-rose-500 rounded-full border-2',
-                                            theme === 'dark' ? 'border-slate-800' : 'border-white'
-                                        )}></span>
-                                    )}
-                                </button>
+                                <TooltipWrapper tip="View notifications">
+                                    <button
+                                        onClick={toggleNotifications}
+                                        aria-label="View notifications"
+                                        className={clsx(
+                                            'w-10 h-10 flex items-center justify-center rounded-xl transition-all relative focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1',
+                                            theme === 'dark' ? 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-indigo-400' : 'bg-slate-100/50 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600'
+                                        )}
+                                    >
+                                        <i className="fas fa-bell"></i>
+                                        {counts.total > 0 && (
+                                            <span className={clsx(
+                                                'absolute top-2 right-2 w-2 h-2 bg-rose-500 rounded-full border-2',
+                                                theme === 'dark' ? 'border-slate-800' : 'border-white'
+                                            )}></span>
+                                        )}
+                                    </button>
+                                </TooltipWrapper>
 
                                 {isNotificationOpen && (
                                     <>
@@ -173,16 +177,18 @@ const Topbar: React.FC = () => {
                         )}
 
                         {onHelpClick && (
-                            <button
-                                onClick={onHelpClick}
-                                className={clsx(
-                                    'w-10 h-10 flex items-center justify-center rounded-xl transition-all',
-                                    theme === 'dark' ? 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-indigo-400' : 'bg-slate-100/50 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600'
-                                )}
-                                aria-label="Open help guide"
-                            >
-                                <i className="fas fa-question-circle"></i>
-                            </button>
+                            <TooltipWrapper tip="Open help guide">
+                                <button
+                                    onClick={onHelpClick}
+                                    className={clsx(
+                                        'w-10 h-10 flex items-center justify-center rounded-xl transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1',
+                                        theme === 'dark' ? 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-indigo-400' : 'bg-slate-100/50 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600'
+                                    )}
+                                    aria-label="Open help guide"
+                                >
+                                    <i className="fas fa-question-circle"></i>
+                                </button>
+                            </TooltipWrapper>
                         )}
                     </div>
 
@@ -196,9 +202,10 @@ const Topbar: React.FC = () => {
                         <button
                             onClick={toggleProfile}
                             className={clsx(
-                                'flex items-center gap-3 pl-2 p-1.5 rounded-2xl transition-all duration-200',
+                                'flex items-center gap-3 pl-2 p-1.5 rounded-2xl transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1',
                                 isProfileOpen ? (theme === 'dark' ? 'bg-slate-800' : 'bg-indigo-50') : (theme === 'dark' ? 'hover:bg-slate-800/50' : 'hover:bg-slate-50')
                             )}
+                            aria-label="User profile menu"
                         >
                             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-lg shadow-indigo-500/20">
                                 <i className="fas fa-user text-sm"></i>
@@ -234,7 +241,7 @@ const Topbar: React.FC = () => {
                                     to="/my-profile"
                                     onClick={() => setIsProfileOpen(false)}
                                     className={clsx(
-                                        'flex items-center gap-3 px-4 py-2.5 text-sm transition-colors',
+                                        'flex items-center gap-3 px-4 py-2.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-inset',
                                         theme === 'dark' ? 'hover:bg-slate-800 hover:text-indigo-400' : 'hover:bg-indigo-50 hover:text-indigo-600'
                                     )}
                                 >
@@ -254,7 +261,7 @@ const Topbar: React.FC = () => {
                                         toggleTheme();
                                     }}
                                     className={clsx(
-                                        'w-full flex items-center justify-between px-4 py-2.5 text-sm transition-colors',
+                                        'w-full flex items-center justify-between px-4 py-2.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-inset',
                                         theme === 'dark' ? 'hover:bg-slate-800 hover:text-indigo-400' : 'hover:bg-indigo-50 hover:text-indigo-600'
                                     )}
                                 >
@@ -285,7 +292,7 @@ const Topbar: React.FC = () => {
 
                                 <button
                                     onClick={handleLogoutClick}
-                                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-rose-600 hover:bg-rose-50 transition-colors"
+                                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-rose-600 hover:bg-rose-50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-inset"
                                 >
                                     <div className="w-7 h-7 rounded-lg bg-rose-100/50 flex items-center justify-center transition-colors">
                                         <i className="fas fa-sign-out-alt text-xs"></i>
