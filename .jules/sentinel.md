@@ -1,0 +1,4 @@
+## 2026-04-24 - Agent Management IDOR and Whitelist Narrowing
+**Vulnerability:** Broken Object Level Authorization (IDOR) in AgentController and overly broad security whitelist for Agent APIs.
+**Learning:** The /api/v1/agent/** wildcard in SecurityConfig allowed management endpoints (like DB registration and config retrieval) to be accessed without session authentication. Furthermore, the controller lacked ownership checks, allowing any authenticated user to access or modify configurations of cloud accounts belonging to other clients by guessing the account ID.
+**Prevention:** Always use trailing wildcards carefully in security whitelists (e.g., /path/** vs /path/specific). Implement centralized ownership validation in controllers that handle multi-tenant resources, and ensure passwords/secrets are redacted in UI-facing API responses.
