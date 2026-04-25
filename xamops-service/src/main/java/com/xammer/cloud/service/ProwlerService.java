@@ -410,14 +410,15 @@ public class ProwlerService {
         command.add(executable);
         command.add("azure");
         command.add("--no-banner");
+        // Use environment variables for authentication to avoid leaking credentials in logs/ps
+        command.add("--sp-env-auth");
         command.add("--subscription-ids");
         command.add(account.getAzureSubscriptionId());
-        command.add("--tenant-id");
-        command.add(account.getAzureTenantId());
-        command.add("--client-id");
-        command.add(account.getAzureClientId());
-        command.add("--client-secret");
-        command.add(account.getAzureClientSecret());
+
+        Map<String, String> azureEnv = new HashMap<>();
+        azureEnv.put("AZURE_CLIENT_ID", account.getAzureClientId());
+        azureEnv.put("AZURE_TENANT_ID", account.getAzureTenantId());
+        azureEnv.put("AZURE_CLIENT_SECRET", account.getAzureClientSecret());
 
         if (complianceFrameworks != null && complianceFrameworks.length > 0) {
             command.add("--compliance");
@@ -431,7 +432,7 @@ public class ProwlerService {
         command.add("--output-directory");
         command.add(outputDir);
 
-        return executeProwlerCommand(command, new HashMap<>(), outputDir, filenameBase);
+        return executeProwlerCommand(command, azureEnv, outputDir, filenameBase);
     }
 
     // -------------------------------------------------------------------------
