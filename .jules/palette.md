@@ -1,0 +1,3 @@
+## 2025-05-15 - [Accessible Icon-only Buttons Pattern]
+**Learning:** Icon-only buttons (like `SreInvestigateButton` or `Pagination` controls) often rely on the native `title` attribute, which is not accessible to screen readers and doesn't support keyboard focus by default in some environments. Using a custom `TooltipWrapper` combined with explicit `aria-label` and `focus-visible` styles ensures a consistent, accessible experience.
+**Action:** Always wrap icon-only buttons in `TooltipWrapper`, provide a descriptive `aria-label`, and implement `focus-visible:ring-2` to guarantee keyboard accessibility and screen reader support.
