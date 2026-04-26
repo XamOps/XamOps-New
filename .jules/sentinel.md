@@ -1,0 +1,4 @@
+## 2026-04-26 - [Agent Management IDOR & Whitelist Hardening]
+**Vulnerability:** The `AgentController` had a broad whitelist in `SecurityConfig.java` (`/api/v1/agent/**`) allowing unauthenticated access to sensitive management endpoints. Additionally, authenticated endpoints lacked ownership checks, allowing users from one client to access or modify agent configurations of another client (IDOR).
+**Learning:** Overly permissive path matchers in security configurations can inadvertently expose management APIs intended for users, not just agents. Multi-tenant applications must explicitly validate resource ownership in every controller method that accepts an ID or resolves an entity.
+**Prevention:** Use specific path matchers for unauthenticated agent endpoints (e.g., `/api/v1/agent/ingest`). Implement a standardized `validateOwnership` helper in controllers to enforce client isolation and throw `AccessDeniedException` for unauthorized access.
