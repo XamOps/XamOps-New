@@ -19,9 +19,10 @@ import {
   FiZap, FiSun, FiMoon, FiStar, FiHeart,
   FiShoppingCart, FiCreditCard, FiDollarSign, FiTruck, FiPhone, FiMonitor,
 } from 'react-icons/fi';
+import { FaAws } from 'react-icons/fa';
 import {
   // AWS/Cloud icons - using verified icon names
-  SiAmazon, SiKubernetes, SiDocker, SiTerraform,
+  SiKubernetes, SiDocker, SiTerraform,
   SiJenkins, SiGithubactions, SiGitlab, SiPrometheus, SiGrafana, SiElasticsearch,
   SiRedis, SiMongodb, SiPostgresql, SiMysql, SiNginx, SiApache,
 } from 'react-icons/si';
@@ -93,7 +94,7 @@ const iconLibrary: IconData[] = [
   { id: 'users-cog-1', name: 'User Management', icon: HiOutlineUsers, category: 'Users', tags: ['users', 'management', 'admin'], color: 'slate' },
 
   // Cloud Providers
-  { id: 'aws-1', name: 'AWS', icon: SiAmazon, category: 'Cloud', tags: ['aws', 'amazon', 'cloud'], color: 'orange' },
+  { id: 'aws-1', name: 'AWS', icon: FaAws, category: 'Cloud', tags: ['aws', 'amazon', 'cloud'], color: 'orange' },
   { id: 'azure-1', name: 'Azure', icon: HiOutlineCloud, category: 'Cloud', tags: ['azure', 'microsoft', 'cloud'], color: 'blue' },
   { id: 'gcp-1', name: 'GCP', icon: HiOutlineCloud, category: 'Cloud', tags: ['gcp', 'google', 'cloud'], color: 'red' },
   { id: 'cloud-queue-1', name: 'Cloud Queue', icon: MdCloudQueue, category: 'Cloud', tags: ['queue', 'cloud', 'messaging'], color: 'pink' },
