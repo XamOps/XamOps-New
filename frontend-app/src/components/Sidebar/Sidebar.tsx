@@ -150,7 +150,7 @@ const Sidebar: React.FC = () => {
       <button
         onClick={toggleMobileMenu}
         className={clsx(
-          "lg:hidden fixed top-4 left-4 z-50 p-2 rounded-lg shadow-lg border transition-colors",
+          "lg:hidden fixed top-4 left-4 z-50 p-2 rounded-lg shadow-lg border transition-colors outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1 dark:focus-visible:ring-offset-slate-900",
           theme === 'dark' ? 'bg-slate-800 border-slate-700 text-slate-100 hover:bg-slate-700' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
         )}
         aria-label="Toggle sidebar menu"

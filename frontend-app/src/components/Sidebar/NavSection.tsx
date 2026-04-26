@@ -47,7 +47,7 @@ const NavSection: React.FC<NavSectionProps> = ({
         aria-expanded={isOpen}
         aria-controls={`navsection-${label.replace(/\s+/g, '-').toLowerCase()}`}
         className={clsx(
-          'sidebar-section w-full flex items-center rounded-lg transition-all duration-300 ease-in-out px-3 py-2.5 justify-between',
+          'sidebar-section w-full flex items-center rounded-lg transition-all duration-300 ease-in-out px-3 py-2.5 justify-between outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1 dark:focus-visible:ring-offset-slate-900',
           isOpen
             ? `bg-gradient-to-r ${gradientClass} text-white shadow-lg shadow-purple-500/25 ring-1 ring-white/10`
             : theme === 'dark'
