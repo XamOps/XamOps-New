@@ -94,7 +94,7 @@ const AccountSelector: React.FC<AccountSelectorProps> = ({ isOpen, onToggle, onC
                 key={account.id}
                 onClick={() => !disabled && toggleAccount(account.id)}
                 className={clsx(
-                  'w-full flex items-center justify-between p-2 rounded-xl transition-all duration-200 group relative',
+                  'w-full flex items-center justify-between p-2 rounded-xl transition-all duration-200 group relative focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1 dark:focus-visible:ring-offset-slate-900',
                   disabled && 'opacity-40 cursor-not-allowed',
                   !disabled && itemButtonStyles
                 )}
@@ -145,7 +145,7 @@ const AccountSelector: React.FC<AccountSelectorProps> = ({ isOpen, onToggle, onC
       <button
         onClick={onToggle}
         className={clsx(
-          'w-full flex items-center justify-between p-3 border rounded-xl transition-all duration-300 shadow-sm',
+          'w-full flex items-center justify-between p-3 border rounded-xl transition-all duration-300 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1 dark:focus-visible:ring-offset-slate-900',
           isOpen
             ? (theme === 'dark' ? 'bg-slate-800 border-indigo-500/50 shadow-indigo-500/10' : 'bg-white border-indigo-200 shadow-indigo-500/10')
             : (theme === 'dark' ? 'bg-slate-800/40 border-slate-700/50 hover:bg-slate-800 hover:border-slate-600' : 'bg-white border-gray-100 hover:border-indigo-100 shadow-sm')

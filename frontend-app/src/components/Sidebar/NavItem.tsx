@@ -26,7 +26,7 @@ const NavItem: React.FC<NavItemProps> = ({
   const isReactRoute = !href.includes('.html');
 
   const className = clsx(
-    'nav-item flex items-center rounded-lg transition-all duration-300 ease-in-out px-3 py-2.5',
+    'nav-item flex items-center rounded-lg transition-all duration-300 ease-in-out px-3 py-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1 dark:focus-visible:ring-offset-slate-900',
     isActive
       ? `bg-gradient-to-r ${gradientClass} text-white shadow-lg shadow-blue-500/25 ring-1 ring-white/10`
       : theme === 'dark'

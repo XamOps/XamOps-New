@@ -1,0 +1,3 @@
+[submodule "my-vault"]
+	path = my-vault
+	url = https://github.com/XamOps/my-vault.git
