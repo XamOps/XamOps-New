@@ -11,7 +11,6 @@ import LogoutModal from './LogoutModal';
 import NotificationDropdown from './NotificationDropdown';
 import BillOpsUserNotificationDropdown from '../BillOps/BillOpsUserNotificationDropdown';
 import { useTheme } from '../../contexts/ThemeContext';
-import { TooltipWrapper } from '../ui/Tooltip';
 
 const Topbar: React.FC = () => {
     const location = useLocation();
@@ -135,24 +134,22 @@ const Topbar: React.FC = () => {
                         {/* Notifications - Show for XamOps and BillOps users, but not BillOps Admin (they have their own on dashboard) */}
                         {!isBillOpsAdmin && (
                             <div className="relative" ref={notificationRef}>
-                                <TooltipWrapper tip="Notifications">
-                                    <button
-                                        onClick={toggleNotifications}
-                                        aria-label="View notifications"
-                                        className={clsx(
-                                            'w-10 h-10 flex items-center justify-center rounded-xl transition-all relative focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1 dark:focus-visible:ring-offset-slate-900',
-                                            theme === 'dark' ? 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-indigo-400' : 'bg-slate-100/50 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600'
-                                        )}
-                                    >
-                                        <i className="fas fa-bell"></i>
-                                        {counts.total > 0 && (
-                                            <span className={clsx(
-                                                'absolute top-2 right-2 w-2 h-2 bg-rose-500 rounded-full border-2',
-                                                theme === 'dark' ? 'border-slate-800' : 'border-white'
-                                            )}></span>
-                                        )}
-                                    </button>
-                                </TooltipWrapper>
+                                <button
+                                    onClick={toggleNotifications}
+                                    aria-label="View notifications"
+                                    className={clsx(
+                                        'w-10 h-10 flex items-center justify-center rounded-xl transition-all relative focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1 dark:focus-visible:ring-offset-slate-900',
+                                        theme === 'dark' ? 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-indigo-400' : 'bg-slate-100/50 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600'
+                                    )}
+                                >
+                                    <i className="fas fa-bell"></i>
+                                    {counts.total > 0 && (
+                                        <span className={clsx(
+                                            'absolute top-2 right-2 w-2 h-2 bg-rose-500 rounded-full border-2',
+                                            theme === 'dark' ? 'border-slate-800' : 'border-white'
+                                        )}></span>
+                                    )}
+                                </button>
 
                                 {isNotificationOpen && (
                                     <>
@@ -177,18 +174,16 @@ const Topbar: React.FC = () => {
                         )}
 
                         {onHelpClick && (
-                            <TooltipWrapper tip="Help Guide">
-                                <button
-                                    onClick={onHelpClick}
-                                    className={clsx(
-                                        'w-10 h-10 flex items-center justify-center rounded-xl transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1 dark:focus-visible:ring-offset-slate-900',
-                                        theme === 'dark' ? 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-indigo-400' : 'bg-slate-100/50 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600'
-                                    )}
-                                    aria-label="Open help guide"
-                                >
-                                    <i className="fas fa-question-circle"></i>
-                                </button>
-                            </TooltipWrapper>
+                            <button
+                                onClick={onHelpClick}
+                                className={clsx(
+                                    'w-10 h-10 flex items-center justify-center rounded-xl transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1 dark:focus-visible:ring-offset-slate-900',
+                                    theme === 'dark' ? 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-indigo-400' : 'bg-slate-100/50 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600'
+                                )}
+                                aria-label="Open help guide"
+                            >
+                                <i className="fas fa-question-circle"></i>
+                            </button>
                         )}
                     </div>
 
