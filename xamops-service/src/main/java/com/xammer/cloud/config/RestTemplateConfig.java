@@ -97,6 +97,22 @@ public class RestTemplateConfig {
     }
 
     /**
+     * Dedicated RestTemplate for Authentik API calls.
+     *
+     * IMPORTANT: No logging interceptor — the Authorization: Bearer header must
+     * never appear in any log. Timeouts are shorter than the primary template
+     * because Authentik is a local service (same network) and should be fast.
+     */
+    @Bean
+    @Qualifier("authentikRestTemplate")
+    public RestTemplate authentikRestTemplate() {
+        HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory();
+        factory.setConnectTimeout(5000);   // 5 s — fail fast if Authentik is unreachable
+        factory.setReadTimeout(15000);     // 15 s — covers slow list endpoints
+        return new RestTemplate(factory);
+    }
+
+    /**
      * Short-timeout RestTemplate for Prometheus queries.
      * Prometheus should respond in milliseconds; 8 s is generous.
      * Keeping the timeout small prevents a single unreachable Prometheus endpoint

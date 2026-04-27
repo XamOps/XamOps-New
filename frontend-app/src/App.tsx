@@ -139,6 +139,15 @@ const BillOpsAdminMarketplaceBillingPage = lazy(() => import('./pages/BillOpsAdm
 const BillOpsAdminUserManagerPage = lazy(() => import('./pages/BillOpsAdminUserManagerPage'));
 const ClientDetailsPage = lazy(() => import('./pages/ClientDetailsPage'));
 
+// AccessOps — Identity Management (temporarily hidden)
+// const IdentityUsersPage  = lazy(() => import('./pages/identity/IdentityUsersPage'));
+// const IdentityGroupsPage = lazy(() => import('./pages/identity/IdentityGroupsPage'));
+// const IdentityAuditPage  = lazy(() => import('./pages/identity/IdentityAuditPage'));
+
+// SRE
+const SreInvestigationsPage = lazy(() => import('./pages/SreInvestigationsPage'));
+const SreInvestigationDetailPage = lazy(() => import('./pages/SreInvestigationDetailPage'));
+
 // Settings & Profile
 const TicketsPage = lazy(() => import('./pages/TicketsPage'));
 const TicketDetailPage = lazy(() => import('./pages/TicketDetailPage'));
@@ -210,6 +219,7 @@ import './styles/azureCloudList.css';
 import './styles/azureFinops.css';
 import './styles/flexCompute.css';
 import './styles/autoscaling.css';
+// import './styles/accessops.css';
 
 // Helper function to check authentication
 // Note: Since cookies might be HttpOnly, we check by making an API call

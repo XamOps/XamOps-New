@@ -33,7 +33,7 @@ import EksContainersTab from '../components/EksDetails/tabs/EksContainersTab';
 import EksNodesTab from '../components/EksDetails/tabs/EksNodesTab';
 import EksKarpenterTab from '../components/EksDetails/tabs/EksKarpenterTab';
 import EksResourcesTab from '../components/EksDetails/tabs/EksResourcesTab';
-import EksAutoscalingTab from '../components/EksDetails/tabs/EksAutoscalingTab';
+// import EksAutoscalingTab from '../components/EksDetails/tabs/EksAutoscalingTab';
 import EksIntegrationModal from '../components/EksDetails/EksIntegrationModal';
 
 const EksDetailsPage: React.FC = () => {
@@ -202,7 +202,7 @@ const EksDetailsPage: React.FC = () => {
               {activeTab === 'nodes' && <EksNodesTab eksData={eksData} />}
               {activeTab === 'resources' && <EksResourcesTab eksData={eksData} />}
               {activeTab === 'karpenter' && <EksKarpenterTab eksData={eksData} />}
-              {activeTab === 'autoscaling' && <EksAutoscalingTab eksData={eksData} />}
+              {/* {activeTab === 'autoscaling' && <EksAutoscalingTab eksData={eksData} />} */}
             </div>
           </>
         )}

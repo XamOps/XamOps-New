@@ -449,6 +449,18 @@ func buildNodeDetail(n corev1.Node) NodeDetail {
 		})
 	}
 
+	var internalIP, externalIP, hostname string
+	for _, addr := range n.Status.Addresses {
+		switch addr.Type {
+		case corev1.NodeInternalIP:
+			internalIP = addr.Address
+		case corev1.NodeExternalIP:
+			externalIP = addr.Address
+		case corev1.NodeHostName:
+			hostname = addr.Address
+		}
+	}
+
 	return NodeDetail{
 		Name:              n.Name,
 		Labels:            n.Labels,
@@ -467,6 +479,9 @@ func buildNodeDetail(n corev1.Node) NodeDetail {
 		AllocatableCPU:    n.Status.Allocatable.Cpu().String(),
 		AllocatableMemory: n.Status.Allocatable.Memory().String(),
 		AllocatablePods:   n.Status.Allocatable.Pods().String(),
+		InternalIP:        internalIP,
+		ExternalIP:        externalIP,
+		Hostname:          hostname,
 		Conditions:        conditions,
 		Taints:            taints,
 		Unschedulable:     n.Spec.Unschedulable,

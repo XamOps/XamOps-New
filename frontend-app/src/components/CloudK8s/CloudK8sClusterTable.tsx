@@ -7,7 +7,6 @@
 import React from 'react';
 import { EKSCluster } from '../../pages/CloudK8sPage';
 import Skeleton from '../Shared/Skeleton';
-import SreInvestigateButton from '../SreInvestigateButton';
 
 interface CloudK8sClusterTableProps {
   clusters: EKSCluster[];
@@ -109,11 +108,6 @@ const CloudK8sClusterTable: React.FC<CloudK8sClusterTableProps> = ({
                         <i className="fas fa-external-link-alt mr-1.5"></i>
                         Details
                       </button>
-                      <SreInvestigateButton
-                        resourceType="K8S_POD"
-                        resourceId={cluster.name}
-                        resourceName={cluster.name}
-                      />
                     </div>
                   </td>
                 </tr>
