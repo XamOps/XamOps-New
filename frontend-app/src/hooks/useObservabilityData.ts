@@ -380,7 +380,7 @@ export const useObservabilityData = () => {
 
   // ── Setup configs ─────────────────────────────────────────────────────────────
 
-  const fetchSetupConfig = useCallback(async (type: 'fluent-bit' | 'helm' | 'otel' | 'agent-secret' | 'agents/rbac' | 'agents/xamops-agent' | 'agents/fluent-bit' | 'agents/otel-collector' | 'helm-eks' | 'ec2-otel') => {
+  const fetchSetupConfig = useCallback(async (type: 'fluent-bit' | 'helm' | 'otel' | 'agent-secret' | 'agents/rbac' | 'agents/xamops-agent' | 'agents/fluent-bit' | 'agents/otel-collector' | 'helm-eks' | 'ec2-otel' | 'gce-otel') => {
     try {
       const data = await apiClient.get(`/api/observability/setup/${type}${accountParam}`);
       setSetupConfig(data);

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xammer.billops.domain.SupportMessage;
 import com.xammer.billops.domain.UserPlatformConnection;
+import com.xammer.billops.repository.AppUserRepository;
 import com.xammer.billops.repository.MessagingIntegrationConfigRepository;
 import com.xammer.billops.repository.SupportMessageRepository;
 import com.xammer.billops.repository.UserPlatformConnectionRepository;
@@ -54,17 +55,20 @@ public class GoogleChatPollingScheduler {
     private final SupportMessageRepository messageRepository;
     private final MessagingIntegrationConfigRepository configRepo;
     private final GoogleChatService googleChatService;
+    private final AppUserRepository appUserRepository;
     private final RestTemplate restTemplate = new RestTemplate();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public GoogleChatPollingScheduler(UserPlatformConnectionRepository connectionRepo,
             SupportMessageRepository messageRepository,
             MessagingIntegrationConfigRepository configRepo,
-            GoogleChatService googleChatService) {
+            GoogleChatService googleChatService,
+            AppUserRepository appUserRepository) {
         this.connectionRepo = connectionRepo;
         this.messageRepository = messageRepository;
         this.configRepo = configRepo;
         this.googleChatService = googleChatService;
+        this.appUserRepository = appUserRepository;
     }
 
     @Scheduled(fixedDelay = 30_000)
@@ -156,7 +160,10 @@ public class GoogleChatPollingScheduler {
         saved.setUserMessage(true);
         saved.setStatus("UNREAD");
         saved.setTimestamp(LocalDateTime.now(IST));
-        saved.setSenderUsername("gchat_user");
+        String senderUsername = appUserRepository.findById(conn.getUserId())
+                .map(u -> u.getUsername())
+                .orElse("gchat_user");
+        saved.setSenderUsername(senderUsername);
         saved.setExternalPlatform("GOOGLE_CHAT");
         saved.setExternalMessageId(messageName);
 

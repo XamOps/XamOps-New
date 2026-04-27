@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useGcpDiskRightsizingData, GcpDisk } from '../hooks/useGcpDiskRightsizingData';
-import { useTopbarActions } from '../contexts/TopbarContext';
 
 const PAGE_SIZE = 20;
 
