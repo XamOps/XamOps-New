@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -30,6 +31,9 @@ func newLogWatcher(url, org, username, password, stream string, batchSize, inter
 		} else {
 			stream = "ec2-logs"
 		}
+	}
+	if interval <= 0 {
+		interval = 60
 	}
 	return &logWatcher{
 		shipper:      newOpenObserveShipper(url, org, username, password),
@@ -62,11 +66,13 @@ func (w *logWatcher) collectEC2Logs(ctx context.Context) {
 	)
 	out, err := cmd.Output()
 	if err != nil {
+		log.Printf("log-watcher: journalctl failed — journald may not be present: %v", err)
 		return
 	}
 
 	var records []map[string]interface{}
 	scanner := bufio.NewScanner(strings.NewReader(string(out)))
+	scanner.Buffer(make([]byte, 256*1024), 256*1024)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if line == "" {
@@ -108,7 +114,11 @@ func (w *logWatcher) collectEC2Logs(ctx context.Context) {
 func journaldRecordToOO(jd map[string]interface{}) map[string]interface{} {
 	rec := map[string]interface{}{}
 	if ts, ok := jd["__REALTIME_TIMESTAMP"].(string); ok {
-		rec["_timestamp"] = ts
+		if usec, err := strconv.ParseInt(ts, 10, 64); err == nil {
+			rec["_timestamp"] = usec
+		} else {
+			rec["_timestamp"] = time.Now().UnixMicro()
+		}
 	} else {
 		rec["_timestamp"] = time.Now().UnixMicro()
 	}
@@ -131,7 +141,9 @@ func journaldRecordToOO(jd map[string]interface{}) map[string]interface{} {
 }
 
 // collectK8sLogs is implemented in Task 4.
-func (w *logWatcher) collectK8sLogs(ctx context.Context) {}
+func (w *logWatcher) collectK8sLogs(ctx context.Context) {
+	log.Printf("log-watcher: collectK8sLogs not yet implemented")
+}
 
 // detectLogAnomaly checks a single log record for known anomaly patterns.
 // resourceType is "EC2" or "K8S_POD". Returns nil if no anomaly found.
@@ -143,6 +155,9 @@ func detectLogAnomaly(rec map[string]interface{}, resourceType string) *SreAlert
 	msgLow := strings.ToLower(msg)
 
 	host, _ := rec["host"].(string)
+	if host == "" {
+		host = "unknown-host"
+	}
 	pod, _ := rec["pod"].(string)
 	ns, _ := rec["namespace"].(string)
 
@@ -174,6 +189,7 @@ func detectLogAnomaly(rec map[string]interface{}, resourceType string) *SreAlert
 		}
 	}
 
+	// CrashLoopBackOff messages from K8s control-plane are always exactly this spelling.
 	if strings.Contains(msg, "CrashLoopBackOff") || strings.Contains(msg, "Back-off restarting failed container") {
 		return &SreAlertItem{
 			ResourceType: resourceType,
