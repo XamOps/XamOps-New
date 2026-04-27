@@ -54,6 +54,8 @@ public class SecurityConfig {
                                                 .frameOptions(frameOptions -> frameOptions.disable()))
                                 .cors(withDefaults())
                                 .csrf(csrf -> csrf.disable())
+                                .sessionManagement(session -> session
+                                                .sessionFixation().changeSessionId())
                                 .exceptionHandling(exceptions -> exceptions
                                                 .defaultAuthenticationEntryPointFor(
                                                                 new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),
