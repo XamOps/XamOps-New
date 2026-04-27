@@ -33,6 +33,17 @@ type Config struct {
 	CollectorPrometheusMetrics bool // in-cluster Prometheus: utilization, cost, Falco, top pods
 	CollectorDB                bool // DB query stats collector (opt-in)
 	CollectorDisk              bool // disk usage collector (opt-in, for EBS/GCP disk rightsizing)
+	CollectorSreWatcher        bool // auto-detect pod anomalies and trigger SRE investigations (opt-in)
+	CollectorLogWatcher        bool // stream logs to OpenObserve + inline anomaly detection (opt-in)
+	LogWatcherInterval         int  // seconds between log collection runs (default 60)
+	LogWatcherBatchSize        int  // max log records per OpenObserve ingest call (default 500)
+
+	// OpenObserve log shipping
+	OpenObserveURL             string // e.g. http://openobserve:5080
+	OpenObserveOrg             string // e.g. default
+	OpenObserveStream          string // stream name (default: k8s-logs or ec2-logs based on mode)
+	OpenObserveUsername        string // basic auth username (usually email)
+	OpenObservePassword        string // basic auth password or API token
 
 	// Cloud provider — "AWS", "GCP", or empty for auto-detect via IMDS
 	CloudProvider string
@@ -85,6 +96,17 @@ func Load() (*Config, error) {
 		CollectorPrometheusMetrics: getEnvBool("COLLECTOR_PROMETHEUS_METRICS", true),  // on by default
 		CollectorDB:                getEnvBool("COLLECTOR_DB", false),                 // opt-in
 		CollectorDisk:              getEnvBool("COLLECTOR_DISK", false),               // opt-in
+		CollectorSreWatcher:        getEnvBool("COLLECTOR_SRE_WATCHER", false),        // opt-in
+		CollectorLogWatcher:        getEnvBool("COLLECTOR_LOG_WATCHER", false),        // opt-in
+		LogWatcherInterval:         getEnvInt("LOG_WATCHER_INTERVAL", 60),
+		LogWatcherBatchSize:        getEnvInt("LOG_WATCHER_BATCH_SIZE", 500),
+
+		// OpenObserve log shipping
+		OpenObserveURL:             getEnv("OPENOBSERVE_URL", "http://openobserve:5080"),
+		OpenObserveOrg:             getEnv("OPENOBSERVE_ORG", "default"),
+		OpenObserveStream:          getEnv("OPENOBSERVE_STREAM", ""),
+		OpenObserveUsername:        getEnv("OPENOBSERVE_USERNAME", "root@example.com"),
+		OpenObservePassword:        getEnv("OPENOBSERVE_PASSWORD", ""),
 
 		// DB settings
 		DBDSNs:            getEnvDSNs(),
