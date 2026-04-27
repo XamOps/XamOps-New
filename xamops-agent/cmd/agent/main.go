@@ -37,6 +37,8 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	collectors.StartLogWatcher(ctx)
+
 	// Start health server
 	go startHealthServer(cfg)
 

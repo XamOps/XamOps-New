@@ -29,6 +29,7 @@ type Manager struct {
 	dynamicClient dynamic.Interface
 	metricsClient metricsv.Interface
 	httpClient    *http.Client
+	logWatcher    *logWatcher
 }
 
 // NewCollectorManager creates a Manager with in-cluster Kubernetes clients
@@ -63,6 +64,11 @@ func NewCollectorManager(cfg *config.Config) *Manager {
 		log.Printf("WARN: metrics-server client unavailable (metrics-server may not be installed): %v", err)
 	} else {
 		m.metricsClient = metricsClient
+	}
+
+	if cfg.CollectorLogWatcher && cfg.OpenObservePassword != "" {
+		url, org, username, password, stream, batchSize, interval := cfg.LogWatcherSettings()
+		m.logWatcher = newLogWatcher(url, org, username, password, stream, batchSize, interval, m.k8sClient)
 	}
 
 	return m
@@ -155,8 +161,17 @@ func (m *Manager) CollectAll() (*AgentPayload, error) {
 	}
 
 	if m.k8sClient == nil {
-		if m.cfg.CollectorDB || m.cfg.CollectorDisk {
-			// Running as a standalone agent (no k8s cluster) — batches already collected above
+		// ── EC2 SRE watcher (standalone — no k8s) ────────────────────────────
+		if m.cfg.CollectorSreWatcher {
+			if batch, err := collectSreAlertsEC2(ctx); err == nil {
+				if batch.Count > 0 {
+					payload.Batches = append(payload.Batches, batch)
+				}
+			} else {
+				log.Printf("WARN: sre-watcher (ec2): %v", err)
+			}
+		}
+		if m.cfg.CollectorDB || m.cfg.CollectorDisk || m.cfg.CollectorSreWatcher {
 			return payload, nil
 		}
 		log.Println("WARN: no k8s client — skipping all collectors")
@@ -246,7 +261,68 @@ func (m *Manager) CollectAll() (*AgentPayload, error) {
 		}
 	}
 
+	// ── 8. SRE watcher — detect pod anomalies, push sre-alerts batch ───────────
+	if m.cfg.CollectorSreWatcher {
+		if batch, err := collectSreAlerts(ctx, m.k8sClient); err == nil {
+			if batch.Count > 0 {
+				payload.Batches = append(payload.Batches, batch)
+			}
+		} else {
+			log.Printf("WARN: sre-watcher: %v", err)
+		}
+	}
+
+	// ── 9. Drain log-watcher anomaly queue into sre-alerts batch ──────────────
+	if m.logWatcher != nil {
+		var logAlerts []SreAlertItem
+	drain:
+		for {
+			select {
+			case a := <-m.logWatcher.anomalyQueue:
+				logAlerts = append(logAlerts, a)
+			default:
+				break drain
+			}
+		}
+		if len(logAlerts) > 0 {
+			items := make([]interface{}, len(logAlerts))
+			for i, a := range logAlerts {
+				items[i] = a
+			}
+			payload.Batches = append(payload.Batches, DataBatch{
+				Collector:   "sre-alerts",
+				Items:       items,
+				Count:       len(items),
+				CollectedAt: time.Now(),
+			})
+			log.Printf("log-watcher: drained %d anomalies into sre-alerts batch", len(logAlerts))
+		}
+	}
+
 	return payload, nil
+}
+
+// StartLogWatcher launches the log watcher goroutine. Call once from main.go.
+// No-op if log watcher is disabled or OpenObserve password is not configured.
+func (m *Manager) StartLogWatcher(ctx context.Context) {
+	if m.logWatcher == nil {
+		return
+	}
+	log.Printf("log-watcher: starting (interval=%ds, stream=%s)", m.logWatcher.interval, m.logWatcher.streamName)
+	go func() {
+		m.logWatcher.runOnce(ctx)
+		ticker := time.NewTicker(time.Duration(m.logWatcher.interval) * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				log.Println("log-watcher: stopped")
+				return
+			case <-ticker.C:
+				m.logWatcher.runOnce(ctx)
+			}
+		}
+	}()
 }
 
 // ── Helpers shared by multiple collectors ─────────────────────────────────────

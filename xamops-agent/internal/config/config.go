@@ -171,6 +171,12 @@ func getEnvBool(key string, defaultValue bool) bool {
 	return defaultValue
 }
 
+// LogWatcherSettings returns log watcher config values for the collector package.
+func (c *Config) LogWatcherSettings() (url, org, username, password, stream string, batchSize, interval int) {
+	return c.OpenObserveURL, c.OpenObserveOrg, c.OpenObserveUsername, c.OpenObservePassword,
+		c.OpenObserveStream, c.LogWatcherBatchSize, c.LogWatcherInterval
+}
+
 // getEnvDSNs reads DB_DSN_0, DB_DSN_1, ... up to 20 entries
 func getEnvDSNs() []string {
 	dsns := []string{}
