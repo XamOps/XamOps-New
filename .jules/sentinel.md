@@ -1,0 +1,4 @@
+## 2026-04-27 - Agent Management IDOR Vulnerability
+**Vulnerability:** Sensitive management endpoints in `AgentController` (like `/db/config`, `/db/register`, `/db/status`) were publicly accessible and lacked ownership validation. An attacker could view or modify database agent configurations for any `cloudAccountId` simply by guessing or iterating IDs.
+**Learning:** The `SecurityConfig.java` used a broad `.permitAll()` for `/api/v1/agent/**` to facilitate agent-to-server communication (ingest/heartbeat), but this also inadvertently exposed administrative/management endpoints that were part of the same path hierarchy.
+**Prevention:** Always implement explicit ownership checks in controllers for sensitive data, especially when using broad path-based whitelists in security configurations. Use helper methods like `validateOwnership` to standardize these checks across multiple endpoints.
