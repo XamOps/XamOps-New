@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -24,12 +25,13 @@ const agentVersion = "1.0.0"
 
 // Manager orchestrates all data collectors
 type Manager struct {
-	cfg           *config.Config
-	k8sClient     kubernetes.Interface
-	dynamicClient dynamic.Interface
-	metricsClient metricsv.Interface
-	httpClient    *http.Client
-	logWatcher    *logWatcher
+	cfg            *config.Config
+	k8sClient      kubernetes.Interface
+	dynamicClient  dynamic.Interface
+	metricsClient  metricsv.Interface
+	httpClient     *http.Client
+	logWatcher     *logWatcher
+	logWatcherOnce sync.Once
 }
 
 // NewCollectorManager creates a Manager with in-cluster Kubernetes clients
@@ -308,21 +310,23 @@ func (m *Manager) StartLogWatcher(ctx context.Context) {
 	if m.logWatcher == nil {
 		return
 	}
-	log.Printf("log-watcher: starting (interval=%ds, stream=%s)", m.logWatcher.interval, m.logWatcher.streamName)
-	go func() {
-		m.logWatcher.runOnce(ctx)
-		ticker := time.NewTicker(time.Duration(m.logWatcher.interval) * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				log.Println("log-watcher: stopped")
-				return
-			case <-ticker.C:
-				m.logWatcher.runOnce(ctx)
+	m.logWatcherOnce.Do(func() {
+		log.Printf("log-watcher: starting (interval=%ds, stream=%s)", m.logWatcher.interval, m.logWatcher.streamName)
+		go func() {
+			m.logWatcher.runOnce(ctx)
+			ticker := time.NewTicker(time.Duration(m.logWatcher.interval) * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					log.Println("log-watcher: stopped")
+					return
+				case <-ticker.C:
+					m.logWatcher.runOnce(ctx)
+				}
 			}
-		}
-	}()
+		}()
+	})
 }
 
 // ── Helpers shared by multiple collectors ─────────────────────────────────────
