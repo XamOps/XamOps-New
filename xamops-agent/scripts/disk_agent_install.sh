@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # XamOps Disk Agent — EC2 installer
 #
-# Installs the XamOps disk agent on an EC2 instance so that actual disk
-# usage (via df) is reported to XamOps without requiring SSM or IAM changes.
-# The agent runs as a lightweight systemd service and reports every 5 minutes.
+# Installs the XamOps disk agent on an EC2 instance. Collects disk usage,
+# streams logs to OpenObserve, and auto-triggers SRE investigations on anomalies
+# (OOM kills, failed services, high disk usage). Runs as a systemd service.
 #
 # Usage (one-liner from XamOps UI):
 #
@@ -15,9 +15,14 @@
 #   sudo bash agent_install.sh -t <cloud-account-token>
 #
 # Options:
-#   -t ACCOUNT_ID  Your 12-digit AWS account ID (required)
-#   -b BASE_URL    XamOps API base URL (default: https://api.xamops.com)
-#   -v VERSION     Agent version to install (default: latest)
+#   -t ACCOUNT_ID        Your 12-digit AWS account ID (required)
+#   -b BASE_URL          XamOps API base URL (default: https://api.xamops.com)
+#   -v VERSION           Agent version to install (default: latest)
+#   -o OPENOBSERVE_URL   OpenObserve base URL for log shipping (optional)
+#                        e.g. http://my-openobserve-host:5080
+#   -u OO_USERNAME       OpenObserve username (default: root@example.com)
+#   -p OO_PASSWORD       OpenObserve password (enables log watcher when set)
+#   -s OO_STREAM         OpenObserve stream name (default: ec2-logs)
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
@@ -34,12 +39,20 @@ XAMOPS_API_KEY="xamops_SecureAgentKey2024XamOps"
 CLOUD_ACCOUNT_ID=""
 BASE_URL="https://api.xamops.com"
 AGENT_VERSION="latest"
+OPENOBSERVE_URL=""
+OPENOBSERVE_USERNAME="root@example.com"
+OPENOBSERVE_PASSWORD=""
+OPENOBSERVE_STREAM="ec2-logs"
 
-while getopts "t:b:v:" opt; do
+while getopts "t:b:v:o:u:p:s:" opt; do
   case $opt in
     t) CLOUD_ACCOUNT_ID="$OPTARG" ;;
     b) BASE_URL="$OPTARG" ;;
     v) AGENT_VERSION="$OPTARG" ;;
+    o) OPENOBSERVE_URL="$OPTARG" ;;
+    u) OPENOBSERVE_USERNAME="$OPTARG" ;;
+    p) OPENOBSERVE_PASSWORD="$OPTARG" ;;
+    s) OPENOBSERVE_STREAM="$OPTARG" ;;
     *) error "Unknown option: -$OPTARG" ;;
   esac
 done
@@ -98,6 +111,11 @@ sudo mkdir -p /etc/xamops
 ENV_FILE=/etc/xamops/disk-agent.env
 
 info "Writing config to ${ENV_FILE}"
+
+# Enable log watcher only when an OpenObserve password was supplied
+LOG_WATCHER_ENABLED=false
+[[ -n "$OPENOBSERVE_PASSWORD" ]] && LOG_WATCHER_ENABLED=true
+
 sudo tee "$ENV_FILE" > /dev/null <<EOF
 XAMOPS_SERVER_URL=${BASE_URL}
 XAMOPS_API_KEY=${XAMOPS_API_KEY}
@@ -107,7 +125,7 @@ LOG_LEVEL=info
 COLLECT_INTERVAL=300
 HEARTBEAT_INTERVAL=300
 
-# Collector flags — disk-only mode
+# Collector flags — disk + log watcher mode
 COLLECTOR_DISK=true
 COLLECTOR_DB=false
 COLLECTOR_TRIVY=false
@@ -115,6 +133,17 @@ COLLECTOR_KUBESCAPE=false
 COLLECTOR_OPENCOST=false
 COLLECTOR_KARPENTER=false
 COLLECTOR_METRICS=false
+COLLECTOR_SRE_WATCHER=true
+
+# Log watcher — streams journald logs to OpenObserve + auto-triggers SRE investigations
+COLLECTOR_LOG_WATCHER=${LOG_WATCHER_ENABLED}
+LOG_WATCHER_INTERVAL=60
+LOG_WATCHER_BATCH_SIZE=500
+OPENOBSERVE_URL=${OPENOBSERVE_URL}
+OPENOBSERVE_ORG=default
+OPENOBSERVE_USERNAME=${OPENOBSERVE_USERNAME}
+OPENOBSERVE_PASSWORD=${OPENOBSERVE_PASSWORD}
+OPENOBSERVE_STREAM=${OPENOBSERVE_STREAM}
 EOF
 
 sudo chmod 600 "$ENV_FILE"
@@ -149,7 +178,7 @@ sudo systemctl enable xamops-disk-agent
 sudo systemctl restart xamops-disk-agent
 
 # ── Done ──────────────────────────────────────────────────────────────────────
-info "Done! Disk agent is running."
+info "Done! XamOps agent is running."
 echo ""
 echo "  Status : sudo systemctl status xamops-disk-agent"
 echo "  Logs   : sudo journalctl -u xamops-disk-agent -f"
@@ -157,3 +186,17 @@ echo ""
 echo "  Disk usage will appear in XamOps within 1-2 minutes."
 echo "  Refresh the EBS Rightsizing page to see SHRINK recommendations."
 echo ""
+if [[ "$LOG_WATCHER_ENABLED" == "true" ]]; then
+  info "Log watcher enabled — shipping journald logs to OpenObserve at ${OPENOBSERVE_URL}"
+  echo "  Stream  : ${OPENOBSERVE_STREAM}"
+  echo "  OOM kills, disk alerts, and failed services will auto-trigger SRE investigations."
+  echo ""
+else
+  warn "Log watcher disabled (no -p <openobserve-password> supplied)."
+  echo "  To enable later, edit ${ENV_FILE} and set:"
+  echo "    COLLECTOR_LOG_WATCHER=true"
+  echo "    OPENOBSERVE_URL=http://<host>:5080"
+  echo "    OPENOBSERVE_PASSWORD=<password>"
+  echo "  Then: sudo systemctl restart xamops-disk-agent"
+  echo ""
+fi

@@ -266,6 +266,21 @@ data:
   # Keep false to avoid duplicate data.
   COLLECTOR_METRICS: "false"
 
+  # ── Log watcher — replaces Fluent Bit ──────────────────────────────────────
+  # Streams pod logs directly to OpenObserve and detects anomalies inline
+  # (OOM kills, CrashLoopBackOff, kernel panics). Triggers SRE investigations
+  # automatically. Set to "false" if you are still using Fluent Bit.
+  COLLECTOR_LOG_WATCHER: "true"
+  LOG_WATCHER_INTERVAL: "60"       # seconds between log collection runs
+  LOG_WATCHER_BATCH_SIZE: "500"    # max log records per OpenObserve ingest call
+
+  # ── OpenObserve connection (for log shipping) ───────────────────────────────
+  # Point to your OpenObserve in-cluster service.
+  OPENOBSERVE_URL: "http://openobserve.openobserve.svc.cluster.local:5080"
+  OPENOBSERVE_ORG: "default"
+  OPENOBSERVE_USERNAME: "root@example.com"
+  OPENOBSERVE_STREAM: "k8s-logs"
+
   # ── OpenCost configuration ──────────────────────────────────────────────────
   OPENCOST_SERVICE_URL: "http://opencost.opencost.svc.cluster.local:9003"
   OPENCOST_ALLOCATION_WINDOW: "1d"
@@ -312,6 +327,11 @@ stringData:
   # ============================================
   CLUSTER_NAME: "your-cluster-name"
   CLOUD_ACCOUNT_ID: "123456789"
+
+  # ── OpenObserve password (for log shipping) ─────────────────────────────────
+  # Set this to your OpenObserve admin password.
+  # Leave empty to disable log watcher even if COLLECTOR_LOG_WATCHER=true.
+  OPENOBSERVE_PASSWORD: ""
 
 ---
 # =============================================================================
@@ -507,6 +527,12 @@ spec:
       ports:
         - protocol: TCP
           port: 9090
+    # Allow OpenObserve (for log shipping)
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 5080
     # Allow HTTPS to XamOps server (external)
     - to:
         - ipBlock:
