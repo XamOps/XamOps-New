@@ -29,8 +29,21 @@ public class AgentInstallController {
      */
     @GetMapping(value = "/agentinstall/agent_install.sh", produces = MediaType.TEXT_PLAIN_VALUE)
     public ResponseEntity<String> getDiskAgentInstallScript() {
+        return serveScript("scripts/disk_agent_install.sh");
+    }
+
+    /**
+     * GET /agentinstall/gcp_disk_agent_install.sh
+     * Returns the GCP disk agent bash installer. No authentication required.
+     */
+    @GetMapping(value = "/agentinstall/gcp_disk_agent_install.sh", produces = MediaType.TEXT_PLAIN_VALUE)
+    public ResponseEntity<String> getGcpDiskAgentInstallScript() {
+        return serveScript("scripts/gcp_disk_agent_install.sh");
+    }
+
+    private ResponseEntity<String> serveScript(String classpathResource) {
         try {
-            ClassPathResource resource = new ClassPathResource("scripts/disk_agent_install.sh");
+            ClassPathResource resource = new ClassPathResource(classpathResource);
             try (InputStream is = resource.getInputStream()) {
                 String script = new String(is.readAllBytes(), StandardCharsets.UTF_8);
                 return ResponseEntity.ok()
@@ -38,7 +51,7 @@ public class AgentInstallController {
                         .body(script);
             }
         } catch (IOException e) {
-            logger.error("Could not serve disk agent install script: {}", e.getMessage());
+            logger.error("Could not serve install script {}: {}", classpathResource, e.getMessage());
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
                     .body("#!/usr/bin/env bash\necho 'Install script temporarily unavailable'\n");
         }

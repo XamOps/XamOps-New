@@ -346,7 +346,7 @@ public class GcpDiskRightsizingService {
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private CloudAccount resolveAccount(String accountId) {
-        return cloudAccountRepository.findById(Long.parseLong(accountId))
+        return cloudAccountRepository.findByProviderAccountId(accountId)
                 .orElseThrow(() -> new IllegalArgumentException("Account not found: " + accountId));
     }
 }
