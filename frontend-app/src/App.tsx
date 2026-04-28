@@ -112,6 +112,8 @@ const SonarQubePage = lazy(() => import('./pages/SonarQubePage'));
 const AIOpsPage = lazy(() => import('./pages/AIOpsPage'));
 const DataOpsPage = lazy(() => import('./pages/DataOpsPage'));
 const ObservabilityPage = lazy(() => import('./pages/ObservabilityPage'));
+const SreInvestigationsPage = lazy(() => import('./pages/SreInvestigationsPage'));
+const SreInvestigationDetailPage = lazy(() => import('./pages/SreInvestigationDetailPage'));
 const ComplianceOpsPage = lazy(() => import('./pages/ComplianceOpsPage'));
 const CalculatorPage = lazy(() => import('./pages/CalculatorPage'));
 
@@ -488,6 +490,8 @@ const AppContent: React.FC = () => {
  <Route path="/dataops" element={<DataOpsPage />} />
  <Route path="/gcp-dataops" element={<GcpDataOpsPage />} />
  <Route path="/observability/*" element={<ObservabilityPage />} />
+ <Route path="/sre/investigations" element={<SreInvestigationsPage />} />
+ <Route path="/sre/investigations/:id" element={<SreInvestigationDetailPage />} />
 
  {/* BillOps Routes */}
  <Route path="/billops-dashboard" element={<BillOpsUserDashboardPage />} />

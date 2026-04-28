@@ -71,7 +71,7 @@ const Sidebar: React.FC = () => {
     const path = location.pathname;
     const finopsRoutes = ['/cost', '/gcp-cost', '/azure-cost', '/reservation', '/gcp-reservations', '/azure-reservations',
       '/finops', '/gcp-finops', '/azure-finops', '/waste', '/gcp-waste', '/azure-waste',
-      '/rightsizing', '/gcp-rightsizing', '/azure-rightsizing', '/ebs-rightsizing',
+      '/rightsizing', '/gcp-rightsizing', '/azure-rightsizing', '/ebs-rightsizing', '/gcp-disk-rightsizing',
       '/cloudsitter', '/flex-compute', '/autospotting', '/gcp-autospotting', '/azure-autospotting'];
     const cloudopsRoutes = ['/cloudk8s', '/gcp-cloudk8s', '/azure-cloudk8s',
       '/sonarqube', '/cicd-pipelines', '/devops-in-the-box', '/grafana-dashboard', '/aiops', '/dataops', '/ebs-rightsizing'];
@@ -276,6 +276,9 @@ const Sidebar: React.FC = () => {
                 <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-rightsizing' : selectedAccountDisplay.provider === 'Azure' ? '/azure-rightsizing' : '/rightsizing'} icon="fas fa-compress-arrows-alt" label="Rightsizing" isActive={isActive('/rightsizing') || isActive('/gcp-rightsizing') || isActive('/azure-rightsizing')} />
                 {selectedAccountDisplay.provider === 'AWS' && (
                   <NavItem href="/ebs-rightsizing" icon="fas fa-hdd" label="Disk Rightsizing" isActive={isActive('/ebs-rightsizing')} />
+                )}
+                {selectedAccountDisplay.provider === 'GCP' && (
+                  <NavItem href="/gcp-disk-rightsizing" icon="fas fa-hdd" label="Disk Rightsizing" isActive={isActive('/gcp-disk-rightsizing')} />
                 )}
                 {selectedAccountDisplay.provider === 'AWS' && (
                   <>

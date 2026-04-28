@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"time"
@@ -70,6 +71,59 @@ func (p *Pusher) Push(payload *collector.AgentPayload) error {
 	}
 
 	return fmt.Errorf("all push attempts failed: %w", lastErr)
+}
+
+// FetchConfig calls GET /api/v1/agent/config and populates any unset OpenObserve
+// fields in cfg from the server response, so operators don't need to set them manually.
+func (p *Pusher) FetchConfig() {
+	configURL := p.cfg.ServerURL + "/api/v1/agent/config"
+	if p.cfg.CloudAccountID != "" {
+		configURL += "?accountId=" + p.cfg.CloudAccountID
+	}
+	req, err := http.NewRequest(http.MethodGet, configURL, nil)
+	if err != nil {
+		log.Printf("FetchConfig: create request: %v", err)
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+p.cfg.APIKey)
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		log.Printf("FetchConfig: http request: %v", err)
+		return
+	}
+	defer func() {
+		io.Copy(io.Discard, resp.Body) //nolint:errcheck
+		resp.Body.Close()
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("FetchConfig: server returned HTTP %d", resp.StatusCode)
+		return
+	}
+
+	var body struct {
+		OpenObserve map[string]string `json:"openobserve"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		log.Printf("FetchConfig: decode response: %v", err)
+		return
+	}
+
+	oo := body.OpenObserve
+	if oo["url"] != "" && p.cfg.OpenObserveURL == "" {
+		p.cfg.OpenObserveURL = oo["url"]
+	}
+	if oo["org"] != "" && p.cfg.OpenObserveOrg == "" {
+		p.cfg.OpenObserveOrg = oo["org"]
+	}
+	if oo["username"] != "" && p.cfg.OpenObserveUsername == "" {
+		p.cfg.OpenObserveUsername = oo["username"]
+	}
+	if oo["password"] != "" && p.cfg.OpenObservePassword == "" {
+		p.cfg.OpenObservePassword = oo["password"]
+	}
+	log.Printf("FetchConfig: OpenObserve config applied (url=%s, org=%s)", p.cfg.OpenObserveURL, p.cfg.OpenObserveOrg)
 }
 
 // Heartbeat sends a minimal heartbeat to signal the agent is alive.

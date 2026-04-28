@@ -33,6 +33,10 @@ func main() {
 	// Create pusher
 	dataPusher := pusher.NewPusher(cfg)
 
+	// Auto-fetch OpenObserve credentials from the backend so operators don't
+	// need to set OPENOBSERVE_* env vars manually — the server already has them.
+	dataPusher.FetchConfig()
+
 	// Create context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
