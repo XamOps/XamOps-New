@@ -502,15 +502,16 @@ export const useEksDashboard = ({
   const totalContainersCount = useMemo(() => {
     const pods = dashboard?.workloadHealth?.pods || [];
     return pods.reduce((count, pod) => {
-      return count + (pod.containerStatuses?.length || 0);
+      return count + ((pod.containers || pod.containerStatuses)?.length || 0);
     }, 0);
   }, [dashboard]);
 
   const totalContainerRestarts = useMemo(() => {
     const pods = dashboard?.workloadHealth?.pods || [];
     return pods.reduce((total, pod) => {
-      if (!pod.containerStatuses) return total;
-      return total + pod.containerStatuses.reduce((sum, c) => sum + (c.restartCount || 0), 0);
+      const ctrs = pod.containers || pod.containerStatuses;
+      if (!ctrs) return total;
+      return total + ctrs.reduce((sum, c) => sum + (c.restartCount || 0), 0);
     }, 0);
   }, [dashboard]);
 
@@ -528,9 +529,10 @@ export const useEksDashboard = ({
     });
 
     pods.forEach(pod => {
-      if (!pod.containerStatuses) return;
+      const podContainers = pod.containers || pod.containerStatuses;
+      if (!podContainers) return;
 
-      pod.containerStatuses.forEach((containerStatus: ContainerStatus) => {
+      podContainers.forEach((containerStatus: ContainerStatus) => {
         const key = `${pod.name}/${containerStatus.name}`;
         const metrics = metricsMap[key] || {};
 
@@ -632,8 +634,9 @@ export const useEksDashboard = ({
     let count = 0;
 
     pods.forEach(pod => {
-      if (!pod.containerStatuses) return;
-      pod.containerStatuses.forEach(container => {
+      const podContainers = pod.containers || pod.containerStatuses;
+      if (!podContainers) return;
+      podContainers.forEach(container => {
         if (container.state === state) count++;
       });
     });

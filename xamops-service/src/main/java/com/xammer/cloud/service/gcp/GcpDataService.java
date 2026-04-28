@@ -75,6 +75,9 @@ public class GcpDataService {
     @Autowired
     @Qualifier("backgroundTaskExecutor")
     private Executor backgroundTaskExecutor;
+
+    @Autowired
+    private org.springframework.messaging.simp.SimpMessagingTemplate messagingTemplate;
     private final Map<String, double[]> regionCoordinates = loadRegionCoordinates();
     private final ObjectMapper objectMapper;
     private final RedisCacheService redisCache;
@@ -94,7 +97,10 @@ public class GcpDataService {
     private static final String GCP_GRANULAR_COST_DB = "GCP_GRANULAR_COST::";
     private static final String GCP_GRANULAR_OPT_DB  = "GCP_GRANULAR_OPT::";
     private static final String GCP_GRANULAR_MAP_DB  = "GCP_GRANULAR_MAP::";
-    private static final String ALL_RESOURCES_CACHE_PREFIX = "gcp:all-resources:";
+    private static final String ALL_RESOURCES_CACHE_PREFIX     = "gcp:all-resources:";
+    private static final String GCP_CLOUDLIST_GROUPED_REDIS    = "gcp:cloudlist-grouped:";
+    private static final String GCP_CLOUDLIST_FLAT_DB          = "GCP_CLOUDLIST_FLAT::";
+    private static final String GCP_CLOUDLIST_GROUPED_DB       = "GCP_CLOUDLIST_GROUPED::";
     private static final String IAM_RESOURCES_CACHE_PREFIX = "gcp:iam-resources:";
     private static final String COMPUTE_INSTANCES_CACHE_PREFIX = "gcp:compute-instances:";
     private static final String STORAGE_BUCKETS_CACHE_PREFIX = "gcp:storage-buckets:";
@@ -585,21 +591,28 @@ public class GcpDataService {
     }
 
     public CompletableFuture<List<GcpResourceDto>> getAllResources(String gcpProjectId, boolean forceRefresh) {
-        String cacheKey = ALL_RESOURCES_CACHE_PREFIX + gcpProjectId;
+        String tenantPrefix = tenantPrefix();
+        String redisKey = ALL_RESOURCES_CACHE_PREFIX + gcpProjectId;
+        String dbKey    = GCP_CLOUDLIST_FLAT_DB + tenantPrefix + gcpProjectId;
 
-        // Check cache first
+        // TIER 1: Redis
         if (!forceRefresh) {
-            Optional<List<GcpResourceDto>> cached = redisCache.get(
-                    cacheKey,
-                    new TypeReference<List<GcpResourceDto>>() {
-                    });
+            Optional<List<GcpResourceDto>> cached = redisCache.get(redisKey, new TypeReference<List<GcpResourceDto>>() {});
             if (cached.isPresent()) {
-                log.info("✅ Returning cached GCP resources for project: {}", gcpProjectId);
+                log.info("[GcpCloudList] Redis hit — {} resources for project: {}", cached.get().size(), gcpProjectId);
                 return CompletableFuture.completedFuture(cached.get());
+            }
+            // TIER 2: DB snapshot
+            List<GcpResourceDto> dbCached = getCloudlistFlatSnapshot(dbKey);
+            if (dbCached != null) {
+                log.info("[GcpCloudList] DB hit — re-warming Redis ({} resources) for project: {}", dbCached.size(), gcpProjectId);
+                redisCache.put(redisKey, dbCached, 240);
+                return CompletableFuture.completedFuture(dbCached);
             }
         }
 
-        log.info("🔍 Fetching all GCP resources for project: {}", gcpProjectId);
+        log.info("[GcpCloudList] Cache miss — live GCP scan starting for project: {}", gcpProjectId);
+        final long startMs = System.currentTimeMillis();
 
         List<CompletableFuture<List<GcpResourceDto>>> futures = List.of(
                 CompletableFuture.supplyAsync(() -> getComputeInstances(gcpProjectId, forceRefresh), backgroundTaskExecutor),
@@ -616,32 +629,16 @@ public class GcpDataService {
                 CompletableFuture.supplyAsync(() -> getSecretManagerSecrets(gcpProjectId, forceRefresh), backgroundTaskExecutor),
                 CompletableFuture.supplyAsync(() -> getCloudArmorPolicies(gcpProjectId), backgroundTaskExecutor),
                 CompletableFuture.supplyAsync(() -> getApiGateways(gcpProjectId), backgroundTaskExecutor),
-                // CompletableFuture.supplyAsync(() -> getAppEngineApplications(gcpProjectId),
-                // executor),
                 CompletableFuture.supplyAsync(() -> getBigQueryDatasets(gcpProjectId), backgroundTaskExecutor),
                 CompletableFuture.supplyAsync(() -> getLoggingBuckets(gcpProjectId), backgroundTaskExecutor),
-                // CompletableFuture.supplyAsync(() -> getArtifactRepositories(gcpProjectId),
-                // executor),
-                // CompletableFuture.supplyAsync(() -> getCloudBuildTriggers(gcpProjectId),
-                // executor),
-
-                // ✅ NEW - Vertex AI
                 getVertexAIModels(gcpProjectId),
                 getVertexAIEndpoints(gcpProjectId),
-
-                // ✅ NEW - PubSub
                 getPubSubTopics(gcpProjectId),
                 getPubSubSubscriptions(gcpProjectId),
-
-                // ✅ NEW - Monitoring
                 getMonitoringAlertPolicies(gcpProjectId),
                 getMonitoringUptimeChecks(gcpProjectId),
-
-                // ✅ NEW - Scheduler & Dataplex
                 getSchedulerJobs(gcpProjectId),
                 getDataplexLakes(gcpProjectId),
-
-                // ✅ NEW - BigQuery & VM Manager
                 getBigQueryReservations(gcpProjectId),
                 getVMManagerPatchDeployments(gcpProjectId));
 
@@ -652,11 +649,111 @@ public class GcpDataService {
                             .flatMap(List::stream)
                             .collect(Collectors.toList());
 
-                    // Cache for 60 minutes — same TTL as AWS dashboard
-                    redisCache.put(cacheKey, allResources, 60);
+                    log.info("[GcpCloudList] Live scan complete — {} resources in {}ms for project: {}",
+                            allResources.size(), System.currentTimeMillis() - startMs, gcpProjectId);
+
+                    // Save flat list: Redis (60 min) + DB (permanent)
+                    redisCache.put(redisKey, allResources, 60);
+                    saveCloudlistFlatSnapshot(dbKey, allResources);
+
+                    // Build + cache grouped separately (Gap 5)
+                    List<GcpServicePaginatedResponse.GcpServiceGroupDto> grouped = buildGrouped(allResources);
+                    String groupedRedisKey = GCP_CLOUDLIST_GROUPED_REDIS + gcpProjectId;
+                    String groupedDbKey    = GCP_CLOUDLIST_GROUPED_DB + tenantPrefix + gcpProjectId;
+                    redisCache.put(groupedRedisKey, grouped, 60);
+                    saveCloudlistGroupedSnapshot(groupedDbKey, grouped);
 
                     return allResources;
                 });
+    }
+
+    /** Triggers a background async resource refresh (returns immediately, notifies via WebSocket). */
+    public void triggerGetResourcesAsync(String gcpProjectId) {
+        log.info("[GcpCloudList] Async refresh triggered for project: {}", gcpProjectId);
+        CompletableFuture.runAsync(() -> getAllResources(gcpProjectId, true).join(), backgroundTaskExecutor)
+                .whenComplete((result, ex) -> {
+                    if (ex != null) {
+                        log.error("[GcpCloudList] Async refresh FAILED for project: {}", gcpProjectId, ex);
+                        messagingTemplate.convertAndSend("/topic/gcp-cloudlist-refresh",
+                                Map.of("status", "refresh-failed", "accountId", gcpProjectId));
+                    } else {
+                        log.info("[GcpCloudList] Async refresh COMPLETE for project: {}", gcpProjectId);
+                        messagingTemplate.convertAndSend("/topic/gcp-cloudlist-refresh",
+                                Map.of("status", "refresh-complete", "accountId", gcpProjectId));
+                    }
+                });
+    }
+
+    private List<GcpServicePaginatedResponse.GcpServiceGroupDto> buildGrouped(List<GcpResourceDto> resources) {
+        Map<String, List<GcpResourceDto>> byType = resources.stream()
+                .filter(r -> r.getType() != null && !r.getType().isEmpty())
+                .collect(Collectors.groupingBy(GcpResourceDto::getType));
+        return byType.entrySet().stream()
+                .map(e -> new GcpServicePaginatedResponse.GcpServiceGroupDto(e.getKey(), e.getValue().size(), e.getValue()))
+                .sorted((a, b) -> Integer.compare(b.getResourceCount(), a.getResourceCount()))
+                .limit(50)
+                .collect(Collectors.toList());
+    }
+
+    // ── Cloudlist DB snapshot helpers ─────────────────────────────────────────
+
+    private void saveCloudlistFlatSnapshot(String dbKey, List<GcpResourceDto> resources) {
+        try {
+            String json = objectMapper.writeValueAsString(resources);
+            transactionTemplate.executeWithoutResult(status -> {
+                com.xammer.cloud.domain.CachedData entry = cachedDataRepository.findById(dbKey).orElse(new com.xammer.cloud.domain.CachedData());
+                entry.setCacheKey(dbKey);
+                entry.setJsonData(json);
+                entry.setLastUpdated(java.time.LocalDateTime.now());
+                cachedDataRepository.save(entry);
+                cachedDataRepository.flush();
+            });
+            log.info("[GcpCloudList] Flat snapshot saved to DB: {}", dbKey);
+        } catch (Exception e) {
+            log.error("[GcpCloudList] Failed to save flat snapshot to DB {}: {}", dbKey, e.getMessage());
+        }
+    }
+
+    private List<GcpResourceDto> getCloudlistFlatSnapshot(String dbKey) {
+        try {
+            Optional<com.xammer.cloud.domain.CachedData> cached = cachedDataRepository.findById(dbKey);
+            if (cached.isPresent()) {
+                return objectMapper.readValue(cached.get().getJsonData(), new TypeReference<List<GcpResourceDto>>() {});
+            }
+        } catch (Exception e) {
+            log.warn("[GcpCloudList] Failed to read flat snapshot from DB {}: {}", dbKey, e.getMessage());
+        }
+        return null;
+    }
+
+    private void saveCloudlistGroupedSnapshot(String dbKey, List<GcpServicePaginatedResponse.GcpServiceGroupDto> grouped) {
+        try {
+            String json = objectMapper.writeValueAsString(grouped);
+            transactionTemplate.executeWithoutResult(status -> {
+                com.xammer.cloud.domain.CachedData entry = cachedDataRepository.findById(dbKey).orElse(new com.xammer.cloud.domain.CachedData());
+                entry.setCacheKey(dbKey);
+                entry.setJsonData(json);
+                entry.setLastUpdated(java.time.LocalDateTime.now());
+                cachedDataRepository.save(entry);
+                cachedDataRepository.flush();
+            });
+            log.info("[GcpCloudList] Grouped snapshot saved to DB: {}", dbKey);
+        } catch (Exception e) {
+            log.error("[GcpCloudList] Failed to save grouped snapshot to DB {}: {}", dbKey, e.getMessage());
+        }
+    }
+
+    private List<GcpServicePaginatedResponse.GcpServiceGroupDto> getCloudlistGroupedSnapshot(String dbKey) {
+        try {
+            Optional<com.xammer.cloud.domain.CachedData> cached = cachedDataRepository.findById(dbKey);
+            if (cached.isPresent()) {
+                return objectMapper.readValue(cached.get().getJsonData(),
+                        new TypeReference<List<GcpServicePaginatedResponse.GcpServiceGroupDto>>() {});
+            }
+        } catch (Exception e) {
+            log.warn("[GcpCloudList] Failed to read grouped snapshot from DB {}: {}", dbKey, e.getMessage());
+        }
+        return null;
     }
 
     @Cacheable(value = "gcpIamResources", key = "'gcp:iam-resources:' + #gcpProjectId")
@@ -2144,91 +2241,89 @@ public class GcpDataService {
     public CompletableFuture<GcpServicePaginatedResponse> getServicesGroupedPaginated(
             String gcpProjectId, int page, int servicesPerPage, boolean forceRefresh) {
 
-        return getAllResources(gcpProjectId, forceRefresh)
-                .thenApply(allResources -> {
-                    // Group resources by service type
-                    Map<String, List<GcpResourceDto>> groupedByType = allResources.stream()
-                            .filter(r -> r.getType() != null && !r.getType().isEmpty())
-                            .collect(Collectors.groupingBy(GcpResourceDto::getType));
-
-                    // Create service groups and sort by resource count (descending) - most used
-                    // first
-                    List<GcpServicePaginatedResponse.GcpServiceGroupDto> allServiceGroups = groupedByType.entrySet()
-                            .stream()
-                            .map(entry -> new GcpServicePaginatedResponse.GcpServiceGroupDto(
-                                    entry.getKey(),
-                                    entry.getValue().size(),
-                                    entry.getValue()))
-                            .sorted((a, b) -> Integer.compare(b.getResourceCount(), a.getResourceCount())) // Sort
-                                                                                                           // descending
-                            .limit(50) // Top 50 most frequently used services
-                            .collect(Collectors.toList());
-
+        return getGroupedResources(gcpProjectId, forceRefresh)
+                .thenApply(allServiceGroups -> {
                     int totalServices = allServiceGroups.size();
-                    int totalResources = allResources.size();
-                    int totalPages = (int) Math.ceil((double) totalServices / servicesPerPage);
+                    int totalResources = allServiceGroups.stream().mapToInt(GcpServicePaginatedResponse.GcpServiceGroupDto::getResourceCount).sum();
+                    int totalPages = Math.max(1, (int) Math.ceil((double) totalServices / servicesPerPage));
 
-                    // Validate page bounds - use local variable since lambda requires effectively
-                    // final
-                    int currentPage = page;
-                    if (currentPage < 0)
-                        currentPage = 0;
-                    if (currentPage >= totalPages && totalPages > 0)
-                        currentPage = totalPages - 1;
-
-                    // Calculate pagination bounds
+                    int currentPage = Math.max(0, Math.min(page, totalPages - 1));
                     int startIndex = currentPage * servicesPerPage;
                     int endIndex = Math.min(startIndex + servicesPerPage, totalServices);
 
-                    List<GcpServicePaginatedResponse.GcpServiceGroupDto> pageServices = (startIndex < totalServices)
-                            ? allServiceGroups.subList(startIndex, endIndex)
-                            : List.of();
+                    List<GcpServicePaginatedResponse.GcpServiceGroupDto> pageServices =
+                            (startIndex < totalServices) ? allServiceGroups.subList(startIndex, endIndex) : List.of();
 
-                    boolean hasNext = (currentPage + 1) < totalPages;
-                    boolean hasPrevious = currentPage > 0;
-
-                    log.info(
-                            "✅ GCP Cloudlist: Returning page {} of {} ({} services, {} total resources) for project {}",
+                    log.info("[GcpCloudList] Paginated — page {}/{} ({} services, {} total resources) project: {}",
                             currentPage, totalPages, pageServices.size(), totalResources, gcpProjectId);
 
-                    return new GcpServicePaginatedResponse(
-                            pageServices,
-                            currentPage,
-                            totalServices,
-                            totalPages,
-                            servicesPerPage,
-                            totalResources,
-                            hasNext,
-                            hasPrevious);
+                    return new GcpServicePaginatedResponse(pageServices, currentPage, totalServices, totalPages,
+                            servicesPerPage, totalResources, (currentPage + 1) < totalPages, currentPage > 0);
                 });
     }
 
-    /**
-     * Get all GCP resources grouped by service type (non-paginated).
-     * Sorted by resource count descending - most used services first.
-     *
-     * @param gcpProjectId The GCP project ID
-     * @param forceRefresh Whether to bypass cache
-     * @return List of service groups sorted by usage
-     */
     public CompletableFuture<List<GcpServicePaginatedResponse.GcpServiceGroupDto>> getAllResourcesGrouped(
             String gcpProjectId, boolean forceRefresh) {
+        return getGroupedResources(gcpProjectId, forceRefresh);
+    }
 
-        return getAllResources(gcpProjectId, forceRefresh)
-                .thenApply(allResources -> {
-                    Map<String, List<GcpResourceDto>> groupedByType = allResources.stream()
-                            .filter(r -> r.getType() != null && !r.getType().isEmpty())
-                            .collect(Collectors.groupingBy(GcpResourceDto::getType));
+    /** Returns grouped resources — checks dedicated grouped cache before falling back to flat scan. */
+    private CompletableFuture<List<GcpServicePaginatedResponse.GcpServiceGroupDto>> getGroupedResources(
+            String gcpProjectId, boolean forceRefresh) {
+        String tenantPrefix    = tenantPrefix();
+        String groupedRedisKey = GCP_CLOUDLIST_GROUPED_REDIS + gcpProjectId;
+        String groupedDbKey    = GCP_CLOUDLIST_GROUPED_DB + tenantPrefix + gcpProjectId;
 
-                    return groupedByType.entrySet().stream()
-                            .map(entry -> new GcpServicePaginatedResponse.GcpServiceGroupDto(
-                                    entry.getKey(),
-                                    entry.getValue().size(),
-                                    entry.getValue()))
-                            .sorted((a, b) -> Integer.compare(b.getResourceCount(), a.getResourceCount()))
-                            .limit(50) // Top 50 services
-                            .collect(Collectors.toList());
-                });
+        if (!forceRefresh) {
+            Optional<List<GcpServicePaginatedResponse.GcpServiceGroupDto>> redisCached =
+                    redisCache.get(groupedRedisKey, new TypeReference<List<GcpServicePaginatedResponse.GcpServiceGroupDto>>() {});
+            if (redisCached.isPresent()) {
+                log.info("[GcpCloudList] Grouped Redis hit for project: {}", gcpProjectId);
+                return CompletableFuture.completedFuture(redisCached.get());
+            }
+            List<GcpServicePaginatedResponse.GcpServiceGroupDto> dbCached = getCloudlistGroupedSnapshot(groupedDbKey);
+            if (dbCached != null) {
+                log.info("[GcpCloudList] Grouped DB hit — re-warming Redis for project: {}", gcpProjectId);
+                redisCache.put(groupedRedisKey, dbCached, 240);
+                return CompletableFuture.completedFuture(dbCached);
+            }
+        }
+
+        // Fall back to full flat scan (getAllResources will also populate the grouped cache)
+        return getAllResources(gcpProjectId, forceRefresh).thenApply(this::buildGrouped);
+    }
+
+    /** Returns a single resource by resourceId from the flat Redis/DB cache. */
+    public CompletableFuture<Optional<GcpResourceDto>> getResourceById(String gcpProjectId, String resourceId) {
+        return getAllResources(gcpProjectId, false)
+                .thenApply(resources -> resources.stream()
+                        .filter(r -> resourceId.equals(r.getId()) || resourceId.equals(r.getName()))
+                        .findFirst());
+    }
+
+    /** Returns active GCP regions derived from current resource locations. */
+    public CompletableFuture<List<java.util.Map<String, Object>>> getRegionStatus(String gcpProjectId) {
+        return getAllResources(gcpProjectId, false).thenApply(resources -> {
+            Set<String> activeRegions = resources.stream()
+                    .map(GcpResourceDto::getLocation)
+                    .filter(Objects::nonNull)
+                    .map(loc -> {
+                        String[] parts = loc.split("-");
+                        return parts.length > 2 ? parts[0] + "-" + parts[1] : loc;
+                    })
+                    .filter(regionCoordinates::containsKey)
+                    .collect(Collectors.toSet());
+
+            return activeRegions.stream().map(regionId -> {
+                double[] coords = regionCoordinates.get(regionId);
+                Map<String, Object> region = new java.util.LinkedHashMap<>();
+                region.put("regionId", regionId);
+                region.put("status", "ACTIVE");
+                region.put("lat", coords[0]);
+                region.put("lng", coords[1]);
+                return region;
+            }).collect(Collectors.toList());
+        });
     }
 
 }

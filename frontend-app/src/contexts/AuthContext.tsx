@@ -45,14 +45,13 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  // Load from cache immediately to prevent flicker
-  const [userRoles, setUserRoles] = useState<UserRole[]>(() => {
-    const cached = sessionStorage.getItem('cached_user_roles');
-    return cached ? JSON.parse(cached) : [];
-  });
+  const [userRoles, setUserRoles] = useState<UserRole[]>([]);
 
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  // Start as true so components wait for the real fetch before rendering role-gated UI.
+  // This prevents a stale `cached_user_roles` left by a previous user in the same tab
+  // from briefly rendering the wrong dashboard when a different user logs in.
+  const [isLoading, setIsLoading] = useState(true);
   // Becomes true once fetchUserRoles completes (success or failure).
   // AccountContext waits for this before calling fetchAccounts so it never
   // reads stale impersonateUserId / selectedTenantId from a previous session.

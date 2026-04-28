@@ -6,7 +6,6 @@
 
 import React from 'react';
 import type { Alert, AlertSeverityClass } from '../../types/alerts';
-import SreInvestigateButton from '../SreInvestigateButton';
 
 interface AlertsCloudGuardTableProps {
   alerts: Alert[];
@@ -136,13 +135,7 @@ const AlertsCloudGuardTable: React.FC<AlertsCloudGuardTableProps> = ({
                       {alert.type === 'QUOTA' ? 'Request Increase' : 'Investigate'}
                     </span>
                   </a>
-                  {alert.type === 'SECURITY' && (
-                    <SreInvestigateButton
-                      resourceType="EC2"
-                      resourceId={alert.id}
-                      resourceName={alert.name}
-                    />
-                  )}
+
                 </div>
               </td>
             </tr>

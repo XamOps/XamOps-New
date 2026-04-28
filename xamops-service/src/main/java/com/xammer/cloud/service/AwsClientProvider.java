@@ -169,19 +169,27 @@ public class AwsClientProvider {
      * This is used to list, enable, and disable AutoSpotting on ASGs in the
      * customer account.
      */
-    public AutoScalingClient getAutoSpottingAsgClient(String customerAccountId, String region) {
-        logger.info("Creating AutoSpotting ASG client for customerAccountId={} region={}",
-                customerAccountId, region);
+    public AutoScalingClient getAutoSpottingAsgClient(String customerAccountId, String region, String accessType) {
+        logger.info("Creating AutoSpotting ASG client for customerAccountId={} region={} accessType={}",
+                customerAccountId, region, accessType);
 
-        String roleArn = String.format("arn:aws:iam::%s:role/XamOpsReadWriteRole", customerAccountId);
-        logger.debug("Assuming role: {}", roleArn);
+        // ReadWrite-onboarded accounts use XamOpsReadWriteRole directly.
+        // ReadOnly-onboarded accounts must have deployed the AutoSpotting CF stack,
+        // which creates AutoSpotting-Execution-Role with the required permissions.
+        boolean isReadWrite = "read-write".equals(accessType);
+        String roleArn = isReadWrite
+                ? String.format("arn:aws:iam::%s:role/XamOpsReadWriteRole", customerAccountId)
+                : String.format("arn:aws:iam::%s:role/AutoSpotting-Execution-Role", customerAccountId);
+        logger.debug("Assuming role: {} (accessType={})", roleArn, accessType);
 
         try {
-            AssumeRoleRequest roleRequest = AssumeRoleRequest.builder()
+            AssumeRoleRequest.Builder roleRequestBuilder = AssumeRoleRequest.builder()
                     .roleArn(roleArn)
-                    .roleSessionName("XamOps-AutoSpotting-Action")
-                    .externalId(customerAccountId)
-                    .build();
+                    .roleSessionName("XamOps-AutoSpotting-Action");
+            if (isReadWrite) {
+                roleRequestBuilder.externalId(customerAccountId);
+            }
+            AssumeRoleRequest roleRequest = roleRequestBuilder.build();
 
             AssumeRoleResponse roleResponse = stsClient.assumeRole(roleRequest);
             logger.info("Successfully assumed AutoSpotting role for account {}", customerAccountId);

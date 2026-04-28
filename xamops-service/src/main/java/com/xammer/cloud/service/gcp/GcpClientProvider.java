@@ -337,6 +337,21 @@ public class GcpClientProvider {
         });
     }
 
+    public Optional<com.google.cloud.compute.v1.ZoneOperationsClient> getZoneOperationsClient(String gcpProjectId) {
+        return getCredentials(gcpProjectId).map(credentials -> {
+            try {
+                com.google.cloud.compute.v1.ZoneOperationsSettings settings =
+                        com.google.cloud.compute.v1.ZoneOperationsSettings.newBuilder()
+                                .setCredentialsProvider(() -> credentials)
+                                .build();
+                return com.google.cloud.compute.v1.ZoneOperationsClient.create(settings);
+            } catch (IOException e) {
+                log.error("Failed to create ZoneOperationsClient for project ID: {}", gcpProjectId, e);
+                return null;
+            }
+        });
+    }
+
     public Optional<Storage> getStorageClient(String gcpProjectId) {
         return getCredentials(gcpProjectId).map(credentials -> StorageOptions.newBuilder()
                 .setCredentials(credentials)
@@ -606,6 +621,34 @@ public class GcpClientProvider {
                 return DisksClient.create(settings);
             } catch (IOException e) {
                 log.error("Failed to create DisksClient for project ID: {}", gcpProjectId, e);
+                return null;
+            }
+        });
+    }
+
+    public Optional<SnapshotsClient> getSnapshotsClient(String gcpProjectId) {
+        return getCredentials(gcpProjectId).map(credentials -> {
+            try {
+                SnapshotsSettings settings = SnapshotsSettings.newBuilder()
+                        .setCredentialsProvider(() -> credentials)
+                        .build();
+                return SnapshotsClient.create(settings);
+            } catch (IOException e) {
+                log.error("Failed to create SnapshotsClient for project ID: {}", gcpProjectId, e);
+                return null;
+            }
+        });
+    }
+
+    public Optional<AddressesClient> getAddressesClient(String gcpProjectId) {
+        return getCredentials(gcpProjectId).map(credentials -> {
+            try {
+                AddressesSettings settings = AddressesSettings.newBuilder()
+                        .setCredentialsProvider(() -> credentials)
+                        .build();
+                return AddressesClient.create(settings);
+            } catch (IOException e) {
+                log.error("Failed to create AddressesClient for project ID: {}", gcpProjectId, e);
                 return null;
             }
         });

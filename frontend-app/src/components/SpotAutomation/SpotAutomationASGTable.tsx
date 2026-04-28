@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { gooeyToast } from 'goey-toast';
 import type { ASG, SpotCosts } from '../../hooks/useSpotAutomationData';
@@ -28,6 +28,9 @@ const SpotAutomationASGTable: React.FC<SpotAutomationASGTableProps> = ({
 }) => {
   const [togglingASGs, setTogglingASGs] = useState<Set<string>>(new Set());
   const [syncingASGs, setSyncingASGs] = useState<Set<string>>(new Set());
+  // Tracks ASGs locked after a toggle action to prevent double-fire from re-render.
+  // Key: "{name}-{region}", Value: timeout ID for auto-unlock.
+  const postToggleLock = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -50,11 +53,18 @@ const SpotAutomationASGTable: React.FC<SpotAutomationASGTableProps> = ({
   const handleToggle = async (asg: ASG) => {
     if (asg.eksManaged) return; // EKS-managed ASGs cannot be toggled
     const asgKey = `${asg.name}-${asg.region}`;
-    if (togglingASGs.has(asgKey)) return;
+    // Block if already in-flight OR still in the 3-second post-toggle cooldown.
+    if (togglingASGs.has(asgKey) || postToggleLock.current.has(asgKey)) return;
 
     setTogglingASGs((prev) => new Set(prev).add(asgKey));
     try {
       await onToggleASG(asg);
+      // Hold the lock for 3 seconds after success so any stale re-render or
+      // in-flight background fetch cannot re-trigger the opposite action.
+      const timer = setTimeout(() => {
+        postToggleLock.current.delete(asgKey);
+      }, 3000);
+      postToggleLock.current.set(asgKey, timer);
     } finally {
       setTogglingASGs((prev) => {
         const next = new Set(prev);

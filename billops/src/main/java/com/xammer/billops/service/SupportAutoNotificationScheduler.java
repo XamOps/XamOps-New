@@ -13,15 +13,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.DayOfWeek;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Scheduler that checks for unanswered admin-initiated support conversations
- * and sends reminders via the configured channels (Email, WhatsApp, SMS)
- * if the client has not responded within 1 working hour.
- *
- * Working hours: Monday–Friday, 09:00–18:00 IST.
- */
 @Component
 public class SupportAutoNotificationScheduler {
 
@@ -43,52 +37,59 @@ public class SupportAutoNotificationScheduler {
     }
 
     /**
-     * Runs every 5 minutes to check for conversations that need auto-ping (TEST MODE).
+     * Runs every 5 minutes during working hours.
+     * DB work happens inside collectAndMarkPending(); email dispatch runs after
+     * the transaction is committed so the connection is not held during SMTP I/O.
      */
     @Scheduled(fixedRate = 5 * 60 * 1000)
-    @Transactional
     public void checkAndSendAutoPings() {
         LocalDateTime now = LocalDateTime.now(IST);
-        // TEST MODE: working-hours check disabled — restore for production
-        // if (!isWorkingHour(now)) return;
+        if (!isWorkingHour(now)) return;
 
-        // Find all admin-initiated messages with auto-ping enabled that have not been pinged yet
+        List<PendingNotification> toNotify = collectAndMarkPending(now);
+        for (PendingNotification n : toNotify) {
+            dispatchNotifications(n.user, n.msg, n.channels);
+        }
+    }
+
+    /**
+     * Loads pending pings, marks them as sent, and returns notification data —
+     * all within a single short-lived transaction. Email sending must NOT happen
+     * inside this method to avoid holding the connection during SMTP I/O.
+     */
+    @Transactional
+    public List<PendingNotification> collectAndMarkPending(LocalDateTime now) {
         List<SupportMessage> pendingPings = messageRepository
                 .findByAutoPingEnabledTrueAndAutoPingSentFalseAndIsUserMessageFalse();
 
+        List<PendingNotification> result = new ArrayList<>();
+
         for (SupportMessage initMsg : pendingPings) {
-            // Check if 1 working hour has elapsed since the initial message
             if (!oneWorkingHourElapsed(initMsg.getTimestamp(), now)) continue;
 
-            // Check whether the user has replied since the initial admin message
-            // Prefer userId-based check; fall back to accountId for legacy records
             boolean userReplied = (initMsg.getUserId() != null)
                     ? messageRepository.existsByUserIdAndIsUserMessageTrueAndTimestampAfter(
                             initMsg.getUserId(), initMsg.getTimestamp())
                     : messageRepository.existsByAccountIdAndIsUserMessageTrueAndTimestampAfter(
                             initMsg.getAccountId(), initMsg.getTimestamp());
 
-            if (userReplied) {
-                // User responded — mark ping as sent so we don't check again
-                initMsg.setAutoPingSent(true);
-                messageRepository.save(initMsg);
+            initMsg.setAutoPingSent(true);
+            messageRepository.save(initMsg);
+
+            if (userReplied) continue;
+
+            if (initMsg.getUserId() == null) {
+                log.warn("Auto-ping: no userId on conversation {} — skipping", initMsg.getAccountId());
                 continue;
             }
 
-            // No response — dispatch notifications on configured channels
-            String channels = initMsg.getAutoPingChannels() != null ? initMsg.getAutoPingChannels() : "";
-            Long userId = initMsg.getUserId();
-
-            if (userId != null) {
-                appUserRepository.findById(userId).ifPresent(user ->
-                        dispatchNotifications(user, initMsg, channels));
-            } else {
-                log.warn("Auto-ping: no userId on conversation {} — skipping", initMsg.getAccountId());
-            }
-
-            initMsg.setAutoPingSent(true);
-            messageRepository.save(initMsg);
+            appUserRepository.findById(initMsg.getUserId()).ifPresent(user -> {
+                String channels = initMsg.getAutoPingChannels() != null ? initMsg.getAutoPingChannels() : "";
+                result.add(new PendingNotification(user, initMsg, channels));
+            });
         }
+
+        return result;
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────
@@ -130,15 +131,9 @@ public class SupportAutoNotificationScheduler {
                 + "</div>";
     }
 
-    /**
-     * Returns true if the given timestamp is at least 1 working hour before {@code now}.
-     * Non-working time (nights, weekends) is skipped when counting.
-     */
     private boolean oneWorkingHourElapsed(LocalDateTime from, LocalDateTime now) {
         if (from == null) return false;
-        // Simple check: if 1 calendar hour has passed and both timestamps fall within working hours,
-        // treat that as 1 working hour.  A full business-calendar implementation can replace this.
-        return !from.plusMinutes(5).isAfter(now); // TEST: 5 min (prod: 1 hour)
+        return !from.plusHours(1).isAfter(now);
     }
 
     private boolean isWorkingHour(LocalDateTime dt) {
@@ -146,5 +141,17 @@ public class SupportAutoNotificationScheduler {
         if (day == DayOfWeek.SATURDAY || day == DayOfWeek.SUNDAY) return false;
         int hour = dt.getHour();
         return hour >= WORKING_HOUR_START && hour < WORKING_HOUR_END;
+    }
+
+    static class PendingNotification {
+        final AppUser user;
+        final SupportMessage msg;
+        final String channels;
+
+        PendingNotification(AppUser user, SupportMessage msg, String channels) {
+            this.user = user;
+            this.msg = msg;
+            this.channels = channels;
+        }
     }
 }

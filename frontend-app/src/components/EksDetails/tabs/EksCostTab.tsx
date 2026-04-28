@@ -27,7 +27,7 @@ interface CostRecommendation {
 
 const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
   const { dashboard, sortedNodesByCost } = eksData;
-  const [showRecommendationInfo, setShowRecommendationInfo] = useState<string | null>(null);
+  // const [showRecommendationInfo, setShowRecommendationInfo] = useState<string | null>(null);
   const [deploymentPage, setDeploymentPage] = useState(0);
   const [daemonSetPage, setDaemonSetPage] = useState(0);
   const [statefulSetPage, setStatefulSetPage] = useState(0);
@@ -443,8 +443,8 @@ const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
         )}
       </div>
 
-      {/* ── Savings Opportunities ── */}
-      {recommendations.length > 0 && (
+      {/* ── Savings Opportunities (hidden) ── */}
+      {/* {recommendations.length > 0 && (
         <div className="bg-white border border-[#d0d7de] rounded-lg overflow-hidden">
           <div className="px-5 py-3.5 border-b border-[#e8ecf0] flex items-center justify-between">
             <span className="text-sm font-semibold text-[#1a1f2e]">Savings Opportunities</span>
@@ -496,7 +496,7 @@ const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
             })}
           </div>
         </div>
-      )}
+      )} */}
     </div>
   );
 };

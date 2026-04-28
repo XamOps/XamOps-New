@@ -126,6 +126,7 @@ export interface PodInfo {
   qosClass: string;
   nodeName: string;
   containerStatuses?: ContainerStatus[];
+  containers?: ContainerStatus[];
   cpuUsage?: number;
   memoryUsage?: number;
   podIp?: string;
@@ -144,6 +145,11 @@ export interface ContainerStatus {
   state: 'running' | 'waiting' | 'terminated';
   ready: boolean;
   restartCount: number;
+  cpuRequest?: string;
+  cpuLimit?: string;
+  memoryRequest?: string;
+  memoryLimit?: string;
+  waitingReason?: string;
 }
 
 export interface DeploymentInfo {

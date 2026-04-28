@@ -25,7 +25,7 @@ const TABS: TabItem[] = [
   { id: 'nodes',       label: 'Nodes',       icon: 'fas fa-server' },
   { id: 'resources',   label: 'Resources',   icon: 'fas fa-layer-group' },
   { id: 'karpenter',   label: 'Karpenter',   icon: 'fas fa-rocket' },
-  { id: 'autoscaling', label: 'Autoscaling', icon: 'fas fa-expand-arrows-alt' },
+  // { id: 'autoscaling', label: 'Autoscaling', icon: 'fas fa-expand-arrows-alt' },
 ];
 
 const EksTabs: React.FC<EksTabsProps> = ({ activeTab, onTabChange }) => (

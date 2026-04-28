@@ -1059,7 +1059,7 @@ public class AutoSpottingService {
 
         try {
             AutoScalingClient asgClient = awsClientProvider.getAutoSpottingAsgClient(
-                    account.getAwsAccountId(), region);
+                    account.getAwsAccountId(), region, account.getAccessType());
 
             // 1. Add the marker tag
             asgClient.createOrUpdateTags(req -> req.tags(
@@ -1156,14 +1156,22 @@ public class AutoSpottingService {
             logger.info("✓ MixedInstancesPolicy updated for {}: OnDemandBase={}, OnDemandPercentage={}%, strategy=capacity-optimized",
                     asgName, onDemandBase, onDemandPercentage);
 
-            // 4. Start an instance refresh so existing OD instances are gradually replaced with Spot
+            // 4. Start an instance refresh so existing OD instances are gradually replaced with Spot.
+            // minHealthyPercentage must allow at least 1 instance to be replaced at a time.
+            // Hardcoding 80% breaks small ASGs (e.g. desired=2 → needs 2 healthy → 0 can be replaced).
+            int desiredCapacity = asg.desiredCapacity() != null ? asg.desiredCapacity() : 2;
+            int minHealthyPct = desiredCapacity <= 1 ? 0
+                    : (int) Math.floor(100.0 * (desiredCapacity - 1) / desiredCapacity);
+            minHealthyPct = Math.min(80, minHealthyPct);
+            final int finalMinHealthyPct = minHealthyPct;
             try {
                 asgClient.startInstanceRefresh(req -> req
                         .autoScalingGroupName(asgName)
                         .preferences(p -> p
-                        .minHealthyPercentage(80)
+                        .minHealthyPercentage(finalMinHealthyPct)
                         .instanceWarmup(300)));
-                logger.info("✓ Instance refresh started for {} — existing OD instances will be replaced with Spot", asgName);
+                logger.info("✓ Instance refresh started for {} (minHealthy={}%) — existing OD instances will be replaced with Spot",
+                        asgName, finalMinHealthyPct);
             } catch (Exception e) {
                 // Instance refresh failure is non-fatal — policy is already updated
                 logger.warn("Could not start instance refresh for {} (policy already updated): {}", asgName, e.getMessage());
@@ -1236,9 +1244,11 @@ public class AutoSpottingService {
                 logger.warn("Could not backfill Spot instance events for ASG {}: {}", asgName, e.getMessage());
             }
 
-            // Evict ASG list and cost caches so next fetch reflects updated enabled state
+            // Evict ASG list, cost caches, and DB snapshot so next fetch goes to AWS
+            // and returns the updated enabled state (not stale re-warmed cache data).
             redisCacheService.evict(CACHE_KEY_ASG_LIST + cloudAccountId);
             redisCacheService.evict(CACHE_KEY_COST + cloudAccountId);
+            cachedDataRepository.deleteById("AUTOSPOTTING_COST::" + cloudAccountId);
 
         } catch (Exception e) {
             logger.error("Failed to enable AutoSpotting for {}: {}", asgName, e.getMessage(), e);
@@ -1538,7 +1548,7 @@ public class AutoSpottingService {
 
         try {
             AutoScalingClient asgClient = awsClientProvider.getAutoSpottingAsgClient(
-                    account.getAwsAccountId(), region);
+                    account.getAwsAccountId(), region, account.getAccessType());
 
             // 1. Fetch current ASG configuration
             var asgResponse = asgClient.describeAutoScalingGroups(req -> req.autoScalingGroupNames(asgName));
@@ -1655,14 +1665,21 @@ public class AutoSpottingService {
             logger.info("✓ MixedInstancesPolicy updated for {}: OnDemandBase={}, OnDemandPercentage={}%",
                     asgName, onDemandBase, onDemandPercentage);
 
-            // 8. Start instance refresh to apply changes
+            // 8. Start instance refresh to apply changes.
+            // Use dynamic minHealthyPercentage so small ASGs (desired=2) can also be refreshed.
+            int applyDesiredCapacity = asg.desiredCapacity() != null ? asg.desiredCapacity() : 2;
+            int applyMinHealthyPct = applyDesiredCapacity <= 1 ? 0
+                    : (int) Math.floor(100.0 * (applyDesiredCapacity - 1) / applyDesiredCapacity);
+            applyMinHealthyPct = Math.min(80, applyMinHealthyPct);
+            final int finalApplyMinHealthyPct = applyMinHealthyPct;
             try {
                 asgClient.startInstanceRefresh(req -> req
                         .autoScalingGroupName(asgName)
                         .preferences(p -> p
-                                .minHealthyPercentage(80)
+                                .minHealthyPercentage(finalApplyMinHealthyPct)
                                 .instanceWarmup(300)));
-                logger.info("✓ Instance refresh started for {} to apply new Spot configuration", asgName);
+                logger.info("✓ Instance refresh started for {} (minHealthy={}%) to apply new Spot configuration",
+                        asgName, finalApplyMinHealthyPct);
             } catch (Exception e) {
                 // Instance refresh failure is non-fatal - policy is already updated
                 logger.warn("Could not start instance refresh for {} (policy already updated): {}",
@@ -1746,7 +1763,7 @@ public class AutoSpottingService {
 
         try {
             AutoScalingClient asgClient = awsClientProvider.getAutoSpottingAsgClient(
-                    account.getAwsAccountId(), region);
+                    account.getAwsAccountId(), region, account.getAccessType());
 
             // 1. Remove the marker tag
             asgClient.deleteTags(req -> req.tags(
@@ -1792,9 +1809,11 @@ public class AutoSpottingService {
                 logger.warn("Failed to record DISABLED event for ASG {}: {}", asgName, e.getMessage());
             }
 
-            // Evict ASG list and cost caches so next fetch reflects updated disabled state
+            // Evict ASG list, cost caches, and DB snapshot so next fetch goes to AWS
+            // and returns the updated disabled state (not stale re-warmed cache data).
             redisCacheService.evict(CACHE_KEY_ASG_LIST + cloudAccountId);
             redisCacheService.evict(CACHE_KEY_COST + cloudAccountId);
+            cachedDataRepository.deleteById("AUTOSPOTTING_COST::" + cloudAccountId);
 
         } catch (Exception e) {
             logger.error("Failed to disable AutoSpotting for {}: {}", asgName, e.getMessage(), e);

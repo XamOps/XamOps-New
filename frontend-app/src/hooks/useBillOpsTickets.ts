@@ -43,7 +43,10 @@ export const useBillOpsTickets = (): UseBillOpsTicketsReturn => {
   const [isUpdating, setIsUpdating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
-  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
+
+  // Derive directly from context — avoids a two-render-cycle delay where selectedAccountId
+  // was null on first fetch, causing all accounts' tickets to flash before filtering applied.
+  const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
 
   // Refs for tracking new tickets (for admin notifications)
   const previousTicketIdsRef = useRef<Set<number>>(new Set());
@@ -144,21 +147,6 @@ export const useBillOpsTickets = (): UseBillOpsTicketsReturn => {
   }, [selectedAccountId, fetchTickets]);
 
   /**
-   * Initialize hook - Get selected account from AccountContext
-   */
-  useEffect(() => {
-    // Use the first selected account from the AccountContext
-    if (selectedAccountIds.length > 0) {
-      const firstAccountId = selectedAccountIds[0];
-      setSelectedAccountId(firstAccountId);
-      console.log('🔍 [BillOps Tickets] Filtering tickets for account:', firstAccountId);
-    } else {
-      setSelectedAccountId(null);
-      console.log('⚠️ [BillOps Tickets] No account selected from sidebar.');
-    }
-  }, [selectedAccountIds]);
-
-  /**
    * Load data on mount and when selected account changes
    */
   useEffect(() => {
@@ -168,6 +156,9 @@ export const useBillOpsTickets = (): UseBillOpsTicketsReturn => {
       setLoading(false);
       return;
     }
+    // Don't fetch until an account is selected — prevents flashing all accounts'
+    // tickets while AccountContext auto-selects the first account after init.
+    if (!selectedAccountId) return;
     fetchTickets(false);
   }, [selectedAccountId, accounts.length, accountsLoading]);
 

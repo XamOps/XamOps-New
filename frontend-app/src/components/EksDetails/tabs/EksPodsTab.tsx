@@ -7,8 +7,6 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Chart, registerables } from 'chart.js';
-import SreInvestigateButton from '../../SreInvestigateButton';
-
 Chart.register(...registerables);
 
 const ITEMS_PER_PAGE = 10;
@@ -532,7 +530,7 @@ const EksPodsTab: React.FC<{ eksData: any }> = ({ eksData }) => {
                                 </h4>
                                 <div className="space-y-1.5 max-h-[240px] overflow-y-auto pr-2 no-scrollbar">
                                   {(pod.containers || []).map((container: any) => {
-                                    const status = pod.containerStatuses?.find((s: any) => s.name === container.name);
+                                    const status = (pod.containers || pod.containerStatuses)?.find((s: any) => s.name === container.name);
                                     const isCtnRunning = status ? status.state === 'running' : container.running;
                                     return (
                                       <div key={container.name} className="flex items-center justify-between p-2.5 rounded-md bg-[#f6f8fa] border border-[#e8ecf0] hover:border-[#d0d7de] transition-all">

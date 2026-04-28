@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.Map;
 
 @Component
 public class SecurityScheduler {
@@ -17,6 +18,30 @@ public class SecurityScheduler {
     private final CloudAccountRepository cloudAccountRepository;
     private final ProwlerService prowlerService;
 
+    private static final String[] AWS_SERVICES = {
+            "s3", "ec2", "iam", "rds", "cloudtrail", "cloudwatch",
+            "kms", "lambda", "vpc", "config", "sns", "sqs",
+            "efs", "elb", "elbv2", "secretsmanager", "guardduty"
+    };
+
+    private static final String[] AWS_FRAMEWORKS = {
+            "cis_3.0_aws", "soc2_aws", "pci_3.2.1_aws",
+            "hipaa_aws", "nist_csf_1.1_aws", "nist_800_53_revision_5_aws",
+            "gdpr_aws", "iso27001_2013_aws", "mitre_attack_aws",
+            "cisa_aws", "fedramp_moderate_revision_4_aws",
+            "ffiec_aws", "rbi_cyber_security_framework_aws",
+            "ens_rd2022_aws", "aws_well_architected_framework_security_pillar_aws",
+            "aws_foundational_security_best_practices_aws",
+            "gxp_21_cfr_part_11_aws"
+    };
+
+    // Gap A: GCP Prowler frameworks — parity with AWS list
+    private static final String[] GCP_FRAMEWORKS = {
+            "cis_2.0_gcp", "soc2_gcp", "pci_3.2.1_gcp",
+            "iso27001_2013_gcp", "mitre_attack_gcp",
+            "hipaa_gcp", "gdpr_gcp", "nist_csf_1.1_gcp"
+    };
+
     @Autowired
     public SecurityScheduler(CloudAccountRepository cloudAccountRepository,
             ProwlerService prowlerService) {
@@ -25,51 +50,54 @@ public class SecurityScheduler {
     }
 
     /**
-     * Runs every night at 2 AM server time.
-     * Triggers Prowler scans for all known AWS accounts.
+     * 2:00 AM daily — triggers Prowler for ALL accounts (AWS + GCP).
      */
     public void runNightlySecurityScans() {
         logger.info("🕒 Starting Nightly Security Scan for all accounts...");
 
         List<CloudAccount> accounts = cloudAccountRepository.findAll();
-
         if (accounts.isEmpty()) {
             logger.info("No accounts found to scan.");
             return;
         }
 
+        int awsCount = 0;
+        int gcpCount = 0;
+
         for (CloudAccount account : accounts) {
             try {
-                logger.info("Triggering background scan for account: {}", account.getAwsAccountId());
+                String provider = account.getProvider();
 
-                // Trigger Prowler asynchronously with compliance frameworks.
-                // The ProwlerService is responsible for updating the Cache/DB when it finishes.
-                String[] services = {
-                        "s3", "ec2", "iam", "rds", "cloudtrail", "cloudwatch",
-                        "kms", "lambda", "vpc", "config", "sns", "sqs",
-                        "efs", "elb", "elbv2", "secretsmanager", "guardduty"
-                };
-                String[] complianceFrameworks = {
-                        "cis_3.0_aws", "soc2_aws", "pci_3.2.1_aws",
-                        "hipaa_aws", "nist_csf_1.1_aws", "nist_800_53_revision_5_aws",
-                        "gdpr_aws", "iso27001_2013_aws", "mitre_attack_aws",
-                        "cisa_aws", "fedramp_moderate_revision_4_aws",
-                        "ffiec_aws", "rbi_cyber_security_framework_aws",
-                        "ens_rd2022_aws", "aws_well_architected_framework_security_pillar_aws",
-                        "aws_foundational_security_best_practices_aws",
-                        "gxp_21_cfr_part_11_aws"
-                };
-                prowlerService.triggerScanAsync(
-                        account.getAwsAccountId(),
-                        "us-east-1",
-                        services,
-                        complianceFrameworks
-                );
+                if ("GCP".equalsIgnoreCase(provider)) {
+                    // Gap A: GCP Prowler nightly scan
+                    String gcpProjectId = account.getGcpProjectId();
+                    if (gcpProjectId == null || gcpProjectId.isEmpty()) continue;
+
+                    Map<String, Object> status = prowlerService.getGcpScanStatus(gcpProjectId);
+                    if ("RUNNING".equals(status.get("status"))) {
+                        logger.info("⏭ GCP Prowler already running for project={} — skipping", gcpProjectId);
+                        continue;
+                    }
+
+                    logger.info("🔍 Triggering GCP Prowler scan for project={}", gcpProjectId);
+                    prowlerService.triggerGcpScanAsync(gcpProjectId, GCP_FRAMEWORKS);
+                    gcpCount++;
+
+                } else {
+                    // AWS (default)
+                    String awsAccountId = account.getAwsAccountId();
+                    if (awsAccountId == null || awsAccountId.isEmpty()) continue;
+
+                    logger.info("🔍 Triggering AWS Prowler scan for account={}", awsAccountId);
+                    prowlerService.triggerScanAsync(awsAccountId, "us-east-1", AWS_SERVICES, AWS_FRAMEWORKS);
+                    awsCount++;
+                }
 
             } catch (Exception e) {
-                logger.error("Failed to trigger scheduled scan for account {}", account.getAwsAccountId(), e);
+                logger.error("Failed to trigger nightly scan for account {}", account.getId(), e);
             }
         }
-        logger.info("🕒 All nightly scans triggered.");
+
+        logger.info("🕒 Nightly scans triggered — AWS: {} accounts, GCP: {} projects", awsCount, gcpCount);
     }
 }

@@ -80,6 +80,7 @@ const Sidebar: React.FC = () => {
       '/performance', '/gcp-performance', '/azure-performance', '/alerts', '/gcp-alerts', '/azure-alerts'];
     const licensesRoutes = ['/marketplace-purchases', '/workspace-licenses', '/isv-metering'];
     const observabilityRoutes = ['/observability'];
+    // const accessopsRoutes = ['/identity/users', '/identity/groups', '/identity/audit'];
 
     if (finopsRoutes.some(r => path.startsWith(r))) setOpenDropdown('finops');
     else if (cloudopsRoutes.some(r => path.startsWith(r))) setOpenDropdown('cloudops');
@@ -87,6 +88,7 @@ const Sidebar: React.FC = () => {
     else if (secopsRoutes.some(r => path.startsWith(r))) setOpenDropdown('security');
     else if (licensesRoutes.some(r => path.startsWith(r))) setOpenDropdown('licenses');
     else if (observabilityRoutes.some(r => path.startsWith(r))) setOpenDropdown('observability');
+    // else if (accessopsRoutes.some(r => path.startsWith(r))) setOpenDropdown('accessops');
   }, [location.pathname]);
 
   /**
@@ -351,6 +353,20 @@ const Sidebar: React.FC = () => {
                 <NavItem href="/marketplace-purchases" icon="fas fa-store" label="MarketOps" isActive={isActive('/marketplace-purchases')} />
                 <NavItem href="/workspace-licenses" icon="fas fa-key" label="Licenses & Tools" isActive={isActive('/workspace-licenses')} />
               </NavSection>
+
+              {/* AccessOps — temporarily hidden
+              <NavSection
+                icon="fas fa-id-card"
+                label="AccessOps"
+                gradientClass="from-violet-500 to-indigo-600"
+                isOpen={openDropdown === 'accessops'}
+                onToggle={() => toggleDropdown('accessops')}
+              >
+                <NavItem href="/identity/users"  icon="fas fa-users"          label="Users"      isActive={isActive('/identity/users')} />
+                <NavItem href="/identity/groups" icon="fas fa-layer-group"    label="Groups"     isActive={isActive('/identity/groups')} />
+                <NavItem href="/identity/audit"  icon="fas fa-clipboard-list" label="Audit Log"  isActive={isActive('/identity/audit')} />
+              </NavSection>
+              */}
 
               <NavSection
                 icon="fas fa-ticket-alt"

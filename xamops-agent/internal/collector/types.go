@@ -350,6 +350,9 @@ type NodeDetail struct {
 	AllocatableCPU    string            `json:"allocatableCpu"`
 	AllocatableMemory string            `json:"allocatableMemory"`
 	AllocatablePods   string            `json:"allocatablePods"`
+	InternalIP        string            `json:"internalIp,omitempty"`
+	ExternalIP        string            `json:"externalIp,omitempty"`
+	Hostname          string            `json:"hostname,omitempty"`
 	Conditions        []NodeCondition   `json:"conditions"`
 	Taints            []NodeTaint       `json:"taints,omitempty"`
 	Unschedulable     bool              `json:"unschedulable"`
