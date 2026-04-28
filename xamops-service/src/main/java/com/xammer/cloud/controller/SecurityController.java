@@ -9,6 +9,7 @@ import com.xammer.cloud.service.DashboardDataService;
 import com.xammer.cloud.service.ExcelExportService;
 import com.xammer.cloud.service.ProwlerService;
 import com.xammer.cloud.service.SecurityService;
+import com.xammer.cloud.util.SecurityUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
@@ -83,6 +84,7 @@ public class SecurityController {
         }
 
         CloudAccount account = accounts.get(0);
+        SecurityUtils.validateCloudAccountOwnership(account);
 
         // Fallback: Fetch fresh data
         logger.info("Fetching fresh security findings for account {}", accountId);
@@ -112,6 +114,7 @@ public class SecurityController {
             throw new RuntimeException("Account not found: " + accountId);
         }
         CloudAccount account = accounts.get(0);
+        SecurityUtils.validateCloudAccountOwnership(account);
 
         return cloudListService.getRegionStatusForAccount(account, true)
                 .thenCompose((List<DashboardData.RegionStatus> activeRegions) -> securityService
@@ -153,6 +156,8 @@ public class SecurityController {
                     "message", "A scan is already in progress for this account."));
         }
 
+        SecurityUtils.validateCloudAccountOwnership(accounts.get(0));
+
         // Trigger full compliance scan with all services and frameworks
         String[] services = {
                 "s3", "ec2", "iam", "rds", "cloudtrail", "cloudwatch",
@@ -180,6 +185,10 @@ public class SecurityController {
     // ✅ Endpoint for Polling Status
     @GetMapping("/prowler/status")
     public ResponseEntity<Map<String, Object>> getProwlerStatus(@RequestParam String accountId) {
+        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
+        if (!accounts.isEmpty()) {
+            SecurityUtils.validateCloudAccountOwnership(accounts.get(0));
+        }
         return ResponseEntity.ok(prowlerService.getScanStatus(accountId));
     }
 }

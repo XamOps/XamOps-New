@@ -1,0 +1,4 @@
+## 2025-02-24 - Widespread IDOR and CI Secret Leakage
+**Vulnerability:** Multiple controllers (`AgentController`, `AccountManagerController`, `SecurityController`) lacked ownership validation on endpoints accepting `accountId`, allowing potential IDOR across the platform. Additionally, SonarQube credentials were hardcoded in CI workflows, and `loadDbAgentConfig` leaked database passwords.
+**Learning:** Security debt often accumulates in controllers when developers assume authentication implies authorization. A common pattern emerged where endpoints used `permitAll()` for agent access or relied on session presence without verifying resource ownership.
+**Prevention:** Centralize ownership validation in `SecurityUtils` and enforce it strictly across all controllers that manage or view tenant-specific resources (`CloudAccount`). Use GitHub Secrets for all CI credentials and implement standard masking/redaction for sensitive fields in API DTOs.

@@ -15,6 +15,7 @@ import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.service.AwsAccountService;
 import com.xammer.cloud.service.MasterDatabaseService;
 import com.xammer.cloud.service.gcp.GcpDataService;
+import com.xammer.cloud.util.SecurityUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -230,6 +231,7 @@ public class AccountManagerController {
     public ResponseEntity<?> deleteAccount(@PathVariable Long id) {
         return cloudAccountRepository.findById(id)
                 .map(account -> {
+                    SecurityUtils.validateCloudAccountOwnership(account);
                     String accountName = account.getAccountName();
                     awsAccountService.deleteAccountById(id);
                     return ResponseEntity
@@ -370,6 +372,9 @@ public class AccountManagerController {
     @PutMapping("/accounts/{accountId}/billing-table")
     public ResponseEntity<?> updateBillingTable(@PathVariable Long accountId,
             @RequestBody Map<String, String> payload) {
+
+        cloudAccountRepository.findById(accountId).ifPresent(SecurityUtils::validateCloudAccountOwnership);
+
         String billingExportTable = payload.get("billingExportTable");
         if (billingExportTable == null || billingExportTable.trim().isEmpty()) {
             return ResponseEntity.badRequest()
@@ -415,6 +420,8 @@ public class AccountManagerController {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
                     .body(Map.of("message", "Account not found with ID: " + accountId));
         }
+
+        SecurityUtils.validateCloudAccountOwnership(account);
 
         account.setGrafanaIp(grafanaIp);
         cloudAccountRepository.save(account);
