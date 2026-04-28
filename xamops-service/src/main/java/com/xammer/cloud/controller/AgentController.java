@@ -19,11 +19,13 @@ import com.xammer.cloud.service.EksAutoscalingService;
 import com.xammer.cloud.service.OpenObserveService;
 import com.xammer.cloud.service.RedisCacheService;
 import com.xammer.cloud.service.sre.SreInvestigationService;
+import com.xammer.cloud.util.SecurityUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.annotation.*;
 
 import javax.servlet.http.HttpServletRequest;
@@ -113,6 +115,22 @@ public class AgentController {
             return xForwardedFor.split(",")[0].trim();
         }
         return request.getRemoteAddr();
+    }
+
+    /**
+     * Validate that the current user owns the cloud account.
+     * SuperAdmins bypass this check.
+     */
+    private void validateOwnership(String providerAccountId) {
+        if (SecurityUtils.isSuperAdmin()) return;
+
+        Long userClientId = SecurityUtils.getPrincipal().getClientId();
+        CloudAccount account = dbAgentService.resolveAccount(providerAccountId);
+
+        if (account == null || account.getClient() == null || !java.util.Objects.equals(account.getClient().getId(), userClientId)) {
+            logger.warn("Ownership validation failed for user={} account={}", userClientId, providerAccountId);
+            throw new AccessDeniedException("Access denied: You do not own this cloud account.");
+        }
     }
 
     /**
@@ -232,6 +250,8 @@ public class AgentController {
         String agentName = body.get("agentName");
         String cloudAccountId = body.get("cloudAccountId");
 
+        validateOwnership(cloudAccountId);
+
         if (agentName == null || agentName.isEmpty() || cloudAccountId == null || cloudAccountId.isEmpty()) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body(Map.of("error", "agentName and cloudAccountId are required"));
@@ -259,6 +279,8 @@ public class AgentController {
     public ResponseEntity<Map<String, Object>> deleteDbAgent(
             @RequestParam String agentName,
             @RequestParam String cloudAccountId) {
+
+        validateOwnership(cloudAccountId);
 
         boolean deleted = dbAgentService.deleteDbAgent(cloudAccountId, agentName);
         if (!deleted) {
@@ -459,6 +481,9 @@ public class AgentController {
 
         String agentName     = body.get("agentName");
         String cloudAccountId = body.get("cloudAccountId");
+
+        validateOwnership(cloudAccountId);
+
         if (agentName == null || cloudAccountId == null) {
             return ResponseEntity.badRequest().body(Map.of("error", "agentName and cloudAccountId are required"));
         }
@@ -486,6 +511,8 @@ public class AgentController {
             @RequestParam String agentName,
             @RequestParam String cloudAccountId) {
 
+        validateOwnership(cloudAccountId);
+
         DbAgentConfig cfg = dbAgentService.loadConnectionConfig(cloudAccountId, agentName);
         if (cfg == null) {
             return ResponseEntity.ok(Map.of("found", false));
@@ -498,7 +525,8 @@ public class AgentController {
         result.put("dbPort",    cfg.getDbPort()     != null ? cfg.getDbPort()     : "");
         result.put("dbName",    cfg.getDbName()     != null ? cfg.getDbName()     : "");
         result.put("dbUser",    cfg.getDbUser()     != null ? cfg.getDbUser()     : "");
-        result.put("dbPassword",cfg.getDbPassword() != null ? cfg.getDbPassword() : "");
+        // Redact password in response to prevent sensitive data leakage to the browser
+        result.put("dbPassword", (cfg.getDbPassword() != null && !cfg.getDbPassword().isEmpty()) ? "********" : "");
         result.put("serverUrl", cfg.getServerUrl()  != null ? cfg.getServerUrl()  : "");
         return ResponseEntity.ok(result);
     }
@@ -511,6 +539,8 @@ public class AgentController {
     public ResponseEntity<Map<String, Object>> getDbAgentStatus(
             @RequestParam String agentName,
             @RequestParam String cloudAccountId) {
+
+        validateOwnership(cloudAccountId);
 
         java.util.Optional<DbAgentConfig> cfgOpt = dbAgentService.findDbAgent(cloudAccountId, agentName);
         if (cfgOpt.isEmpty()) {

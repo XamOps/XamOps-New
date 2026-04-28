@@ -1,0 +1,4 @@
+## 2025-02-24 - Agent Management IDOR and Secret Leakage
+**Vulnerability:** The `AgentController` management endpoints (like `/db/config`, `/db/register`) lacked ownership validation, allowing potential IDOR. Additionally, `loadDbAgentConfig` leaked database passwords in plaintext.
+**Learning:** Broad `permitAll()` rules in `SecurityConfig.java` for agent-facing paths can inadvertently expose management endpoints if they share the same prefix. Management endpoints that interact with user-owned resources must enforce ownership checks even if the path is permitted at the filter chain level.
+**Prevention:** Implement mandatory ownership validation (comparing authenticated user's `clientId` with resource owner) for all management endpoints. Always redact sensitive credentials like passwords in API responses intended for the frontend.
