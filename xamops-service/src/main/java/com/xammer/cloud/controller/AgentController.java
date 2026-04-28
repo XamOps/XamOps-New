@@ -122,15 +122,8 @@ public class AgentController {
      * SuperAdmins bypass this check.
      */
     private void validateOwnership(String providerAccountId) {
-        if (SecurityUtils.isSuperAdmin()) return;
-
-        Long userClientId = SecurityUtils.getPrincipal().getClientId();
         CloudAccount account = dbAgentService.resolveAccount(providerAccountId);
-
-        if (account == null || account.getClient() == null || !java.util.Objects.equals(account.getClient().getId(), userClientId)) {
-            logger.warn("Ownership validation failed for user={} account={}", userClientId, providerAccountId);
-            throw new AccessDeniedException("Access denied: You do not own this cloud account.");
-        }
+        SecurityUtils.validateCloudAccountOwnership(account);
     }
 
     /**
