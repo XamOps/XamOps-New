@@ -18,6 +18,8 @@ import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.cache.annotation.Caching;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -54,10 +56,28 @@ public class TicketService {
     private SimpMessagingTemplate messagingTemplate;
 
     private void broadcastTicketChange() {
-        try {
-            messagingTemplate.convertAndSend("/topic/tickets", "updated");
-        } catch (Exception e) {
-            logger.warn("Failed to broadcast ticket change via WebSocket: {}", e.getMessage());
+        // Fire after the transaction commits AND after Spring's @CacheEvict AOP advice
+        // has run (both happen after the method returns). Registering an after-commit
+        // synchronization ensures the WebSocket message is sent only when the DB write
+        // and cache eviction are both complete, so the subsequent frontend refetch hits
+        // a cold cache and reads fresh data from the DB.
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    try {
+                        messagingTemplate.convertAndSend("/topic/tickets", "updated");
+                    } catch (Exception e) {
+                        logger.warn("Failed to broadcast ticket change via WebSocket: {}", e.getMessage());
+                    }
+                }
+            });
+        } else {
+            try {
+                messagingTemplate.convertAndSend("/topic/tickets", "updated");
+            } catch (Exception e) {
+                logger.warn("Failed to broadcast ticket change via WebSocket: {}", e.getMessage());
+            }
         }
     }
 

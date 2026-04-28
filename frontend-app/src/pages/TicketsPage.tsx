@@ -244,8 +244,12 @@ const TicketsPage: React.FC = () => {
 
         stompClient.connect({}, () => {
           stompClient.subscribe('/topic/tickets', () => {
-            // Ticket created/updated/closed — invalidate so React Query refetches
-            qc.invalidateQueries({ queryKey: ['tickets'] });
+            // Mark stale only — do NOT force an immediate refetch.
+            // An immediate refetch here hits the still-warm Redis cache and wipes any
+            // optimistic data set by setQueryData. Marking stale means React Query will
+            // refetch on the next natural opportunity (30 s poll or tab focus), by which
+            // time @CacheEvict has completed and the DB has fresh data.
+            qc.invalidateQueries({ queryKey: ['tickets'], refetchType: 'none' });
           });
         });
       } catch {
@@ -333,13 +337,12 @@ const TicketsPage: React.FC = () => {
     },
 
     onSuccess: (newTicket) => {
-      // Prepend the real ticket from server response — instant optimistic display
+      // Prepend the real ticket from server response — visible instantly, no flash or spinner.
+      // Reconciliation is handled by the WebSocket (2 s delayed) and the 30 s poll.
       qc.setQueryData<Ticket[]>(queryKey, (prev = []) => [
         newTicket,
         ...prev.filter((t) => t.id !== newTicket.id),
       ]);
-      // Force an immediate active refetch to reconcile with DB (bypasses staleTime)
-      qc.invalidateQueries({ queryKey: ['tickets'], refetchType: 'active' });
     },
 
     onError: (err) => {
