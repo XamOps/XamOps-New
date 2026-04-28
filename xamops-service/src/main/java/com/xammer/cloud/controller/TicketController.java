@@ -13,9 +13,11 @@ import java.util.Map;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import java.util.concurrent.TimeUnit;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -112,8 +114,18 @@ public class TicketController {
     }
 
     @GetMapping("/tickets/category/{category}")
-    public ResponseEntity<List<TicketDto>> getTicketsByCategory(@PathVariable String category) {
-        return ResponseEntity.ok(ticketService.getTicketsByCategory(category));
+    public ResponseEntity<List<TicketDto>> getTicketsByCategory(
+            @PathVariable String category,
+            @RequestHeader(value = "If-None-Match", required = false) String ifNoneMatch) {
+        List<TicketDto> tickets = ticketService.getTicketsByCategory(category);
+        String eTag = "\"" + tickets.hashCode() + "\"";
+        if (eTag.equals(ifNoneMatch)) {
+            return ResponseEntity.status(304).build();
+        }
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.maxAge(30, TimeUnit.SECONDS).mustRevalidate())
+                .eTag(eTag)
+                .body(tickets);
     }
 
     @GetMapping("/tickets/category/{category}/count")

@@ -13,6 +13,8 @@
 
 import React, { lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, Outlet } from 'react-router-dom';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { queryClient } from './lib/queryClient';
 import clsx from 'clsx';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AccountProvider } from './contexts/AccountContext';
@@ -145,8 +147,8 @@ const ClientDetailsPage = lazy(() => import('./pages/ClientDetailsPage'));
 // const IdentityAuditPage  = lazy(() => import('./pages/identity/IdentityAuditPage'));
 
 // SRE
-const SreInvestigationsPage = lazy(() => import('./pages/SreInvestigationsPage'));
-const SreInvestigationDetailPage = lazy(() => import('./pages/SreInvestigationDetailPage'));
+// const SreInvestigationsPage = lazy(() => import('./pages/SreInvestigationsPage'));
+// const SreInvestigationDetailPage = lazy(() => import('./pages/SreInvestigationDetailPage'));
 
 // Settings & Profile
 const TicketsPage = lazy(() => import('./pages/TicketsPage'));
@@ -542,19 +544,21 @@ const AppContent: React.FC = () => {
 
 const App: React.FC = () => {
     return (
-        <Router>
-            <AuthProvider>
-                <AccountProvider>
-                    <VPCProvider>
-                        <EksDashboardCacheProvider>
-                            <AutoSpottingCacheProvider>
-                                <AppContent />
-                            </AutoSpottingCacheProvider>
-                        </EksDashboardCacheProvider>
-                    </VPCProvider>
-                </AccountProvider>
-            </AuthProvider>
-        </Router>
+        <QueryClientProvider client={queryClient}>
+            <Router>
+                <AuthProvider>
+                    <AccountProvider>
+                        <VPCProvider>
+                            <EksDashboardCacheProvider>
+                                <AutoSpottingCacheProvider>
+                                    <AppContent />
+                                </AutoSpottingCacheProvider>
+                            </EksDashboardCacheProvider>
+                        </VPCProvider>
+                    </AccountProvider>
+                </AuthProvider>
+            </Router>
+        </QueryClientProvider>
     );
 };
 

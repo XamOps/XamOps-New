@@ -333,7 +333,9 @@ public class TicketService {
      */
     @Transactional(readOnly = true)
     public List<TicketDto> getTicketsByCategory(String category, boolean forceRefresh) {
-        String cacheKey = getTenantCacheKey(TICKETS_CATEGORY_PREFIX + category);
+        // Include user ID in cache key so each user's filtered view is cached separately
+        Long userId = SecurityUtils.getCurrentUserId();
+        String cacheKey = getTenantCacheKey(TICKETS_CATEGORY_PREFIX + category + ":user:" + userId);
 
         if (!forceRefresh) {
             Optional<List<TicketDto>> cached = redisCache.get(cacheKey, new TypeReference<List<TicketDto>>() {

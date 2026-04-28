@@ -26,6 +26,9 @@
     "vite-plugin-html-include": "^1.5.1"
   },
   "dependencies": {
+    "@tanstack/query-sync-storage-persister": "^5.100.5",
+    "@tanstack/react-query": "^5.100.5",
+    "@tanstack/react-query-persist-client": "^5.100.5",
     "@types/sockjs-client": "^1.5.4",
     "@types/stompjs": "^2.3.10",
     "@xterm/addon-fit": "^0.11.0",
