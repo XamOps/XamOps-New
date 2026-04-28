@@ -23,7 +23,7 @@ const getServiceIcon = (serviceType: string): string => {
     'RDS Instance': 'rds-instance.png',
     'Lambda': 'aws-lambda.png',
     'S3 Bucket': 's3-bucket.png',
-    'Load Balancer': 'load-balancer.png',
+    'Load Balancer': 'load-balanceraws.png',
     'Auto Scaling Group': 'autoscaling.png',
     'VPC': 'vpc.png',
     'Security Group': 'security-group.png',

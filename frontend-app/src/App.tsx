@@ -86,6 +86,8 @@ const GcpBillingPage = lazy(() => import('./pages/GcpBillingPage'));
 const GcpSpotAutomationPage = lazy(() => import('./pages/GcpSpotAutomationPage'));
 const GcpDataOpsPage = lazy(() => import('./pages/GcpDataOpsPage'));
 const GcpDiskRightsizingPage = lazy(() => import('./pages/GcpDiskRightsizingPage'));
+const AzureDataOpsPage = lazy(() => import('./pages/AzureDataOpsPage'));
+const AzureDiskRightsizingPage = lazy(() => import('./pages/AzureDiskRightsizingPage'));
 
 // Azure
 const AzureFinOpsPage = lazy(() => import('./pages/AzureFinOpsPage'));
@@ -462,6 +464,7 @@ const AppContent: React.FC = () => {
  <Route path="/flex-compute" element={<FlexComputePage />} />
  <Route path="/ebs-rightsizing" element={<EbsRightsizingPage />} />
  <Route path="/gcp-disk-rightsizing" element={<GcpDiskRightsizingPage />} />
+ <Route path="/azure-disk-rightsizing" element={<AzureDiskRightsizingPage />} />
  <Route path="/grafana-dashboard" element={<GrafanaDashboardPage />} />
  <Route path="/cloudk8s" element={<CloudK8sPage />} />
  <Route path="/gcp-cloudk8s" element={<GcpCloudK8sPage />} />
@@ -495,6 +498,7 @@ const AppContent: React.FC = () => {
  <Route path="/aiops" element={<AIOpsPage />} />
  <Route path="/dataops" element={<DataOpsPage />} />
  <Route path="/gcp-dataops" element={<GcpDataOpsPage />} />
+ <Route path="/azure-dataops" element={<AzureDataOpsPage />} />
  <Route path="/observability/*" element={<ObservabilityPage />} />
  <Route path="/sre/investigations" element={<SreInvestigationsPage />} />
  <Route path="/sre/investigations/:id" element={<SreInvestigationDetailPage />} />
