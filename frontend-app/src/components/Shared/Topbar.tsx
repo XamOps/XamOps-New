@@ -14,7 +14,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 
 const Topbar: React.FC = () => {
     const location = useLocation();
-    const { title: contextTitle, actions, onHelpClick } = useTopbar();
+    const { title: contextTitle, subtitle: contextSubtitle, actions, onHelpClick } = useTopbar();
     const { userProfile, logout, hasAnyRole } = useAuth();
     const { selectedAccountIds, selectedAccountDisplay } = useAccounts();
     const { theme, toggleTheme } = useTheme();
@@ -104,19 +104,21 @@ const Topbar: React.FC = () => {
                 theme === 'dark' ? 'bg-[#0a0f1a] border-slate-800 text-slate-100' : 'bg-white/90 backdrop-blur-md border-gray-200/50 text-slate-800'
             )}>
                 <div className="flex items-center gap-4">
-                    <div className="flex flex-col min-w-0 overflow-hidden">
-                        <h1 className={clsx(
-                            'text-xl font-bold tracking-tight truncate',
-                            theme === 'dark' ? 'text-slate-100' : 'text-slate-800'
-                        )}>
-                            {pageTitle}
-                        </h1>
-                        <div className="flex items-center text-xs font-medium text-slate-400 gap-2 whitespace-nowrap overflow-hidden">
-                            <span className="flex-shrink-0">XamOps</span>
-                            <i className="fas fa-chevron-right text-[10px] flex-shrink-0"></i>
-                            <span className="text-indigo-500/80 truncate">{pageTitle}</span>
+                    {pageTitle && (
+                        <div className="flex flex-col min-w-0 overflow-hidden">
+                            <h1 className={clsx(
+                                'text-xl font-bold tracking-tight truncate',
+                                theme === 'dark' ? 'text-slate-100' : 'text-slate-800'
+                            )}>
+                                {pageTitle}
+                            </h1>
+                            {contextSubtitle && (
+                                <p className="text-xs text-slate-400 dark:text-slate-500 truncate mt-0.5">
+                                    {contextSubtitle}
+                                </p>
+                            )}
                         </div>
-                    </div>
+                    )}
                 </div>
 
                 {/* Super Admin Panel */}

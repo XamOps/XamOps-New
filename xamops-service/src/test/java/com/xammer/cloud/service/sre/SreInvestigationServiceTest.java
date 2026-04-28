@@ -31,7 +31,8 @@ class SreInvestigationServiceTest {
             mock(CloudAccountRepository.class),
             mock(ObservabilityConfigRepository.class),
             mock(SreNotificationService.class),
-            mock(AwsClientProvider.class)
+            mock(AwsClientProvider.class),
+            "http://openobserve:5080"
         );
     }
 

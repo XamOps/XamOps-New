@@ -17,6 +17,7 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.auth.credentials.AwsCredentials;
 
+import org.springframework.beans.factory.annotation.Value;
 import javax.annotation.PostConstruct;
 
 import java.time.Instant;
@@ -37,6 +38,7 @@ public class SreInvestigationService {
     private final SreNotificationService notificationService;
     private final AwsClientProvider awsClientProvider;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final String openObserveExternalUrl;
 
     // Self-injection via proxy to ensure @Async is honoured (Spring AOP self-invocation bypass)
     @Lazy
@@ -49,7 +51,8 @@ public class SreInvestigationService {
                                    CloudAccountRepository cloudAccountRepo,
                                    ObservabilityConfigRepository observabilityConfigRepo,
                                    SreNotificationService notificationService,
-                                   AwsClientProvider awsClientProvider) {
+                                   AwsClientProvider awsClientProvider,
+                                   @Value("${openobserve.external.url:http://openobserve:5080}") String openObserveExternalUrl) {
         this.investigationRepo = investigationRepo;
         this.notificationRepo = notificationRepo;
         this.openSreClient = openSreClient;
@@ -57,6 +60,7 @@ public class SreInvestigationService {
         this.observabilityConfigRepo = observabilityConfigRepo;
         this.notificationService = notificationService;
         this.awsClientProvider = awsClientProvider;
+        this.openObserveExternalUrl = openObserveExternalUrl;
     }
 
     public SreInvestigation createInvestigation(Long clientId,
@@ -89,6 +93,10 @@ public class SreInvestigationService {
                 investigationRepo.save(inv);
             }
         }
+    }
+
+    public boolean hasRecentInvestigation(String resourceId, Instant since) {
+        return investigationRepo.countRecentByResourceId(resourceId, since) > 0;
     }
 
     public List<SreInvestigation> listForClient(Long clientId) {
@@ -195,11 +203,14 @@ public class SreInvestigationService {
         input.put("alert_name", inv.getResourceName() + " " + inv.getResourceType().name());
         input.put("pipeline_name", resolvePipelineName(inv.getResourceType()));
         input.put("severity", "critical");
-        input.put("raw_alert", Map.of(
-            "resourceType", inv.getResourceType().name(),
-            "resourceId", inv.getResourceId(),
-            "resourceName", inv.getResourceName() != null ? inv.getResourceName() : inv.getResourceId()
-        ));
+        Map<String, Object> rawAlert = new HashMap<>();
+        rawAlert.put("resourceType", inv.getResourceType().name());
+        rawAlert.put("resourceId", inv.getResourceId());
+        rawAlert.put("resourceName", inv.getResourceName() != null ? inv.getResourceName() : inv.getResourceId());
+        if (inv.getAlertPayload() != null && !inv.getAlertPayload().isBlank()) {
+            rawAlert.put("alert_payload", inv.getAlertPayload());
+        }
+        input.put("raw_alert", rawAlert);
 
         Map<String, Object> integrations = new HashMap<>();
         buildObservabilityIntegration(inv.getClientId(), integrations);
@@ -222,7 +233,7 @@ public class SreInvestigationService {
     private void buildObservabilityIntegration(Long clientId, Map<String, Object> integrations) {
         observabilityConfigRepo.findByClientId(clientId).ifPresent(obs -> {
             Map<String, Object> oo = new HashMap<>();
-            oo.put("base_url", System.getenv().getOrDefault("OPENOBSERVE_EXTERNAL_URL", "http://openobserve:5080"));
+            oo.put("base_url", openObserveExternalUrl);
             oo.put("org", obs.getO2OrgId());
             oo.put("api_token", obs.getO2ApiKey());
             oo.put("connection_verified", true);

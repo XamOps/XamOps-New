@@ -1,0 +1,298 @@
+package com.xammer.cloud.controller.azure;
+
+import com.xammer.cloud.dto.dbops.*;
+import com.xammer.cloud.service.azure.AzureDbOpsService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+
+/**
+ * Azure DbOps REST Controller — Azure SQL / PostgreSQL / MySQL Cost & Performance Optimization
+ *
+ * Base path: /api/dbops/azure/{subscriptionId}
+ *
+ * Mirrors GcpDbOpsController — all endpoints accept ?forceRefresh=true to bypass cache.
+ */
+@RestController
+@RequestMapping("/api/dbops/azure")
+public class AzureDbOpsController {
+
+    private static final Logger logger = LoggerFactory.getLogger(AzureDbOpsController.class);
+
+    private final AzureDbOpsService azureDbOpsService;
+
+    public AzureDbOpsController(AzureDbOpsService azureDbOpsService) {
+        this.azureDbOpsService = azureDbOpsService;
+    }
+
+    // ── Inventory ─────────────────────────────────────────────────────────────
+
+    @GetMapping("/{subscriptionId}/inventory")
+    public CompletableFuture<ResponseEntity<List<DbInstanceDto>>> getInventory(
+            @PathVariable String subscriptionId,
+            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+
+        logger.info("📦 [AzureDbOps] Inventory request — subscription: {}", subscriptionId);
+        return azureDbOpsService.getDbInventory(subscriptionId, forceRefresh)
+                .thenApply(data -> {
+                    logger.info("✅ [AzureDbOps] Inventory returned {} instances", data.size());
+                    return ResponseEntity.ok(data);
+                })
+                .exceptionally(ex -> {
+                    logger.error("❌ [AzureDbOps] Inventory error for {}: {}", subscriptionId, ex.getMessage());
+                    return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+                });
+    }
+
+    // ── Idle Detection ────────────────────────────────────────────────────────
+
+    @GetMapping("/{subscriptionId}/idle")
+    public CompletableFuture<ResponseEntity<List<DbIdleInstanceDto>>> getIdleInstances(
+            @PathVariable String subscriptionId,
+            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+
+        logger.info("💤 [AzureDbOps] Idle instances request — subscription: {}", subscriptionId);
+        return azureDbOpsService.getIdleInstances(subscriptionId, forceRefresh)
+                .thenApply(data -> {
+                    logger.info("✅ [AzureDbOps] Idle returned {} candidates", data.size());
+                    return ResponseEntity.ok(data);
+                })
+                .exceptionally(ex -> {
+                    logger.error("❌ [AzureDbOps] Idle error for {}: {}", subscriptionId, ex.getMessage());
+                    return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+                });
+    }
+
+    // ── Right-Sizing ──────────────────────────────────────────────────────────
+
+    @GetMapping("/{subscriptionId}/rightsizing")
+    public CompletableFuture<ResponseEntity<List<DbRightsizingDto>>> getRightsizing(
+            @PathVariable String subscriptionId,
+            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+
+        logger.info("📐 [AzureDbOps] Right-sizing request — subscription: {}", subscriptionId);
+        return azureDbOpsService.getRightsizingRecommendations(subscriptionId, forceRefresh)
+                .thenApply(data -> {
+                    logger.info("✅ [AzureDbOps] Right-sizing returned {} recommendations", data.size());
+                    return ResponseEntity.ok(data);
+                })
+                .exceptionally(ex -> {
+                    logger.error("❌ [AzureDbOps] Right-sizing error for {}: {}", subscriptionId, ex.getMessage());
+                    return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+                });
+    }
+
+    // ── DB Costs ──────────────────────────────────────────────────────────────
+
+    @GetMapping("/{subscriptionId}/costs")
+    public CompletableFuture<ResponseEntity<List<DbCostDto>>> getCosts(
+            @PathVariable String subscriptionId,
+            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+
+        logger.info("💰 [AzureDbOps] Costs request — subscription: {}", subscriptionId);
+        return azureDbOpsService.getDbCosts(subscriptionId, forceRefresh)
+                .thenApply(data -> {
+                    logger.info("✅ [AzureDbOps] Costs returned {} line items", data.size());
+                    return ResponseEntity.ok(data);
+                })
+                .exceptionally(ex -> {
+                    logger.error("❌ [AzureDbOps] Costs error for {}: {}", subscriptionId, ex.getMessage());
+                    return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+                });
+    }
+
+    // ── Backup Waste ──────────────────────────────────────────────────────────
+
+    @GetMapping("/{subscriptionId}/snapshots")
+    public CompletableFuture<ResponseEntity<List<DbSnapshotWasteDto>>> getSnapshots(
+            @PathVariable String subscriptionId,
+            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+
+        logger.info("📸 [AzureDbOps] Snapshots request — subscription: {}", subscriptionId);
+        return azureDbOpsService.getDbSnapshots(subscriptionId, forceRefresh)
+                .thenApply(data -> {
+                    logger.info("✅ [AzureDbOps] Snapshots returned {} waste entries", data.size());
+                    return ResponseEntity.ok(data);
+                })
+                .exceptionally(ex -> {
+                    logger.error("❌ [AzureDbOps] Snapshots error for {}: {}", subscriptionId, ex.getMessage());
+                    return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+                });
+    }
+
+    // ── Security Posture ──────────────────────────────────────────────────────
+
+    @GetMapping("/{subscriptionId}/security")
+    public CompletableFuture<ResponseEntity<List<DbSecurityCheckDto>>> getSecurityChecks(
+            @PathVariable String subscriptionId,
+            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+
+        logger.info("🔒 [AzureDbOps] Security checks request — subscription: {}", subscriptionId);
+        return azureDbOpsService.getSecurityChecks(subscriptionId, forceRefresh)
+                .thenApply(data -> {
+                    logger.info("✅ [AzureDbOps] Security returned {} findings", data.size());
+                    return ResponseEntity.ok(data);
+                })
+                .exceptionally(ex -> {
+                    logger.error("❌ [AzureDbOps] Security error for {}: {}", subscriptionId, ex.getMessage());
+                    return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+                });
+    }
+
+    // ── Savings Summary ───────────────────────────────────────────────────────
+
+    @GetMapping("/{subscriptionId}/summary")
+    public CompletableFuture<ResponseEntity<DbSavingsSummaryDto>> getSavingsSummary(
+            @PathVariable String subscriptionId,
+            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+
+        logger.info("📊 [AzureDbOps] Summary request — subscription: {}", subscriptionId);
+        return azureDbOpsService.getSavingsSummary(subscriptionId, forceRefresh)
+                .thenApply(data -> {
+                    logger.info("✅ [AzureDbOps] Summary: total cost ${}, savings potential ${}",
+                            data.getTotalDbMonthlyCost(), data.getTotalPotentialSavings());
+                    return ResponseEntity.ok(data);
+                })
+                .exceptionally(ex -> {
+                    logger.error("❌ [AzureDbOps] Summary error for {}: {}", subscriptionId, ex.getMessage());
+                    return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+                });
+    }
+
+    // ── Slow Query Analysis ───────────────────────────────────────────────────
+
+    @GetMapping("/{subscriptionId}/slow-queries")
+    public CompletableFuture<ResponseEntity<SlowQueriesResponseDto>> getSlowQueries(
+            @PathVariable String subscriptionId,
+            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+
+        logger.info("🐢 [AzureDbOps] Slow queries request — subscription: {}", subscriptionId);
+        return azureDbOpsService.getSlowQueries(subscriptionId, forceRefresh)
+                .thenApply(data -> {
+                    logger.info("✅ [AzureDbOps] Slow queries returned {} queries, logsEnabled={}",
+                            data.getQueries().size(), data.isLogsEnabled());
+                    return ResponseEntity.ok(data);
+                })
+                .exceptionally(ex -> {
+                    logger.error("❌ [AzureDbOps] Slow queries error for {}: {}", subscriptionId, ex.getMessage());
+                    return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+                });
+    }
+
+    // ── Metrics ───────────────────────────────────────────────────────────────
+
+    @GetMapping("/{subscriptionId}/metrics")
+    public CompletableFuture<ResponseEntity<Map<String, DbMetricsDto>>> getMetrics(
+            @PathVariable String subscriptionId,
+            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+
+        logger.info("📈 [AzureDbOps] Metrics request — subscription: {}", subscriptionId);
+        return azureDbOpsService.getDbMetrics(subscriptionId, forceRefresh)
+                .thenApply(data -> {
+                    logger.info("✅ [AzureDbOps] Metrics returned for {} instances", data.size());
+                    return ResponseEntity.ok(data);
+                })
+                .exceptionally(ex -> {
+                    logger.error("❌ [AzureDbOps] Metrics error for {}: {}", subscriptionId, ex.getMessage());
+                    return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+                });
+    }
+
+    // ── Agent Endpoints ───────────────────────────────────────────────────────
+
+    @GetMapping("/{subscriptionId}/agent-instance-metrics")
+    public CompletableFuture<ResponseEntity<List<AgentInstanceMetricsDto>>> getAgentInstanceMetrics(
+            @PathVariable String subscriptionId) {
+        return azureDbOpsService.getAgentInstanceMetrics(subscriptionId)
+                .thenApply(ResponseEntity::ok)
+                .exceptionally(ex -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());
+    }
+
+    @GetMapping("/{subscriptionId}/agent-query-stats")
+    public CompletableFuture<ResponseEntity<List<AgentQueryStatDto>>> getAgentQueryStats(
+            @PathVariable String subscriptionId) {
+        logger.info("🔍 [AzureDbOps] Agent query stats request — subscription: {}", subscriptionId);
+        return azureDbOpsService.getAgentQueryStats(subscriptionId)
+                .thenApply(data -> {
+                    logger.info("✅ [AzureDbOps] Agent query stats: {} queries for subscription {}", data.size(), subscriptionId);
+                    return ResponseEntity.ok(data);
+                })
+                .exceptionally(ex -> {
+                    logger.error("❌ [AzureDbOps] Agent query stats error for {}: {}", subscriptionId, ex.getMessage());
+                    return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+                });
+    }
+
+    @GetMapping("/{subscriptionId}/agent-table-sizes")
+    public CompletableFuture<ResponseEntity<List<AgentTableSizeDto>>> getAgentTableSizes(
+            @PathVariable String subscriptionId) {
+        return azureDbOpsService.getAgentTableSizes(subscriptionId)
+                .thenApply(ResponseEntity::ok)
+                .exceptionally(ex -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());
+    }
+
+    @GetMapping("/{subscriptionId}/agent-timeseries")
+    public CompletableFuture<ResponseEntity<List<AgentTimeseriesDto>>> getAgentTimeseries(
+            @PathVariable String subscriptionId,
+            @RequestParam(defaultValue = "24") int hours) {
+        return azureDbOpsService.getAgentTimeseries(subscriptionId, hours)
+                .thenApply(ResponseEntity::ok)
+                .exceptionally(ex -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());
+    }
+
+    @GetMapping("/{subscriptionId}/agent-index-usage")
+    public CompletableFuture<ResponseEntity<List<AgentIndexUsageDto>>> getAgentIndexUsage(
+            @PathVariable String subscriptionId) {
+        return azureDbOpsService.getAgentIndexUsage(subscriptionId)
+                .thenApply(ResponseEntity::ok)
+                .exceptionally(ex -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());
+    }
+
+    @GetMapping("/{subscriptionId}/agent-table-activity")
+    public CompletableFuture<ResponseEntity<List<AgentTableActivityDto>>> getAgentTableActivity(
+            @PathVariable String subscriptionId) {
+        return azureDbOpsService.getAgentTableActivity(subscriptionId)
+                .thenApply(ResponseEntity::ok)
+                .exceptionally(ex -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());
+    }
+
+    @GetMapping("/{subscriptionId}/agent-vacuum-stats")
+    public CompletableFuture<ResponseEntity<List<AgentVacuumStatDto>>> getAgentVacuumStats(
+            @PathVariable String subscriptionId) {
+        return azureDbOpsService.getAgentVacuumStats(subscriptionId)
+                .thenApply(ResponseEntity::ok)
+                .exceptionally(ex -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());
+    }
+
+    @GetMapping("/{subscriptionId}/agent-user-activity")
+    public CompletableFuture<ResponseEntity<List<AgentUserActivityDto>>> getAgentUserActivity(
+            @PathVariable String subscriptionId) {
+        return azureDbOpsService.getAgentUserActivity(subscriptionId)
+                .thenApply(ResponseEntity::ok)
+                .exceptionally(ex -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());
+    }
+
+    @GetMapping("/{subscriptionId}/instance/{instanceId}/timeseries")
+    public CompletableFuture<ResponseEntity<DbInstanceTimeseriesDto>> getInstanceTimeseries(
+            @PathVariable String subscriptionId,
+            @PathVariable String instanceId,
+            @RequestParam(defaultValue = "24") int hours) {
+
+        logger.info("🔍 [AzureDbOps] Timeseries request — subscription: {}, instance: {}", subscriptionId, instanceId);
+        return azureDbOpsService.getInstanceTimeseries(subscriptionId, instanceId)
+                .thenApply(data -> {
+                    logger.info("✅ [AzureDbOps] Timeseries returned for {}", instanceId);
+                    return ResponseEntity.ok(data);
+                })
+                .exceptionally(ex -> {
+                    logger.error("❌ [AzureDbOps] Timeseries error for {}: {}", instanceId, ex.getMessage());
+                    return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+                });
+    }
+}

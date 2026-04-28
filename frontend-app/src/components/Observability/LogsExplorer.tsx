@@ -7,6 +7,7 @@ import {
   LogStream,
 } from '../../hooks/useObservabilityData';
 import clsx from 'clsx';
+import SreInvestigateButton from '../SreInvestigateButton';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -55,13 +56,46 @@ function LogDetailDrawer({ log, onClose }: { log: LogEntry | null; onClose: () =
           <h3 className={clsx('text-lg font-semibold', theme === 'dark' ? 'text-white' : 'text-gray-900')}>
             Log Details
           </h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl">✕</button>
+          <div className="flex items-center gap-3">
+            {(() => {
+              const podName = String(
+                log['k8s.pod.name'] || log['kubernetes_pod_name'] ||
+                log['pod_name'] || log['kubernetes.pod.name'] || log['k8s_pod_name'] || ''
+              );
+              const hostId   = String(log['host.id'] || log['service.instance.id'] || '');
+              const hostName = String(log['host.name'] || log['host_name'] || '');
+              const ec2Id    = hostId || hostName;
+              const serviceName = String(log.service || '');
+              const source     = String(
+                log['k8s.namespace.name'] || log['kubernetes_namespace_name'] ||
+                log['namespace'] || log['k8s_namespace_name'] || log.namespace ||
+                log['host.name'] || log['host_name'] || ''
+              );
+              const investigateId   = podName || ec2Id || serviceName;
+              const investigateType: 'K8S_POD' | 'EC2' = podName ? 'K8S_POD' : ec2Id ? 'EC2' : 'K8S_POD';
+              const investigateName = podName
+                ? `${podName}${source ? ` (${source})` : ''}`
+                : ec2Id || serviceName;
+              const msg = String(log.message || log['log'] || '').slice(0, 200);
+              const lvl = String(log.level || 'INFO').toUpperCase();
+              if (!investigateId) return null;
+              return (
+                <SreInvestigateButton
+                  resourceType={investigateType}
+                  resourceId={investigateId}
+                  resourceName={investigateName}
+                  alertPayload={JSON.stringify({ level: lvl, message: msg, namespace: source, service: serviceName })}
+                />
+              );
+            })()}
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl">✕</button>
+          </div>
         </div>
 
         <div className="flex items-center gap-3 mb-4">
           <span className={clsx('text-xs px-2 py-1 rounded font-semibold',
-            LEVEL_COLORS[String(log.level || '').toUpperCase()] || LEVEL_COLORS['INFO'])}>
-            {String(log.level || 'INFO').toUpperCase()}
+            LEVEL_COLORS[String(log.level || log['severity_text'] || log['log.level'] || '').toUpperCase()] || LEVEL_COLORS['INFO'])}>
+            {String(log.level || log['severity_text'] || log['log.level'] || 'INFO').toUpperCase()}
           </span>
           <span className={clsx('text-sm', theme === 'dark' ? 'text-slate-400' : 'text-gray-500')}>
             {log._timestamp ? new Date(log._timestamp / 1000).toLocaleString() : '—'}
@@ -102,24 +136,45 @@ function LogDetailDrawer({ log, onClose }: { log: LogEntry | null; onClose: () =
 
 function LogRow({ log, onClick }: { log: LogEntry; onClick: () => void }) {
   const { theme } = useTheme();
-  const lvl = String(log.level || 'INFO').toUpperCase();
+  const lvl = String(log.level || log['severity_text'] || log['log.level'] || 'INFO').toUpperCase();
   const ts = log._timestamp ? new Date(log._timestamp / 1000).toLocaleTimeString() : '—';
   const msg = String(log.message || log['log'] || JSON.stringify(log)).slice(0, 200);
-  // Show EC2 hostname or k8s namespace as source badge
-  const source = String(log['host_name'] || log['host.name'] || log['namespace'] || log['k8s_namespace_name'] || log.namespace || '');
+  // K8s: OTEL → k8s.namespace.name, Fluent Bit → kubernetes_namespace_name; EC2: host.name
+  const source = String(
+    log['k8s.namespace.name'] || log['kubernetes_namespace_name'] ||
+    log['namespace'] || log['k8s_namespace_name'] || log.namespace ||
+    log['host.name'] || log['host_name'] || ''
+  );
+
+  // Derive investigation target: pod > EC2 host > service
+  // K8s: OTEL agent stores k8s.pod.name; Fluent Bit lifts to kubernetes_pod_name
+  const podName = String(
+    log['k8s.pod.name'] || log['kubernetes_pod_name'] ||
+    log['pod_name'] || log['kubernetes.pod.name'] || log['k8s_pod_name'] || ''
+  );
+  // EC2: OTEL agent stores host.id (instance ID) and host.name (hostname)
+  const hostId   = String(log['host.id'] || log['service.instance.id'] || '');
+  const hostName = String(log['host.name'] || log['host_name'] || '');
+  const ec2Id    = hostId || hostName;
+  const serviceName = String(log.service || '');
+  const investigateId   = podName || ec2Id || serviceName;
+  const investigateType: 'K8S_POD' | 'EC2' = podName ? 'K8S_POD' : ec2Id ? 'EC2' : 'K8S_POD';
+  const investigateName = podName
+    ? `${podName}${source ? ` (${source})` : ''}`
+    : ec2Id || serviceName;
 
   return (
     <div
       onClick={onClick}
       className={clsx(
-        'flex items-start gap-3 px-4 py-2.5 cursor-pointer transition-colors text-sm',
+        'flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors text-sm',
         theme === 'dark' ? 'hover:bg-slate-700/50' : 'hover:bg-gray-50'
       )}
     >
-      <div className="flex-shrink-0 mt-1.5">
+      <div className="flex-shrink-0">
         <span className={clsx('inline-block w-2 h-2 rounded-full', LEVEL_DOT[lvl] || 'bg-gray-400')} />
       </div>
-      <span className={clsx('flex-shrink-0 w-20 font-mono text-xs mt-0.5',
+      <span className={clsx('flex-shrink-0 w-20 font-mono text-xs',
         theme === 'dark' ? 'text-slate-500' : 'text-gray-400')}>
         {ts}
       </span>
@@ -143,6 +198,16 @@ function LogRow({ log, onClick }: { log: LogEntry; onClick: () => void }) {
         theme === 'dark' ? 'text-slate-300' : 'text-gray-700')}>
         {msg}
       </span>
+      {investigateId && (
+        <div className="flex-shrink-0" onClick={e => e.stopPropagation()}>
+          <SreInvestigateButton
+            resourceType={investigateType}
+            resourceId={investigateId}
+            resourceName={investigateName}
+            alertPayload={JSON.stringify({ level: lvl, message: msg, namespace: source, service: serviceName })}
+          />
+        </div>
+      )}
     </div>
   );
 }

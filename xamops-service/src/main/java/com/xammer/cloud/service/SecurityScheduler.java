@@ -5,7 +5,6 @@ import com.xammer.cloud.repository.CloudAccountRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -53,7 +52,6 @@ public class SecurityScheduler {
     /**
      * 2:00 AM daily — triggers Prowler for ALL accounts (AWS + GCP).
      */
-    @Scheduled(cron = "0 0 2 * * *")
     public void runNightlySecurityScans() {
         logger.info("🕒 Starting Nightly Security Scan for all accounts...");
 

@@ -5,8 +5,10 @@ import com.xammer.cloud.domain.AgentEvent;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.DbAgentConfig;
 import com.xammer.cloud.domain.KubernetesClusterConfig;
+import com.xammer.cloud.domain.SreInvestigation;
 import com.xammer.cloud.dto.agent.AgentIngestPayload;
 import com.xammer.cloud.dto.agent.AgentIngestResponse;
+import com.xammer.cloud.dto.sre.TriggerInvestigationRequest;
 import com.xammer.cloud.repository.AgentDataCacheRepository;
 import com.xammer.cloud.repository.AgentEventRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
@@ -14,7 +16,9 @@ import com.xammer.cloud.repository.KubernetesClusterConfigRepository;
 import com.xammer.cloud.service.AgentIngestService;
 import com.xammer.cloud.service.DbAgentService;
 import com.xammer.cloud.service.EksAutoscalingService;
+import com.xammer.cloud.service.OpenObserveService;
 import com.xammer.cloud.service.RedisCacheService;
+import com.xammer.cloud.service.sre.SreInvestigationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
@@ -23,6 +27,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import javax.servlet.http.HttpServletRequest;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -55,6 +60,8 @@ public class AgentController {
     static final String GCP_DISK_AGENT_SEEN_PREFIX = "gcp-disk-agent-seen:";
     private static final int DISK_AGENT_SEEN_TTL_MINUTES = 1440; // 24 hours
 
+    private static final int SRE_AUTO_COOLDOWN_MINUTES = 30;
+
     private final AgentIngestService agentIngestService;
     private final DbAgentService dbAgentService;
     private final KubernetesClusterConfigRepository clusterConfigRepository;
@@ -62,6 +69,8 @@ public class AgentController {
     private final AgentEventRepository agentEventRepository;
     private final RedisCacheService redisCacheService;
     private final CloudAccountRepository cloudAccountRepository;
+    private final SreInvestigationService sreInvestigationService;
+    private final OpenObserveService openObserveService;
 
     public AgentController(
             AgentIngestService agentIngestService,
@@ -70,7 +79,9 @@ public class AgentController {
             AgentDataCacheRepository agentDataCacheRepository,
             AgentEventRepository agentEventRepository,
             RedisCacheService redisCacheService,
-            CloudAccountRepository cloudAccountRepository) {
+            CloudAccountRepository cloudAccountRepository,
+            SreInvestigationService sreInvestigationService,
+            OpenObserveService openObserveService) {
         this.agentIngestService = agentIngestService;
         this.dbAgentService = dbAgentService;
         this.clusterConfigRepository = clusterConfigRepository;
@@ -78,6 +89,8 @@ public class AgentController {
         this.agentEventRepository = agentEventRepository;
         this.redisCacheService = redisCacheService;
         this.cloudAccountRepository = cloudAccountRepository;
+        this.sreInvestigationService = sreInvestigationService;
+        this.openObserveService = openObserveService;
     }
 
     /**
@@ -153,6 +166,14 @@ public class AgentController {
         if (isDiskPush) {
             handleDiskAgentPush(payload);
             return ResponseEntity.ok(AgentIngestResponse.success());
+        }
+
+        // 3b-sre. Handle sre-alerts batches — auto-trigger investigations for detected anomalies
+        if (payload.getBatches() != null) {
+            payload.getBatches().stream()
+                    .filter(b -> "sre-alerts".equals(b.getCollector()))
+                    .findFirst()
+                    .ifPresent(b -> handleSreAlertsBatch(b, payload.getCloudAccountId()));
         }
 
         // 3b. Check DB agent registry — auto-register on first push if payload contains DB batches
@@ -411,6 +432,24 @@ public class AgentController {
     }
 
     /**
+     * GET /api/v1/agent/config
+     * Returns server-side config the agent needs at runtime (OpenObserve credentials).
+     * The agent calls this on startup so operators never need to pass credentials manually.
+     */
+    @GetMapping("/config")
+    public ResponseEntity<Map<String, Object>> getAgentConfig(
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @RequestParam(value = "accountId", required = false) String accountId) {
+        String apiKey = extractApiKey(authHeader);
+        if (apiKey == null || !apiKey.equals(agentIngestService.getGlobalApiKey())) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        Map<String, Object> response = new HashMap<>();
+        response.put("openobserve", openObserveService.getAgentConfig(accountId));
+        return ResponseEntity.ok(response);
+    }
+
+    /**
      * POST /api/v1/agent/db/config
      * Save connection configuration from the wizard (Step 2).
      */
@@ -609,6 +648,72 @@ public class AgentController {
      * TTL: 6 hours (agent collects every 5 min — stale after 6h = agent died)
      */
     @SuppressWarnings("unchecked")
+    private void handleSreAlertsBatch(AgentIngestPayload.DataBatch batch, String agentCloudAccountId) {
+        if (batch.getItems() == null || batch.getItems().isEmpty()) return;
+
+        // Resolve CloudAccount by agent's account identifier (AWS account ID, GCP project ID, or Azure subscription)
+        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(agentCloudAccountId);
+        if (accounts.isEmpty()) {
+            cloudAccountRepository.findByGcpProjectId(agentCloudAccountId).ifPresent(accounts::add);
+        }
+        if (accounts.isEmpty()) {
+            cloudAccountRepository.findByAwsAccountIdOrGcpProjectIdOrAzureSubscriptionId(
+                    agentCloudAccountId, agentCloudAccountId, agentCloudAccountId)
+                    .ifPresent(accounts::add);
+        }
+
+        for (Object raw : batch.getItems()) {
+            if (!(raw instanceof Map)) continue;
+            Map<String, Object> alert = (Map<String, Object>) raw;
+
+            String resourceId      = (String) alert.get("resourceId");
+            String resourceName    = (String) alert.getOrDefault("resourceName", resourceId);
+            String resourceTypeStr = (String) alert.getOrDefault("resourceType", "K8S_POD");
+            String reason          = (String) alert.getOrDefault("reason", "");
+            String message         = (String) alert.getOrDefault("message", reason);
+            String namespace       = (String) alert.getOrDefault("namespace", "");
+
+            if (resourceId == null || resourceId.isBlank()) continue;
+
+            SreInvestigation.ResourceType resourceType;
+            try {
+                resourceType = SreInvestigation.ResourceType.valueOf(resourceTypeStr);
+            } catch (IllegalArgumentException e) {
+                resourceType = SreInvestigation.ResourceType.K8S_POD;
+            }
+
+            // Skip if an investigation for this resource was already created within cooldown window
+            Instant cooldownSince = Instant.now().minusSeconds(SRE_AUTO_COOLDOWN_MINUTES * 60L);
+            if (sreInvestigationService.hasRecentInvestigation(resourceId, cooldownSince)) {
+                logger.debug("SRE auto-trigger skipped (cooldown) for resourceId={}", resourceId);
+                continue;
+            }
+
+            if (accounts.isEmpty()) {
+                logger.warn("SRE auto-trigger: no CloudAccount found for agentAccount={}", agentCloudAccountId);
+                continue;
+            }
+            CloudAccount account = accounts.get(0);
+            Long clientId = account.getClient().getId();
+
+            TriggerInvestigationRequest req = new TriggerInvestigationRequest();
+            req.setResourceType(resourceType);
+            req.setResourceId(resourceId);
+            req.setResourceName(resourceName);
+            req.setCloudAccountId(account.getId());
+            req.setAlertPayload("{\"reason\":\"" + reason
+                    + "\",\"message\":\"" + message.replace("\"", "'")
+                    + "\",\"namespace\":\"" + namespace + "\"}");
+
+            logger.info("SRE auto-trigger: resourceId={} reason={} clientId={}", resourceId, reason, clientId);
+            try {
+                sreInvestigationService.createInvestigation(clientId, req, SreInvestigation.TriggerType.AUTO);
+            } catch (Exception e) {
+                logger.error("SRE auto-trigger failed for resourceId={}: {}", resourceId, e.getMessage());
+            }
+        }
+    }
+
     private void handleDiskAgentPush(AgentIngestPayload payload) {
         String cloudAccountId = payload.getCloudAccountId();
         if (cloudAccountId == null) return;

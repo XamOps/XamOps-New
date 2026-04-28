@@ -3,6 +3,7 @@ import React, { createContext, useContext, useState, useCallback, ReactNode } fr
 // Context for state (actions node, etc.)
 interface TopbarStateContextType {
     title: string | null;
+    subtitle: string | null;
     actions: ReactNode | null;
     onHelpClick: (() => void) | null;
 }
@@ -10,6 +11,7 @@ interface TopbarStateContextType {
 // Context for dispatchers (setters)
 interface TopbarDispatchContextType {
     setTitle: (title: string | null) => void;
+    setSubtitle: (subtitle: string | null) => void;
     setActions: (actions: ReactNode | null) => void;
     clearActions: () => void;
     setOnHelpClick: (handler: (() => void) | null) => void;
@@ -20,11 +22,16 @@ const TopbarDispatchContext = createContext<TopbarDispatchContextType | undefine
 
 export const TopbarProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
     const [title, setTitleState] = useState<string | null>(null);
+    const [subtitle, setSubtitleState] = useState<string | null>(null);
     const [actions, setActionsState] = useState<ReactNode | null>(null);
     const [onHelpClick, setOnHelpClickState] = useState<(() => void) | null>(null);
 
     const setTitle = useCallback((newTitle: string | null) => {
         setTitleState(newTitle);
+    }, []);
+
+    const setSubtitle = useCallback((newSubtitle: string | null) => {
+        setSubtitleState(newSubtitle);
     }, []);
 
     const setActions = useCallback((newActions: ReactNode | null) => {
@@ -41,16 +48,18 @@ export const TopbarProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
     const dispatchValue = React.useMemo(() => ({
         setTitle,
+        setSubtitle,
         setActions,
         clearActions,
         setOnHelpClick
-    }), [setTitle, setActions, clearActions, setOnHelpClick]);
+    }), [setTitle, setSubtitle, setActions, clearActions, setOnHelpClick]);
 
     const stateValue = React.useMemo(() => ({
         title,
+        subtitle,
         actions,
         onHelpClick
-    }), [title, actions, onHelpClick]);
+    }), [title, subtitle, actions, onHelpClick]);
 
     return (
         <TopbarDispatchContext.Provider value={dispatchValue}>

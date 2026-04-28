@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useGcpDiskRightsizingData, GcpDisk } from '../hooks/useGcpDiskRightsizingData';
+import { useTopbarActions } from '../contexts/TopbarContext';
 
 const PAGE_SIZE = 20;
 
@@ -27,9 +28,7 @@ const recommendationBadge = (rec: string) => {
 const GcpDiskRightsizingPage: React.FC = () => {
   const { selectedAccountIds } = useAccounts();
   const selectedAccountId = selectedAccountIds[0] || null;
-
-  const { disks, actionHistory, isLoading, isRefreshing, error, applyAction, refreshAll } =
-    useGcpDiskRightsizingData(selectedAccountId);
+  const { setTitle, setSubtitle, setActions, clearActions } = useTopbarActions();
 
   const [filterSearch, setFilterSearch]             = useState('');
   const [filterZone, setFilterZone]                 = useState('');
@@ -39,6 +38,39 @@ const GcpDiskRightsizingPage: React.FC = () => {
   const [activeTab, setActiveTab]                   = useState<'overview' | 'history'>('overview');
   const [actionMsg, setActionMsg]                   = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [confirmAction, setConfirmAction]           = useState<{ disk: GcpDisk; actionType: string; targetSizeGb?: number } | null>(null);
+  const [showInstallGuide, setShowInstallGuide]     = useState(false);
+
+  const { disks, actionHistory, isLoading, isRefreshing, error, applyAction, refreshAll } =
+    useGcpDiskRightsizingData(selectedAccountId);
+
+  useEffect(() => {
+    setTitle('GCP Disk Rightsizing');
+    setSubtitle('Optimize GCP Persistent Disk sizes using real usage data from the XamOps disk agent');
+    return () => { setTitle(null); setSubtitle(null); };
+  }, []);
+
+  useEffect(() => {
+    setActions(
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => setShowInstallGuide(v => !v)}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 text-sm font-medium hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+        >
+          <i className="fas fa-terminal" />
+          Install Agent
+        </button>
+        <button
+          onClick={refreshAll}
+          disabled={isRefreshing}
+          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium transition-colors disabled:opacity-60"
+        >
+          <i className={`fas fa-sync-alt ${isRefreshing ? 'animate-spin' : ''}`} />
+          {isRefreshing ? 'Refreshing...' : 'Refresh'}
+        </button>
+      </div>
+    );
+    return () => clearActions();
+  }, [isRefreshing, refreshAll]);
 
   const uniqueZones = Array.from(new Set(disks.map(d => d.zone))).sort();
   const uniqueTypes = Array.from(new Set(disks.map(d => d.diskType))).sort();
@@ -85,33 +117,6 @@ const GcpDiskRightsizingPage: React.FC = () => {
   return (
     <div className="p-6 space-y-6 max-w-screen-2xl mx-auto">
 
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">GCP Disk Rightsizing</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-            Optimize GCP Persistent Disk sizes using real usage data from the XamOps disk agent
-          </p>
-        </div>
-        <button
-          onClick={refreshAll}
-          disabled={isRefreshing}
-          className="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
-        >
-          {isRefreshing ? (
-            <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-            </svg>
-          ) : (
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-            </svg>
-          )}
-          {isRefreshing ? 'Refreshing…' : 'Refresh'}
-        </button>
-      </div>
-
       {/* Action message */}
       {actionMsg && (
         <div className={`rounded-lg px-4 py-3 text-sm font-medium ${
@@ -138,19 +143,13 @@ const GcpDiskRightsizingPage: React.FC = () => {
         ))}
       </div>
 
-      {/* Agent install notice */}
-      {disks.some(d => d.attached && d.usedPercent === undefined && !d.agentDeployed) && (
-        <div className="rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 p-4 flex gap-3">
-          <svg className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-          </svg>
-          <div>
-            <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">Install the XamOps disk agent for SHRINK/EXPAND recommendations</p>
-            <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
-              Run the install command on each GCP VM to enable actual disk usage tracking without requiring GCP Monitoring Agent.
-            </p>
-          </div>
-        </div>
+      {/* Agent install guide — shown when triggered from topbar or when disks need agent */}
+      {(showInstallGuide || disks.some(d => d.attached && d.usedPercent === undefined && !d.agentDeployed)) && (
+        <GcpAgentSetupGuide
+          count={disks.filter(d => d.attached && d.usedPercent === undefined && !d.agentDeployed).length}
+          gcpProjectId={selectedAccountId}
+          defaultExpanded={showInstallGuide}
+        />
       )}
 
       {/* Tabs */}
@@ -403,6 +402,145 @@ const GcpDiskRightsizingPage: React.FC = () => {
                 Confirm
               </button>
             </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ── GCP Disk Agent Setup Guide ──────────────────────────────────────────────
+
+const GcpAgentSetupGuide: React.FC<{ count: number; gcpProjectId: string | null; defaultExpanded?: boolean }> = ({ count, gcpProjectId, defaultExpanded = false }) => {
+  const [expanded, setExpanded] = React.useState(defaultExpanded);
+  const [copied, setCopied] = React.useState(false);
+
+  const detectedBase = window.location.origin.replace(':5173', ':8080');
+  const isLocalhost = detectedBase.includes('localhost') || detectedBase.includes('127.0.0.1');
+  const [serverUrl, setServerUrl] = React.useState(detectedBase);
+
+  const projectArg = gcpProjectId ?? '<gcp-project-id>';
+  const isNgrok = serverUrl.includes('ngrok');
+  const curlHeaders = isNgrok ? ' -H "ngrok-skip-browser-warning: true"' : '';
+  const AGENT_CMD = `curl -fsSL${curlHeaders} ${serverUrl}/agentinstall/gcp_disk_agent_install.sh | sudo bash -s -- -b ${serverUrl} -t ${projectArg}`;
+
+  const copy = () => {
+    navigator.clipboard.writeText(AGENT_CMD).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  return (
+    <div className="rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 overflow-hidden">
+      <div className="px-4 py-3 flex items-start gap-3">
+        <i className="fas fa-exclamation-triangle text-amber-500 mt-0.5 flex-shrink-0" />
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+            Disk usage unavailable for {count} instance{count > 1 ? 's' : ''}
+          </p>
+          <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+            Install the XamOps disk agent on each GCP VM to enable SHRINK/EXPAND recommendations — no Cloud Monitoring Agent needed.
+          </p>
+        </div>
+        <button
+          onClick={() => setExpanded(e => !e)}
+          className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold transition-colors"
+        >
+          <i className={`fas ${expanded ? 'fa-chevron-up' : 'fa-robot'}`} />
+          {expanded ? 'Hide' : 'Setup Agent'}
+        </button>
+      </div>
+
+      {expanded && (
+        <div className="border-t border-amber-200 dark:border-amber-800 px-4 py-4 space-y-4 bg-white dark:bg-gray-800/60">
+
+          <div className="rounded-xl border border-indigo-100 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-900/20 p-4 space-y-2">
+            <p className="text-xs font-semibold text-indigo-800 dark:text-indigo-300 flex items-center gap-1.5">
+              <i className="fas fa-lightbulb" />Why we need the agent
+            </p>
+            <p className="text-xs text-indigo-700 dark:text-indigo-400 leading-relaxed">
+              GCP does not expose actual disk usage through its APIs — only disk size and type are available via the Compute API. Without knowing how much space is <strong>actually used</strong> inside the OS, we can't tell whether a disk is over-provisioned (SHRINK) or nearly full (EXPAND).
+            </p>
+            <p className="text-xs text-indigo-700 dark:text-indigo-400 leading-relaxed">
+              The agent runs <code className="px-1 rounded bg-indigo-100 dark:bg-indigo-800 font-mono">df</code> on the VM filesystem and reports real usage — no Cloud Monitoring Agent or extra IAM permissions required.
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+            <div className="px-4 py-2.5 bg-gray-50 dark:bg-gray-700/50 flex items-center gap-2">
+              <i className="fas fa-shield-alt text-green-500 text-sm" />
+              <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">What data the agent collects</span>
+            </div>
+            <div className="px-4 py-3 space-y-2">
+              {[
+                { icon: 'fa-hdd', label: 'Mount point', value: 'e.g. /, /data' },
+                { icon: 'fa-weight-hanging', label: 'Disk total / used / free (GB)', value: 'from df output' },
+                { icon: 'fa-percentage', label: 'Usage percent', value: 'e.g. 72%' },
+                { icon: 'fa-server', label: 'GCE instance name', value: 'from GCE metadata' },
+                { icon: 'fa-tag', label: 'GCP project ID', value: 'from agent config' },
+              ].map(({ icon, label, value }) => (
+                <div key={label} className="flex items-start gap-2.5">
+                  <i className={`fas ${icon} text-gray-400 text-xs mt-0.5 w-4 flex-shrink-0`} />
+                  <div className="flex-1 min-w-0">
+                    <span className="text-xs font-medium text-gray-700 dark:text-gray-300">{label}</span>
+                    <span className="text-xs text-gray-400 dark:text-gray-500 ml-1.5">{value}</span>
+                  </div>
+                  <i className="fas fa-check-circle text-green-500 text-xs flex-shrink-0 mt-0.5" />
+                </div>
+              ))}
+              <div className="pt-2 border-t border-gray-100 dark:border-gray-700 space-y-1.5">
+                {[
+                  'No file contents, names, or paths',
+                  'No process list, network traffic, or credentials',
+                  'No persistent access — agent only makes outbound HTTPS calls to XamOps',
+                ].map(text => (
+                  <div key={text} className="flex items-start gap-2">
+                    <i className="fas fa-times-circle text-red-400 text-xs mt-0.5 flex-shrink-0" />
+                    <span className="text-xs text-gray-500 dark:text-gray-400">{text}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {isLocalhost && (
+            <div className="rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 px-3 py-2.5 space-y-2">
+              <p className="text-xs font-medium text-yellow-800 dark:text-yellow-300 flex items-center gap-1.5">
+                <i className="fas fa-exclamation-circle" />
+                GCE instances can't reach <code className="font-mono">localhost</code> — enter the public IP or hostname of this XamOps server:
+              </p>
+              <input
+                type="text"
+                value={serverUrl}
+                onChange={e => setServerUrl(e.target.value.replace(/\/$/, ''))}
+                placeholder="http://1.2.3.4:8080"
+                className="w-full px-3 py-1.5 rounded-lg border border-yellow-300 dark:border-yellow-700 bg-white dark:bg-gray-800 text-sm font-mono text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-yellow-400"
+              />
+            </div>
+          )}
+
+          <div className="flex gap-3">
+            <div className="w-6 h-6 rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">1</div>
+            <div className="flex-1">
+              <p className="text-sm font-medium text-gray-800 dark:text-gray-200 mb-2">
+                SSH into each GCE instance and run
+              </p>
+              <div className="relative rounded-lg bg-gray-900 p-3 font-mono text-xs text-green-300 overflow-x-auto">
+                <pre className="whitespace-pre-wrap break-all">{AGENT_CMD}</pre>
+                <button
+                  onClick={copy}
+                  className="absolute top-2 right-2 px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-gray-300 text-xs transition-colors"
+                >
+                  {copied ? <><i className="fas fa-check mr-1" />Copied</> : <><i className="fas fa-copy mr-1" />Copy</>}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 px-3 py-2 text-xs text-green-700 dark:text-green-300 flex items-start gap-2">
+            <i className="fas fa-check-circle mt-0.5 flex-shrink-0" />
+            <span>Disk usage appears within 1–2 minutes. Click <strong>Refresh</strong> to see SHRINK/EXPAND recommendations.</span>
           </div>
         </div>
       )}

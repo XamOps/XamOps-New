@@ -45,6 +45,57 @@ public class OpenObserveService {
         return (o2ExternalUrl != null && !o2ExternalUrl.isBlank()) ? o2ExternalUrl : o2Url;
     }
 
+    /**
+     * Returns OpenObserve connection details for agent self-configuration.
+     * Resolves the correct org ID by looking up the provider account ID
+     * (e.g. AWS account number, GCP project ID) in the observability config.
+     * Falls back to "default" if the account has not been provisioned yet.
+     */
+    public Map<String, String> getAgentConfig(String providerAccountId) {
+        String orgId = resolveOrgIdForAccount(providerAccountId);
+        Map<String, String> cfg = new LinkedHashMap<>();
+        cfg.put("url", getExternalO2Url());
+        cfg.put("org", orgId);
+        cfg.put("username", adminEmail);
+        cfg.put("password", adminPassword);
+        return cfg;
+    }
+
+    private String resolveOrgIdForAccount(String providerAccountId) {
+        if (providerAccountId == null || providerAccountId.isBlank()) {
+            return resolveClientLevelOrgId();
+        }
+        try {
+            Optional<CloudAccount> account = cloudAccountRepo.findByProviderAccountId(providerAccountId);
+            if (account.isEmpty()) return resolveClientLevelOrgId();
+
+            CloudAccount ca = account.get();
+            // Try account-scoped org first
+            Optional<AccountObservabilityConfig> accountCfg =
+                    accountConfigRepo.findByClientIdAndCloudAccountId(ca.getClient().getId(), ca.getId());
+            if (accountCfg.isPresent() && accountCfg.get().getO2OrgId() != null) {
+                return accountCfg.get().getO2OrgId();
+            }
+            // Fall back to client-level org
+            Optional<ObservabilityConfig> clientCfg = configRepo.findByClientId(ca.getClient().getId());
+            if (clientCfg.isPresent() && clientCfg.get().getO2OrgId() != null) {
+                return clientCfg.get().getO2OrgId();
+            }
+        } catch (Exception e) {
+            logger.warn("Could not resolve O2 org for account {}: {}", providerAccountId, e.getMessage());
+        }
+        return "default";
+    }
+
+    private String resolveClientLevelOrgId() {
+        // If only one client exists (single-tenant dev setup), use that org
+        List<ObservabilityConfig> all = configRepo.findAll();
+        if (all.size() == 1 && all.get(0).getO2OrgId() != null) {
+            return all.get(0).getO2OrgId();
+        }
+        return "default";
+    }
+
     private final ObservabilityConfigRepository configRepo;
     private final AccountObservabilityConfigRepository accountConfigRepo;
     private final CloudAccountRepository cloudAccountRepo;
@@ -272,7 +323,7 @@ public class OpenObserveService {
                 conditions.add("match_all('" + keyword.replace("'", "''") + "')");
             }
             if (level != null && !level.isBlank() && !level.equalsIgnoreCase("ALL")) {
-                conditions.add("level = '" + level + "'");
+                conditions.add("LOWER(level) = '" + level.toLowerCase() + "'");
             }
             // Source filter: matches host.name (EC2 hostname) or service.name or namespace
             if (sourceFilter != null && !sourceFilter.isBlank()) {
