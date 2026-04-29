@@ -80,6 +80,7 @@ const Sidebar: React.FC = () => {
       '/performance', '/gcp-performance', '/azure-performance', '/alerts', '/gcp-alerts', '/azure-alerts'];
     const licensesRoutes = ['/marketplace-purchases', '/workspace-licenses', '/isv-metering'];
     const observabilityRoutes = ['/observability'];
+    const sreRoutes = ['/sre'];
     // const accessopsRoutes = ['/identity/users', '/identity/groups', '/identity/audit'];
 
     if (finopsRoutes.some(r => path.startsWith(r))) setOpenDropdown('finops');
@@ -88,6 +89,7 @@ const Sidebar: React.FC = () => {
     else if (secopsRoutes.some(r => path.startsWith(r))) setOpenDropdown('security');
     else if (licensesRoutes.some(r => path.startsWith(r))) setOpenDropdown('licenses');
     else if (observabilityRoutes.some(r => path.startsWith(r))) setOpenDropdown('observability');
+    else if (sreRoutes.some(r => path.startsWith(r))) setOpenDropdown('sre');
     // else if (accessopsRoutes.some(r => path.startsWith(r))) setOpenDropdown('accessops');
   }, [location.pathname]);
 
@@ -330,7 +332,6 @@ const Sidebar: React.FC = () => {
                 <NavItem href="/complianceops" icon="fas fa-file-contract" label="ComplianceOps" isActive={isActive('/complianceops')} />
                 <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-performance' : selectedAccountDisplay.provider === 'Azure' ? '/azure-performance' : '/performance'} icon="fas fa-chart-line" label="Performance Insights" isActive={isActive('/performance') || isActive('/gcp-performance') || isActive('/azure-performance')} />
                 <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-alerts' : selectedAccountDisplay.provider === 'Azure' ? '/azure-alerts' : '/alerts'} icon="fas fa-bell" label="Alerts" isActive={isActive('/alerts') || isActive('/gcp-alerts') || isActive('/azure-alerts')} />
-                <NavItem href="/sre/investigations" icon="fas fa-search" label="SRE Investigations" isActive={isActive('/sre/investigations')} />
               </NavSection>
 
               <NavSection
@@ -347,6 +348,18 @@ const Sidebar: React.FC = () => {
                 <NavItem href="/observability/traces" icon="fas fa-project-diagram" label="Traces" isActive={isActive('/observability/traces')} />
                 <NavItem href="/observability/alerts" icon="fas fa-bell" label="Alerts" isActive={isActive('/observability/alerts')} />
                 <NavItem href="/observability/setup" icon="fas fa-cog" label="Setup" isActive={isActive('/observability/setup')} />
+              </NavSection>
+
+              <NavSection
+                icon="fas fa-shield-check"
+                label="SRE"
+                gradientClass="from-indigo-500 to-violet-600"
+                isOpen={openDropdown === 'sre'}
+                onToggle={() => toggleDropdown('sre')}
+              >
+                <NavItem href="/sre" icon="fas fa-chart-pie" label="Dashboard" isActive={location.pathname === '/sre'} />
+                <NavItem href="/sre/investigations" icon="fas fa-search" label="Investigations" isActive={isActive('/sre/investigations')} />
+                <NavItem href="/sre/setup" icon="fas fa-cog" label="Setup" isActive={isActive('/sre/setup')} />
               </NavSection>
 
               <NavSection
