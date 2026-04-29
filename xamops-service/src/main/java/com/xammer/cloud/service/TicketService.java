@@ -16,6 +16,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -48,6 +52,34 @@ public class TicketService {
     private FileStorageService fileStorageService;
     @Autowired
     private RedisCacheService redisCacheService;
+    @Autowired
+    private SimpMessagingTemplate messagingTemplate;
+
+    private void broadcastTicketChange() {
+        // Fire after the transaction commits AND after Spring's @CacheEvict AOP advice
+        // has run (both happen after the method returns). Registering an after-commit
+        // synchronization ensures the WebSocket message is sent only when the DB write
+        // and cache eviction are both complete, so the subsequent frontend refetch hits
+        // a cold cache and reads fresh data from the DB.
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    try {
+                        messagingTemplate.convertAndSend("/topic/tickets", "updated");
+                    } catch (Exception e) {
+                        logger.warn("Failed to broadcast ticket change via WebSocket: {}", e.getMessage());
+                    }
+                }
+            });
+        } else {
+            try {
+                messagingTemplate.convertAndSend("/topic/tickets", "updated");
+            } catch (Exception e) {
+                logger.warn("Failed to broadcast ticket change via WebSocket: {}", e.getMessage());
+            }
+        }
+    }
 
     private void evictCountCache(String category) {
         if (category != null) {
@@ -56,7 +88,10 @@ public class TicketService {
     }
 
     @Transactional
-    @CacheEvict(value = "tickets", allEntries = true)
+    @Caching(evict = {
+        @CacheEvict(value = "tickets", allEntries = true),
+        @CacheEvict(value = "tickets_by_category", allEntries = true)
+    })
     public TicketDto createTicket(TicketDto ticketDto) {
         // 1. Validate Creator ID is present
         if (ticketDto.getCreatorId() == null) {
@@ -121,6 +156,7 @@ public class TicketService {
             logger.error("Failed to send new ticket notification email for ticket {}", savedTicket.getId(), e);
         }
 
+        broadcastTicketChange();
         return convertToDto(savedTicket);
     }
 
@@ -194,7 +230,10 @@ public class TicketService {
     }
 
     @Transactional
-    @CacheEvict(value = "tickets", allEntries = true)
+    @Caching(evict = {
+        @CacheEvict(value = "tickets", allEntries = true),
+        @CacheEvict(value = "tickets_by_category", allEntries = true)
+    })
     public TicketDto addReplyToTicket(Long ticketId, TicketReplyDto replyDto, MultipartFile file) {
         Ticket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new RuntimeException("Ticket not found"));
@@ -296,11 +335,15 @@ public class TicketService {
             logger.error("Failed to send reply notification email for ticket {}", ticket.getId(), e);
         }
 
+        broadcastTicketChange();
         return convertToDto(updatedTicket);
     }
 
     @Transactional
-    @CacheEvict(value = "tickets", allEntries = true)
+    @Caching(evict = {
+        @CacheEvict(value = "tickets", allEntries = true),
+        @CacheEvict(value = "tickets_by_category", allEntries = true)
+    })
     public TicketDto closeTicket(Long ticketId) {
         Ticket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new RuntimeException("Ticket not found"));
@@ -309,14 +352,16 @@ public class TicketService {
         ticket.setClosedAt(java.time.LocalDateTime.now());
         Ticket updatedTicket = ticketRepository.save(ticket);
         evictCountCache(updatedTicket.getCategory());
+        broadcastTicketChange();
         return convertToDto(updatedTicket);
     }
 
+    // User-scoped cache key: tickets are filtered per user so each user gets their own Redis entry.
     @Transactional(readOnly = true)
+    @Cacheable(value = "tickets_by_category", key = "#category + ':user:' + T(com.xammer.cloud.util.SecurityUtils).getCurrentUserId()")
     public List<TicketDto> getTicketsByCategory(String category) {
         List<Ticket> allTickets = ticketRepository.findAllByCategoryWithRepliesAndAuthors(category);
 
-        // Apply same scoping as getAllTickets()
         try {
             Long userId = SecurityUtils.getCurrentUserId();
             Authentication auth = SecurityContextHolder.getContext().getAuthentication();

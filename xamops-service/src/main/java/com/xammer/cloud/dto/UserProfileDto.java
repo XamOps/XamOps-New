@@ -5,6 +5,7 @@ import java.util.List;
 public class UserProfileDto {
     private Long id;
     private String username;
+    private String email;
     private List<String> roles;
     private boolean tourSeen;
     private String tenantId;
@@ -30,6 +31,14 @@ public class UserProfileDto {
 
     public void setUsername(String username) {
         this.username = username;
+    }
+
+    public String getEmail() {
+        return email;
+    }
+
+    public void setEmail(String email) {
+        this.email = email;
     }
 
     public List<String> getRoles() {

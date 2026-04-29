@@ -1,23 +1,31 @@
 /**
  * Support Tickets Page
  *
- * Technical support tickets management with improved UI
+ * Caching strategy — 4 layers:
+ * 1. React Query in-memory cache (staleTime 60s) — instant render within session
+ * 2. localStorage persistence via @tanstack/react-query-persist-client — survives reload
+ * 3. Stale-while-revalidate — cached data shown immediately, fresh fetch in background
+ * 4. 30-second polling with visibility-aware pause/resume
  *
- * Converted from: xamops_tickets.html
+ * Real-time: WebSocket STOMP subscription on /topic/tickets invalidates the query
+ * so all connected clients see new/updated tickets without polling delay.
  *
- * Modernized:
- * - Topbar integration for actions and status
- * - Soft Glass Minimal design system
- * - Premium animations and transitions
+ * Optimistic UI: new ticket appears instantly from POST response; background
+ * reconcile follows.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../contexts/AuthContext';
 import { useAccounts } from '../contexts/AccountContext';
 import { useTopbarActions } from '../contexts/TopbarContext';
 import Skeleton from '../components/Shared/Skeleton';
 import { DialogRoot, DialogPanel } from '../components/ui';
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
 interface Ticket {
   id: number;
@@ -31,6 +39,7 @@ interface Ticket {
   region?: string;
   createdAt: string;
   creatorId?: number;
+  _source?: string;
 }
 
 interface TicketForm {
@@ -43,300 +52,344 @@ interface TicketForm {
   region: string;
 }
 
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
 const SERVICE_OPTIONS: Record<string, string[]> = {
-  'Account and Billing': ['Billing', 'Pricing', 'Reserved Instances', 'Detailed Billing Report (DBR)'],
-  'Technical': ['Compute / VMs', 'Storage', 'Networking', 'Database', 'Security & IAM', 'Monitoring & Logs', 'Serverless', 'Other']
+  'Account and Billing': [
+    'Billing',
+    'Pricing',
+    'Reserved Instances',
+    'Detailed Billing Report (DBR)',
+  ],
+  Technical: [
+    'Compute / VMs',
+    'Storage',
+    'Networking',
+    'Database',
+    'Security & IAM',
+    'Monitoring & Logs',
+    'Serverless',
+    'Other',
+  ],
 };
 
 const SEVERITY_OPTIONS = ['Info', 'Low', 'Normal', 'High', 'Urgent'];
+const POLL_INTERVAL_MS = 30_000;
+
+const DEFAULT_FORM: Omit<TicketForm, 'accountId'> = {
+  category: 'Technical',
+  service: 'Compute / VMs',
+  severity: '',
+  subject: '',
+  description: '',
+  region: '',
+};
+
+// ---------------------------------------------------------------------------
+// React Query key factory
+// ---------------------------------------------------------------------------
+
+export const ticketKeys = {
+  all: (accountIds: string[]) =>
+    ['tickets', [...accountIds].sort().join(',')] as const,
+};
+
+// ---------------------------------------------------------------------------
+// Fetcher — merges xamops + billops, deduplicates, filters by account, sorts
+// ---------------------------------------------------------------------------
+
+async function fetchTickets(
+  accountIds: string[],
+  signal?: AbortSignal
+): Promise<Ticket[]> {
+  const [xamopsRes, billopsRes] = await Promise.allSettled([
+    fetch('/api/xamops/tickets/category/Technical', {
+      credentials: 'include',
+      signal,
+    }),
+    fetch('/api/billops/tickets/category/Technical', {
+      credentials: 'include',
+      signal,
+    }),
+  ]);
+
+  let xamopsData: Ticket[] = [];
+  if (xamopsRes.status === 'fulfilled' && xamopsRes.value.ok) {
+    try {
+      xamopsData = await xamopsRes.value.json();
+    } catch { /* ignore */ }
+    if (!Array.isArray(xamopsData)) xamopsData = [];
+  }
+
+  let billopsData: Ticket[] = [];
+  if (billopsRes.status === 'fulfilled' && billopsRes.value.ok) {
+    try {
+      billopsData = await billopsRes.value.json();
+    } catch { /* ignore */ }
+    if (!Array.isArray(billopsData)) billopsData = [];
+    billopsData = billopsData.map((t) => ({ ...t, _source: 'billops' }));
+  }
+
+  // Deduplicate by id (xamops wins on collision)
+  const seen = new Set<number>();
+  let data = [...xamopsData, ...billopsData].filter((t) => {
+    if (seen.has(t.id)) return false;
+    seen.add(t.id);
+    return true;
+  });
+
+  // Filter by selected accounts
+  if (accountIds.length > 0) {
+    data = data.filter((t) => t.accountId && accountIds.includes(t.accountId));
+  }
+
+  // Sort newest-first
+  data.sort((a, b) => {
+    const aT = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const bT = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    return bT - aT;
+  });
+
+  return data;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers (pure, defined outside component)
+// ---------------------------------------------------------------------------
+
+function getStatusBadgeClass(status: string): string {
+  switch (status.toLowerCase()) {
+    case 'open': return 'bg-emerald-500 text-white';
+    case 'in_progress': return 'bg-amber-500 text-white';
+    case 'closed': return 'bg-gray-400 text-white';
+    default: return 'bg-indigo-500 text-white';
+  }
+}
+
+function getSeverityMeta(severity: string): { icon: string; className: string } {
+  const s = severity.toLowerCase();
+  if (s === 'urgent' || s === 'high' || s === 'critical') {
+    return { icon: 'fas fa-exclamation-triangle', className: 'text-red-600 font-bold' };
+  }
+  if (s === 'normal' || s === 'medium') {
+    return { icon: 'fas fa-exclamation-circle', className: 'text-orange-500 font-semibold' };
+  }
+  return { icon: 'fas fa-info-circle', className: 'text-blue-500 font-medium' };
+}
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
 
 const TicketsPage: React.FC = () => {
   const { userProfile } = useAuth();
-  const { selectedAccountIds, accounts, isLoading: accountsLoading } = useAccounts();
+  const {
+    selectedAccountIds,
+    accounts,
+    isLoading: accountsLoading,
+  } = useAccounts();
+  const { setActions, clearActions } = useTopbarActions();
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+
   const hasAccounts = accounts.length > 0;
 
-  const getAccountName = (accountId?: string): string | null => {
-    if (!accountId) return null;
-    const acc = accounts.find(a => a.id === accountId);
-    return acc ? acc.name : null;
-  };
-  const navigate = useNavigate();
-  const [tickets, setTickets] = useState<Ticket[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [isUpdating, setIsUpdating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [showModal, setShowModal] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const { setActions, clearActions } = useTopbarActions();
+  const accountNameMap = React.useMemo(() => {
+    const map: Record<string, string> = {};
+    accounts.forEach((a) => { map[a.id] = a.name; });
+    return map;
+  }, [accounts]);
 
-  const [form, setForm] = useState<TicketForm>({
-    category: 'Technical',
-    service: 'EC2',
-    severity: '',
-    subject: '',
-    description: '',
-    accountId: selectedAccountIds.length > 0 ? selectedAccountIds[0] : '',
-    region: ''
+  // ---------------------------------------------------------------------------
+  // React Query — fetch + cache + poll
+  // ---------------------------------------------------------------------------
+
+  const queryKey = ticketKeys.all(selectedAccountIds);
+
+  const {
+    data: tickets = [],
+    isFetching,
+    isLoading: isFirstLoad,
+    isError,
+    refetch,
+  } = useQuery({
+    queryKey,
+    queryFn: ({ signal }) => fetchTickets(selectedAccountIds, signal),
+    enabled: !accountsLoading && hasAccounts,
+    staleTime: 60 * 1000,            // treat data as fresh for 60s
+    refetchInterval: POLL_INTERVAL_MS, // background poll every 30s
+    refetchIntervalInBackground: false, // pause poll when tab hidden
+    placeholderData: (prev) => prev,  // keep previous data while refetching (no flash)
   });
 
-  const CACHE_KEY = `xamops_technical_tickets_v1:${userProfile?.username ?? 'unknown'}`;
+  // ---------------------------------------------------------------------------
+  // WebSocket — real-time invalidation
+  // ---------------------------------------------------------------------------
 
-  /**
-   * Fetch tickets from API
-   */
-  const fetchTickets = useCallback(async (manual = false) => {
-    if (manual) {
-      console.log('🖱️ Manual refresh triggered');
-    }
-    setIsUpdating(true);
-    setError(null);
-
-    if (tickets.length === 0) {
-      setLoading(true);
-    }
-
-    try {
-      // Fetch from both xamops and billops Technical endpoints in parallel
-      const [xamopsRes, billopsRes] = await Promise.allSettled([
-        fetch('/api/xamops/tickets/category/Technical', { credentials: 'include' }),
-        fetch('/api/billops/tickets/category/Technical', { credentials: 'include' }),
-      ]);
-
-      let xamopsData: Ticket[] = [];
-      if (xamopsRes.status === 'fulfilled' && xamopsRes.value.ok) {
-        try {
-          const parsed = await xamopsRes.value.json();
-          xamopsData = Array.isArray(parsed) ? parsed : [];
-        } catch {
-          console.warn('xamops tickets response was not valid JSON');
-        }
-      }
-
-      let billopsData: Ticket[] = [];
-      if (billopsRes.status === 'fulfilled' && billopsRes.value.ok) {
-        try {
-          const parsed = await billopsRes.value.json();
-          billopsData = Array.isArray(parsed)
-            ? parsed.map((t: Ticket) => ({ ...t, _source: 'billops' }))
-            : [];
-        } catch {
-          console.warn('billops tickets response was not valid JSON');
-        }
-      }
-
-      // Deduplicate by id — both endpoints may return the same tickets
-      const seen = new Set<number>();
-      let data: Ticket[] = [...xamopsData, ...billopsData].filter(t => {
-        if (seen.has(t.id)) return false;
-        seen.add(t.id);
-        return true;
-      });
-
-      // Save unfiltered data to cache
-      localStorage.setItem(CACHE_KEY, JSON.stringify(data));
-
-      // Filter for display based on selected accounts
-      if (selectedAccountIds.length > 0) {
-        data = data.filter((t: Ticket) =>
-          t.accountId && selectedAccountIds.includes(t.accountId)
-        );
-      }
-
-      // Sort by createdAt descending (newest first)
-      setTickets(data.sort((a: Ticket, b: Ticket) => {
-        const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-        return bTime - aTime;
-      }));
-    } catch (err) {
-      console.error('Fetch error:', err);
-      if (tickets.length === 0) {
-        setError('Could not load support tickets.');
-      }
-    } finally {
-      setLoading(false);
-      setIsUpdating(false);
-    }
-  }, [selectedAccountIds, tickets.length]);
-
-  /**
-   * Initialize component and listen for account changes
-   */
   useEffect(() => {
-    // Don't fetch tickets if user has no accounts
-    if (!accountsLoading && !hasAccounts) {
-      setLoading(false);
-      return;
-    }
-    if (accountsLoading) return;
+    if (!hasAccounts) return;
 
-    // Always fetch from backend — never show stale cached data on load
-    fetchTickets();
+    let stompClient: any = null;
 
-    // Listen for account changes from sidebar
-    const handleAccountChanged = () => {
-      console.log('🔄 Account changed, refreshing tickets...');
-      fetchTickets();
+    const connect = async () => {
+      try {
+        const SockJS = (await import('sockjs-client')).default;
+        const Stomp = (await import('stompjs')).default;
+
+        const socket = new SockJS('/xamops-ws');
+        stompClient = Stomp.over(socket);
+        stompClient.debug = null; // silence STOMP debug logs
+
+        stompClient.connect({}, () => {
+          stompClient.subscribe('/topic/tickets', () => {
+            // Mark stale only — do NOT force an immediate refetch.
+            // An immediate refetch here hits the still-warm Redis cache and wipes any
+            // optimistic data set by setQueryData. Marking stale means React Query will
+            // refetch on the next natural opportunity (30 s poll or tab focus), by which
+            // time @CacheEvict has completed and the DB has fresh data.
+            qc.invalidateQueries({ queryKey: ['tickets'], refetchType: 'none' });
+          });
+        });
+      } catch {
+        // WebSocket not available — polling covers us
+      }
     };
 
-    globalThis.addEventListener('account-changed', handleAccountChanged);
+    connect();
 
     return () => {
-      globalThis.removeEventListener('account-changed', handleAccountChanged);
+      try { stompClient?.disconnect(); } catch { /* ignore */ }
     };
-  }, [selectedAccountIds, fetchTickets, hasAccounts, accountsLoading]);
+  }, [hasAccounts, qc]);
 
-  /**
-   * Open create modal
-   */
-  const openCreateModal = () => {
-    resetForm();
+  // ---------------------------------------------------------------------------
+  // Listen for ticket-updated event from TicketDetailPage
+  // ---------------------------------------------------------------------------
+
+  useEffect(() => {
+    const handler = () => qc.invalidateQueries({ queryKey: ['tickets'] });
+    globalThis.addEventListener('ticket-updated', handler);
+    globalThis.addEventListener('ticket:updated', handler);
+    return () => {
+      globalThis.removeEventListener('ticket-updated', handler);
+      globalThis.removeEventListener('ticket:updated', handler);
+    };
+  }, [qc]);
+
+  // ---------------------------------------------------------------------------
+  // Modal state
+  // ---------------------------------------------------------------------------
+
+  const [showModal, setShowModal] = useState(false);
+  const [form, setForm] = useState<TicketForm>({
+    ...DEFAULT_FORM,
+    accountId: selectedAccountIds[0] ?? '',
+  });
+
+  // Keep accountId in sync with selected account
+  useEffect(() => {
+    setForm((prev) => ({ ...prev, accountId: selectedAccountIds[0] ?? '' }));
+  }, [selectedAccountIds]);
+
+  // Stable ref so topbar button never captures stale openCreateModal
+  const openCreateModalRef = useRef<() => void>(() => { });
+
+  const openCreateModal = useCallback(() => {
+    setForm({ ...DEFAULT_FORM, accountId: selectedAccountIds[0] ?? '' });
     setShowModal(true);
-  };
+  }, [selectedAccountIds]);
 
-  /**
-   * Close modal
-   */
-  const closeModal = () => {
-    if (!isSubmitting) {
-      setShowModal(false);
-    }
-  };
+  useEffect(() => { openCreateModalRef.current = openCreateModal; }, [openCreateModal]);
 
-  /**
-   * Reset form to defaults
-   */
-  const resetForm = () => {
-    setForm({
-      category: 'Technical',
-      service: SERVICE_OPTIONS['Technical'][0],
-      severity: '',
-      subject: '',
-      description: '',
-      accountId: selectedAccountIds.length > 0 ? selectedAccountIds[0] : '',
-      region: ''
-    });
-  };
+  const closeModal = useCallback(() => setShowModal(false), []);
 
-  /**
-   * Handle form field changes
-   */
   const handleFormChange = (field: keyof TicketForm, value: string) => {
-    setForm(prev => {
+    setForm((prev) => {
       const updated = { ...prev, [field]: value };
-
-      // When category changes, update service to first option
-      if (field === 'category') {
-        updated.service = SERVICE_OPTIONS[value][0];
-      }
-
+      if (field === 'category') updated.service = SERVICE_OPTIONS[value]?.[0] ?? '';
       return updated;
     });
   };
 
-  /**
-   * Submit new ticket
-   */
-  const submitTicket = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // ---------------------------------------------------------------------------
+  // Create ticket mutation — optimistic update
+  // ---------------------------------------------------------------------------
 
+  const createMutation = useMutation({
+    mutationFn: async (payload: TicketForm & { creatorId: number }) => {
+      const res = await fetch('/api/xamops/tickets', {
+        credentials: 'include',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error('Failed to submit ticket');
+      return res.json() as Promise<Ticket>;
+    },
+
+    onMutate: async () => {
+      // Close modal immediately — don't wait for network
+      setShowModal(false);
+      // Cancel any in-flight refetch so it doesn't overwrite our optimistic update
+      await qc.cancelQueries({ queryKey });
+    },
+
+    onSuccess: (newTicket) => {
+      // Prepend the real ticket from server response — visible instantly, no flash or spinner.
+      // Reconciliation is handled by the WebSocket (2 s delayed) and the 30 s poll.
+      qc.setQueryData<Ticket[]>(queryKey, (prev = []) => [
+        newTicket,
+        ...prev.filter((t) => t.id !== newTicket.id),
+      ]);
+    },
+
+    onError: (err) => {
+      console.error('Error creating ticket:', err);
+      alert('There was an error submitting your case. Please try again.');
+    },
+  });
+
+  const submitTicket = (e: React.FormEvent) => {
+    e.preventDefault();
     if (!form.service || !form.subject.trim() || !form.description.trim() || !form.severity) {
       alert('Please fill in all required fields.');
       return;
     }
-
     if (!userProfile?.id) {
       alert('Could not identify current user. Please refresh and log in.');
       return;
     }
-
-    setIsSubmitting(true);
-
-    const payload = {
-      ...form,
-      creatorId: userProfile.id
-    };
-
-    try {
-      const response = await fetch('/api/xamops/tickets', {
-        credentials: 'include',
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to submit ticket');
-      }
-
-      await fetchTickets();
-      resetForm();
-      setShowModal(false);
-    } catch (err) {
-      console.error('Error submitting ticket:', err);
-      alert('There was an error submitting your case. Please try again.');
-    } finally {
-      setIsSubmitting(false);
-    }
+    createMutation.mutate({ ...form, creatorId: userProfile.id });
   };
 
-  /**
-   * Get status badge classes
-   */
-  const getStatusBadgeClass = (status: string): string => {
-    const statusLower = status.toLowerCase();
-    if (statusLower === 'open') return 'bg-emerald-500 text-white';
-    if (statusLower === 'in_progress') return 'bg-amber-500 text-white';
-    if (statusLower === 'closed') return 'bg-gray-400 text-white';
-    return 'bg-indigo-500 text-white';
-  };
+  // ---------------------------------------------------------------------------
+  // Derived render flags
+  // ---------------------------------------------------------------------------
 
-  /**
-   * Get severity badge classes
-   */
-  const getSeverityClass = (severity: string): string => {
-    const severityLower = severity.toLowerCase();
-    if (severityLower === 'urgent' || severityLower === 'high' || severityLower === 'critical') {
-      return 'text-red-600 font-bold';
-    }
-    if (severityLower === 'normal' || severityLower === 'medium') {
-      return 'text-orange-500 font-semibold';
-    }
-    return 'text-blue-500 font-medium';
-  };
+  // isFirstLoad = true only when there's no cached data at all (truly first ever visit)
+  // isFetching = true on every background refetch/poll (we show subtle indicator only)
+  const showSkeleton = (accountsLoading || isFirstLoad) && tickets.length === 0;
+  const showNoAccounts = !accountsLoading && !hasAccounts;
+  const showEmpty = !isFirstLoad && !accountsLoading && hasAccounts && tickets.length === 0 && !isError;
+  const showError = isError && tickets.length === 0;
+  const showTickets = tickets.length > 0;
 
-  /**
-   * Get severity icon
-   */
-  const getSeverityIcon = (severity: string): string => {
-    const severityLower = severity.toLowerCase();
-    if (severityLower === 'urgent' || severityLower === 'high' || severityLower === 'critical') {
-      return 'fas fa-exclamation-triangle';
-    }
-    if (severityLower === 'normal' || severityLower === 'medium') {
-      return 'fas fa-exclamation-circle';
-    }
-    return 'fas fa-info-circle';
-  };
+  // ---------------------------------------------------------------------------
+  // Topbar
+  // ---------------------------------------------------------------------------
 
-  /**
-   * Navigate to ticket detail
-   */
-  const navigateToDetail = (ticketId: number) => {
-    navigate(`/ticket-detail?id=${ticketId}`);
-  };
+  const openCount = tickets.filter((t) => t.status.toLowerCase() === 'open').length;
+  const inProgressCount = tickets.filter((t) => t.status.toLowerCase() === 'in_progress').length;
 
-  // Topbar Integration
   useEffect(() => {
-    const openTicketsCount = tickets.filter(t => t.status.toLowerCase() === 'open').length;
-    const inProgressCount = tickets.filter(t => t.status.toLowerCase() === 'in_progress').length;
-
     const actionsNode = (
       <div className="flex items-center gap-6">
-        {/* Page Title & Icon (Mobile Hidden) */}
+        {/* Page title */}
         <div className="hidden lg:flex items-center gap-3 pr-6 border-r border-slate-200/50">
           <div className="w-9 h-9 flex items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 shadow-sm border border-indigo-100/50">
-            <i className="fas fa-ticket-alt"></i>
+            <i className="fas fa-ticket-alt" />
           </div>
           <div>
             <h1 className="text-sm font-bold text-slate-900 leading-none">Support Tickets</h1>
@@ -344,16 +397,16 @@ const TicketsPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Live Stats */}
-        {!loading && tickets.length > 0 && (
+        {/* Live stats */}
+        {showTickets && (
           <div className="hidden xl:flex items-center gap-4">
             <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Open</span>
-              <span className="text-xs font-bold text-slate-700">{openTicketsCount}</span>
+              <span className="text-xs font-bold text-slate-700">{openCount}</span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+              <span className="w-2 h-2 rounded-full bg-amber-500" />
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">In Progress</span>
               <span className="text-xs font-bold text-slate-700">{inProgressCount}</span>
             </div>
@@ -361,21 +414,21 @@ const TicketsPage: React.FC = () => {
         )}
 
         <div className="flex items-center gap-3">
+          {/* Manual refresh — spinner only on explicit click, not background polls */}
           <button
-            onClick={() => fetchTickets(true)}
-            disabled={loading || isUpdating}
-            className="w-10 h-10 flex items-center justify-center text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-xl transition-all border border-transparent hover:border-slate-200/50"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="w-10 h-10 flex items-center justify-center text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-xl transition-all border border-transparent hover:border-slate-200/50 disabled:opacity-50"
             title="Refresh Tickets"
           >
-            <i className={`fas fa-sync-alt ${isUpdating ? 'animate-spin' : ''}`}></i>
+            <i className={`fas fa-sync-alt ${isFetching ? 'animate-spin' : ''}`} />
           </button>
 
           <button
-            onClick={openCreateModal}
-            disabled={loading}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-500/20 hover:bg-indigo-700 transition-all hover:-translate-y-0.5 active:scale-95 disabled:opacity-50"
+            onClick={() => openCreateModalRef.current()}
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-500/20 hover:bg-indigo-700 transition-all hover:-translate-y-0.5 active:scale-95"
           >
-            <i className="fas fa-plus"></i>
+            <i className="fas fa-plus" />
             <span>Create Ticket</span>
           </button>
         </div>
@@ -383,21 +436,27 @@ const TicketsPage: React.FC = () => {
     );
 
     setActions(actionsNode);
-
     return () => clearActions();
-  }, [setActions, clearActions, loading, isUpdating, fetchTickets, tickets]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openCount, inProgressCount, isFetching, showTickets]);
+
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-transparent">
-      {/* Scrollable Content Area */}
       <main className="flex-1 overflow-y-auto custom-scrollbar p-8">
         <div className="space-y-2">
 
-          {/* Loading Skeleton */}
-          {loading && (
+          {/* Skeleton — only on true first-ever load with no cached data */}
+          {showSkeleton && (
             <div className="space-y-2">
               {[1, 2, 3, 4].map((i) => (
-                <div key={i} className="flex items-center gap-4 px-5 py-4 bg-white border border-slate-200 rounded-2xl">
+                <div
+                  key={i}
+                  className="flex items-center gap-4 px-5 py-4 bg-white border border-slate-200 rounded-2xl"
+                >
                   <div className="flex-1 space-y-2">
                     <Skeleton variant="text" height={12} width="15%" />
                     <Skeleton variant="text" height={16} width="55%" />
@@ -410,72 +469,109 @@ const TicketsPage: React.FC = () => {
             </div>
           )}
 
-          {/* Tickets List */}
-          {!loading && tickets.length > 0 && (
-            <div className="space-y-2">
-              {tickets.map((ticket) => (
-                <div
-                  key={ticket.id}
-                  onClick={() => navigateToDetail(ticket.id)}
-                  className="flex items-center gap-4 px-5 py-4 bg-white border border-slate-200 rounded-2xl hover:border-indigo-300 hover:shadow-sm transition-all duration-200 cursor-pointer group"
-                >
-                  {/* ID + Subject */}
-                  <div className="flex-1 min-w-0">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Case #{ticket.id}</span>
-                    <p className="text-sm font-semibold text-slate-800 group-hover:text-indigo-600 transition-colors truncate leading-snug">
-                      {ticket.subject}
-                    </p>
-                  </div>
-
-                  {/* Account Info */}
-                  {ticket.accountId && (
-                    <div className="hidden lg:flex flex-col items-end min-w-0 max-w-[160px]">
-                      {getAccountName(ticket.accountId) && (
-                        <span className="text-xs font-semibold text-slate-700 truncate w-full text-right">
-                          {getAccountName(ticket.accountId)}
-                        </span>
-                      )}
-                      <span className="text-[10px] text-slate-400 font-mono truncate w-full text-right">{ticket.accountId}</span>
-                    </div>
-                  )}
-
-                  {/* Service */}
-                  <span className="hidden md:flex items-center gap-1.5 px-2.5 py-1 bg-indigo-50 text-indigo-600 rounded-lg text-[10px] font-bold whitespace-nowrap">
-                    <i className="fas fa-cube text-[8px] text-indigo-400"></i>
-                    {ticket.service}
-                  </span>
-
-                  {/* Severity */}
-                  <div className="hidden lg:flex items-center gap-1.5">
-                    <i className={`${getSeverityIcon(ticket.severity)} ${getSeverityClass(ticket.severity)} text-xs`}></i>
-                    <span className={`text-[10px] font-bold uppercase tracking-wider ${getSeverityClass(ticket.severity)}`}>
-                      {ticket.severity}
-                    </span>
-                  </div>
-
-                  {/* Date */}
-                  <span className="hidden xl:block text-[10px] font-medium text-slate-400 whitespace-nowrap">
-                    <i className="far fa-calendar-alt mr-1"></i>
-                    {new Date(ticket.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                  </span>
-
-                  {/* Status */}
-                  <span className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider shadow-sm whitespace-nowrap ${getStatusBadgeClass(ticket.status)}`}>
-                    <span className={`w-1.5 h-1.5 rounded-full bg-white ${ticket.status.toLowerCase() === 'open' ? 'animate-pulse' : ''}`}></span>
-                    {ticket.status.replace('_', ' ')}
-                  </span>
-
-                  <i className="fas fa-chevron-right text-slate-300 text-xs group-hover:text-indigo-400 transition-colors"></i>
-                </div>
-              ))}
+          {/* Error */}
+          {showError && (
+            <div className="flex flex-col items-center justify-center py-20 text-center">
+              <i className="fas fa-exclamation-circle text-4xl mb-4 text-red-400" />
+              <p className="text-red-600 font-medium mb-4">Could not load support tickets.</p>
+              <button
+                onClick={() => refetch()}
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white text-sm font-bold rounded-xl shadow hover:bg-indigo-700 transition-all"
+              >
+                <i className="fas fa-sync-alt" />
+                Try Again
+              </button>
             </div>
           )}
 
-          {/* No Accounts State */}
-          {!loading && !hasAccounts && !accountsLoading && (
+          {/* Ticket list */}
+          {showTickets && (
+            <div className="space-y-2">
+              {/* Subtle background-refresh indicator */}
+              {isFetching && !isFirstLoad && (
+                <div className="flex items-center gap-2 px-4 py-2 text-[10px] font-bold text-indigo-400 uppercase tracking-wider">
+                  <i className="fas fa-sync-alt animate-spin text-[10px]" />
+                  Refreshing…
+                </div>
+              )}
+
+              {tickets.map((ticket) => {
+                const { icon, className: sevClass } = getSeverityMeta(ticket.severity);
+                const accountName = ticket.accountId ? accountNameMap[ticket.accountId] : null;
+
+                return (
+                  <div
+                    key={ticket.id}
+                    onClick={() => navigate(`/ticket-detail?id=${ticket.id}${ticket._source === 'billops' ? '&src=billops' : ''}`)}
+                    className="flex items-center gap-4 px-5 py-4 bg-white border border-slate-200 rounded-2xl hover:border-indigo-300 hover:shadow-sm transition-all duration-200 cursor-pointer group"
+                  >
+                    {/* ID + Subject */}
+                    <div className="flex-1 min-w-0">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                        Case #{ticket.id}
+                      </span>
+                      <p className="text-sm font-semibold text-slate-800 group-hover:text-indigo-600 transition-colors truncate leading-snug">
+                        {ticket.subject}
+                      </p>
+                    </div>
+
+                    {/* Account */}
+                    {accountName && (
+                      <div className="hidden lg:flex flex-col items-end min-w-0 max-w-[160px]">
+                        <span className="text-xs font-semibold text-slate-700 truncate w-full text-right">
+                          {accountName}
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-mono truncate w-full text-right">
+                          {ticket.accountId}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Service */}
+                    <span className="hidden md:flex items-center gap-1.5 px-2.5 py-1 bg-indigo-50 text-indigo-600 rounded-lg text-[10px] font-bold whitespace-nowrap">
+                      <i className="fas fa-cube text-[8px] text-indigo-400" />
+                      {ticket.service}
+                    </span>
+
+                    {/* Severity */}
+                    <div className="hidden lg:flex items-center gap-1.5">
+                      <i className={`${icon} ${sevClass} text-xs`} />
+                      <span className={`text-[10px] font-bold uppercase tracking-wider ${sevClass}`}>
+                        {ticket.severity}
+                      </span>
+                    </div>
+
+                    {/* Date */}
+                    <span className="hidden xl:block text-[10px] font-medium text-slate-400 whitespace-nowrap">
+                      <i className="far fa-calendar-alt mr-1" />
+                      {new Date(ticket.createdAt).toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                      })}
+                    </span>
+
+                    {/* Status */}
+                    <span
+                      className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider shadow-sm whitespace-nowrap ${getStatusBadgeClass(ticket.status)}`}
+                    >
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full bg-white ${ticket.status.toLowerCase() === 'open' ? 'animate-pulse' : ''}`}
+                      />
+                      {ticket.status.replace('_', ' ')}
+                    </span>
+
+                    <i className="fas fa-chevron-right text-slate-300 text-xs group-hover:text-indigo-400 transition-colors" />
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* No Accounts */}
+          {showNoAccounts && (
             <div className="max-w-md mx-auto text-center py-20 bg-white/50 backdrop-blur-xl border border-white rounded-[3rem] shadow-xl shadow-indigo-500/5">
               <div className="w-24 h-24 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-8 shadow-inner border border-amber-100/50">
-                <i className="fas fa-plug text-amber-300 text-4xl"></i>
+                <i className="fas fa-plug text-amber-300 text-4xl" />
               </div>
               <h3 className="text-2xl font-black text-slate-800 mb-3 tracking-tight">No Accounts Connected</h3>
               <p className="text-slate-500 text-sm px-10 leading-relaxed mb-10">
@@ -485,17 +581,17 @@ const TicketsPage: React.FC = () => {
                 href="/account-manager"
                 className="inline-flex items-center gap-3 px-8 py-4 bg-amber-500 text-white rounded-2xl text-sm font-bold shadow-xl shadow-amber-500/20 hover:bg-amber-600 transition-all hover:-translate-y-1 active:scale-95"
               >
-                <i className="fas fa-plus"></i>
+                <i className="fas fa-plus" />
                 Add Account
               </a>
             </div>
           )}
 
-          {/* Empty State — has accounts but no tickets */}
-          {!loading && hasAccounts && tickets.length === 0 && !error && (
+          {/* Empty State */}
+          {showEmpty && (
             <div className="max-w-md mx-auto text-center py-20 bg-white/50 backdrop-blur-xl border border-white rounded-[3rem] shadow-xl shadow-indigo-500/5">
               <div className="w-24 h-24 bg-indigo-50 rounded-full flex items-center justify-center mx-auto mb-8 shadow-inner border border-indigo-100/50">
-                <i className="fas fa-ticket-alt text-indigo-300 text-4xl"></i>
+                <i className="fas fa-ticket-alt text-indigo-300 text-4xl" />
               </div>
               <h3 className="text-2xl font-black text-slate-800 mb-3 tracking-tight">No Tickets Found</h3>
               <p className="text-slate-500 text-sm px-10 leading-relaxed mb-10">
@@ -504,35 +600,24 @@ const TicketsPage: React.FC = () => {
                   : 'No tickets yet. Create a new ticket to get technical support.'}
               </p>
               <button
-                onClick={openCreateModal}
+                onClick={() => openCreateModalRef.current()}
                 className="inline-flex items-center gap-3 px-8 py-4 bg-indigo-600 text-white rounded-2xl text-sm font-bold shadow-xl shadow-indigo-500/20 hover:bg-indigo-700 transition-all hover:-translate-y-1 active:scale-95"
               >
-                <i className="fas fa-plus"></i>
+                <i className="fas fa-plus" />
                 Create New Ticket
               </button>
             </div>
           )}
+
         </div>
       </main>
-
-      {/* Error State */}
-      {error && tickets.length === 0 && (
-        <div className="error-state">
-          <i className="fas fa-exclamation-circle text-4xl mb-4 text-red-500"></i>
-          <p className="text-red-700 font-medium mb-4">{error}</p>
-          <button onClick={() => fetchTickets(true)} className="btn-primary">
-            <i className="fas fa-sync-alt mr-2"></i>
-            Try Refreshing
-          </button>
-        </div>
-      )}
 
       {/* Create Ticket Modal */}
       <DialogRoot isOpen={showModal} onClose={closeModal} maxWidth="max-w-lg">
         <DialogPanel
           title={
             <div className="flex items-center gap-3">
-              <i className="fas fa-plus-circle text-indigo-600"></i>
+              <i className="fas fa-plus-circle text-indigo-600" />
               <div>
                 <div className="text-xl font-bold text-gray-900">Create Support Case</div>
                 <p className="text-gray-500 text-sm mt-0.5">Submit a new request for technical support</p>
@@ -545,7 +630,7 @@ const TicketsPage: React.FC = () => {
               <button
                 type="button"
                 onClick={closeModal}
-                disabled={isSubmitting}
+                disabled={createMutation.isPending}
                 className="px-5 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:text-gray-900 transition-colors shadow-sm"
               >
                 Cancel
@@ -553,13 +638,13 @@ const TicketsPage: React.FC = () => {
               <button
                 type="submit"
                 form="create-ticket-form"
-                disabled={isSubmitting}
-                className="px-5 py-2.5 text-sm font-medium text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 disabled:opacity-70 disabled:cursor-not-allowed transition-all shadow-sm hover:shadow hover:translate-y-px flex items-center"
+                disabled={createMutation.isPending}
+                className="px-5 py-2.5 text-sm font-medium text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 disabled:opacity-70 disabled:cursor-not-allowed transition-all shadow-sm flex items-center gap-2"
               >
-                {isSubmitting ? (
-                  <><i className="fas fa-circle-notch fa-spin mr-2"></i>Submitting...</>
+                {createMutation.isPending ? (
+                  <><i className="fas fa-circle-notch fa-spin" />Submitting...</>
                 ) : (
-                  <><i className="fas fa-check mr-2"></i>Submit Case</>
+                  <><i className="fas fa-check" />Submit Case</>
                 )}
               </button>
             </>
@@ -567,104 +652,103 @@ const TicketsPage: React.FC = () => {
         >
           <form id="create-ticket-form" onSubmit={submitTicket}>
             <div className="space-y-5">
-                  {/* Category */}
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">
-                      Category
-                    </label>
-                    <div className="relative">
-                      <select
-                        value={form.category}
-                        onChange={(e) => handleFormChange('category', e.target.value)}
-                        className="w-full rounded-xl border-gray-200 py-2.5 pl-4 pr-10 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 appearance-none bg-white hover:bg-gray-50 transition-colors"
-                      >
-                        <option>Technical</option>
-                      </select>
-                      <div className="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-gray-500">
-                        <i className="fas fa-lock text-xs"></i>
-                      </div>
-                    </div>
-                  </div>
 
-                  {/* Service */}
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">
-                      Service <span className="text-red-500">*</span>
-                    </label>
-                    <div className="relative">
-                      <select
-                        value={form.service}
-                        onChange={(e) => handleFormChange('service', e.target.value)}
-                        className="w-full rounded-xl border-gray-200 py-2.5 pl-4 pr-10 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 appearance-none bg-white hover:bg-gray-50 transition-colors"
-                        required
-                      >
-                        <option disabled value="">Select Service</option>
-                        {SERVICE_OPTIONS[form.category].map((option) => (
-                          <option key={option} value={option}>{option}</option>
-                        ))}
-                      </select>
-                      <div className="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-gray-500">
-                        <i className="fas fa-chevron-down text-xs"></i>
-                      </div>
-                    </div>
+              {/* Category */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Category</label>
+                <div className="relative">
+                  <select
+                    value={form.category}
+                    onChange={(e) => handleFormChange('category', e.target.value)}
+                    className="w-full rounded-xl border-gray-200 py-2.5 pl-4 pr-10 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 appearance-none bg-white hover:bg-gray-50 transition-colors"
+                  >
+                    <option>Technical</option>
+                  </select>
+                  <div className="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-gray-500">
+                    <i className="fas fa-lock text-xs" />
                   </div>
-
-                  {/* Severity */}
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">
-                      Severity <span className="text-red-500">*</span>
-                    </label>
-                    <div className="relative">
-                      <select
-                        value={form.severity}
-                        onChange={(e) => handleFormChange('severity', e.target.value)}
-                        className="w-full rounded-xl border-gray-200 py-2.5 pl-4 pr-10 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 appearance-none bg-white hover:bg-gray-50 transition-colors"
-                        required
-                      >
-                        <option disabled value="">Select Severity</option>
-                        {SEVERITY_OPTIONS.map((option) => (
-                          <option key={option} value={option}>{option}</option>
-                        ))}
-                      </select>
-                      <div className="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-gray-500">
-                        <i className="fas fa-chevron-down text-xs"></i>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Subject */}
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">
-                      Subject <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={form.subject}
-                      onChange={(e) => handleFormChange('subject', e.target.value)}
-                      maxLength={250}
-                      className="w-full rounded-xl border-gray-200 py-2.5 px-4 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 placeholder-gray-400"
-                      placeholder="Briefly summarize your question or issue"
-                      required
-                    />
-                  </div>
-
-                  {/* Description */}
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">
-                      Description <span className="text-red-500">*</span>
-                    </label>
-                    <textarea
-                      value={form.description}
-                      onChange={(e) => handleFormChange('description', e.target.value)}
-                      maxLength={8000}
-                      rows={4}
-                      className="w-full rounded-xl border-gray-200 py-2.5 px-4 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 placeholder-gray-400 resize-none"
-                      placeholder="Describe your question or issue in detail"
-                      required
-                    />
-                  </div>
-
                 </div>
+              </div>
+
+              {/* Service */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Service <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <select
+                    value={form.service}
+                    onChange={(e) => handleFormChange('service', e.target.value)}
+                    className="w-full rounded-xl border-gray-200 py-2.5 pl-4 pr-10 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 appearance-none bg-white hover:bg-gray-50 transition-colors"
+                    required
+                  >
+                    <option disabled value="">Select Service</option>
+                    {SERVICE_OPTIONS[form.category]?.map((option) => (
+                      <option key={option} value={option}>{option}</option>
+                    ))}
+                  </select>
+                  <div className="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-gray-500">
+                    <i className="fas fa-chevron-down text-xs" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Severity */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Severity <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <select
+                    value={form.severity}
+                    onChange={(e) => handleFormChange('severity', e.target.value)}
+                    className="w-full rounded-xl border-gray-200 py-2.5 pl-4 pr-10 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 appearance-none bg-white hover:bg-gray-50 transition-colors"
+                    required
+                  >
+                    <option disabled value="">Select Severity</option>
+                    {SEVERITY_OPTIONS.map((option) => (
+                      <option key={option} value={option}>{option}</option>
+                    ))}
+                  </select>
+                  <div className="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-gray-500">
+                    <i className="fas fa-chevron-down text-xs" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Subject */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Subject <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={form.subject}
+                  onChange={(e) => handleFormChange('subject', e.target.value)}
+                  maxLength={250}
+                  className="w-full rounded-xl border-gray-200 py-2.5 px-4 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 placeholder-gray-400"
+                  placeholder="Briefly summarize your question or issue"
+                  required
+                />
+              </div>
+
+              {/* Description */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Description <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  value={form.description}
+                  onChange={(e) => handleFormChange('description', e.target.value)}
+                  maxLength={8000}
+                  rows={4}
+                  className="w-full rounded-xl border-gray-200 py-2.5 px-4 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 placeholder-gray-400 resize-none"
+                  placeholder="Describe your question or issue in detail"
+                  required
+                />
+              </div>
+
+            </div>
           </form>
         </DialogPanel>
       </DialogRoot>

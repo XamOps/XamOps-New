@@ -1,5 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { useTabState } from '../hooks/useTabState';
+import React, { useState, useEffect } from 'react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useGcpDiskRightsizingData, GcpDisk } from '../hooks/useGcpDiskRightsizingData';
 import { useTopbarActions } from '../contexts/TopbarContext';

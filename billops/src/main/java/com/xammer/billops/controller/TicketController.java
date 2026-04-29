@@ -17,9 +17,11 @@ import com.xammer.cloud.security.ClientUserDetails;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import java.util.concurrent.TimeUnit;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -411,17 +413,26 @@ public class TicketController {
 
     @GetMapping("/tickets/category/{category}/cached")
     public ResponseEntity<List<TicketDto>> getCachedTicketsByCategory(@PathVariable String category) {
-        return getTicketsByCategory(category, false);
+        return getTicketsByCategory(category, false, null);
     }
 
     @GetMapping("/tickets/category/{category}")
     public ResponseEntity<List<TicketDto>> getTicketsByCategory(
             @PathVariable String category,
-            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+            @RequestParam(defaultValue = "false") boolean forceRefresh,
+            @RequestHeader(value = "If-None-Match", required = false) String ifNoneMatch) {
         try {
             String decodedCategory = java.net.URLDecoder.decode(category, java.nio.charset.StandardCharsets.UTF_8);
             logger.debug("GET /tickets/category/{} called. ForceRefresh: {}", decodedCategory, forceRefresh);
-            return ResponseEntity.ok(ticketService.getTicketsByCategory(decodedCategory, forceRefresh));
+            List<TicketDto> tickets = ticketService.getTicketsByCategory(decodedCategory, forceRefresh);
+            String eTag = "\"" + tickets.hashCode() + "\"";
+            if (!forceRefresh && eTag.equals(ifNoneMatch)) {
+                return ResponseEntity.status(304).build();
+            }
+            return ResponseEntity.ok()
+                    .cacheControl(CacheControl.maxAge(30, TimeUnit.SECONDS).mustRevalidate())
+                    .eTag(eTag)
+                    .body(tickets);
         } catch (Exception e) {
             logger.error("Error fetching tickets by category {}: {}", category, e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();

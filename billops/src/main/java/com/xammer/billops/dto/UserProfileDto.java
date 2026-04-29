@@ -6,6 +6,7 @@ import java.util.List;
 public class UserProfileDto {
     private Long id;
     private String username;
+    private String email;
     private List<String> roles;
     private List<String> allowedTabs;
     private boolean isPrimaryUser;
@@ -19,6 +20,8 @@ public class UserProfileDto {
     public void setId(Long id) { this.id = id; }
     public String getUsername() { return username; }
     public void setUsername(String username) { this.username = username; }
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
     public List<String> getRoles() { return roles; }
     public void setRoles(List<String> roles) { this.roles = roles; }
     public List<String> getAllowedTabs() { return allowedTabs; }

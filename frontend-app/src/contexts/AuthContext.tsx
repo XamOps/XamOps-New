@@ -29,7 +29,7 @@ interface AuthContextValue {
   environment: 'local' | 'uat' | 'prod';
 
   // Methods
-  fetchUserRoles: () => Promise<void>;
+  fetchUserRoles: (billopsHint?: boolean) => Promise<void>;
   hasAnyRole: (roles: UserRole | UserRole[]) => boolean;
   switchTenant: (tenantId: string) => void;
   switchUser: (userId: string) => void;
@@ -140,16 +140,21 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
    * Fetch user roles and profile
    * Uses same logic as original: tries primary endpoint, falls back to secondary
    */
-  const fetchUserRoles = useCallback(async () => {
+  const fetchUserRoles = useCallback(async (billopsHint?: boolean) => {
     const path = globalThis.location.pathname;
-    // Match both legacy "/billops/" HTML routes AND React "/billops-*" routes (e.g. /billops-client-details)
+    // Prefer billops endpoint when:
+    // - the current route is a billops page, OR
+    // - in-memory roles already show a billops user (avoids wrong endpoint after SPA navigation), OR
+    // - the caller passes an explicit hint (used by LoginForm based on the backend's redirectUrl).
     const isBillopsPage = path.includes('/billops');
-    const primaryEndpoint = isBillopsPage ? '/api/billops/profile' : '/api/xamops/user/profile';
-    const fallbackEndpoint = isBillopsPage ? '/api/xamops/user/profile' : '/api/billops/profile';
+    const isBillopsUser = userRoles.some(r => r.startsWith('ROLE_BILLOPS'));
+    const preferBillops = isBillopsPage || isBillopsUser || (billopsHint === true);
+    const primaryEndpoint = preferBillops ? '/api/billops/profile' : '/api/xamops/user/profile';
+    const fallbackEndpoint = preferBillops ? '/api/xamops/user/profile' : '/api/billops/profile';
 
     console.log('🔍 Fetching User Roles...');
     console.log('  📍 Path:', path);
-    console.log('  🌐 Is BillOps Page:', isBillopsPage);
+    console.log('  🌐 Is BillOps Page / User:', preferBillops);
     console.log('  🎯 Primary Endpoint:', primaryEndpoint);
 
     setIsLoading(true);
@@ -254,7 +259,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       // AccountContext uses this to delay fetchAccounts until after cleanup.
       setAuthReady(true);
     }
-  }, [fetchTenants, fetchTenantUsers]);
+  }, [fetchTenants, fetchTenantUsers, userRoles]);
 
   /**
    * Check if user has any of the specified roles

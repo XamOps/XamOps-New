@@ -13,6 +13,8 @@
 
 import React, { lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, Outlet } from 'react-router-dom';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { queryClient } from './lib/queryClient';
 import clsx from 'clsx';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AccountProvider } from './contexts/AccountContext';
@@ -149,6 +151,10 @@ const ClientDetailsPage = lazy(() => import('./pages/ClientDetailsPage'));
 // const IdentityUsersPage  = lazy(() => import('./pages/identity/IdentityUsersPage'));
 // const IdentityGroupsPage = lazy(() => import('./pages/identity/IdentityGroupsPage'));
 // const IdentityAuditPage  = lazy(() => import('./pages/identity/IdentityAuditPage'));
+
+// SRE
+// const SreInvestigationsPage = lazy(() => import('./pages/SreInvestigationsPage'));
+// const SreInvestigationDetailPage = lazy(() => import('./pages/SreInvestigationDetailPage'));
 
 // Settings & Profile
 const TicketsPage = lazy(() => import('./pages/TicketsPage'));
@@ -442,68 +448,68 @@ const AppContent: React.FC = () => {
                                 <Route path="/azure-dashboard" element={<AzureDashboard />} />
                             </Route>
 
- {/* Core FinOps & CloudOps Routes */}
- <Route path="/azure-finops" element={<AzureFinOpsPage />} />
- <Route path="/finops" element={<FinOpsPage />} />
- <Route path="/gcp-finops" element={<GcpFinOpsPage />} />
- <Route path="/cost" element={<CostPage />} />
- <Route path="/gcp-cost" element={<GcpCostPage />} />
- <Route path="/azure-cost" element={<AzureCostPage />} />
- <Route path="/waste" element={<WastePage />} />
- <Route path="/gcp-waste" element={<GcpWastePage />} />
- <Route path="/azure-waste" element={<AzureWastePage />} />
- <Route path="/rightsizing" element={<RightsizingPage />} />
- <Route path="/gcp-rightsizing" element={<GcpRightsizingPage />} />
- <Route path="/azure-rightsizing" element={<AzureRightsizingPage />} />
- <Route path="/reservation" element={<ReservationPage />} />
- <Route path="/gcp-reservations" element={<GcpReservationsPage />} />
- <Route path="/azure-reservations" element={<AzureReservationsPage />} />
- <Route path="/cloudsitter" element={<CloudSitterPage />} />
- <Route path="/spot-automation" element={<SpotAutomationPage />} />
- <Route path="/autospotting" element={<SpotAutomationPage />} />
- <Route path="/asg-detail" element={<ASGDetailPage />} />
- <Route path="/asg-config" element={<ASGConfigPage />} />
- <Route path="/flex-compute" element={<FlexComputePage />} />
- <Route path="/ebs-rightsizing" element={<EbsRightsizingPage />} />
- <Route path="/gcp-disk-rightsizing" element={<GcpDiskRightsizingPage />} />
- <Route path="/azure-disk-rightsizing" element={<AzureDiskRightsizingPage />} />
- <Route path="/grafana-dashboard" element={<GrafanaDashboardPage />} />
- <Route path="/cloudk8s" element={<CloudK8sPage />} />
- <Route path="/gcp-cloudk8s" element={<GcpCloudK8sPage />} />
- <Route path="/azure-cloudk8s" element={<AzureCloudK8sPage />} />
- <Route path="/eks-details" element={<EksDetailsPage />} />
- <Route path="/gke-details" element={<GkeDetailsPage />} />
- <Route path="/aks-details" element={<AksDetailsPage />} />
- <Route path="/security" element={<SecurityPage />} />
- <Route path="/gcp-security" element={<GcpSecurityPage />} />
- <Route path="/azure-security" element={<AzureSecurityPage />} />
- <Route path="/performance" element={<PerformancePage />} />
- <Route path="/gcp-performance" element={<GcpPerformancePage />} />
- <Route path="/azure-performance" element={<AzurePerformancePage />} />
- <Route path="/alerts" element={<AlertsPage />} />
- <Route path="/gcp-alerts" element={<GcpAlertsPage />} />
- <Route path="/azure-alerts" element={<AzureAlertsPage />} />
- <Route path="/tickets" element={<TicketsPage />} />
- <Route path="/ticket-detail" element={<TicketDetailPage />} />
- <Route path="/cloudlist" element={<CloudListPage />} />
- <Route path="/resource-labels" element={<ResourceLabelsPage />} />
- <Route path="/cloudshell" element={<CloudShellPage />} />
- <Route path="/account-manager" element={<AccountManagerPage />} />
- <Route path="/cloudmap" element={<CloudMapPage />} />
- <Route path="/gcp-cloudmap" element={<GcpCloudMapPage />} />
- <Route path="/add-account" element={<AddAccountPage />} />
- <Route path="/add-gcp-account" element={<AddGcpAccountPage />} />
- <Route path="/add-github-config" element={<GitHubConfigPage />} />
- <Route path="/devops-in-the-box" element={<DevOpsInTheBoxPage />} />
- <Route path="/cicd-pipelines" element={<CICDPipelinesPage />} />
- <Route path="/sonarqube" element={<SonarQubePage />} />
- <Route path="/aiops" element={<AIOpsPage />} />
- <Route path="/dataops" element={<DataOpsPage />} />
- <Route path="/gcp-dataops" element={<GcpDataOpsPage />} />
- <Route path="/azure-dataops" element={<AzureDataOpsPage />} />
- <Route path="/observability/*" element={<ObservabilityPage />} />
- <Route path="/sre/investigations" element={<SreInvestigationsPage />} />
- <Route path="/sre/investigations/:id" element={<SreInvestigationDetailPage />} />
+                            {/* Core FinOps & CloudOps Routes */}
+                            <Route path="/azure-finops" element={<AzureFinOpsPage />} />
+                            <Route path="/finops" element={<FinOpsPage />} />
+                            <Route path="/gcp-finops" element={<GcpFinOpsPage />} />
+                            <Route path="/cost" element={<CostPage />} />
+                            <Route path="/gcp-cost" element={<GcpCostPage />} />
+                            <Route path="/azure-cost" element={<AzureCostPage />} />
+                            <Route path="/waste" element={<WastePage />} />
+                            <Route path="/gcp-waste" element={<GcpWastePage />} />
+                            <Route path="/azure-waste" element={<AzureWastePage />} />
+                            <Route path="/rightsizing" element={<RightsizingPage />} />
+                            <Route path="/gcp-rightsizing" element={<GcpRightsizingPage />} />
+                            <Route path="/azure-rightsizing" element={<AzureRightsizingPage />} />
+                            <Route path="/reservation" element={<ReservationPage />} />
+                            <Route path="/gcp-reservations" element={<GcpReservationsPage />} />
+                            <Route path="/azure-reservations" element={<AzureReservationsPage />} />
+                            <Route path="/cloudsitter" element={<CloudSitterPage />} />
+                            <Route path="/spot-automation" element={<SpotAutomationPage />} />
+                            <Route path="/autospotting" element={<SpotAutomationPage />} />
+                            <Route path="/asg-detail" element={<ASGDetailPage />} />
+                            <Route path="/asg-config" element={<ASGConfigPage />} />
+                            <Route path="/flex-compute" element={<FlexComputePage />} />
+                            <Route path="/ebs-rightsizing" element={<EbsRightsizingPage />} />
+                            <Route path="/gcp-disk-rightsizing" element={<GcpDiskRightsizingPage />} />
+                            <Route path="/azure-disk-rightsizing" element={<AzureDiskRightsizingPage />} />
+                            <Route path="/grafana-dashboard" element={<GrafanaDashboardPage />} />
+                            <Route path="/cloudk8s" element={<CloudK8sPage />} />
+                            <Route path="/gcp-cloudk8s" element={<GcpCloudK8sPage />} />
+                            <Route path="/azure-cloudk8s" element={<AzureCloudK8sPage />} />
+                            <Route path="/eks-details" element={<EksDetailsPage />} />
+                            <Route path="/gke-details" element={<GkeDetailsPage />} />
+                            <Route path="/aks-details" element={<AksDetailsPage />} />
+                            <Route path="/security" element={<SecurityPage />} />
+                            <Route path="/gcp-security" element={<GcpSecurityPage />} />
+                            <Route path="/azure-security" element={<AzureSecurityPage />} />
+                            <Route path="/performance" element={<PerformancePage />} />
+                            <Route path="/gcp-performance" element={<GcpPerformancePage />} />
+                            <Route path="/azure-performance" element={<AzurePerformancePage />} />
+                            <Route path="/alerts" element={<AlertsPage />} />
+                            <Route path="/gcp-alerts" element={<GcpAlertsPage />} />
+                            <Route path="/azure-alerts" element={<AzureAlertsPage />} />
+                            <Route path="/tickets" element={<TicketsPage />} />
+                            <Route path="/ticket-detail" element={<TicketDetailPage />} />
+                            <Route path="/cloudlist" element={<CloudListPage />} />
+                            <Route path="/resource-labels" element={<ResourceLabelsPage />} />
+                            <Route path="/cloudshell" element={<CloudShellPage />} />
+                            <Route path="/account-manager" element={<AccountManagerPage />} />
+                            <Route path="/cloudmap" element={<CloudMapPage />} />
+                            <Route path="/gcp-cloudmap" element={<GcpCloudMapPage />} />
+                            <Route path="/add-account" element={<AddAccountPage />} />
+                            <Route path="/add-gcp-account" element={<AddGcpAccountPage />} />
+                            <Route path="/add-github-config" element={<GitHubConfigPage />} />
+                            <Route path="/devops-in-the-box" element={<DevOpsInTheBoxPage />} />
+                            <Route path="/cicd-pipelines" element={<CICDPipelinesPage />} />
+                            <Route path="/sonarqube" element={<SonarQubePage />} />
+                            <Route path="/aiops" element={<AIOpsPage />} />
+                            <Route path="/dataops" element={<DataOpsPage />} />
+                            <Route path="/gcp-dataops" element={<GcpDataOpsPage />} />
+                            <Route path="/azure-dataops" element={<AzureDataOpsPage />} />
+                            <Route path="/observability/*" element={<ObservabilityPage />} />
+                            <Route path="/sre/investigations" element={<SreInvestigationsPage />} />
+                            <Route path="/sre/investigations/:id" element={<SreInvestigationDetailPage />} />
 
                             {/* BillOps Routes */}
                             <Route path="/billops-dashboard" element={<BillOpsUserDashboardPage />} />
@@ -550,19 +556,21 @@ const AppContent: React.FC = () => {
 
 const App: React.FC = () => {
     return (
-        <Router>
-            <AuthProvider>
-                <AccountProvider>
-                    <VPCProvider>
-                        <EksDashboardCacheProvider>
-                            <AutoSpottingCacheProvider>
-                                <AppContent />
-                            </AutoSpottingCacheProvider>
-                        </EksDashboardCacheProvider>
-                    </VPCProvider>
-                </AccountProvider>
-            </AuthProvider>
-        </Router>
+        <QueryClientProvider client={queryClient}>
+            <Router>
+                <AuthProvider>
+                    <AccountProvider>
+                        <VPCProvider>
+                            <EksDashboardCacheProvider>
+                                <AutoSpottingCacheProvider>
+                                    <AppContent />
+                                </AutoSpottingCacheProvider>
+                            </EksDashboardCacheProvider>
+                        </VPCProvider>
+                    </AccountProvider>
+                </AuthProvider>
+            </Router>
+        </QueryClientProvider>
     );
 };
 

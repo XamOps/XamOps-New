@@ -1,7 +1,4 @@
 import React, { useState, useEffect, FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../../contexts/AuthContext';
-import { useAccounts } from '../../contexts/AccountContext';
 
 interface LoginFormProps {
   onForgotPassword: () => void;
@@ -15,9 +12,9 @@ interface LoginResponse {
 type LoginStep = 'credentials' | 'otp';
 
 const LoginForm: React.FC<LoginFormProps> = ({ onForgotPassword }) => {
-  const navigate = useNavigate();
-  const { fetchUserRoles } = useAuth();
-  const { fetchAccounts } = useAccounts();
+  // Wipe any previous user's session the moment the login page is visited,
+  // regardless of whether they clicked logout or just navigated here directly.
+  useEffect(() => { sessionStorage.clear(); }, []);
 
   const [loginStep, setLoginStep] = useState<LoginStep>('credentials');
   const [email, setEmail] = useState('');
@@ -47,6 +44,12 @@ const LoginForm: React.FC<LoginFormProps> = ({ onForgotPassword }) => {
     setIsLoading(true);
 
     try {
+      // Kill the existing server-side session before starting a new login.
+      // Without this, the old user's session cookie stays valid and fetchUserRoles
+      // on the next page load returns the previous user's data, not the new user's.
+      sessionStorage.clear();
+      await fetch('/logout', { method: 'POST', credentials: 'include' }).catch(() => {});
+
       const response = await fetch('/api/auth/initiate-login', {
         method: 'POST',
         credentials: 'include',
@@ -90,19 +93,31 @@ const LoginForm: React.FC<LoginFormProps> = ({ onForgotPassword }) => {
         throw new Error((data as any).error || 'Invalid or expired verification code.');
       }
 
-      // Authenticated — clear stale session data
+      // Clear ALL stale session data from any previous user before starting fresh.
+      // Using a hard redirect (window.location.href) below ensures React context state
+      // is also fully destroyed — soft navigation (navigate()) keeps contexts in memory
+      // and old state can leak into the new session.
       sessionStorage.clear();
 
       if (data.tenantId) {
         sessionStorage.setItem('selectedTenantId', data.tenantId);
       }
 
-      console.log('Login successful, fetching user roles and accounts...');
-      await Promise.all([fetchUserRoles(), fetchAccounts()]);
+      // Use backend-provided redirectUrl so each role lands on the correct dashboard.
+      // Backend returns /billops-admin-dashboard, /billops-dashboard, /unified-dashboard, etc.
+      let redirectPath = '/unified-dashboard';
+      if (data.redirectUrl) {
+        try {
+          redirectPath = new URL(data.redirectUrl).pathname;
+        } catch {
+          redirectPath = data.redirectUrl.startsWith('/') ? data.redirectUrl : `/${data.redirectUrl}`;
+        }
+      }
 
-      setTimeout(() => {
-        navigate('/unified-dashboard', { replace: true });
-      }, 200);
+      console.log('Login successful, redirecting to', redirectPath);
+      // Hard redirect: destroys all React context state so no previous user's data survives.
+      // fetchUserRoles and fetchAccounts will be called fresh on the new page mount.
+      window.location.href = redirectPath;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Verification failed. Please try again.');
       setIsLoading(false);

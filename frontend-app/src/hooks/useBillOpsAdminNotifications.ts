@@ -196,6 +196,7 @@ export const useBillOpsAdminNotifications = (): UseBillOpsAdminNotificationsRetu
 
           // Fetch chat history for each session
           for (const session of chatSessions) {
+            if (!session?.accountId) continue;
             try {
               const chatHistoryResponse = await fetch(
                 `/api/ai/chat/history?accountId=${encodeURIComponent(session.accountId)}`,

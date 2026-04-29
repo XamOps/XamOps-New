@@ -70,16 +70,18 @@ public class UserProfileController {
         boolean isTourSeen = true; // Safe default if DB is unavailable
         Long userId = null;
         tenantId = null;
+        String email = null;
 
         Object principal = authentication.getPrincipal();
         if (principal instanceof ClientUserDetails) {
             userId = ((ClientUserDetails) principal).getId();
             tenantId = ((ClientUserDetails) principal).getTenantId();
 
-            // Fetch real status from DB
+            // Fetch real status and email from DB
             User user = userRepository.findById(userId).orElse(null);
             if (user != null) {
                 isTourSeen = user.isTourSeen();
+                email = user.getEmail();
             }
         }
 
@@ -89,6 +91,9 @@ public class UserProfileController {
         }
         if (tenantId != null) {
             userProfile.setTenantId(tenantId);
+        }
+        if (email != null) {
+            userProfile.setEmail(email);
         }
 
         return ResponseEntity.ok(userProfile);

@@ -1,193 +1,300 @@
 /**
- * BillOps Tickets Page Component
+ * BillOps Tickets Page
  *
- * Displays and manages support tickets for Account and Billing category
- * Features: List tickets, create tickets, filter by account, real-time updates
+ * Caching strategy — same 4-layer approach as TicketsPage:
+ * 1. React Query in-memory cache (staleTime 60s)
+ * 2. localStorage persistence via persistQueryClient — survives reload
+ * 3. Stale-while-revalidate via placeholderData
+ * 4. 30-second background poll
  *
- * Converted from: billops/tickets.html
+ * Real-time: WebSocket STOMP on /topic/tickets marks stale (no immediate refetch,
+ * so optimistic data is never wiped by a cache-warm response).
  *
- * What changed:
- * - Migrated from Alpine.js to React with TypeScript
- * - Topbar integration for actions and status
- * - Soft Glass Minimal design system
- * - Premium animations and transitions
- *
- * What stayed the same:
- * - All API endpoints remain identical
- * - Same caching strategy (stale-while-revalidate)
- * - Same filtering logic
- * - All business logic preserved exactly
+ * Optimistic UI: new ticket appears instantly from POST response; 30s poll reconciles.
  */
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useBillOpsTickets } from '../hooks/useBillOpsTickets';
-import { useTopbarActions } from '../contexts/TopbarContext';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAccounts } from '../contexts/AccountContext';
-import {
-  CreateTicketFormData,
-  SERVICE_OPTIONS,
-  TicketSeverity,
-  BillOpsTicket
-} from '../types/billopsTickets';
+import { useTopbarActions } from '../contexts/TopbarContext';
+import Skeleton from '../components/Shared/Skeleton';
 import { DialogRoot, DialogPanel } from '../components/ui';
+import {
+  BillOpsTicket,
+  CreateTicketFormData,
+  TicketSeverity,
+  SERVICE_OPTIONS,
+} from '../types/billopsTickets';
 
-const BillOpsTicketsPage: React.FC = () => {
-  const navigate = useNavigate();
-  const { accounts, isLoading: accountsLoading } = useAccounts();
-  const hasAccounts = accounts.length > 0;
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
 
-  const getAccountName = (accountId?: string): string | null => {
-    if (!accountId) return null;
-    const acc = accounts.find(a => a.id === accountId);
-    return acc ? acc.name : null;
-  };
+const POLL_INTERVAL_MS = 30_000;
 
-  const {
-    tickets,
-    loading,
-    isUpdating,
-    error,
-    lastUpdated,
-    hasData,
-    selectedAccountId,
-    fetchTickets,
-    submitTicket
-  } = useBillOpsTickets();
+const DEFAULT_FORM: CreateTicketFormData = {
+  category: 'Account and Billing',
+  service: 'Billing Inquiry',
+  severity: '',
+  subject: '',
+  description: '',
+  accountId: '',
+  region: '',
+};
 
-  const { setActions, clearActions } = useTopbarActions();
+// ---------------------------------------------------------------------------
+// React Query key factory
+// ---------------------------------------------------------------------------
 
-  const [showModal, setShowModal] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [form, setForm] = useState<CreateTicketFormData>({
-    category: 'Account and Billing',
-    service: 'Billing Inquiry',
-    severity: '',
-    subject: '',
-    description: '',
-    accountId: '',
-    region: ''
+export const billopsTicketKeys = {
+  all: (accountIds: string[]) =>
+    ['billops-tickets', [...accountIds].sort().join(',')] as const,
+};
+
+// ---------------------------------------------------------------------------
+// Fetcher
+// ---------------------------------------------------------------------------
+
+async function fetchBillOpsTickets(
+  accountIds: string[],
+  signal?: AbortSignal
+): Promise<BillOpsTicket[]> {
+  const res = await fetch('/api/billops/tickets/category/Account%20and%20Billing', {
+    credentials: 'include',
+    signal,
   });
 
-  /**
-   * Format last updated timestamp
-   */
-  const lastUpdatedDisplay = useMemo(() => {
-    if (!lastUpdated) return '';
-    const date = new Date(lastUpdated);
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  }, [lastUpdated]);
+  if (res.status === 401 || res.status === 403) {
+    window.location.href = '/login';
+    return [];
+  }
+  if (!res.ok) throw new Error(`Failed to fetch billing tickets (${res.status})`);
 
-  /**
-   * Format date for ticket display
-   */
-  const formatDate = (dateString: string): string => {
-    if (!dateString) return '';
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
+  let data: BillOpsTicket[] = await res.json();
+  if (!Array.isArray(data)) data = [];
 
+  // Filter by selected accounts
+  if (accountIds.length > 0) {
+    data = data.filter((t) => t.accountId && accountIds.includes(t.accountId));
+  }
 
-  /**
-   * Get severity badge classes
-   */
-  const getSeverityClasses = (severity: string): string => {
-    switch (severity) {
-      case 'High':
-      case 'Critical':
-        return 'bg-red-50 text-red-700 border-red-200';
-      case 'Medium':
-        return 'bg-orange-50 text-orange-700 border-orange-200';
-      case 'Low':
-        return 'bg-blue-50 text-blue-700 border-blue-200';
-      default:
-        return 'bg-gray-50 text-gray-700 border-gray-200';
-    }
-  };
+  // Sort newest-first
+  data.sort((a, b) => b.id - a.id);
 
-  const getStatusBadgeClasses = (status: string) => {
-    if (status === 'OPEN') {
-      return 'bg-emerald-500 text-white shadow-emerald-200 ring-4 ring-emerald-500/10';
-    }
-    if (status === 'IN_PROGRESS') {
-      return 'bg-amber-500 text-white shadow-amber-200 ring-4 ring-amber-500/10';
-    }
-    return 'bg-slate-400 text-white shadow-slate-200 ring-4 ring-slate-400/10';
-  };
+  return data;
+}
 
-  const getSeverityBadgeClasses = (severity: string): string => {
-    const classes = getSeverityClasses(severity);
-    if (classes.includes('red')) return 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.4)]';
-    if (classes.includes('orange')) return 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.4)]';
-    return 'bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.4)]';
-  };
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
-  const getSeverityTextClasses = (severity: string): string => {
-    const classes = getSeverityClasses(severity);
-    if (classes.includes('red')) return 'text-rose-600';
-    if (classes.includes('orange')) return 'text-amber-600';
-    return 'text-blue-600';
-  };
+function getStatusBadgeClass(status: string): string {
+  if (status === 'OPEN') return 'bg-emerald-500 text-white';
+  if (status === 'IN_PROGRESS') return 'bg-amber-500 text-white';
+  return 'bg-slate-400 text-white';
+}
 
-  /**
-   * Open create ticket modal
-   */
-  const openCreateModal = () => {
-    setForm({
-      category: 'Account and Billing',
-      service: 'Billing Inquiry',
-      severity: '',
-      subject: '',
-      description: '',
-      accountId: selectedAccountId || '',
-      region: ''
-    });
-    setShowModal(true);
-  };
+function getSeverityMeta(severity: string): { dotClass: string; textClass: string } {
+  const s = severity.toLowerCase();
+  if (s === 'critical' || s === 'high' || s === 'urgent') {
+    return { dotClass: 'bg-rose-500', textClass: 'text-rose-600 font-bold' };
+  }
+  if (s === 'medium' || s === 'normal') {
+    return { dotClass: 'bg-amber-500', textClass: 'text-amber-600 font-semibold' };
+  }
+  return { dotClass: 'bg-blue-500', textClass: 'text-blue-600 font-medium' };
+}
 
-  /**
-   * Handle form submission
-   */
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmitting(true);
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
 
-    try {
-      await submitTicket(form);
-      setShowModal(false);
-    } catch (err) {
-      console.error('Error submitting ticket:', err);
-      globalThis.alert('There was an error submitting your case. Please try again.');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+const BillOpsTicketsPage: React.FC = () => {
+  const {
+    selectedAccountIds,
+    accounts,
+    isLoading: accountsLoading,
+  } = useAccounts();
+  const { setActions, clearActions } = useTopbarActions();
+  const navigate = useNavigate();
+  const qc = useQueryClient();
 
-  /**
-   * View ticket detail
-   */
-  const viewTicket = (id: number) => {
-    navigate(`/billops-ticket-detail?id=${id}`);
-  };
+  const hasAccounts = accounts.length > 0;
 
-  /**
-   * Set Topbar Actions
-   */
+  const accountNameMap = React.useMemo(() => {
+    const map: Record<string, string> = {};
+    accounts.forEach((a) => { map[a.id] = a.name; });
+    return map;
+  }, [accounts]);
+
+  // ---------------------------------------------------------------------------
+  // React Query — fetch + cache + poll
+  // ---------------------------------------------------------------------------
+
+  const queryKey = billopsTicketKeys.all(selectedAccountIds);
+
+  const {
+    data: tickets = [],
+    isFetching,
+    isLoading: isFirstLoad,
+    isError,
+    refetch,
+  } = useQuery({
+    queryKey,
+    queryFn: ({ signal }) => fetchBillOpsTickets(selectedAccountIds, signal),
+    enabled: !accountsLoading && hasAccounts,
+    staleTime: 60 * 1000,
+    refetchInterval: POLL_INTERVAL_MS,
+    refetchIntervalInBackground: false,
+    placeholderData: (prev) => prev,
+  });
+
+  // ---------------------------------------------------------------------------
+  // WebSocket — real-time stale marking (no immediate refetch)
+  // ---------------------------------------------------------------------------
+
   useEffect(() => {
-    const openTicketsCount = tickets.filter(t => t.status === 'OPEN').length;
-    const inProgressCount = tickets.filter(t => t.status === 'IN_PROGRESS').length;
+    if (!hasAccounts) return;
 
-    setActions(
+    let stompClient: any = null;
+
+    const connect = async () => {
+      try {
+        const SockJS = (await import('sockjs-client')).default;
+        const Stomp = (await import('stompjs')).default;
+
+        const socket = new SockJS('/xamops-ws');
+        stompClient = Stomp.over(socket);
+        stompClient.debug = null;
+
+        stompClient.connect({}, () => {
+          stompClient.subscribe('/topic/tickets', () => {
+            // Mark stale only — an immediate refetch would hit the still-warm Redis
+            // cache and wipe any optimistic data from setQueryData.
+            qc.invalidateQueries({ queryKey: ['billops-tickets'], refetchType: 'none' });
+          });
+        });
+      } catch {
+        // WebSocket not available — polling covers us
+      }
+    };
+
+    connect();
+
+    return () => {
+      try { stompClient?.disconnect(); } catch { /* ignore */ }
+    };
+  }, [hasAccounts, qc]);
+
+  // ---------------------------------------------------------------------------
+  // Listen for ticket-updated event from detail page
+  // ---------------------------------------------------------------------------
+
+  useEffect(() => {
+    const handler = () => qc.invalidateQueries({ queryKey: ['billops-tickets'] });
+    globalThis.addEventListener('ticket-updated', handler);
+    globalThis.addEventListener('ticket:updated', handler);
+    return () => {
+      globalThis.removeEventListener('ticket-updated', handler);
+      globalThis.removeEventListener('ticket:updated', handler);
+    };
+  }, [qc]);
+
+  // ---------------------------------------------------------------------------
+  // Modal state
+  // ---------------------------------------------------------------------------
+
+  const [showModal, setShowModal] = useState(false);
+  const [form, setForm] = useState<CreateTicketFormData>({
+    ...DEFAULT_FORM,
+    accountId: selectedAccountIds[0] ?? '',
+  });
+
+  useEffect(() => {
+    setForm((prev) => ({ ...prev, accountId: selectedAccountIds[0] ?? '' }));
+  }, [selectedAccountIds]);
+
+  const openCreateModalRef = useRef<() => void>(() => { });
+
+  const openCreateModal = useCallback(() => {
+    setForm({ ...DEFAULT_FORM, accountId: selectedAccountIds[0] ?? '' });
+    setShowModal(true);
+  }, [selectedAccountIds]);
+
+  useEffect(() => { openCreateModalRef.current = openCreateModal; }, [openCreateModal]);
+
+  const closeModal = useCallback(() => setShowModal(false), []);
+
+  // ---------------------------------------------------------------------------
+  // Create ticket mutation — optimistic update
+  // ---------------------------------------------------------------------------
+
+  const createMutation = useMutation({
+    mutationFn: async (payload: CreateTicketFormData) => {
+      const res = await fetch('/api/billops/tickets', {
+        credentials: 'include',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error('Failed to submit ticket');
+      return res.json() as Promise<BillOpsTicket>;
+    },
+
+    onMutate: async () => {
+      setShowModal(false);
+      await qc.cancelQueries({ queryKey });
+    },
+
+    onSuccess: (newTicket) => {
+      qc.setQueryData<BillOpsTicket[]>(queryKey, (prev = []) => [
+        newTicket,
+        ...prev.filter((t) => t.id !== newTicket.id),
+      ]);
+    },
+
+    onError: (err) => {
+      console.error('Error creating billing ticket:', err);
+      alert('There was an error submitting your case. Please try again.');
+    },
+  });
+
+  const submitTicket = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.service || !form.subject.trim() || !form.description.trim() || !form.severity) {
+      alert('Please fill in all required fields.');
+      return;
+    }
+    createMutation.mutate({
+      ...form,
+      accountId: form.accountId || selectedAccountIds[0] || '',
+    });
+  };
+
+  // ---------------------------------------------------------------------------
+  // Derived render flags
+  // ---------------------------------------------------------------------------
+
+  const showSkeleton = (accountsLoading || isFirstLoad) && tickets.length === 0;
+  const showNoAccounts = !accountsLoading && !hasAccounts;
+  const showEmpty = !isFirstLoad && !accountsLoading && hasAccounts && tickets.length === 0 && !isError;
+  const showError = isError && tickets.length === 0;
+  const showTickets = tickets.length > 0;
+
+  // ---------------------------------------------------------------------------
+  // Topbar
+  // ---------------------------------------------------------------------------
+
+  const openCount = tickets.filter((t) => t.status === 'OPEN').length;
+  const inProgressCount = tickets.filter((t) => t.status === 'IN_PROGRESS').length;
+
+  useEffect(() => {
+    const actionsNode = (
       <div className="flex items-center gap-6">
-        {/* Page Title & Icon */}
         <div className="hidden lg:flex items-center gap-3 pr-6 border-r border-slate-200/50">
           <div className="w-9 h-9 flex items-center justify-center rounded-xl bg-purple-50 text-purple-600 shadow-sm border border-purple-100/50">
-            <i className="fas fa-file-invoice-dollar"></i>
+            <i className="fas fa-file-invoice-dollar" />
           </div>
           <div>
             <h1 className="text-sm font-bold text-slate-900 leading-none">Billing Tickets</h1>
@@ -195,16 +302,15 @@ const BillOpsTicketsPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Live Stats */}
-        {!loading && tickets.length > 0 && (
+        {showTickets && (
           <div className="hidden xl:flex items-center gap-4">
             <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Open</span>
-              <span className="text-xs font-bold text-slate-700">{openTicketsCount}</span>
+              <span className="text-xs font-bold text-slate-700">{openCount}</span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+              <span className="w-2 h-2 rounded-full bg-amber-500" />
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">In Progress</span>
               <span className="text-xs font-bold text-slate-700">{inProgressCount}</span>
             </div>
@@ -213,242 +319,223 @@ const BillOpsTicketsPage: React.FC = () => {
 
         <div className="flex items-center gap-3">
           <button
-            onClick={() => fetchTickets(true)}
-            disabled={loading || isUpdating}
-            className="w-10 h-10 flex items-center justify-center text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-xl transition-all border border-transparent hover:border-slate-200/50"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="w-10 h-10 flex items-center justify-center text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-xl transition-all border border-transparent hover:border-slate-200/50 disabled:opacity-50"
             title="Refresh Tickets"
           >
-            <i className={`fas fa-sync-alt ${isUpdating ? 'animate-spin' : ''}`}></i>
+            <i className={`fas fa-sync-alt ${isFetching ? 'animate-spin' : ''}`} />
           </button>
+
           <button
-            onClick={openCreateModal}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold shadow-lg shadow-indigo-500/20 hover:bg-indigo-700 transition-all hover:-translate-y-0.5 active:scale-95"
+            onClick={() => openCreateModalRef.current()}
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-500/20 hover:bg-indigo-700 transition-all hover:-translate-y-0.5 active:scale-95"
           >
-            <i className="fas fa-plus mr-1" />
-            Create New Case
+            <i className="fas fa-plus" />
+            <span>Create New Case</span>
           </button>
         </div>
       </div>
     );
+
+    setActions(actionsNode);
     return () => clearActions();
-  }, [setActions, clearActions, loading, isUpdating, fetchTickets, tickets]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openCount, inProgressCount, isFetching, showTickets]);
 
-  /**
-   * Render loading skeleton
-   */
-  const renderLoadingSkeleton = () => (
-    <div className="space-y-2">
-      {[1, 2, 3, 4].map(i => (
-        <div key={i} className="flex items-center gap-4 px-5 py-4 bg-white border border-slate-200 rounded-2xl">
-          <div className="flex-1 space-y-2">
-            <div className="h-3 bg-slate-200 rounded-full w-20 animate-pulse"></div>
-            <div className="h-4 bg-slate-200 rounded-lg w-2/3 animate-pulse"></div>
-          </div>
-          <div className="h-6 bg-slate-100 rounded-lg w-24 animate-pulse"></div>
-          <div className="h-6 bg-slate-100 rounded-lg w-16 animate-pulse"></div>
-          <div className="h-6 bg-slate-100 rounded-full w-20 animate-pulse"></div>
-        </div>
-      ))}
-    </div>
-  );
-
-  /**
-   * Render empty state
-   */
-  const renderEmptyState = () => (
-    <div className="text-center py-20 bg-white/60 backdrop-blur-sm rounded-2xl border border-gray-200 shadow-sm">
-      <div className="w-20 h-20 bg-indigo-50 rounded-full flex items-center justify-center mx-auto mb-6">
-        <i className="fas fa-ticket-alt text-indigo-300 text-4xl"></i>
-      </div>
-      <h3 className="text-xl font-bold text-gray-900 mb-2">No tickets found</h3>
-      <p className="text-gray-500 max-w-sm mx-auto mb-8">
-        {selectedAccountId
-          ? 'No tickets found for this account. Create a new case to get help.'
-          : 'There are no support tickets in the Account and Billing category.'}
-      </p>
-      <button
-        onClick={openCreateModal}
-        className="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-xl shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5"
-      >
-        <i className="fas fa-plus mr-2"></i> Create New Case
-      </button>
-    </div>
-  );
-
-  /**
-   * Render ticket row (list view)
-   */
-  const renderTicketCard = (ticket: BillOpsTicket) => (
-    <div
-      key={ticket.id}
-      onClick={() => viewTicket(ticket.id)}
-      className={`flex items-center gap-4 px-5 py-4 bg-white border rounded-2xl hover:shadow-sm transition-all duration-200 cursor-pointer group ${
-        ticket.hasUnreadAdminReply
-          ? 'border-indigo-300 ring-1 ring-indigo-200/50'
-          : 'border-slate-200 hover:border-indigo-300'
-      }`}
-    >
-      {/* ID + Subject */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Billing #{ticket.id}</span>
-          {ticket.hasUnreadAdminReply && (
-            <span className="flex items-center gap-1 px-2 py-0.5 bg-indigo-600 text-white text-[9px] font-black rounded-full uppercase tracking-widest animate-pulse">
-              <span className="w-1.5 h-1.5 rounded-full bg-white"></span>
-              New Reply
-            </span>
-          )}
-        </div>
-        <p className="text-sm font-semibold text-slate-800 group-hover:text-indigo-600 transition-colors truncate leading-snug">
-          {ticket.subject}
-        </p>
-      </div>
-
-      {/* Account Info */}
-      {ticket.accountId && (
-        <div className="hidden lg:flex flex-col items-end min-w-0 max-w-[160px]">
-          {getAccountName(ticket.accountId) && (
-            <span className="text-xs font-semibold text-slate-700 truncate w-full text-right">
-              {getAccountName(ticket.accountId)}
-            </span>
-          )}
-          <span className="text-[10px] text-slate-400 font-mono truncate w-full text-right">{ticket.accountId}</span>
-        </div>
-      )}
-
-      {/* Service */}
-      <span className="hidden md:flex items-center gap-1.5 px-2.5 py-1 bg-purple-50 text-purple-600 rounded-lg text-[10px] font-bold whitespace-nowrap border border-purple-100/50">
-        <i className="fas fa-file-invoice text-[8px] text-purple-400"></i>
-        {ticket.service}
-      </span>
-
-      {/* Severity */}
-      <div className="hidden lg:flex items-center gap-1.5">
-        <div className={`w-2 h-2 rounded-full ${getSeverityBadgeClasses(ticket.severity)}`}></div>
-        <span className={`text-[10px] font-bold uppercase tracking-wider ${getSeverityTextClasses(ticket.severity)}`}>
-          {ticket.severity}
-        </span>
-      </div>
-
-      {/* Date */}
-      <span className="hidden xl:block text-[10px] font-medium text-slate-400 whitespace-nowrap">
-        <i className="far fa-clock mr-1 opacity-70"></i>
-        {formatDate(ticket.createdAt)}
-      </span>
-
-      {/* Status */}
-      <span className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider shadow-sm whitespace-nowrap ${getStatusBadgeClasses(ticket.status)}`}>
-        <span className={`w-1.5 h-1.5 rounded-full bg-white ${ticket.status === 'OPEN' ? 'animate-pulse' : ''}`}></span>
-        {ticket.status}
-      </span>
-
-      <i className="fas fa-chevron-right text-slate-300 text-xs group-hover:text-indigo-400 transition-colors"></i>
-    </div>
-  );
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-transparent">
-      {/* Main Content Scroll Area */}
       <main className="flex-1 overflow-y-auto custom-scrollbar p-8">
-        <div className="space-y-4">
+        <div className="space-y-2">
 
-          {/* Subheader: Account Info & Sync Status */}
-          <div className="flex flex-wrap items-center justify-between gap-4 px-2">
-            <div className="flex items-center gap-3">
-              {selectedAccountId ? (
-                <div className="flex items-center gap-2 px-3 py-1 bg-indigo-50 text-indigo-700 rounded-full border border-indigo-100 text-[10px] font-bold uppercase tracking-wider shadow-sm">
-                  <i className="fas fa-at opacity-70"></i>
-                  <span>Active Account: {selectedAccountId}</span>
+          {/* Skeleton — only on true first-ever load */}
+          {showSkeleton && (
+            <div className="space-y-2">
+              {[1, 2, 3, 4].map((i) => (
+                <div
+                  key={i}
+                  className="flex items-center gap-4 px-5 py-4 bg-white border border-slate-200 rounded-2xl"
+                >
+                  <div className="flex-1 space-y-2">
+                    <Skeleton variant="text" height={12} width="15%" />
+                    <Skeleton variant="text" height={16} width="55%" />
+                  </div>
+                  <Skeleton variant="text" height={24} width={80} />
+                  <Skeleton variant="text" height={24} width={70} />
+                  <Skeleton variant="text" height={24} width={90} />
                 </div>
-              ) : (
-                <div className="flex items-center gap-2 px-3 py-1 bg-slate-100 text-slate-500 rounded-full border border-slate-200 text-[10px] font-bold uppercase tracking-wider">
-                  <i className="fas fa-info-circle opacity-70"></i>
-                  <span>Viewing All Accounts</span>
-                </div>
-              )}
-              {isUpdating && (
-                <div className="flex items-center gap-2 text-[10px] font-bold text-indigo-400 uppercase tracking-widest animate-pulse">
-                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
-                  Updating...
-                </div>
-              )}
+              ))}
             </div>
+          )}
 
-            {lastUpdated && (
-              <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                <i className="fas fa-history opacity-70"></i>
-                Last synced {lastUpdatedDisplay}
-              </div>
-            )}
-          </div>
-
-          {/* Loading State */}
-          {loading && renderLoadingSkeleton()}
-
-          {/* Error State */}
-          {error && !hasData && (
-            <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-center">
-              <i className="fas fa-exclamation-triangle text-red-500 text-3xl mb-3"></i>
-              <h3 className="text-lg font-medium text-red-900 mb-1">Failed to load tickets</h3>
-              <p className="text-sm text-red-700 mb-4">{error}</p>
+          {/* Error */}
+          {showError && (
+            <div className="flex flex-col items-center justify-center py-20 text-center">
+              <i className="fas fa-exclamation-circle text-4xl mb-4 text-red-400" />
+              <p className="text-red-600 font-medium mb-4">Could not load billing tickets.</p>
               <button
-                onClick={() => fetchTickets(true)}
-                className="text-sm font-medium text-red-700 bg-white border border-red-200 px-4 py-2 rounded-lg hover:bg-red-50 shadow-sm"
+                onClick={() => refetch()}
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white text-sm font-bold rounded-xl shadow hover:bg-indigo-700 transition-all"
               >
+                <i className="fas fa-sync-alt" />
                 Try Again
               </button>
             </div>
           )}
 
-          {/* No Accounts State */}
-          {!loading && !accountsLoading && !hasAccounts && (
-            <div className="text-center py-20 bg-white/60 backdrop-blur-sm rounded-2xl border border-gray-200 shadow-sm">
-              <div className="w-20 h-20 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-6">
-                <i className="fas fa-plug text-amber-300 text-4xl"></i>
+          {/* Ticket list */}
+          {showTickets && (
+            <div className="space-y-2">
+              {tickets.map((ticket) => {
+                const { dotClass, textClass } = getSeverityMeta(ticket.severity);
+                const accountName = ticket.accountId ? accountNameMap[ticket.accountId] : null;
+
+                return (
+                  <div
+                    key={ticket.id}
+                    onClick={() => navigate(`/billops-ticket-detail?id=${ticket.id}`)}
+                    className={`flex items-center gap-4 px-5 py-4 bg-white border rounded-2xl hover:shadow-sm transition-all duration-200 cursor-pointer group ${
+                      ticket.hasUnreadAdminReply
+                        ? 'border-indigo-300 ring-1 ring-indigo-200/50'
+                        : 'border-slate-200 hover:border-indigo-300'
+                    }`}
+                  >
+                    {/* ID + Subject */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                          Billing #{ticket.id}
+                        </span>
+                        {ticket.hasUnreadAdminReply && (
+                          <span className="flex items-center gap-1 px-2 py-0.5 bg-indigo-600 text-white text-[9px] font-black rounded-full uppercase tracking-widest animate-pulse">
+                            <span className="w-1.5 h-1.5 rounded-full bg-white" />
+                            New Reply
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm font-semibold text-slate-800 group-hover:text-indigo-600 transition-colors truncate leading-snug">
+                        {ticket.subject}
+                      </p>
+                    </div>
+
+                    {/* Account */}
+                    {accountName && (
+                      <div className="hidden lg:flex flex-col items-end min-w-0 max-w-[160px]">
+                        <span className="text-xs font-semibold text-slate-700 truncate w-full text-right">
+                          {accountName}
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-mono truncate w-full text-right">
+                          {ticket.accountId}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Service */}
+                    <span className="hidden md:flex items-center gap-1.5 px-2.5 py-1 bg-purple-50 text-purple-600 rounded-lg text-[10px] font-bold whitespace-nowrap border border-purple-100/50">
+                      <i className="fas fa-file-invoice text-[8px] text-purple-400" />
+                      {ticket.service}
+                    </span>
+
+                    {/* Severity */}
+                    <div className="hidden lg:flex items-center gap-1.5">
+                      <div className={`w-2 h-2 rounded-full ${dotClass}`} />
+                      <span className={`text-[10px] uppercase tracking-wider ${textClass}`}>
+                        {ticket.severity}
+                      </span>
+                    </div>
+
+                    {/* Date */}
+                    <span className="hidden xl:block text-[10px] font-medium text-slate-400 whitespace-nowrap">
+                      <i className="far fa-calendar-alt mr-1" />
+                      {new Date(ticket.createdAt).toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                      })}
+                    </span>
+
+                    {/* Status */}
+                    <span
+                      className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider shadow-sm whitespace-nowrap ${getStatusBadgeClass(ticket.status)}`}
+                    >
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full bg-white ${ticket.status === 'OPEN' ? 'animate-pulse' : ''}`}
+                      />
+                      {ticket.status.replace('_', ' ')}
+                    </span>
+
+                    <i className="fas fa-chevron-right text-slate-300 text-xs group-hover:text-indigo-400 transition-colors" />
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* No Accounts */}
+          {showNoAccounts && (
+            <div className="max-w-md mx-auto text-center py-20 bg-white/50 backdrop-blur-xl border border-white rounded-[3rem] shadow-xl shadow-indigo-500/5">
+              <div className="w-24 h-24 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-8 shadow-inner border border-amber-100/50">
+                <i className="fas fa-plug text-amber-300 text-4xl" />
               </div>
-              <h3 className="text-xl font-bold text-gray-900 mb-2">No Accounts Connected</h3>
-              <p className="text-gray-500 max-w-sm mx-auto mb-8">
+              <h3 className="text-2xl font-black text-slate-800 mb-3 tracking-tight">No Accounts Connected</h3>
+              <p className="text-slate-500 text-sm px-10 leading-relaxed mb-10">
                 You don't have any cloud accounts linked yet. Add an account to start creating billing support tickets.
               </p>
               <a
                 href="/account-manager"
-                className="inline-flex items-center px-6 py-3 text-base font-medium rounded-xl shadow-sm text-white bg-amber-500 hover:bg-amber-600 transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5"
+                className="inline-flex items-center gap-3 px-8 py-4 bg-amber-500 text-white rounded-2xl text-sm font-bold shadow-xl shadow-amber-500/20 hover:bg-amber-600 transition-all hover:-translate-y-1 active:scale-95"
               >
-                <i className="fas fa-plus mr-2"></i> Add Account
+                <i className="fas fa-plus" />
+                Add Account
               </a>
             </div>
           )}
 
-          {/* Empty State — has accounts but no tickets */}
-          {!loading && !error && hasAccounts && tickets.length === 0 && renderEmptyState()}
-
-          {/* Tickets List */}
-          {!loading && tickets.length > 0 && (
-            <div className="space-y-2">
-              {tickets.map(ticket => renderTicketCard(ticket))}
+          {/* Empty State */}
+          {showEmpty && (
+            <div className="max-w-md mx-auto text-center py-20 bg-white/50 backdrop-blur-xl border border-white rounded-[3rem] shadow-xl shadow-indigo-500/5">
+              <div className="w-24 h-24 bg-purple-50 rounded-full flex items-center justify-center mx-auto mb-8 shadow-inner border border-purple-100/50">
+                <i className="fas fa-file-invoice-dollar text-purple-300 text-4xl" />
+              </div>
+              <h3 className="text-2xl font-black text-slate-800 mb-3 tracking-tight">No Billing Tickets</h3>
+              <p className="text-slate-500 text-sm px-10 leading-relaxed mb-10">
+                No billing or account support tickets found. Create a new case to get help.
+              </p>
+              <button
+                onClick={() => openCreateModalRef.current()}
+                className="inline-flex items-center gap-3 px-8 py-4 bg-indigo-600 text-white rounded-2xl text-sm font-bold shadow-xl shadow-indigo-500/20 hover:bg-indigo-700 transition-all hover:-translate-y-1 active:scale-95"
+              >
+                <i className="fas fa-plus" />
+                Create New Case
+              </button>
             </div>
           )}
+
         </div>
       </main>
 
       {/* Create Ticket Modal */}
-      <DialogRoot isOpen={showModal} onClose={() => setShowModal(false)} maxWidth="max-w-lg">
+      <DialogRoot isOpen={showModal} onClose={closeModal} maxWidth="max-w-lg">
         <DialogPanel
           title={
             <div className="flex items-center gap-3">
-              <i className="fas fa-plus-circle text-indigo-600"></i>
+              <i className="fas fa-plus-circle text-indigo-600" />
               <div>
                 <div className="text-xl font-bold text-gray-900">Create Support Case</div>
                 <p className="text-gray-500 text-sm mt-0.5">Submit a new request for billing or account support</p>
               </div>
             </div>
           }
-          onClose={() => setShowModal(false)}
+          onClose={closeModal}
           footer={
             <>
               <button
                 type="button"
-                onClick={() => setShowModal(false)}
+                onClick={closeModal}
+                disabled={createMutation.isPending}
                 className="px-5 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:text-gray-900 transition-colors shadow-sm"
               >
                 Cancel
@@ -456,124 +543,117 @@ const BillOpsTicketsPage: React.FC = () => {
               <button
                 type="submit"
                 form="billops-ticket-form"
-                disabled={isSubmitting}
-                className="px-5 py-2.5 text-sm font-medium text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 disabled:opacity-70 disabled:cursor-not-allowed transition-all shadow-sm hover:shadow hover:translate-y-px flex items-center"
+                disabled={createMutation.isPending}
+                className="px-5 py-2.5 text-sm font-medium text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 disabled:opacity-70 disabled:cursor-not-allowed transition-all shadow-sm flex items-center gap-2"
               >
-                {isSubmitting && <i className="fas fa-circle-notch fa-spin mr-2"></i>}
-                {isSubmitting ? 'Submitting...' : 'Submit Case'}
+                {createMutation.isPending ? (
+                  <><i className="fas fa-circle-notch fa-spin" />Submitting...</>
+                ) : (
+                  <><i className="fas fa-check" />Submit Case</>
+                )}
               </button>
             </>
           }
         >
-          <form id="billops-ticket-form" onSubmit={handleSubmit}>
+          <form id="billops-ticket-form" onSubmit={submitTicket}>
             <div className="space-y-5">
-                  {/* Category */}
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">
-                      Category
-                    </label>
-                    <div className="relative">
-                      <select
-                        value={form.category}
-                        disabled
-                        className="w-full rounded-xl border-gray-200 bg-gray-50 text-gray-500 py-2.5 pl-4 pr-10 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 appearance-none cursor-not-allowed"
-                      >
-                        <option>Account and Billing</option>
-                      </select>
-                      <div className="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-gray-400">
-                        <i className="fas fa-lock text-xs"></i>
-                      </div>
-                    </div>
-                  </div>
 
-                  {/* Service */}
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">
-                      Service
-                    </label>
-                    <div className="relative">
-                      <select
-                        value={form.service}
-                        onChange={e =>
-                          setForm({ ...form, service: e.target.value })
-                        }
-                        className="w-full rounded-xl border-gray-200 py-2.5 pl-4 pr-10 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 appearance-none bg-white hover:bg-gray-50 transition-colors"
-                      >
-                        {SERVICE_OPTIONS[form.category].map(service => (
-                          <option key={service} value={service}>
-                            {service}
-                          </option>
-                        ))}
-                      </select>
-                      <div className="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-gray-500">
-                        <i className="fas fa-chevron-down text-xs"></i>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Severity */}
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">
-                      Severity <span className="text-red-500">*</span>
-                    </label>
-                    <div className="relative">
-                      <select
-                        value={form.severity}
-                        onChange={e =>
-                          setForm({
-                            ...form,
-                            severity: e.target.value as TicketSeverity
-                          })
-                        }
-                        required
-                        className="w-full rounded-xl border-gray-200 py-2.5 pl-4 pr-10 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 appearance-none bg-white hover:bg-gray-50 transition-colors"
-                      >
-                        <option value="">Select...</option>
-                        <option value="Low">Low</option>
-                        <option value="Medium">Medium</option>
-                        <option value="High">High</option>
-                        <option value="Critical">Critical</option>
-                      </select>
-                      <div className="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-gray-500">
-                        <i className="fas fa-chevron-down text-xs"></i>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Subject */}
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">
-                      Subject <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={form.subject}
-                      onChange={e =>
-                        setForm({ ...form, subject: e.target.value })
-                      }
-                      required
-                      placeholder="Brief summary of the issue"
-                      className="w-full rounded-xl border-gray-200 py-2.5 px-4 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 placeholder-gray-400"
-                    />
-                  </div>
-
-                  {/* Description */}
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">
-                      Description <span className="text-red-500">*</span>
-                    </label>
-                    <textarea
-                      value={form.description}
-                      onChange={e =>
-                        setForm({ ...form, description: e.target.value })
-                      }
-                      rows={4}
-                      required
-                      placeholder="Provide detailed information about your request..."
-                      className="w-full rounded-xl border-gray-200 py-2.5 px-4 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 placeholder-gray-400 resize-none"
-                    ></textarea>
+              {/* Category */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Category</label>
+                <div className="relative">
+                  <select
+                    value={form.category}
+                    disabled
+                    className="w-full rounded-xl border-gray-200 bg-gray-50 text-gray-500 py-2.5 pl-4 pr-10 shadow-sm appearance-none cursor-not-allowed"
+                  >
+                    <option>Account and Billing</option>
+                  </select>
+                  <div className="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-gray-400">
+                    <i className="fas fa-lock text-xs" />
                   </div>
                 </div>
+              </div>
+
+              {/* Service */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Service <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <select
+                    value={form.service}
+                    onChange={(e) => setForm((prev) => ({ ...prev, service: e.target.value }))}
+                    className="w-full rounded-xl border-gray-200 py-2.5 pl-4 pr-10 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 appearance-none bg-white hover:bg-gray-50 transition-colors"
+                    required
+                  >
+                    {SERVICE_OPTIONS['Account and Billing'].map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                  <div className="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-gray-500">
+                    <i className="fas fa-chevron-down text-xs" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Severity */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Severity <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <select
+                    value={form.severity}
+                    onChange={(e) => setForm((prev) => ({ ...prev, severity: e.target.value as TicketSeverity }))}
+                    className="w-full rounded-xl border-gray-200 py-2.5 pl-4 pr-10 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 appearance-none bg-white hover:bg-gray-50 transition-colors"
+                    required
+                  >
+                    <option disabled value="">Select Severity</option>
+                    <option value="Low">Low</option>
+                    <option value="Medium">Medium</option>
+                    <option value="High">High</option>
+                    <option value="Critical">Critical</option>
+                  </select>
+                  <div className="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-gray-500">
+                    <i className="fas fa-chevron-down text-xs" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Subject */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Subject <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={form.subject}
+                  onChange={(e) => setForm((prev) => ({ ...prev, subject: e.target.value }))}
+                  maxLength={250}
+                  className="w-full rounded-xl border-gray-200 py-2.5 px-4 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 placeholder-gray-400"
+                  placeholder="Brief summary of your billing issue"
+                  required
+                />
+              </div>
+
+              {/* Description */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Description <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  value={form.description}
+                  onChange={(e) => setForm((prev) => ({ ...prev, description: e.target.value }))}
+                  maxLength={8000}
+                  rows={4}
+                  className="w-full rounded-xl border-gray-200 py-2.5 px-4 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 placeholder-gray-400 resize-none"
+                  placeholder="Provide detailed information about your request..."
+                  required
+                />
+              </div>
+
+            </div>
           </form>
         </DialogPanel>
       </DialogRoot>
