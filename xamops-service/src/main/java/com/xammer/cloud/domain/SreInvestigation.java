@@ -63,7 +63,7 @@ public class SreInvestigation {
     private String errorMessage;
 
     @Enumerated(EnumType.STRING)
-    @Column(length = 20)
+    @Column(name = "verdict", length = 20)
     private Verdict verdict;
 
     @Column(name = "verdict_at")
