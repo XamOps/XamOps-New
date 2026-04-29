@@ -55,6 +55,9 @@ test-prometheus-metrics.sh
 integration-guide.html
 NEW_TABS_CONTENT.html
 
+# OpenObserve runtime data
+data/openobserve/
+
 # OpenSRE sidecar source (cloned separately)
 opensre/opensre-source/
 
