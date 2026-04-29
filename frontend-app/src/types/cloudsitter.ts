@@ -40,6 +40,19 @@ export interface PolicyGrid {
   [day: number]: boolean[];
 }
 
+export interface ScheduleRecommendation {
+  recommendedSchedule: Record<string, number[]>;
+  avgCpuGrid: Record<string, number[]>;
+  avgMemGrid: Record<string, number[]>;
+  memAvailable: boolean;
+  dataPoints: number;
+  lookbackDays: number;
+  cpuIdleThreshold: number;
+  memIdleThreshold: number;
+  /** @deprecated use cpuIdleThreshold */
+  idleThreshold?: number;
+}
+
 export type ViewType = 'dashboard' | 'createPolicy';
 
 export interface CloudSitterState {

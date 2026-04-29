@@ -7,6 +7,7 @@ import SpotAutomationKPIs from '../components/SpotAutomation/SpotAutomationKPIs'
 import SpotAutomationChart from '../components/SpotAutomation/SpotAutomationChart';
 import ActionsHistory from '../components/ActionsHistory/ActionsHistory';
 import { AriaSlider, AriaTabGroup, DialogRoot, DialogPanel } from '../components/ui';
+import { useTabState } from '../hooks/useTabState';
 
 type Tab = 'dashboard' | 'history' | 'analytics' | 'settings';
 
@@ -262,7 +263,7 @@ const AzureSpotAutomationPage: React.FC = () => {
         syncEvents,
     } = useAzureSpotAutomationData({ selectedAccountId });
 
-    const [activeTab, setActiveTab] = useState<Tab>('dashboard');
+    const [activeTab, setActiveTab] = useTabState<Tab>('dashboard');
     const [configVmss, setConfigVmss] = useState<AzureVMSS | null>(null);
 
     // Settings local state

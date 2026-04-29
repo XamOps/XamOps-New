@@ -3,6 +3,7 @@ import { useAccounts } from '../contexts/AccountContext';
 import { useAzureSecurityData } from '../hooks/useAzureSecurityData';
 import { AriaTabGroup } from '../components/ui';
 import {
+import { useTabState } from '../hooks/useTabState';
   AzureSecurityHeader,
   AzureSecurityKPICards,
   AzureSecurityAssessmentsSection,
@@ -16,7 +17,7 @@ const AzureSecurityPage: React.FC = () => {
   const { selectedAccountIds } = useAccounts();
   const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
 
-  const [activeTab, setActiveTab] = useState<ActiveTab>('assessments');
+  const [activeTab, setActiveTab] = useTabState<ActiveTab>('assessments');
 
   const { securityData, isLoading, isRefreshing, loadSecurityData } =
     useAzureSecurityData({ selectedAccountId });

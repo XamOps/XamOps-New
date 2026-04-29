@@ -18,6 +18,7 @@ import type { TopSpendingAccount, AdminInvoice, AdminTicket, SpendingTrendItem }
 import BillOpsNotificationDropdown from '../components/BillOps/BillOpsNotificationDropdown';
 import { apiFetch } from '../utils/apiClient';
 import { useCurrency } from '../hooks/useCurrency';
+import { useTabState } from '../hooks/useTabState';
 
 interface CustomerSpotSavings {
   clientId: number;
@@ -54,7 +55,7 @@ const BillOpsAdminDashboardPage: React.FC = () => {
   const { setActions, clearActions } = useTopbar();
   const { loadRates, convert } = useCurrency();
 
-  const [activeTab, setActiveTab] = useState<ActiveTab>('overview');
+  const [activeTab, setActiveTab] = useTabState<ActiveTab>('overview');
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const [invoiceFilter, setInvoiceFilter] = useState<string>('ALL');
   const [ticketFilter, setTicketFilter] = useState<string>('ALL');

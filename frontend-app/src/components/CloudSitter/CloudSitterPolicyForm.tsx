@@ -6,6 +6,7 @@
 
 import React from 'react';
 import type { PolicyFormData } from '../../types/cloudsitter';
+import ScheduleRecommendationPanel from './ScheduleRecommendationPanel';
 
 interface CloudSitterPolicyFormProps {
   policyForm: PolicyFormData;
@@ -21,6 +22,12 @@ interface CloudSitterPolicyFormProps {
   onResetGrid: () => void;
   onSave: () => void;
   onCancel: () => void;
+  /** When coming from an assign flow, pass the instance to enable smart recommendations */
+  instanceId?: string;
+  instanceName?: string;
+  instanceRegion?: string;
+  accountId?: string | null;
+  onApplyRecommendation?: (grid: boolean[][]) => void;
 }
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -38,6 +45,11 @@ const CloudSitterPolicyForm: React.FC<CloudSitterPolicyFormProps> = ({
   onResetGrid,
   onSave,
   onCancel,
+  instanceId,
+  instanceName,
+  instanceRegion,
+  accountId,
+  onApplyRecommendation,
 }) => {
   return (
     <div className="max-w-6xl mx-auto bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
@@ -116,6 +128,17 @@ const CloudSitterPolicyForm: React.FC<CloudSitterPolicyFormProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Smart Recommendation Panel — only shown when an instance context is available */}
+      {instanceId && instanceRegion && accountId && onApplyRecommendation && (
+        <ScheduleRecommendationPanel
+          instanceId={instanceId}
+          instanceName={instanceName}
+          region={instanceRegion}
+          accountId={accountId}
+          onApply={onApplyRecommendation}
+        />
+      )}
 
       {/* Weekly Schedule Grid */}
       <div className="bg-gray-50 p-6 rounded-xl border border-gray-200 shadow-inner mb-8">

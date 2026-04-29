@@ -20,6 +20,7 @@ import { useUserManagement } from '../hooks/useUserManagement';
 import type { IamUser, IamRole } from '../types/userManagement';
 import { useTopbar } from '../contexts/TopbarContext';
 import '../styles/userManagement.css';
+import { useTabState } from '../hooks/useTabState';
 
 const SKELETON_ITEMS = [1, 2, 3, 4, 5];
 
@@ -88,7 +89,7 @@ const UserManagementPage: React.FC = () => {
   } = useUserManagement();
 
   const { setActions, clearActions } = useTopbar();
-  const [activeTab, setActiveTab] = useState<'users' | 'roles'>('users');
+  const [activeTab, setActiveTab] = useTabState<'users' | 'roles'>('users');
 
   // Register actions in Topbar
   React.useEffect(() => {

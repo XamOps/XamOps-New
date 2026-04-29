@@ -53,6 +53,8 @@ const FlexComputePage = lazy(() => import('./pages/FlexComputePage'));
 
 // AWS — Infrastructure
 const CloudSitterPage = lazy(() => import('./pages/CloudSitterPage'));
+const GcpCloudSitterPage = lazy(() => import('./pages/GcpCloudSitterPage'));
+const AzureCloudSitterPage = lazy(() => import('./pages/AzureCloudSitterPage'));
 const SpotAutomationPage = lazy(() => import('./pages/SpotAutomationPage'));
 const ASGDetailPage = lazy(() => import('./pages/ASGDetailPage'));
 const ASGConfigPage = lazy(() => import('./pages/ASGConfigPage'));
@@ -530,6 +532,8 @@ const AppContent: React.FC = () => {
                             <Route path="/billops-admin-user-manager" element={<BillOpsAdminUserManagerPage />} />
                             <Route path="/gcp-autospotting" element={<GcpSpotAutomationPage />} />
                             <Route path="/azure-autospotting" element={<AzureSpotAutomationPage />} />
+                            <Route path="/gcp-cloudsitter" element={<GcpCloudSitterPage />} />
+                            <Route path="/azure-cloudsitter" element={<AzureCloudSitterPage />} />
                             <Route path="/calculator" element={<CalculatorPage />} />
                             <Route path="/gcp-cloudlist" element={<GcpCloudListPage />} />
                             <Route path="/azure-cloudlist" element={<AzureCloudList />} />

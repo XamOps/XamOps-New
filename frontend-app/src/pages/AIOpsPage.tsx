@@ -30,6 +30,7 @@ import { useDashboardEnhancedData } from '../hooks/useDashboardEnhancedData';
 import type { LlmProviderConfig, BudgetConfig } from '../types/aiops';
 import { PROVIDER_COLORS } from '../types/aiops';
 import '../styles/aiops.css';
+import { useTabState } from '../hooks/useTabState';
 
 const PERIODS = [
   { key: 'today', label: 'Today' },
@@ -143,7 +144,7 @@ function UsageAnalyticsFilters({
 // ─── Main Page ───────────────────────────────────────────────
 const AIOpsPage: React.FC = () => {
   const [period, setPeriod] = useState('30d');
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = useTabState('dashboard');
   const [activeSubTab, setActiveSubTab] = useState('request-logs');
   const [isProviderModalOpen, setIsProviderModalOpen] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState(false);

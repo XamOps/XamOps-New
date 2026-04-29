@@ -7,6 +7,7 @@ import com.xammer.cloud.domain.*;
 import com.xammer.cloud.dto.CloudsitterAssignmentDto;
 import com.xammer.cloud.dto.CloudsitterAssignmentRequest;
 import com.xammer.cloud.dto.CloudsitterPolicyDto;
+import com.xammer.cloud.dto.CloudsitterRecommendationDto;
 import com.xammer.cloud.dto.TenantDto;
 import com.xammer.cloud.repository.*;
 import org.slf4j.Logger;
@@ -17,14 +18,19 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import software.amazon.awssdk.services.cloudwatch.CloudWatchClient;
+import software.amazon.awssdk.services.cloudwatch.model.*;
 import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.ec2.model.*;
 
 import java.io.IOException;
-import java.time.ZoneId;
+import java.time.DayOfWeek;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
-import java.util.List;
-import java.util.Map;
+import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
@@ -244,6 +250,123 @@ public class CloudsitterService {
             assignmentRepo.save(assignment);
             logger.info("Assigned policy {} to instance {}", policy.getName(), instanceId);
         }
+    }
+
+    // --- SCHEDULE RECOMMENDATION ---
+
+    private static final String[] DAY_NAMES = {
+        "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"
+    };
+    private static final double CPU_IDLE_THRESHOLD = 5.0;
+    private static final double MEM_IDLE_THRESHOLD = 20.0;
+
+    public CloudsitterRecommendationDto getScheduleRecommendation(
+            String accountId, String instanceId, String region, int lookbackDays) {
+
+        CloudAccount account = accountRepo.findByAwsAccountId(accountId)
+                .stream().findFirst()
+                .orElseThrow(() -> new RuntimeException("Account not found: " + accountId));
+
+        CloudWatchClient cw = awsClientProvider.getCloudWatchClient(account, region);
+
+        Instant startTime = Instant.now().minus(lookbackDays, ChronoUnit.DAYS);
+        Instant endTime = Instant.now();
+
+        // CPU query — standard EC2 namespace, no agent needed
+        MetricDataQuery cpuQuery = MetricDataQuery.builder()
+                .id("cpu")
+                .metricStat(MetricStat.builder()
+                        .metric(Metric.builder()
+                                .namespace("AWS/EC2")
+                                .metricName("CPUUtilization")
+                                .dimensions(Dimension.builder().name("InstanceId").value(instanceId).build())
+                                .build())
+                        .period(3600)
+                        .stat("Average")
+                        .build())
+                .returnData(true)
+                .build();
+
+        // Memory query — requires CloudWatch Agent (CWAgent namespace)
+        MetricDataQuery memQuery = MetricDataQuery.builder()
+                .id("mem")
+                .metricStat(MetricStat.builder()
+                        .metric(Metric.builder()
+                                .namespace("CWAgent")
+                                .metricName("mem_used_percent")
+                                .dimensions(Dimension.builder().name("InstanceId").value(instanceId).build())
+                                .build())
+                        .period(3600)
+                        .stat("Average")
+                        .build())
+                .returnData(true)
+                .build();
+
+        GetMetricDataResponse resp = cw.getMetricData(GetMetricDataRequest.builder()
+                .startTime(startTime)
+                .endTime(endTime)
+                .metricDataQueries(cpuQuery, memQuery)
+                .build());
+
+        double[][] cpuSum = new double[7][24];
+        int[][] cpuCount = new int[7][24];
+        double[][] memSum = new double[7][24];
+        int[][] memCount = new int[7][24];
+
+        for (MetricDataResult result : resp.metricDataResults()) {
+            boolean isCpu = "cpu".equals(result.id());
+            List<Instant> timestamps = result.timestamps();
+            List<Double> values = result.values();
+            for (int i = 0; i < timestamps.size(); i++) {
+                ZonedDateTime zdt = timestamps.get(i).atZone(ZoneOffset.UTC);
+                int dayIdx = zdt.getDayOfWeek().getValue() - 1;
+                int hour = zdt.getHour();
+                if (isCpu) {
+                    cpuSum[dayIdx][hour] += values.get(i);
+                    cpuCount[dayIdx][hour]++;
+                } else {
+                    memSum[dayIdx][hour] += values.get(i);
+                    memCount[dayIdx][hour]++;
+                }
+            }
+        }
+
+        boolean memAvailable = Arrays.stream(memCount).flatMapToInt(Arrays::stream).anyMatch(c -> c > 0);
+
+        Map<String, List<Double>> avgCpuGrid = new LinkedHashMap<>();
+        Map<String, List<Double>> avgMemGrid = new LinkedHashMap<>();
+        Map<String, List<Integer>> recommendedSchedule = new LinkedHashMap<>();
+
+        for (int d = 0; d < 7; d++) {
+            List<Double> dayCpu = new ArrayList<>(24);
+            List<Double> dayMem = new ArrayList<>(24);
+            List<Integer> runningHours = new ArrayList<>();
+
+            for (int h = 0; h < 24; h++) {
+                double avgCpu = cpuCount[d][h] > 0 ? cpuSum[d][h] / cpuCount[d][h] : 0.0;
+                double avgMem = memCount[d][h] > 0 ? memSum[d][h] / memCount[d][h] : 0.0;
+
+                dayCpu.add(Math.round(avgCpu * 100.0) / 100.0);
+                dayMem.add(Math.round(avgMem * 100.0) / 100.0);
+
+                // Keep ON if CPU is active, OR if memory is available and above threshold
+                boolean cpuActive = avgCpu >= CPU_IDLE_THRESHOLD;
+                boolean memActive = memAvailable && avgMem >= MEM_IDLE_THRESHOLD;
+                if (cpuActive || memActive) {
+                    runningHours.add(h);
+                }
+            }
+
+            avgCpuGrid.put(DAY_NAMES[d], dayCpu);
+            avgMemGrid.put(DAY_NAMES[d], dayMem);
+            recommendedSchedule.put(DAY_NAMES[d], runningHours);
+        }
+
+        int totalPoints = Arrays.stream(cpuCount).flatMapToInt(Arrays::stream).sum();
+        return new CloudsitterRecommendationDto(
+                recommendedSchedule, avgCpuGrid, avgMemGrid,
+                memAvailable, totalPoints, lookbackDays,
+                CPU_IDLE_THRESHOLD, MEM_IDLE_THRESHOLD);
     }
 
     // --- SCHEDULING ENGINE ---

@@ -14,6 +14,7 @@ import {
   disconnectWorkspace,
 } from '../hooks/useWorkspaceLicenses';
 import type { WorkspaceTab, UserStatusFilter } from '../types/workspace';
+import { useTabState } from '../hooks/useTabState';
 
 // ─── Small reusable pieces ────────────────────────────────────────────────────
 
@@ -408,7 +409,7 @@ const SavingsEstimator: React.FC<{ inactiveSeats: number }> = ({ inactiveSeats }
 const ConnectedDashboard: React.FC<{ onDisconnected: () => void; onRefresh: () => void }> = ({
   onDisconnected, onRefresh,
 }) => {
-  const [activeTab, setActiveTab] = useState<WorkspaceTab>('overview');
+  const [activeTab, setActiveTab] = useTabState<WorkspaceTab>('overview');
   const [statusFilter, setStatusFilter] = useState<UserStatusFilter>('ALL');
   const [inactiveDays, setInactiveDays] = useState(30);
   const [userSearch, setUserSearch] = useState('');

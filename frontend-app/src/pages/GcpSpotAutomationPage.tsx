@@ -6,6 +6,7 @@ import SpotAutomationKPIs from '../components/SpotAutomation/SpotAutomationKPIs'
 import SpotAutomationChart from '../components/SpotAutomation/SpotAutomationChart';
 import ActionsHistory from '../components/ActionsHistory/ActionsHistory';
 import apiClient from '../utils/apiClient';
+import { useTabState } from '../hooks/useTabState';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -566,7 +567,7 @@ const GcpSpotAutomationPage: React.FC = () => {
         toggleMIG,
     } = useGcpSpotAutomationData({ selectedAccountId });
 
-    const [activeTab, setActiveTab] = useState<'dashboard' | 'analytics' | 'history'>('dashboard');
+    const [activeTab, setActiveTab] = useTabState<'dashboard' | 'analytics' | 'history'>('dashboard');
     const [configMig, setConfigMig] = useState<GcpMIG | null>(null);
 
     // Toast state
