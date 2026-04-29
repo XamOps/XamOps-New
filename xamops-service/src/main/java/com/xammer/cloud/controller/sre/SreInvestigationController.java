@@ -71,7 +71,6 @@ public class SreInvestigationController {
             @RequestBody Map<String, String> body,
             @AuthenticationPrincipal ClientUserDetails user) {
         String verdictStr = body.get("verdict");
-        String note = body.getOrDefault("note", "");
         if (verdictStr == null) return ResponseEntity.badRequest().build();
         SreInvestigation.Verdict verdict;
         try {
@@ -79,8 +78,10 @@ public class SreInvestigationController {
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().build();
         }
-        SreInvestigation inv = investigationService.submitVerdict(id, user.getClientId(), verdict, note);
-        return ResponseEntity.ok(SreInvestigationDto.from(inv));
+        String note = body.get("note");
+        return investigationService.submitVerdict(id, user.getClientId(), verdict, note)
+            .map(inv -> ResponseEntity.ok(SreInvestigationDto.from(inv)))
+            .orElse(ResponseEntity.notFound().build());
     }
 
     @GetMapping("/stats")

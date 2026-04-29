@@ -23,6 +23,7 @@ import javax.annotation.PostConstruct;
 
 import java.time.Instant;
 import java.util.*;
+import java.util.OptionalDouble;
 
 @Service
 public class SreInvestigationService {
@@ -109,47 +110,39 @@ public class SreInvestigationService {
             .filter(inv -> inv.getClientId().equals(clientId));
     }
 
-    public SreInvestigation submitVerdict(Long id, Long clientId,
-                                           SreInvestigation.Verdict verdict,
-                                           String note) {
-        SreInvestigation inv = investigationRepo.findById(id)
+    public Optional<SreInvestigation> submitVerdict(Long id, Long clientId,
+                                                      SreInvestigation.Verdict verdict,
+                                                      String note) {
+        return investigationRepo.findById(id)
             .filter(i -> i.getClientId().equals(clientId))
-            .orElseThrow(() -> new RuntimeException("Investigation not found"));
-        inv.setVerdict(verdict);
-        inv.setVerdictAt(Instant.now());
-        inv.setVerdictNote(note);
-        return investigationRepo.save(inv);
+            .map(inv -> {
+                inv.setVerdict(verdict);
+                inv.setVerdictAt(Instant.now());
+                inv.setVerdictNote(note);
+                return investigationRepo.save(inv);
+            });
     }
 
     public SreStatsDto getStats(Long clientId) {
-        List<SreInvestigation> all = investigationRepo.findByClientIdOrderByCreatedAtDesc(clientId);
         Instant startOfDay = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.DAYS);
 
-        long active = all.stream()
-            .filter(i -> i.getStatus() == SreInvestigation.InvestigationStatus.PENDING
-                      || i.getStatus() == SreInvestigation.InvestigationStatus.RUNNING)
-            .count();
+        long total = investigationRepo.countByClientId(clientId);
+        long pending = investigationRepo.countByClientIdAndStatus(clientId, SreInvestigation.InvestigationStatus.PENDING);
+        long running = investigationRepo.countByClientIdAndStatus(clientId, SreInvestigation.InvestigationStatus.RUNNING);
+        long completedToday = investigationRepo.countByClientIdAndStatusAndCompletedAtAfter(
+                clientId, SreInvestigation.InvestigationStatus.COMPLETED, startOfDay);
+        long failedToday = investigationRepo.countByClientIdAndStatusAndCompletedAtAfter(
+                clientId, SreInvestigation.InvestigationStatus.FAILED, startOfDay);
 
-        long completedToday = all.stream()
-            .filter(i -> i.getStatus() == SreInvestigation.InvestigationStatus.COMPLETED
-                      && i.getCompletedAt() != null
-                      && i.getCompletedAt().isAfter(startOfDay))
-            .count();
-
-        long failedToday = all.stream()
-            .filter(i -> i.getStatus() == SreInvestigation.InvestigationStatus.FAILED
-                      && i.getCompletedAt() != null
-                      && i.getCompletedAt().isAfter(startOfDay))
-            .count();
-
-        OptionalDouble avgMttr = all.stream()
-            .filter(i -> i.getStatus() == SreInvestigation.InvestigationStatus.COMPLETED
-                      && i.getStartedAt() != null && i.getCompletedAt() != null)
+        // For MTTR still need a small query — load only completed with both timestamps
+        OptionalDouble avgMttr = investigationRepo.findByClientIdAndStatus(clientId, SreInvestigation.InvestigationStatus.COMPLETED)
+            .stream()
+            .filter(i -> i.getStartedAt() != null && i.getCompletedAt() != null)
             .mapToLong(i -> i.getCompletedAt().getEpochSecond() - i.getStartedAt().getEpochSecond())
             .average();
 
-        return new SreStatsDto(all.size(), active, completedToday, failedToday,
-                avgMttr.isPresent() ? (long) avgMttr.getAsDouble() : null);
+        return new SreStatsDto(total, pending + running, completedToday, failedToday,
+                avgMttr.isPresent() ? Math.round(avgMttr.getAsDouble()) : null);
     }
 
     @Async

@@ -1,5 +1,6 @@
 package com.xammer.cloud.dto.sre;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xammer.cloud.domain.SreInvestigation;
 import lombok.Data;
 
@@ -8,6 +9,8 @@ import java.util.List;
 
 @Data
 public class SreInvestigationDto {
+
+    private static final ObjectMapper MAPPER = new ObjectMapper();
     private Long id;
     private Long clientId;
     private Long cloudAccountId;
@@ -52,9 +55,8 @@ public class SreInvestigationDto {
 
         if (inv.getReportRecommendations() != null) {
             try {
-                com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-                dto.setReportRecommendations(mapper.readValue(inv.getReportRecommendations(),
-                    mapper.getTypeFactory().constructCollectionType(List.class, String.class)));
+                dto.setReportRecommendations(MAPPER.readValue(inv.getReportRecommendations(),
+                    MAPPER.getTypeFactory().constructCollectionType(List.class, String.class)));
             } catch (Exception e) {
                 dto.setReportRecommendations(List.of());
             }
