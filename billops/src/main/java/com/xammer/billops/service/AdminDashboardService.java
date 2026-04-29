@@ -377,6 +377,11 @@ public class AdminDashboardService {
             });
 
             dashToUpdate.setTopSpendingAccounts(top10);
+            // Recompute totalSpending from all accounts (AWS live via CE, Azure/GCP from Redis/DB cache)
+            BigDecimal freshTotal = accountSummaries.stream()
+                    .map(a -> a.getCurrentMonthSpending() != null ? a.getCurrentMonthSpending() : BigDecimal.ZERO)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            dashToUpdate.setTotalSpending(freshTotal);
             dashToUpdate.setLastUpdated(System.currentTimeMillis());
 
             redisCache.put(redisCacheKey, dashToUpdate, CACHE_TTL_MINUTES);
@@ -487,7 +492,6 @@ public class AdminDashboardService {
             if (subscriptionId == null) return BigDecimal.ZERO;
 
             if (isCurrentMonth) {
-                // AZURE_COST_BILLING_SUMMARY has no month suffix — always current month.
                 String azureKey = "AZURE_COST_BILLING_SUMMARY::" + subscriptionId;
                 try {
                     Optional<CachedData> snap = cachedDataRepository.findById(azureKey);
@@ -498,9 +502,11 @@ public class AdminDashboardService {
                                 .mapToDouble(s -> ((Number) s.getOrDefault("monthToDateCost", 0.0)).doubleValue())
                                 .sum();
                         if (total > 0) return BigDecimal.valueOf(total);
+                    } else {
+                        logger.warn("Azure DB key not found: {}", azureKey);
                     }
                 } catch (Exception e) {
-                    logger.debug("AZURE_COST_BILLING_SUMMARY read failed for {}: {}", subscriptionId, e.getMessage());
+                    logger.warn("AZURE_COST_BILLING_SUMMARY read failed for {}: {}", subscriptionId, e.getMessage());
                 }
             } else {
                 // For past months, read from cost history. Labels are formatted "MMM yyyy" (e.g. "Mar 2026").

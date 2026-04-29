@@ -64,12 +64,14 @@ const BillOpsAdminDashboardPage: React.FC = () => {
   const [customerSavingsLoading, setCustomerSavingsLoading] = useState(true);
 
   const [clientsData, setClientsData] = useState<ClientsApiData[] | null>(null);
+  const [clientsLoading, setClientsLoading] = useState(true);
 
   useEffect(() => {
     apiFetch('/api/xamops/billops-admin/clients', { credentials: 'include' })
       .then(r => r.ok ? r.json() : Promise.reject(r.status))
       .then((d: ClientsApiData[]) => setClientsData(d))
-      .catch(err => console.error('Failed to load clients data for spend total', err));
+      .catch(err => console.error('Failed to load clients data for spend total', err))
+      .finally(() => setClientsLoading(false));
   }, []);
 
   useEffect(() => {
@@ -362,7 +364,7 @@ const BillOpsAdminDashboardPage: React.FC = () => {
                 <i className="fas fa-dollar-sign text-indigo-600" />
               </div>
             </div>
-            {!loading ? (
+            {!loading && !clientsLoading ? (
               <div className="admin-fade-in">
                 <span className="text-3xl font-black admin-metric-value">
                   {formatCurrency(clientsSpend?.total ?? convertedData?.totalSpending)}
