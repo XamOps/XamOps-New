@@ -83,6 +83,8 @@ export interface UseBillOpsAdminDashboardReturn {
   data: BillOpsAdminDashboardData | null;
   loading: boolean;
   isRefreshing: boolean;
+  isRefreshingTopSpending: boolean;
   error: string | null;
   refreshDashboard: () => void;
+  refreshTopSpending: () => void;
 }

@@ -19,7 +19,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { apiFetch } from '../utils/apiClient';
 import { useAuth } from '../contexts/AuthContext';
-import type { BillOpsAdminDashboardData, UseBillOpsAdminDashboardReturn } from '../types/billopsAdminDashboard';
+import type { BillOpsAdminDashboardData, TopSpendingAccount, UseBillOpsAdminDashboardReturn } from '../types/billopsAdminDashboard';
 
 const POLL_INTERVAL = 30000; // 30 seconds
 
@@ -34,6 +34,7 @@ export const useBillOpsAdminDashboard = (): UseBillOpsAdminDashboardReturn => {
   const [data, setData] = useState<BillOpsAdminDashboardData | null>(null);
   const [loading, setLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isRefreshingTopSpending, setIsRefreshingTopSpending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const pollingIntervalRef = useRef<number | null>(null);
@@ -101,6 +102,34 @@ export const useBillOpsAdminDashboard = (): UseBillOpsAdminDashboardReturn => {
   }, [loadDashboard]);
 
   /**
+   * Live top-spending refresh — hits CE API for current month MTD per AWS account,
+   * updates only the topSpendingAccounts slice without rebuilding the full dashboard.
+   */
+  const refreshTopSpending = useCallback(async () => {
+    setIsRefreshingTopSpending(true);
+    try {
+      const response = await apiFetch('/api/billops/dashboard/admin/top-spending-refresh', {
+        credentials: 'include',
+      });
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      const freshTop10: TopSpendingAccount[] = await response.json();
+      if (isMountedRef.current) {
+        setData(prev => {
+          if (!prev) return prev;
+          const updated = { ...prev, topSpendingAccounts: freshTop10, lastUpdated: Date.now() };
+          localStorage.setItem(cacheKeyRef.current, JSON.stringify(updated));
+          return updated;
+        });
+        console.log('✅ [BillOps Admin] Top-spending live refresh complete');
+      }
+    } catch (err) {
+      console.error('Top-spending refresh failed:', err);
+    } finally {
+      if (isMountedRef.current) setIsRefreshingTopSpending(false);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /**
    * Initialise: load from localStorage immediately, then fetch fresh data in background.
    */
   useEffect(() => {
@@ -143,8 +172,10 @@ export const useBillOpsAdminDashboard = (): UseBillOpsAdminDashboardReturn => {
     data,
     loading,
     isRefreshing,
+    isRefreshingTopSpending,
     error,
     refreshDashboard,
+    refreshTopSpending,
   };
 };
 

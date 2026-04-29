@@ -1,7 +1,9 @@
 package com.xammer.billops.controller;
 
+import com.xammer.billops.dto.AccountSummaryDto;
 import com.xammer.billops.dto.AdminDashboardDto;
 import com.xammer.billops.dto.UserDashboardDto;
+import java.util.List;
 import com.xammer.billops.repository.AppUserRepository;
 import com.xammer.billops.service.AdminDashboardService;
 import com.xammer.billops.service.UserDashboardService;
@@ -54,6 +56,23 @@ public class DashboardController {
             return ResponseEntity.ok(dashboard);
         } catch (Exception e) {
             logger.error("Error fetching admin dashboard: ", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    /**
+     * Live Top 10 refresh — hits CE API for current-month MTD per AWS account,
+     * saves result to DB, invalidates the full dashboard Redis cache.
+     */
+    @GetMapping("/admin/top-spending-refresh")
+    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
+    public ResponseEntity<List<AccountSummaryDto>> refreshTopSpending(Authentication authentication) {
+        try {
+            logger.info("Top-spending live refresh requested by: {}", authentication.getName());
+            List<AccountSummaryDto> top10 = adminDashboardService.refreshTopSpendingAccountsLive();
+            return ResponseEntity.ok(top10);
+        } catch (Exception e) {
+            logger.error("Error refreshing top spending: ", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }

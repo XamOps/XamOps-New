@@ -49,7 +49,7 @@ const TABS: { id: ActiveTab; label: string; icon: string }[] = [
 ];
 
 const BillOpsAdminDashboardPage: React.FC = () => {
-  const { data, loading, isRefreshing, error, refreshDashboard } = useBillOpsAdminDashboard();
+  const { data, loading, isRefreshing, isRefreshingTopSpending, error, refreshDashboard, refreshTopSpending } = useBillOpsAdminDashboard();
   const { notifications, counts, isLoading: notificationsLoading } = useBillOpsAdminNotifications();
   const { setActions, clearActions } = useTopbar();
   const { loadRates, convert } = useCurrency();
@@ -522,6 +522,15 @@ const BillOpsAdminDashboardPage: React.FC = () => {
                 <h3 className="text-lg font-black text-gray-900 flex items-center gap-2">
                   <i className="fas fa-trophy text-cyan-600" />Top 10 Spending Accounts
                 </h3>
+                <button
+                  onClick={refreshTopSpending}
+                  disabled={isRefreshingTopSpending}
+                  title="Fetch live current-month cost from CE API"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-cyan-700 bg-cyan-50 hover:bg-cyan-100 border border-cyan-200 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <i className={`fas fa-bolt text-[10px] ${isRefreshingTopSpending ? 'animate-pulse' : ''}`} />
+                  {isRefreshingTopSpending ? 'Fetching live...' : 'Live Refresh'}
+                </button>
               </div>
               <div className="overflow-x-auto rounded-xl border border-gray-100">
                 {loading ? (
