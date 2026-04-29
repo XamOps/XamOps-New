@@ -52,6 +52,8 @@ const COMMANDS: RouteCommand[] = [
   { path: '/asg-detail',          label: 'ASG Detail',                group: 'AWS',              icon: HiOutlineServer },
   { path: '/asg-config',          label: 'ASG Config',                group: 'AWS',              icon: HiOutlineCog },
   { path: '/cloudsitter',         label: 'CloudSitter',               group: 'AWS',              icon: HiOutlineServer },
+  { path: '/gcp-cloudsitter',     label: 'CloudSitter (GCP)',         group: 'GCP',              icon: HiOutlineServer },
+  { path: '/azure-cloudsitter',   label: 'CloudSitter (Azure)',       group: 'Azure',            icon: HiOutlineServer },
   { path: '/cloudk8s',            label: 'Cloud Kubernetes (AWS)',    group: 'AWS',              icon: HiOutlineChip, keywords: 'eks k8s kubernetes' },
   { path: '/eks-details',         label: 'EKS Details',               group: 'AWS',              icon: HiOutlineChip },
   { path: '/cloudlist',           label: 'AWS Cloud List',            group: 'AWS',              icon: HiOutlineServer, keywords: 'resources inventory' },

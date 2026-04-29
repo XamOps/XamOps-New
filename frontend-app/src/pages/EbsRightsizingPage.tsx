@@ -5,6 +5,7 @@ import { useEbsRightsizingData, EbsVolume, RoiResult, PendingDeletionVolume } fr
 import { AriaTabGroup } from '../components/ui';
 import { useTopbarActions } from '../contexts/TopbarContext';
 import { EbsVolumeMonitoringDrawer } from '../components/EbsRightsizing/EbsVolumeMonitoringDrawer';
+import { useTabState } from '../hooks/useTabState';
 
 interface GuideTarget {
   volumeId: string;
@@ -23,7 +24,7 @@ type Tab = 'overview' | 'roi';
 const EbsRightsizingPage: React.FC = () => {
   const { selectedAccountIds } = useAccounts();
   const selectedAccountId = selectedAccountIds[0] || null;
-  const [activeTab, setActiveTab] = useState<Tab>('overview');
+  const [activeTab, setActiveTab] = useTabState<Tab>('overview');
   const [actionMsg, setActionMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [guideTarget, setGuideTarget] = useState<GuideTarget | null>(null);
   const [monitoringVolume, setMonitoringVolume] = useState<EbsVolume | null>(null);

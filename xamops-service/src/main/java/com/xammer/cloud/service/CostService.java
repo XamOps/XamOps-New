@@ -1727,10 +1727,24 @@ public class CostService {
         @Async("awsTaskExecutor")
         public CompletableFuture<Double> getCreditsApplied(String accountId, boolean forceRefresh) {
                 String cacheKey = "creditsApplied-" + accountId;
+                String dbKey = "AWS_CREDITS_APPLIED::" + accountId + "::" + YearMonth.now();
                 if (!forceRefresh) {
                         Optional<Double> cached = redisCache.get(cacheKey, Double.class);
                         if (cached.isPresent()) {
                                 return CompletableFuture.completedFuture(cached.get());
+                        }
+                        try {
+                                Optional<CachedData> dbSnapshot = cachedDataRepository.findById(dbKey);
+                                if (dbSnapshot.isPresent()) {
+                                        Double dbResult = objectMapper.readValue(dbSnapshot.get().getJsonData(), Double.class);
+                                        if (dbResult != null) {
+                                                redisCache.put(cacheKey, dbResult, 60 * 24);
+                                                logger.info("✅ Credits applied loaded from DB for {} — re-warming Redis", accountId);
+                                                return CompletableFuture.completedFuture(dbResult);
+                                        }
+                                }
+                        } catch (Exception e) {
+                                logger.warn("DB snapshot load failed for credits {}: {}", accountId, e.getMessage());
                         }
                 }
 
@@ -1771,7 +1785,16 @@ public class CostService {
                                         .map(Math::abs)
                                         .sum();
 
-                                redisCache.put(cacheKey, credits, 60);
+                                redisCache.put(cacheKey, credits, 60 * 24);
+                                try {
+                                        CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+                                        snapshot.setCacheKey(dbKey);
+                                        snapshot.setJsonData(objectMapper.writeValueAsString(credits));
+                                        snapshot.setLastUpdated(java.time.LocalDateTime.now());
+                                        cachedDataRepository.save(snapshot);
+                                } catch (Exception dbEx) {
+                                        logger.warn("Failed to save credits DB snapshot {}: {}", dbKey, dbEx.getMessage());
+                                }
                                 return credits;
                         } catch (Exception e) {
                                 logger.warn("Could not fetch credits for account {}: {}", accountId, e.getMessage());

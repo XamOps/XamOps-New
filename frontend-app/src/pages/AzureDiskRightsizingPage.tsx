@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useAzureDiskRightsizingData, AzureDisk } from '../hooks/useAzureDiskRightsizingData';
 import { useTopbarActions } from '../contexts/TopbarContext';
+import { useTabState } from '../hooks/useTabState';
 
 const PAGE_SIZE = 20;
 
@@ -125,7 +126,7 @@ const AzureDiskRightsizingPage: React.FC = () => {
   const [filterType, setFilterType]                       = useState('');
   const [filterRecommendation, setFilterRecommendation]   = useState('');
   const [page, setPage]                                   = useState(1);
-  const [activeTab, setActiveTab]                         = useState<'overview' | 'history'>('overview');
+  const [activeTab, setActiveTab] = useTabState<'overview' | 'history'>('overview');
   const [actionMsg, setActionMsg]                         = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [confirmAction, setConfirmAction]                 = useState<{ disk: AzureDisk; actionType: string; targetSizeGb?: number } | null>(null);
   const [showInstallGuide, setShowInstallGuide]           = useState(false);

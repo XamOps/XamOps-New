@@ -4,6 +4,7 @@ import { useAzureReservationsData } from '../hooks/useAzureReservationsData';
 import { AriaTabGroup } from '../components/ui';
 import type { AzureReservationTabType } from '../types/azureReservations';
 import {
+import { useTabState } from '../hooks/useTabState';
   AzureReservationHeader,
   AzureReservationMetrics,
   AzureReservationInventory,
@@ -16,7 +17,7 @@ export const AzureReservationsPage: React.FC = () => {
 
   const { data, isLoading, error, refresh } = useAzureReservationsData(selectedAccountId);
 
-  const [activeTab, setActiveTab] = useState<AzureReservationTabType>('overview');
+  const [activeTab, setActiveTab] = useTabState<AzureReservationTabType>('overview');
 
   if (!selectedAccountId) {
     return (

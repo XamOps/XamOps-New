@@ -26,6 +26,7 @@ import {
   triggerMeteringEngine,
 } from '../hooks/useIsv';
 import { IsvProduct, IsvProductRequest, SubscriptionEvent } from '../types/isv';
+import { useTabState } from '../hooks/useTabState';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -600,7 +601,7 @@ const ProductDetailPanel: React.FC<{
   productCode: string;
   onRefreshList: () => void;
 }> = ({ productCode, onRefreshList }) => {
-  const [activeTab, setActiveTab] = useState<Tab>('overview');
+  const [activeTab, setActiveTab] = useTabState<Tab>('overview');
   const { data: dashboard, loading, error, refetch } = useIsvDashboard(productCode);
   const [, setRegenerating] = useState(false);
   const [triggeringEngine, setTriggeringEngine] = useState(false);

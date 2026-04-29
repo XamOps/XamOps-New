@@ -46,6 +46,7 @@ export const useCloudSitter = (accountId: string | null) => {
   const [assignTarget, setAssignTarget] = useState<EC2Resource | null>(null);
   const [selectedPolicyId, setSelectedPolicyId] = useState('');
   const [isCreatingFromAssign, setIsCreatingFromAssign] = useState(false);
+  const [formInstanceTarget, setFormInstanceTarget] = useState<EC2Resource | null>(null);
 
   /**
    * Reset grid to all running (true)
@@ -238,13 +239,21 @@ export const useCloudSitter = (accountId: string | null) => {
   }, [isCreatingFromAssign]);
 
   /**
-   * Open create policy from assign modal
+   * Open create policy from assign modal — preserves assign target as form context
    */
   const openCreatePolicyFromAssign = useCallback(() => {
     setIsCreatingFromAssign(true);
+    setFormInstanceTarget(assignTarget);
     setShowAssignModal(false);
     openCreatePolicy();
-  }, [openCreatePolicy]);
+  }, [openCreatePolicy, assignTarget]);
+
+  /**
+   * Apply a recommendation grid (boolean[][]) to the policy grid
+   */
+  const applyRecommendationToGrid = useCallback((grid: boolean[][]) => {
+    setPolicyGrid(grid);
+  }, []);
 
   /**
    * Toggle cell in grid
@@ -478,5 +487,7 @@ export const useCloudSitter = (accountId: string | null) => {
     deletePolicy,
     openAssignModal,
     submitAssignment,
+    formInstanceTarget,
+    applyRecommendationToGrid,
   };
 };

@@ -35,6 +35,7 @@ import ActionsHistory from '../components/ActionsHistory/ActionsHistory';
 import LaunchAnalytics from '../components/LaunchAnalytics/LaunchAnalytics';
 import RispCoverage from '../components/RispCoverage/RispCoverage';
 import { SpotAutomationSkeleton } from '../components/Shared/Skeleton';
+import { useTabState } from '../hooks/useTabState';
 
 const SpotAutomationPage: React.FC = () => {
   const { selectedAccountIds } = useAccounts();
@@ -60,7 +61,7 @@ const SpotAutomationPage: React.FC = () => {
   const [historyTimeRange, setHistoryTimeRange] = useState<'last24h' | 'last7d' | 'last30d'>('last7d');
 
   // Tab state
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'analytics' | 'history' | 'risp-coverage'>('dashboard');
+  const [activeTab, setActiveTab] = useTabState<'dashboard' | 'analytics' | 'history' | 'risp-coverage'>('dashboard');
 
   const handleToggleASG = async (asg: any) => {
     try {

@@ -24,11 +24,12 @@ import BestPracticesTable from '../components/GcpPerformance/BestPracticesTable'
 import clsx from 'clsx';
 import { AlertDialog } from '../components/ui';
 import '../styles/gcpPerformance.css';
+import { useTabState } from '../hooks/useTabState';
 
 const GcpPerformancePage: React.FC = () => {
   // Get account ID from session storage
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'insights' | 'best_practices'>('insights');
+  const [activeTab, setActiveTab] = useTabState<'insights' | 'best_practices'>('insights');
   const [currentSeverity, setCurrentSeverity] = useState<'ALL' | PerformanceSeverity>('ALL');
   const [selectedInsights, setSelectedInsights] = useState<string[]>([]);
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);

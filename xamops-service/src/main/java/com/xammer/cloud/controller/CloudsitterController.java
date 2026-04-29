@@ -4,6 +4,7 @@ import com.xammer.cloud.domain.CloudsitterPolicy;
 import com.xammer.cloud.dto.CloudsitterAssignmentDto;
 import com.xammer.cloud.dto.CloudsitterAssignmentRequest;
 import com.xammer.cloud.dto.CloudsitterPolicyDto;
+import com.xammer.cloud.dto.CloudsitterRecommendationDto;
 import com.xammer.cloud.service.CloudsitterService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -57,5 +58,16 @@ public class CloudsitterController {
     public ResponseEntity<?> assignPolicy(@RequestBody CloudsitterAssignmentRequest request) {
         cloudsitterService.assignPolicyToInstances(request);
         return ResponseEntity.ok().build();
+    }
+
+    @GetMapping("/recommendation")
+    public ResponseEntity<CloudsitterRecommendationDto> getRecommendation(
+            @RequestParam String accountId,
+            @RequestParam String instanceId,
+            @RequestParam String region,
+            @RequestParam(defaultValue = "30") int lookbackDays) {
+        CloudsitterRecommendationDto dto =
+                cloudsitterService.getScheduleRecommendation(accountId, instanceId, region, lookbackDays);
+        return ResponseEntity.ok(dto);
     }
 }

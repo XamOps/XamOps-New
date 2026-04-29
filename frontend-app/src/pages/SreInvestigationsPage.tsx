@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { listInvestigations, SreInvestigation, InvestigationStatus } from '../hooks/useSreInvestigation';
+import { useTabState } from '../hooks/useTabState';
 
 type FilterTab = 'ALL' | 'RUNNING' | 'COMPLETED' | 'FAILED';
 
@@ -39,7 +40,7 @@ function timeAgo(iso: string): string {
 const SreInvestigationsPage: React.FC = () => {
   const navigate = useNavigate();
   const [investigations, setInvestigations] = useState<SreInvestigation[]>([]);
-  const [activeTab, setActiveTab] = useState<FilterTab>('ALL');
+  const [activeTab, setActiveTab] = useTabState<FilterTab>('ALL');
   const [loading, setLoading] = useState(true);
 
   const fetchData = useCallback(async () => {

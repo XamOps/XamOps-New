@@ -24,6 +24,7 @@ import { useBuyerUsage } from '../hooks/useIsv';
 import { BuyerSubscription } from '../types/isv';
 import { MarketplaceSubscription, DailyMeterBilling } from '../types/marketops';
 import IsvMeteringTab from './IsvMeteringPage';
+import { useTabState } from '../hooks/useTabState';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -161,7 +162,7 @@ const BillingDetailPanel: React.FC<BillingDetailProps> = ({
   subscription,
   onClose,
 }) => {
-  const [activeTab, setActiveTab] = useState<'monthly' | 'daily'>('monthly');
+  const [activeTab, setActiveTab] = useTabState<'monthly' | 'daily'>('monthly');
   const [selectedMonth, setSelectedMonth] = useState<string>('');
 
   // Monthly data — always fetched (drives month selector options too)

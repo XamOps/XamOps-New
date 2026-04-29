@@ -25,6 +25,7 @@ import apiClient from '../utils/apiClient';
 import RightsizingHeader from '../components/Rightsizing/RightsizingHeader';
 import AWSRecommendationsTable from '../components/Rightsizing/AWSRecommendationsTable';
 import XamOpsRecommendationsTable from '../components/Rightsizing/XamOpsRecommendationsTable';
+import { useTabState } from '../hooks/useTabState';
 
 interface ApplyTarget {
   instanceId: string;
@@ -55,7 +56,7 @@ export const RightsizingPage: React.FC = () => {
   });
 
   // Tab state
-  const [activeTab, setActiveTab] = useState<'aws' | 'xamops'>('aws');
+  const [activeTab, setActiveTab] = useTabState<'aws' | 'xamops'>('aws');
 
   // Apply confirmation state
   const [applyTarget, setApplyTarget] = useState<ApplyTarget | null>(null);

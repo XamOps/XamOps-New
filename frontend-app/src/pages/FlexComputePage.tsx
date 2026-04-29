@@ -19,9 +19,10 @@ import FlexComputeKPICards from '../components/FlexCompute/FlexComputeKPICards';
 import FlexComputeTable from '../components/FlexCompute/FlexComputeTable';
 import FlexComputeWizard from '../components/FlexCompute/FlexComputeWizard';
 import type { FlexComputeTab, FlexComputeCapacity, CapacityPricing } from '../types/flexCompute';
+import { useTabState } from '../hooks/useTabState';
 
 const FlexComputePage: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<FlexComputeTab>('dashboard');
+  const [activeTab, setActiveTab] = useTabState<FlexComputeTab>('dashboard');
   const { accounts } = useAccounts();
   const {
     capacities,

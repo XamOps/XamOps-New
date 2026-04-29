@@ -27,6 +27,7 @@ import ReservationChart from '../components/Reservation/ReservationChart';
 import ReservationInventory from '../components/Reservation/ReservationInventory';
 import ReservationRecommendations from '../components/Reservation/ReservationRecommendations';
 import ReservationSkeleton from '../components/Reservation/ReservationSkeleton';
+import { useTabState } from '../hooks/useTabState';
 
 export const ReservationPage: React.FC = () => {
   const { selectedAccountIds } = useAccounts();
@@ -47,7 +48,7 @@ export const ReservationPage: React.FC = () => {
   });
 
   // Tab state
-  const [activeTab, setActiveTab] = useState<TabType>('recommendations');
+  const [activeTab, setActiveTab] = useTabState<TabType>('recommendations');
 
   // Fetch recommendations when filters change or tab switches to recommendations
   useEffect(() => {

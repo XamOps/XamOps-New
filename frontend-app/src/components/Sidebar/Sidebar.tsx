@@ -72,7 +72,7 @@ const Sidebar: React.FC = () => {
     const finopsRoutes = ['/cost', '/gcp-cost', '/azure-cost', '/reservation', '/gcp-reservations', '/azure-reservations',
       '/finops', '/gcp-finops', '/azure-finops', '/waste', '/gcp-waste', '/azure-waste',
       '/rightsizing', '/gcp-rightsizing', '/azure-rightsizing', '/ebs-rightsizing', '/gcp-disk-rightsizing',
-      '/cloudsitter', '/flex-compute', '/autospotting', '/gcp-autospotting', '/azure-autospotting'];
+      '/cloudsitter', '/gcp-cloudsitter', '/azure-cloudsitter', '/flex-compute', '/autospotting', '/gcp-autospotting', '/azure-autospotting'];
     const cloudopsRoutes = ['/cloudk8s', '/gcp-cloudk8s', '/azure-cloudk8s',
       '/sonarqube', '/cicd-pipelines', '/devops-in-the-box', '/grafana-dashboard', '/aiops', '/dataops', '/ebs-rightsizing'];
     const ticketsRoutes = ['/tickets', '/billops-tickets'];
@@ -290,10 +290,16 @@ const Sidebar: React.FC = () => {
                   </>
                 )}
                 {selectedAccountDisplay.provider === 'GCP' && (
-                  <NavItem href="/gcp-autospotting" icon="fas fa-magic" label="AutoSpotting" isActive={isActive('/gcp-autospotting')} />
+                  <>
+                    <NavItem href="/gcp-cloudsitter" icon="fas fa-clock" label="CloudSitter" isActive={isActive('/gcp-cloudsitter')} />
+                    <NavItem href="/gcp-autospotting" icon="fas fa-magic" label="AutoSpotting" isActive={isActive('/gcp-autospotting')} />
+                  </>
                 )}
                 {selectedAccountDisplay.provider === 'Azure' && (
-                  <NavItem href="/azure-autospotting" icon="fas fa-magic" label="AutoSpotting" isActive={isActive('/azure-autospotting')} />
+                  <>
+                    <NavItem href="/azure-cloudsitter" icon="fas fa-clock" label="CloudSitter" isActive={isActive('/azure-cloudsitter')} />
+                    <NavItem href="/azure-autospotting" icon="fas fa-magic" label="AutoSpotting" isActive={isActive('/azure-autospotting')} />
+                  </>
                 )}
               </NavSection>
 

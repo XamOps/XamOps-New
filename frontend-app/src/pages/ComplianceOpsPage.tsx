@@ -2,6 +2,7 @@ import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import { useAccounts } from '../contexts/AccountContext';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useSecurityData } from '../hooks/useSecurityData';
+import { useTabState } from '../hooks/useTabState';
 
 /**
  * ComplianceOps Page
@@ -500,7 +501,7 @@ const ComplianceOpsPage: React.FC = () => {
 
   const { setActions, clearActions } = useTopbar();
 
-  const [activeTab, setActiveTab] = useState<ActiveTab>('overview');
+  const [activeTab, setActiveTab] = useTabState<ActiveTab>('overview');
   const [selectedFramework, setSelectedFramework] = useState<string>('all');
   const [controlSearch, setControlSearch] = useState('');
   const [controlStatusFilter] = useState<'all' | 'FAIL' | 'PASS'>('all');

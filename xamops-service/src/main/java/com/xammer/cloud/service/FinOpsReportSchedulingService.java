@@ -198,7 +198,7 @@ public class FinOpsReportSchedulingService {
         LocalDate reportDate = LocalDate.now().minusDays(1); // Report for yesterday
         String dateRange = reportDate.format(DateTimeFormatter.ISO_LOCAL_DATE);
 
-        processSchedules(schedules, "Daily", reportDate, reportDate, dateRange);
+        processSchedules(schedules, "Daily", reportDate, reportDate, dateRange, true);
     }
 
     @Transactional
@@ -213,7 +213,7 @@ public class FinOpsReportSchedulingService {
         String dateRange = startDate.format(DateTimeFormatter.ISO_LOCAL_DATE) + " to "
                 + endDate.format(DateTimeFormatter.ISO_LOCAL_DATE);
 
-        processSchedules(schedules, "Weekly", startDate, endDate, dateRange);
+        processSchedules(schedules, "Weekly", startDate, endDate, dateRange, false);
     }
 
     @Transactional
@@ -228,12 +228,11 @@ public class FinOpsReportSchedulingService {
         String dateRange = startDate.format(DateTimeFormatter.ISO_LOCAL_DATE) + " to "
                 + endDate.format(DateTimeFormatter.ISO_LOCAL_DATE);
 
-        processSchedules(schedules, "Monthly", startDate, endDate, dateRange);
+        processSchedules(schedules, "Monthly", startDate, endDate, dateRange, false);
     }
 
-    // --- MODIFIED: This method is now much more efficient ---
     private void processSchedules(List<FinOpsReportSchedule> schedules, String frequency, LocalDate startDate,
-            LocalDate endDate, String dateRange) {
+            LocalDate endDate, String dateRange, boolean forceRefresh) {
         if (schedules.isEmpty()) {
             logger.info("No active {} schedules found.", frequency);
             return;
@@ -258,8 +257,8 @@ public class FinOpsReportSchedulingService {
                 // --- STEP 1: Fetch data ONCE for the account ---
                 List<DetailedCostDto> reportData;
                 if ("AWS".equals(account.getProvider())) {
-                    logger.info("Fetching AWS cost data for account {} from {} to {}", accountId, startDate, endDate);
-                    reportData = costService.getCostBreakdownByServiceAndRegion(accountId, startDate, endDate, false)
+                    logger.info("Fetching AWS cost data for account {} from {} to {} (forceRefresh={})", accountId, startDate, endDate, forceRefresh);
+                    reportData = costService.getCostBreakdownByServiceAndRegion(accountId, startDate, endDate, forceRefresh)
                             .join();
                 } else if ("GCP".equals(account.getProvider())) {
                     logger.info("Fetching GCP cost data for account {} from {} to {}", accountId, startDate, endDate);

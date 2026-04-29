@@ -71,6 +71,11 @@ const CloudSitterPage: React.FC = () => {
             onResetGrid={cloudSitter.resetGrid}
             onSave={cloudSitter.savePolicy}
             onCancel={cloudSitter.closeCreatePolicy}
+            instanceId={cloudSitter.formInstanceTarget?.id}
+            instanceName={cloudSitter.formInstanceTarget?.name}
+            instanceRegion={cloudSitter.formInstanceTarget?.region}
+            accountId={selectedAccountId}
+            onApplyRecommendation={cloudSitter.applyRecommendationToGrid}
           />
         )}
       </div>
