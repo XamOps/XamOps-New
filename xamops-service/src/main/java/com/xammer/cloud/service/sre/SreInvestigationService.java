@@ -3,6 +3,7 @@ package com.xammer.cloud.service.sre;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.SreInvestigation;
+import com.xammer.cloud.dto.sre.SreStatsDto;
 import com.xammer.cloud.dto.sre.TriggerInvestigationRequest;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.ObservabilityConfigRepository;
@@ -106,6 +107,49 @@ public class SreInvestigationService {
     public Optional<SreInvestigation> getById(Long id, Long clientId) {
         return investigationRepo.findById(id)
             .filter(inv -> inv.getClientId().equals(clientId));
+    }
+
+    public SreInvestigation submitVerdict(Long id, Long clientId,
+                                           SreInvestigation.Verdict verdict,
+                                           String note) {
+        SreInvestigation inv = investigationRepo.findById(id)
+            .filter(i -> i.getClientId().equals(clientId))
+            .orElseThrow(() -> new RuntimeException("Investigation not found"));
+        inv.setVerdict(verdict);
+        inv.setVerdictAt(Instant.now());
+        inv.setVerdictNote(note);
+        return investigationRepo.save(inv);
+    }
+
+    public SreStatsDto getStats(Long clientId) {
+        List<SreInvestigation> all = investigationRepo.findByClientIdOrderByCreatedAtDesc(clientId);
+        Instant startOfDay = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.DAYS);
+
+        long active = all.stream()
+            .filter(i -> i.getStatus() == SreInvestigation.InvestigationStatus.PENDING
+                      || i.getStatus() == SreInvestigation.InvestigationStatus.RUNNING)
+            .count();
+
+        long completedToday = all.stream()
+            .filter(i -> i.getStatus() == SreInvestigation.InvestigationStatus.COMPLETED
+                      && i.getCompletedAt() != null
+                      && i.getCompletedAt().isAfter(startOfDay))
+            .count();
+
+        long failedToday = all.stream()
+            .filter(i -> i.getStatus() == SreInvestigation.InvestigationStatus.FAILED
+                      && i.getCompletedAt() != null
+                      && i.getCompletedAt().isAfter(startOfDay))
+            .count();
+
+        OptionalDouble avgMttr = all.stream()
+            .filter(i -> i.getStatus() == SreInvestigation.InvestigationStatus.COMPLETED
+                      && i.getStartedAt() != null && i.getCompletedAt() != null)
+            .mapToLong(i -> i.getCompletedAt().getEpochSecond() - i.getStartedAt().getEpochSecond())
+            .average();
+
+        return new SreStatsDto(all.size(), active, completedToday, failedToday,
+                avgMttr.isPresent() ? (long) avgMttr.getAsDouble() : null);
     }
 
     @Async

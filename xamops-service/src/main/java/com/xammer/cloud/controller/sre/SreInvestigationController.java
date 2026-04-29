@@ -3,6 +3,7 @@ package com.xammer.cloud.controller.sre;
 import com.xammer.cloud.domain.SreInvestigation;
 import com.xammer.cloud.domain.SreNotification;
 import com.xammer.cloud.dto.sre.SreInvestigationDto;
+import com.xammer.cloud.dto.sre.SreStatsDto;
 import com.xammer.cloud.dto.sre.SreNotificationDto;
 import com.xammer.cloud.dto.sre.TriggerInvestigationRequest;
 import com.xammer.cloud.repository.SreNotificationRepository;
@@ -62,6 +63,29 @@ public class SreInvestigationController {
         return investigationService.getById(id, user.getClientId())
             .map(inv -> ResponseEntity.ok(Map.of("status", inv.getStatus().name())))
             .orElse(ResponseEntity.notFound().build());
+    }
+
+    @PutMapping("/investigations/{id}/verdict")
+    public ResponseEntity<SreInvestigationDto> submitVerdict(
+            @PathVariable Long id,
+            @RequestBody Map<String, String> body,
+            @AuthenticationPrincipal ClientUserDetails user) {
+        String verdictStr = body.get("verdict");
+        String note = body.getOrDefault("note", "");
+        if (verdictStr == null) return ResponseEntity.badRequest().build();
+        SreInvestigation.Verdict verdict;
+        try {
+            verdict = SreInvestigation.Verdict.valueOf(verdictStr);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().build();
+        }
+        SreInvestigation inv = investigationService.submitVerdict(id, user.getClientId(), verdict, note);
+        return ResponseEntity.ok(SreInvestigationDto.from(inv));
+    }
+
+    @GetMapping("/stats")
+    public ResponseEntity<SreStatsDto> getStats(@AuthenticationPrincipal ClientUserDetails user) {
+        return ResponseEntity.ok(investigationService.getStats(user.getClientId()));
     }
 
     @GetMapping("/notifications")

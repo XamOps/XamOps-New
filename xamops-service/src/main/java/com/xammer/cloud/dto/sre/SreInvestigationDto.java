@@ -24,6 +24,9 @@ public class SreInvestigationDto {
     private Instant createdAt;
     private Instant startedAt;
     private Instant completedAt;
+    private String verdict;
+    private String verdictAt;
+    private String verdictNote;
 
     public static SreInvestigationDto from(SreInvestigation inv) {
         SreInvestigationDto dto = new SreInvestigationDto();
@@ -42,6 +45,10 @@ public class SreInvestigationDto {
         dto.setCreatedAt(inv.getCreatedAt());
         dto.setStartedAt(inv.getStartedAt());
         dto.setCompletedAt(inv.getCompletedAt());
+
+        dto.setVerdict(inv.getVerdict() != null ? inv.getVerdict().name() : null);
+        dto.setVerdictAt(inv.getVerdictAt() != null ? inv.getVerdictAt().toString() : null);
+        dto.setVerdictNote(inv.getVerdictNote());
 
         if (inv.getReportRecommendations() != null) {
             try {
