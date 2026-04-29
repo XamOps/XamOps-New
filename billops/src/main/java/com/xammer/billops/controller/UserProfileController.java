@@ -48,6 +48,8 @@ public class UserProfileController {
             userProfile.setId(userId);
 
             appUserRepository.findById(userId).ifPresent(user -> {
+                userProfile.setEmail(user.getEmail());
+
                 boolean isPrimary = user.getCreatedBy() == null;
                 userProfile.setPrimaryUser(isPrimary);
 

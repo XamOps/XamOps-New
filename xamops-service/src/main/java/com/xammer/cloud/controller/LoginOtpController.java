@@ -184,6 +184,12 @@ public class LoginOtpController {
         securityContext.setAuthentication(authToken);
         SecurityContextHolder.setContext(securityContext);
 
+        // Invalidate any existing session to prevent session fixation when switching users.
+        HttpSession existingSession = request.getSession(false);
+        if (existingSession != null) {
+            existingSession.invalidate();
+        }
+
         HttpSession session = request.getSession(true);
         session.setAttribute("SPRING_SECURITY_CONTEXT", securityContext);
 

@@ -1089,7 +1089,7 @@ interface Props {
   security: DbSecurityCheck[];
   allSnapshots: DbSnapshot[];
   costs: DbCost[];
-  cloudProvider?: 'aws' | 'gcp';
+  cloudProvider?: 'aws' | 'gcp' | 'azure';
   fetchTimeseries: (id: string, hours: number) => Promise<DbInstanceTimeseries | null>;
   fetchAgentTimeseries: (hours: number) => Promise<AgentTimeseries[]>;
   fetchAgentTableSizes: () => Promise<AgentTableSize[]>;
@@ -2482,7 +2482,7 @@ function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
   snapshots:      DbSnapshot[];
   rd:             DbInstance | undefined;
   instanceId:     string;
-  cloudProvider?: 'aws' | 'gcp';
+  cloudProvider?: 'aws' | 'gcp' | 'azure';
 }) {
   const [sortKey,     setSortKey]     = useState<'age'|'size'|'cost'>('age');
   const [sortDir,     setSortDir]     = useState<'desc'|'asc'>('desc');
@@ -3075,7 +3075,7 @@ function getRemediation(checkName: string): string | null {
 function SecurityTab({ checks, instanceSource, cloudProvider = 'aws' }: {
   checks:          DbSecurityCheck[];
   instanceSource:  'rds' | 'agent';
-  cloudProvider?:  'aws' | 'gcp';
+  cloudProvider?:  'aws' | 'gcp' | 'azure';
 }) {
   const SECURITY_CATALOGUE = cloudProvider === 'gcp' ? SECURITY_CATALOGUE_GCP : SECURITY_CATALOGUE_AWS;
   const [statusFilter, setStatusFilter] = useState<'ALL'|'FAIL'|'WARN'|'PASS'>('ALL');
@@ -3396,7 +3396,7 @@ function CostTab({ rd, instanceIdle, instanceRightsizing, costs, agentMetrics, i
   costs:               DbCost[];
   agentMetrics:        AgentInstanceMetrics | undefined;
   instanceSource:      'rds' | 'agent';
-  cloudProvider?:      'aws' | 'gcp';
+  cloudProvider?:      'aws' | 'gcp' | 'azure';
 }) {
   const [riYears, setRiYears] = useState<1|3>(1);
 

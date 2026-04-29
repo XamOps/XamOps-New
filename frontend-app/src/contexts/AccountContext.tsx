@@ -93,6 +93,14 @@ export const AccountProvider: React.FC<{ children: ReactNode }> = ({ children })
    * Fetch accounts from backend
    */
   const fetchAccounts = useCallback(async () => {
+    // Clear stale state immediately so the sidebar never shows a previous user's
+    // accounts while the new fetch is in-flight (or if the fetch fails for this user).
+    setAccounts([]);
+    setSelectedAccountIds([]);
+    setTempSelectedAccounts([]);
+    sessionStorage.removeItem('cached_accounts');
+    sessionStorage.removeItem('selectedAccountIds');
+
     setIsLoading(true);
 
     try {
