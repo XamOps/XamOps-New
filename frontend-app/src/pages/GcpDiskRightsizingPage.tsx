@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useGcpDiskRightsizingData, GcpDisk } from '../hooks/useGcpDiskRightsizingData';
 import { useTopbarActions } from '../contexts/TopbarContext';
+import { useTabState } from '../hooks/useTabState';
 
 const PAGE_SIZE = 20;
 
