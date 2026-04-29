@@ -62,6 +62,16 @@ public class SreInvestigation {
     @Column(name = "error_message", columnDefinition = "TEXT")
     private String errorMessage;
 
+    @Enumerated(EnumType.STRING)
+    @Column(length = 20)
+    private Verdict verdict;
+
+    @Column(name = "verdict_at")
+    private Instant verdictAt;
+
+    @Column(name = "verdict_note", columnDefinition = "TEXT")
+    private String verdictNote;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
 
@@ -73,7 +83,9 @@ public class SreInvestigation {
 
     public enum TriggerType { AUTO, MANUAL }
 
-    public enum ResourceType { K8S_POD, EC2, RDS, AZURE_VM, GCP_VM }
+    public enum ResourceType { K8S_POD, EC2, RDS, AZURE_VM, GCP_VM, GENERIC }
 
     public enum InvestigationStatus { PENDING, RUNNING, COMPLETED, FAILED }
+
+    public enum Verdict { RESOLVED, FALSE_POSITIVE, WRONG_ROOT_CAUSE }
 }

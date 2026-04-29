@@ -227,6 +227,7 @@ public class SreInvestigationService {
             case EC2, RDS -> "aws";
             case AZURE_VM -> "azure";
             case GCP_VM -> "gcp";
+            case GENERIC -> "generic";
         };
     }
 

@@ -1,0 +1,6 @@
+-- V20260429__add_sre_verdict.sql
+ALTER TABLE sre_investigation
+  ADD COLUMN IF NOT EXISTS verdict VARCHAR(20)
+    CHECK (verdict IN ('RESOLVED','FALSE_POSITIVE','WRONG_ROOT_CAUSE')),
+  ADD COLUMN IF NOT EXISTS verdict_at TIMESTAMP,
+  ADD COLUMN IF NOT EXISTS verdict_note TEXT;
