@@ -79,22 +79,24 @@ public class SreDetectionConsumer {
         String openKey = "incident:open:" + event.getEntity();
         String existingIncidentId = redis.opsForValue().get(openKey);
 
+        boolean attachedToExisting = false;
         if (existingIncidentId != null && !existingIncidentId.equals(event.getIncidentId())) {
-            investigationRepo.findByIncidentId(existingIncidentId).ifPresent(existing -> {
-                if (existing.getIncidentStatus() == SreInvestigation.IncidentStatus.OPEN) {
-                    log.info("Attaching detection to existing incident {} for entity {}",
-                        existingIncidentId, event.getEntity());
-                    if (event.getInvestigationId() != null) {
-                        investigationRepo.findById(event.getInvestigationId()).ifPresent(dup -> {
-                            dup.setIncidentStatus(SreInvestigation.IncidentStatus.CLOSED);
-                            dup.setClosedAt(Instant.now());
-                            investigationRepo.save(dup);
-                        });
-                    }
-                    return;
+            var existingOpt = investigationRepo.findByIncidentId(existingIncidentId);
+            if (existingOpt.isPresent() && existingOpt.get().getIncidentStatus() == SreInvestigation.IncidentStatus.OPEN) {
+                log.info("Attaching detection to existing incident {} for entity {}",
+                    existingIncidentId, event.getEntity());
+                if (event.getInvestigationId() != null) {
+                    investigationRepo.findById(event.getInvestigationId()).ifPresent(dup -> {
+                        dup.setIncidentStatus(SreInvestigation.IncidentStatus.CLOSED);
+                        dup.setClosedAt(Instant.now());
+                        investigationRepo.save(dup);
+                    });
                 }
-            });
+                attachedToExisting = true;
+            }
         }
+
+        if (attachedToExisting) return;
 
         redis.opsForValue().set(openKey, event.getIncidentId(),
             Duration.ofSeconds(maxJoinWindowSeconds));
