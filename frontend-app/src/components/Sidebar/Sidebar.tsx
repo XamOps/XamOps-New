@@ -351,7 +351,7 @@ const Sidebar: React.FC = () => {
               </NavSection>
 
               <NavSection
-                icon="fas fa-shield-check"
+                icon="fas fa-stethoscope"
                 label="SRE"
                 gradientClass="from-indigo-500 to-violet-600"
                 isOpen={openDropdown === 'sre'}
