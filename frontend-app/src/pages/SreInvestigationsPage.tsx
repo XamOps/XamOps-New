@@ -3,7 +3,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   listInvestigations, triggerInvestigation,
-  SreInvestigation, InvestigationStatus, ResourceType
+  SreInvestigation, ResourceType
 } from '../hooks/useSreInvestigation';
 import { useTabState } from '../hooks/useTabState';
 import SreStatusBadge from '../components/SRE/SreStatusBadge';
