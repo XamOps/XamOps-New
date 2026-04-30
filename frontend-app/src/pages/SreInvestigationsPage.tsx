@@ -60,12 +60,9 @@ const SreInvestigationsPage: React.FC = () => {
     <div className="flex flex-col h-full overflow-y-auto bg-gray-50">
       <div className="max-w-6xl w-full mx-auto px-6 py-8 space-y-5">
 
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Investigations</h1>
-            <p className="text-sm text-gray-500 mt-0.5">{investigations.length} total · auto-refreshing</p>
-          </div>
+        {/* Filters row + New Investigation */}
+        <div className="flex items-center justify-between gap-4">
+          <p className="text-sm text-gray-500">{investigations.length} total · auto-refreshing</p>
           <button
             onClick={() => setShowTriggerModal(true)}
             className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors"

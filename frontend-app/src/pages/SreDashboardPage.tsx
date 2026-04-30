@@ -50,20 +50,6 @@ const SreDashboardPage: React.FC = () => {
     <div className="flex flex-col h-full overflow-y-auto bg-gray-50">
       <div className="max-w-6xl w-full mx-auto px-6 py-8 space-y-6">
 
-        {/* Page header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">SRE Intelligence</h1>
-            <p className="text-sm text-gray-500 mt-0.5">AI-powered incident detection and root cause analysis</p>
-          </div>
-          <button
-            onClick={() => navigate('/sre/investigations')}
-            className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors"
-          >
-            View All Incidents
-          </button>
-        </div>
-
         {/* Stats row */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <StatCard

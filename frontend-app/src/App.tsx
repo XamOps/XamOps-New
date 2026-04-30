@@ -364,8 +364,6 @@ const AuthenticatedLayout: React.FC = () => {
     const mainContentRef = React.useRef<HTMLDivElement>(null);
     const { theme } = useTheme();
 
-    const hiddenTopbarRoutes = location.pathname.startsWith('/sre');
-
     // Scroll to top when route changes
     React.useEffect(() => {
         console.log('🔄 [App] Route changed to:', location.pathname);
@@ -394,8 +392,8 @@ const AuthenticatedLayout: React.FC = () => {
                     )}
                     style={{ WebkitOverflowScrolling: 'touch' }}
                 >
-                    {!hiddenTopbarRoutes && <Topbar />}
-                    <div className={clsx('flex-1', !hiddenTopbarRoutes && 'pt-6')}>
+                    <Topbar />
+                    <div className="flex-1 pt-6">
                         <Suspense fallback={
                             <div className="flex items-center justify-center h-full min-h-[60vh]">
                                 <div className="flex flex-col items-center gap-3">
