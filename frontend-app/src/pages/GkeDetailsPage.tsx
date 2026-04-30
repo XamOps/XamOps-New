@@ -20,6 +20,7 @@ import GkePerformanceTab from '../components/GkeDetails/tabs/GkePerformanceTab';
 import GkeSecurityTab from '../components/GkeDetails/tabs/GkeSecurityTab';
 import GkeContainersTab from '../components/GkeDetails/tabs/GkeContainersTab';
 import GkeNodesTab from '../components/GkeDetails/tabs/GkeNodesTab';
+import GkeNodePoolsTab from '../components/GkeDetails/tabs/GkeNodePoolsTab';
 import GkeHelpModal from '../components/GkeDetails/GkeHelpModal';
 
 const GkeDetailsPage: React.FC = () => {
@@ -164,6 +165,7 @@ const GkeDetailsPage: React.FC = () => {
               {activeTab === 'pods'         && <GkePodsTab gkeData={gkeData} />}
               {activeTab === 'containers'   && <GkeContainersTab gkeData={gkeData} />}
               {activeTab === 'nodes'        && <GkeNodesTab gkeData={gkeData} />}
+              {activeTab === 'nodepools'    && <GkeNodePoolsTab gkeData={gkeData} />}
             </div>
           </>
         )}

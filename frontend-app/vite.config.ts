@@ -4,9 +4,14 @@ import react from '@vitejs/plugin-react';
 // that reference .map files they don't actually ship (e.g. react-quill-new).
 const logger = createLogger();
 const originalWarn = logger.warn.bind(logger);
+const originalError = logger.error.bind(logger);
 logger.warn = (msg, options) => {
   if (msg.includes('Failed to load source map')) return;
   originalWarn(msg, options);
+};
+logger.error = (msg, options) => {
+  if (msg.includes('ws proxy socket error') && msg.includes('EPIPE')) return;
+  originalError(msg, options);
 };
 
 // --- CONFIGURATION ---

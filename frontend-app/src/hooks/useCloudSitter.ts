@@ -457,6 +457,7 @@ export const useCloudSitter = (accountId: string | null) => {
     isSaving,
     searchQuery,
     resources: filteredResources,
+    allResources: resources,
     policies,
     policyForm,
     policyGrid,

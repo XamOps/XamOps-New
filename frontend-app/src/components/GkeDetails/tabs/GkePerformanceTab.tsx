@@ -8,10 +8,10 @@ import React from 'react';
 
 const DisconnectedPlaceholder: React.FC = () => (
   <div className="bg-white rounded-xl border border-amber-200 p-12 flex flex-col items-center text-center">
-    <i className="fas fa-plug text-amber-300 text-5xl mb-4"></i>
-    <h3 className="text-lg font-bold text-gray-700 mb-2">Monitoring Not Connected</h3>
+    <i className="fas fa-robot text-amber-300 text-5xl mb-4"></i>
+    <h3 className="text-lg font-bold text-gray-700 mb-2">XamOps Agent Not Deployed</h3>
     <p className="text-gray-400 text-sm max-w-md">
-      Enable monitoring on this cluster to see performance metrics.
+      Deploy the XamOps agent on this cluster to see performance metrics.
     </p>
   </div>
 );

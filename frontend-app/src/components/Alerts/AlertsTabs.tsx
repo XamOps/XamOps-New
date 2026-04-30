@@ -17,6 +17,7 @@ interface AlertsTabsProps {
 const TABS: TabItem[] = [
   { id: 'cloudguard', label: 'CloudGuard Alerts', icon: 'fas fa-shield-alt' },
   { id: 'grafana',    label: 'Grafana Alerts',    icon: 'fas fa-chart-line' },
+  { id: 'k8s',        label: 'K8s Alerts',        icon: 'fas fa-dharmachakra' },
 ];
 
 const AlertsTabs: React.FC<AlertsTabsProps> = ({ activeTab, onTabChange }) => (

@@ -12,11 +12,9 @@ Chart.register(...registerables);
 const ITEMS_PER_PAGE = 10;
 
 const EksPodsTab: React.FC<{ eksData: any }> = ({ eksData }) => {
-  const { dashboard, getPodsCountByPhase } = eksData;
-  // Primary: new k8s-resources collector; fallback: old workloadHealth
-  const pods = dashboard?.k8sPods?.length
-    ? dashboard.k8sPods
-    : (dashboard?.workloadHealth?.pods || []);
+  const { dashboard, getPodsCountByPhase, derivedPodResourceMetrics, normalizedPods } = eksData;
+  // Use hook-normalised pods: restarts summed, cpuRequest/memoryRequest aggregated from containers
+  const pods: any[] = normalizedPods || [];
 
   // Local state
   const [searchQuery, setSearchQuery] = useState('');
@@ -33,8 +31,8 @@ const EksPodsTab: React.FC<{ eksData: any }> = ({ eksData }) => {
   const cpuChartInstance = useRef<Chart | null>(null);
   const memoryChartInstance = useRef<Chart | null>(null);
 
-  // Get pod resource metrics
-  const podResourceMetrics = dashboard?.podResourceMetrics;
+  // Prefer hook-derived metrics (computed from container requests/limits) over raw backend field
+  const podResourceMetrics = derivedPodResourceMetrics || dashboard?.podResourceMetrics;
 
   // Helper: Get unique namespaces
   const namespaces = useMemo(() => {
@@ -75,12 +73,12 @@ const EksPodsTab: React.FC<{ eksData: any }> = ({ eksData }) => {
           valB = b.name || '';
           break;
         case 'cpuUsage':
-          valA = a.cpuUsage || 0;
-          valB = b.cpuUsage || 0;
+          valA = a.cpuUsage > 0 ? a.cpuUsage : (a.cpuRequest || 0);
+          valB = b.cpuUsage > 0 ? b.cpuUsage : (b.cpuRequest || 0);
           break;
         case 'memoryUsage':
-          valA = a.memoryUsage || 0;
-          valB = b.memoryUsage || 0;
+          valA = a.memoryUsage > 0 ? a.memoryUsage : (a.memoryRequest || 0);
+          valB = b.memoryUsage > 0 ? b.memoryUsage : (b.memoryRequest || 0);
           break;
         case 'restarts':
           valA = a.restarts || 0;
@@ -264,12 +262,18 @@ const EksPodsTab: React.FC<{ eksData: any }> = ({ eksData }) => {
       {/* Resource Requests vs Limits Overview Charts */}
       {podResourceMetrics && (
         <div className="bg-white rounded-lg border border-[#d0d7de] p-6">
-          <h3 className="text-[13px] font-semibold text-[#1a1f2e] mb-6 flex items-center gap-2">
+          <h3 className="text-[13px] font-semibold text-[#1a1f2e] mb-2 flex items-center gap-2">
             <div className="w-7 h-7 rounded-md bg-blue-50 flex items-center justify-center">
               <i className="fas fa-chart-bar text-[#2f4bde] text-xs"></i>
             </div>
             Resource Requests vs Limits Overview
           </h3>
+          {podResourceMetrics._derived && (
+            <p className="text-[11px] text-[#8b949e] mb-5 flex items-center gap-1.5">
+              <i className="fas fa-info-circle text-[#2f4bde]"></i>
+              Showing configured requests &amp; limits from pod specs. Live usage (Current Usage bar) requires Prometheus metrics.
+            </p>
+          )}
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div>
@@ -399,7 +403,7 @@ const EksPodsTab: React.FC<{ eksData: any }> = ({ eksData }) => {
                   className="px-6 py-3 text-[11px] font-medium uppercase tracking-wider text-[#8b949e] cursor-pointer hover:text-[#2f4bde] transition-colors"
                   onClick={() => setSortBy('cpuUsage')}
                 >
-                  CPU Usage {sortBy === 'cpuUsage' && <i className={`fas fa-caret-${sortOrder === 'asc' ? 'up' : 'down'} ml-1`}></i>}
+                  CPU {sortBy === 'cpuUsage' && <i className={`fas fa-caret-${sortOrder === 'asc' ? 'up' : 'down'} ml-1`}></i>}
                 </th>
                 <th
                   className="px-6 py-3 text-[11px] font-medium uppercase tracking-wider text-[#8b949e] cursor-pointer hover:text-[#2f4bde] transition-colors"
@@ -423,6 +427,11 @@ const EksPodsTab: React.FC<{ eksData: any }> = ({ eksData }) => {
                 const memUsage = pod.memoryUsage || 0;
                 const cpuLimit = pod.cpuLimit || 0;
                 const memLimit = pod.memoryLimit || 0;
+                // When Prometheus usage is unavailable (0), fall back to configured requests
+                const cpuVal   = cpuUsage > 0 ? cpuUsage  : (pod.cpuRequest    || 0);
+                const memVal   = memUsage > 0 ? memUsage  : (pod.memoryRequest || 0);
+                const cpuIsReq = cpuUsage === 0 && cpuVal > 0;
+                const memIsReq = memUsage === 0 && memVal > 0;
                 const isRunning = pod.phase === 'Running';
                 const isPending = pod.phase === 'Pending';
 
@@ -459,13 +468,16 @@ const EksPodsTab: React.FC<{ eksData: any }> = ({ eksData }) => {
                       <td className="px-6 py-3.5">
                         <div className="flex flex-col gap-1.5 w-28">
                           <div className="flex justify-between items-center text-[11px]">
-                            <span className="text-[#1a1f2e] font-medium">{cpuUsage.toFixed(1)}m</span>
-                            <span className="text-[#8b949e]">{cpuLimit > 0 ? `${((cpuUsage / cpuLimit) * 100).toFixed(0)}%` : ''}</span>
+                            <span className="text-[#1a1f2e] font-medium flex items-center gap-1">
+                              {cpuVal.toFixed(1)}m
+                              {cpuIsReq && <span className="text-[9px] text-[#8b949e] bg-[#f6f8fa] border border-[#e8ecf0] rounded px-1">req</span>}
+                            </span>
+                            <span className="text-[#8b949e]">{cpuLimit > 0 ? `${((cpuVal / cpuLimit) * 100).toFixed(0)}%` : ''}</span>
                           </div>
                           <div className="h-1.5 w-full bg-[#e8ecf0] rounded-full overflow-hidden">
                             <div
                               className="h-full rounded-full transition-all duration-700"
-                              style={{ width: `${cpuLimit > 0 ? Math.min(100, (cpuUsage / cpuLimit) * 100) : (cpuUsage > 0 ? 30 : 5)}%`, background: cpuUsage > 800 ? '#cf222e' : '#2f4bde' }}
+                              style={{ width: `${cpuLimit > 0 ? Math.min(100, (cpuVal / cpuLimit) * 100) : (cpuVal > 0 ? 30 : 5)}%`, background: cpuVal > 800 ? '#cf222e' : '#2f4bde' }}
                             ></div>
                           </div>
                         </div>
@@ -473,13 +485,16 @@ const EksPodsTab: React.FC<{ eksData: any }> = ({ eksData }) => {
                       <td className="px-6 py-3.5">
                         <div className="flex flex-col gap-1.5 w-28">
                           <div className="flex justify-between items-center text-[11px]">
-                            <span className="text-[#1a1f2e] font-medium">{memUsage.toFixed(0)}Mi</span>
-                            <span className="text-[#8b949e]">{memLimit > 0 ? `${((memUsage / memLimit) * 100).toFixed(0)}%` : ''}</span>
+                            <span className="text-[#1a1f2e] font-medium flex items-center gap-1">
+                              {memVal.toFixed(0)}Mi
+                              {memIsReq && <span className="text-[9px] text-[#8b949e] bg-[#f6f8fa] border border-[#e8ecf0] rounded px-1">req</span>}
+                            </span>
+                            <span className="text-[#8b949e]">{memLimit > 0 ? `${((memVal / memLimit) * 100).toFixed(0)}%` : ''}</span>
                           </div>
                           <div className="h-1.5 w-full bg-[#e8ecf0] rounded-full overflow-hidden">
                             <div
                               className="h-full rounded-full transition-all duration-700"
-                              style={{ width: `${memLimit > 0 ? Math.min(100, (memUsage / memLimit) * 100) : (memUsage > 0 ? 30 : 5)}%`, background: memUsage > 1024 ? '#9a6700' : '#2f4bde' }}
+                              style={{ width: `${memLimit > 0 ? Math.min(100, (memVal / memLimit) * 100) : (memVal > 0 ? 30 : 5)}%`, background: memVal > 1024 ? '#9a6700' : '#2f4bde' }}
                             ></div>
                           </div>
                         </div>

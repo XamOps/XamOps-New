@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import ReactDOM from 'react-dom';
 import { useTheme } from '../../contexts/ThemeContext';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import {
@@ -43,7 +44,7 @@ function LogDetailDrawer({ log, onClose }: { log: LogEntry | null; onClose: () =
   const { theme } = useTheme();
   if (!log) return null;
 
-  return (
+  return ReactDOM.createPortal(
     <div className="fixed inset-0 z-50 flex justify-end" onClick={onClose}>
       <div
         className={clsx(
@@ -128,7 +129,8 @@ function LogDetailDrawer({ log, onClose }: { log: LogEntry | null; onClose: () =
             ))}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -232,6 +234,9 @@ const LogsExplorer: React.FC<LogsExplorerProps> = ({ streams }) => {
   const [selectedLog, setSelectedLog]       = useState<LogEntry | null>(null);
   const [page, setPage]                     = useState(0);
   const [pageSize, setPageSize]             = useState(250);
+  const [liveRefresh, setLiveRefresh]       = useState(false);
+  const [liveInterval, setLiveInterval]     = useState(10);
+  const liveTimerRef                        = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const now = useCallback(() => Date.now(), []);
 
@@ -277,6 +282,15 @@ const LogsExplorer: React.FC<LogsExplorerProps> = ({ streams }) => {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedStream]);
+
+  // Live refresh — only in filter mode on page 0
+  useEffect(() => {
+    if (liveTimerRef.current) clearInterval(liveTimerRef.current);
+    if (liveRefresh && mode === 'filter' && page === 0) {
+      liveTimerRef.current = setInterval(() => doSearch(false, 0), liveInterval * 1000);
+    }
+    return () => { if (liveTimerRef.current) clearInterval(liveTimerRef.current); };
+  }, [liveRefresh, liveInterval, mode, page, doSearch]);
 
   const handleFilterSearch = (e: React.FormEvent) => { e.preventDefault(); doSearch(true); };
   const handleQueryRun = (e: React.FormEvent) => { e.preventDefault(); doSearch(true); };
@@ -507,13 +521,39 @@ const LogsExplorer: React.FC<LogsExplorerProps> = ({ streams }) => {
               {[100, 250, 500, 1000].map(n => <option key={n} value={n}>{n}</option>)}
             </select>
           </div>
-          <button onClick={() => doSearch(true)}
-            className={clsx('text-xs px-3 py-1 rounded-lg border transition-colors',
-              theme === 'dark'
-                ? 'border-slate-600 text-slate-300 hover:bg-slate-700'
-                : 'border-gray-200 text-gray-600 hover:bg-gray-50')}>
-            ↻ Refresh
-          </button>
+          <div className="flex items-center gap-2">
+            {liveRefresh && mode === 'filter' && page === 0 && (
+              <span className="flex items-center gap-1 text-xs text-emerald-500 font-medium">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse inline-block" />
+                Live
+              </span>
+            )}
+            <select
+              value={liveInterval}
+              onChange={e => setLiveInterval(Number(e.target.value))}
+              disabled={!liveRefresh}
+              className={clsx('text-xs rounded border px-2 py-1 disabled:opacity-40',
+                theme === 'dark' ? 'bg-slate-700 border-slate-600 text-slate-200' : 'bg-white border-gray-200 text-gray-700')}>
+              {[5, 10, 30, 60].map(s => <option key={s} value={s}>{s}s</option>)}
+            </select>
+            <button
+              onClick={() => setLiveRefresh(v => !v)}
+              className={clsx('text-xs px-3 py-1 rounded-lg border transition-colors font-medium',
+                liveRefresh
+                  ? 'bg-emerald-600 border-emerald-600 text-white'
+                  : theme === 'dark'
+                    ? 'border-slate-600 text-slate-300 hover:bg-slate-700'
+                    : 'border-gray-200 text-gray-600 hover:bg-gray-50')}>
+              {liveRefresh ? '⏸ Pause' : '▶ Live'}
+            </button>
+            <button onClick={() => doSearch(true)}
+              className={clsx('text-xs px-3 py-1 rounded-lg border transition-colors',
+                theme === 'dark'
+                  ? 'border-slate-600 text-slate-300 hover:bg-slate-700'
+                  : 'border-gray-200 text-gray-600 hover:bg-gray-50')}>
+              ↻
+            </button>
+          </div>
         </div>
 
         {logsLoading ? (

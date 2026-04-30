@@ -35,11 +35,7 @@ const AzureCloudK8sPage: React.FC = () => {
 
     const cachedData = sessionStorage.getItem(cacheKey);
     if (cachedData && !forceRefresh) {
-      const parsed = JSON.parse(cachedData).map((c: AKSCluster) => ({
-        ...c,
-        isEnabling: false,
-      }));
-      setClusters(parsed);
+      setClusters(JSON.parse(cachedData));
       setIsLoading(false);
       return;
     }
@@ -52,8 +48,7 @@ const AzureCloudK8sPage: React.FC = () => {
         `/api/xamops/aks/clusters?accountIds=${selectedAccountId}`
       );
 
-      const processed = data.map((c: AKSCluster) => ({ ...c, isEnabling: false }));
-      setClusters(processed);
+      setClusters(data);
       sessionStorage.setItem(cacheKey, JSON.stringify(data));
     } catch (err: any) {
       console.error('Failed to fetch AKS clusters', err);
@@ -63,44 +58,6 @@ const AzureCloudK8sPage: React.FC = () => {
       setIsRefreshing(false);
     }
   }, [selectedAccountId]);
-
-  const enableMonitoring = useCallback(async (cluster: AKSCluster) => {
-    if (!selectedAccountId) return;
-
-    const prometheusUrl = window.prompt(
-      `Enter Prometheus URL for cluster "${cluster.name}":\n\n` +
-      `Example: http://20.62.148.90:9090\n\n` +
-      `(Run: kubectl get svc -n monitoring to find the EXTERNAL-IP)`
-    );
-    if (!prometheusUrl) return;
-
-    setClusters(prev =>
-      prev.map(c =>
-        c.name === cluster.name && c.resourceGroup === cluster.resourceGroup
-          ? { ...c, isEnabling: true }
-          : c
-      )
-    );
-
-    try {
-      await apiClient.post(
-        `/api/xamops/aks/${cluster.name}/connect?accountId=${selectedAccountId}&prometheusUrl=${encodeURIComponent(prometheusUrl)}`
-      );
-      alert(`Monitoring connected for ${cluster.name}. Refreshing cluster list...`);
-      setTimeout(() => fetchClusters(true), 3000);
-    } catch (err: any) {
-      alert(`Error: ${err.message}`);
-      console.error('Failed to connect monitoring', err);
-    } finally {
-      setClusters(prev =>
-        prev.map(c =>
-          c.name === cluster.name && c.resourceGroup === cluster.resourceGroup
-            ? { ...c, isEnabling: false }
-            : c
-        )
-      );
-    }
-  }, [selectedAccountId, fetchClusters]);
 
   const navigateToDetails = useCallback((cluster: AKSCluster) => {
     navigate(`/aks-details?name=${encodeURIComponent(cluster.name)}&resourceGroup=${encodeURIComponent(cluster.resourceGroup)}&accountIds=${selectedAccountId}`);
@@ -147,7 +104,6 @@ const AzureCloudK8sPage: React.FC = () => {
         <AzureCloudK8sClusterTable
           clusters={clusters}
           isLoading={isLoading}
-          onEnableMonitoring={enableMonitoring}
           onViewDetails={navigateToDetails}
         />
         <AzureCloudK8sIntegrations />

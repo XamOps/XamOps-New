@@ -1,8 +1,12 @@
 package com.xammer.cloud.service.sre;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xammer.cloud.domain.CloudAccount;
+import com.xammer.cloud.domain.SloDefinition;
 import com.xammer.cloud.domain.SreInvestigation;
+import com.xammer.cloud.dto.sre.RcaCompleteRequest;
+import com.xammer.cloud.dto.sre.SreStatsDto;
 import com.xammer.cloud.dto.sre.TriggerInvestigationRequest;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.ObservabilityConfigRepository;
@@ -22,6 +26,7 @@ import javax.annotation.PostConstruct;
 
 import java.time.Instant;
 import java.util.*;
+import java.util.OptionalDouble;
 
 @Service
 public class SreInvestigationService {
@@ -106,6 +111,41 @@ public class SreInvestigationService {
     public Optional<SreInvestigation> getById(Long id, Long clientId) {
         return investigationRepo.findById(id)
             .filter(inv -> inv.getClientId().equals(clientId));
+    }
+
+    public Optional<SreInvestigation> submitVerdict(Long id, Long clientId,
+                                                      SreInvestigation.Verdict verdict,
+                                                      String note) {
+        return investigationRepo.findById(id)
+            .filter(i -> i.getClientId().equals(clientId))
+            .map(inv -> {
+                inv.setVerdict(verdict);
+                inv.setVerdictAt(Instant.now());
+                inv.setVerdictNote(note);
+                return investigationRepo.save(inv);
+            });
+    }
+
+    public SreStatsDto getStats(Long clientId) {
+        Instant startOfDay = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.DAYS);
+
+        long total = investigationRepo.countByClientId(clientId);
+        long pending = investigationRepo.countByClientIdAndStatus(clientId, SreInvestigation.InvestigationStatus.PENDING);
+        long running = investigationRepo.countByClientIdAndStatus(clientId, SreInvestigation.InvestigationStatus.RUNNING);
+        long completedToday = investigationRepo.countByClientIdAndStatusAndCompletedAtAfter(
+                clientId, SreInvestigation.InvestigationStatus.COMPLETED, startOfDay);
+        long failedToday = investigationRepo.countByClientIdAndStatusAndCompletedAtAfter(
+                clientId, SreInvestigation.InvestigationStatus.FAILED, startOfDay);
+
+        // For MTTR still need a small query — load only completed with both timestamps
+        OptionalDouble avgMttr = investigationRepo.findByClientIdAndStatus(clientId, SreInvestigation.InvestigationStatus.COMPLETED)
+            .stream()
+            .filter(i -> i.getStartedAt() != null && i.getCompletedAt() != null)
+            .mapToLong(i -> i.getCompletedAt().getEpochSecond() - i.getStartedAt().getEpochSecond())
+            .average();
+
+        return new SreStatsDto(total, pending + running, completedToday, failedToday,
+                avgMttr.isPresent() ? Math.round(avgMttr.getAsDouble()) : null);
     }
 
     @Async
@@ -227,6 +267,7 @@ public class SreInvestigationService {
             case EC2, RDS -> "aws";
             case AZURE_VM -> "azure";
             case GCP_VM -> "gcp";
+            case GENERIC -> "generic";
         };
     }
 
@@ -278,6 +319,44 @@ public class SreInvestigationService {
         } catch (Exception e) {
             logger.warn("Could not resolve AWS credentials for account {}: {}", account.getId(), e.getMessage());
         }
+    }
+
+    public void patchFromRca(Long investigationId, RcaCompleteRequest req) {
+        investigationRepo.findById(investigationId).ifPresent(inv -> {
+            if (req.getVersion() <= inv.getVersion()) {
+                logger.info("SRE [{}] RCA patch dropped: incoming version {} <= stored {}",
+                    investigationId, req.getVersion(), inv.getVersion());
+                return;
+            }
+            inv.setVersion(req.getVersion());
+            inv.setReportSummary(req.getReportSummary());
+            inv.setReportRootCause(req.getReportRootCause());
+            inv.setReportFullMarkdown(req.getReportFullMarkdown());
+            if (req.getReportRecommendations() != null) {
+                try {
+                    inv.setReportRecommendations(objectMapper.writeValueAsString(req.getReportRecommendations()));
+                } catch (JsonProcessingException ignored) {}
+            }
+            inv.setStatus(req.isNoise() ? SreInvestigation.InvestigationStatus.FAILED : SreInvestigation.InvestigationStatus.COMPLETED);
+            inv.setIncidentStatus(SreInvestigation.IncidentStatus.FINAL);
+            inv.setCompletedAt(Instant.now());
+            investigationRepo.save(inv);
+            notificationService.notifyComplete(inv, inv.getClientId());
+            logger.info("SRE [{}] RCA complete, incidentId={}", investigationId, inv.getIncidentId());
+        });
+    }
+
+    public SreInvestigation createAutoInvestigation(Long clientId, SloDefinition slo, String incidentId) {
+        SreInvestigation inv = new SreInvestigation();
+        inv.setClientId(clientId);
+        inv.setTriggerType(SreInvestigation.TriggerType.AUTO);
+        inv.setResourceType(SreInvestigation.ResourceType.GENERIC);
+        inv.setResourceId(slo.getEntity());
+        inv.setResourceName(slo.getEntity());
+        inv.setIncidentId(incidentId);
+        inv.setIncidentStatus(SreInvestigation.IncidentStatus.OPEN);
+        inv.setStatus(SreInvestigation.InvestigationStatus.PENDING);
+        return investigationRepo.save(inv);
     }
 
     private void buildAzureIntegration(CloudAccount account, Map<String, Object> integrations) {

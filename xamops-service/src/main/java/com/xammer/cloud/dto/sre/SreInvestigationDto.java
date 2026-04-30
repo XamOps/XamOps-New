@@ -1,5 +1,6 @@
 package com.xammer.cloud.dto.sre;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xammer.cloud.domain.SreInvestigation;
 import lombok.Data;
 
@@ -8,6 +9,8 @@ import java.util.List;
 
 @Data
 public class SreInvestigationDto {
+
+    private static final ObjectMapper MAPPER = new ObjectMapper();
     private Long id;
     private Long clientId;
     private Long cloudAccountId;
@@ -24,6 +27,9 @@ public class SreInvestigationDto {
     private Instant createdAt;
     private Instant startedAt;
     private Instant completedAt;
+    private String verdict;
+    private String verdictAt;
+    private String verdictNote;
 
     public static SreInvestigationDto from(SreInvestigation inv) {
         SreInvestigationDto dto = new SreInvestigationDto();
@@ -43,11 +49,14 @@ public class SreInvestigationDto {
         dto.setStartedAt(inv.getStartedAt());
         dto.setCompletedAt(inv.getCompletedAt());
 
+        dto.setVerdict(inv.getVerdict() != null ? inv.getVerdict().name() : null);
+        dto.setVerdictAt(inv.getVerdictAt() != null ? inv.getVerdictAt().toString() : null);
+        dto.setVerdictNote(inv.getVerdictNote());
+
         if (inv.getReportRecommendations() != null) {
             try {
-                com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-                dto.setReportRecommendations(mapper.readValue(inv.getReportRecommendations(),
-                    mapper.getTypeFactory().constructCollectionType(List.class, String.class)));
+                dto.setReportRecommendations(MAPPER.readValue(inv.getReportRecommendations(),
+                    MAPPER.getTypeFactory().constructCollectionType(List.class, String.class)));
             } catch (Exception e) {
                 dto.setReportRecommendations(List.of());
             }

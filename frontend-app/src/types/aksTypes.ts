@@ -6,7 +6,6 @@ export interface AKSCluster {
   provisioningState?: string;
   nodeCount?: number;
   connected: boolean;
-  isEnabling?: boolean;
 }
 
 // AKS Dashboard — same shape as GkeDashboard (reuses GKE types for frontend components)

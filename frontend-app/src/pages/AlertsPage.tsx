@@ -30,6 +30,7 @@ import {
   AlertsTabs,
 } from '../components/Alerts';
 import { AlertsErrorBanner } from '../components/Alerts/AlertsErrorBanner';
+import EksAlertsTab from '../components/Alerts/EksAlertsTab';
 
 // Styles
 import '../styles/alerts.css';
@@ -163,6 +164,13 @@ const AlertsPage: React.FC = () => {
         {activeTab === 'grafana' && selectedAccountId && (
           <div className="alerts-grafana-content alerts-fade-in">
             <AlertsGrafanaTable alerts={grafanaAlerts} isLoading={loadingGrafana} />
+          </div>
+        )}
+
+        {/* K8s / EKS Alerts Tab */}
+        {activeTab === 'k8s' && (
+          <div className="alerts-fade-in">
+            <EksAlertsTab />
           </div>
         )}
       </div>

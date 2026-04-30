@@ -93,6 +93,11 @@ public class DashboardDataService {
     private final UserRepository userRepository;
     private final AutoSpottingService autoSpottingService;
     private final EbsDiskRightsizingService ebsDiskRightsizingService;
+    private final CloudsitterService cloudsitterService;
+    private final com.xammer.cloud.service.gcp.GcpAutoSpottingService gcpAutoSpottingService;
+    private final com.xammer.cloud.service.gcp.GcpDiskRightsizingService gcpDiskRightsizingService;
+    private final com.xammer.cloud.service.azure.AzureAutoSpottingService azureAutoSpottingService;
+    private final com.xammer.cloud.service.azure.AzureDiskRightsizingService azureDiskRightsizingService;
 
     // Phase 2: Master Data Access for Tenant Iteration
     private final JdbcTemplate masterJdbcTemplate;
@@ -129,6 +134,11 @@ public class DashboardDataService {
             com.xammer.cloud.config.SchedulingEnvironmentConfig envConfig,
             @Lazy AutoSpottingService autoSpottingService,
             @Lazy EbsDiskRightsizingService ebsDiskRightsizingService,
+            @Lazy CloudsitterService cloudsitterService,
+            @Lazy com.xammer.cloud.service.gcp.GcpAutoSpottingService gcpAutoSpottingService,
+            @Lazy com.xammer.cloud.service.gcp.GcpDiskRightsizingService gcpDiskRightsizingService,
+            @Lazy com.xammer.cloud.service.azure.AzureAutoSpottingService azureAutoSpottingService,
+            @Lazy com.xammer.cloud.service.azure.AzureDiskRightsizingService azureDiskRightsizingService,
             @Qualifier("backgroundTaskExecutor") TaskExecutor backgroundTaskExecutor) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
@@ -151,6 +161,11 @@ public class DashboardDataService {
         this.envConfig = envConfig;
         this.autoSpottingService = autoSpottingService;
         this.ebsDiskRightsizingService = ebsDiskRightsizingService;
+        this.cloudsitterService = cloudsitterService;
+        this.gcpAutoSpottingService = gcpAutoSpottingService;
+        this.gcpDiskRightsizingService = gcpDiskRightsizingService;
+        this.azureAutoSpottingService = azureAutoSpottingService;
+        this.azureDiskRightsizingService = azureDiskRightsizingService;
         this.backgroundTaskExecutor = backgroundTaskExecutor;
     }
 
@@ -1209,7 +1224,14 @@ public class DashboardDataService {
             DashboardData.Account subAcc = new DashboardData.Account(acc.getGcpProjectId(), acc.getAccountName(),
                     mtdUsd, forecastUsd);
             subAcc.setResourceInventory(data.getResourceInventory());
-            subAcc.setOptimizationSummary(data.getOptimizationSummary());
+            double gcpExtra = computeAdditionalSavings(acc);
+            DashboardData.OptimizationSummary gcpOptSum = data.getOptimizationSummary();
+            if (gcpExtra > 0) {
+                double base = gcpOptSum != null ? gcpOptSum.getTotalPotentialSavings() : 0;
+                long alerts = gcpOptSum != null ? gcpOptSum.getCriticalAlerts() : 0;
+                gcpOptSum = new DashboardData.OptimizationSummary(base + gcpExtra, alerts);
+            }
+            subAcc.setOptimizationSummary(gcpOptSum);
             subAcc.setSecurityScore(data.getSecurityScore());
             subAccounts.add(subAcc);
 
@@ -1239,9 +1261,9 @@ public class DashboardDataService {
                 }
             }
 
-            if (data.getOptimizationSummary() != null) {
-                totalOptimizationSavings += data.getOptimizationSummary().getTotalPotentialSavings();
-                totalCriticalAlerts += data.getOptimizationSummary().getCriticalAlerts();
+            if (gcpOptSum != null) {
+                totalOptimizationSavings += gcpOptSum.getTotalPotentialSavings();
+                totalCriticalAlerts += gcpOptSum.getCriticalAlerts();
             }
             if (data.getSavingsSummary() != null) {
                 totalPotentialSavings += data.getSavingsSummary().getTotalPotentialSavings();
@@ -2011,6 +2033,12 @@ public class DashboardDataService {
 
                         DashboardData.OptimizationSummary optimizationSummary = getOptimizationSummary(
                                 wastedResources, ec2Recs, ebsRecs, lambdaRecs, anomalies);
+                        double extraSavingsFull = computeAdditionalSavings(account);
+                        if (extraSavingsFull > 0) {
+                            optimizationSummary = new DashboardData.OptimizationSummary(
+                                    optimizationSummary.getTotalPotentialSavings() + extraSavingsFull,
+                                    optimizationSummary.getCriticalAlerts());
+                        }
 
                         int securityScore = calculateSecurityScore(securityFindings);
 
@@ -2325,6 +2353,85 @@ public class DashboardDataService {
                 });
     }
 
+    private double computeAdditionalSavings(com.xammer.cloud.domain.CloudAccount account) {
+        double total = 0.0;
+        String provider = account.getProvider();
+
+        if ("AWS".equalsIgnoreCase(provider)) {
+            // AutoSpotting potential savings
+            try {
+                com.xammer.cloud.dto.autospotting.CostResponse spot = autoSpottingService.getCostData(account.getId());
+                if (spot != null && spot.getSummary() != null && spot.getSummary().getTotalPotentialSavings() != null) {
+                    total += spot.getSummary().getTotalPotentialSavings() * 24 * 30;
+                }
+            } catch (Exception e) {
+                logger.warn("[Dashboard] AutoSpotting savings unavailable for {}: {}", account.getAwsAccountId(), e.getMessage());
+            }
+            // EBS Disk Rightsizing savings
+            try {
+                total += ebsDiskRightsizingService.getTotalPotentialSavings(account.getAwsAccountId());
+            } catch (Exception e) {
+                logger.warn("[Dashboard] EBS disk savings unavailable for {}: {}", account.getAwsAccountId(), e.getMessage());
+            }
+            // CloudSitter scheduling savings
+            try {
+                total += cloudsitterService.getTotalActiveSavings(account.getAwsAccountId());
+            } catch (Exception e) {
+                logger.warn("[Dashboard] CloudSitter savings unavailable for {}: {}", account.getAwsAccountId(), e.getMessage());
+            }
+
+        } else if ("GCP".equalsIgnoreCase(provider)) {
+            // GCP Spot Automation (MIGs) — hourly → monthly
+            try {
+                java.util.List<com.xammer.cloud.service.gcp.GcpAutoSpottingService.GcpAutoSpottingGroupDto> migs =
+                        gcpAutoSpottingService.listMigsAllRegionsWithCosts(account.getId().toString());
+                total += migs.stream().mapToDouble(m -> m.potentialHourlySavings).sum() * 24 * 30;
+            } catch (Exception e) {
+                logger.warn("[Dashboard] GCP Spot savings unavailable for {}: {}", account.getGcpProjectId(), e.getMessage());
+            }
+            // GCP Disk Rightsizing
+            try {
+                java.util.List<java.util.Map<String, Object>> disks =
+                        gcpDiskRightsizingService.getDisks(account.getId().toString(), false);
+                total += disks.stream()
+                        .filter(d -> !"NONE".equals(d.get("recommendation")))
+                        .mapToDouble(d -> {
+                            Object s = d.get("estimatedSavings");
+                            return s instanceof Number ? ((Number) s).doubleValue() : 0.0;
+                        }).sum();
+            } catch (Exception e) {
+                logger.warn("[Dashboard] GCP disk savings unavailable for {}: {}", account.getGcpProjectId(), e.getMessage());
+            }
+
+        } else if ("Azure".equalsIgnoreCase(provider)) {
+            // Azure Spot Automation (VMSS) — hourly → monthly
+            try {
+                com.xammer.cloud.dto.autospotting.CostResponse spot =
+                        azureAutoSpottingService.getCostData(account.getAzureSubscriptionId());
+                if (spot != null && spot.getSummary() != null && spot.getSummary().getTotalPotentialSavings() != null) {
+                    total += spot.getSummary().getTotalPotentialSavings() * 24 * 30;
+                }
+            } catch (Exception e) {
+                logger.warn("[Dashboard] Azure Spot savings unavailable for {}: {}", account.getAzureSubscriptionId(), e.getMessage());
+            }
+            // Azure Disk Rightsizing
+            try {
+                java.util.List<java.util.Map<String, Object>> disks =
+                        azureDiskRightsizingService.getDisks(account.getId().toString(), false);
+                total += disks.stream()
+                        .filter(d -> !"NONE".equals(d.get("recommendation")))
+                        .mapToDouble(d -> {
+                            Object s = d.get("estimatedSavings");
+                            return s instanceof Number ? ((Number) s).doubleValue() : 0.0;
+                        }).sum();
+            } catch (Exception e) {
+                logger.warn("[Dashboard] Azure disk savings unavailable for {}: {}", account.getAzureSubscriptionId(), e.getMessage());
+            }
+        }
+
+        return total;
+    }
+
     private DashboardData.OptimizationSummary getOptimizationSummary(
             List<DashboardData.WastedResource> wastedResources,
             List<DashboardData.OptimizationRecommendation> ec2Recs,
@@ -2425,7 +2532,8 @@ public class DashboardDataService {
         mainAccount.setSecurityScore(100);
         mainAccount.setSecurityInsights(new ArrayList<>());
         mainAccount.setSavingsSummary(new DashboardData.SavingsSummary(0.0, new ArrayList<>()));
-        mainAccount.setOptimizationSummary(new DashboardData.OptimizationSummary(0.0, 0));
+        double azureExtra = computeAdditionalSavings(account);
+        mainAccount.setOptimizationSummary(new DashboardData.OptimizationSummary(azureExtra, 0));
         mainAccount.setEc2Recommendations(new ArrayList<>());
         mainAccount.setWastedResources(new ArrayList<>());
         mainAccount.setCloudWatchStatus(new DashboardData.CloudWatchStatus(0, 0, 0));
@@ -2507,6 +2615,12 @@ public class DashboardDataService {
                         ebsFuture.join(),
                         lambdaFuture.join(),
                         anomaliesFuture.join());
+                double extraSavingsKpi = computeAdditionalSavings(account);
+                if (extraSavingsKpi > 0) {
+                    optSummary = new DashboardData.OptimizationSummary(
+                            optSummary.getTotalPotentialSavings() + extraSavingsKpi,
+                            optSummary.getCriticalAlerts());
+                }
                 mainAccount.setOptimizationSummary(optSummary);
 
                 // MTD spend: sum the billing-summary service amounts — same source and same
@@ -2700,9 +2814,15 @@ public class DashboardDataService {
                 mainAccount.setWastedResources(waste.join());
                 mainAccount.setCostAnomalies(anomalies.join());
 
-                // Calculcate summaries
+                // Calculate summaries
                 DashboardData.OptimizationSummary optSum = getOptimizationSummary(waste.join(), ec2.join(), ebs.join(),
                         lambda.join(), anomalies.join());
+                double extraSavings = computeAdditionalSavings(account);
+                if (extraSavings > 0) {
+                    optSum = new DashboardData.OptimizationSummary(
+                            optSum.getTotalPotentialSavings() + extraSavings,
+                            optSum.getCriticalAlerts());
+                }
                 mainAccount.setOptimizationSummary(optSum);
 
                 // Savings Summary
@@ -2712,7 +2832,18 @@ public class DashboardDataService {
 
                 data.setSelectedAccount(mainAccount);
             } else {
-                return getDashboardData(idToUse, forceRefresh, userDetails);
+                DashboardData providerData = getDashboardData(idToUse, forceRefresh, userDetails);
+                if (providerData.getSelectedAccount() != null) {
+                    double extra = computeAdditionalSavings(account);
+                    if (extra > 0) {
+                        DashboardData.OptimizationSummary existing = providerData.getSelectedAccount().getOptimizationSummary();
+                        double base = existing != null ? existing.getTotalPotentialSavings() : 0;
+                        long alerts = existing != null ? existing.getCriticalAlerts() : 0;
+                        providerData.getSelectedAccount().setOptimizationSummary(
+                                new DashboardData.OptimizationSummary(base + extra, alerts));
+                    }
+                }
+                return providerData;
             }
 
             data.setLastUpdated(java.time.LocalDateTime.now()

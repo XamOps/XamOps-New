@@ -118,8 +118,10 @@ const SonarQubePage = lazy(() => import('./pages/SonarQubePage'));
 const AIOpsPage = lazy(() => import('./pages/AIOpsPage'));
 const DataOpsPage = lazy(() => import('./pages/DataOpsPage'));
 const ObservabilityPage = lazy(() => import('./pages/ObservabilityPage'));
+const SreDashboardPage = lazy(() => import('./pages/SreDashboardPage'));
 const SreInvestigationsPage = lazy(() => import('./pages/SreInvestigationsPage'));
 const SreInvestigationDetailPage = lazy(() => import('./pages/SreInvestigationDetailPage'));
+const SreSetupPage = lazy(() => import('./pages/SreSetupPage'));
 const ComplianceOpsPage = lazy(() => import('./pages/ComplianceOpsPage'));
 const CalculatorPage = lazy(() => import('./pages/CalculatorPage'));
 
@@ -151,10 +153,6 @@ const ClientDetailsPage = lazy(() => import('./pages/ClientDetailsPage'));
 // const IdentityUsersPage  = lazy(() => import('./pages/identity/IdentityUsersPage'));
 // const IdentityGroupsPage = lazy(() => import('./pages/identity/IdentityGroupsPage'));
 // const IdentityAuditPage  = lazy(() => import('./pages/identity/IdentityAuditPage'));
-
-// SRE
-// const SreInvestigationsPage = lazy(() => import('./pages/SreInvestigationsPage'));
-// const SreInvestigationDetailPage = lazy(() => import('./pages/SreInvestigationDetailPage'));
 
 // Settings & Profile
 const TicketsPage = lazy(() => import('./pages/TicketsPage'));
@@ -508,8 +506,10 @@ const AppContent: React.FC = () => {
                             <Route path="/gcp-dataops" element={<GcpDataOpsPage />} />
                             <Route path="/azure-dataops" element={<AzureDataOpsPage />} />
                             <Route path="/observability/*" element={<ObservabilityPage />} />
+                            <Route path="/sre" element={<SreDashboardPage />} />
                             <Route path="/sre/investigations" element={<SreInvestigationsPage />} />
                             <Route path="/sre/investigations/:id" element={<SreInvestigationDetailPage />} />
+                            <Route path="/sre/setup" element={<SreSetupPage />} />
 
                             {/* BillOps Routes */}
                             <Route path="/billops-dashboard" element={<BillOpsUserDashboardPage />} />

@@ -52,11 +52,7 @@ const GcpCloudK8sPage: React.FC = () => {
     const cachedData = sessionStorage.getItem(cacheKey);
 
     if (cachedData && !forceRefresh) {
-      const parsedClusters = JSON.parse(cachedData).map((c: GKECluster) => ({
-        ...c,
-        isEnabling: false
-      }));
-      setClusters(parsedClusters);
+      setClusters(JSON.parse(cachedData));
       setIsLoading(false);
       return;
     }
@@ -70,12 +66,7 @@ const GcpCloudK8sPage: React.FC = () => {
         `/api/xamops/gke/clusters?accountIds=${selectedAccountId}&forceRefresh=${forceRefresh}`
       );
 
-      const processedClusters = data.map((c: GKECluster) => ({
-        ...c,
-        isEnabling: false
-      }));
-
-      setClusters(processedClusters);
+      setClusters(data);
       sessionStorage.setItem(cacheKey, JSON.stringify(data));
     } catch (err: any) {
       console.error('Failed to fetch GKE clusters', err);
@@ -91,52 +82,6 @@ const GcpCloudK8sPage: React.FC = () => {
       setIsRefreshing(false);
     }
   }, [selectedAccountId]);
-
-  /**
-   * Enable monitoring for a GKE cluster
-   */
-  const enableMonitoring = useCallback(async (cluster: GKECluster) => {
-    if (!selectedAccountId) return;
-
-    const prometheusUrl = window.prompt(
-      `Enter Prometheus URL for cluster "${cluster.name}":\n\n` +
-      `Example: http://34.66.208.65:9090\n\n` +
-      `(Run: kubectl get svc -n monitoring to find the EXTERNAL-IP)`
-    );
-    if (!prometheusUrl) return;
-
-    setClusters(prev =>
-      prev.map(c =>
-        c.name === cluster.name && c.location === cluster.location
-          ? { ...c, isEnabling: true }
-          : c
-      )
-    );
-
-    const { name } = cluster;
-
-    try {
-      await apiClient.post(
-        `/api/xamops/gke/${name}/connect?accountId=${selectedAccountId}&prometheusUrl=${encodeURIComponent(prometheusUrl)}`
-      );
-
-      alert(`Monitoring connected for ${name}. Refreshing cluster list...`);
-
-      // Refresh clusters after a short delay
-      setTimeout(() => fetchClusters(true), 3000);
-    } catch (err: any) {
-      alert(`Error: ${err.message}`);
-      console.error('Failed to connect monitoring', err);
-    } finally {
-      setClusters(prev =>
-        prev.map(c =>
-          c.name === cluster.name && c.location === cluster.location
-            ? { ...c, isEnabling: false }
-            : c
-        )
-      );
-    }
-  }, [selectedAccountId, fetchClusters]);
 
   /**
    * Navigate to cluster details
@@ -196,7 +141,6 @@ const GcpCloudK8sPage: React.FC = () => {
           <GcpCloudK8sClusterTable
             clusters={clusters}
             isLoading={isLoading}
-            onEnableMonitoring={enableMonitoring}
             onViewDetails={navigateToDetails}
           />
 

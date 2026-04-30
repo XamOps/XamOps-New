@@ -45,7 +45,7 @@ export interface AlertCounts {
   healthy: number;
 }
 
-export type AlertTab = 'cloudguard' | 'grafana';
+export type AlertTab = 'cloudguard' | 'grafana' | 'k8s';
 
 export type AlertSeverityClass = 'critical' | 'warning' | 'normal';
 

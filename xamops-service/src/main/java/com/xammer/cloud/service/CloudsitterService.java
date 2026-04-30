@@ -44,6 +44,8 @@ public class CloudsitterService {
     private final ObjectMapper objectMapper;
     private final TenantService tenantService;
     private final AwsPricingService pricingService;
+    private final EmailService emailService;
+    private final CloudsitterEmailBuilder emailBuilder;
 
     @Autowired
     @Lazy
@@ -55,7 +57,9 @@ public class CloudsitterService {
             CloudAccountRepository accountRepo,
             ObjectMapper objectMapper,
             TenantService tenantService,
-            AwsPricingService pricingService) {
+            AwsPricingService pricingService,
+            EmailService emailService,
+            CloudsitterEmailBuilder emailBuilder) {
         this.policyRepo = policyRepo;
         this.assignmentRepo = assignmentRepo;
         this.awsClientProvider = awsClientProvider;
@@ -63,6 +67,8 @@ public class CloudsitterService {
         this.objectMapper = objectMapper;
         this.tenantService = tenantService;
         this.pricingService = pricingService;
+        this.emailService = emailService;
+        this.emailBuilder = emailBuilder;
     }
 
     // --- METHODS FOR UI ---
@@ -87,6 +93,26 @@ public class CloudsitterService {
                         CloudsitterAssignment::getResourceId,
                         a -> convertToDto(a, instanceTypes.getOrDefault(a.getResourceId(), "t3.micro")),
                         (existing, replacement) -> existing));
+    }
+
+    @Transactional(readOnly = true)
+    public double getTotalActiveSavings(String accountId) {
+        if (accountId == null || accountId.isBlank()) return 0.0;
+        try {
+            List<CloudsitterAssignment> assignments = assignmentRepo.findAll().stream()
+                    .filter(a -> accountId.equals(a.getAccountId()) && a.isActive())
+                    .collect(Collectors.toList());
+            Map<String, String> instanceTypes = fetchInstanceTypes(accountId, assignments);
+            return assignments.stream()
+                    .mapToDouble(a -> calculateMonthlySavings(
+                            a.getPolicy(),
+                            instanceTypes.getOrDefault(a.getResourceId(), "t3.micro"),
+                            a.getRegion()))
+                    .sum();
+        } catch (Exception e) {
+            logger.warn("CloudSitter: Failed to compute active savings for account {}: {}", accountId, e.getMessage());
+            return 0.0;
+        }
     }
 
     private Map<String, String> fetchInstanceTypes(String accountId, List<CloudsitterAssignment> assignments) {
@@ -485,6 +511,7 @@ public class CloudsitterService {
             try {
                 ec2.startInstances(r -> r.instanceIds(instanceId));
                 logger.info("✅ CloudSitter: Successfully initiated START for instance {}", instanceId);
+                sendStateChangeEmail("STARTED", assignment, instance, now);
                 return true;
             } catch (Exception e) {
                 logger.error("❌ CloudSitter: Failed to start instance {}", instanceId, e);
@@ -512,6 +539,7 @@ public class CloudsitterService {
                 ec2.stopInstances(stopReq.build());
                 logger.info("✅ CloudSitter: Successfully initiated {} for instance {}",
                         hibernationConfigured ? "HIBERNATION" : "STOP", instanceId);
+                sendStateChangeEmail("STOPPED", assignment, instance, now);
                 return true;
             } catch (Exception e) {
                 logger.error("❌ CloudSitter: Failed to stop instance {}", instanceId, e);
@@ -521,6 +549,34 @@ public class CloudsitterService {
             logger.debug("CloudSitter: No action needed for instance {} (current: {}, desired: {})",
                     instanceId, currentState, shouldBeRunning ? "running" : "stopped");
             return false;
+        }
+    }
+
+    private void sendStateChangeEmail(String action, CloudsitterAssignment assignment,
+                                      Instance instance, ZonedDateTime actionTime) {
+        CloudsitterPolicy policy = assignment.getPolicy();
+        if (!policy.isNotificationsEnabled()) return;
+
+        String email = policy.getNotificationEmail();
+        if (email == null || email.isBlank()) return;
+
+        String instanceId = assignment.getResourceId();
+        String instanceName = instance.tags().stream()
+                .filter(t -> "Name".equals(t.key()))
+                .map(software.amazon.awssdk.services.ec2.model.Tag::value)
+                .findFirst()
+                .orElse(null);
+
+        try {
+            String subject = emailBuilder.subject(action, instanceId, policy.getName());
+            String html = emailBuilder.buildHtml(action, instanceId, instanceName,
+                    assignment.getRegion(), policy.getName(), policy.getTimeZone(), actionTime);
+            emailService.sendHtmlEmail(email, subject, html);
+            logger.info("📧 CloudSitter: Notification sent to {} for instance {} ({})",
+                    email, instanceId, action);
+        } catch (Exception e) {
+            logger.warn("CloudSitter: Failed to send notification email for instance {}: {}",
+                    instanceId, e.getMessage());
         }
     }
 

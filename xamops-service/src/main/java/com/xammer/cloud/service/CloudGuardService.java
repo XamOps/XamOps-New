@@ -3,7 +3,9 @@ package com.xammer.cloud.service;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.*;
+import com.xammer.cloud.domain.User;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.repository.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -45,6 +47,7 @@ public class CloudGuardService {
     private final DashboardDataService dashboardDataService;
     private final AwsSecurityHubService securityHubService;
     private final AlertEmailBuilder alertEmailBuilder;
+    private final UserRepository userRepository;
 
     @Autowired
     public CloudGuardService(
@@ -56,7 +59,8 @@ public class CloudGuardService {
             EmailService emailService,
             @Lazy DashboardDataService dashboardDataService,
             AwsSecurityHubService securityHubService,
-            AlertEmailBuilder alertEmailBuilder) {
+            AlertEmailBuilder alertEmailBuilder,
+            UserRepository userRepository) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
         this.redisCache = redisCache;
@@ -66,6 +70,7 @@ public class CloudGuardService {
         this.dashboardDataService = dashboardDataService;
         this.securityHubService = securityHubService;
         this.alertEmailBuilder = alertEmailBuilder;
+        this.userRepository = userRepository;
     }
 
     private CloudAccount getAccount(String accountId) {
@@ -364,17 +369,22 @@ public class CloudGuardService {
                     .build());
         }
 
-        // Eagerly fetch email before async
-        String clientEmail = null;
+        // Eagerly fetch all sub-user emails before async
+        List<String> recipientEmails = java.util.Collections.emptyList();
         try {
             if (account.getClient() != null) {
-                clientEmail = account.getClient().getEmail();
+                recipientEmails = userRepository.findByClientId(account.getClient().getId()).stream()
+                        .map(u -> (u.getEmail() != null && !u.getEmail().isBlank()) ? u.getEmail()
+                                : (u.getUsername() != null && u.getUsername().contains("@") ? u.getUsername() : null))
+                        .filter(e -> e != null)
+                        .distinct()
+                        .collect(Collectors.toList());
             }
         } catch (Exception e) {
-            logger.warn("Could not fetch client email for account {}: {}", accountId, e.getMessage());
+            logger.warn("Could not fetch recipient emails for account {}: {}", accountId, e.getMessage());
         }
 
-        final String email = clientEmail;
+        final List<String> recipients = recipientEmails;
         final String accountName = account.getAccountName() != null ? account.getAccountName() : accountId;
 
         // Fetch all alert types in parallel
@@ -498,17 +508,17 @@ public class CloudGuardService {
                                 .build());
                     }
 
-                    // Send HTML email digest
-                    if (email != null && !email.isEmpty() && !alerts.isEmpty()) {
-                        try {
-                            String htmlBody = alertEmailBuilder.buildAlertDigestEmail(alerts, accountName, accountId);
-                            emailService.sendHtmlEmail(
-                                    email,
-                                    "[XamOps] Alert Digest - " + alerts.size() + " alerts require attention",
-                                    htmlBody);
-                            logger.info("Sent alert digest email to {}", email);
-                        } catch (Exception e) {
-                            logger.error("Failed to send alert digest email: {}", e.getMessage());
+                    // Send HTML email digest to all sub-users
+                    if (!recipients.isEmpty() && !alerts.isEmpty()) {
+                        String htmlBody = alertEmailBuilder.buildAlertDigestEmail(alerts, accountName, accountId);
+                        String subject = "[XamOps] Alert Digest - " + alerts.size() + " alerts require attention";
+                        for (String email : recipients) {
+                            try {
+                                emailService.sendHtmlEmail(email, subject, htmlBody);
+                                logger.info("Sent alert digest email to {}", email);
+                            } catch (Exception e) {
+                                logger.error("Failed to send alert digest email to {}: {}", email, e.getMessage());
+                            }
                         }
                     }
 

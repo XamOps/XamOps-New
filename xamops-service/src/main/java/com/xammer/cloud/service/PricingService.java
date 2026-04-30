@@ -23,6 +23,7 @@ import java.time.Instant;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -154,13 +155,26 @@ public class PricingService {
 
         try {
             GetProductsResponse response = pricingClient.getProducts(request);
-            if (response.priceList().isEmpty()) {
+            List<String> priceList = response.priceList();
+
+            // Graviton/ARM instances sometimes don't match the strict capacitystatus/preInstalledSw
+            // filters — retry with just the essential filters to ensure we get a result.
+            if (priceList.isEmpty()) {
+                logger.warn("No price found for {} in {} with strict filters, retrying with relaxed filters", instanceType, region);
+                GetProductsRequest relaxedRequest = GetProductsRequest.builder()
+                        .serviceCode("AmazonEC2")
+                        .filters(regionFilter, instanceTypeFilter, tenancyFilter, osFilter)
+                        .build();
+                priceList = pricingClient.getProducts(relaxedRequest).priceList();
+            }
+
+            if (priceList.isEmpty()) {
                 logger.warn("No price list found for EC2 instance type {} in region {}", instanceType, region);
                 return 0.0;
             }
 
-            JsonNode priceList = objectMapper.readTree(response.priceList().get(0));
-            JsonNode onDemandTerms = priceList.path("terms").path("OnDemand");
+            JsonNode priceListNode = objectMapper.readTree(priceList.get(0));
+            JsonNode onDemandTerms = priceListNode.path("terms").path("OnDemand");
 
             Iterator<JsonNode> elements = onDemandTerms.elements();
             if (elements.hasNext()) {
@@ -169,14 +183,14 @@ public class PricingService {
                 if (dimensions.hasNext()) {
                     JsonNode pricePerUnit = dimensions.next().path("pricePerUnit").path("USD");
                     double hourlyPrice = pricePerUnit.asDouble(0.0);
-                    return hourlyPrice * 24 * 30; // Estimate monthly cost
+                    return hourlyPrice * 24 * 30;
                 }
             }
         } catch (Exception e) {
             logger.error("Failed to fetch or parse price for EC2 instance type {} in region {}", instanceType, region,
                     e);
         }
-        return 0.0; // Fallback
+        return 0.0;
     }
 
     @Cacheable(value = "elasticIpPrice", key = "#region")

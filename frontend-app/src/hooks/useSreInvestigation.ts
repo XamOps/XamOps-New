@@ -1,8 +1,10 @@
+// frontend-app/src/hooks/useSreInvestigation.ts
 import apiClient from '../utils/apiClient';
 
 export type InvestigationStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED';
-export type ResourceType = 'K8S_POD' | 'EC2' | 'RDS' | 'AZURE_VM' | 'GCP_VM';
+export type ResourceType = 'K8S_POD' | 'EC2' | 'RDS' | 'AZURE_VM' | 'GCP_VM' | 'GENERIC';
 export type TriggerType = 'AUTO' | 'MANUAL';
+export type Verdict = 'RESOLVED' | 'FALSE_POSITIVE' | 'WRONG_ROOT_CAUSE';
 
 export interface SreInvestigation {
   id: number;
@@ -18,9 +20,20 @@ export interface SreInvestigation {
   reportRecommendations?: string[];
   reportFullMarkdown?: string;
   errorMessage?: string;
+  verdict?: Verdict;
+  verdictAt?: string;
+  verdictNote?: string;
   createdAt: string;
   startedAt?: string;
   completedAt?: string;
+}
+
+export interface SreStats {
+  totalInvestigations: number;
+  activeInvestigations: number;
+  completedToday: number;
+  failedToday: number;
+  avgMttrSeconds: number | null;
 }
 
 export interface TriggerInvestigationRequest {
@@ -54,6 +67,14 @@ export const getInvestigation = async (id: number): Promise<SreInvestigation> =>
 
 export const pollStatus = async (id: number): Promise<{ status: InvestigationStatus }> => {
   return apiClient.get<{ status: InvestigationStatus }>(`/api/sre/investigations/${id}/status`);
+};
+
+export const submitVerdict = async (id: number, verdict: Verdict, note?: string): Promise<SreInvestigation> => {
+  return apiClient.put<SreInvestigation>(`/api/sre/investigations/${id}/verdict`, { verdict, note: note ?? '' });
+};
+
+export const getSreStats = async (): Promise<SreStats> => {
+  return apiClient.get<SreStats>('/api/sre/stats');
 };
 
 export const getNotifications = async (): Promise<SreNotification[]> => {
