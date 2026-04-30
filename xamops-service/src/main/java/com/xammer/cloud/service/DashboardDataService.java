@@ -2471,11 +2471,12 @@ public class DashboardDataService {
                 // Fetch KPI data including cost history for sparklines and optimization summary
                 CompletableFuture<DashboardData.CostHistory> costHistoryFuture = finOpsService.getCostHistory(account,
                         forceRefresh, null, null);
-                // This line was added based on the provided code edit snippet.
-                // If FinOpsReportDto is not used elsewhere in this method, it might be dead
-                // code.
                 CompletableFuture<FinOpsReportDto> finOpsFuture = finOpsService.getFinOpsReport(idToUse, forceRefresh,
                         null, null);
+                // Billing summary is the single source of truth for MTD spend — shared with
+                // the Cost page and FinOps page via the getCostBreakdown("SERVICE") cache key.
+                CompletableFuture<List<DashboardData.BillingSummary>> billingSummaryFuture = finOpsService
+                        .getBillingSummary(account, forceRefresh, null, null);
                 List<DashboardData.RegionStatus> activeRegions = cloudListService
                         .getRegionStatusForAccount(account, forceRefresh).join();
 
@@ -2493,7 +2494,7 @@ public class DashboardDataService {
                 // Wait for all to complete
                 CompletableFuture
                         .allOf(costHistoryFuture, wasteFuture, ec2Future, ebsFuture, lambdaFuture, anomaliesFuture,
-                                finOpsFuture)
+                                finOpsFuture, billingSummaryFuture)
                         .join();
 
                 DashboardData.CostHistory costHistory = costHistoryFuture.join();
@@ -2508,10 +2509,11 @@ public class DashboardDataService {
                         anomaliesFuture.join());
                 mainAccount.setOptimizationSummary(optSummary);
 
-                // Also set individual spend values for potential direct access
-                Double mtd = costHistory.getCosts().size() > 0
-                        ? costHistory.getCosts().get(costHistory.getCosts().size() - 1)
-                        : 0.0;
+                // MTD spend: sum the billing-summary service amounts — same source and same
+                // cache key (AWS_COST_BREAKDOWN) as the Cost page and FinOps page.
+                Double mtd = billingSummaryFuture.join().stream()
+                        .mapToDouble(DashboardData.BillingSummary::getAmount).sum();
+                // Last-month spend: use second-to-last entry from the monthly cost history.
                 Double lastMonth = costHistory.getCosts().size() > 1
                         ? costHistory.getCosts().get(costHistory.getCosts().size() - 2)
                         : 0.0;

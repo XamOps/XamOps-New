@@ -9,6 +9,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, Rea
 import apiClient from '../utils/apiClient';
 import { UserRole, UserProfile, Tenant, TenantUser } from '../types/auth';
 import { Account } from '../types/account';
+import { activateDemoModeIfNeeded } from '../demo/demoConfig';
 
 interface AuthContextValue {
   userRoles: UserRole[];
@@ -170,6 +171,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setUserRoles(roles);
       setUserProfile(data);
       sessionStorage.setItem('cached_user_roles', JSON.stringify(roles));
+      activateDemoModeIfNeeded(data.email);
 
       // If super admin, fetch tenants and environment
       if (roles.includes('ROLE_SUPER_ADMIN')) {
@@ -218,6 +220,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setUserRoles(roles);
         setUserProfile(data);
         sessionStorage.setItem('cached_user_roles', JSON.stringify(roles));
+        activateDemoModeIfNeeded(data.email);
 
         if (roles.includes('ROLE_SUPER_ADMIN')) {
           await fetchEnvironment();

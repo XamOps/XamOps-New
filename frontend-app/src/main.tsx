@@ -2,6 +2,9 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import './style.css';
+import axios from 'axios';
+import { isDemoMode } from './demo/demoConfig';
+import { resolveDemoResponse } from './demo/demoRouter';
 
 // ─── Global Fetch Interceptor ────────────────────────────────────────────────
 // Patches window.fetch so ALL fetch() calls in the app automatically include
@@ -12,6 +15,12 @@ const _nativeFetch = window.fetch.bind(window);
 window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
   const url = typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url;
   const isInternal = url.startsWith('/') || url.includes(window.location.origin);
+
+  // Demo mode: short-circuit before any network call
+  if (isInternal && isDemoMode()) {
+    const mockResponse = resolveDemoResponse(url);
+    if (mockResponse) return mockResponse;
+  }
 
   if (isInternal) {
     const tenantId    = sessionStorage.getItem('selectedTenantId');
@@ -28,6 +37,28 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Res
 
   return _nativeFetch(input, init);
 };
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─── Axios Demo Interceptor ──────────────────────────────────────────────────
+// gcpDashboardApi.ts (and any other file) uses axios directly instead of
+// window.fetch, so the fetch patch above doesn't catch those calls.
+// This adapter replaces axios's network layer in demo mode so all axios
+// requests are also short-circuited through the same mock router.
+if (isDemoMode()) {
+  const _nativeAxiosAdapter = axios.defaults.adapter;
+  axios.defaults.adapter = async (config) => {
+    const url = config.url ?? '';
+    const isInternal = url.startsWith('/') || url.startsWith(window.location.origin);
+    if (isInternal) {
+      const mockResponse = resolveDemoResponse(url);
+      if (mockResponse) {
+        const data = mockResponse.status === 404 ? null : await mockResponse.json().catch(() => null);
+        return { data, status: mockResponse.status, statusText: 'OK', headers: {}, config, request: {} };
+      }
+    }
+    return (_nativeAxiosAdapter as any)(config);
+  };
+}
 // ─────────────────────────────────────────────────────────────────────────────
 
 ReactDOM.createRoot(document.getElementById('root')!).render(

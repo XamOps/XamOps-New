@@ -183,8 +183,10 @@ export const useBillOpsAdminTickets = (): UseBillOpsAdminTicketsReturn => {
         if (cacheData.data && Array.isArray(cacheData.data)) {
           console.log('⚡ [Admin Tickets] Loaded from cache.');
 
-          // Sort: Newest first
-          const sortedTickets = cacheData.data.sort((a, b) => b.id - a.id);
+          // Sort: Most recently active first (new reply or new ticket)
+          const sortedTickets = cacheData.data.sort((a, b) =>
+            new Date(b.updatedAt ?? b.createdAt).getTime() - new Date(a.updatedAt ?? a.createdAt).getTime()
+          );
           setTickets(sortedTickets);
 
           if (cacheData.timestamp) {
@@ -237,8 +239,10 @@ export const useBillOpsAdminTickets = (): UseBillOpsAdminTicketsReturn => {
       const allTickets: AdminTicket[] = await response.json();
       console.log('✅ [Admin Tickets] Fresh data received.');
 
-      // Sort: Newest first
-      const sortedTickets = allTickets.sort((a, b) => b.id - a.id);
+      // Sort: Most recently active first (new reply or new ticket)
+      const sortedTickets = allTickets.sort((a, b) =>
+        new Date(b.updatedAt ?? b.createdAt).getTime() - new Date(a.updatedAt ?? a.createdAt).getTime()
+      );
 
       // Update cache with timestamp
       const now = Date.now();

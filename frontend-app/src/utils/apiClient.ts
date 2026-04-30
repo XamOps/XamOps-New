@@ -12,6 +12,9 @@
  * Same logic as the original fetch interceptor - preserves all backend integration.
  */
 
+import { isDemoMode } from '../demo/demoConfig';
+import { resolveDemoResponse } from '../demo/demoRouter';
+
 interface FetchOptions extends RequestInit {
   headers?: HeadersInit;
 }
@@ -87,6 +90,12 @@ const deleteHeader = (headers: HeadersInit, key: string): HeadersInit => {
  * Mimics the exact behavior of the original fetch interceptor
  */
 export const apiFetch = async (url: string | URL, options: FetchOptions = {}): Promise<Response> => {
+  // Demo mode: return static mock response without hitting the network
+  if (isDemoMode()) {
+    const mockResponse = resolveDemoResponse(url.toString());
+    if (mockResponse) return mockResponse;
+  }
+
   // Get context from session
   const { tenantId, impersonateId } = getTenantContext();
   const csrfToken = getCsrfToken();

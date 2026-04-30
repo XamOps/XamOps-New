@@ -25,12 +25,13 @@ const Sidebar: React.FC = () => {
   // Fetch billops team profile to get isPrimaryUser + allowedTabs for ROLE_BILLOPS_ADMIN / ROLE_BILLOPS_ADMIN_SUB
   // undefined = still loading, null = loaded (primary user / no restrictions), object = loaded sub-user
   const isBillopsAdminAny = hasAnyRole('ROLE_BILLOPS_ADMIN') || hasAnyRole('ROLE_BILLOPS_ADMIN_SUB');
-  const [billopsProfile, setBillopsProfile] = useState<{ isPrimaryUser: boolean; allowedTabs: string[] } | null | undefined>(
-    isBillopsAdminAny ? undefined : null
-  );
+  // Always start as undefined (loading) — isBillopsAdminAny is false at mount while roles are still
+  // being fetched, so we cannot use it as the initial value or the profile would never be fetched.
+  const [billopsProfile, setBillopsProfile] = useState<{ isPrimaryUser: boolean; allowedTabs: string[] } | null | undefined>(undefined);
 
   useEffect(() => {
     if (isBillopsAdminAny) {
+      setBillopsProfile(undefined); // show skeleton while fetching
       fetch('/api/billops/team/profile', { credentials: 'include' })
         .then(r => r.ok ? r.json() : null)
         .then(data => {
@@ -40,8 +41,11 @@ const Sidebar: React.FC = () => {
           } : null);
         })
         .catch(() => setBillopsProfile(null));
+    } else {
+      // Roles not yet loaded or user is not a billops admin — keep undefined until roles resolve.
+      // Once isBillopsAdminAny becomes true this effect re-runs and fetches the profile.
     }
-  }, []);
+  }, [isBillopsAdminAny]);
 
   // undefined = profile still loading; hide all admin tabs until resolved
   const billopsProfileLoading = billopsProfile === undefined;

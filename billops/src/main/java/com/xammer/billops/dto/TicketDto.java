@@ -12,6 +12,7 @@ public class TicketDto {
     private String description;
     private String status;
     private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
     private Long clientId;
     private long lastUpdated;
 
@@ -45,6 +46,8 @@ public class TicketDto {
     public void setStatus(String status) { this.status = status; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
+    public LocalDateTime getUpdatedAt() { return updatedAt; }
+    public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
     public Long getClientId() { return clientId; }
     public void setClientId(Long clientId) { this.clientId = clientId; }
     public long getLastUpdated() { return lastUpdated; }

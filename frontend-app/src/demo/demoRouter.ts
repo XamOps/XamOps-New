@@ -1,0 +1,616 @@
+/**
+ * Demo Router
+ *
+ * Maps incoming API URLs to static mock data based on the current demo role.
+ * Returns a real Response object so existing code (response.json(), response.ok, etc.)
+ * continues to work without modification.
+ *
+ * URL matching order matters — more specific patterns must come before wildcards.
+ * Auth endpoints (/api/auth/, /logout, /api/[role]/profile) are NEVER intercepted so
+ * real login / profile / session management always works.
+ */
+
+import { getDemoRole } from './demoConfig';
+import * as xamops from './xamopsMockData';
+import * as billops from './billopsAdminMockData';
+
+function makeNotFound(): Response {
+  return new Response('null', { status: 404, headers: { 'Content-Type': 'application/json' } });
+}
+
+// Endpoints that must always reach the real backend (auth & identity)
+const PASSTHROUGH_PATTERNS = [
+  /\/api\/auth\//,
+  /\/logout/,
+  /\/api\/xamops\/user\/profile/,
+  /\/api\/billops\/profile/,
+  /\/api\/currency/,
+  /\/api\/xamops\/superadmin\//,
+];
+
+function makeResponse(data: unknown, status = 200): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+function routeXamops(url: string): Response | null {
+  // Accounts
+  if (url.includes('/api/xamops/account-manager/accounts'))
+    return makeResponse(xamops.demoAccounts);
+
+  // Granular dashboard — must come before generic /dashboard catch-all
+  if (url.includes('/api/xamops/dashboard/granular/kpi'))
+    return makeResponse(xamops.demoGranularKPI);
+  if (url.includes('/api/xamops/dashboard/granular/inventory'))
+    return makeResponse(xamops.demoGranularInventory);
+  if (url.includes('/api/xamops/dashboard/granular/map'))
+    return makeResponse(xamops.demoGranularMap);
+  if (url.includes('/api/xamops/dashboard/granular/cost'))
+    return makeResponse(xamops.demoGranularCost);
+  if (url.includes('/api/xamops/dashboard/granular/optimization'))
+    return makeResponse(xamops.demoGranularOptimization);
+  if (url.includes('/api/xamops/dashboard/granular'))
+    return makeResponse(xamops.demoGenericEmpty);
+
+  // Multi-account / data dashboard
+  if (url.includes('/api/xamops/dashboard/data/multi-account'))
+    return makeResponse(xamops.demoMultiAccountDashboard);
+  if (url.includes('/api/xamops/dashboard/data'))
+    return makeResponse(xamops.demoMultiAccountDashboard);
+  if (url.includes('/api/xamops/dashboard/layout'))
+    return makeResponse(xamops.demoDashboardLayout);
+
+  // Unified dashboard
+  if (url.includes('/api/xamops/dashboard/unified/summary'))
+    return makeResponse(xamops.demoUnifiedSummary);
+  if (url.includes('/api/xamops/dashboard/unified/aws'))
+    return makeResponse(xamops.demoAwsData);
+  if (url.includes('/api/xamops/dashboard/unified/gcp'))
+    return makeResponse(xamops.demoGcpData);
+  if (url.includes('/api/xamops/dashboard/unified/azure'))
+    return makeResponse(xamops.demoAzureData);
+  if (url.includes('/api/xamops/dashboard/unified/health'))
+    return makeResponse(xamops.demoHealth);
+
+  // Generic dashboard catch-all
+  if (url.includes('/api/xamops/dashboard'))
+    return makeResponse(xamops.demoGenericEmpty);
+
+  // Tickets — ordered most-specific first
+  if (url.includes('/api/xamops/tickets') && url.includes('/count'))
+    return makeResponse(xamops.demoTicketCount);
+  if (url.includes('/api/xamops/tickets') && url.includes('/category/'))
+    return makeResponse(xamops.demoTickets);
+  // Sub-paths on a specific ticket (/replies, /close, /email, /assign) — return success
+  if (url.includes('/api/xamops/tickets/replies/'))
+    return makeResponse([]);
+  if (url.includes('/api/xamops/tickets/') && (url.includes('/replies') || url.includes('/close') || url.includes('/email') || url.includes('/assign')))
+    return makeResponse({ success: true, message: 'Demo mode' });
+  // Single ticket by numeric ID — /api/xamops/tickets/3001
+  if (url.includes('/api/xamops/tickets/'))
+    return makeResponse(xamops.demoTicketDetail);
+  // Generic paginated list
+  if (url.includes('/api/xamops/tickets'))
+    return makeResponse({ content: xamops.demoTickets, totalElements: xamops.demoTickets.length, totalPages: 1 });
+
+  // Costs (with "s") — breakdown, historical trend, forecast
+  if (url.includes('/api/xamops/costs/breakdown'))
+    return makeResponse(xamops.demoCostBreakdown);
+  if (url.includes('/api/xamops/costs/historical-trend'))
+    return makeResponse(xamops.demoCostHistoricalTrend);
+  if (url.includes('/api/xamops/costs'))
+    return makeResponse(xamops.demoGenericEmpty);
+
+  // Forecast
+  if (url.includes('/api/xamops/forecast/cost'))
+    return makeResponse(xamops.demoCostForecast);
+  if (url.includes('/api/xamops/forecast'))
+    return makeResponse(xamops.demoGenericEmpty);
+
+  // GCP — specific sub-paths before the generic /api/xamops/gcp catch-all
+  if (url.includes('/api/xamops/gcp/dashboard'))
+    return makeResponse(xamops.demoGcpDashboard);
+  if (url.includes('/api/xamops/gcp/finops/report'))
+    return makeResponse(xamops.demoGcpFinOpsReport);
+  if (url.includes('/api/xamops/gcp/finops/budgets'))
+    return makeResponse([]);
+  if (url.includes('/api/xamops/gcp/finops-schedules'))
+    return makeResponse([]);
+  if (url.includes('/api/xamops/gcp/forecast/cost'))
+    return makeResponse(xamops.demoGcpCostForecast);
+  if (url.includes('/api/xamops/gcp/costs/breakdown'))
+    return makeResponse(xamops.demoGcpCostBreakdown);
+  if (url.includes('/api/xamops/gcp/optimization/waste-report'))
+    return makeResponse(xamops.demoGcpWasteData);
+  if (url.includes('/api/xamops/gcp/rightsizing/recommendations'))
+    return makeResponse(xamops.demoGcpRightsizingData);
+  if (url.includes('/api/xamops/gcp/security/findings'))
+    return makeResponse(xamops.demoGcpSecurityFindings);
+  if (url.includes('/api/xamops/gcp/security/iam-drift'))
+    return makeResponse(xamops.demoGcpIamDrift);
+  if (url.includes('/api/xamops/gcp/security/container-vulnerabilities'))
+    return makeResponse(xamops.demoGcpContainerVulns);
+  // summary before insights (both contain 'insights')
+  if (url.includes('/api/xamops/gcp/performance-insights/summary'))
+    return makeResponse(xamops.demoGcpPerformanceSummary);
+  if (url.includes('/api/xamops/gcp/performance-insights/insights'))
+    return makeResponse(xamops.demoGcpPerformanceInsights);
+  if (url.includes('/api/xamops/gcp/performance-insights/'))
+    return makeResponse({ success: true });
+  if (url.includes('/api/xamops/gcp/cloudguard/alerts'))
+    return makeResponse(xamops.demoGcpAlerts);
+  if (url.includes('/api/xamops/gcp/reservations/cuds'))
+    return makeResponse(xamops.demoGcpCudRecommendations);
+  if (url.includes('/api/xamops/gcp'))
+    return makeResponse(xamops.demoGenericEmpty);
+
+  // Azure — specific sub-paths before the /api/xamops/ catch-all
+  if (url.includes('/api/xamops/azure/dashboard-data'))
+    return makeResponse(xamops.demoAzureDashboard);
+  if (url.includes('/api/xamops/azure/waste'))
+    return makeResponse(xamops.demoAzureWasteData);
+  if (url.includes('/api/xamops/azure/rightsizing/recommendations'))
+    return makeResponse(xamops.demoAzureRightsizingData);
+  if (url.includes('/api/xamops/azure/reservations'))
+    return makeResponse(xamops.demoAzureReservations);
+  if (url.includes('/api/xamops/azure/security'))
+    return makeResponse(xamops.demoAzureSecurityData);
+  if (url.includes('/api/xamops/azure/performance'))
+    return makeResponse(xamops.demoAzurePerformanceData);
+  if (url.includes('/api/xamops/azure/alerts'))
+    return makeResponse(xamops.demoAzureAlertsData);
+  if (url.includes('/api/xamops/azure/forecast/cost'))
+    return makeResponse([]);
+  if (url.includes('/api/xamops/azure/costs/service-trend'))
+    return makeResponse([]);
+  if (url.includes('/api/xamops/azure/'))
+    return makeResponse(xamops.demoGenericEmpty);
+
+  // FinOps sub-paths — specific paths before the generic /finops catch-all.
+  // Actual sub-path names from useFinOpsData.ts fetchSection calls:
+  if (url.includes('/api/xamops/finops/billing-summary'))
+    return makeResponse(xamops.demoFinOpsBillingSummary);
+  if (url.includes('/api/xamops/finops/cost-history'))
+    return makeResponse(xamops.demoFinOpsCostTrend);
+  if (url.includes('/api/xamops/finops/cost-by-region'))
+    return makeResponse(xamops.demoFinOpsRegionalBreakdown);
+  if (url.includes('/api/xamops/finops/tagging-compliance'))
+    return makeResponse(xamops.demoFinOpsTaggingCompliance);
+  if (url.includes('/api/xamops/finops/budgets'))
+    return makeResponse([]);
+  if (url.includes('/api/xamops/finops/rightsizing'))
+    return makeResponse([]);
+  if (url.includes('/api/xamops/finops/wasted-resources'))
+    return makeResponse(xamops.demoWasteData);
+  if (url.includes('/api/xamops/finops/cost-anomalies'))
+    return makeResponse([]);
+  if (url.includes('/api/xamops/finops'))
+    return makeResponse(xamops.demoGenericEmpty);
+
+  // FinOps schedules
+  if (url.includes('/api/xamops/finops-schedules'))
+    return makeResponse([]);
+
+  // SonarQube — metrics before projects (more specific first)
+  if (url.includes('/api/xamops/sonarqube') && url.includes('/metrics'))
+    return makeResponse(xamops.demoSonarQubeMetrics);
+  if (url.includes('/api/xamops/sonarqube'))
+    return makeResponse(xamops.demoSonarQubeProjects);
+
+  // Legacy /api/xamops/cost (singular)
+  if (url.includes('/api/xamops/cost'))
+    return makeResponse(xamops.demoGenericEmpty);
+
+  // Waste — raw WastedResource[] array
+  if (url.includes('/api/xamops/waste'))
+    return makeResponse(xamops.demoWasteData);
+
+  // Security — prowler status before generic security catch-all
+  if (url.includes('/api/xamops/security/prowler/status'))
+    return makeResponse({ status: 'COMPLETED', findingsCount: 6 });
+  if (url.includes('/api/xamops/security'))
+    return makeResponse(xamops.demoSecurityData);
+
+  // Performance / metrics — summary must come before general insights
+  if (url.includes('/api/xamops/metrics/insights/summary'))
+    return makeResponse(xamops.demoPerformanceSummary);
+  if (url.includes('/api/xamops/metrics/insights'))
+    return makeResponse(xamops.demoPerformanceInsights);
+  if (url.includes('/api/xamops/performance'))
+    return makeResponse(xamops.demoPerformanceInsights);
+
+  // Alerts / cloudguard — grafana-alerts before cloudguard/alerts (substring match order)
+  if (url.includes('/api/xamops/cloudguard/grafana-alerts'))
+    return makeResponse([]);
+  if (url.includes('/api/xamops/cloudguard/alerts') || url.includes('/api/xamops/alerts'))
+    return makeResponse(xamops.demoAlertsData);
+
+  // AWS Rightsizing — raw array (hook does Array.isArray check)
+  if (url.includes('/api/xamops/rightsizing'))
+    return makeResponse(xamops.demoRightsizingData);
+
+  // XamOps optimization / live rightsizing
+  if (url.includes('/api/xamops/optimization'))
+    return makeResponse([]);
+
+  // Reservations — specific pattern before generic catch-all
+  if (url.includes('/api/xamops/reservations/recommendations'))
+    return makeResponse(xamops.demoReservationRecommendations);
+  if (url.includes('/api/xamops/reservations'))
+    return makeResponse(xamops.demoReservationInventory);
+  if (url.includes('/api/xamops/risp'))
+    return makeResponse(xamops.demoGenericEmpty);
+
+  // CloudSitter — policies and assignments must be arrays
+  if (url.includes('/api/xamops/cloudsitter/policies'))
+    return makeResponse([]);
+  if (url.includes('/api/xamops/cloudsitter/assignments'))
+    return makeResponse([]);
+  if (url.includes('/api/xamops/cloudsitter'))
+    return makeResponse(xamops.demoGenericEmpty);
+
+  // CloudList (used by CloudSitter page)
+  if (url.includes('/api/xamops/cloudlist'))
+    return makeResponse([]);
+
+  // EKS cluster detail dashboard — must come before generic eks catch-all
+  if (url.includes('/api/xamops/eks/') && url.includes('/dashboard'))
+    return makeResponse(xamops.demoEksDashboard);
+  if (url.includes('/api/xamops/eks/') && url.includes('/sync'))
+    return makeResponse({ status: 'SYNCING' });
+
+  // GKE clusters — specific before generic gke catch-all
+  if (url.includes('/api/xamops/gke/clusters'))
+    return makeResponse(xamops.demoGkeClusters);
+
+  // K8s / infra generic catch-all
+  if (
+    url.includes('/api/xamops/cloudk8s') ||
+    url.includes('/api/xamops/eks') ||
+    url.includes('/api/xamops/gke') ||
+    url.includes('/api/xamops/aks') ||
+    url.includes('/api/xamops/cloudmap')
+  )
+    return makeResponse(xamops.demoGenericEmpty);
+
+  // Notifications
+  if (url.includes('/api/xamops/notifications'))
+    return makeResponse([]);
+
+  // AIOps — all specific sub-paths before safe 404 catch-all
+  // Budget routes — budgets/summary before budgets
+  if (url.includes('/api/xamops/aiops/budgets/summary'))
+    return makeResponse(xamops.demoAIOPsBudgetSummary);
+  if (url.includes('/api/xamops/aiops/budgets'))
+    return makeResponse([]);
+  // Routing sub-paths — stats before generic routing catch-all
+  if (url.includes('/api/xamops/aiops/routing/stats'))
+    return makeResponse(xamops.demoAIOpsRoutingStats);
+  if (url.includes('/api/xamops/aiops/routing/'))
+    return makeResponse([]);
+  // Enhanced dashboard endpoints (called by loadAllDashboardData on mount)
+  if (url.includes('/api/xamops/aiops/model-daily-analysis'))
+    return makeResponse(xamops.demoAIOpsModelDailyAnalysis);
+  if (url.includes('/api/xamops/aiops/insights'))
+    return makeResponse(xamops.demoAIOpsInsightsSummary);
+  if (url.includes('/api/xamops/aiops/team-analytics'))
+    return makeResponse(xamops.demoAIOpsTeamAnalytics);
+  if (url.includes('/api/xamops/aiops/request-logs'))
+    return makeResponse(xamops.demoAIOpsRequestLogs);
+  // Main dashboard endpoints (called by useAIOpsData on mount)
+  if (url.includes('/api/xamops/aiops/providers'))
+    return makeResponse(xamops.demoAIOpsProviders);
+  if (url.includes('/api/xamops/aiops/kpis'))
+    return makeResponse(xamops.demoAIOpsKpis);
+  if (url.includes('/api/xamops/aiops/all-time-metrics'))
+    return makeResponse(xamops.demoAIOpsAllTimeMetrics);
+  if (url.includes('/api/xamops/aiops/cost-trend'))
+    return makeResponse(xamops.demoAIOpsAdminCostTrend);
+  if (url.includes('/api/xamops/aiops/provider-breakdown'))
+    return makeResponse(xamops.demoAIOpsProviderBreakdown);
+  if (url.includes('/api/xamops/aiops/model-usage'))
+    return makeResponse(xamops.demoAIOpsModelUsage);
+  if (url.includes('/api/xamops/aiops/anomalies'))
+    return makeResponse(xamops.demoAIOpsAnomalies);
+  // Additional AIOps tab endpoints
+  if (url.includes('/api/xamops/aiops/filter-options'))
+    return makeResponse(xamops.demoAIOpsFilterOptions);
+  if (url.includes('/api/xamops/aiops/performance'))
+    return makeResponse(xamops.demoAIOpsPerformanceMetrics);
+  if (url.includes('/api/xamops/aiops/compute-metrics'))
+    return makeResponse(xamops.demoAIOpsComputeMetrics);
+  if (url.includes('/api/xamops/aiops/managed-inference'))
+    return makeResponse(xamops.demoAIOpsInferenceOverview);
+  if (url.includes('/api/xamops/aiops/api-keys'))
+    return makeResponse(xamops.demoAIOpsApiKeys);
+  if (url.includes('/api/xamops/aiops/agent-breakdown'))
+    return makeResponse([]);
+  if (url.includes('/api/xamops/aiops/model-comparison'))
+    return makeResponse([]);
+  if (url.includes('/api/xamops/aiops/token-heatmap'))
+    return makeResponse([]);
+  // Generic AIOps catch-all — 404 is safe (hooks use try/catch and initialize to null/[])
+  if (url.includes('/api/xamops/aiops/'))
+    return makeNotFound();
+
+  // K8s clusters (CloudK8s page)
+  if (url.includes('/api/xamops/k8s/'))
+    return makeResponse(xamops.demoK8sClusters);
+
+  // Any other /api/xamops/* — empty fallback
+  if (url.includes('/api/xamops/'))
+    return makeResponse(xamops.demoGenericEmpty);
+
+  // EBS Rightsizing — uses /api/ebs/ (not /api/xamops/)
+  if (url.includes('/api/ebs/recommendations'))
+    return makeResponse(xamops.demoEbsVolumes.filter(v => v.recommendation !== 'NONE'));
+  if (url.includes('/api/ebs/volumes'))
+    return makeResponse(xamops.demoEbsVolumes);
+  if (url.includes('/api/ebs/policies') || url.includes('/api/ebs/action-history') || url.includes('/api/ebs/pending-deletion'))
+    return makeResponse([]);
+  if (url.includes('/api/ebs/'))
+    return makeResponse([]);
+
+  // AutoSpotting — uses /api/autospotting/ (not /api/xamops/)
+  if (url.includes('/api/autospotting/costs/history'))
+    return makeResponse(xamops.demoAutoSpottingHistory);
+  if (url.includes('/api/autospotting/costs'))
+    return makeResponse(xamops.demoAutoSpottingCosts);
+  if (url.includes('/api/autospotting/'))
+    return makeResponse(xamops.demoGenericEmpty);
+
+  // GCP AutoSpotting — uses /api/gcp/autospotting/ prefix
+  if (url.includes('/api/gcp/autospotting/migs/'))
+    return makeResponse(xamops.demoGcpAutoSpottingMigs);
+  if (url.includes('/api/gcp/autospotting/history/'))
+    return makeResponse(xamops.demoGcpAutoSpottingHistory);
+  if (url.includes('/api/gcp/autospotting/'))
+    return makeResponse(xamops.demoGenericEmpty);
+
+  // GCP CloudSitter
+  if (url.includes('/api/gcp/cloudsitter/policies'))
+    return makeResponse([]);
+  if (url.includes('/api/gcp/cloudsitter/assignments'))
+    return makeResponse([]);
+  if (url.includes('/api/gcp/cloudsitter/'))
+    return makeResponse(xamops.demoGenericEmpty);
+
+  // GCP Disk Rightsizing
+  if (url.includes('/api/gcp/disks/history/'))
+    return makeResponse([]);
+  if (url.includes('/api/gcp/disks/'))
+    return makeResponse(xamops.demoGcpDisks);
+
+  // Azure AutoSpotting — uses /api/azure/autospotting/ prefix
+  if (url.includes('/api/azure/autospotting/vmss/all-regions/'))
+    return makeResponse(xamops.demoAzureAutoSpottingVmss);
+  if (url.includes('/api/azure/autospotting/history/'))
+    return makeResponse(xamops.demoAzureAutoSpottingHistory);
+  if (url.includes('/api/azure/autospotting/'))
+    return makeResponse(xamops.demoGenericEmpty);
+
+  // Azure CloudSitter
+  if (url.includes('/api/azure/cloudsitter/policies'))
+    return makeResponse([]);
+  if (url.includes('/api/azure/cloudsitter/assignments'))
+    return makeResponse([]);
+  if (url.includes('/api/azure/cloudsitter/'))
+    return makeResponse(xamops.demoGenericEmpty);
+
+  // Azure Disk Rightsizing
+  if (url.includes('/api/azure/disks/'))
+    return makeResponse([]);
+
+  // Azure CloudList
+  if (url.includes('/api/azure/cloudlist/'))
+    return makeResponse([]);
+
+  // Azure FinOps (uses /api/azure/ prefix, not /api/xamops/)
+  if (url.includes('/api/azure/finops-report'))
+    return makeResponse(xamops.demoAzureFinOpsReport);
+  if (url.includes('/api/azure/finops-schedules'))
+    return makeResponse([]);
+  if (url.includes('/api/azure/finops/budgets'))
+    return makeResponse([]);
+
+  // Flex Compute — uses /api/flexcompute/ (not /api/xamops/)
+  if (url.includes('/api/flexcompute/capacity'))
+    return makeResponse([]);
+  if (url.includes('/api/flexcompute/linked-accounts'))
+    return makeResponse([]);
+  if (url.includes('/api/flexcompute/'))
+    return makeResponse([]);
+
+  // CICD Pipelines — specific GitHub route before generic catch-all
+  if (url.includes('/api/cicd/github/runs'))
+    return makeResponse(xamops.demoGithubRuns);
+  if (url.includes('/api/cicd/'))
+    return makeResponse([]);
+
+  // DevOps-in-the-Box scripts
+  if (url.includes('/api/dev_ops_script'))
+    return makeResponse(xamops.demoDevOpsScripts);
+
+  // DbOps — specific sub-paths so hooks render real data instead of empty state
+  if (url.includes('/api/dbops/') && url.includes('/timeseries'))
+    return makeResponse(xamops.demoDbInstanceTimeseries);
+  if (url.includes('/api/dbops/') && url.includes('/summary'))
+    return makeResponse(xamops.demoDbSavingsSummary);
+  if (url.includes('/api/dbops/') && url.includes('/inventory'))
+    return makeResponse(xamops.demoDbInstances);
+  if (url.includes('/api/dbops/') && url.includes('/costs'))
+    return makeResponse(xamops.demoDbCosts);
+  if (url.includes('/api/dbops/') && url.includes('/idle'))
+    return makeResponse(xamops.demoDbIdle);
+  if (url.includes('/api/dbops/') && url.includes('/rightsizing'))
+    return makeResponse(xamops.demoDbRightsizing);
+  if (url.includes('/api/dbops/') && url.includes('/slow-queries'))
+    return makeResponse(xamops.demoDbSlowQueries);
+  if (url.includes('/api/dbops/') && url.includes('/agent-vacuum-stats'))
+    return makeResponse(xamops.demoAgentVacuumStats);
+  if (url.includes('/api/dbops/') && url.includes('/agent-user-activity'))
+    return makeResponse(xamops.demoAgentUserActivity);
+  if (url.includes('/api/dbops/') && url.includes('/metrics'))
+    return makeResponse({});
+  if (url.includes('/api/dbops/'))
+    return makeResponse([]);
+
+  // SRE Investigations
+  if (url.includes('/api/sre/notifications/count'))
+    return makeResponse({ count: 0 });
+  if (url.includes('/api/sre/'))
+    return makeResponse([]);
+
+  // Workspace Licenses (Google Workspace integration)
+  if (url.includes('/api/workspace/licenses/summary'))
+    return makeResponse(xamops.demoWorkspaceLicenseSummary);
+  if (url.includes('/api/workspace/optimization'))
+    return makeResponse(xamops.demoWorkspaceOptimization);
+  if (url.includes('/api/workspace/users'))
+    return makeResponse(xamops.demoWorkspaceUsers);
+  if (url.includes('/api/workspace/status'))
+    return makeResponse(xamops.demoWorkspaceStatus);
+  if (url.includes('/api/workspace/'))
+    return makeResponse({});
+
+  // MarketOps — subscriptions listing before billing sub-paths
+  if (url.includes('/api/marketops/subscriptions') && !url.includes('/billing'))
+    return makeResponse(xamops.demoMarketOpsSubscriptions);
+  if (url.includes('/api/marketops/'))
+    return makeResponse({ entries: [], accountLevel: false });
+
+  // Observability — specific paths before generic catch-all
+  // histogram before logs/search (both contain /logs/)
+  if (url.includes('/api/observability/logs/histogram'))
+    return makeResponse(xamops.demoObservabilityHistogram);
+  if (url.includes('/api/observability/logs/'))
+    return makeResponse(xamops.demoObservabilityLogs);
+  if (url.includes('/api/observability/config'))
+    return makeResponse(xamops.demoObservabilityConfig);
+  if (url.includes('/api/observability/overview'))
+    return makeResponse(xamops.demoObservabilityOverview);
+  if (url.includes('/api/observability/streams'))
+    return makeResponse(xamops.demoObservabilityStreams);
+  if (url.includes('/api/observability/alert-destinations'))
+    return makeResponse(xamops.demoObservabilityDestinations);
+  if (url.includes('/api/observability/alerts'))
+    return makeResponse(xamops.demoObservabilityAlerts);
+  if (url.includes('/api/observability/clusters'))
+    return makeResponse(xamops.demoObservabilityClusters);
+  if (url.includes('/api/observability/metrics/'))
+    return makeResponse(xamops.demoObservabilityMetrics);
+  if (url.includes('/api/observability/setup/'))
+    return makeResponse('# Demo configuration — contact support to deploy collectors');
+  if (url.includes('/api/observability/'))
+    return makeResponse({});
+
+  // BillOps User Dashboard
+  if (url.includes('/api/billops/dashboard/user'))
+    return makeResponse(xamops.demoBillopsUserDashboard);
+
+  // Billing — GCP billing before generic /billing (GCP URL contains '/billing/gcp/')
+  if (url.includes('/api/billops/detailed-breakdown'))
+    return makeResponse(xamops.demoBillingDetailedBreakdown);
+  if (url.includes('/api/billops/billing/gcp/'))
+    return makeResponse(xamops.demoGcpBillingDashboard);
+  if (url.includes('/api/billops/billing'))
+    return makeResponse(xamops.demoBillingData);
+
+  // Invoices (uses /api/admin/invoices, not /api/billops/)
+  if (url.includes('/api/admin/invoices'))
+    return makeResponse(xamops.demoBillopsUserInvoices);
+
+  // Credits — user credits by userId
+  if (url.includes('/api/billops/credits/user/'))
+    return makeResponse(xamops.demoBillopsUserCredits);
+  if (url.includes('/api/billops/credits'))
+    return makeResponse({ success: true });
+
+  // Agreements — by account ID
+  if (url.includes('/api/billops/agreements/'))
+    return makeResponse(xamops.demoBillopsUserAgreements);
+
+  // BillOps tickets viewed by a XamOps user (Account & Billing category)
+  if (url.includes('/api/billops/tickets/category/'))
+    return makeResponse(xamops.demoBillopsUserTickets);
+  // Sub-paths on a specific ticket (/replies, /close, /rca)
+  if (url.includes('/api/billops/tickets/') && (url.includes('/replies') || url.includes('/close') || url.includes('/rca') || url.includes('/assign') || url.includes('/email') || url.includes('/meeting')))
+    return makeResponse({ success: true });
+  // Single ticket detail by ID
+  if (url.includes('/api/billops/tickets/'))
+    return makeResponse(xamops.demoBillopsTicketDetail);
+  // POST /api/billops/tickets (create new ticket)
+  if (url.includes('/api/billops/tickets'))
+    return makeResponse([]);
+  if (url.includes('/api/billops/admins'))
+    return makeResponse([]);
+  if (url.includes('/api/billops/'))
+    return makeResponse({});
+
+  return null;
+}
+
+function routeBillopsAdmin(url: string): Response | null {
+  // Team profile (needed by DashboardGuard routing)
+  if (url.includes('/api/billops/team/profile'))
+    return makeResponse(billops.demoBillopsTeamProfile);
+
+  // Admin dashboard
+  if (url.includes('/api/billops/dashboard/admin/top-spending-refresh'))
+    return makeResponse(billops.demoBillopsTopSpending);
+  if (url.includes('/api/billops/dashboard/admin'))
+    return makeResponse(billops.demoBillopsAdminDashboard);
+
+  // Clients / spend
+  if (url.includes('/api/billops/clients/spend'))
+    return makeResponse(billops.demoBillopsClientsSpend);
+  if (url.includes('/api/billops/clients') || url.includes('/api/billops/admin/clients'))
+    return makeResponse(billops.demoBillopsClients);
+
+  // Invoices
+  if (url.includes('/api/billops/admin/invoices') || url.includes('/api/billops/invoices'))
+    return makeResponse(billops.demoBillopsAdminInvoices);
+
+  // Credits
+  if (url.includes('/api/billops/admin/credits') || url.includes('/api/billops/credits'))
+    return makeResponse(billops.demoBillopsAdminCredits);
+
+  // Tickets
+  if (url.includes('/api/billops/admin/tickets') || url.includes('/api/billops/tickets'))
+    return makeResponse(billops.demoBillopsAdminTickets);
+
+  // Agreements
+  if (url.includes('/api/billops/admin/agreements') || url.includes('/api/billops/agreements'))
+    return makeResponse(billops.demoBillopsAdminAgreements);
+
+  // Notifications
+  if (url.includes('/api/billops/notifications'))
+    return makeResponse([]);
+
+  // Any other /api/billops/* — empty fallback
+  if (url.includes('/api/billops/'))
+    return makeResponse(billops.demoGenericEmpty);
+
+  return null;
+}
+
+/**
+ * Resolves a URL to a mock Response, or returns null if the request should
+ * pass through to the real backend.
+ */
+export function resolveDemoResponse(url: string): Response | null {
+  // Always let auth/identity endpoints through
+  for (const pattern of PASSTHROUGH_PATTERNS) {
+    if (pattern.test(url)) return null;
+  }
+
+  const role = getDemoRole();
+  if (!role) return null;
+
+  if (role === 'ROLE_XAMOPS')        return routeXamops(url);
+  if (role === 'ROLE_BILLOPS_ADMIN') return routeBillopsAdmin(url);
+
+  return null;
+}
