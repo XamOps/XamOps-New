@@ -71,10 +71,9 @@ public class BudgetAlertScheduler {
 
         if (budgets.isEmpty()) return;
 
-        // Find the primary user for this account's client to email
-        String recipientEmail = resolveRecipientEmail(account);
-        if (recipientEmail == null) {
-            logger.debug("[BudgetAlertScheduler] No recipient email for account {}, skipping.",
+        List<String> recipients = resolveRecipientEmails(account);
+        if (recipients.isEmpty()) {
+            logger.debug("[BudgetAlertScheduler] No recipient emails for account {}, skipping.",
                     account.getAwsAccountId());
             return;
         }
@@ -90,16 +89,20 @@ public class BudgetAlertScheduler {
             // Check actual thresholds (50, 80, 100)
             for (double threshold : ACTUAL_THRESHOLDS) {
                 if (actualPct >= threshold) {
-                    sendThresholdEmail(recipientEmail, budget, accountName, account.getAwsAccountId(),
-                            threshold, false);
+                    for (String email : recipients) {
+                        sendThresholdEmail(email, budget, accountName, account.getAwsAccountId(),
+                                threshold, false);
+                    }
                     break; // send only the highest breached threshold per run
                 }
             }
 
             // Check forecasted overage separately
             if (forecastPct >= FORECAST_THRESHOLD) {
-                sendThresholdEmail(recipientEmail, budget, accountName, account.getAwsAccountId(),
-                        FORECAST_THRESHOLD, true);
+                for (String email : recipients) {
+                    sendThresholdEmail(email, budget, accountName, account.getAwsAccountId(),
+                            FORECAST_THRESHOLD, true);
+                }
             }
         }
     }
@@ -122,19 +125,21 @@ public class BudgetAlertScheduler {
     }
 
     /**
-     * Resolves the email recipient for an account.
-     * Uses the first user belonging to the account's client whose email is set,
-     * falling back to username (since login supports email-as-username).
+     * Resolves all email recipients for an account's client so that every
+     * sub-user receives alerts, not just the first one found.
      */
-    private String resolveRecipientEmail(CloudAccount account) {
-        if (account.getClient() == null) return null;
+    private List<String> resolveRecipientEmails(CloudAccount account) {
+        if (account.getClient() == null) return List.of();
         List<User> users = userRepository.findByClientId(account.getClient().getId());
-        for (User u : users) {
-            if (u.getEmail() != null && !u.getEmail().isBlank()) return u.getEmail();
-            // username may itself be an email
-            if (u.getUsername() != null && u.getUsername().contains("@")) return u.getUsername();
-        }
-        return null;
+        return users.stream()
+                .map(u -> {
+                    if (u.getEmail() != null && !u.getEmail().isBlank()) return u.getEmail();
+                    if (u.getUsername() != null && u.getUsername().contains("@")) return u.getUsername();
+                    return null;
+                })
+                .filter(e -> e != null)
+                .distinct()
+                .collect(java.util.stream.Collectors.toList());
     }
 
     private double pct(BigDecimal spend, BigDecimal limit) {

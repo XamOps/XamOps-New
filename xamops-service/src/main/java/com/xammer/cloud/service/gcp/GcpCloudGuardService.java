@@ -18,8 +18,10 @@ import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.AlertDto;
 import com.xammer.cloud.dto.gcp.GcpCostDto;
 import com.xammer.cloud.dto.gcp.GcpSecurityFinding;
+import com.xammer.cloud.domain.User;
 import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.repository.UserRepository;
 import com.xammer.cloud.service.EmailService;
 import com.xammer.cloud.service.RedisCacheService;
 import lombok.extern.slf4j.Slf4j;
@@ -48,6 +50,7 @@ public class GcpCloudGuardService {
     private final EmailService emailService;
     private final CachedDataRepository cachedDataRepository;
     private final ObjectMapper objectMapper;
+    private final UserRepository userRepository;
 
     // Define Quota details
     private static final String NETWORK_QUOTA_NAME = "NETWORKS";
@@ -64,7 +67,8 @@ public class GcpCloudGuardService {
             GcpSecurityService gcpSecurityService,
             EmailService emailService,
             CachedDataRepository cachedDataRepository,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            UserRepository userRepository
     ) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.gcpClientProvider = gcpClientProvider;
@@ -75,6 +79,7 @@ public class GcpCloudGuardService {
         this.emailService = emailService;
         this.cachedDataRepository = cachedDataRepository;
         this.objectMapper = objectMapper;
+        this.userRepository = userRepository;
     }
 
     private void saveToDb(String dbKey, Object data) {
@@ -137,20 +142,23 @@ public class GcpCloudGuardService {
 
         CloudAccount account = getAccount(gcpProjectId);
 
-        // Eagerly fetch email before async operations
-        String clientEmail = null;
+        // Eagerly fetch all sub-user emails before async operations
+        List<String> recipientEmails = Collections.emptyList();
         try {
             if (account.getClient() != null) {
-                // Ensure the client object is fully loaded within the transaction
-                clientEmail = account.getClient().getEmail();
-                log.debug("Fetched client email: {}", clientEmail); // Debug log
+                recipientEmails = userRepository.findByClientId(account.getClient().getId()).stream()
+                        .map(u -> (u.getEmail() != null && !u.getEmail().isBlank()) ? u.getEmail()
+                                : (u.getUsername() != null && u.getUsername().contains("@") ? u.getUsername() : null))
+                        .filter(e -> e != null)
+                        .distinct()
+                        .collect(Collectors.toList());
             } else {
                 log.warn("Client is null for account {}", gcpProjectId);
             }
         } catch (Exception e) {
-            log.error("Error fetching client email for account {}: {}", gcpProjectId, e.getMessage(), e);
+            log.error("Error fetching recipient emails for account {}: {}", gcpProjectId, e.getMessage(), e);
         }
-        final String email = clientEmail; // Final variable for lambda
+        final List<String> recipients = recipientEmails;
 
         CompletableFuture<List<AlertDto>> quotasFuture = checkQuotaAlerts(account);
         CompletableFuture<List<AlertDto>> anomaliesFuture = checkCostAnomalies(account);
@@ -163,18 +171,20 @@ public class GcpCloudGuardService {
                     alerts.addAll(anomaliesFuture.join());
                     alerts.addAll(securityFuture.join());
 
-                    // Send emails if configured and alerts exist
-                    if (email != null && !email.isEmpty() && !alerts.isEmpty()) {
-                        log.info("Sending {} alert emails to {}", alerts.size(), email);
+                    // Send emails to all sub-users if alerts exist
+                    if (!recipients.isEmpty() && !alerts.isEmpty()) {
+                        log.info("Sending {} alert emails to {} recipients", alerts.size(), recipients.size());
                         for (AlertDto alert : alerts) {
-                            try {
-                                emailService.sendEmail(email, "[GCP Alert] " + alert.getName(), alert.getDescription());
-                            } catch (Exception e) {
-                                log.error("Failed to send GCP alert email for alert '{}': {}", alert.getId(), e.getMessage());
+                            for (String email : recipients) {
+                                try {
+                                    emailService.sendEmail(email, "[GCP Alert] " + alert.getName(), alert.getDescription());
+                                } catch (Exception e) {
+                                    log.error("Failed to send GCP alert email for alert '{}' to {}: {}", alert.getId(), email, e.getMessage());
+                                }
                             }
                         }
-                    } else if (!alerts.isEmpty()){
-                        log.warn("No client email configured for account {}, cannot send alert emails.", gcpProjectId);
+                    } else if (!alerts.isEmpty()) {
+                        log.warn("No recipient emails configured for account {}, cannot send alert emails.", gcpProjectId);
                     }
 
                     redisCache.put(cacheKey, alerts, 60);

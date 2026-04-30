@@ -300,7 +300,7 @@ export const useAzureCloudSitter = (subscriptionId: string | null) => {
 
   return {
     currentView, isLoading, isSaving, searchQuery,
-    resources: filteredResources, policies, policyForm, policyGrid,
+    resources: filteredResources, allResources: resources, policies, policyForm, policyGrid,
     editMode, isDragging, showAssignModal, showManagePoliciesModal,
     assignTarget, selectedPolicyId, formInstanceTarget,
     setCurrentView, setSearchQuery, setPolicyForm, setIsDragging,

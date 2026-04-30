@@ -41,11 +41,13 @@ const AzureCloudSitterPage: React.FC = () => {
             isLoading={cs.isLoading}
             searchQuery={cs.searchQuery}
             resources={cs.resources}
+            allResources={cs.allResources}
             onSearchChange={cs.setSearchQuery}
             onRefresh={() => cs.loadData(true)}
             onCreatePolicy={cs.openCreatePolicy}
             onManagePolicies={() => cs.setShowManagePoliciesModal(true)}
             onAssignPolicy={cs.openAssignModal}
+            provider="AZURE"
           />
         )}
 

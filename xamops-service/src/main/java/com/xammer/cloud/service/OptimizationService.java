@@ -251,7 +251,15 @@ public class OptimizationService {
 
                             double recommendedCost = pricingService
                                     .getEc2InstanceMonthlyPrice(bestOption.instanceType(), regionId);
-                            double currentCost = recommendedCost + savings;
+                            double currentCost;
+                            if (recommendedCost > 0) {
+                                currentCost = recommendedCost + savings;
+                            } else {
+                                // Graviton/ARM instances often return 0 from the Pricing API.
+                                // Fall back: price the current (x86) instance and derive recommended cost.
+                                currentCost = pricingService.getEc2InstanceMonthlyPrice(r.currentInstanceType(), regionId);
+                                recommendedCost = Math.max(0, currentCost - savings);
+                            }
 
                             // --- Start of Fix ---
                             // First, try to get the detailed reason codes.

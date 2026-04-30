@@ -144,7 +144,7 @@ function UsageAnalyticsFilters({
 // ─── Main Page ───────────────────────────────────────────────
 const AIOpsPage: React.FC = () => {
   const [period, setPeriod] = useState('30d');
-  const [activeTab, setActiveTab] = useTabState('dashboard');
+  const [activeTab, setActiveTab] = useTabState<'dashboard' | 'usage-analytics' | 'budget-controls' | 'cost-optimizer' | 'api-keys' | 'managed-inference' | 'insights'>('dashboard');
   const [activeSubTab, setActiveSubTab] = useState('request-logs');
   const [isProviderModalOpen, setIsProviderModalOpen] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState(false);
@@ -355,7 +355,7 @@ const AIOpsPage: React.FC = () => {
             <AriaTabGroup
               tabs={TOP_TABS}
               selectedKey={activeTab}
-              onSelectionChange={setActiveTab}
+              onSelectionChange={(key) => setActiveTab(key as typeof activeTab)}
               variant="underline"
             />
           </div>

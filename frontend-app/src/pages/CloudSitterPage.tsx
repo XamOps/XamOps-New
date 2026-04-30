@@ -47,6 +47,7 @@ const CloudSitterPage: React.FC = () => {
             isLoading={cloudSitter.isLoading}
             searchQuery={cloudSitter.searchQuery}
             resources={cloudSitter.resources}
+            allResources={cloudSitter.allResources}
             onSearchChange={cloudSitter.setSearchQuery}
             onRefresh={() => cloudSitter.loadData(true)}
             onCreatePolicy={cloudSitter.openCreatePolicy}

@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useAzureReservationsData } from '../hooks/useAzureReservationsData';
 import { AriaTabGroup } from '../components/ui';
 import type { AzureReservationTabType } from '../types/azureReservations';
-import {
 import { useTabState } from '../hooks/useTabState';
+import {
   AzureReservationHeader,
   AzureReservationMetrics,
   AzureReservationInventory,

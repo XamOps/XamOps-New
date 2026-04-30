@@ -173,8 +173,9 @@ export const AccountProvider: React.FC<{ children: ReactNode }> = ({ children })
     fetchAccounts();
 
     // Listen for account changes from legacy scripts or Super Admin Panel
-    const handleAccountChangedEvent = () => {
-      console.log('🔄 Account changed event received, syncing state and fetching accounts...');
+    const handleAccountChangedEvent = (event: Event) => {
+      const reason = (event as CustomEvent).detail?.reason as string | undefined;
+      console.log('🔄 Account changed event received, reason:', reason);
 
       // Sync state from sessionStorage
       const newSelectedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
@@ -184,7 +185,13 @@ export const AccountProvider: React.FC<{ children: ReactNode }> = ({ children })
       setTempSelectedAccounts(newSelectedIds);
       setMultiAccountMode(newMultiMode);
 
-      fetchAccounts();
+      // Only re-fetch the account list when the account set itself changes (tenant or user
+      // switch). For plain account selection events the list is identical — calling
+      // fetchAccounts() here would clear selectedAccountIds and auto-select the first
+      // account, overwriting the user's intended selection.
+      if (reason === 'tenant-switch' || reason === 'user-switch') {
+        fetchAccounts();
+      }
     };
     globalThis.addEventListener('account-changed', handleAccountChangedEvent);
 
@@ -324,9 +331,12 @@ export const AccountProvider: React.FC<{ children: ReactNode }> = ({ children })
     // Determine target page based on provider
     let targetPage = '/dashboard';
 
-    // Check if user is ROLE_BILLOPS (and not ROLE_XAMOPS) or ROLE_BILLOPS_ADMIN
-    const isBillOpsOnly = hasAnyRole('ROLE_BILLOPS') && !hasAnyRole('ROLE_XAMOPS');
-    const isBillOpsAdmin = hasAnyRole('ROLE_BILLOPS_ADMIN') || hasAnyRole('ROLE_BILLOPS_ADMIN_SUB');
+    // Check if user is ROLE_BILLOPS (and not ROLE_XAMOPS) or ROLE_BILLOPS_ADMIN.
+    // During a "Login as" impersonation session the admin's real ROLE_BILLOPS_ADMIN
+    // must NOT control routing — we want to land on the impersonated user's dashboard.
+    const isBillopsImpersonation = sessionStorage.getItem('billops_impersonation') === 'true';
+    const isBillOpsOnly = !isBillopsImpersonation && hasAnyRole('ROLE_BILLOPS') && !hasAnyRole('ROLE_XAMOPS');
+    const isBillOpsAdmin = !isBillopsImpersonation && (hasAnyRole('ROLE_BILLOPS_ADMIN') || hasAnyRole('ROLE_BILLOPS_ADMIN_SUB'));
 
     if (isBillOpsAdmin) {
       targetPage = '/billops-admin-dashboard';
@@ -361,7 +371,7 @@ export const AccountProvider: React.FC<{ children: ReactNode }> = ({ children })
       console.log('[AccountContext] Soft navigation same page. Updating URL.');
       navigate(targetUrl, { replace: true });
       globalThis.dispatchEvent(new CustomEvent('account-changed', {
-        detail: { accountId: firstSelectedId, accountIds: tempSelectedAccounts }
+        detail: { accountId: firstSelectedId, accountIds: tempSelectedAccounts, reason: 'sidebar-selection' }
       }));
     } else {
       console.log('[AccountContext] Navigating to:', targetPage);

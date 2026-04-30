@@ -15,7 +15,7 @@
  * All API endpoints and functionality preserved from original.
  */
 
-import React, { useState } from 'react';
+import React from 'react';
 import { useUserManagement } from '../hooks/useUserManagement';
 import type { IamUser, IamRole } from '../types/userManagement';
 import { useTopbar } from '../contexts/TopbarContext';

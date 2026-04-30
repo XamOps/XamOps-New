@@ -353,7 +353,7 @@ export const useObservabilityData = () => {
       const now = Date.now();
       const start = now - 6 * 3600_000;
       const params = new URLSearchParams({
-        query: 'group by (host_name) (system_cpu_load_average_1m)',
+        query: 'group by (host_name) (system_cpu_utilization)',
         startTime: String(start),
         endTime: String(now),
         step: '10m',
