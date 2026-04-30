@@ -2,6 +2,7 @@ package com.xammer.cloud.service.sre;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xammer.cloud.domain.CloudAccount;
+import com.xammer.cloud.domain.SloDefinition;
 import com.xammer.cloud.domain.SreInvestigation;
 import com.xammer.cloud.dto.sre.SreStatsDto;
 import com.xammer.cloud.dto.sre.TriggerInvestigationRequest;
@@ -316,6 +317,19 @@ public class SreInvestigationService {
         } catch (Exception e) {
             logger.warn("Could not resolve AWS credentials for account {}: {}", account.getId(), e.getMessage());
         }
+    }
+
+    public SreInvestigation createAutoInvestigation(Long clientId, SloDefinition slo, String incidentId) {
+        SreInvestigation inv = new SreInvestigation();
+        inv.setClientId(clientId);
+        inv.setTriggerType(SreInvestigation.TriggerType.AUTO);
+        inv.setResourceType(SreInvestigation.ResourceType.GENERIC);
+        inv.setResourceId(slo.getEntity());
+        inv.setResourceName(slo.getEntity());
+        inv.setIncidentId(incidentId);
+        inv.setIncidentStatus(SreInvestigation.IncidentStatus.OPEN);
+        inv.setStatus(SreInvestigation.InvestigationStatus.PENDING);
+        return investigationRepo.save(inv);
     }
 
     private void buildAzureIntegration(CloudAccount account, Map<String, Object> integrations) {
