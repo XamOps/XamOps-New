@@ -12,8 +12,8 @@ import java.time.Instant;
 public class SloDefinition {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "slo_def_seq")
-    @SequenceGenerator(name = "slo_def_seq", sequenceName = "slo_definition_id_seq", allocationSize = 1)
+    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "slo_definition_seq_gen")
+    @SequenceGenerator(name = "slo_definition_seq_gen", sequenceName = "slo_definition_id_seq", allocationSize = 1)
     private Long id;
 
     @Column(name = "client_id", nullable = false)

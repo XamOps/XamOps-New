@@ -12,8 +12,8 @@ import java.time.Instant;
 public class DetectionEvent {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "det_evt_seq")
-    @SequenceGenerator(name = "det_evt_seq", sequenceName = "detection_event_id_seq", allocationSize = 1)
+    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "detection_event_seq_gen")
+    @SequenceGenerator(name = "detection_event_seq_gen", sequenceName = "detection_event_id_seq", allocationSize = 1)
     private Long id;
 
     @Column(name = "client_id", nullable = false)
