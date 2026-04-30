@@ -6,11 +6,83 @@
 
 import React from 'react';
 
+// Derive Karpenter node info from raw node labels when dashboard.karpenter is absent
+function deriveKarpenterFromNodes(dashboard: any) {
+  const allNodes: any[] = dashboard?.nodeMetrics?.nodes || dashboard?.resourceUtilization?.nodes || [];
+  const karpenterNodes = allNodes.filter((n: any) => {
+    const labels = n.labels || {};
+    return labels['karpenter.sh/nodepool'] || labels['karpenter.sh/registered'] || n.capacityType === 'spot';
+  });
+  if (karpenterNodes.length === 0) return null;
+
+  // Build a synthetic karpenter summary from node labels
+  const nodePools = [...new Set(karpenterNodes.map((n: any) => n.labels?.['karpenter.sh/nodepool'] || n.labels?.['karpenter.sh/provisioner-name'] || 'default'))];
+  const spotNodes = karpenterNodes.filter((n: any) => (n.labels?.['karpenter.sh/capacity-type'] || n.capacityType) === 'spot');
+  const onDemandNodes = karpenterNodes.filter((n: any) => {
+    const ct = n.labels?.['karpenter.sh/capacity-type'] || n.capacityType;
+    return ct === 'on-demand' || ct === 'ON_DEMAND';
+  });
+
+  return {
+    _derived: true, // flag: built from node labels, not from dedicated Karpenter API
+    healthy: true,
+    nodePools: nodePools.map(np => ({ name: np, consolidationPolicy: 'WhenEmptyOrUnderutilized' })),
+    ec2NodeClasses: [],
+    nodeClaims: karpenterNodes.map((n: any) => ({
+      name: n.name || n.nodeName,
+      instanceType: n.instanceType || n.labels?.['node.kubernetes.io/instance-type'] || 'Unknown',
+      capacityType: n.labels?.['karpenter.sh/capacity-type'] || n.capacityType || 'on-demand',
+      zone: n.zone || n.labels?.['topology.kubernetes.io/zone'] || 'N/A',
+      phase: 'Launched',
+    })),
+    spotNodesCount: spotNodes.length,
+    onDemandNodesCount: onDemandNodes.length,
+    totalNodesCount: karpenterNodes.length,
+  };
+}
+
 const EksKarpenterTab: React.FC<{ eksData: any }> = ({ eksData }) => {
   const { dashboard, karpenterProvisioningStatus } = eksData;
-  const karpenter = dashboard?.karpenter;
+  const karpenter = dashboard?.karpenter || deriveKarpenterFromNodes(dashboard);
 
   if (!karpenter) {
+    // Check if Karpenter controller pods are running (installed but no managed nodes yet)
+    const allPods: any[] = dashboard?.k8sPods || [];
+    const karpenterController = allPods.find((p: any) =>
+      p.namespace === 'kube-system' &&
+      p.name?.toLowerCase().includes('karpenter') &&
+      p.phase === 'Running'
+    );
+
+    if (karpenterController) {
+      return (
+        <div className="space-y-4">
+          <div className="bg-white rounded-xl shadow-sm p-10 border border-gray-200 text-center">
+            <div className="w-20 h-20 rounded-xl bg-blue-50 flex items-center justify-center mx-auto mb-5 border border-blue-100">
+              <i className="fas fa-dharmachakra text-blue-500 text-3xl"></i>
+            </div>
+            <h3 className="text-xl font-bold text-gray-900 mb-2">Karpenter Installed</h3>
+            <p className="text-[#57606a] text-sm max-w-md mx-auto">
+              Karpenter controller is running but no Karpenter-managed nodes have been provisioned yet.
+              Current nodes are managed by your EKS managed node group.
+            </p>
+            <div className="mt-5 inline-flex items-center gap-2 px-4 py-2 bg-green-50 border border-green-200 rounded-lg">
+              <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+              <span className="text-sm font-semibold text-green-700">Controller Running — {karpenterController.name}</span>
+            </div>
+            <div className="mt-5 p-4 bg-[#f6f8fa] border border-[#e8ecf0] rounded-lg max-w-lg mx-auto text-left">
+              <p className="text-xs font-semibold text-[#1a1f2e] mb-2">To enable Karpenter provisioning:</p>
+              <ul className="text-xs text-[#57606a] space-y-1.5 list-disc list-inside">
+                <li>Create a <code className="bg-white border border-[#d0d7de] px-1 rounded">NodePool</code> resource to define provisioning rules</li>
+                <li>Create an <code className="bg-white border border-[#d0d7de] px-1 rounded">EC2NodeClass</code> with your AMI and subnet settings</li>
+                <li>Karpenter-provisioned nodes (with <code className="bg-white border border-[#d0d7de] px-1 rounded">karpenter.sh/nodepool</code> labels) will appear here automatically</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="bg-white rounded-xl shadow-sm p-12 border border-gray-200 text-center">
         <div className="w-20 h-20 rounded-lg bg-amber-100 flex items-center justify-center mx-auto mb-6">
@@ -30,6 +102,18 @@ const EksKarpenterTab: React.FC<{ eksData: any }> = ({ eksData }) => {
 
   return (
     <div className="space-y-8">
+      {/* Notice banner when data is derived from node labels instead of the Karpenter API */}
+      {karpenter._derived && (
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">
+          <i className="fas fa-info-circle text-blue-500 mt-0.5"></i>
+          <div>
+            <p className="font-semibold text-blue-800 text-sm">Showing node-label data</p>
+            <p className="text-blue-700 text-xs mt-0.5">
+              The backend has not yet returned Karpenter API data (NodePools / NodeClaims). The view below is derived from Karpenter node labels collected by the agent. NodePool limits and EC2NodeClass details will appear once the backend syncs Karpenter CRD data.
+            </p>
+          </div>
+        </div>
+      )}
       {/* Karpenter Status Hero Section */}
       <section className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
         <div className="flex items-center justify-between mb-6">

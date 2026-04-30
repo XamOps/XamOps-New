@@ -6,10 +6,16 @@
 
 import React, { useState, useMemo } from 'react';
 
+// Returns true for any node shape: boolean ready, condition string, or conditions[]
+const resolveReady = (n: any): boolean =>
+  n?.ready === true ||
+  n?.condition === 'Ready' || n?.condition === 'ready' ||
+  n?.conditions?.some((c: any) => c.type === 'Ready' && c.status === 'True') ||
+  false;
+
 const EksNodesTab: React.FC<{ eksData: any }> = ({ eksData }) => {
-  const { dashboard, sortedNodesByPressure, getNodeConditionCount } = eksData;
+  const { dashboard, sortedNodesByPressure, getNodeConditionCount, derivedNodeRequestMetrics } = eksData;
   const nodes = dashboard?.nodeMetrics?.nodes || [];
-  // totalNodeCount: prefer nodeMetrics (populated by backend step 10); fallback to resourceUtilization.nodes
   const totalNodeCount = nodes.length || sortedNodesByPressure.length;
 
   // State for filtering and pagination
@@ -31,26 +37,22 @@ const EksNodesTab: React.FC<{ eksData: any }> = ({ eksData }) => {
     if (filterStatus === 'running') {
       result = baseNodes.filter((node: any) => {
         const fullNode = findNode(node.nodeName);
-        // nodeMetrics may be empty in agent-only mode; fall back to condition string from resourceUtilization
-        return fullNode?.ready === true || node.ready === true ||
-               node.condition === 'Ready' || node.condition === 'ready';
+        return resolveReady(fullNode) || resolveReady(node);
       });
     } else if (filterStatus === 'notReady') {
       result = baseNodes.filter((node: any) => {
         const fullNode = findNode(node.nodeName);
-        return fullNode?.ready === false || node.ready === false ||
-               node.condition === 'NotReady' || node.condition === 'notReady';
+        return !resolveReady(fullNode) && !resolveReady(node);
       });
-    } else { // 'all' status
+    } else {
       result = baseNodes;
     }
 
-    // Stage 3: Sort by Ready status first, then by pressure
     return result.sort((a: any, b: any) => {
       const fullA = findNode(a.nodeName);
       const fullB = findNode(b.nodeName);
-      const aReady = fullA?.ready === true ? 1 : 0;
-      const bReady = fullB?.ready === true ? 1 : 0;
+      const aReady = (resolveReady(fullA) || resolveReady(a)) ? 1 : 0;
+      const bReady = (resolveReady(fullB) || resolveReady(b)) ? 1 : 0;
       if (aReady !== bReady) return bReady - aReady;
       return 0; // maintain original relative order (pressure based)
     });
@@ -180,8 +182,8 @@ const EksNodesTab: React.FC<{ eksData: any }> = ({ eksData }) => {
 
         <div className="space-y-4">
           {paginatedNodes.map((node: any, index: number) => {
-            // Try to find full node details from multiple sources
-            let fullNode = nodes.find((n: any) => n.name === node.nodeName) ||
+            // nodeMetrics.nodes may use either `name` or `nodeName` depending on backend version
+            let fullNode = nodes.find((n: any) => (n.name || n.nodeName) === node.nodeName) ||
               eksData.sortedNodesByCost?.find((n: any) => n.nodeName === node.nodeName) ||
               node;
 
@@ -200,11 +202,21 @@ const EksNodesTab: React.FC<{ eksData: any }> = ({ eksData }) => {
             const memUsageMB = fullNode.memoryUsageMB || node.memoryUsageMB ||
               (memPercent > 0 && (fullNode.memoryCapacity || node.memoryCapacity || 0) > 0 ? (memPercent / 100) * (fullNode.memoryCapacity || node.memoryCapacity) * 1024 : 0);
 
-            // isNodeReady: check boolean ready field (from nodeMetrics) OR condition string (from resourceUtilization)
-            const isNodeReady = fullNode?.ready === true ||
-              node.condition === 'Ready' || node.condition === 'ready' ||
-              fullNode?.condition === 'Ready' || fullNode?.condition === 'ready';
-            const isHealthy = isNodeReady && cpuPercent < 85 && memPercent < 85;
+            const isNodeReady = resolveReady(fullNode) || resolveReady(node);
+
+            // Derived request metrics (computed from pod requests vs node allocatable)
+            const nodeReqData = derivedNodeRequestMetrics?.[node.nodeName] || null;
+            const cpuReqPct        = fullNode?.cpuRequestsPercent  ?? nodeReqData?.cpuRequestsPct        ?? 0;
+            const cpuReqMillicores = fullNode?.cpuRequests          ?? nodeReqData?.cpuRequestsMillicores ?? 0;
+            const memReqPct        = fullNode?.memoryRequestsPercent ?? nodeReqData?.memoryRequestsPct    ?? 0;
+            const memReqMiB        = fullNode?.memoryRequests        ?? nodeReqData?.memoryRequestsMiB    ?? 0;
+            // When Prometheus usage is 0 fall back to request % for the usage bars
+            const cpuDisplayPct   = cpuPercent  > 0 ? cpuPercent  : cpuReqPct;
+            const cpuDisplayIsReq = cpuPercent  === 0 && cpuReqPct  > 0;
+            const memDisplayPct   = memPercent  > 0 ? memPercent  : memReqPct;
+            const memDisplayIsReq = memPercent  === 0 && memReqPct  > 0;
+
+            const isHealthy = isNodeReady && cpuDisplayPct < 85 && memDisplayPct < 85;
 
             return (
               <div
@@ -279,45 +291,49 @@ const EksNodesTab: React.FC<{ eksData: any }> = ({ eksData }) => {
 
                       {/* Resource Metrics Grid - 2x2 Layout */}
                       <div className="grid grid-cols-2 gap-3">
-                        {/* CPU Usage */}
+                        {/* CPU Usage (falls back to Requests% when Prometheus usage unavailable) */}
                         <div>
                           <div className="flex items-center justify-between text-xs mb-1.5">
                             <span className="font-bold text-gray-700 flex items-center gap-1.5">
                               <i className="fas fa-microchip text-orange-500 text-[10px]"></i>
-                              CPU Usage
+                              {cpuDisplayIsReq ? 'CPU (req-based)' : 'CPU Usage'}
                             </span>
-                            <span className={`font-semibold text-[12px] ${cpuPercent >= 80 ? 'text-[#cf222e]' :
-                              cpuPercent >= 60 ? 'text-[#9a6700]' : 'text-[#1a7f37]'
-                              }`}>
-                              {(cpuPercent ?? 0).toFixed(1)}% {cpuUsageMillicores > 0 && `(${Math.round(cpuUsageMillicores)}m)`}
+                            <span className={`font-semibold text-[12px] ${cpuDisplayPct >= 80 ? 'text-[#cf222e]' : cpuDisplayPct >= 60 ? 'text-[#9a6700]' : 'text-[#1a7f37]'}`}>
+                              {cpuDisplayPct.toFixed(1)}%{' '}
+                              {cpuDisplayIsReq && cpuReqMillicores > 0
+                                ? `(${Math.round(cpuReqMillicores)}m req)`
+                                : cpuUsageMillicores > 0 ? `(${Math.round(cpuUsageMillicores)}m)` : ''}
                             </span>
                           </div>
                           <div className="h-1.5 bg-[#e8ecf0] rounded-full overflow-hidden">
                             <div className="h-full rounded-full transition-all duration-500"
-                              style={{ width: `${Math.min(100, cpuPercent)}%`, background: cpuPercent >= 80 ? '#cf222e' : cpuPercent >= 60 ? '#9a6700' : '#2f4bde' }}
+                              style={{ width: `${Math.min(100, cpuDisplayPct)}%`, background: cpuDisplayPct >= 80 ? '#cf222e' : cpuDisplayPct >= 60 ? '#9a6700' : '#2f4bde' }}
                             />
                           </div>
                         </div>
 
-                        {/* Memory Usage */}
+                        {/* Memory Usage (falls back to Requests% when Prometheus usage unavailable) */}
                         <div>
                           <div className="flex items-center justify-between text-xs mb-1.5">
                             <span className="font-semibold text-[#57606a] flex items-center gap-1.5">
                               <i className="fas fa-memory text-[11px]"></i>
-                              Memory Usage
+                              {memDisplayIsReq ? 'Memory (req-based)' : 'Memory Usage'}
                             </span>
-                            <span className="font-semibold text-sm" style={{ color: memPercent >= 80 ? '#cf222e' : memPercent >= 60 ? '#9a6700' : '#1a1f2e' }}>
-                              {(memPercent ?? 0).toFixed(1)}% {memUsageMB > 0 && `(${Math.round(memUsageMB)} MB)`}
+                            <span className="font-semibold text-sm" style={{ color: memDisplayPct >= 80 ? '#cf222e' : memDisplayPct >= 60 ? '#9a6700' : '#1a1f2e' }}>
+                              {memDisplayPct.toFixed(1)}%{' '}
+                              {memDisplayIsReq && memReqMiB > 0
+                                ? `(${Math.round(memReqMiB)} Mi req)`
+                                : memUsageMB > 0 ? `(${Math.round(memUsageMB)} MB)` : ''}
                             </span>
                           </div>
                           <div className="h-1.5 bg-[#e8ecf0] rounded-full overflow-hidden">
                             <div className="h-full rounded-full transition-all duration-500"
-                              style={{ width: `${Math.min(100, memPercent)}%`, background: memPercent >= 80 ? '#cf222e' : memPercent >= 60 ? '#9a6700' : '#2f4bde' }}
+                              style={{ width: `${Math.min(100, memDisplayPct)}%`, background: memDisplayPct >= 80 ? '#cf222e' : memDisplayPct >= 60 ? '#9a6700' : '#2f4bde' }}
                             />
                           </div>
                         </div>
 
-                        {/* CPU Requests */}
+                        {/* CPU Requests — derived from pod requests vs node allocatable */}
                         <div>
                           <div className="flex items-center justify-between text-xs mb-1.5">
                             <span className="font-semibold text-[#57606a] flex items-center gap-1.5">
@@ -325,18 +341,18 @@ const EksNodesTab: React.FC<{ eksData: any }> = ({ eksData }) => {
                               CPU Requests
                             </span>
                             <span className="font-semibold text-sm text-[#2f4bde]">
-                              {fullNode?.cpuRequestsPercent != null
-                                ? `${fullNode.cpuRequestsPercent.toFixed(1)}% ${fullNode.cpuRequests ? `(${Math.round(fullNode.cpuRequests)}m)` : ''}`
+                              {cpuReqPct > 0
+                                ? `${cpuReqPct.toFixed(1)}%${cpuReqMillicores > 0 ? ` (${Math.round(cpuReqMillicores)}m)` : ''}`
                                 : 'N/A'}
                             </span>
                           </div>
                           <div className="h-1.5 bg-[#e8ecf0] rounded-full overflow-hidden">
                             <div className="h-full bg-[#2f4bde] rounded-full transition-all duration-500"
-                              style={{ width: `${Math.min(100, fullNode?.cpuRequestsPercent || 0)}%` }} />
+                              style={{ width: `${Math.min(100, cpuReqPct)}%` }} />
                           </div>
                         </div>
 
-                        {/* Memory Requests */}
+                        {/* Memory Requests — derived from pod requests vs node allocatable */}
                         <div>
                           <div className="flex items-center justify-between text-xs mb-1.5">
                             <span className="font-semibold text-[#57606a] flex items-center gap-1.5">
@@ -344,14 +360,14 @@ const EksNodesTab: React.FC<{ eksData: any }> = ({ eksData }) => {
                               Memory Requests
                             </span>
                             <span className="font-semibold text-sm text-[#2f4bde]">
-                              {fullNode?.memoryRequestsPercent != null
-                                ? `${fullNode.memoryRequestsPercent.toFixed(1)}% ${fullNode.memoryRequests ? `(${Math.round(fullNode.memoryRequests)} MB)` : ''}`
+                              {memReqPct > 0
+                                ? `${memReqPct.toFixed(1)}%${memReqMiB > 0 ? ` (${Math.round(memReqMiB)} Mi)` : ''}`
                                 : 'N/A'}
                             </span>
                           </div>
                           <div className="h-1.5 bg-[#e8ecf0] rounded-full overflow-hidden">
                             <div className="h-full bg-[#2f4bde] rounded-full transition-all duration-500"
-                              style={{ width: `${Math.min(100, fullNode?.memoryRequestsPercent || 0)}%` }} />
+                              style={{ width: `${Math.min(100, memReqPct)}%` }} />
                           </div>
                         </div>
                       </div>

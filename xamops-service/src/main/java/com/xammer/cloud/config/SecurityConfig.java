@@ -238,9 +238,8 @@ public class SecurityConfig {
         public CommonsRequestLoggingFilter requestLoggingFilter() {
                 CommonsRequestLoggingFilter loggingFilter = new CommonsRequestLoggingFilter();
                 loggingFilter.setIncludeQueryString(true);
-                loggingFilter.setIncludePayload(true);
-                loggingFilter.setMaxPayloadLength(10000);
-                loggingFilter.setIncludeHeaders(true);
+                loggingFilter.setIncludePayload(false);
+                loggingFilter.setIncludeHeaders(false);
                 loggingFilter.setIncludeClientInfo(true);
                 return loggingFilter;
         }

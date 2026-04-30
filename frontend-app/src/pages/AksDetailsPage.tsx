@@ -20,6 +20,7 @@ import GkePerformanceTab from '../components/GkeDetails/tabs/GkePerformanceTab';
 import GkeSecurityTab from '../components/GkeDetails/tabs/GkeSecurityTab';
 import GkeContainersTab from '../components/GkeDetails/tabs/GkeContainersTab';
 import GkeNodesTab from '../components/GkeDetails/tabs/GkeNodesTab';
+import GkeNodePoolsTab from '../components/GkeDetails/tabs/GkeNodePoolsTab';
 import AzureCloudK8sHelpModal from '../components/AzureCloudK8s/AzureCloudK8sHelpModal';
 
 const AksDetailsPage: React.FC = () => {
@@ -164,6 +165,7 @@ const AksDetailsPage: React.FC = () => {
               {activeTab === 'pods'         && <GkePodsTab gkeData={aksData} />}
               {activeTab === 'containers'   && <GkeContainersTab gkeData={aksData} />}
               {activeTab === 'nodes'        && <GkeNodesTab gkeData={aksData} />}
+              {activeTab === 'nodepools'    && <GkeNodePoolsTab gkeData={aksData} />}
             </div>
           </>
         )}

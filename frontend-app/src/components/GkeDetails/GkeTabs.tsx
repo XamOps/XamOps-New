@@ -21,6 +21,7 @@ const TABS: TabItem[] = [
   { id: 'pods',        label: 'Pods',        icon: 'fas fa-box' },
   { id: 'containers',  label: 'Containers',  icon: 'fas fa-layer-group' },
   { id: 'nodes',       label: 'Nodes',       icon: 'fas fa-server' },
+  { id: 'nodepools',   label: 'Node Pools',  icon: 'fas fa-expand-arrows-alt' },
 ];
 
 const GkeTabs: React.FC<GkeTabsProps> = ({ activeTab, onTabChange }) => (

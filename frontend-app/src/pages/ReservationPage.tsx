@@ -14,7 +14,7 @@
  * Enhanced UI with modern React components and improved visual design.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useEffect } from 'react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useReservationData } from '../hooks/useReservationData';
 import { AriaTabGroup } from '../components/ui';

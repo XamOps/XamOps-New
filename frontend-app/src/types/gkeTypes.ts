@@ -11,7 +11,6 @@ export interface GKECluster {
   region?: string; // For regional clusters
   version: string;
   connected: boolean;
-  isEnabling?: boolean;
   status?: string;
   nodeCount?: number;
   currentNodeVersion?: string;
@@ -90,7 +89,7 @@ export interface GKEMetrics {
 
 // --- GKE Dashboard Types (mirrors EKS dashboard structure) ---
 
-export type GkeTabType = 'overview' | 'cost' | 'performance' | 'security' | 'workloads' | 'pods' | 'containers' | 'nodes';
+export type GkeTabType = 'overview' | 'cost' | 'performance' | 'security' | 'workloads' | 'pods' | 'containers' | 'nodes' | 'nodepools';
 
 export interface GkeDashboard {
   clusterName: string;

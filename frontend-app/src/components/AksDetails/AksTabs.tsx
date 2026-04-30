@@ -14,14 +14,15 @@ interface AksTabsProps {
 }
 
 const TABS: TabItem[] = [
-  { id: 'overview',    label: 'Overview',    icon: 'fas fa-tachometer-alt' },
-  { id: 'cost',        label: 'Cost',        icon: 'fas fa-dollar-sign' },
-  { id: 'performance', label: 'Performance', icon: 'fas fa-chart-line' },
-  { id: 'security',    label: 'Security',    icon: 'fas fa-shield-alt' },
-  { id: 'workloads',   label: 'Workloads',   icon: 'fas fa-cubes' },
-  { id: 'pods',        label: 'Pods',        icon: 'fas fa-box' },
-  { id: 'containers',  label: 'Containers',  icon: 'fas fa-layer-group' },
-  { id: 'nodes',       label: 'Nodes',       icon: 'fas fa-server' },
+  { id: 'overview',    label: 'Overview',     icon: 'fas fa-tachometer-alt' },
+  { id: 'cost',        label: 'Cost',         icon: 'fas fa-dollar-sign' },
+  { id: 'performance', label: 'Performance',  icon: 'fas fa-chart-line' },
+  { id: 'security',    label: 'Security',     icon: 'fas fa-shield-alt' },
+  { id: 'workloads',   label: 'Workloads',    icon: 'fas fa-cubes' },
+  { id: 'pods',        label: 'Pods',         icon: 'fas fa-box' },
+  { id: 'containers',  label: 'Containers',   icon: 'fas fa-layer-group' },
+  { id: 'nodes',       label: 'Nodes',        icon: 'fas fa-server' },
+  { id: 'nodepools',   label: 'Agent Pools',  icon: 'fas fa-expand-arrows-alt' },
 ];
 
 const AksTabs: React.FC<AksTabsProps> = ({ activeTab, onTabChange }) => (

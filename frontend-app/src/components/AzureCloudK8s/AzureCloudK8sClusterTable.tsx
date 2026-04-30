@@ -4,14 +4,12 @@ import { AKSCluster } from '../../types/aksTypes';
 interface AzureCloudK8sClusterTableProps {
   clusters: AKSCluster[];
   isLoading: boolean;
-  onEnableMonitoring: (cluster: AKSCluster) => void;
   onViewDetails: (cluster: AKSCluster) => void;
 }
 
 const AzureCloudK8sClusterTable: React.FC<AzureCloudK8sClusterTableProps> = ({
   clusters,
   isLoading,
-  onEnableMonitoring,
   onViewDetails,
 }) => {
   if (isLoading) {
@@ -106,23 +104,10 @@ const AzureCloudK8sClusterTable: React.FC<AzureCloudK8sClusterTableProps> = ({
                       Connected
                     </span>
                   ) : (
-                    <button
-                      onClick={() => onEnableMonitoring(cluster)}
-                      disabled={cluster.isEnabling}
-                      className="px-3 py-1 text-xs font-semibold rounded-lg bg-yellow-500 text-white hover:bg-yellow-600 disabled:opacity-50 transition-colors"
-                    >
-                      {cluster.isEnabling ? (
-                        <>
-                          <i className="fas fa-spinner fa-spin mr-1"></i>
-                          Enabling...
-                        </>
-                      ) : (
-                        <>
-                          <i className="fas fa-magic mr-1"></i>
-                          Enable Monitoring
-                        </>
-                      )}
-                    </button>
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-lg bg-amber-100 text-amber-700 border border-amber-200">
+                      <i className="fas fa-robot"></i>
+                      Deploy Agent
+                    </span>
                   )}
                 </td>
                 <td className="px-6 py-4 text-center">
@@ -151,8 +136,8 @@ const AzureCloudK8sClusterTable: React.FC<AzureCloudK8sClusterTableProps> = ({
             Connected: <span className="font-bold text-gray-800">{clusters.filter(c => c.connected).length}</span>
           </span>
           <span className="text-gray-600">
-            <i className="fas fa-exclamation-triangle text-yellow-500 mr-2"></i>
-            Pending: <span className="font-bold text-gray-800">{clusters.filter(c => !c.connected).length}</span>
+            <i className="fas fa-robot text-amber-500 mr-2"></i>
+            Awaiting Agent: <span className="font-bold text-gray-800">{clusters.filter(c => !c.connected).length}</span>
           </span>
         </div>
       </div>
