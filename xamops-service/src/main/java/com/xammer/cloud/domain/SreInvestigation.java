@@ -72,6 +72,19 @@ public class SreInvestigation {
     @Column(name = "verdict_note", columnDefinition = "TEXT")
     private String verdictNote;
 
+    @Column(name = "incident_id")
+    private String incidentId;
+
+    @Column(name = "version", nullable = false)
+    private int version = 1;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "incident_status", nullable = false, length = 10)
+    private IncidentStatus incidentStatus = IncidentStatus.OPEN;
+
+    @Column(name = "closed_at")
+    private Instant closedAt;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
 
@@ -88,4 +101,6 @@ public class SreInvestigation {
     public enum InvestigationStatus { PENDING, RUNNING, COMPLETED, FAILED }
 
     public enum Verdict { RESOLVED, FALSE_POSITIVE, WRONG_ROOT_CAUSE }
+
+    public enum IncidentStatus { OPEN, FINAL, CLOSED }
 }

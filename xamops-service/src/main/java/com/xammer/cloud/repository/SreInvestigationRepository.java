@@ -8,6 +8,7 @@ import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface SreInvestigationRepository extends JpaRepository<SreInvestigation, Long> {
@@ -29,4 +30,6 @@ public interface SreInvestigationRepository extends JpaRepository<SreInvestigati
 
     @Query("SELECT COUNT(i) FROM SreInvestigation i WHERE i.resourceId = :resourceId AND i.createdAt > :since")
     int countRecentByResourceId(@Param("resourceId") String resourceId, @Param("since") Instant since);
+
+    Optional<SreInvestigation> findByIncidentId(String incidentId);
 }
