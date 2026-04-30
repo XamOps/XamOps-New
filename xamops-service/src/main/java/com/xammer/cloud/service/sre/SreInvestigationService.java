@@ -1,9 +1,11 @@
 package com.xammer.cloud.service.sre;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.SloDefinition;
 import com.xammer.cloud.domain.SreInvestigation;
+import com.xammer.cloud.dto.sre.RcaCompleteRequest;
 import com.xammer.cloud.dto.sre.SreStatsDto;
 import com.xammer.cloud.dto.sre.TriggerInvestigationRequest;
 import com.xammer.cloud.repository.CloudAccountRepository;
@@ -317,6 +319,31 @@ public class SreInvestigationService {
         } catch (Exception e) {
             logger.warn("Could not resolve AWS credentials for account {}: {}", account.getId(), e.getMessage());
         }
+    }
+
+    public void patchFromRca(Long investigationId, RcaCompleteRequest req) {
+        investigationRepo.findById(investigationId).ifPresent(inv -> {
+            if (req.getVersion() <= inv.getVersion()) {
+                logger.info("SRE [{}] RCA patch dropped: incoming version {} <= stored {}",
+                    investigationId, req.getVersion(), inv.getVersion());
+                return;
+            }
+            inv.setVersion(req.getVersion());
+            inv.setReportSummary(req.getReportSummary());
+            inv.setReportRootCause(req.getReportRootCause());
+            inv.setReportFullMarkdown(req.getReportFullMarkdown());
+            if (req.getReportRecommendations() != null) {
+                try {
+                    inv.setReportRecommendations(objectMapper.writeValueAsString(req.getReportRecommendations()));
+                } catch (JsonProcessingException ignored) {}
+            }
+            inv.setStatus(req.isNoise() ? SreInvestigation.InvestigationStatus.FAILED : SreInvestigation.InvestigationStatus.COMPLETED);
+            inv.setIncidentStatus(SreInvestigation.IncidentStatus.FINAL);
+            inv.setCompletedAt(Instant.now());
+            investigationRepo.save(inv);
+            notificationService.notifyComplete(inv, inv.getClientId());
+            logger.info("SRE [{}] RCA complete, incidentId={}", investigationId, inv.getIncidentId());
+        });
     }
 
     public SreInvestigation createAutoInvestigation(Long clientId, SloDefinition slo, String incidentId) {

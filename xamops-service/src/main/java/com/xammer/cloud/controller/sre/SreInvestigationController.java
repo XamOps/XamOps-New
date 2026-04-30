@@ -2,6 +2,7 @@ package com.xammer.cloud.controller.sre;
 
 import com.xammer.cloud.domain.SreInvestigation;
 import com.xammer.cloud.domain.SreNotification;
+import com.xammer.cloud.dto.sre.RcaCompleteRequest;
 import com.xammer.cloud.dto.sre.SreInvestigationDto;
 import com.xammer.cloud.dto.sre.SreStatsDto;
 import com.xammer.cloud.dto.sre.SreNotificationDto;
@@ -82,6 +83,14 @@ public class SreInvestigationController {
         return investigationService.submitVerdict(id, user.getClientId(), verdict, note)
             .map(inv -> ResponseEntity.ok(SreInvestigationDto.from(inv)))
             .orElse(ResponseEntity.notFound().build());
+    }
+
+    @PutMapping("/investigations/{id}/complete")
+    public ResponseEntity<Void> completeInvestigation(
+            @PathVariable Long id,
+            @RequestBody RcaCompleteRequest req) {
+        investigationService.patchFromRca(id, req);
+        return ResponseEntity.ok().build();
     }
 
     @GetMapping("/stats")
