@@ -7,6 +7,32 @@
 
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import apiClient from '../utils/apiClient';
+
+// Parse Kubernetes CPU quantity strings → millicores
+// Examples: "10m" → 10, "100m" → 100, "1" → 1000, "1.5" → 1500
+function parseCpuMillicores(v: any): number {
+  if (v === null || v === undefined || v === '') return 0;
+  const s = String(v).trim();
+  if (s.endsWith('m')) return parseFloat(s) || 0;
+  const n = parseFloat(s);
+  return isNaN(n) ? 0 : Math.round(n * 1000);
+}
+
+// Parse Kubernetes memory quantity strings → MiB (mebibytes)
+// Examples: "32Mi" → 32, "3400576Ki" → ~3321, "1Gi" → 1024, "134217728" → ~128
+function parseMemoryMiB(v: any): number {
+  if (v === null || v === undefined || v === '') return 0;
+  const s = String(v).trim();
+  if (s.endsWith('Ki')) return parseFloat(s) / 1024;
+  if (s.endsWith('Mi')) return parseFloat(s);
+  if (s.endsWith('Gi')) return parseFloat(s) * 1024;
+  if (s.endsWith('Ti')) return parseFloat(s) * 1024 * 1024;
+  if (s.endsWith('K') || s.endsWith('k')) return parseFloat(s) / 1024;
+  if (s.endsWith('M')) return parseFloat(s);
+  if (s.endsWith('G')) return parseFloat(s) * 1024;
+  const bytes = parseFloat(s);
+  return isNaN(bytes) ? 0 : bytes / (1024 * 1024);
+}
 import {
   EksDashboard,
   ContainerWithMetrics,
@@ -24,6 +50,7 @@ interface UseEksDashboardParams {
   region: string;
   version: string;
   accountId: string | null;
+  initialTab?: TabType;
 }
 
 interface UseEksDashboardReturn {
@@ -68,6 +95,29 @@ interface UseEksDashboardReturn {
   allContainersWithMetrics: ContainerWithMetrics[];
   filteredContainers: ContainerWithMetrics[];
   uniqueNamespaces: string[];
+  // Derived / computed data
+  normalizedPods: any[];
+  derivedNodeRequestMetrics: Record<string, {
+    cpuRequestsMillicores: number;
+    memoryRequestsMiB: number;
+    cpuRequestsPct: number;
+    memoryRequestsPct: number;
+    allocatableCpuMillicores: number;
+    allocatableMemoryMiB: number;
+  }>;
+  derivedPodResourceMetrics: {
+    totalCpuRequests: number;
+    totalCpuLimits: number;
+    totalCpuCapacity: number;
+    totalCpuUsage: number;
+    totalMemoryRequests: number;
+    totalMemoryLimits: number;
+    totalMemoryCapacity: number;
+    totalMemoryUsage: number;
+    podsWithoutRequests: number;
+    podsWithoutLimits: number;
+    _derived: boolean;
+  } | null;
   // Helper functions
   getPodsCountByPhase: (phase: string) => number;
   getPodsCountByQoS: (qosClass: string) => number;
@@ -80,7 +130,8 @@ export const useEksDashboard = ({
   clusterName,
   region,
   version,
-  accountId
+  accountId,
+  initialTab,
 }: UseEksDashboardParams): UseEksDashboardReturn => {
   // Frontend cache context - persists data across navigation
   const dashboardCache = useEksDashboardCache();
@@ -91,7 +142,7 @@ export const useEksDashboard = ({
   const [isSyncing, setIsSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdateTimestamp, setLastUpdateTimestamp] = useState(Date.now());
-  const [activeTab, setActiveTab] = useState<TabType>('overview');
+  const [activeTab, setActiveTab] = useState<TabType>(initialTab || 'overview');
   const [containerSearchQuery, setContainerSearchQuery] = useState('');
   const [containerNamespaceFilter, setContainerNamespaceFilter] = useState('');
 
@@ -316,11 +367,37 @@ export const useEksDashboard = ({
   }, [dashboard]);
 
   const sortedNodesByPressure = useMemo(() => {
-    const nodes = dashboard?.resourceUtilization?.nodes || [];
-    return [...nodes].sort((a, b) => {
-      const pressureA = Math.max(a.cpuUsagePercent, a.memoryUsagePercent);
-      const pressureB = Math.max(b.cpuUsagePercent, b.memoryUsagePercent);
-      return pressureB - pressureA;
+    const resUtilNodes = dashboard?.resourceUtilization?.nodes || [];
+    if (resUtilNodes.length > 0) {
+      return [...resUtilNodes].sort((a, b) => {
+        const pressureA = Math.max(a.cpuUsagePercent || 0, a.memoryUsagePercent || 0);
+        const pressureB = Math.max(b.cpuUsagePercent || 0, b.memoryUsagePercent || 0);
+        return pressureB - pressureA;
+      });
+    }
+    // Fallback: k8s-resources collector sends nodes into nodeMetrics.nodes with
+    // conditions[] array but no cpuUsagePercent — normalise shape so the Nodes tab renders
+    const nodeMetricNodes: any[] = dashboard?.nodeMetrics?.nodes || [];
+    return nodeMetricNodes.map((n: any) => {
+      const readyCondition = n.conditions?.find((c: any) => c.type === 'Ready');
+      const diskPressureCondition = n.conditions?.find((c: any) => c.type === 'DiskPressure');
+      const memPressureCondition = n.conditions?.find((c: any) => c.type === 'MemoryPressure');
+      const normName = n.name || n.nodeName;
+      return {
+        // spread original first, then override with computed/normalised values
+        ...n,
+        nodeName: normName,
+        name: normName,
+        cpuUsagePercent: n.cpuUsagePercent || 0,
+        memoryUsagePercent: n.memoryUsagePercent || 0,
+        cpuUsageMillicores: n.cpuUsageMillicores || 0,
+        memoryUsageMB: n.memoryUsageMB || 0,
+        // ready / condition computed from conditions[]
+        ready: readyCondition?.status === 'True',
+        condition: readyCondition?.status === 'True' ? 'Ready' : 'NotReady',
+        diskPressure: diskPressureCondition?.status === 'True',
+        memoryPressure: memPressureCondition?.status === 'True',
+      };
     });
   }, [dashboard]);
 
@@ -584,6 +661,139 @@ export const useEksDashboard = ({
     return containers;
   }, [allContainersWithMetrics, containerNamespaceFilter, containerSearchQuery]);
 
+  // Normalise every pod: aggregate container-level cpuRequest/cpuLimit/memoryRequest/memoryLimit
+  // to pod level (as numbers), and add top-level `restarts` from containers[].restartCount.
+  // The k8s-resources collector stores these inside containers[] as strings ("10m", "32Mi").
+  const normalizedPods = useMemo(() => {
+    const rawPods: any[] = dashboard?.k8sPods?.length
+      ? dashboard.k8sPods
+      : (dashboard?.workloadHealth?.pods || []);
+    return rawPods.map((pod: any) => {
+      const containers: any[] = pod.containers || pod.containerStatuses || [];
+      const cpuReq  = containers.reduce((s: number, c: any) => s + parseCpuMillicores(c.cpuRequest),  0);
+      const memReq  = containers.reduce((s: number, c: any) => s + parseMemoryMiB(c.memoryRequest),   0);
+      const cpuLim  = containers.reduce((s: number, c: any) => s + parseCpuMillicores(c.cpuLimit),    0);
+      const memLim  = containers.reduce((s: number, c: any) => s + parseMemoryMiB(c.memoryLimit),     0);
+      const restarts = containers.reduce((s: number, c: any) => s + (c.restartCount || 0), 0);
+      return {
+        ...pod,
+        restarts:       pod.restarts != null ? pod.restarts : restarts,
+        cpuRequest:     cpuReq,
+        memoryRequest:  memReq,
+        cpuLimit:       parseCpuMillicores(pod.cpuLimit)  || cpuLim,
+        memoryLimit:    parseMemoryMiB(pod.memoryLimit)   || memLim,
+      };
+    });
+  }, [dashboard]);
+
+  // Per-node CPU/Memory request percentages — derived by summing pod container requests
+  // per nodeName and dividing by node allocatableCpu/allocatableMemory.
+  // Populates the "CPU Requests" / "Memory Requests" bars which the backend leaves as N/A.
+  const derivedNodeRequestMetrics = useMemo(() => {
+    if (normalizedPods.length === 0 || sortedNodesByPressure.length === 0) return {};
+    const perNode: Record<string, { cpu: number; mem: number }> = {};
+    normalizedPods.forEach((pod: any) => {
+      const key = pod.nodeName || pod.node;
+      if (!key) return;
+      if (!perNode[key]) perNode[key] = { cpu: 0, mem: 0 };
+      perNode[key].cpu += pod.cpuRequest || 0;
+      perNode[key].mem += pod.memoryRequest || 0;
+    });
+    const result: Record<string, any> = {};
+    sortedNodesByPressure.forEach((node: any) => {
+      const name = node.nodeName || node.name;
+      const reqs = perNode[name] || { cpu: 0, mem: 0 };
+      const allocCpu = parseCpuMillicores(node.allocatableCpu ?? node.cpuAllocatable);
+      const allocMem = parseMemoryMiB(node.allocatableMemory ?? node.memoryAllocatable);
+      result[name] = {
+        cpuRequestsMillicores: Math.round(reqs.cpu),
+        memoryRequestsMiB:     Math.round(reqs.mem),
+        cpuRequestsPct:   allocCpu > 0 ? Math.min(100, (reqs.cpu / allocCpu) * 100) : 0,
+        memoryRequestsPct: allocMem > 0 ? Math.min(100, (reqs.mem / allocMem) * 100) : 0,
+        allocatableCpuMillicores: allocCpu,
+        allocatableMemoryMiB:    allocMem,
+      };
+    });
+    return result;
+  }, [normalizedPods, sortedNodesByPressure]);
+
+  // Compute podResourceMetrics from container requests/limits when backend doesn't provide it.
+  // The k8s-resources collector sends containers[].cpuRequest/cpuLimit/memoryRequest/memoryLimit
+  // but the backend does not aggregate them into podResourceMetrics — so we do it here.
+  const derivedPodResourceMetrics = useMemo(() => {
+    // Prefer backend-computed value when available
+    if (dashboard?.podResourceMetrics) return { ...dashboard.podResourceMetrics, _derived: false };
+
+    const pods: any[] = dashboard?.k8sPods?.length
+      ? dashboard.k8sPods
+      : (dashboard?.workloadHealth?.pods || []);
+
+    if (pods.length === 0) return null;
+
+    let totalCpuRequests = 0;
+    let totalCpuLimits = 0;
+    let totalMemoryRequests = 0;
+    let totalMemoryLimits = 0;
+    let podsWithoutRequests = 0;
+    let podsWithoutLimits = 0;
+
+    pods.forEach((pod: any) => {
+      const containers: any[] = pod.containers || pod.containerStatuses || [];
+      let podHasRequests = false;
+      let podHasLimits = false;
+
+      containers.forEach((c: any) => {
+        const cpuReq = parseCpuMillicores(c.cpuRequest);
+        const cpuLim = parseCpuMillicores(c.cpuLimit);
+        const memReq = parseMemoryMiB(c.memoryRequest);
+        const memLim = parseMemoryMiB(c.memoryLimit);
+
+        totalCpuRequests += cpuReq;
+        totalCpuLimits += cpuLim;
+        totalMemoryRequests += memReq;
+        totalMemoryLimits += memLim;
+
+        if (cpuReq > 0 || memReq > 0) podHasRequests = true;
+        if (cpuLim > 0 || memLim > 0) podHasLimits = true;
+      });
+
+      if (!podHasRequests) podsWithoutRequests++;
+      if (!podHasLimits) podsWithoutLimits++;
+    });
+
+    // Node allocatable capacity (sum across all nodes)
+    const nodes: any[] = dashboard?.nodeMetrics?.nodes?.length
+      ? dashboard.nodeMetrics.nodes
+      : (dashboard?.resourceUtilization?.nodes || []);
+
+    let totalCpuCapacity = 0;
+    let totalMemoryCapacity = 0;
+    nodes.forEach((n: any) => {
+      totalCpuCapacity += parseCpuMillicores(n.allocatableCpu ?? n.cpuAllocatable ?? n.cpuCapacity ?? n.totalCpu);
+      totalMemoryCapacity += parseMemoryMiB(n.allocatableMemory ?? n.memoryAllocatable ?? n.memoryCapacity ?? n.totalMemory);
+    });
+
+    // When node capacity is unavailable, estimate from requests (so chart still renders)
+    if (totalCpuCapacity === 0 && totalCpuRequests > 0) totalCpuCapacity = Math.round(totalCpuRequests * 1.5);
+    if (totalMemoryCapacity === 0 && totalMemoryRequests > 0) totalMemoryCapacity = Math.round(totalMemoryRequests * 1.5);
+
+    if (totalCpuRequests === 0 && totalMemoryRequests === 0) return null;
+
+    return {
+      totalCpuRequests,
+      totalCpuLimits,
+      totalCpuCapacity,
+      totalCpuUsage: 0,       // Prometheus not available — usage unknown
+      totalMemoryRequests,
+      totalMemoryLimits,
+      totalMemoryCapacity,
+      totalMemoryUsage: 0,    // Prometheus not available — usage unknown
+      podsWithoutRequests,
+      podsWithoutLimits,
+      _derived: true,
+    };
+  }, [dashboard]);
+
   // Helper functions
   const getPodsCountByPhase = useCallback((phase: string) => {
     // prefer k8sPods (from k8s-resources collector) over workloadHealth.pods
@@ -598,33 +808,46 @@ export const useEksDashboard = ({
 
   const getNodeConditionCount = useCallback((condition: string) => {
     const nodeMetricNodes = dashboard?.nodeMetrics?.nodes || [];
-    // Fallback: if nodeMetrics is not yet populated, use resourceUtilization.nodes (condition string)
     const resUtilNodes = dashboard?.resourceUtilization?.nodes || [];
 
+    // Helper: resolve ready from any node object regardless of shape
+    const isNodeReady = (n: any) =>
+      n.ready === true ||
+      n.condition === 'Ready' || n.condition === 'ready' ||
+      n.conditions?.some((c: any) => c.type === 'Ready' && c.status === 'True');
+
+    const hasConditionPressure = (n: any, type: string) =>
+      n.conditions?.some((c: any) => c.type === type && c.status === 'True') || false;
+
     if (condition === 'ready') {
-      // Try nodeMetrics boolean first (built by backend step 10)
       if (nodeMetricNodes.length > 0) {
-        const unique = nodeMetricNodes.reduce((acc: any[], node) => {
-          if (!acc.find((n: any) => n.name === node.name)) acc.push(node);
+        const unique = nodeMetricNodes.reduce((acc: any[], node: any) => {
+          const key = node.name || node.nodeName;
+          if (key && !acc.find((n: any) => (n.name || n.nodeName) === key)) acc.push(node);
           return acc;
         }, []);
-        return unique.filter((n: any) => n.ready).length;
+        const count = unique.filter(isNodeReady).length;
+        if (count > 0) return count;
       }
-      // Fallback: count nodes with condition === 'Ready' from resourceUtilization
-      return resUtilNodes.filter((n: any) =>
+      // Fallback: resourceUtilization condition string
+      const fromResUtil = resUtilNodes.filter((n: any) =>
         n.condition === 'Ready' || n.condition === 'ready'
       ).length;
+      if (fromResUtil > 0) return fromResUtil;
+      // Last resort: clusterOverview.totalNodes (all nodes are typically Ready in healthy clusters)
+      return dashboard?.clusterOverview?.totalNodes || 0;
     }
 
-    // For pressure conditions, only nodeMetrics has this data
-    const uniqueNodes = nodeMetricNodes.reduce((acc: any[], node) => {
-      if (!acc.find((n: any) => n.name === node.name)) acc.push(node);
+    const uniqueNodes = nodeMetricNodes.reduce((acc: any[], node: any) => {
+      const key = node.name || node.nodeName;
+      if (key && !acc.find((n: any) => (n.name || n.nodeName) === key)) acc.push(node);
       return acc;
     }, []);
+
     switch (condition) {
-      case 'diskPressure': return uniqueNodes.filter((n: any) => n.diskPressure).length;
-      case 'memoryPressure': return uniqueNodes.filter((n: any) => n.memoryPressure).length;
-      case 'pidPressure': return uniqueNodes.filter((n: any) => n.pidPressure).length;
+      case 'diskPressure':   return uniqueNodes.filter((n: any) => n.diskPressure   || hasConditionPressure(n, 'DiskPressure')).length;
+      case 'memoryPressure': return uniqueNodes.filter((n: any) => n.memoryPressure || hasConditionPressure(n, 'MemoryPressure')).length;
+      case 'pidPressure':    return uniqueNodes.filter((n: any) => n.pidPressure    || hasConditionPressure(n, 'PIDPressure')).length;
       default: return 0;
     }
   }, [dashboard]);
@@ -704,6 +927,9 @@ export const useEksDashboard = ({
     allContainersWithMetrics,
     filteredContainers,
     uniqueNamespaces,
+    normalizedPods,
+    derivedNodeRequestMetrics,
+    derivedPodResourceMetrics,
     getPodsCountByPhase,
     getPodsCountByQoS,
     getNodeConditionCount,

@@ -35,6 +35,7 @@ import EksKarpenterTab from '../components/EksDetails/tabs/EksKarpenterTab';
 import EksResourcesTab from '../components/EksDetails/tabs/EksResourcesTab';
 // import EksAutoscalingTab from '../components/EksDetails/tabs/EksAutoscalingTab';
 import EksIntegrationModal from '../components/EksDetails/EksIntegrationModal';
+import EksDiagnosticsPanel from '../components/EksDetails/EksDiagnosticsPanel';
 
 const EksDetailsPage: React.FC = () => {
   const [searchParams] = useSearchParams();
@@ -53,13 +54,16 @@ const EksDetailsPage: React.FC = () => {
   const region = searchParams.get('region') || 'us-east-1';
   const version = searchParams.get('version') || '1.33';
   const accountId = searchParams.get('accountIds');
+  const tabParam = searchParams.get('tab') as any;
+  const debugMode = searchParams.get('debug') === 'true';
 
   // Initialize dashboard hook
   const eksData = useEksDashboard({
     clusterName,
     region,
     version,
-    accountId
+    accountId,
+    initialTab: tabParam || undefined,
   });
 
   const {
@@ -184,6 +188,9 @@ const EksDetailsPage: React.FC = () => {
         {/* Dashboard Content */}
         {(!loading || dashboard) && !error && (
           <>
+            {/* Data Diagnostics — only when ?debug=true */}
+            {debugMode && dashboard && <EksDiagnosticsPanel dashboard={dashboard} />}
+
             {/* Summary Cards */}
             <EksSummaryCards eksData={eksData} />
 

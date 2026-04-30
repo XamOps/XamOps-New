@@ -36,7 +36,7 @@ const GkeNodesTab: React.FC<{ gkeData: any }> = ({ gkeData }) => {
   const [nodePage, setNodePage] = useState(0);
 
   const nodePools = dashboard?.nodePools ?? [];
-  const hasPrometheus = dashboard?.connected && dashboard?.nodeMetrics;
+  const hasAgentData = dashboard?.connected && dashboard?.nodeMetrics;
   const nodes = sortedNodesByPressure ?? [];
   const totalNodePages = Math.ceil(nodes.length / NODES_PER_PAGE);
   const paginatedNodes = nodes.slice(nodePage * NODES_PER_PAGE, (nodePage + 1) * NODES_PER_PAGE);
@@ -161,14 +161,14 @@ const GkeNodesTab: React.FC<{ gkeData: any }> = ({ gkeData }) => {
         <h2 className="text-base font-bold text-gray-700 mb-4 flex items-center gap-2">
           <i className="fas fa-hdd text-indigo-500"></i>
           Individual Nodes
-          <span className="text-xs font-normal text-gray-400 ml-1">(from Prometheus)</span>
+          <span className="text-xs font-normal text-gray-400 ml-1">(from agent)</span>
         </h2>
 
-        {!hasPrometheus ? (
+        {!hasAgentData ? (
           <div className="bg-white rounded-xl border border-amber-200 p-10 flex flex-col items-center text-center">
-            <i className="fas fa-plug text-amber-300 text-4xl mb-3"></i>
-            <h4 className="font-bold text-gray-700 mb-1">Monitoring Not Connected</h4>
-            <p className="text-gray-400 text-sm">Enable monitoring to see per-node health and resource metrics.</p>
+            <i className="fas fa-robot text-amber-300 text-4xl mb-3"></i>
+            <h4 className="font-bold text-gray-700 mb-1">XamOps Agent Not Deployed</h4>
+            <p className="text-gray-400 text-sm">Deploy the XamOps agent to see per-node health and resource metrics.</p>
           </div>
         ) : (
           <>

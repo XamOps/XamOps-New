@@ -2,22 +2,21 @@ import React, { useState, useEffect } from 'react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useGcpDiskRightsizingData, GcpDisk } from '../hooks/useGcpDiskRightsizingData';
 import { useTopbarActions } from '../contexts/TopbarContext';
-import { useTabState } from '../hooks/useTabState';
 
 const PAGE_SIZE = 20;
 
 const recommendationBadge = (rec: string) => {
   const styles: Record<string, string> = {
     DELETE_UNATTACHED: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-    SHRINK:            'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
-    EXPAND:            'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-    NONE:              'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400',
+    SHRINK: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+    EXPAND: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+    NONE: 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400',
   };
   const labels: Record<string, string> = {
     DELETE_UNATTACHED: 'Delete (unattached)',
-    SHRINK:            'Shrink',
-    EXPAND:            'Expand',
-    NONE:              'No action',
+    SHRINK: 'Shrink',
+    EXPAND: 'Expand',
+    NONE: 'No action',
   };
   return (
     <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${styles[rec] ?? styles.NONE}`}>
@@ -31,15 +30,15 @@ const GcpDiskRightsizingPage: React.FC = () => {
   const selectedAccountId = selectedAccountIds[0] || null;
   const { setTitle, setSubtitle, setActions, clearActions } = useTopbarActions();
 
-  const [filterSearch, setFilterSearch]             = useState('');
-  const [filterZone, setFilterZone]                 = useState('');
-  const [filterType, setFilterType]                 = useState('');
+  const [filterSearch, setFilterSearch] = useState('');
+  const [filterZone, setFilterZone] = useState('');
+  const [filterType, setFilterType] = useState('');
   const [filterRecommendation, setFilterRecommendation] = useState('');
-  const [page, setPage]                             = useState(1);
-  const [activeTab, setActiveTab] = useTabState<'overview' | 'history'>('overview');
-  const [actionMsg, setActionMsg]                   = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [confirmAction, setConfirmAction]           = useState<{ disk: GcpDisk; actionType: string; targetSizeGb?: number } | null>(null);
-  const [showInstallGuide, setShowInstallGuide]     = useState(false);
+  const [page, setPage] = useState(1);
+  const [activeTab, setActiveTab] = useState<'overview' | 'history'>('overview');
+  const [actionMsg, setActionMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{ disk: GcpDisk; actionType: string; targetSizeGb?: number } | null>(null);
+  const [showInstallGuide, setShowInstallGuide] = useState(false);
 
   const { disks, actionHistory, isLoading, isRefreshing, error, applyAction, refreshAll } =
     useGcpDiskRightsizingData(selectedAccountId);
@@ -78,7 +77,7 @@ const GcpDiskRightsizingPage: React.FC = () => {
 
   const filteredDisks = disks.filter(d => {
     if (filterSearch && !d.diskName.toLowerCase().includes(filterSearch.toLowerCase()) &&
-        !(d.instanceName ?? '').toLowerCase().includes(filterSearch.toLowerCase())) return false;
+      !(d.instanceName ?? '').toLowerCase().includes(filterSearch.toLowerCase())) return false;
     if (filterZone && d.zone !== filterZone) return false;
     if (filterType && d.diskType !== filterType) return false;
     if (filterRecommendation && d.recommendation !== filterRecommendation) return false;
@@ -86,12 +85,12 @@ const GcpDiskRightsizingPage: React.FC = () => {
   });
 
   const totalPages = Math.ceil(filteredDisks.length / PAGE_SIZE);
-  const paginated  = filteredDisks.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const paginated = filteredDisks.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  const totalWasted   = disks.reduce((s, d) => s + d.estimatedSavings, 0);
+  const totalWasted = disks.reduce((s, d) => s + d.estimatedSavings, 0);
   const unattachedCnt = disks.filter(d => d.recommendation === 'DELETE_UNATTACHED').length;
-  const shrinkCnt     = disks.filter(d => d.recommendation === 'SHRINK').length;
-  const expandCnt     = disks.filter(d => d.recommendation === 'EXPAND').length;
+  const shrinkCnt = disks.filter(d => d.recommendation === 'SHRINK').length;
+  const expandCnt = disks.filter(d => d.recommendation === 'EXPAND').length;
 
   const handleAction = async () => {
     if (!confirmAction) return;
@@ -120,11 +119,10 @@ const GcpDiskRightsizingPage: React.FC = () => {
 
       {/* Action message */}
       {actionMsg && (
-        <div className={`rounded-lg px-4 py-3 text-sm font-medium ${
-          actionMsg.type === 'success'
-            ? 'bg-green-50 text-green-700 border border-green-200 dark:bg-green-900/20 dark:text-green-400'
-            : 'bg-red-50 text-red-700 border border-red-200 dark:bg-red-900/20 dark:text-red-400'
-        }`}>
+        <div className={`rounded-lg px-4 py-3 text-sm font-medium ${actionMsg.type === 'success'
+          ? 'bg-green-50 text-green-700 border border-green-200 dark:bg-green-900/20 dark:text-green-400'
+          : 'bg-red-50 text-red-700 border border-red-200 dark:bg-red-900/20 dark:text-red-400'
+          }`}>
           {actionMsg.text}
         </div>
       )}
@@ -160,11 +158,10 @@ const GcpDiskRightsizingPage: React.FC = () => {
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`pb-3 text-sm font-medium border-b-2 -mb-px capitalize ${
-                activeTab === tab
-                  ? 'border-blue-600 text-blue-600 dark:text-blue-400'
-                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
-              }`}
+              className={`pb-3 text-sm font-medium border-b-2 -mb-px capitalize ${activeTab === tab
+                ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                }`}
             >
               {tab === 'overview' ? 'Disks' : 'Action History'}
             </button>
@@ -205,8 +202,8 @@ const GcpDiskRightsizingPage: React.FC = () => {
           {isLoading ? (
             <div className="flex items-center justify-center h-48">
               <svg className="animate-spin w-8 h-8 text-blue-500" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
               </svg>
             </div>
           ) : error ? (
@@ -359,12 +356,11 @@ const GcpDiskRightsizingPage: React.FC = () => {
                       {a.estimatedSavings ? `₹${a.estimatedSavings.toLocaleString('en-IN', { maximumFractionDigits: 0 })}/mo` : '—'}
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-                        a.status === 'SUCCESS'     ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
-                        a.status === 'FAILED'      ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
-                        a.status === 'IN_PROGRESS' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' :
-                                                     'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'
-                      }`}>{a.status}</span>
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${a.status === 'SUCCESS' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
+                        a.status === 'FAILED' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
+                          a.status === 'IN_PROGRESS' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' :
+                            'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'
+                        }`}>{a.status}</span>
                     </td>
                     <td className="px-4 py-3 text-gray-500 dark:text-gray-400">
                       {new Date(a.initiatedAt).toLocaleDateString()}
@@ -395,11 +391,10 @@ const GcpDiskRightsizingPage: React.FC = () => {
                 Cancel
               </button>
               <button onClick={handleAction}
-                className={`px-4 py-2 text-sm font-medium text-white rounded-lg ${
-                  confirmAction.actionType === 'DELETE_UNATTACHED'
-                    ? 'bg-red-600 hover:bg-red-700'
-                    : 'bg-blue-600 hover:bg-blue-700'
-                }`}>
+                className={`px-4 py-2 text-sm font-medium text-white rounded-lg ${confirmAction.actionType === 'DELETE_UNATTACHED'
+                  ? 'bg-red-600 hover:bg-red-700'
+                  : 'bg-blue-600 hover:bg-blue-700'
+                  }`}>
                 Confirm
               </button>
             </div>

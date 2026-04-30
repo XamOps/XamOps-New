@@ -562,31 +562,54 @@ const EksOverviewTab: React.FC<EksOverviewTabProps> = ({ eksData }) => {
             </span>
           </div>
           <div className="p-5 space-y-2">
-            {warningEvents.map((event: any, i: number) => (
-              <div key={i} className="flex items-start gap-3 p-3 rounded-lg border border-[#e8ecf0] hover:bg-[#f6f8fa] transition-colors">
-                <div className="flex-shrink-0 mt-0.5">
-                  <i className="fas fa-circle-exclamation text-[#cf222e] text-sm"></i>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                    <span className="text-[11px] font-semibold text-[#cf222e] font-mono">{event.reason || 'Warning'}</span>
-                    {event.involvedObject?.name && (
-                      <span className="text-[11px] text-[#57606a] truncate max-w-[200px] font-mono">{event.involvedObject.name}</span>
-                    )}
-                    {event.namespace && (
-                      <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold border"
-                        style={{ color: '#cf222e', background: '#ffebe9', borderColor: 'rgba(255,129,130,0.4)' }}>
-                        {event.namespace}
-                      </span>
-                    )}
-                    {(event.count || 0) > 1 && (
-                      <span className="text-[11px] font-semibold text-[#57606a]">×{event.count}</span>
+            {warningEvents.map((event: any, i: number) => {
+              const objKind = event.involvedObject?.kind || event.kind || '';
+              const objName = event.involvedObject?.name || event.name || '';
+              const objNs = event.involvedObject?.namespace || event.namespace || '';
+              const lastTime = event.lastTimestamp || event.eventTime || event.lastTime || '';
+              const firstTime = event.firstTimestamp || event.firstTime || '';
+              const formatTime = (ts: string) => {
+                if (!ts) return '';
+                try {
+                  const d = new Date(ts);
+                  return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+                } catch { return ts; }
+              };
+              return (
+                <div key={i} className="flex items-start gap-3 p-3 rounded-lg border border-[#e8ecf0] hover:bg-[#f6f8fa] transition-colors">
+                  <div className="flex-shrink-0 mt-0.5">
+                    <i className="fas fa-circle-exclamation text-[#cf222e] text-sm"></i>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                      <span className="text-[11px] font-semibold text-[#cf222e] font-mono">{event.reason || 'Warning'}</span>
+                      {objKind && (
+                        <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold bg-[#f6f8fa] border border-[#d0d7de] text-[#57606a]">{objKind}</span>
+                      )}
+                      {objName && (
+                        <span className="text-[11px] text-[#1a1f2e] font-mono font-semibold truncate max-w-[240px]" title={objName}>{objName}</span>
+                      )}
+                      {objNs && (
+                        <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold border"
+                          style={{ color: '#cf222e', background: '#ffebe9', borderColor: 'rgba(255,129,130,0.4)' }}>
+                          {objNs}
+                        </span>
+                      )}
+                      {(event.count || 0) > 1 && (
+                        <span className="text-[11px] font-semibold text-[#57606a] ml-auto flex-shrink-0">×{event.count}</span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-[#57606a] leading-snug mb-1">{event.message}</p>
+                    {(firstTime || lastTime) && (
+                      <div className="flex items-center gap-3 mt-1 text-[10px] text-[#8b949e]">
+                        {firstTime && <span>First: {formatTime(firstTime)}</span>}
+                        {lastTime && <span>Last: {formatTime(lastTime)}</span>}
+                      </div>
                     )}
                   </div>
-                  <p className="text-[11px] text-[#57606a] leading-snug line-clamp-2">{event.message}</p>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

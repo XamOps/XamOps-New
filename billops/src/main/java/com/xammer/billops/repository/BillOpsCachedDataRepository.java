@@ -9,4 +9,5 @@ import java.util.Optional;
 @Repository
 public interface BillOpsCachedDataRepository extends JpaRepository<CachedData, String> {
     Optional<CachedData> findFirstByCacheKeyStartingWith(String prefix);
+    Optional<CachedData> findFirstByCacheKeyStartingWithAndCacheKeyEndingWith(String prefix, String suffix);
 }

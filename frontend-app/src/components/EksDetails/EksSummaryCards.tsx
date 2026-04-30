@@ -35,17 +35,20 @@ const StatCard: React.FC<{
 );
 
 const EksSummaryCards: React.FC<EksSummaryCardsProps> = ({ eksData }) => {
-  const { dashboard, totalPodsCount, version } = eksData;
+  const { dashboard, totalPodsCount, version, getNodeConditionCount } = eksData;
 
   const totalNodes = dashboard?.clusterOverview?.totalNodes || 0;
-  const readyNodes = (() => {
+  // getNodeConditionCount falls back to resourceUtilization.nodes condition strings
+  // when nodeMetrics.nodes is empty or has nodes without ready=true set
+  const readyNodes = getNodeConditionCount ? getNodeConditionCount('ready') : (() => {
     const nodes = dashboard?.nodeMetrics?.nodes;
-    if (!nodes) return totalNodes;
+    if (!nodes || nodes.length === 0) return totalNodes;
     const unique = nodes.reduce((acc: any[], n: any) => {
-      if (!acc.find((x: any) => x.name === n.name)) acc.push(n);
+      if (!acc.find((x: any) => (x.name || x.nodeName) === (n.name || n.nodeName))) acc.push(n);
       return acc;
     }, []);
-    return unique.filter((n: any) => n.ready).length;
+    const fromReady = unique.filter((n: any) => n.ready).length;
+    return fromReady || totalNodes;
   })();
 
   const runningPods = dashboard?.clusterOverview?.runningPods ||

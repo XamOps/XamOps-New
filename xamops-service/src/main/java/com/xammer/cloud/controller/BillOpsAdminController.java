@@ -41,7 +41,11 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import com.xammer.cloud.service.billops.ClientSavingsService;
 import com.xammer.cloud.dto.ClientSavingsDashboardDto;
+import com.xammer.cloud.domain.CachedData;
+import com.xammer.cloud.repository.CachedDataRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.LocalDate;
+import java.time.YearMonth;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -49,6 +53,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
@@ -284,6 +289,12 @@ public class BillOpsAdminController {
     @Autowired
     private ClientSavingsService clientSavingsService;
 
+    @Autowired
+    private CachedDataRepository cachedDataRepository;
+
+    @Autowired
+    private ObjectMapper objectMapper;
+
     /** Evict the clients cache (call this after creating a client or user) */
     @DeleteMapping("/clients/cache")
     public ResponseEntity<String> evictClientsCache() {
@@ -384,31 +395,104 @@ public class BillOpsAdminController {
             }
         }
 
-        // Kick off ALL cloud cost API calls in PARALLEL
-        List<CompletableFuture<Double>> costFutures = allAccounts.stream().map(account -> {
+        // ── Batch-read MTD costs from DB cache (3 IN queries, one per provider) ──────
+        // Same cache keys written by DashboardDataService / CostService — identical to
+        // what the Account Dashboard shows, and safe for hundreds of accounts.
+        String currentMonth = YearMonth.now().toString();
+
+        List<String> allCacheKeys = allAccounts.stream()
+                .map(a -> {
+                    String id = a.getProviderAccountId();
+                    if (id == null || id.isEmpty()) return null;
+                    if ("AWS".equalsIgnoreCase(a.getProvider()))   return "AWS_MTD_COST::" + id;
+                    if ("GCP".equalsIgnoreCase(a.getProvider()))   return "GCP_MONTHLY_TOTAL::" + id + "::" + currentMonth;
+                    if ("Azure".equalsIgnoreCase(a.getProvider())) return "AZURE_COST_BILLING_SUMMARY::" + id;
+                    return null;
+                })
+                .filter(k -> k != null)
+                .collect(Collectors.toList());
+
+        Map<String, String> cacheJsonByKey = new HashMap<>();
+        if (!allCacheKeys.isEmpty()) {
+            cachedDataRepository.findAllById(allCacheKeys)
+                    .forEach(e -> cacheJsonByKey.put(e.getCacheKey(), e.getJsonData()));
+        }
+
+        Map<Long, Double> costByAccountId = new HashMap<>();
+        // Collect accounts whose DB cache was cold — fall back to live API for these only
+        List<CloudAccount> cacheMissAccounts = new ArrayList<>();
+
+        for (CloudAccount account : allAccounts) {
             String providerAccId = account.getProviderAccountId();
-            String provider = account.getProvider();
+            String provider      = account.getProvider();
             if (providerAccId == null || providerAccId.isEmpty()) {
-                return CompletableFuture.completedFuture(0.0);
+                costByAccountId.put(account.getId(), 0.0);
+                continue;
             }
             try {
                 if ("AWS".equalsIgnoreCase(provider)) {
-                    return costService.getTotalMonthToDateCost(providerAccId, false)
-                            .exceptionally(e -> { log.error("AWS cost error for {}: {}", account.getId(), e.getMessage()); return 0.0; });
+                    String json = cacheJsonByKey.get("AWS_MTD_COST::" + providerAccId);
+                    if (json != null) {
+                        Double val = objectMapper.readValue(json, Double.class);
+                        costByAccountId.put(account.getId(), val != null ? val : 0.0);
+                        continue;
+                    }
                 } else if ("GCP".equalsIgnoreCase(provider)) {
-                    return gcpCostService.getUnfilteredMonthToDateSpend(providerAccId)
-                            .exceptionally(e -> { log.error("GCP cost error for {}: {}", account.getId(), e.getMessage()); return 0.0; });
+                    String json = cacheJsonByKey.get("GCP_MONTHLY_TOTAL::" + providerAccId + "::" + currentMonth);
+                    if (json != null) {
+                        Double val = objectMapper.readValue(json, Double.class);
+                        costByAccountId.put(account.getId(), val != null ? val : 0.0);
+                        continue;
+                    }
                 } else if ("Azure".equalsIgnoreCase(provider)) {
-                    return azureCostService.getTotalMonthToDateCost(providerAccId)
-                            .exceptionally(e -> { log.error("Azure cost error for {}: {}", account.getId(), e.getMessage()); return 0.0; });
+                    String json = cacheJsonByKey.get("AZURE_COST_BILLING_SUMMARY::" + providerAccId);
+                    if (json != null) {
+                        List<Map<String, Object>> summary = objectMapper.readValue(
+                                json, new TypeReference<List<Map<String, Object>>>() {});
+                        double total = summary.stream()
+                                .mapToDouble(s -> ((Number) s.getOrDefault("monthToDateCost", 0.0)).doubleValue())
+                                .sum();
+                        costByAccountId.put(account.getId(), total);
+                        continue;
+                    }
                 }
             } catch (Exception e) {
-                log.error("Error starting cost fetch for account {}: {}", account.getId(), e.getMessage());
+                log.warn("DB cache parse failed for account {}: {}", account.getId(), e.getMessage());
             }
-            return CompletableFuture.completedFuture(0.0);
-        }).collect(Collectors.toList());
+            // DB cache cold for this account — queue for live API fallback
+            cacheMissAccounts.add(account);
+        }
 
-        // 5b. Kick off AWS credits fetch in parallel (AWS only; GCP/Azure return 0.0 immediately)
+        // Live fallback — only for accounts not yet in DB cache (new accounts / first load)
+        if (!cacheMissAccounts.isEmpty()) {
+            log.info("DB cache cold for {} account(s) — falling back to live API", cacheMissAccounts.size());
+            List<CompletableFuture<Double>> missFutures = cacheMissAccounts.stream().map(account -> {
+                String providerAccId = account.getProviderAccountId();
+                String provider      = account.getProvider();
+                try {
+                    if ("AWS".equalsIgnoreCase(provider))
+                        return costService.getTotalMonthToDateCost(providerAccId, false)
+                                .exceptionally(e -> { log.error("AWS cost fallback error {}: {}", account.getId(), e.getMessage()); return 0.0; });
+                    if ("GCP".equalsIgnoreCase(provider))
+                        return gcpCostService.getUnfilteredMonthToDateSpend(providerAccId)
+                                .exceptionally(e -> { log.error("GCP cost fallback error {}: {}", account.getId(), e.getMessage()); return 0.0; });
+                    if ("Azure".equalsIgnoreCase(provider))
+                        return azureCostService.getTotalMonthToDateCost(providerAccId)
+                                .exceptionally(e -> { log.error("Azure cost fallback error {}: {}", account.getId(), e.getMessage()); return 0.0; });
+                } catch (Exception e) {
+                    log.error("Cost fallback launch error for account {}: {}", account.getId(), e.getMessage());
+                }
+                return CompletableFuture.completedFuture(0.0);
+            }).collect(Collectors.toList());
+            CompletableFuture.allOf(missFutures.toArray(new CompletableFuture[0])).join();
+            for (int i = 0; i < cacheMissAccounts.size(); i++) {
+                Double cost = missFutures.get(i).join();
+                costByAccountId.put(cacheMissAccounts.get(i).getId(), cost != null ? cost : 0.0);
+            }
+        }
+
+        // ── AWS credits — parallel (no DB cache exists for credits) ──────────────────
+        Map<Long, Double> creditsByAccountId = new HashMap<>();
         List<CompletableFuture<Double>> creditFutures = allAccounts.stream().map(account -> {
             String providerAccId = account.getProviderAccountId();
             String provider = account.getProvider();
@@ -418,23 +502,11 @@ public class BillOpsAdminController {
             }
             return CompletableFuture.completedFuture(0.0);
         }).collect(Collectors.toList());
-
-        CompletableFuture.allOf(costFutures.toArray(new CompletableFuture[0])).join();
-
-        Map<Long, Double> costByAccountId = new HashMap<>();
+        CompletableFuture.allOf(creditFutures.toArray(new CompletableFuture[0])).join();
         for (int i = 0; i < allAccounts.size(); i++) {
-            Double cost = costFutures.get(i).join();
-            costByAccountId.put(allAccounts.get(i).getId(), cost != null ? cost : 0.0);
+            Double credits = creditFutures.get(i).join();
+            creditsByAccountId.put(allAccounts.get(i).getId(), credits != null ? credits : 0.0);
         }
-        Map<Long, Double> creditsByAccountId = new HashMap<>();
-
-// Ensure all credit futures are completed
-CompletableFuture.allOf(creditFutures.toArray(new CompletableFuture[0])).join();
-
-for (int i = 0; i < allAccounts.size(); i++) {
-    Double credits = creditFutures.get(i).join();
-    creditsByAccountId.put(allAccounts.get(i).getId(), credits != null ? credits : 0.0);
-}
 
         // Assemble response
         List<BillOpsClientDetailsDto> result = new ArrayList<>();
