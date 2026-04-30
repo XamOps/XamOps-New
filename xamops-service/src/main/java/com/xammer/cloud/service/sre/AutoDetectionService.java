@@ -11,6 +11,7 @@ import com.xammer.cloud.repository.SloDefinitionRepository;
 import com.xammer.cloud.service.OpenObserveService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -42,7 +43,7 @@ public class AutoDetectionService {
                                 MetricPoller metricPoller,
                                 AnomalyDetector anomalyDetector,
                                 StringRedisTemplate redis,
-                                KafkaTemplate<String, String> kafkaTemplate,
+                                @Qualifier("sreKafkaTemplate") KafkaTemplate<String, String> kafkaTemplate,
                                 SreInvestigationService investigationService,
                                 OpenObserveService openObserveService,
                                 ObservabilityConfigRepository obsConfigRepo,
@@ -65,7 +66,7 @@ public class AutoDetectionService {
             try {
                 processSlo(slo);
             } catch (Exception e) {
-                log.error("Detection error for slo={} entity={}: {}", slo.getId(), slo.getEntity(), e.getMessage());
+                log.error("Detection error for slo={} entity={}: {}", slo.getId(), slo.getEntity(), e.getMessage(), e);
             }
         }
     }
@@ -79,11 +80,13 @@ public class AutoDetectionService {
         if (anomaly.zScore() < slo.getZscoreThreshold()) return;
 
         String cooldownKey = "cooldown:" + slo.getClientId() + ":" + slo.getEntity() + ":" + slo.getSignal();
-        if (Boolean.TRUE.equals(redis.hasKey(cooldownKey))) return;
+        Boolean newCooldown = redis.opsForValue().setIfAbsent(cooldownKey, "1", Duration.ofSeconds(slo.getCooldownSeconds()));
+        if (!Boolean.TRUE.equals(newCooldown)) return;
 
         long bucket = System.currentTimeMillis() / (DEDUP_BUCKET_SECONDS * 1000);
         String dedupKey = "dedup:" + slo.getEntity() + ":" + slo.getSignal() + ":" + bucket;
-        if (Boolean.TRUE.equals(redis.hasKey(dedupKey))) return;
+        Boolean newDedup = redis.opsForValue().setIfAbsent(dedupKey, "1", Duration.ofSeconds(DEDUP_BUCKET_SECONDS));
+        if (!Boolean.TRUE.equals(newDedup)) return;
 
         String evidenceLogs = collectEvidenceLogs(slo);
 
@@ -97,9 +100,6 @@ public class AutoDetectionService {
         event.setMetricBaseline(anomaly.baseline());
         event.setEvidenceLogs(evidenceLogs);
         DetectionEvent saved = detectionRepo.save(event);
-
-        redis.opsForValue().set(cooldownKey, "1", Duration.ofSeconds(slo.getCooldownSeconds()));
-        redis.opsForValue().set(dedupKey, "1", Duration.ofSeconds(DEDUP_BUCKET_SECONDS));
 
         String incidentId = "inc-" + slo.getClientId() + "-" + slo.getEntity() + "-" + System.currentTimeMillis();
         SreInvestigation inv = investigationService.createAutoInvestigation(
@@ -172,7 +172,7 @@ public class AutoDetectionService {
             String partitionKey = slo.getClientId() + ":" + slo.getEntity();
             kafkaTemplate.send(kafkaTopic, partitionKey, json);
         } catch (Exception e) {
-            log.error("Failed to publish Kafka event for entity={}: {}", slo.getEntity(), e.getMessage());
+            log.error("Failed to publish Kafka event for entity={}: {}", slo.getEntity(), e.getMessage(), e);
         }
     }
 }

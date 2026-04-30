@@ -66,7 +66,7 @@ class AutoDetectionServiceTest {
         when(sloRepo.findByEnabledTrue()).thenReturn(List.of(slo));
         when(metricPoller.poll(slo)).thenReturn(Optional.of(12.4));
         when(anomalyDetector.detect(slo, 12.4)).thenReturn(new AnomalyDetector.AnomalyResult(4.2, 0.8));
-        when(redis.hasKey(anyString())).thenReturn(false); // no cooldown, no dedup
+        when(ops.setIfAbsent(anyString(), anyString(), any())).thenReturn(true);
 
         DetectionEvent saved = new DetectionEvent();
         saved.setId(10L);
@@ -95,7 +95,7 @@ class AutoDetectionServiceTest {
         when(sloRepo.findByEnabledTrue()).thenReturn(List.of(slo));
         when(metricPoller.poll(slo)).thenReturn(Optional.of(12.4));
         when(anomalyDetector.detect(slo, 12.4)).thenReturn(new AnomalyDetector.AnomalyResult(4.2, 0.8));
-        when(redis.hasKey(contains("cooldown"))).thenReturn(true); // cooldown active
+        when(ops.setIfAbsent(contains("cooldown"), anyString(), any())).thenReturn(false);
 
         service.runCycle();
 

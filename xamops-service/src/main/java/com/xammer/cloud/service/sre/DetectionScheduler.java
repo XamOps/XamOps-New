@@ -15,7 +15,7 @@ public class DetectionScheduler {
         this.autoDetectionService = autoDetectionService;
     }
 
-    @Scheduled(fixedDelay = 60_000)
+    @Scheduled(fixedDelayString = "${sre.detection.interval-ms:60000}")
     public void runDetectionCycle() {
         log.debug("SRE detection cycle starting");
         autoDetectionService.runCycle();
