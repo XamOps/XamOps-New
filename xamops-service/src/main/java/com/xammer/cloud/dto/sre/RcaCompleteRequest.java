@@ -30,5 +30,5 @@ public class RcaCompleteRequest {
     private String reportFullMarkdown;
 
     @JsonProperty("is_noise")
-    private boolean isNoise;
+    private boolean noise;
 }

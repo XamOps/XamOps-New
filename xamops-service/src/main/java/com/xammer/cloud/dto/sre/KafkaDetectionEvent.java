@@ -22,7 +22,7 @@ public class KafkaDetectionEvent {
     private String status;
 
     @JsonProperty("updated_at")
-    private long updatedAt;
+    private Long updatedAt;
 
     @JsonProperty("client_id")
     private Long clientId;
