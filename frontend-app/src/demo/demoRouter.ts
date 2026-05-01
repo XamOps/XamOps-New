@@ -126,6 +126,13 @@ function routeXamops(url: string): Response | null {
     return makeResponse(xamops.demoGcpWasteData);
   if (url.includes('/api/xamops/gcp/rightsizing/recommendations'))
     return makeResponse(xamops.demoGcpRightsizingData);
+  // GCP Prowler compliance — must come before generic /gcp/security/findings
+  if (url.includes('/api/xamops/gcp/security/prowler/status'))
+    return makeResponse(xamops.demoGcpProwlerStatus);
+  if (url.includes('/api/xamops/gcp/security/prowler/findings'))
+    return makeResponse(xamops.demoGcpProwlerFindings);
+  if (url.includes('/api/xamops/gcp/security/prowler/scan'))
+    return makeResponse({ status: 'RUNNING', message: 'Scan initiated' });
   if (url.includes('/api/xamops/gcp/security/findings'))
     return makeResponse(xamops.demoGcpSecurityFindings);
   if (url.includes('/api/xamops/gcp/security/iam-drift'))
@@ -155,6 +162,13 @@ function routeXamops(url: string): Response | null {
     return makeResponse(xamops.demoAzureRightsizingData);
   if (url.includes('/api/xamops/azure/reservations'))
     return makeResponse(xamops.demoAzureReservations);
+  // Azure Prowler compliance — before generic /azure/security
+  if (url.includes('/api/xamops/azure/security/prowler/status'))
+    return makeResponse(xamops.demoAzureProwlerStatus);
+  if (url.includes('/api/xamops/azure/security/prowler/findings'))
+    return makeResponse(xamops.demoAzureProwlerFindings);
+  if (url.includes('/api/xamops/azure/security/prowler/scan'))
+    return makeResponse({ status: 'RUNNING', message: 'Scan initiated' });
   if (url.includes('/api/xamops/azure/security'))
     return makeResponse(xamops.demoAzureSecurityData);
   if (url.includes('/api/xamops/azure/performance'))
@@ -264,6 +278,16 @@ function routeXamops(url: string): Response | null {
   // GKE clusters — specific before generic gke catch-all
   if (url.includes('/api/xamops/gke/clusters'))
     return makeResponse(xamops.demoGkeClusters);
+  // GKE cluster detail dashboard — must come before generic gke catch-all
+  if (url.includes('/api/xamops/gke/') && url.includes('/dashboard'))
+    return makeResponse(xamops.demoGkeDashboard);
+
+  // AKS clusters — specific before generic aks catch-all
+  if (url.includes('/api/xamops/aks/clusters'))
+    return makeResponse(xamops.demoAksClusters);
+  // AKS cluster detail dashboard — must come before generic aks catch-all
+  if (url.includes('/api/xamops/aks/') && url.includes('/dashboard'))
+    return makeResponse(xamops.demoGkeDashboard);
 
   // K8s / infra generic catch-all
   if (

@@ -961,11 +961,19 @@ export const demoMarketOpsSubscriptions = [
 
 // ─── Tickets (/api/xamops/tickets/category/Technical) ────────────────────────
 export const demoTickets = [
-  { id: 3001, subject: 'EC2 instance unreachable after SG change',   description: 'Instance i-0abc123 stopped responding after security group update. Need urgent review.', category: 'Technical', service: 'Compute / VMs',     severity: 'High',   status: 'open',        accountId: 'demo-aws-001', region: 'us-east-1', createdAt: new Date(Date.now() - 3600_000).toISOString()   },
-  { id: 3002, subject: 'S3 bucket policy - cross-account access',    description: 'Need cross-account read access configured for bucket xammer-data-lake.',                   category: 'Technical', service: 'Storage',           severity: 'Normal', status: 'in_progress', accountId: 'demo-aws-001', region: 'us-east-1', createdAt: new Date(Date.now() - 86400_000).toISOString()  },
-  { id: 3003, subject: 'RDS connection pool exhausted during peak',  description: 'PostgreSQL RDS hitting max_connections during morning traffic spike (9-11am).',           category: 'Technical', service: 'Database',          severity: 'High',   status: 'open',        accountId: 'demo-aws-001', region: 'us-east-1', createdAt: new Date(Date.now() - 172800_000).toISOString() },
-  { id: 3004, subject: 'CloudWatch alarm not firing for memory',     description: 'Memory utilisation alarm configured but not triggering when threshold exceeded.',          category: 'Technical', service: 'Monitoring & Logs', severity: 'Normal', status: 'closed',      accountId: 'demo-aws-001', region: 'eu-west-1', createdAt: new Date(Date.now() - 432000_000).toISOString() },
-  { id: 3005, subject: 'IAM role missing S3 write permission',       description: 'Lambda function getting AccessDenied when writing to xammer-reports bucket.',             category: 'Technical', service: 'Security & IAM',   severity: 'High',   status: 'open',        accountId: 'demo-aws-001', region: 'us-east-1', createdAt: new Date(Date.now() - 604800_000).toISOString() },
+  // AWS account tickets
+  { id: 3001, subject: 'EC2 instance unreachable after SG change',   description: 'Instance i-0abc123 stopped responding after security group update. Need urgent review.', category: 'Technical', service: 'Compute / VMs',     severity: 'High',   status: 'open',        accountId: 'demo-aws-001', region: 'us-east-1',    createdAt: new Date(Date.now() - 3600_000).toISOString()   },
+  { id: 3002, subject: 'S3 bucket policy - cross-account access',    description: 'Need cross-account read access configured for bucket xammer-data-lake.',                   category: 'Technical', service: 'Storage',           severity: 'Normal', status: 'in_progress', accountId: 'demo-aws-001', region: 'us-east-1',    createdAt: new Date(Date.now() - 86400_000).toISOString()  },
+  { id: 3003, subject: 'RDS connection pool exhausted during peak',  description: 'PostgreSQL RDS hitting max_connections during morning traffic spike (9-11am).',           category: 'Technical', service: 'Database',          severity: 'High',   status: 'open',        accountId: 'demo-aws-001', region: 'us-east-1',    createdAt: new Date(Date.now() - 172800_000).toISOString() },
+  { id: 3004, subject: 'CloudWatch alarm not firing for memory',     description: 'Memory utilisation alarm configured but not triggering when threshold exceeded.',          category: 'Technical', service: 'Monitoring & Logs', severity: 'Normal', status: 'closed',      accountId: 'demo-aws-001', region: 'eu-west-1',    createdAt: new Date(Date.now() - 432000_000).toISOString() },
+  { id: 3005, subject: 'IAM role missing S3 write permission',       description: 'Lambda function getting AccessDenied when writing to xammer-reports bucket.',             category: 'Technical', service: 'Security & IAM',   severity: 'High',   status: 'open',        accountId: 'demo-aws-001', region: 'us-east-1',    createdAt: new Date(Date.now() - 604800_000).toISOString() },
+  // GCP account tickets
+  { id: 3006, subject: 'GCE instance unresponsive after firewall rule update', description: 'VM gce-prod-analytics-01 stopped responding after VPC firewall rule change. SSH timeout on port 22.', category: 'Technical', service: 'Compute / VMs',     severity: 'High',   status: 'open',        accountId: 'demo-gcp-001', region: 'us-central1',  createdAt: new Date(Date.now() - 7200_000).toISOString()   },
+  { id: 3007, subject: 'BigQuery job quota exceeded for ETL pipeline', description: 'Nightly ETL pipeline failing with QUOTA_EXCEEDED on BigQuery concurrent queries. Need quota increase.', category: 'Technical', service: 'Database',          severity: 'Normal', status: 'in_progress', accountId: 'demo-gcp-001', region: 'us-central1',  createdAt: new Date(Date.now() - 180000_000).toISOString() },
+  { id: 3008, subject: 'Cloud Storage bucket ACL misconfiguration',  description: 'Storage bucket xammer-gcp-exports has public read enabled — needs immediate lock-down.',             category: 'Technical', service: 'Security & IAM',   severity: 'High',   status: 'open',        accountId: 'demo-gcp-001', region: 'europe-west1', createdAt: new Date(Date.now() - 259200_000).toISOString() },
+  // Azure account tickets
+  { id: 3009, subject: 'Azure VM boot failure after OS update',      description: 'VM azure-prod-app-01 stuck in ProvisioningFailed state after applying latest OS patches.', category: 'Technical', service: 'Compute / VMs',     severity: 'High',   status: 'open',        accountId: 'demo-azure-001', region: 'eastus',     createdAt: new Date(Date.now() - 14400_000).toISOString()  },
+  { id: 3010, subject: 'NSG blocking inbound traffic on port 443',   description: 'Application Gateway health probe failing — NSG rule blocking 443 from Azure health check IPs.', category: 'Technical', service: 'Networking',        severity: 'Normal', status: 'in_progress', accountId: 'demo-azure-001', region: 'eastus',     createdAt: new Date(Date.now() - 345600_000).toISOString() },
 ];
 
 // Single ticket returned by /api/xamops/tickets/{id}
@@ -1011,9 +1019,15 @@ export const demoAgentUserActivity = [
 
 // ─── BillOps User Tickets (/api/billops/tickets/category/Account%20and%20Billing) ──
 export const demoBillopsUserTickets = [
-  { id: 5001, subject: 'Invoice discrepancy for March billing cycle',         description: 'Charged $2,480 but invoice shows $2,650 — please clarify the $170 difference before we process payment.',          status: 'OPEN',        severity: 'High',   category: 'Account and Billing', service: 'Billing & Invoices', region: 'us-east-1', accountId: 'demo-aws-001', createdAt: new Date(Date.now() - 7200_000).toISOString(),   creatorUsername: 'akshay', hasUnreadAdminReply: true  },
-  { id: 5002, subject: 'Request to upgrade support plan to Business tier',    description: 'We need SLA-backed support with 4-hour response time. Please initiate upgrade from Developer to Business plan.',   status: 'IN_PROGRESS', severity: 'Normal', category: 'Account and Billing', service: 'Account Management', region: 'us-east-1', accountId: 'demo-aws-001', createdAt: new Date(Date.now() - 86400_000).toISOString(),  creatorUsername: 'akshay', hasUnreadAdminReply: false },
-  { id: 5003, subject: 'Add secondary billing contact for finance team',      description: 'Finance team lead priya@xammer.in should receive all invoice emails going forward. Please update billing contacts.', status: 'CLOSED',      severity: 'Low',    category: 'Account and Billing', service: 'Account Management', region: 'us-east-1', accountId: 'demo-aws-001', createdAt: new Date(Date.now() - 432000_000).toISOString(), creatorUsername: 'akshay', hasUnreadAdminReply: false, closedAt: new Date(Date.now() - 259200_000).toISOString() },
+  // AWS account tickets
+  { id: 5001, subject: 'Invoice discrepancy for March billing cycle',         description: 'Charged $2,480 but invoice shows $2,650 — please clarify the $170 difference before we process payment.',          status: 'OPEN',        severity: 'High',   category: 'Account and Billing', service: 'Billing & Invoices',  region: 'us-east-1',    accountId: 'demo-aws-001',   createdAt: new Date(Date.now() - 7200_000).toISOString(),   creatorUsername: 'akshay', hasUnreadAdminReply: true  },
+  { id: 5002, subject: 'Request to upgrade support plan to Business tier',    description: 'We need SLA-backed support with 4-hour response time. Please initiate upgrade from Developer to Business plan.',   status: 'IN_PROGRESS', severity: 'Normal', category: 'Account and Billing', service: 'Account Management', region: 'us-east-1',    accountId: 'demo-aws-001',   createdAt: new Date(Date.now() - 86400_000).toISOString(),  creatorUsername: 'akshay', hasUnreadAdminReply: false },
+  { id: 5003, subject: 'Add secondary billing contact for finance team',      description: 'Finance team lead priya@xammer.in should receive all invoice emails going forward. Please update billing contacts.', status: 'CLOSED',      severity: 'Low',    category: 'Account and Billing', service: 'Account Management', region: 'us-east-1',    accountId: 'demo-aws-001',   createdAt: new Date(Date.now() - 432000_000).toISOString(), creatorUsername: 'akshay', hasUnreadAdminReply: false, closedAt: new Date(Date.now() - 259200_000).toISOString() },
+  // GCP account tickets
+  { id: 5004, subject: 'GCP billing spike — BigQuery charges 3× higher than forecast', description: 'April BigQuery spend is $3,240 vs forecast of $1,080. Need breakdown of unexpected query charges and a cost anomaly investigation.', status: 'OPEN',        severity: 'High',   category: 'Account and Billing', service: 'Billing & Invoices',  region: 'us-central1',  accountId: 'demo-gcp-001',   createdAt: new Date(Date.now() - 10800_000).toISOString(),  creatorUsername: 'akshay', hasUnreadAdminReply: true  },
+  { id: 5005, subject: 'Request GCP committed-use discount review',                     description: 'We have been running Compute Engine at 80%+ capacity for 6 months. Please advise on CUD eligibility and expected savings.', status: 'IN_PROGRESS', severity: 'Normal', category: 'Account and Billing', service: 'Account Management', region: 'us-central1',  accountId: 'demo-gcp-001',   createdAt: new Date(Date.now() - 259200_000).toISOString(), creatorUsername: 'akshay', hasUnreadAdminReply: false },
+  // Azure account tickets
+  { id: 5006, subject: 'Azure Reserved Instance invoice not reflecting discount', description: 'March invoice shows on-demand pricing for VM instances that should be covered by our 1-year reservation. Please reconcile.', status: 'OPEN',        severity: 'High',   category: 'Account and Billing', service: 'Billing & Invoices',  region: 'eastus',       accountId: 'demo-azure-001', createdAt: new Date(Date.now() - 18000_000).toISOString(),  creatorUsername: 'akshay', hasUnreadAdminReply: false },
 ];
 
 // Single BillOps ticket detail returned by /api/billops/tickets/{id}
@@ -1134,9 +1148,11 @@ export const demoBillingDetailedBreakdown = [
 ];
 
 // ─── Invoices (/api/admin/invoices) ───────────────────────────────────────────
+// awsAccountId / gcpProjectId / azureSubscriptionId must match the demo account IDs
+// so the useInvoices filter (which compares against selectedAccountId) can find them.
 export const demoBillopsUserInvoices = [
   {
-    id: 1, invoiceNumber: 'INV-2026-04-001', awsAccountId: '123456789012', gcpProjectId: 'xammer-analytics-prod', azureSubscriptionId: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',
+    id: 1, invoiceNumber: 'INV-2026-04-001', awsAccountId: 'demo-aws-001', gcpProjectId: 'demo-gcp-001', azureSubscriptionId: 'demo-azure-001',
     accountName: 'Xammer Production', billingPeriod: '2026-04', invoiceDate: '2026-04-30',
     amount: 18420.75, preDiscountTotal: 19368.17, discountAmount: 947.42, taxAmount: 0,
     status: 'FINALIZED',
@@ -1152,10 +1168,10 @@ export const demoBillopsUserInvoices = [
     ],
   },
   {
-    id: 2, invoiceNumber: 'INV-2026-03-001', awsAccountId: '123456789012', gcpProjectId: 'xammer-analytics-prod', azureSubscriptionId: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',
+    id: 2, invoiceNumber: 'INV-2026-03-001', awsAccountId: 'demo-aws-001', gcpProjectId: 'demo-gcp-001', azureSubscriptionId: 'demo-azure-001',
     accountName: 'Xammer Production', billingPeriod: '2026-03', invoiceDate: '2026-03-31',
     amount: 16340.20, preDiscountTotal: 17200.21, discountAmount: 860.01, taxAmount: 0,
-    status: 'PAID',
+    status: 'FINALIZED',
     lineItems: [
       { id: 111, serviceName: 'EC2',    regionName: 'us-east-1', resourceName: 'prod-api-server-01', usageQuantity: 744,     unit: 'Hrs',   cost: 1897.20 },
       { id: 112, serviceName: 'RDS',    regionName: 'us-east-1', resourceName: 'rds-prod-postgres',  usageQuantity: 744,     unit: 'Hrs',   cost: 1690.80 },
@@ -1166,10 +1182,10 @@ export const demoBillopsUserInvoices = [
     ],
   },
   {
-    id: 3, invoiceNumber: 'INV-2026-02-001', awsAccountId: '123456789012', gcpProjectId: 'xammer-analytics-prod', azureSubscriptionId: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',
+    id: 3, invoiceNumber: 'INV-2026-02-001', awsAccountId: 'demo-aws-001', gcpProjectId: 'demo-gcp-001', azureSubscriptionId: 'demo-azure-001',
     accountName: 'Xammer Production', billingPeriod: '2026-02', invoiceDate: '2026-02-28',
     amount: 16800.00, preDiscountTotal: 17640.00, discountAmount: 840.00, taxAmount: 0,
-    status: 'PAID',
+    status: 'FINALIZED',
     lineItems: [
       { id: 121, serviceName: 'EC2',    regionName: 'us-east-1', resourceName: 'prod-api-server-01', usageQuantity: 672, unit: 'Hrs',   cost: 1713.60 },
       { id: 122, serviceName: 'RDS',    regionName: 'us-east-1', resourceName: 'rds-prod-postgres',  usageQuantity: 672, unit: 'Hrs',   cost: 1528.80 },
@@ -1452,6 +1468,10 @@ export const demoAzureDashboard = {
   accountId: 'demo-azure-001',
   accountName: 'Azure Enterprise',
   provider: 'Azure',
+  // Top-level fields read by fetchAzureDashboardData transform
+  monthToDateSpend: 5210.30,
+  forecastedSpend: 6900.00,
+  lastMonthSpend: 4840.00,
   kpi: {
     mtdSpend: 5210.30,
     forecastedSpend: 6900.00,
@@ -1524,6 +1544,7 @@ export const demoAzureFinOpsReport = {
     yoyChange: 12.4,
     momChange: 7.7,
   },
+  totalPotentialSavings: 360,
   costBreakdown: [
     { service: 'Virtual Machines', cost: 1840, change: 8.2  },
     { service: 'SQL Database',     cost: 980,  change: 3.4  },
@@ -1537,6 +1558,17 @@ export const demoAzureFinOpsReport = {
     { region: 'West Europe',    cost: 1640 },
     { region: 'Southeast Asia', cost: 730  },
   ],
+  rightsizingItems: [
+    { resourceName: 'vm-prod-api-01',    resourceType: 'Virtual Machine', currentSku: 'Standard_D4s_v3', targetSku: 'Standard_D2s_v3', monthlySavings: 220, annualSavings: 2640, impact: 'High',   location: 'East US'     },
+    { resourceName: 'vm-staging-web-01', resourceType: 'Virtual Machine', currentSku: 'Standard_D2s_v3', targetSku: 'Standard_B2s',    monthlySavings: 85,  annualSavings: 1020, impact: 'Medium', location: 'East US'     },
+    { resourceName: 'func-data-processor',resourceType: 'Function App',   currentSku: 'Premium_P1v3',    targetSku: 'Consumption',     monthlySavings: 55,  annualSavings: 660,  impact: 'Low',    location: 'West Europe' },
+  ],
+  wasteItems: [
+    { resourceId: '/subscriptions/demo/disk-orphan-001', resourceName: 'data-disk-prod-orphan',  resourceType: 'Unattached Disk',    region: 'East US',       reason: 'Unattached for 30+ days',         monthlySavings: 52 },
+    { resourceId: '/subscriptions/demo/ip-unused-001',   resourceName: 'public-ip-east-unused',  resourceType: 'Orphaned Public IP', region: 'West Europe',   reason: 'Not associated with any resource', monthlySavings: 3  },
+    { resourceId: '/subscriptions/demo/vm-stopped-001',  resourceName: 'vm-dev-stopped-01',      resourceType: 'Stopped VM',         region: 'East US',       reason: 'Stopped 14+ days, incurring disk charges', monthlySavings: 134 },
+  ],
+  // Legacy fields for backward compatibility
   rightsizingRecommendations: [
     { resourceId: '/subscriptions/demo/vm-prod-001', service: 'Virtual Machines', currentType: 'Standard_D4s_v3', recommendedType: 'Standard_D2s_v3', estimatedMonthlySavings: 220 },
     { resourceId: '/subscriptions/demo/disk-001',    service: 'Disk Storage',     currentType: 'Premium_LRS',     recommendedType: 'Standard_LRS',     estimatedMonthlySavings: 85  },
@@ -1625,18 +1657,33 @@ export const demoAzureAlertsData = {
 };
 
 // ─── Azure AutoSpotting (/api/azure/autospotting/vmss/all-regions) ────────────
+// Field names must match what useAzureSpotAutomationData reads exactly
 export const demoAzureAutoSpottingVmss = [
-  { vmssName: 'prod-worker-vmss',  resourceGroup: 'rg-production', region: 'East US',       targetCapacity: 4, currentSpotCount: 3, spotEnabled: true,  estimatedMonthlySavings: 380, savingsPercentage: 60 },
-  { vmssName: 'batch-jobs-vmss',   resourceGroup: 'rg-production', region: 'East US',       targetCapacity: 6, currentSpotCount: 5, spotEnabled: true,  estimatedMonthlySavings: 520, savingsPercentage: 65 },
-  { vmssName: 'staging-api-vmss',  resourceGroup: 'rg-staging',    region: 'West Europe',   targetCapacity: 2, currentSpotCount: 0, spotEnabled: false, estimatedMonthlySavings: 160, savingsPercentage: 58 },
+  { name: 'prod-worker-vmss',  resourceGroup: 'rg-production', region: 'East US',     isEnabled: true,  aksManaged: false, instanceCount: 4, spotInstanceCount: 3, ondemandInstanceCount: 1, vmSku: 'Standard_D4s_v3', currentHourlyCost: 0.52, actualHourlySavings: 0.31, potentialHourlySavings: 0.42 },
+  { name: 'batch-jobs-vmss',   resourceGroup: 'rg-production', region: 'East US',     isEnabled: true,  aksManaged: false, instanceCount: 6, spotInstanceCount: 5, ondemandInstanceCount: 1, vmSku: 'Standard_D8s_v3', currentHourlyCost: 0.71, actualHourlySavings: 0.48, potentialHourlySavings: 0.58 },
+  { name: 'staging-api-vmss',  resourceGroup: 'rg-staging',    region: 'West Europe', isEnabled: false, aksManaged: false, instanceCount: 2, spotInstanceCount: 0, ondemandInstanceCount: 2, vmSku: 'Standard_D2s_v3', currentHourlyCost: 0.22, actualHourlySavings: 0.00, potentialHourlySavings: 0.13 },
 ];
 
+// Field names must match what useAzureSpotAutomationData.fetchHistoryData reads: data.data_points, data.summary
 export const demoAzureAutoSpottingHistory = {
-  labels: ['Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr'],
-  onDemandCosts: [1040, 980, 1100, 1060, 1120, 1180],
-  spotCosts:     [390,  360,  410,  390,  430,  450],
-  savings:       [650,  620,  690,  670,  690,  730],
+  data_points: [
+    { timestamp: new Date(Date.now() - 6 * 86400_000).toISOString(), total_actual_savings: 0.72, total_potential_savings: 1.10 },
+    { timestamp: new Date(Date.now() - 5 * 86400_000).toISOString(), total_actual_savings: 0.80, total_potential_savings: 1.18 },
+    { timestamp: new Date(Date.now() - 4 * 86400_000).toISOString(), total_actual_savings: 0.75, total_potential_savings: 1.14 },
+    { timestamp: new Date(Date.now() - 3 * 86400_000).toISOString(), total_actual_savings: 0.83, total_potential_savings: 1.22 },
+    { timestamp: new Date(Date.now() - 2 * 86400_000).toISOString(), total_actual_savings: 0.91, total_potential_savings: 1.35 },
+    { timestamp: new Date(Date.now() - 1 * 86400_000).toISOString(), total_actual_savings: 0.87, total_potential_savings: 1.30 },
+    { timestamp: new Date().toISOString(),                            total_actual_savings: 0.94, total_potential_savings: 1.42 },
+  ],
+  summary: { total_savings: 17.4, average_hourly_savings: 0.87, peak_savings: 1.42 },
 };
+
+// ─── AKS Clusters (/api/xamops/aks/clusters) ─────────────────────────────────
+export const demoAksClusters = [
+  { name: 'aks-prod-cluster',    resourceGroup: 'rg-production', location: 'eastus',       kubernetesVersion: '1.28.5', provisioningState: 'Succeeded', nodeCount: 5, connected: true  },
+  { name: 'aks-staging-cluster', resourceGroup: 'rg-staging',    location: 'westeurope',   kubernetesVersion: '1.27.9', provisioningState: 'Succeeded', nodeCount: 2, connected: true  },
+  { name: 'aks-data-cluster',    resourceGroup: 'rg-data',       location: 'centralindia', kubernetesVersion: '1.27.9', provisioningState: 'Succeeded', nodeCount: 3, connected: false },
+];
 
 // ─── Observability Metrics (/api/observability/metrics/query) ─────────────────
 // PromQL matrix format expected by useObservabilityData fetchMetrics()
@@ -1657,3 +1704,135 @@ export const demoObservabilityMetrics = {
     ],
   },
 };
+
+// ─── GKE Cluster Dashboard (/api/xamops/gke/{name}/dashboard) ─────────────────
+export const demoGkeDashboard = {
+  clusterName: 'gke-prod-cluster-01',
+  location: 'us-central1',
+  status: 'RUNNING',
+  version: '1.28.5-gke.1217000',
+  endpoint: '34.122.45.67',
+  connected: true,
+  lastSyncedAt: new Date().toISOString(),
+  overview: {
+    totalNodes: 6,
+    totalPods: 48,
+    totalNamespaces: 8,
+    cpuUsageMillicores: 14200,
+    cpuCapacityMillicores: 24000,
+    cpuUsagePercent: 59.2,
+    memoryUsageBytes: 52_428_800_000,
+    memoryCapacityBytes: 103_079_510_016,
+    memoryUsagePercent: 50.9,
+  },
+  nodePools: [
+    { name: 'default-pool', machineType: 'n2-standard-4', nodeCount: 3, version: '1.28.5-gke.1217000', autoscalingEnabled: true, minNodes: 2, maxNodes: 6, status: 'RUNNING', diskSizeGb: '100', imageType: 'COS_CONTAINERD' },
+    { name: 'batch-pool',   machineType: 'n2-standard-8', nodeCount: 3, version: '1.28.5-gke.1217000', autoscalingEnabled: true, minNodes: 1, maxNodes: 5, status: 'RUNNING', diskSizeGb: '200', imageType: 'COS_CONTAINERD' },
+  ],
+  workloadHealth: {
+    clusterHealthScore: 92,
+    pods: [
+      { name: 'api-server-7d9f4b-xk2p', namespace: 'production', phase: 'Running', nodeName: 'gke-prod-node-001', restartCount: 0, cpuUsage: 420, memoryUsage: 512, cpuRequest: 500, memoryRequest: 512, age: '14d', podIp: '10.0.1.4', ownerKind: 'Deployment', ownerName: 'api-server' },
+      { name: 'api-server-7d9f4b-mn3q', namespace: 'production', phase: 'Running', nodeName: 'gke-prod-node-002', restartCount: 1, cpuUsage: 380, memoryUsage: 490, cpuRequest: 500, memoryRequest: 512, age: '14d', podIp: '10.0.1.5', ownerKind: 'Deployment', ownerName: 'api-server' },
+      { name: 'worker-6c8d5f-pq7r',     namespace: 'production', phase: 'Running', nodeName: 'gke-prod-node-003', restartCount: 0, cpuUsage: 1840, memoryUsage: 2048, cpuRequest: 2000, memoryRequest: 2048, age: '8d', podIp: '10.0.1.6', ownerKind: 'Deployment', ownerName: 'worker' },
+      { name: 'postgres-0',             namespace: 'databases',  phase: 'Running', nodeName: 'gke-prod-node-004', restartCount: 0, cpuUsage: 620, memoryUsage: 1536, cpuRequest: 1000, memoryRequest: 2048, age: '30d', podIp: '10.0.2.1', ownerKind: 'StatefulSet', ownerName: 'postgres' },
+      { name: 'redis-0',                namespace: 'databases',  phase: 'Running', nodeName: 'gke-prod-node-005', restartCount: 0, cpuUsage: 80,  memoryUsage: 256,  cpuRequest: 100,  memoryRequest: 256, age: '30d', podIp: '10.0.2.2', ownerKind: 'StatefulSet', ownerName: 'redis' },
+      { name: 'nginx-ingress-abc12',    namespace: 'ingress',    phase: 'Running', nodeName: 'gke-prod-node-001', restartCount: 0, cpuUsage: 120, memoryUsage: 128,  cpuRequest: 200,  memoryRequest: 256, age: '45d', podIp: '10.0.3.1', ownerKind: 'DaemonSet',  ownerName: 'nginx-ingress' },
+      { name: 'batch-job-etl-9xk2m',   namespace: 'batch',      phase: 'Running', nodeName: 'gke-prod-node-006', restartCount: 0, cpuUsage: 3200, memoryUsage: 4096, cpuRequest: 4000, memoryRequest: 4096, age: '2d', podIp: '10.0.4.1', ownerKind: 'Job', ownerName: 'batch-etl' },
+      { name: 'monitoring-agent-n1',    namespace: 'monitoring', phase: 'Running', nodeName: 'gke-prod-node-002', restartCount: 0, cpuUsage: 60,  memoryUsage: 192,  cpuRequest: 100,  memoryRequest: 256, age: '60d', podIp: '10.0.5.1', ownerKind: 'DaemonSet',  ownerName: 'monitoring-agent' },
+    ],
+    deployments: [
+      { name: 'api-server', namespace: 'production', replicas: 2, availableReplicas: 2, readyReplicas: 2 },
+      { name: 'worker',     namespace: 'production', replicas: 1, availableReplicas: 1, readyReplicas: 1 },
+      { name: 'frontend',   namespace: 'production', replicas: 2, availableReplicas: 2, readyReplicas: 2 },
+    ],
+    statefulsets: [
+      { name: 'postgres', namespace: 'databases', replicas: 1, readyReplicas: 1, kind: 'StatefulSet' },
+      { name: 'redis',    namespace: 'databases', replicas: 1, readyReplicas: 1, kind: 'StatefulSet' },
+    ],
+    daemonsets: [
+      { name: 'nginx-ingress',    namespace: 'ingress',    replicas: 6, readyReplicas: 6, kind: 'DaemonSet' },
+      { name: 'monitoring-agent', namespace: 'monitoring', replicas: 6, readyReplicas: 6, kind: 'DaemonSet' },
+    ],
+  },
+  costMetrics: {
+    dailyCost: 48.20,
+    namespaceCosts: [
+      { namespace: 'production', cpuUsageMillicores: 8400, memoryUsageMb: 6144, podCount: 5, dailyCost: 28.40, monthlyCost: 852.00 },
+      { namespace: 'databases',  cpuUsageMillicores: 2800, memoryUsageMb: 4096, podCount: 2, dailyCost: 12.60, monthlyCost: 378.00 },
+      { namespace: 'batch',      cpuUsageMillicores: 2400, memoryUsageMb: 4096, podCount: 1, dailyCost: 5.80,  monthlyCost: 174.00 },
+      { namespace: 'ingress',    cpuUsageMillicores: 600,  memoryUsageMb: 768,  podCount: 6, dailyCost: 1.40,  monthlyCost: 42.00  },
+    ],
+    workloadCosts: [
+      { name: 'worker',     namespace: 'production', kind: 'Deployment', cpuUsageMillicores: 3200, memoryUsageMb: 4096, podCount: 1, dailyCost: 18.20, monthlyCost: 546.00 },
+      { name: 'postgres',   namespace: 'databases',  kind: 'StatefulSet', cpuUsageMillicores: 2200, memoryUsageMb: 3072, podCount: 1, dailyCost: 10.80, monthlyCost: 324.00 },
+      { name: 'api-server', namespace: 'production', kind: 'Deployment', cpuUsageMillicores: 2800, memoryUsageMb: 2048, podCount: 2, dailyCost: 8.40,  monthlyCost: 252.00 },
+      { name: 'batch-etl',  namespace: 'batch',      kind: 'Job',        cpuUsageMillicores: 3200, memoryUsageMb: 4096, podCount: 1, dailyCost: 5.80,  monthlyCost: 174.00 },
+    ],
+  },
+  resourceUtilization: {
+    nodes: [
+      { nodeName: 'gke-prod-node-001', cpuUsagePercent: 62.4, memoryUsagePercent: 58.2, cpuUsageMillicores: 2496, cpuCapacityMillicores: 4000, cpuRequestsPercent: 70.0, memoryRequestsPercent: 65.0 },
+      { nodeName: 'gke-prod-node-002', cpuUsagePercent: 54.8, memoryUsagePercent: 48.6, cpuUsageMillicores: 2192, cpuCapacityMillicores: 4000, cpuRequestsPercent: 60.0, memoryRequestsPercent: 55.0 },
+      { nodeName: 'gke-prod-node-003', cpuUsagePercent: 78.2, memoryUsagePercent: 72.4, cpuUsageMillicores: 3128, cpuCapacityMillicores: 4000, cpuRequestsPercent: 85.0, memoryRequestsPercent: 80.0 },
+      { nodeName: 'gke-prod-node-004', cpuUsagePercent: 42.1, memoryUsagePercent: 62.8, cpuUsageMillicores: 3368, cpuCapacityMillicores: 8000, cpuRequestsPercent: 50.0, memoryRequestsPercent: 70.0 },
+      { nodeName: 'gke-prod-node-005', cpuUsagePercent: 38.4, memoryUsagePercent: 44.2, cpuUsageMillicores: 3072, cpuCapacityMillicores: 8000, cpuRequestsPercent: 45.0, memoryRequestsPercent: 50.0 },
+      { nodeName: 'gke-prod-node-006', cpuUsagePercent: 84.6, memoryUsagePercent: 78.1, cpuUsageMillicores: 6768, cpuCapacityMillicores: 8000, cpuRequestsPercent: 90.0, memoryRequestsPercent: 85.0 },
+    ],
+  },
+  nodeMetrics: {
+    nodes: [
+      { name: 'gke-prod-node-001', ready: true, diskPressure: false, memoryPressure: false, instanceType: 'n2-standard-4', zone: 'us-central1-a', internalIp: '10.128.0.1', kubeletVersion: 'v1.28.5', nodePool: 'default-pool', cpuCapacity: 4000, memoryCapacity: 15360, cpuUsage: 62, cpuUsageMillicores: 2496, memoryUsage: 58, podCount: 14 },
+      { name: 'gke-prod-node-002', ready: true, diskPressure: false, memoryPressure: false, instanceType: 'n2-standard-4', zone: 'us-central1-b', internalIp: '10.128.0.2', kubeletVersion: 'v1.28.5', nodePool: 'default-pool', cpuCapacity: 4000, memoryCapacity: 15360, cpuUsage: 55, cpuUsageMillicores: 2192, memoryUsage: 49, podCount: 12 },
+      { name: 'gke-prod-node-003', ready: true, diskPressure: false, memoryPressure: false, instanceType: 'n2-standard-4', zone: 'us-central1-c', internalIp: '10.128.0.3', kubeletVersion: 'v1.28.5', nodePool: 'default-pool', cpuCapacity: 4000, memoryCapacity: 15360, cpuUsage: 78, cpuUsageMillicores: 3128, memoryUsage: 72, podCount: 10 },
+      { name: 'gke-prod-node-004', ready: true, diskPressure: false, memoryPressure: false, instanceType: 'n2-standard-8', zone: 'us-central1-a', internalIp: '10.128.0.4', kubeletVersion: 'v1.28.5', nodePool: 'batch-pool',   cpuCapacity: 8000, memoryCapacity: 30720, cpuUsage: 42, cpuUsageMillicores: 3368, memoryUsage: 63, podCount: 6  },
+      { name: 'gke-prod-node-005', ready: true, diskPressure: false, memoryPressure: false, instanceType: 'n2-standard-8', zone: 'us-central1-b', internalIp: '10.128.0.5', kubeletVersion: 'v1.28.5', nodePool: 'batch-pool',   cpuCapacity: 8000, memoryCapacity: 30720, cpuUsage: 38, cpuUsageMillicores: 3072, memoryUsage: 44, podCount: 4  },
+      { name: 'gke-prod-node-006', ready: true, diskPressure: false, memoryPressure: true,  instanceType: 'n2-standard-8', zone: 'us-central1-c', internalIp: '10.128.0.6', kubeletVersion: 'v1.28.5', nodePool: 'batch-pool',   cpuCapacity: 8000, memoryCapacity: 30720, cpuUsage: 85, cpuUsageMillicores: 6768, memoryUsage: 78, podCount: 2  },
+    ],
+  },
+  containerMetrics: {
+    containers: [
+      { name: 'api-server',      pod: 'api-server-7d9f4b-xk2p', namespace: 'production', image: 'gcr.io/xammer/api-server:v2.4.1',  state: 'running', ready: true,  restartCount: 0, cpuUsage: 420,  memoryUsage: 512,  fsUsage: 2.1 },
+      { name: 'api-server',      pod: 'api-server-7d9f4b-mn3q', namespace: 'production', image: 'gcr.io/xammer/api-server:v2.4.1',  state: 'running', ready: true,  restartCount: 1, cpuUsage: 380,  memoryUsage: 490,  fsUsage: 2.0 },
+      { name: 'worker',          pod: 'worker-6c8d5f-pq7r',     namespace: 'production', image: 'gcr.io/xammer/worker:v1.8.3',     state: 'running', ready: true,  restartCount: 0, cpuUsage: 1840, memoryUsage: 2048, fsUsage: 5.4 },
+      { name: 'postgres',        pod: 'postgres-0',             namespace: 'databases',  image: 'postgres:15.2',                   state: 'running', ready: true,  restartCount: 0, cpuUsage: 620,  memoryUsage: 1536, fsUsage: 45.2 },
+      { name: 'redis',           pod: 'redis-0',                namespace: 'databases',  image: 'redis:7.2-alpine',               state: 'running', ready: true,  restartCount: 0, cpuUsage: 80,   memoryUsage: 256,  fsUsage: 0.8 },
+      { name: 'nginx-ingress',   pod: 'nginx-ingress-abc12',    namespace: 'ingress',    image: 'k8s.gcr.io/ingress-nginx:v1.8.1', state: 'running', ready: true,  restartCount: 0, cpuUsage: 120,  memoryUsage: 128,  fsUsage: 0.2 },
+      { name: 'etl-processor',   pod: 'batch-job-etl-9xk2m',   namespace: 'batch',      image: 'gcr.io/xammer/etl:v3.1.0',       state: 'running', ready: true,  restartCount: 0, cpuUsage: 3200, memoryUsage: 4096, fsUsage: 12.6 },
+      { name: 'monitoring-agent',pod: 'monitoring-agent-n1',    namespace: 'monitoring', image: 'gcr.io/google-containers/prometheus-to-sd:v0.11.3', state: 'running', ready: true, restartCount: 0, cpuUsage: 60, memoryUsage: 192, fsUsage: 0.4 },
+    ],
+  },
+  securityMetrics: {
+    totalEvents: 3,
+    eventsByPriority: { WARNING: 2, NOTICE: 1 },
+    alerts: [
+      { rule: 'Terminal shell in container', priority: 'WARNING', count: 2, lastSeen: new Date(Date.now() - 7200_000).toISOString(), namespace: 'production' },
+      { rule: 'Sensitive file opened',       priority: 'NOTICE',  count: 1, lastSeen: new Date(Date.now() - 14400_000).toISOString(), namespace: 'databases' },
+    ],
+  },
+};
+
+// ─── GCP/Azure Prowler Compliance (/api/xamops/gcp/security/prowler/*) ────────
+// The ComplianceOps page calls prowler/status and prowler/findings (not /security/findings).
+// findings shape: { status_code, severity, finding_info: {title, desc}, resources: [{uid, region}], unmapped: { compliance: { 'CIS': ['1.2'], 'SOC2': ['CC6.1'] } } }
+export const demoGcpProwlerStatus = { status: 'COMPLETED', findingsCount: 24 };
+export const demoGcpProwlerFindings = [
+  { status_code: 'FAIL', severity: 'critical', finding_info: { title: 'GCE instances should not use default service account', desc: 'Default service account with editor role attached to 3 GCE instances grants excessive permissions.' }, resources: [{ uid: 'gce-prod-analytics-01', region: 'us-central1' }], unmapped: { compliance: { CIS: ['4.1', '4.2'], SOC2: ['CC6.1', 'CC6.3'], 'PCI-DSS': ['7.1.2'] } } },
+  { status_code: 'FAIL', severity: 'high',     finding_info: { title: 'Cloud Storage buckets should not be publicly accessible', desc: 'Bucket xammer-gcp-exports has allUsers read permission — data exposure risk.' },                    resources: [{ uid: 'xammer-gcp-exports', region: 'us-central1' }],   unmapped: { compliance: { CIS: ['5.1'], SOC2: ['CC6.1', 'CC7.2'], 'PCI-DSS': ['1.3.2'], HIPAA: ['164.312(a)(1)'] } } },
+  { status_code: 'FAIL', severity: 'high',     finding_info: { title: 'Cloud SQL instances should have SSL enforcement enabled', desc: 'CloudSQL instance cloudsql-prod-postgres does not enforce SSL connections.' },                        resources: [{ uid: 'cloudsql-prod-postgres', region: 'us-central1' }], unmapped: { compliance: { CIS: ['6.2'], SOC2: ['CC6.7'], 'PCI-DSS': ['4.1'], NIST: ['AC-17', 'SC-8'] } } },
+  { status_code: 'FAIL', severity: 'medium',   finding_info: { title: 'GKE clusters should have binary authorization enabled', desc: 'Binary Authorization not enforced on gke-prod-cluster-01 — arbitrary container images can run.' },    resources: [{ uid: 'gke-prod-cluster-01', region: 'us-central1' }],    unmapped: { compliance: { CIS: ['7.3'], SOC2: ['CC6.6'], 'ISO-27001': ['A.14.2.7'] } } },
+  { status_code: 'FAIL', severity: 'medium',   finding_info: { title: 'Cloud KMS keys should have rotation enabled', desc: '4 KMS keys have not been rotated in over 90 days — exceeds key rotation policy.' },                             resources: [{ uid: 'projects/xammer/locations/global/keyRings/prod', region: 'global' }], unmapped: { compliance: { CIS: ['1.8'], SOC2: ['CC6.7'], 'PCI-DSS': ['3.6.4'], NIST: ['SC-12'] } } },
+  { status_code: 'FAIL', severity: 'medium',   finding_info: { title: 'GCP project audit logging should be enabled for all services', desc: 'Data access audit logs are not enabled for BigQuery, Compute Engine, and Cloud Storage.' },  resources: [{ uid: 'project/xammer-analytics-prod', region: 'global' }], unmapped: { compliance: { CIS: ['2.1'], SOC2: ['CC7.2', 'CC7.3'], HIPAA: ['164.312(b)'], NIST: ['AU-2'] } } },
+  { status_code: 'FAIL', severity: 'low',      finding_info: { title: 'VPC networks should restrict firewall rules with 0.0.0.0/0', desc: '2 firewall rules allow unrestricted SSH ingress from any source IP.' },                         resources: [{ uid: 'vpc-prod-network', region: 'global' }],              unmapped: { compliance: { CIS: ['3.6', '3.7'], SOC2: ['CC6.6'], 'PCI-DSS': ['1.2.1'] } } },
+  { status_code: 'PASS', severity: 'medium',   finding_info: { title: 'GKE nodes should have shielded nodes enabled', desc: 'Shielded nodes are enabled on all node pools.' },                                                               resources: [{ uid: 'gke-prod-cluster-01', region: 'us-central1' }],    unmapped: { compliance: { CIS: ['7.5'], SOC2: ['CC6.6'] } } },
+];
+
+export const demoAzureProwlerStatus = { status: 'COMPLETED', findingsCount: 18 };
+export const demoAzureProwlerFindings = [
+  { status_code: 'FAIL', severity: 'critical', finding_info: { title: 'Azure subscriptions should have MFA enabled for all users', desc: 'Multi-factor authentication is not enforced for 3 users with privileged roles.' },       resources: [{ uid: 'subscription/demo-azure-001', region: 'eastus' }],   unmapped: { compliance: { CIS: ['1.1.2'], SOC2: ['CC6.1'], 'PCI-DSS': ['8.3'] } } },
+  { status_code: 'FAIL', severity: 'high',     finding_info: { title: 'Storage accounts should restrict public blob access', desc: 'Azure Blob Storage account xammer-prod-storage has public access enabled.' },                 resources: [{ uid: 'xammer-prod-storage', region: 'eastus' }],            unmapped: { compliance: { CIS: ['3.5'], SOC2: ['CC6.1', 'CC7.2'], 'PCI-DSS': ['1.3.2'] } } },
+  { status_code: 'FAIL', severity: 'high',     finding_info: { title: 'Azure SQL servers should have auditing enabled', desc: 'SQL Server xammer-prod-sql does not have server-level auditing configured.' },                     resources: [{ uid: 'xammer-prod-sql', region: 'eastus' }],                unmapped: { compliance: { CIS: ['4.1'], SOC2: ['CC7.2'], HIPAA: ['164.312(b)'], NIST: ['AU-2'] } } },
+  { status_code: 'FAIL', severity: 'medium',   finding_info: { title: 'Azure VM disks should be encrypted with customer-managed keys', desc: '5 VM disks using platform-managed keys instead of customer-managed keys.' },       resources: [{ uid: 'azure-prod-app-01', region: 'eastus' }],              unmapped: { compliance: { CIS: ['7.2'], SOC2: ['CC6.7'], 'PCI-DSS': ['3.4'] } } },
+  { status_code: 'FAIL', severity: 'medium',   finding_info: { title: 'Network Security Groups should not allow unrestricted inbound SSH', desc: 'NSG rule allows inbound SSH (port 22) from any source (0.0.0.0/0).' },        resources: [{ uid: 'nsg-prod-eastus', region: 'eastus' }],                unmapped: { compliance: { CIS: ['6.2'], SOC2: ['CC6.6'], 'PCI-DSS': ['1.2.1'] } } },
+  { status_code: 'FAIL', severity: 'low',      finding_info: { title: 'Azure Key Vault should have purge protection enabled', desc: 'Key Vault xammer-prod-kv does not have purge protection — keys can be permanently deleted.' }, resources: [{ uid: 'xammer-prod-kv', region: 'eastus' }],                unmapped: { compliance: { CIS: ['8.1'], SOC2: ['A1.2'], NIST: ['SC-12'] } } },
+];

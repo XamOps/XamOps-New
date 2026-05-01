@@ -75,11 +75,11 @@ public class SreInvestigation {
     @Column(name = "incident_id")
     private String incidentId;
 
-    @Column(name = "version", nullable = false)
+    @Column(name = "version", nullable = false, columnDefinition = "int4 default 1 not null")
     private int version = 1;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "incident_status", nullable = false, length = 10)
+    @Column(name = "incident_status", nullable = false, columnDefinition = "varchar(10) default 'OPEN' not null")
     private IncidentStatus incidentStatus = IncidentStatus.OPEN;
 
     @Column(name = "closed_at")

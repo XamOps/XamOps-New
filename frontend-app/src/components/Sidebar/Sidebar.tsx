@@ -129,7 +129,7 @@ const Sidebar: React.FC = () => {
           case 'GCP':
             return '/billops-gcp-billing';
           case 'Azure':
-            return '/billops/azure-billing.html';
+            return '/billops-billing';
           case 'AWS':
           default:
             return '/billops-billing';

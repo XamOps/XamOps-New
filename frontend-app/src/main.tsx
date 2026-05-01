@@ -39,25 +39,59 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Res
 };
 // ─────────────────────────────────────────────────────────────────────────────
 
-// ─── Axios Demo Interceptor ──────────────────────────────────────────────────
-// gcpDashboardApi.ts (and any other file) uses axios directly instead of
-// window.fetch, so the fetch patch above doesn't catch those calls.
-// This adapter replaces axios's network layer in demo mode so all axios
-// requests are also short-circuited through the same mock router.
-if (isDemoMode()) {
-  const _nativeAxiosAdapter = axios.defaults.adapter;
-  axios.defaults.adapter = async (config) => {
-    const url = config.url ?? '';
-    const isInternal = url.startsWith('/') || url.startsWith(window.location.origin);
-    if (isInternal) {
-      const mockResponse = resolveDemoResponse(url);
-      if (mockResponse) {
-        const data = mockResponse.status === 404 ? null : await mockResponse.json().catch(() => null);
-        return { data, status: mockResponse.status, statusText: 'OK', headers: {}, config, request: {} };
-      }
+// ─── Axios Interceptor ───────────────────────────────────────────────────────
+// gcpDashboardApi.ts uses axios directly (not window.fetch), so the fetch patch
+// above doesn't catch those calls. We replace axios's adapter unconditionally so
+// that isDemoMode() is checked at request time rather than at module-init time.
+// This also fixes axios 1.x compatibility: defaults.adapter is an array in 1.x,
+// not a callable function, so the old passthrough pattern threw TypeError.
+axios.defaults.adapter = async (config) => {
+  const url = config.url ?? '';
+  const isInternal = url.startsWith('/') || url.startsWith(window.location.origin);
+
+  if (isInternal && isDemoMode()) {
+    const mockResponse = resolveDemoResponse(url);
+    if (mockResponse) {
+      const data = mockResponse.status === 404 ? null : await mockResponse.json().catch(() => null);
+      return { data, status: mockResponse.status, statusText: 'OK', headers: {}, config, request: {} };
     }
-    return (_nativeAxiosAdapter as any)(config);
-  };
+  }
+
+  // Passthrough: delegate to window.fetch which is already patched for tenant
+  // headers and demo intercept, so this path works for both demo and production.
+  const method = (config.method || 'GET').toUpperCase();
+  const params = config.params ? '?' + new URLSearchParams(config.params as Record<string, string>).toString() : '';
+  const fullUrl = `${url}${params}`;
+  const res = await window.fetch(fullUrl, {
+    method,
+    headers: config.headers as HeadersInit,
+    body: config.data != null
+      ? (typeof config.data === 'string' ? config.data : JSON.stringify(config.data))
+      : undefined,
+    credentials: 'include',
+  });
+  const responseData = await res.json().catch(() => null);
+  if (!res.ok) {
+    const err: any = new Error(`Request failed with status code ${res.status}`);
+    err.response = { data: responseData, status: res.status, statusText: res.statusText, headers: {}, config, request: {} };
+    err.isAxiosError = true;
+    err.config = config;
+    throw err;
+  }
+  return { data: responseData, status: res.status, statusText: res.statusText, headers: {}, config, request: {} };
+};
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─── Demo Mode Cache Buster ──────────────────────────────────────────────────
+// Hooks cache API responses in sessionStorage. After mock data changes, stale
+// zero-value entries persist and override corrected mocks. Bump DEMO_CACHE_VERSION
+// whenever mock data is updated to force a clean slate on next startup.
+if (isDemoMode()) {
+  const DEMO_CACHE_VERSION = '2026-05-01-v2';
+  if (sessionStorage.getItem('demoCacheVersion') !== DEMO_CACHE_VERSION) {
+    sessionStorage.clear();
+    sessionStorage.setItem('demoCacheVersion', DEMO_CACHE_VERSION);
+  }
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
