@@ -34,7 +34,7 @@ jobs:
           cache: maven
  
       - name: Run tests
-        run: mvn clean verify -B -DskipTests
+        run: mvn clean verify -B 
  
       - name: Upload test reports
         if: always()
