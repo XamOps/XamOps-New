@@ -7,6 +7,10 @@ import {
 } from '../hooks/useSreInvestigation';
 import SreStatusBadge from '../components/SRE/SreStatusBadge';
 import { timeAgo, duration, resourceTypeLabel } from '../components/SRE/sreUtils';
+import LogsExplorer from '../components/Observability/LogsExplorer';
+import { useObservabilityData } from '../hooks/useObservabilityData';
+
+type ActiveTab = 'report' | 'logs';
 
 const SreInvestigationDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -16,6 +20,10 @@ const SreInvestigationDetailPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [submittingVerdict, setSubmittingVerdict] = useState(false);
   const [showFullReport, setShowFullReport] = useState(false);
+  const [activeTab, setActiveTab] = useState<ActiveTab>('report');
+
+  const { streams, fetchStreams } = useObservabilityData();
+  useEffect(() => { fetchStreams(); }, [fetchStreams]);
 
   const load = useCallback(async () => {
     try {
@@ -147,8 +155,39 @@ const SreInvestigationDetailPage: React.FC = () => {
           </div>
         </div>
 
+        {/* Tab bar */}
+        <div className="flex gap-1 border-b border-gray-200">
+          <button
+            onClick={() => setActiveTab('report')}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === 'report'
+                ? 'border-indigo-600 text-indigo-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            Report
+          </button>
+          <button
+            onClick={() => setActiveTab('logs')}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === 'logs'
+                ? 'border-indigo-600 text-indigo-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            Logs
+          </button>
+        </div>
+
+        {/* Logs tab */}
+        {activeTab === 'logs' && (
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden" style={{ minHeight: '500px' }}>
+            <LogsExplorer streams={streams} />
+          </div>
+        )}
+
         {/* Running state */}
-        {isRunning && (
+        {activeTab === 'report' && isRunning && (
           <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5">
             <div className="flex items-center gap-3 mb-3">
               <div className="w-3 h-3 bg-amber-400 rounded-full animate-pulse shrink-0" />
@@ -166,7 +205,7 @@ const SreInvestigationDetailPage: React.FC = () => {
         )}
 
         {/* Failed state */}
-        {inv.status === 'FAILED' && (
+        {activeTab === 'report' && inv.status === 'FAILED' && (
           <div className="bg-red-50 border border-red-200 rounded-2xl p-5">
             <p className="text-red-600 font-semibold text-sm mb-1">Investigation failed</p>
             <p className="text-red-500 text-sm">{inv.errorMessage || 'An unexpected error occurred during investigation.'}</p>
@@ -174,7 +213,7 @@ const SreInvestigationDetailPage: React.FC = () => {
         )}
 
         {/* Completed results */}
-        {inv.status === 'COMPLETED' && (
+        {activeTab === 'report' && inv.status === 'COMPLETED' && (
           <div className="space-y-4">
 
             {/* Summary */}
