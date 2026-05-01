@@ -30,6 +30,7 @@ import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.Arrays;
 
 /**
  * Handles the two-step email+OTP login flow:
@@ -65,12 +66,17 @@ public class LoginOtpController {
     @Value("${app.frontend.url}")
     private String frontendUrl;
 
+    private static final Set<String> DEMO_EMAILS = new java.util.HashSet<>(Arrays.asList(
+            "demo.xamops@xammer.in",
+            "demo.billops@xammer.in"
+    ));
+
     /**
      * Step 1: Validate email + password, send OTP to email.
      * Body: { "email": "...", "password": "..." }
      */
     @PostMapping("/initiate-login")
-    public ResponseEntity<?> initiateLogin(@RequestBody Map<String, String> body) {
+    public ResponseEntity<?> initiateLogin(@RequestBody Map<String, String> body, HttpServletRequest request) {
         String email = body.get("email");
         String password = body.get("password");
 
@@ -94,6 +100,11 @@ public class LoginOtpController {
             log.warn("Invalid password for email: {}", email);
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("error", "Invalid email or password"));
+        }
+
+        // Demo users skip OTP — authenticate directly and return redirectUrl
+        if (DEMO_EMAILS.contains(email)) {
+            return authenticateAndRedirect(user, request);
         }
 
         // Credentials validated — generate and send OTP
@@ -232,5 +243,68 @@ public class LoginOtpController {
 
         log.info("Login OTP verified for {}. Redirecting to: {}", email, targetUrl);
         return ResponseEntity.ok(Map.of("redirectUrl", targetUrl, "tenantId", tenantId));
+    }
+
+    /**
+     * Shared helper: creates an authenticated Spring Security session for the given user
+     * and returns the same { redirectUrl, tenantId } response used by verifyLoginOtp.
+     * Used by demo users who bypass the OTP step.
+     */
+    private ResponseEntity<?> authenticateAndRedirect(User user, HttpServletRequest request) {
+        try {
+            UserDetails userDetails = userDetailsService.loadUserByUsername(user.getUsername());
+
+            UsernamePasswordAuthenticationToken authToken =
+                    new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
+            SecurityContext securityContext = SecurityContextHolder.createEmptyContext();
+            securityContext.setAuthentication(authToken);
+            SecurityContextHolder.setContext(securityContext);
+
+            HttpSession existingSession = request.getSession(false);
+            if (existingSession != null) existingSession.invalidate();
+            HttpSession session = request.getSession(true);
+            session.setAttribute("SPRING_SECURITY_CONTEXT", securityContext);
+
+            ClientUserDetails clientDetails = (ClientUserDetails) userDetails;
+            Set<String> roles = userDetails.getAuthorities().stream()
+                    .map(a -> a.getAuthority())
+                    .collect(Collectors.toSet());
+
+            Long clientId = clientDetails.getClientId();
+            List<CloudAccount> accounts;
+            try {
+                accounts = clientId != null ? cloudAccountRepository.findByClientId(clientId) : Collections.emptyList();
+            } catch (Exception e) {
+                accounts = Collections.emptyList();
+            }
+
+            String targetUrl;
+            if (roles.contains("ROLE_BILLOPS_ADMIN")) {
+                targetUrl = frontendUrl + "/billops-admin-dashboard";
+            } else if (roles.contains("ROLE_BILLOPS")) {
+                targetUrl = frontendUrl + "/billops-dashboard";
+            } else if (roles.contains("ROLE_XAMOPS")) {
+                targetUrl = frontendUrl + "/unified-dashboard";
+            } else if (accounts.isEmpty()) {
+                targetUrl = frontendUrl + "/account-manager";
+            } else {
+                targetUrl = frontendUrl + "/unified-dashboard";
+            }
+
+            String tenantId = clientDetails.getTenantId() != null ? clientDetails.getTenantId() : "default";
+
+            try {
+                flexComputeService.isAuthenticated(clientDetails.getId());
+            } catch (Exception e) {
+                log.warn("CloudiDR auto-auth failed for demo user {}: {}", clientDetails.getId(), e.getMessage());
+            }
+
+            log.info("Demo login for {}. Redirecting to: {}", user.getEmail(), targetUrl);
+            return ResponseEntity.ok(Map.of("redirectUrl", targetUrl, "tenantId", tenantId));
+        } catch (Exception e) {
+            log.error("Demo login failed for {}: {}", user.getEmail(), e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Login failed. Please try again."));
+        }
     }
 }

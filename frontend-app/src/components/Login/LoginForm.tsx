@@ -1,4 +1,5 @@
 import React, { useState, useEffect, FormEvent } from 'react';
+import { activateDemoModeIfNeeded } from '../../demo/demoConfig';
 
 interface LoginFormProps {
   onForgotPassword: () => void;
@@ -7,6 +8,7 @@ interface LoginFormProps {
 interface LoginResponse {
   tenantId?: string;
   redirectUrl?: string;
+  status?: string;
 }
 
 type LoginStep = 'credentials' | 'otp';
@@ -57,13 +59,28 @@ const LoginForm: React.FC<LoginFormProps> = ({ onForgotPassword }) => {
         body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
       });
 
-      const data = await response.json();
+      const data: LoginResponse = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || 'Authentication failed. Please check your credentials.');
+        throw new Error((data as any).error || 'Authentication failed. Please check your credentials.');
       }
 
-      // OTP sent — move to OTP step
+      // Demo users: backend skips OTP and returns redirectUrl directly
+      if (data.redirectUrl) {
+        sessionStorage.clear();
+        activateDemoModeIfNeeded(email); // set before redirect so all hooks start intercepted
+        if (data.tenantId) sessionStorage.setItem('selectedTenantId', data.tenantId);
+        let redirectPath = '/unified-dashboard';
+        try {
+          redirectPath = new URL(data.redirectUrl).pathname;
+        } catch {
+          redirectPath = data.redirectUrl.startsWith('/') ? data.redirectUrl : `/${data.redirectUrl}`;
+        }
+        window.location.href = redirectPath;
+        return;
+      }
+
+      // Normal users: OTP sent — move to OTP step
       setLoginStep('otp');
       setOtp('');
     } catch (err) {

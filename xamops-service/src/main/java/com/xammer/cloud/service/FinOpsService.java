@@ -885,56 +885,28 @@ public class FinOpsService {
     @Async("awsTaskExecutor")
     public CompletableFuture<List<DashboardData.BillingSummary>> getBillingSummary(CloudAccount account,
             boolean forceRefresh, String startDate, String endDate) {
-        // Stable cache key: normalise current-month end date to end-of-month so the
-        // key is the same every day of the month (matches the nightly scheduler key).
+        // Normalise current-month end date to end-of-month so the getCostBreakdown
+        // cache key is the same every day of the month (matches the nightly scheduler key).
         String normalizedEnd = (endDate != null && isCurrentMonth(endDate))
                 ? YearMonth.from(LocalDate.parse(endDate)).atEndOfMonth().toString()
                 : endDate;
-        String cacheKey = "billingSummary-" + account.getAwsAccountId();
-        String dbKey = "FINOPS_BILLING_SUMMARY::" + account.getAwsAccountId();
-        if (startDate != null && normalizedEnd != null) {
-            cacheKey += "-" + startDate + "-" + normalizedEnd;
-            dbKey += "::" + startDate + "::" + normalizedEnd;
-        }
 
-        if (!forceRefresh) {
-            Optional<List<DashboardData.BillingSummary>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {
-            });
-            if (cachedData.isPresent()) {
-                return CompletableFuture.completedFuture(cachedData.get());
-            }
-            try {
-                Optional<CachedData> dbCached = cachedDataRepository.findById(dbKey);
-                if (dbCached.isPresent()) {
-                    List<DashboardData.BillingSummary> dbData = objectMapper.readValue(dbCached.get().getJsonData(), new TypeReference<>() {});
-                    if (dbData != null) {
-                        redisCache.put(cacheKey, dbData, 60 * 24);
-                        logger.info("✅ DB snapshot hit — re-warmed Redis: {}", dbKey);
-                        return CompletableFuture.completedFuture(dbData);
-                    }
-                }
-            } catch (Exception dbEx) {
-                logger.warn("DB cache miss for {}: {}", dbKey, dbEx.getMessage());
-            }
-        }
-
-        // Return mock data if mock mode is enabled
-        if (useMockData) {
-            List<DashboardData.BillingSummary> mockResult = costMockService.getMockBillingSummary(account, startDate,
-                    endDate);
-            redisCache.put(cacheKey, mockResult, 60 * 24);
-            return CompletableFuture.completedFuture(mockResult);
-        }
-
-        // Delegate to CostService.getCostBreakdown("SERVICE") — shares the same CE call
-        // and Redis/DB cache with the Cost Management page, avoiding a duplicate API charge.
+        // Use end-of-month as the effective end so the shared getCostBreakdown cache key
+        // is stable for the whole month regardless of when the request arrives.
         String effectiveStartDate = startDate != null ? startDate : LocalDate.now().withDayOfMonth(1).toString();
-        // Use end-of-month so the downstream getCostBreakdown cache key is stable
-        // for the entire month (same key whether called WED, THU, FRI, or SUN).
-        String effectiveEndDate = normalizedEnd != null ? normalizedEnd
-                : YearMonth.now().atEndOfMonth().toString();
+        String effectiveEndDate = normalizedEnd != null ? normalizedEnd : YearMonth.now().atEndOfMonth().toString();
 
-        logger.info("Fetching billing summary for account {} via getCostBreakdown ({} to {})...",
+        if (useMockData) {
+            return CompletableFuture.completedFuture(
+                    costMockService.getMockBillingSummary(account, startDate, endDate));
+        }
+
+        // Single source of truth: getCostBreakdown("SERVICE") owns the cache
+        // (Redis key "costBreakdown-{id}-SERVICE--{start}-{end}", DB key
+        // "AWS_COST_BREAKDOWN::{id}::SERVICE::..."). Dashboard, Cost, and FinOps pages all
+        // read from the same key, so a force-refresh or nightly warm-up on any one page
+        // keeps all three in sync automatically.
+        logger.info("[BillingSummary] Delegating to getCostBreakdown for account={} ({} to {})",
                 account.getAwsAccountId(), effectiveStartDate, effectiveEndDate);
 
         try {
@@ -947,20 +919,11 @@ public class FinOpsService {
                     .map(dto -> new DashboardData.BillingSummary(dto.getName(), dto.getAmount()))
                     .collect(Collectors.toList());
 
-            logger.info("Fetched {} services with costs for account {}", result.size(), account.getAwsAccountId());
-            redisCache.put(cacheKey, result, 60 * 24);
-            try {
-                CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
-                snapshot.setCacheKey(dbKey);
-                snapshot.setJsonData(objectMapper.writeValueAsString(result));
-                snapshot.setLastUpdated(java.time.LocalDateTime.now());
-                cachedDataRepository.save(snapshot);
-            } catch (Exception dbEx) {
-                logger.warn("Failed to save DB snapshot {}: {}", dbKey, dbEx.getMessage());
-            }
+            logger.info("[BillingSummary] {} services returned for account={}",
+                    result.size(), account.getAwsAccountId());
             return CompletableFuture.completedFuture(result);
         } catch (Exception e) {
-            logger.error("Could not fetch billing summary for account {}: {}",
+            logger.error("[BillingSummary] Could not fetch for account={}: {}",
                     account.getAwsAccountId(), e.getMessage(), e);
             return CompletableFuture.completedFuture(new ArrayList<>());
         }

@@ -411,6 +411,7 @@ public class TicketService {
         }
 
         ticket.setStatus("IN_PROGRESS");
+        ticket.setUpdatedAt(java.time.LocalDateTime.now());
 
         // Auto-assign: when an admin replies and no admin is currently assigned, auto-assign to this admin
         boolean isAdminReply = author.getRole() != null && author.getRole().contains("ADMIN");
@@ -461,6 +462,7 @@ public class TicketService {
 
         ticket.setStatus("CLOSED");
         ticket.setClosedAt(java.time.LocalDateTime.now());
+        ticket.setUpdatedAt(java.time.LocalDateTime.now());
         Ticket updatedTicket = ticketRepository.save(ticket);
 
         // Evict Cache for this specific category + Admin list
@@ -1000,6 +1002,7 @@ public class TicketService {
         dto.setDescription(ticket.getDescription());
         dto.setStatus(ticket.getStatus());
         dto.setCreatedAt(ticket.getCreatedAt());
+        dto.setUpdatedAt(ticket.getUpdatedAt());
         dto.setCategory(ticket.getCategory());
         dto.setService(ticket.getService());
         dto.setSeverity(ticket.getSeverity());

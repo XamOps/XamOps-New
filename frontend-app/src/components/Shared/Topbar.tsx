@@ -11,6 +11,7 @@ import LogoutModal from './LogoutModal';
 import NotificationDropdown from './NotificationDropdown';
 import BillOpsUserNotificationDropdown from '../BillOps/BillOpsUserNotificationDropdown';
 import { useTheme } from '../../contexts/ThemeContext';
+import { isDemoMode } from '../../demo/demoConfig';
 
 const Topbar: React.FC = () => {
     const location = useLocation();
@@ -92,9 +93,9 @@ const Topbar: React.FC = () => {
     };
 
     const pageTitle = contextTitle || getPageTitle(location.pathname);
-    // Prefer email prefix so switching accounts shows the correct user identity.
-    // Fall back to username only if email is unavailable (older API responses).
-    const displayName = userProfile?.email?.split('@')[0] || userProfile?.username || 'User';
+    const displayName = isDemoMode()
+        ? (userProfile?.username || 'User')
+        : (userProfile?.email?.split('@')[0] || userProfile?.username || 'User');
 
     // Debug theme
     console.log('🌗 [Topbar] Render - theme:', theme);

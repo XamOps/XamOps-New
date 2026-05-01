@@ -590,6 +590,10 @@ public class ProactiveCacheRefreshService {
                         // already called at 2:00 AM via refreshFinOps() → getFinOpsReport() →
                         // getBillingSummary() with forceRefresh=true. Calling it again 30 min later
                         // would be a duplicate CE API hit.
+                        // NOTE: getTotalMonthToDateCost warms the AWS_MTD_COST key used by the
+                        // legacy getDashboardData path. The granular KPI endpoint now derives MTD
+                        // from getCostBreakdown("SERVICE") instead, so this is kept for backwards
+                        // compatibility only.
                         costService.getTotalMonthToDateCost(accountId, true).join();
                         costService.getLastMonthSpend(accountId, true).join();
                         costService.getCostBreakdownByServiceAndRegion(

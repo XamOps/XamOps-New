@@ -47,21 +47,9 @@ public class DataInitializer implements CommandLineRunner {
         // 2. Create SuperAdmin User (The Master User)
         createSuperAdminIfMissing(defaultClient);
 
-        // 3. Create Standard Users (Only if DB is empty)
-        if (userRepository.count() <= 1) { // <= 1 because superadmin might have just been created
-            logger.info("Initializing default demo users...");
-
-            // Admin User
-            // createUserIfMissing("admin", "password", "ROLE_BILLOPS_ADMIN", defaultClient);
-
-            // XamOps User
-            // createUserIfMissing("xamopsuser", "password", "ROLE_XAMOPS", defaultClient);
-
-            // BillOps User
-            // createUserIfMissing("billopsuser", "password", "ROLE_BILLOPS", defaultClient);
-
-            logger.info("Default users created successfully.");
-        }
+        // 3. Seed demo users (always, not gated on DB being empty)
+        createDemoUserIfMissing("Xammer Admin", "demo.xamops@xammer.in", "password", "ROLE_XAMOPS", defaultClient);
+        createDemoUserIfMissing("Xammer BillOps", "demo.billops@xammer.in", "password", "ROLE_BILLOPS_ADMIN", defaultClient);
     }
 
     private void createSuperAdminIfMissing(Client client) {
@@ -84,6 +72,24 @@ public class DataInitializer implements CommandLineRunner {
             User user = new User(username, passwordEncoder.encode(password), client);
             user.setRole(role);
             userRepository.save(user);
+        }
+    }
+
+    private void createDemoUserIfMissing(String username, String email, String password, String role, Client client) {
+        Optional<User> existing = userRepository.findByEmail(email);
+        if (existing.isEmpty()) {
+            User user = new User(username, passwordEncoder.encode(password), client);
+            user.setEmail(email);
+            user.setRole(role);
+            userRepository.save(user);
+            logger.info("Demo user created: {} ({})", username, email);
+        } else {
+            User user = existing.get();
+            if (!username.equals(user.getUsername())) {
+                user.setUsername(username);
+                userRepository.save(user);
+                logger.info("Demo user username updated to: {} ({})", username, email);
+            }
         }
     }
 
