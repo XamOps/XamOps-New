@@ -34,7 +34,7 @@ jobs:
           cache: maven
  
       - name: Run tests
-        run: mvn clean verify -B  -DskipTests 
+        run: mvn clean verify -B -DskipTests 
  
       - name: Upload test reports
         if: always()
@@ -69,7 +69,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ secrets.gr_token }}
  
       - name: Extract Docker metadata (tags & labels)
         id: meta
@@ -115,7 +115,7 @@ jobs:
           port: ${{ secrets.SSH_PORT }}
           script: |
             # ── Authenticate & pull latest image ──────────────────────────
-            echo "${{ secrets.GITHUB_TOKEN }}" | \
+            echo "${{ secrets.gh_token }}" | \
               docker login ghcr.io -u ${{ github.actor }} --password-stdin
  
             docker pull ghcr.io/${{ github.repository }}:latest
@@ -138,13 +138,7 @@ jobs:
               -p 9090:9090 \
               -e SPRING_PROFILES_ACTIVE=uat \
               -e SPRING_DATASOURCE_URL=jdbc:postgresql://10.30.21.26:5432/xamops_db_uat \
-              -e GROQ_API_KEY=${{ secrets.GROQ_API_KEY }} \
               -e EUREKA_CLIENT_SERVICE_URL_DEFAULT_ZONE=http://service-registry:8761/eureka/ \
-              -e ANYTHINGLLM_API_KEY=${{ secrets.ANYTHINGLLM_API_KEY }} \
-              -e ANYTHINGLLM_URL=${{ secrets.ANYTHINGLLM_URL }} \
-              -e SENTRY_DSN=${{ secrets.SENTRY_DSN }} \
-              -e SENTRY_ENVIRONMENT=uat \
-              -e SENTRY_TRACES_SAMPLE_RATE=1.0 \
               -e SPRING_FLYWAY_OUT_OF_ORDER=true \
               -e MANAGEMENT_SERVER_PORT=9090 \
               -e MANAGEMENT_HEALTH_DB_ENABLED=false \
@@ -160,4 +154,5 @@ jobs:
             if docker ps --filter "name=xamops-service" --filter "status=running" | grep -q xamops-service; then
               echo "✅ xamops-service is running"
               docker ps --filter "name=xamops-service"
+            
         
