@@ -20,9 +20,6 @@ const HOURLY_PRICES: Record<string, number> = {
   'r5.large': 0.126, 'r5.xlarge': 0.252, 'r5.2xlarge': 0.504, 'r5.4xlarge': 1.008,
 };
 
-// Office-hours schedule: Mon-Fri 9-18 = 45 hrs/wk running → 123 hrs/wk stopped
-const STOPPED_HOURS_PER_MONTH = Math.round(123 * 4.33); // ~532 hrs
-
 function getHourlyPrice(instanceType: string): number {
   return HOURLY_PRICES[instanceType.toLowerCase()] ?? 0.05;
 }
@@ -31,9 +28,15 @@ function getMonthlyRunCost(resource: EC2Resource): number {
   return Math.round(getHourlyPrice(resource.type) * 730 * 100) / 100;
 }
 
-function getPotentialSavings(resource: EC2Resource): number {
-  if (resource.savings > 0) return resource.savings;
-  return Math.round(getHourlyPrice(resource.type) * STOPPED_HOURS_PER_MONTH * 100) / 100;
+// Returns the savings amount to display, or null if not yet available, or 0 if none.
+function getPotentialSavings(resource: EC2Resource): number | null {
+  if (resource.savings > 0) return resource.savings;               // policy-backed: always ready
+  if (resource.recommendedSavings === undefined) return null;      // still loading from CloudWatch
+  return resource.recommendedSavings ?? 0;
+}
+
+function isRecommendationLoading(resource: EC2Resource): boolean {
+  return !resource.policyName && resource.state === 'running' && resource.recommendedSavings === undefined;
 }
 
 interface KpiData {
@@ -51,7 +54,7 @@ function computeKpis(allResources: EC2Resource[]): KpiData {
   const activeResources = allResources.filter(isActive);
   const managedCount = activeResources.filter((r) => r.policyName).length;
   const totalMonthlyCost = activeResources.reduce((sum, r) => sum + getMonthlyRunCost(r), 0);
-  const potentialSavings = activeResources.reduce((sum, r) => sum + getPotentialSavings(r), 0);
+  const potentialSavings = activeResources.reduce((sum, r) => sum + (getPotentialSavings(r) ?? 0), 0);
   return {
     totalInstances: allResources.length,
     managedCount,
@@ -181,8 +184,8 @@ const CloudSitterDashboard: React.FC<CloudSitterDashboardProps> = ({
                 </div>
               )}
               <div className="text-xs text-emerald-600/70 mt-0.5 flex items-center gap-1">
-                <i className="fas fa-brain text-[10px]"></i>
-                Based on CPU &amp; memory patterns
+                <i className="fas fa-clock text-[10px]"></i>
+                From active schedule policies
               </div>
             </div>
           </div>
@@ -295,6 +298,7 @@ const CloudSitterDashboard: React.FC<CloudSitterDashboardProps> = ({
                 const monthlyCost = getMonthlyRunCost(resource);
                 const potSavings = getPotentialSavings(resource);
                 const hasPolicy = !!resource.policyName;
+                const recLoading = isRecommendationLoading(resource);
                 return (
                   <tr key={resource.id} className="hover:bg-gray-50 transition-colors group">
                     <td className="p-4">
@@ -362,10 +366,26 @@ const CloudSitterDashboard: React.FC<CloudSitterDashboardProps> = ({
                     <td className="p-4 text-right">
                       {isTerminated ? (
                         <div className="text-gray-300">—</div>
+                      ) : recLoading ? (
+                        <div className="flex flex-col items-end gap-1">
+                          <div className="h-4 w-16 bg-gray-100 rounded animate-pulse" />
+                          <div className="text-xs text-gray-300 flex items-center gap-1">
+                            <i className="fas fa-circle-notch fa-spin text-[10px]"></i> Analyzing
+                          </div>
+                        </div>
+                      ) : !hasPolicy && (potSavings === null || potSavings === 0) ? (
+                        <div className="text-gray-300">—</div>
                       ) : (
                         <>
-                          <div className={`font-bold ${hasPolicy ? 'text-emerald-600' : 'text-amber-500'}`}>
-                            ${potSavings.toFixed(2)}
+                          <div
+                            className={`font-bold ${hasPolicy ? 'text-emerald-600' : 'text-amber-500'}`}
+                            title={
+                              !hasPolicy && resource.recommendedOffHoursPerWeek
+                                ? `Based on ${resource.recommendedOffHoursPerWeek}h/week off-hours from past CPU usage`
+                                : undefined
+                            }
+                          >
+                            ${(potSavings ?? 0).toFixed(2)}
                           </div>
                           <div className={`text-xs mt-0.5 ${hasPolicy ? 'text-emerald-500' : 'text-amber-400'}`}>
                             {hasPolicy ? (
@@ -373,8 +393,8 @@ const CloudSitterDashboard: React.FC<CloudSitterDashboardProps> = ({
                                 <i className="fas fa-check-circle text-[10px]"></i> Active
                               </span>
                             ) : (
-                              <span className="flex items-center justify-end gap-1">
-                                <i className="fas fa-brain text-[10px]"></i> Recommended
+                              <span className="flex items-center justify-end gap-1" title="Estimated from historical CPU utilisation">
+                                <i className="fas fa-brain text-[10px]"></i> AI Estimate
                               </span>
                             )}
                           </div>

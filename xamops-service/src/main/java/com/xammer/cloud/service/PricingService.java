@@ -138,10 +138,10 @@ public class PricingService {
         }
 
         logger.info("Fetching live EC2 price for region: {}, type: {}", region, instanceType);
-        Filter regionFilter = Filter.builder().field("location").value(getRegionDescription(region)).type("TERM_MATCH")
-                .build();
-        Filter instanceTypeFilter = Filter.builder().field("instanceType").value(instanceType).type("TERM_MATCH")
-                .build();
+        // Use regionCode (the raw region id) instead of location (human-readable description)
+        // so that all regions — including newer ones not in any hardcoded map — work correctly.
+        Filter regionFilter = Filter.builder().field("regionCode").value(region).type("TERM_MATCH").build();
+        Filter instanceTypeFilter = Filter.builder().field("instanceType").value(instanceType).type("TERM_MATCH").build();
         Filter tenancyFilter = Filter.builder().field("tenancy").value("Shared").type("TERM_MATCH").build();
         Filter osFilter = Filter.builder().field("operatingSystem").value("Linux").type("TERM_MATCH").build();
         Filter capacityFilter = Filter.builder().field("capacitystatus").value("Used").type("TERM_MATCH").build();
@@ -149,23 +149,21 @@ public class PricingService {
 
         GetProductsRequest request = GetProductsRequest.builder()
                 .serviceCode("AmazonEC2")
-                .filters(regionFilter, instanceTypeFilter, tenancyFilter, osFilter, capacityFilter,
-                        preinstalledSwFilter)
+                .filters(regionFilter, instanceTypeFilter, tenancyFilter, osFilter, capacityFilter, preinstalledSwFilter)
                 .build();
 
         try {
             GetProductsResponse response = pricingClient.getProducts(request);
             List<String> priceList = response.priceList();
 
-            // Graviton/ARM instances sometimes don't match the strict capacitystatus/preInstalledSw
-            // filters — retry with just the essential filters to ensure we get a result.
+            // Graviton/ARM instances occasionally have no preInstalledSw/capacitystatus entry —
+            // retry with essential filters only before giving up.
             if (priceList.isEmpty()) {
                 logger.warn("No price found for {} in {} with strict filters, retrying with relaxed filters", instanceType, region);
-                GetProductsRequest relaxedRequest = GetProductsRequest.builder()
+                priceList = pricingClient.getProducts(GetProductsRequest.builder()
                         .serviceCode("AmazonEC2")
                         .filters(regionFilter, instanceTypeFilter, tenancyFilter, osFilter)
-                        .build();
-                priceList = pricingClient.getProducts(relaxedRequest).priceList();
+                        .build()).priceList();
             }
 
             if (priceList.isEmpty()) {
@@ -187,8 +185,7 @@ public class PricingService {
                 }
             }
         } catch (Exception e) {
-            logger.error("Failed to fetch or parse price for EC2 instance type {} in region {}", instanceType, region,
-                    e);
+            logger.error("Failed to fetch or parse price for EC2 instance type {} in region {}", instanceType, region, e);
         }
         return 0.0;
     }

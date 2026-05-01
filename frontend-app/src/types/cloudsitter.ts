@@ -12,6 +12,9 @@ export interface EC2Resource {
   state: string;
   policyName?: string | null;
   savings: number;
+  // undefined = still loading from CloudWatch, null = no off-hours recommended, number = computed savings
+  recommendedSavings?: number | null;
+  recommendedOffHoursPerWeek?: number | null;
 }
 
 export interface CloudSitterPolicy {
