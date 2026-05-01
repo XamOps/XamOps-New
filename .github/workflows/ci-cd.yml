@@ -1,4 +1,4 @@
-name: me: CI/CD Pipeline – xamops-service
+name: CI/CD Pipeline – xamops-service
  
 on:
   push:
