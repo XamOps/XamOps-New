@@ -82,14 +82,14 @@ jobs:
       - name: Build Docker image
         run: |
           docker build \
-            -t ghcr.io/${{ github.repository }}:latest \
-            -t ghcr.io/${{ github.repository }}:sha-${{ github.sha }} \
+            -t ghcr.io/xamops/xamops-new:latest \
+            -t ghcr.io/xamops/xamops-new:sha-${{ github.sha }} \
             .
 
       - name: Push Docker image
         run: |
-          docker push ghcr.io/${{ github.repository }}:latest
-          docker push ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
+          docker push ghcr.io/xamops/xamops-new:latest
+          docker push ghcr.io/xamops/xamops-new:sha-${{ github.sha }}
 
   # ────────────────────────────────────────────
   #  JOB 3 – Deploy to UAT
@@ -114,7 +114,7 @@ jobs:
             echo "${{ secrets.SSH_TOKEN }}" | \
               docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-            docker pull ghcr.io/${{ github.repository }}:latest
+            docker pull ghcr.io/xamops/xamops-new:latest
 
             docker network inspect xamops-network >/dev/null 2>&1 || \
               docker network create xamops-network
@@ -138,7 +138,7 @@ jobs:
               -e MANAGEMENT_HEALTH_REDIS_ENABLED=false \
               -e "MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE=health,metrics,info" \
               -e MANAGEMENT_ENDPOINT_METRICS_ENABLED=true \
-              ghcr.io/${{ github.repository }}:latest
+                 ghcr.io/xamops/xamops-new:latest
 
             echo "⏳ Waiting for container to start..."
             sleep 20
