@@ -105,3 +105,11 @@ export const listDetectionEvents = async (): Promise<DetectionEvent[]> => {
   const res = await apiClient.get('/api/sre/detection/events');
   return res.data;
 };
+
+export const verifyDetectionStream = async (
+  stream: string,
+  entity: string
+): Promise<{ connected: boolean; lastEventAt: string | null }> => {
+  const params = new URLSearchParams({ stream, entity }).toString();
+  return apiClient.get(`/api/sre/detection/verify?${params}`);
+};

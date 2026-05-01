@@ -1,6 +1,7 @@
 // frontend-app/src/pages/SreSetupPage.tsx
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { verifyDetectionStream } from '../hooks/useSreInvestigation';
 
 type Stack = 'prometheus' | 'datadog' | 'newrelic' | 'openobserve' | 'none';
 
@@ -18,14 +19,25 @@ const SreSetupPage: React.FC = () => {
   const [stack, setStack] = useState<Stack | null>(null);
   const [verified, setVerified] = useState(false);
   const [verifying, setVerifying] = useState(false);
+  const [verifyError, setVerifyError] = useState('');
 
   const apiKey = 'xamops_key_' + Math.random().toString(36).slice(2, 10);
 
   const handleVerify = async () => {
     setVerifying(true);
-    await new Promise(r => setTimeout(r, 2000));
-    setVerified(true);
-    setVerifying(false);
+    setVerifyError('');
+    try {
+      const result = await verifyDetectionStream('default', 'health-check');
+      setVerified(result.connected);
+      if (!result.connected) {
+        setVerifyError('No signals detected in the last 24h. Make sure your agent is sending data.');
+      }
+    } catch {
+      setVerified(false);
+      setVerifyError('Could not reach the verification endpoint. Check your network connection.');
+    } finally {
+      setVerifying(false);
+    }
   };
 
   return (
@@ -187,6 +199,9 @@ Authorization: Bearer ${apiKey}`}
                   <button onClick={handleVerify} className="px-6 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors">
                     Check Connection
                   </button>
+                  {verifyError && (
+                    <p className="text-xs text-red-500 mt-2">{verifyError}</p>
+                  )}
                 </div>
               )}
               {verifying && (
