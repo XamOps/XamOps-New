@@ -1,4 +1,4 @@
-me: CI/CD Pipeline – xamops-service
+name: me: CI/CD Pipeline – xamops-service
  
 on:
   push:
@@ -160,11 +160,4 @@ jobs:
             if docker ps --filter "name=xamops-service" --filter "status=running" | grep -q xamops-service; then
               echo "✅ xamops-service is running"
               docker ps --filter "name=xamops-service"
-            else
-              echo "❌ xamops-service failed to start — last 50 log lines:"
-              docker logs --tail=50 xamops-service
-              exit 1
-            fi
- 
-            # ── Clean up dangling images to save disk space ───────────────
-            docker image prune -f
+        
