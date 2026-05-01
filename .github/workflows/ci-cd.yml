@@ -103,14 +103,42 @@ jobs:
     environment: uat
 
     steps:
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_KEY }}
-          port: ${{ secrets.SSH_PORT }}
-          script: |
+      # Step 1 - Setup both SSH keys
+      - name: Setup SSH Keys
+        run: |
+          mkdir -p ~/.ssh
+          
+          # Bastion key
+          echo "${{ secrets.BASTION_SSH_KEY }}" > ~/.ssh/bastion_key
+          chmod 600 ~/.ssh/bastion_key
+          
+          # UAT key
+          echo "${{ secrets.SSH_KEY }}" > ~/.ssh/uat_key
+          chmod 600 ~/.ssh/uat_key
+          
+          # Add both hosts to known_hosts
+          ssh-keyscan -H ${{ secrets.BASTION_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+
+      # Step 2 - Test Bastion connection
+      - name: Test Bastion Connection
+        run: |
+          ssh -i ~/.ssh/bastion_key \
+              -o StrictHostKeyChecking=no \
+              -o ConnectTimeout=30 \
+              -p 22 \
+              ec2-user@${{ secrets.BASTION_HOST }} \
+              "echo '✅ Bastion connected!'"
+
+      # Step 3 - Deploy via Bastion Jump
+      - name: Deploy via Bastion
+        run: |
+          ssh -i ~/.ssh/bastion_key \
+              -o StrictHostKeyChecking=no \
+              -o ConnectTimeout=30 \
+              -J ec2-user@${{ secrets.BASTION_HOST }} \
+              -i ~/.ssh/uat_key \
+              ec2-user@${{ secrets.SSH_HOST }} << 'ENDSSH'
+
             echo "${{ secrets.SSH_TOKEN }}" | \
               docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
@@ -138,21 +166,23 @@ jobs:
               -e MANAGEMENT_HEALTH_REDIS_ENABLED=false \
               -e "MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE=health,metrics,info" \
               -e MANAGEMENT_ENDPOINT_METRICS_ENABLED=true \
-                 ghcr.io/xamops/xamops-new:latest
+              ghcr.io/xamops/xamops-new:latest
 
-            echo "⏳ Waiting for container to start..."
             sleep 20
 
-            if docker ps --filter "name=xamops-service" --filter "status=running" | grep -q xamops-service; then
+            if docker ps --filter "name=xamops-service" \
+              --filter "status=running" | grep -q xamops-service; then
               echo "✅ xamops-service is running"
               docker ps --filter "name=xamops-service"
             else
-              echo "❌ xamops-service failed to start — last 50 log lines:"
+              echo "❌ Failed to start"
               docker logs --tail=50 xamops-service
               exit 1
             fi
 
             docker image prune -f
             echo "🚀 Deployment complete!"
+
+          ENDSSH
             
         
