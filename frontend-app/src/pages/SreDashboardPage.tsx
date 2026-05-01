@@ -2,8 +2,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  listInvestigations, getSreStats,
-  SreInvestigation, SreStats
+  listInvestigations, getSreStats, listDetectionEvents,
+  SreInvestigation, SreStats, DetectionEvent
 } from '../hooks/useSreInvestigation';
 import SreStatusBadge from '../components/SRE/SreStatusBadge';
 import { timeAgo, formatMttr, resourceTypeLabel, duration } from '../components/SRE/sreUtils';
@@ -12,13 +12,15 @@ const SreDashboardPage: React.FC = () => {
   const navigate = useNavigate();
   const [investigations, setInvestigations] = useState<SreInvestigation[]>([]);
   const [stats, setStats] = useState<SreStats | null>(null);
+  const [detectionEvents, setDetectionEvents] = useState<DetectionEvent[]>([]);
   const [loading, setLoading] = useState(true);
 
   const fetchAll = useCallback(async () => {
     try {
-      const [invs, s] = await Promise.all([listInvestigations(), getSreStats()]);
+      const [invs, s, events] = await Promise.all([listInvestigations(), getSreStats(), listDetectionEvents()]);
       setInvestigations(invs);
       setStats(s);
+      setDetectionEvents(events);
     } catch {
       // silently fail on background polls
     } finally {
@@ -75,6 +77,48 @@ const SreDashboardPage: React.FC = () => {
             highlight={false}
           />
         </div>
+
+        {/* Auto-Detected Anomalies feed */}
+        {detectionEvents.length > 0 && (
+          <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-100">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-violet-500" />
+                <h2 className="text-sm font-semibold text-gray-700">Auto-Detected Anomalies</h2>
+              </div>
+              <span className="text-xs text-gray-400">last 10</span>
+            </div>
+            <ul className="divide-y divide-gray-100">
+              {detectionEvents.map(evt => (
+                <li
+                  key={evt.id}
+                  onClick={() => evt.investigationId && navigate(`/sre/investigations/${evt.investigationId}`)}
+                  className={`flex items-center justify-between px-5 py-3 ${evt.investigationId ? 'cursor-pointer hover:bg-gray-50' : ''} transition-colors`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-7 h-7 rounded-lg bg-violet-100 flex items-center justify-center">
+                      <svg className="w-3.5 h-3.5 text-violet-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                      </svg>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-gray-800">{evt.entity}</p>
+                      <p className="text-xs text-gray-400">{evt.signal} · z-score {evt.score.toFixed(1)}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0">
+                    {evt.metricValue != null && evt.metricBaseline != null && (
+                      <span className="text-xs text-red-600 font-medium">
+                        {evt.metricValue.toFixed(1)} <span className="text-gray-400">vs</span> {evt.metricBaseline.toFixed(1)}
+                      </span>
+                    )}
+                    <span className="text-xs text-gray-400">{timeAgo(evt.detectedAt)}</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {/* Active incidents — only shown when there are active ones */}
         {active.length > 0 && (

@@ -89,3 +89,19 @@ export const getUnreadCount = async (): Promise<number> => {
 export const markRead = async (id: number): Promise<void> => {
   await apiClient.put<void>(`/api/sre/notifications/${id}/read`);
 };
+
+export interface DetectionEvent {
+  id: number;
+  entity: string;
+  signal: string;
+  score: number;
+  metricValue?: number;
+  metricBaseline?: number;
+  investigationId?: number;
+  detectedAt: string;
+}
+
+export const listDetectionEvents = async (): Promise<DetectionEvent[]> => {
+  const res = await apiClient.get('/api/sre/detection/events');
+  return res.data;
+};
