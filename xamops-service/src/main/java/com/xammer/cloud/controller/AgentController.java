@@ -13,12 +13,14 @@ import com.xammer.cloud.repository.AgentDataCacheRepository;
 import com.xammer.cloud.repository.AgentEventRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.KubernetesClusterConfigRepository;
+import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.service.AgentIngestService;
 import com.xammer.cloud.service.DbAgentService;
 import com.xammer.cloud.service.EksAutoscalingService;
 import com.xammer.cloud.service.OpenObserveService;
 import com.xammer.cloud.service.RedisCacheService;
 import com.xammer.cloud.service.sre.SreInvestigationService;
+import com.xammer.cloud.util.SecurityUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
@@ -91,6 +93,33 @@ public class AgentController {
         this.cloudAccountRepository = cloudAccountRepository;
         this.sreInvestigationService = sreInvestigationService;
         this.openObserveService = openObserveService;
+    }
+
+    /**
+     * Helper to get currently authenticated user details.
+     */
+    private ClientUserDetails getAuthenticatedUser() {
+        return SecurityUtils.getPrincipal();
+    }
+
+    /**
+     * Validates that the authenticated user owns the cloud account.
+     * Throws AccessDeniedException if validation fails.
+     */
+    private CloudAccount validateCloudAccountOwnership(String providerAccountId) {
+        ClientUserDetails user = getAuthenticatedUser();
+        CloudAccount account = dbAgentService.resolveAccount(providerAccountId);
+
+        if (account == null) {
+            throw new RuntimeException("Cloud account not found: " + providerAccountId);
+        }
+
+        if (!account.getClient().getId().equals(user.getClientId())) {
+            logger.warn("Security violation: User {} attempted to access account {} owned by client {}",
+                    user.getUsername(), providerAccountId, account.getClient().getId());
+            throw new org.springframework.security.access.AccessDeniedException("You do not have access to this account");
+        }
+        return account;
     }
 
     /**
@@ -237,6 +266,9 @@ public class AgentController {
                     .body(Map.of("error", "agentName and cloudAccountId are required"));
         }
 
+        // Security: Validate ownership
+        validateCloudAccountOwnership(cloudAccountId);
+
         DbAgentConfig cfg = dbAgentService.registerDbAgent(cloudAccountId, agentName);
         if (cfg == null) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
@@ -259,6 +291,9 @@ public class AgentController {
     public ResponseEntity<Map<String, Object>> deleteDbAgent(
             @RequestParam String agentName,
             @RequestParam String cloudAccountId) {
+
+        // Security: Validate ownership
+        validateCloudAccountOwnership(cloudAccountId);
 
         boolean deleted = dbAgentService.deleteDbAgent(cloudAccountId, agentName);
         if (!deleted) {
@@ -359,6 +394,14 @@ public class AgentController {
         }
 
         KubernetesClusterConfig config = configOpt.get();
+
+        // Security: Validate ownership
+        ClientUserDetails user = getAuthenticatedUser();
+        CloudAccount account = cloudAccountRepository.findById(config.getCloudAccountId()).orElse(null);
+        if (account == null || !account.getClient().getId().equals(user.getClientId())) {
+            throw new org.springframework.security.access.AccessDeniedException("Access denied to this cluster config");
+        }
+
         Map<String, Object> status = new HashMap<>();
 
         status.put("clusterName", config.getClusterName());
@@ -463,10 +506,19 @@ public class AgentController {
             return ResponseEntity.badRequest().body(Map.of("error", "agentName and cloudAccountId are required"));
         }
 
+        // Security: Validate ownership
+        validateCloudAccountOwnership(cloudAccountId);
+
+        String dbPassword = body.get("dbPassword");
+        // Don't overwrite with redacted placeholder
+        if ("********".equals(dbPassword)) {
+            dbPassword = null;
+        }
+
         DbAgentConfig cfg = dbAgentService.saveConnectionConfig(
                 cloudAccountId, agentName,
                 body.get("dbEngine"), body.get("dbHost"), body.get("dbPort"),
-                body.get("dbName"), body.get("dbUser"), body.get("dbPassword"),
+                body.get("dbName"), body.get("dbUser"), dbPassword,
                 body.get("serverUrl"));
 
         if (cfg == null) {
@@ -486,6 +538,9 @@ public class AgentController {
             @RequestParam String agentName,
             @RequestParam String cloudAccountId) {
 
+        // Security: Validate ownership
+        validateCloudAccountOwnership(cloudAccountId);
+
         DbAgentConfig cfg = dbAgentService.loadConnectionConfig(cloudAccountId, agentName);
         if (cfg == null) {
             return ResponseEntity.ok(Map.of("found", false));
@@ -498,7 +553,8 @@ public class AgentController {
         result.put("dbPort",    cfg.getDbPort()     != null ? cfg.getDbPort()     : "");
         result.put("dbName",    cfg.getDbName()     != null ? cfg.getDbName()     : "");
         result.put("dbUser",    cfg.getDbUser()     != null ? cfg.getDbUser()     : "");
-        result.put("dbPassword",cfg.getDbPassword() != null ? cfg.getDbPassword() : "");
+        // Security: Redact password
+        result.put("dbPassword",cfg.getDbPassword() != null ? "********" : "");
         result.put("serverUrl", cfg.getServerUrl()  != null ? cfg.getServerUrl()  : "");
         return ResponseEntity.ok(result);
     }
@@ -511,6 +567,9 @@ public class AgentController {
     public ResponseEntity<Map<String, Object>> getDbAgentStatus(
             @RequestParam String agentName,
             @RequestParam String cloudAccountId) {
+
+        // Security: Validate ownership
+        validateCloudAccountOwnership(cloudAccountId);
 
         java.util.Optional<DbAgentConfig> cfgOpt = dbAgentService.findDbAgent(cloudAccountId, agentName);
         if (cfgOpt.isEmpty()) {
