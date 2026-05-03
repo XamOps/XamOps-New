@@ -1,0 +1,4 @@
+## 2025-02-12 - Agent Management IDOR and Secret Leakage
+**Vulnerability:** Management endpoints in `AgentController` were missing multi-tenant ownership checks, allowing any authenticated user to register, view, or modify database agents of other clients via IDOR. Additionally, `loadDbAgentConfig` returned database passwords in plaintext, and `getInstallInfo` exposed the global agent API key without requiring authentication.
+**Learning:** Broad `permitAll()` paths in `SecurityConfig.java` (like `/api/v1/agent/**`) for agent-to-server communication inadvertently exposed sensitive management endpoints if internal controller-level validation was missing.
+**Prevention:** Always implement explicit ownership validation (checking `clientId`) for any endpoint that accepts an `accountId` or resource ID. Redact sensitive fields in API responses. Ensure all "management" or "info" endpoints require at least a valid user session.

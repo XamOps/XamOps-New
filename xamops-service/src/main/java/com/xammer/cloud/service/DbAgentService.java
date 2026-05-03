@@ -203,7 +203,9 @@ public class DbAgentService {
         cfg.setDbPort(dbPort);
         cfg.setDbName(dbName);
         cfg.setDbUser(dbUser);
-        if (dbPassword != null && !dbPassword.isEmpty()) cfg.setDbPassword(dbPassword);
+        if (dbPassword != null && !dbPassword.isEmpty() && !"********".equals(dbPassword)) {
+            cfg.setDbPassword(dbPassword);
+        }
         cfg.setServerUrl(serverUrl);
         return dbAgentConfigRepository.save(cfg);
     }
