@@ -174,9 +174,7 @@ const ClientDetailsPage: React.FC = () => {
         });
     };
 
-    const handleLoginAs = (userId: number, client: ClientDetails, user: BillOpsUser) => {
-        // Compute the provider account IDs this user is allowed to see.
-        // Empty accountAccessIds = primary user → full access to all client accounts.
+    const handleLoginAs = async (userId: number, client: ClientDetails, user: BillOpsUser) => {
         const allowedProviderIds: string[] =
             user.accountAccessIds.length === 0
                 ? client.accounts.map(a => a.providerAccountId)
@@ -184,23 +182,35 @@ const ClientDetailsPage: React.FC = () => {
                       .map(id => client.accounts.find(a => a.id === id)?.providerAccountId)
                       .filter((pid): pid is string => Boolean(pid));
 
-        const params = new URLSearchParams({
-            impersonateUserId: String(userId),
-            tenantId: client.name,
-        });
-        if (allowedProviderIds.length > 0) {
-            params.set('allowedAccountIds', allowedProviderIds.join(','));
-        }
+        try {
+            const res = await fetch('/api/billops/generate-impersonation-token', {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    userId,
+                    tenantId: client.name,
+                    allowedAccountIds: allowedProviderIds.join(','),
+                }),
+            });
 
-        // noopener,noreferrer forces a separate browsing context group so
-        // Tab B gets its own isolated sessionStorage — preventing Tab A's
-        // admin session from being contaminated when Tab B writes
-        // impersonateUserId / selectedTenantId into sessionStorage.
-        window.open(
-            `${window.location.origin}/unified-dashboard?${params.toString()}`,
-            '_blank',
-            'noopener,noreferrer'
-        );
+            if (!res.ok) {
+                console.error('Failed to generate impersonation token', res.status);
+                return;
+            }
+
+            const { token } = await res.json();
+
+            // Pass JWT in URL hash — never hits the server, never touches JSESSIONID.
+            // noopener,noreferrer gives the new tab an isolated browsing context.
+            window.open(
+                `${window.location.origin}/unified-dashboard#imp=${token}`,
+                '_blank',
+                'noopener,noreferrer'
+            );
+        } catch (err) {
+            console.error('Error during Login As', err);
+        }
     };
 
     const stats = useMemo(() => ({

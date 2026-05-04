@@ -400,51 +400,47 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     fetchUserRoles();
   }, []); // Empty dependency array - only run on mount
 
-  // Check for impersonateUserId, tenantId and allowedAccountIds in URL query parameters
+  // Handle billops "Login As" JWT passed in URL hash: /unified-dashboard#imp=<token>
+  // The JWT never hits the server as a query param, so the admin's JSESSIONID is
+  // never overwritten. We decode the payload client-side only to extract tenant/account
+  // context — the backend re-validates the full signature on every API request.
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const userId = params.get('impersonateUserId');
-    const tenantId = params.get('tenantId');
-    const allowedAccountIds = params.get('allowedAccountIds');
+    const hash = window.location.hash;
+    if (!hash.startsWith('#imp=')) return;
 
-    if (userId || tenantId || allowedAccountIds) {
-      console.log('🔄 Detected impersonation/tenant context in URL:', { userId, tenantId, allowedAccountIds });
+    const token = hash.slice(5); // strip "#imp="
+    try {
+      // Decode JWT payload (middle segment) — no verification, just context extraction
+      const payloadB64 = token.split('.')[1];
+      const claims = JSON.parse(atob(payloadB64.replace(/-/g, '+').replace(/_/g, '/')));
 
-      // Clear existing context to ensure clean isolation
-      if (userId) {
-        sessionStorage.removeItem('impersonateUserId');
-        sessionStorage.setItem('impersonateUserId', userId);
-        // Mark this as a billops "Login as" session so fetchUserRoles does not
-        // clear impersonateUserId when it sees a non-super-admin profile.
-        sessionStorage.setItem('billops_impersonation', 'true');
-        setImpersonateUser(userId);
+      sessionStorage.setItem('impersonation_jwt', token);
+      sessionStorage.setItem('billops_impersonation', 'true');
+
+      if (claims.sub) {
+        sessionStorage.setItem('impersonateUserId', claims.sub);
+        setImpersonateUser(claims.sub);
       }
-
-      if (tenantId) {
-        sessionStorage.removeItem('selectedTenantId');
-        sessionStorage.setItem('selectedTenantId', tenantId);
-        setSelectedTenant(tenantId);
+      if (claims.tenantId) {
+        sessionStorage.setItem('selectedTenantId', claims.tenantId);
+        setSelectedTenant(claims.tenantId);
       }
-
-      // Store the allowed provider account IDs for this impersonated user so
-      // AccountContext can filter the sidebar to only show their permitted accounts.
-      if (allowedAccountIds) {
-        sessionStorage.setItem('allowedAccountIds', allowedAccountIds);
+      if (claims.allowedAccountIds) {
+        sessionStorage.setItem('allowedAccountIds', claims.allowedAccountIds);
       } else {
         sessionStorage.removeItem('allowedAccountIds');
       }
 
-      // Clear stale account cache so AccountContext re-fetches after reload
-      // instead of showing the previous user's (admin's) cached accounts.
+      // Clear stale account cache so AccountContext re-fetches for this user
       sessionStorage.removeItem('cached_accounts');
       sessionStorage.removeItem('selectedAccountIds');
 
-      // Clean up the URL
-      const newUrl = window.location.pathname;
-      window.history.replaceState({}, '', newUrl);
-
-      // Refresh to apply context
+      // Remove the token from the address bar before reloading
+      window.history.replaceState({}, '', window.location.pathname);
       window.location.reload();
+    } catch (e) {
+      console.error('Failed to parse impersonation JWT from hash', e);
+      window.history.replaceState({}, '', window.location.pathname);
     }
   }, []);
 

@@ -23,15 +23,24 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Res
   }
 
   if (isInternal) {
-    const tenantId    = sessionStorage.getItem('selectedTenantId');
-    const impersonate = sessionStorage.getItem('impersonateUserId');
-    const csrfToken   = document.cookie.split('; ').find(r => r.startsWith('XSRF-TOKEN='))?.split('=')[1];
+    const tenantId       = sessionStorage.getItem('selectedTenantId');
+    const impersonate    = sessionStorage.getItem('impersonateUserId');
+    const impersonateJwt = sessionStorage.getItem('impersonation_jwt');
+    const csrfToken      = document.cookie.split('; ').find(r => r.startsWith('XSRF-TOKEN='))?.split('=')[1];
 
     const headers = new Headers(init?.headers as HeadersInit);
-    if (tenantId    && tenantId    !== 'null') headers.set('X-Tenant-ID',        tenantId);
+    if (tenantId  && tenantId  !== 'null') headers.set('X-Tenant-ID',        tenantId);
     if (impersonate && impersonate !== 'null') headers.set('X-Impersonate-User', impersonate);
-    if (csrfToken)                             headers.set('X-XSRF-TOKEN',       csrfToken);
 
+    if (impersonateJwt) {
+      // Billops "Login As" session — authenticate via JWT only.
+      // credentials: 'omit' prevents the browser from sending JSESSIONID,
+      // which would overwrite the admin's cookie domain-wide.
+      headers.set('Authorization', `Bearer ${impersonateJwt}`);
+      return _nativeFetch(input, { ...init, headers, credentials: 'omit' });
+    }
+
+    if (csrfToken) headers.set('X-XSRF-TOKEN', csrfToken);
     return _nativeFetch(input, { credentials: 'include', ...init, headers });
   }
 
