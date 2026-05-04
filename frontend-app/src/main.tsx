@@ -18,7 +18,9 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Res
 
   // Demo mode: short-circuit before any network call
   if (isInternal && isDemoMode()) {
-    const mockResponse = resolveDemoResponse(url);
+    const method = (typeof init?.method === 'string' ? init.method : 'GET').toUpperCase();
+    const body = typeof init?.body === 'string' ? init.body : undefined;
+    const mockResponse = resolveDemoResponse(url, method, body);
     if (mockResponse) return mockResponse;
   }
 
@@ -59,7 +61,9 @@ axios.defaults.adapter = async (config) => {
   const isInternal = url.startsWith('/') || url.startsWith(window.location.origin);
 
   if (isInternal && isDemoMode()) {
-    const mockResponse = resolveDemoResponse(url);
+    const axiosMethod = (config.method || 'GET').toUpperCase();
+    const axiosBody = config.data != null ? (typeof config.data === 'string' ? config.data : JSON.stringify(config.data)) : undefined;
+    const mockResponse = resolveDemoResponse(url, axiosMethod, axiosBody);
     if (mockResponse) {
       const data = mockResponse.status === 404 ? null : await mockResponse.json().catch(() => null);
       return { data, status: mockResponse.status, statusText: 'OK', headers: {}, config, request: {} };
@@ -96,7 +100,7 @@ axios.defaults.adapter = async (config) => {
 // zero-value entries persist and override corrected mocks. Bump DEMO_CACHE_VERSION
 // whenever mock data is updated to force a clean slate on next startup.
 if (isDemoMode()) {
-  const DEMO_CACHE_VERSION = '2026-05-01-v2';
+  const DEMO_CACHE_VERSION = '2026-05-04-v4';
   if (sessionStorage.getItem('demoCacheVersion') !== DEMO_CACHE_VERSION) {
     sessionStorage.clear();
     sessionStorage.setItem('demoCacheVersion', DEMO_CACHE_VERSION);

@@ -332,7 +332,7 @@ const CloudListPage: React.FC = () => {
   // ── Load all labels for the client once ──────────────────────────────────
   useEffect(() => {
     fetchLabels()
-      .then(setAllLabels)
+      .then(data => setAllLabels(Array.isArray(data) ? data : []))
       .catch(err => console.error('[Labels] Failed to load labels:', err));
   }, []);
 

@@ -27,10 +27,8 @@ interface UseActionsHistoryReturn {
   resetFilters: () => ActionsHistoryFilters;
 }
 
-const BACKEND_BASE_URL =
-  window.location.hostname === 'localhost'
-    ? 'http://localhost:8080'
-    : window.location.origin;
+// Use relative URLs so the demo fetch interceptor and Vite proxy both work
+const BACKEND_BASE_URL = '';
 
 const TENANT_ID = sessionStorage.getItem('tenantId') || 'customer1';
 
