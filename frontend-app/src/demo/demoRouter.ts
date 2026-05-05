@@ -150,6 +150,12 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
     return makeResponse(xamops.demoGcpAlerts);
   if (url.includes('/api/xamops/gcp/reservations/cuds'))
     return makeResponse(xamops.demoGcpCudRecommendations);
+  if (url.includes('/api/xamops/gcp/cloudmap/vpcs'))
+    return makeResponse(xamops.demoGcpCloudMapVpcs);
+  if (url.includes('/api/xamops/gcp/cloudmap/graph'))
+    return makeResponse(xamops.demoGcpCloudMapGraph);
+  if (url.includes('/api/xamops/gcp/cloudlist'))
+    return makeResponse(xamops.demoGcpCloudListPage);
   if (url.includes('/api/xamops/gcp'))
     return makeResponse(xamops.demoGenericEmpty);
 
@@ -308,6 +314,12 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
   if (url.includes('/api/xamops/aks/') && url.includes('/dashboard'))
     return makeResponse(xamops.demoGkeDashboard);
 
+  // CloudMap — specific routes before generic catch-all
+  if (url.includes('/api/xamops/cloudmap/vpcs'))
+    return makeResponse(xamops.demoCloudMapVpcs);
+  if (url.includes('/api/xamops/cloudmap/graph'))
+    return makeResponse(xamops.demoCloudMapGraph);
+
   // K8s / infra generic catch-all
   if (
     url.includes('/api/xamops/cloudk8s') ||
@@ -462,7 +474,7 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
 
   // Azure CloudList
   if (url.includes('/api/azure/cloudlist/'))
-    return makeResponse([]);
+    return makeResponse(xamops.demoAzureCloudListResources);
 
   // Azure FinOps (uses /api/azure/ prefix, not /api/xamops/)
   if (url.includes('/api/azure/finops-report'))

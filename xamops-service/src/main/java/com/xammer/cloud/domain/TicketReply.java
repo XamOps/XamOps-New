@@ -27,16 +27,20 @@ public class TicketReply {
     @Column(name = "is_internal", nullable = false)
     private boolean isInternal = false;
 
-    // --- NEW FIELDS FOR ATTACHMENTS ---
+    // --- ATTACHMENT FIELDS ---
     @Column(name = "attachment_key")
-    private String attachmentKey; // S3 Path
+    private String attachmentKey; // legacy single-file S3 path
 
     @Column(name = "attachment_name")
-    private String attachmentName; // Original filename
+    private String attachmentName; // legacy single-file name
 
     @Column(name = "attachment_type")
-    private String attachmentType; // MIME type
-    // ----------------------------------
+    private String attachmentType; // legacy single-file MIME type
+
+    @Lob
+    @Column(name = "attachments_json")
+    private String attachmentsJson; // JSON array: [{key,name,type}, ...]
+    // -------------------------
 
     @Column(name = "is_edited", columnDefinition = "boolean not null default false")
     private boolean edited = false;
@@ -75,6 +79,9 @@ public class TicketReply {
 
     public String getAttachmentType() { return attachmentType; }
     public void setAttachmentType(String attachmentType) { this.attachmentType = attachmentType; }
+
+    public String getAttachmentsJson() { return attachmentsJson; }
+    public void setAttachmentsJson(String attachmentsJson) { this.attachmentsJson = attachmentsJson; }
 
     public boolean isEdited() { return edited; }
     public void setEdited(boolean edited) { this.edited = edited; }

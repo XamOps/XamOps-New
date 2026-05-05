@@ -20,7 +20,7 @@ export const demoGranularKPI = {
     kpi: {
       mtdSpend: 18420.75,
       forecastedSpend: 24800.00,
-      lastMonthSpend: 16340.20,
+      lastMonthSpend: 116101.00,
       potentialSavings: 3150.50,
     },
   },
@@ -66,7 +66,7 @@ export const demoGranularCost = {
   selectedAccount: {
     costHistory: {
       labels: ['Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr'],
-      costs:  [14200, 16800, 15400, 17900, 16340, 18420],
+      costs:  [14200, 16800, 15400, 17900, 116101, 18420],
       anomalies: [false, false, false, false, false, false],
     },
     billingSummary: {
@@ -120,7 +120,7 @@ export const demoMultiAccountDashboard = {
       accountId: 'demo-aws-001',
       accountName: 'Xammer Production',
       provider: 'AWS',
-      kpi: { mtdSpend: 12340.50, forecastedSpend: 16500.00, lastMonthSpend: 11200.00, potentialSavings: 2100.00 },
+      kpi: { mtdSpend: 12340.50, forecastedSpend: 16500.00, lastMonthSpend: 116101.00, potentialSavings: 2100.00 },
       resourceInventory: { ec2Count: 62, s3Count: 32, rdsCount: 14, vpcCount: 5, lambdaCount: 22, ebsCount: 44, route53Count: 8, loadBalancerCount: 4, ecsCount: 6, eksCount: 2, lightsailCount: 0, amplifyCount: 1 },
       regionStatus: demoGranularMap.selectedAccount.regionStatus,
       costHistory: { labels: ['Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr'], costs: [8900, 10200, 9600, 11100, 10200, 12340], anomalies: [false, false, false, false, false, false] },
@@ -132,7 +132,7 @@ export const demoMultiAccountDashboard = {
       accountId: 'demo-aws-002',
       accountName: 'Xammer Staging',
       provider: 'AWS',
-      kpi: { mtdSpend: 6080.25, forecastedSpend: 8300.00, lastMonthSpend: 5140.20, potentialSavings: 1050.50 },
+      kpi: { mtdSpend: 6080.25, forecastedSpend: 8300.00, lastMonthSpend: 116101.00, potentialSavings: 1050.50 },
       resourceInventory: { ec2Count: 32, s3Count: 16, rdsCount: 8, vpcCount: 3, lambdaCount: 12, ebsCount: 23, route53Count: 4, loadBalancerCount: 2, ecsCount: 3, eksCount: 1, lightsailCount: 0, amplifyCount: 1 },
       regionStatus: [],
       costHistory: { labels: ['Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr'], costs: [5300, 6600, 5800, 6800, 6140, 6080], anomalies: [false, false, false, false, false, false] },
@@ -145,10 +145,10 @@ export const demoMultiAccountDashboard = {
     accountId: 'all',
     accountName: 'All Accounts',
     provider: 'AWS',
-    kpi: { mtdSpend: 18420.75, forecastedSpend: 24800.00, lastMonthSpend: 16340.20, potentialSavings: 3150.50 },
+    kpi: { mtdSpend: 18420.75, forecastedSpend: 24800.00, lastMonthSpend: 116101.00, potentialSavings: 3150.50 },
     resourceInventory: { ec2Count: 94, s3Count: 48, rdsCount: 22, vpcCount: 8, lambdaCount: 34, ebsCount: 67, route53Count: 12, loadBalancerCount: 6, ecsCount: 9, eksCount: 3, lightsailCount: 0, amplifyCount: 2 },
     regionStatus: demoGranularMap.selectedAccount.regionStatus,
-    costHistory: { labels: ['Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr'], costs: [14200, 16800, 15400, 17900, 16340, 18420], anomalies: [false, false, false, false, false, false] },
+    costHistory: { labels: ['Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr'], costs: [14200, 16800, 15400, 17900, 116101, 18420], anomalies: [false, false, false, false, false, false] },
     optimization: { summary: { totalRecommendations: 12, totalPotentialSavings: 3150, criticalAlerts: 3, ec2RecommendationCount: 5, ebsRecommendationCount: 4, lambdaRecommendationCount: 3 }, anomalies: [], ec2Recommendations: [], ebsRecommendations: [], lambdaRecommendations: [] },
     billingSummary: { totalCost: 18420.75, services: [{ serviceName: 'EC2', cost: 7840, percentage: 42.6 }, { serviceName: 'RDS', cost: 3680, percentage: 20.0 }, { serviceName: 'S3', cost: 1920, percentage: 10.4 }] },
     lastUpdated: new Date().toISOString(),
@@ -176,7 +176,7 @@ export const demoAwsData = {
     optimizationSummary: { criticalAlerts: 3, totalPotentialSavings: 3150.50 },
     costHistory: {
       labels: ['Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr'],
-      costs:  [14200, 16800, 15400, 17900, 16340, 18420],
+      costs:  [14200, 16800, 15400, 17900, 116101, 18420],
     },
     subAccounts: [
       { id: 'demo-aws-001', name: 'Xammer Production', provider: 'AWS', monthToDateSpend: 12340.50, forecastedSpend: 16500.00, resourceCount: 210, resourceInventory: { totalCount: 210 }, optimizationSummary: { criticalAlerts: 2, totalPotentialSavings: 2100.00 }, securityScore: 80 },
@@ -233,7 +233,7 @@ export const demoCostBreakdown = [
 // ─── /api/xamops/costs/historical-trend ──────────────────────────────────────
 export const demoCostHistoricalTrend = {
   labels: ['Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr'],
-  costs:  [14200, 16800, 15400, 17900, 16340, 18420],
+  costs:  [14200, 16800, 15400, 17900, 116101, 18420],
 };
 
 // ─── /api/xamops/forecast/cost ───────────────────────────────────────────────
@@ -390,10 +390,10 @@ export const demoFinOpsBillingSummary = [
 ]; // total = $18,420.00
 
 // cost-trend: { labels, costs, anomalies }
-// costs[length-2] drives lastMonthSpend KPI → must equal dashboard's $16,340
+// costs[length-2] drives lastMonthSpend KPI → must equal dashboard's $116,101
 export const demoFinOpsCostTrend = {
   labels:    ['Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr'],
-  costs:     [11200, 12800, 13400, 14900, 16340, 18420],
+  costs:     [11200, 12800, 13400, 14900, 116101, 18420],
   anomalies: [false, false, false, true,  false, false],
 };
 
@@ -669,6 +669,216 @@ export const demoCloudlistServices = {
 
 // ─── /api/xamops/cloudlist/all — flat list used by CloudSitter ───────────────
 export const demoCloudlistAll = (demoCloudlistServices.services as any[]).flatMap((g: any) => g.resources);
+
+// ─── /api/xamops/gcp/cloudlist/services-paginated ────────────────────────────
+export const demoGcpCloudListPage = {
+  totalServices: 6,
+  totalResources: 148,
+  hasNext: false,
+  services: [
+    {
+      serviceType: 'Compute Engine',
+      resourceCount: 24,
+      resources: [
+        { id: 'gce-prod-001', name: 'gce-prod-analytics-01', type: 'Compute Engine', location: 'us-central1-a', status: 'RUNNING' },
+        { id: 'gce-prod-002', name: 'gce-prod-batch-01',     type: 'Compute Engine', location: 'us-central1-b', status: 'RUNNING' },
+        { id: 'gce-prod-003', name: 'gce-analytics-02',      type: 'Compute Engine', location: 'us-central1-a', status: 'RUNNING' },
+        { id: 'gce-prod-004', name: 'gce-prod-worker-01',    type: 'Compute Engine', location: 'us-central1-c', status: 'RUNNING' },
+        { id: 'gce-prod-005', name: 'gce-prod-worker-02',    type: 'Compute Engine', location: 'us-central1-c', status: 'RUNNING' },
+        { id: 'gce-eu-001',   name: 'gce-eu-web-01',         type: 'Compute Engine', location: 'europe-west1-b', status: 'RUNNING' },
+        { id: 'gce-eu-002',   name: 'gce-eu-api-01',         type: 'Compute Engine', location: 'europe-west1-b', status: 'RUNNING' },
+        { id: 'gce-asia-001', name: 'gce-asia-web-01',       type: 'Compute Engine', location: 'asia-south1-a',  status: 'RUNNING' },
+        { id: 'gce-dev-001',  name: 'gce-dev-bastion',       type: 'Compute Engine', location: 'us-central1-a', status: 'TERMINATED' },
+      ],
+    },
+    {
+      serviceType: 'Cloud Storage',
+      resourceCount: 18,
+      resources: [
+        { id: 'gcs-001', name: 'xammer-gcs-data-lake',      type: 'Cloud Storage', location: 'US',          status: 'ACTIVE' },
+        { id: 'gcs-002', name: 'xammer-gcs-backups',        type: 'Cloud Storage', location: 'US',          status: 'ACTIVE' },
+        { id: 'gcs-003', name: 'xammer-gcs-ml-datasets',    type: 'Cloud Storage', location: 'EU',          status: 'ACTIVE' },
+        { id: 'gcs-004', name: 'xammer-gcs-logs',           type: 'Cloud Storage', location: 'ASIA',        status: 'ACTIVE' },
+        { id: 'gcs-005', name: 'xammer-gcs-artifacts',      type: 'Cloud Storage', location: 'US',          status: 'ACTIVE' },
+        { id: 'gcs-006', name: 'xammer-gcs-terraform-state',type: 'Cloud Storage', location: 'US',          status: 'ACTIVE' },
+      ],
+    },
+    {
+      serviceType: 'Cloud SQL',
+      resourceCount: 6,
+      resources: [
+        { id: 'sql-001', name: 'cloudsql-prod-postgres',  type: 'Cloud SQL', location: 'us-central1', status: 'RUNNABLE' },
+        { id: 'sql-002', name: 'cloudsql-analytics-pg',   type: 'Cloud SQL', location: 'us-central1', status: 'RUNNABLE' },
+        { id: 'sql-003', name: 'cloudsql-eu-mysql',        type: 'Cloud SQL', location: 'europe-west1', status: 'RUNNABLE' },
+        { id: 'sql-004', name: 'cloudsql-staging-pg',      type: 'Cloud SQL', location: 'us-central1', status: 'RUNNABLE' },
+        { id: 'sql-005', name: 'cloudsql-dev-pg',          type: 'Cloud SQL', location: 'us-central1', status: 'SUSPENDED' },
+      ],
+    },
+    {
+      serviceType: 'GKE Clusters',
+      resourceCount: 2,
+      resources: [
+        { id: 'gke-001', name: 'prod-gke-cluster',    type: 'GKE Cluster', location: 'us-central1', status: 'RUNNING' },
+        { id: 'gke-002', name: 'analytics-gke-cluster', type: 'GKE Cluster', location: 'europe-west1', status: 'RUNNING' },
+      ],
+    },
+    {
+      serviceType: 'Cloud Functions',
+      resourceCount: 22,
+      resources: [
+        { id: 'fn-001', name: 'data-ingest-trigger',   type: 'Cloud Function', location: 'us-central1', status: 'ACTIVE' },
+        { id: 'fn-002', name: 'alert-notifier',        type: 'Cloud Function', location: 'us-central1', status: 'ACTIVE' },
+        { id: 'fn-003', name: 'report-generator',      type: 'Cloud Function', location: 'us-central1', status: 'ACTIVE' },
+        { id: 'fn-004', name: 'cost-anomaly-detector', type: 'Cloud Function', location: 'europe-west1', status: 'ACTIVE' },
+        { id: 'fn-005', name: 'resource-cleaner',      type: 'Cloud Function', location: 'us-central1', status: 'ACTIVE' },
+      ],
+    },
+    {
+      serviceType: 'BigQuery',
+      resourceCount: 8,
+      resources: [
+        { id: 'bq-001', name: 'analytics_prod',      type: 'BigQuery Dataset', location: 'US', status: 'ACTIVE' },
+        { id: 'bq-002', name: 'billing_export',      type: 'BigQuery Dataset', location: 'US', status: 'ACTIVE' },
+        { id: 'bq-003', name: 'ml_training_data',    type: 'BigQuery Dataset', location: 'US', status: 'ACTIVE' },
+        { id: 'bq-004', name: 'logs_archive',        type: 'BigQuery Dataset', location: 'EU', status: 'ACTIVE' },
+      ],
+    },
+  ],
+};
+
+// ─── /api/azure/cloudlist/resources ──────────────────────────────────────────
+export const demoAzureCloudListResources = [
+  {
+    serviceType: 'Virtual Machines',
+    resources: [
+      { id: '/subscriptions/demo/vm-prod-api-01',    name: 'vm-prod-api-01',    region: 'East US',       state: 'running',     type: 'Standard_D4s_v3' },
+      { id: '/subscriptions/demo/vm-prod-web-01',    name: 'vm-prod-web-01',    region: 'East US',       state: 'running',     type: 'Standard_D2s_v3' },
+      { id: '/subscriptions/demo/vm-prod-worker-01', name: 'vm-prod-worker-01', region: 'East US',       state: 'running',     type: 'Standard_D4s_v3' },
+      { id: '/subscriptions/demo/vm-eu-web-01',      name: 'vm-eu-web-01',      region: 'West Europe',   state: 'running',     type: 'Standard_D2s_v3' },
+      { id: '/subscriptions/demo/vm-eu-api-01',      name: 'vm-eu-api-01',      region: 'West Europe',   state: 'running',     type: 'Standard_D2s_v3' },
+      { id: '/subscriptions/demo/vm-staging-web-01', name: 'vm-staging-web-01', region: 'East US',       state: 'running',     type: 'Standard_B2s' },
+      { id: '/subscriptions/demo/vm-dev-bastion',    name: 'vm-dev-bastion',    region: 'Southeast Asia',state: 'deallocated', type: 'Standard_B1s' },
+    ],
+  },
+  {
+    serviceType: 'Storage Accounts',
+    resources: [
+      { id: '/subscriptions/demo/st-prod-data',    name: 'stproddata',    region: 'East US',     state: 'available', type: 'StorageV2 (LRS)' },
+      { id: '/subscriptions/demo/st-prod-backups', name: 'stprodbackups', region: 'East US',     state: 'available', type: 'StorageV2 (GRS)' },
+      { id: '/subscriptions/demo/st-eu-data',      name: 'steudata',      region: 'West Europe', state: 'available', type: 'StorageV2 (LRS)' },
+      { id: '/subscriptions/demo/st-logs',         name: 'stlogs',        region: 'East US',     state: 'available', type: 'BlobStorage (LRS)' },
+    ],
+  },
+  {
+    serviceType: 'SQL Databases',
+    resources: [
+      { id: '/subscriptions/demo/sql-prod-001', name: 'sql-prod-analytics', region: 'East US',     state: 'online', type: 'Standard S3' },
+      { id: '/subscriptions/demo/sql-prod-002', name: 'sql-prod-billing',   region: 'East US',     state: 'online', type: 'Standard S2' },
+      { id: '/subscriptions/demo/sql-eu-001',   name: 'sql-eu-reporting',   region: 'West Europe', state: 'online', type: 'Standard S1' },
+    ],
+  },
+  {
+    serviceType: 'App Services',
+    resources: [
+      { id: '/subscriptions/demo/app-prod-api',     name: 'app-prod-api',     region: 'East US',     state: 'running', type: 'P2v3' },
+      { id: '/subscriptions/demo/app-prod-web',     name: 'app-prod-web',     region: 'East US',     state: 'running', type: 'P1v3' },
+      { id: '/subscriptions/demo/app-eu-web',       name: 'app-eu-web',       region: 'West Europe', state: 'running', type: 'P1v3' },
+      { id: '/subscriptions/demo/app-staging-api',  name: 'app-staging-api',  region: 'East US',     state: 'running', type: 'S1' },
+    ],
+  },
+  {
+    serviceType: 'Virtual Networks',
+    resources: [
+      { id: '/subscriptions/demo/vnet-prod',    name: 'vnet-prod',    region: 'East US',       state: 'available', type: '10.0.0.0/16' },
+      { id: '/subscriptions/demo/vnet-eu',      name: 'vnet-eu',      region: 'West Europe',   state: 'available', type: '10.1.0.0/16' },
+      { id: '/subscriptions/demo/vnet-asia',    name: 'vnet-asia',    region: 'Southeast Asia',state: 'available', type: '10.2.0.0/16' },
+      { id: '/subscriptions/demo/vnet-staging', name: 'vnet-staging', region: 'East US',       state: 'available', type: '10.3.0.0/16' },
+    ],
+  },
+  {
+    serviceType: 'Kubernetes Services',
+    resources: [
+      { id: '/subscriptions/demo/aks-prod-001',  name: 'aks-prod-cluster',  region: 'East US',     state: 'running', type: '3 nodes / Standard_D4s_v3' },
+      { id: '/subscriptions/demo/aks-eu-001',    name: 'aks-eu-cluster',    region: 'West Europe', state: 'running', type: '2 nodes / Standard_D2s_v3' },
+    ],
+  },
+  {
+    serviceType: 'Function Apps',
+    resources: [
+      { id: '/subscriptions/demo/func-data-processor', name: 'func-data-processor', region: 'East US',     state: 'running', type: 'Premium P1v3' },
+      { id: '/subscriptions/demo/func-alert-handler',  name: 'func-alert-handler',  region: 'East US',     state: 'running', type: 'Consumption' },
+      { id: '/subscriptions/demo/func-report-gen',     name: 'func-report-gen',     region: 'West Europe', state: 'running', type: 'Consumption' },
+    ],
+  },
+];
+
+// ─── /api/xamops/gcp/cloudmap/vpcs ──────────────────────────────────────────
+export const demoGcpCloudMapVpcs = [
+  { id: 'vpc-gcp-001', name: 'prod-vpc',      region: 'us-central1'  },
+  { id: 'vpc-gcp-002', name: 'analytics-vpc', region: 'europe-west1' },
+  { id: 'vpc-gcp-003', name: 'asia-vpc',      region: 'asia-south1'  },
+];
+
+// ─── /api/xamops/gcp/cloudmap/graph ─────────────────────────────────────────
+export const demoGcpCloudMapGraph: object[] = [
+  { group: 'nodes', data: { id: 'vpc-gcp-001', label: 'prod-vpc\n10.10.0.0/16', type: 'VPC' } },
+  { group: 'nodes', data: { id: 'subnet-gcp-001', label: 'subnet-us-central1\n10.10.1.0/24', type: 'Subnet', parent: 'vpc-gcp-001' } },
+  { group: 'nodes', data: { id: 'subnet-gcp-002', label: 'subnet-us-central1b\n10.10.2.0/24', type: 'Subnet', parent: 'vpc-gcp-001' } },
+  { group: 'nodes', data: { id: 'gce-prod-001', label: 'gce-prod-analytics-01\nn2-standard-8', type: 'GCE Instance', parent: 'subnet-gcp-001' } },
+  { group: 'nodes', data: { id: 'gce-prod-002', label: 'gce-prod-batch-01\nn2-standard-4',     type: 'GCE Instance', parent: 'subnet-gcp-001' } },
+  { group: 'nodes', data: { id: 'sql-prod-001', label: 'cloudsql-prod-postgres\ndb-n1-std-4',   type: 'Cloud SQL',    parent: 'subnet-gcp-002' } },
+  { group: 'nodes', data: { id: 'gke-001',      label: 'prod-gke-cluster\n3 nodes',             type: 'GKE Cluster',  parent: 'subnet-gcp-002' } },
+  { group: 'nodes', data: { id: 'gcs-001',      label: 'xammer-gcs-data\nCloud Storage'        , type: 'Cloud Storage' } },
+  { group: 'nodes', data: { id: 'lb-gcp-001',   label: 'prod-http-lb\nHTTP(S) LB',             type: 'Load Balancer' } },
+  { group: 'edges', data: { id: 'eg-lb-gce1',  source: 'lb-gcp-001',   target: 'gce-prod-001', label: ':80'   } },
+  { group: 'edges', data: { id: 'eg-lb-gce2',  source: 'lb-gcp-001',   target: 'gce-prod-002', label: ':80'   } },
+  { group: 'edges', data: { id: 'eg-gce-sql',  source: 'gce-prod-001', target: 'sql-prod-001', label: ':5432' } },
+  { group: 'edges', data: { id: 'eg-gke-sql',  source: 'gke-001',      target: 'sql-prod-001', label: ':5432' } },
+  { group: 'edges', data: { id: 'eg-gce-gcs',  source: 'gce-prod-002', target: 'gcs-001',      label: 'gs://' } },
+];
+
+// ─── /api/xamops/cloudmap/vpcs ───────────────────────────────────────────────
+export const demoCloudMapVpcs = [
+  { id: 'vpc-001', name: 'prod-vpc',    region: 'us-east-1'  },
+  { id: 'vpc-002', name: 'staging-vpc', region: 'ap-south-1' },
+  { id: 'vpc-003', name: 'eu-vpc',      region: 'eu-west-1'  },
+  { id: 'vpc-004', name: 'default-vpc', region: 'us-east-1'  },
+];
+
+// ─── /api/xamops/cloudmap/graph ──────────────────────────────────────────────
+export const demoCloudMapGraph: object[] = [
+  // VPC node (parent)
+  { group: 'nodes', data: { id: 'vpc-001', label: 'prod-vpc\n10.0.0.0/16', type: 'VPC' } },
+  // Subnets
+  { group: 'nodes', data: { id: 'subnet-001', label: 'subnet-001\n10.0.1.0/24\nus-east-1a', type: 'Subnet', parent: 'vpc-001' } },
+  { group: 'nodes', data: { id: 'subnet-002', label: 'subnet-002\n10.0.2.0/24\nus-east-1b', type: 'Subnet', parent: 'vpc-001' } },
+  { group: 'nodes', data: { id: 'subnet-003', label: 'subnet-003\n10.0.3.0/24\nus-east-1a', type: 'Subnet', parent: 'vpc-001' } },
+  // Internet Gateway
+  { group: 'nodes', data: { id: 'igw-001', label: 'igw-001\nInternet Gateway', type: 'Internet Gateway', parent: 'vpc-001' } },
+  // Load Balancers
+  { group: 'nodes', data: { id: 'alb-prod-web-001', label: 'prod-web-alb\nApplication LB', type: 'Load Balancer', parent: 'subnet-001' } },
+  { group: 'nodes', data: { id: 'alb-prod-api-001', label: 'prod-api-alb\nInternal LB',    type: 'Load Balancer', parent: 'subnet-002' } },
+  // EC2 Instances
+  { group: 'nodes', data: { id: 'i-0abc1001', label: 'prod-web-01\nt3.large',   type: 'EC2 Instance', parent: 'subnet-001' } },
+  { group: 'nodes', data: { id: 'i-0abc1002', label: 'prod-api-01\nm5.xlarge',  type: 'EC2 Instance', parent: 'subnet-001' } },
+  { group: 'nodes', data: { id: 'i-0abc1005', label: 'prod-worker-01\nc5.2xl',  type: 'EC2 Instance', parent: 'subnet-002' } },
+  { group: 'nodes', data: { id: 'i-0abc1006', label: 'prod-worker-02\nc5.2xl',  type: 'EC2 Instance', parent: 'subnet-002' } },
+  { group: 'nodes', data: { id: 'i-0abc1007', label: 'prod-db-proxy\nr5.2xl',   type: 'EC2 Instance', parent: 'subnet-003' } },
+  // RDS
+  { group: 'nodes', data: { id: 'rds-prod-001', label: 'rds-prod-postgres\ndb.r5.large', type: 'RDS Instance', parent: 'subnet-003' } },
+  // S3
+  { group: 'nodes', data: { id: 's3-001', label: 'xammer-data-lake\nS3 Bucket', type: 'S3 Bucket' } },
+  // Edges
+  { group: 'edges', data: { id: 'e-igw-alb1', source: 'igw-001',         target: 'alb-prod-web-001', label: 'inbound' } },
+  { group: 'edges', data: { id: 'e-alb1-ec2-1', source: 'alb-prod-web-001', target: 'i-0abc1001',      label: ':80'    } },
+  { group: 'edges', data: { id: 'e-alb1-ec2-2', source: 'alb-prod-web-001', target: 'i-0abc1002',      label: ':80'    } },
+  { group: 'edges', data: { id: 'e-alb2-w1',  source: 'alb-prod-api-001', target: 'i-0abc1005',      label: ':8080'  } },
+  { group: 'edges', data: { id: 'e-alb2-w2',  source: 'alb-prod-api-001', target: 'i-0abc1006',      label: ':8080'  } },
+  { group: 'edges', data: { id: 'e-ec2-rds',  source: 'i-0abc1007',       target: 'rds-prod-001',    label: ':5432'  } },
+  { group: 'edges', data: { id: 'e-w1-rds',   source: 'i-0abc1005',       target: 'i-0abc1007',      label: 'proxy'  } },
+  { group: 'edges', data: { id: 'e-w2-rds',   source: 'i-0abc1006',       target: 'i-0abc1007',      label: 'proxy'  } },
+  { group: 'edges', data: { id: 'e-ec2-s3',   source: 'i-0abc1005',       target: 's3-001',          label: 's3'     } },
+];
 
 // ─── Generic empty fallback ───────────────────────────────────────────────────
 export const demoGenericEmpty = {};
@@ -1304,7 +1514,7 @@ export const demoBillopsTicketDetail = {
 // ─── BillOps User Dashboard (/api/billops/dashboard/user) ────────────────────
 export const demoBillopsUserDashboard = {
   currentMonthSpending: 18420.75,
-  lastMonthSpending: 16340.20,
+  lastMonthSpending: 116101.00,
   totalAccounts: 4,
   awsAccountsCount: 2,
   gcpAccountsCount: 1,
@@ -1316,19 +1526,19 @@ export const demoBillopsUserDashboard = {
     { date: '2025-12', cost: 15800, costByProvider: { AWS: 10800, GCP: 2800, Azure: 2200 } },
     { date: '2026-01', cost: 14900, costByProvider: { AWS: 10200, GCP: 2600, Azure: 2100 } },
     { date: '2026-02', cost: 16800, costByProvider: { AWS: 11400, GCP: 3100, Azure: 2300 } },
-    { date: '2026-03', cost: 16340, costByProvider: { AWS: 11100, GCP: 3040, Azure: 2200 } },
+    { date: '2026-03', cost: 116101, costByProvider: { AWS: 88000, GCP: 16101, Azure: 12000 } },
     { date: '2026-04', cost: 18420, costByProvider: { AWS: 12480, GCP: 3640, Azure: 2300 } },
   ],
   spendingByProvider: { AWS: 12480, GCP: 3640, Azure: 2300 },
   accounts: [
-    { id: 'demo-aws-001',   accountName: 'Xammer Production',  provider: 'AWS',   status: 'ACTIVE',   currentMonthSpending: 9840,  lastMonthSpending: 8920  },
-    { id: 'demo-aws-002',   accountName: 'Xammer Staging',     provider: 'AWS',   status: 'ACTIVE',   currentMonthSpending: 2640,  lastMonthSpending: 2180  },
-    { id: 'demo-gcp-001',   accountName: 'GCP Analytics',      provider: 'GCP',   status: 'ACTIVE',   currentMonthSpending: 3640,  lastMonthSpending: 3040  },
-    { id: 'demo-azure-001', accountName: 'Azure Enterprise',   provider: 'Azure', status: 'ACTIVE',   currentMonthSpending: 2300,  lastMonthSpending: 2200  },
+    { id: 'demo-aws-001',   accountName: 'Xammer Production',  provider: 'AWS',   status: 'ACTIVE',   currentMonthSpending: 9840,  lastMonthSpending: 60000  },
+    { id: 'demo-aws-002',   accountName: 'Xammer Staging',     provider: 'AWS',   status: 'ACTIVE',   currentMonthSpending: 2640,  lastMonthSpending: 28000  },
+    { id: 'demo-gcp-001',   accountName: 'GCP Analytics',      provider: 'GCP',   status: 'ACTIVE',   currentMonthSpending: 3640,  lastMonthSpending: 16101  },
+    { id: 'demo-azure-001', accountName: 'Azure Enterprise',   provider: 'Azure', status: 'ACTIVE',   currentMonthSpending: 2300,  lastMonthSpending: 12000  },
   ],
   recentInvoices: [
     { id: 'inv-2026-04-001', invoiceNumber: 'INV-2026-04-001', billingPeriod: '2026-04', amount: 18420.75, status: 'FINALIZED' },
-    { id: 'inv-2026-03-001', invoiceNumber: 'INV-2026-03-001', billingPeriod: '2026-03', amount: 16340.20, status: 'PAID'      },
+    { id: 'inv-2026-03-001', invoiceNumber: 'INV-2026-03-001', billingPeriod: '2026-03', amount: 116101.00, status: 'PAID'      },
   ],
   recentTickets: [
     { id: '3001', subject: 'EC2 instance unreachable after SG change', category: 'Technical',        severity: 'HIGH',   status: 'OPEN'        },
@@ -1345,7 +1555,7 @@ export const demoBillingData = {
     { date: '2025-12', cost: 15800 },
     { date: '2026-01', cost: 14900 },
     { date: '2026-02', cost: 16800 },
-    { date: '2026-03', cost: 16340 },
+    { date: '2026-03', cost: 116101 },
     { date: '2026-04', cost: 18420 },
   ],
   serviceBreakdown: [
@@ -1431,7 +1641,7 @@ export const demoBillopsUserInvoices = [
   {
     id: 2, invoiceNumber: 'INV-2026-03-001', awsAccountId: 'demo-aws-001', gcpProjectId: 'demo-gcp-001', azureSubscriptionId: 'demo-azure-001',
     accountName: 'Xammer Production', billingPeriod: '2026-03', invoiceDate: '2026-03-31',
-    amount: 16340.20, preDiscountTotal: 17200.21, discountAmount: 860.01, taxAmount: 0,
+    amount: 116101.00, preDiscountTotal: 116961.01, discountAmount: 860.01, taxAmount: 0,
     status: 'FINALIZED',
     lineItems: [
       { id: 111, serviceName: 'EC2',    regionName: 'us-east-1', resourceName: 'prod-api-server-01', usageQuantity: 744,     unit: 'Hrs',   cost: 1897.20 },
@@ -1480,7 +1690,7 @@ export const demoGcpDashboard = {
   kpi: {
     mtdSpend: 7340.00,
     forecastedSpend: 9800.00,
-    lastMonthSpend: 6820.00,
+    lastMonthSpend: 116101.00,
     potentialSavings: 1240.00,
   },
   resourceInventory: {
@@ -1548,7 +1758,7 @@ export const demoGcpFinOpsReport = {
   kpis: {
     monthToDateSpend: 7340.00,
     forecastedSpend: 9800.00,
-    lastMonthSpend: 6820.00,
+    lastMonthSpend: 116101.00,
     potentialSavings: 1240.00,
   },
   costBreakdown: {
@@ -1732,11 +1942,11 @@ export const demoAzureDashboard = {
   // Top-level fields read by fetchAzureDashboardData transform
   monthToDateSpend: 5210.30,
   forecastedSpend: 6900.00,
-  lastMonthSpend: 4840.00,
+  lastMonthSpend: 116101.00,
   kpi: {
     mtdSpend: 5210.30,
     forecastedSpend: 6900.00,
-    lastMonthSpend: 4840.00,
+    lastMonthSpend: 116101.00,
     potentialSavings: 880.00,
   },
   resourceInventory: {

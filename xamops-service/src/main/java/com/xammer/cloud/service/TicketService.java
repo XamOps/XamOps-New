@@ -26,6 +26,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
@@ -234,7 +236,7 @@ public class TicketService {
         @CacheEvict(value = "tickets", allEntries = true),
         @CacheEvict(value = "tickets_by_category", allEntries = true)
     })
-    public TicketDto addReplyToTicket(Long ticketId, TicketReplyDto replyDto, MultipartFile file) {
+    public TicketDto addReplyToTicket(Long ticketId, TicketReplyDto replyDto, List<MultipartFile> files) {
         Ticket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new RuntimeException("Ticket not found"));
 
@@ -256,42 +258,47 @@ public class TicketService {
         TicketReply reply = new TicketReply();
         reply.setTicket(ticket);
         reply.setAuthor(author);
-
-        // FIX: Ensure message is never null for DB persistence
-        String messageContent = replyDto.getMessage() != null ? replyDto.getMessage() : "";
-        reply.setMessage(messageContent);
-
+        reply.setMessage(replyDto.getMessage() != null ? replyDto.getMessage() : "");
         reply.setCreatedAt(java.time.LocalDateTime.now());
         reply.setInternal(replyDto.isInternal());
 
-        // Track when chat first started
         if (ticket.getChatStartedAt() == null) {
             ticket.setChatStartedAt(java.time.LocalDateTime.now());
         }
 
-        if (file != null && !file.isEmpty()) {
+        // Upload all files and store as JSON array in a single reply
+        List<MultipartFile> nonEmpty = (files != null)
+                ? files.stream().filter(f -> f != null && !f.isEmpty()).toList()
+                : List.of();
+
+        if (!nonEmpty.isEmpty()) {
             try {
-                String key = fileStorageService.uploadFile(file);
-                reply.setAttachmentKey(key);
-                reply.setAttachmentName(file.getOriginalFilename());
-                reply.setAttachmentType(file.getContentType());
+                ObjectMapper mapper = new ObjectMapper();
+                List<java.util.Map<String, String>> attachmentList = new ArrayList<>();
+                for (MultipartFile f : nonEmpty) {
+                    String key = fileStorageService.uploadFile(f);
+                    attachmentList.add(java.util.Map.of(
+                            "key", key,
+                            "name", f.getOriginalFilename() != null ? f.getOriginalFilename() : "attachment",
+                            "type", f.getContentType() != null ? f.getContentType() : "application/octet-stream"
+                    ));
+                }
+                reply.setAttachmentsJson(mapper.writeValueAsString(attachmentList));
             } catch (Exception e) {
-                logger.error("Failed to upload attachment for ticket " + ticketId, e);
-                throw new RuntimeException("Failed to upload attachment.", e);
+                logger.error("Failed to upload attachments for ticket " + ticketId, e);
+                throw new RuntimeException("Failed to upload attachments.", e);
             }
         }
 
         ticket.getReplies().add(reply);
         ticket.setStatus("IN_PROGRESS");
 
-        // Auto-assign ticket to the first admin who replies
         boolean isAdminReply = author.getRole() != null && author.getRole().contains("ADMIN");
         if (isAdminReply && (ticket.getAssignedToId() == null || ticket.getAssignedToId() == 0)) {
             ticket.setAssignedToId(author.getId());
             ticket.setAssignedToUsername(author.getUsername());
         }
 
-        // Track read/unread: admin reply marks as read; user reply marks as unread
         if (!replyDto.isInternal()) {
             ticket.setHasNewUserReply(!isAdminReply);
         }
@@ -301,34 +308,22 @@ public class TicketService {
 
         try {
             User ticketCreator = ticket.getCreator();
-
             String subject = String.format("New Reply on Ticket [ID: %d]: %s", ticket.getId(), ticket.getSubject());
-
-            // FIX: Graceful fallback for email body if message is empty
             String displayMessage = (reply.getMessage() == null || reply.getMessage().isBlank())
                     ? "(Attachment only)"
                     : reply.getMessage();
-
-            String text = String.format(
-                    "%s has replied to ticket %d:\n\n---\n%s\n---",
-                    author.getUsername(),
-                    ticket.getId(),
-                    displayMessage);
-
-            if (reply.getAttachmentName() != null) {
-                text += "\n\n[Attachment: " + reply.getAttachmentName() + "]";
+            String text = String.format("%s has replied to ticket %d:\n\n---\n%s\n---",
+                    author.getUsername(), ticket.getId(), displayMessage);
+            if (!nonEmpty.isEmpty()) {
+                text += "\n\n[" + nonEmpty.size() + " attachment(s)]";
             }
-
             if (isAdminReply) {
                 if (ticketCreator != null && ticketCreator.getEmail() != null) {
                     emailService.sendHtmlEmail(ticketCreator.getEmail(), subject, text);
-                } else {
-                    logger.warn("Cannot notify ticket creator for ticket {}: Creator or email is null.",
-                            ticket.getId());
                 }
             } else {
-                String adminEmail = "Account and Billing".equalsIgnoreCase(ticket.getCategory()) ? ADMIN_BILLING_EMAIL
-                        : ADMIN_TECHNICAL_EMAIL;
+                String adminEmail = "Account and Billing".equalsIgnoreCase(ticket.getCategory())
+                        ? ADMIN_BILLING_EMAIL : ADMIN_TECHNICAL_EMAIL;
                 emailService.sendHtmlEmail(adminEmail, subject, text);
             }
         } catch (Exception e) {
@@ -465,11 +460,36 @@ public class TicketService {
             dto.setAdmin(isAdmin);
         }
 
-        if (reply.getAttachmentKey() != null) {
+        // Build attachments list: prefer new JSON field, fall back to legacy single-file columns
+        if (reply.getAttachmentsJson() != null && !reply.getAttachmentsJson().isBlank()) {
+            try {
+                ObjectMapper mapper = new ObjectMapper();
+                List<java.util.Map<String, String>> raw = mapper.readValue(
+                        reply.getAttachmentsJson(),
+                        mapper.getTypeFactory().constructCollectionType(List.class, java.util.Map.class));
+                List<TicketReplyDto.AttachmentInfo> infos = new ArrayList<>();
+                for (java.util.Map<String, String> entry : raw) {
+                    TicketReplyDto.AttachmentInfo info = new TicketReplyDto.AttachmentInfo();
+                    info.setName(entry.get("name"));
+                    info.setType(entry.get("type"));
+                    info.setUrl(fileStorageService.generatePresignedUrl(entry.get("key")));
+                    infos.add(info);
+                }
+                dto.setAttachments(infos);
+            } catch (Exception e) {
+                logger.error("Failed to parse attachmentsJson for reply {}", reply.getId(), e);
+            }
+        } else if (reply.getAttachmentKey() != null) {
+            // legacy single-file row
+            TicketReplyDto.AttachmentInfo info = new TicketReplyDto.AttachmentInfo();
+            info.setName(reply.getAttachmentName());
+            info.setType(reply.getAttachmentType());
+            info.setUrl(fileStorageService.generatePresignedUrl(reply.getAttachmentKey()));
+            dto.setAttachments(List.of(info));
+            // also set legacy fields so old clients still work
             dto.setAttachmentName(reply.getAttachmentName());
             dto.setAttachmentType(reply.getAttachmentType());
-            String presignedUrl = fileStorageService.generatePresignedUrl(reply.getAttachmentKey());
-            dto.setAttachmentUrl(presignedUrl);
+            dto.setAttachmentUrl(info.getUrl());
         }
 
         dto.setEdited(reply.isEdited());
