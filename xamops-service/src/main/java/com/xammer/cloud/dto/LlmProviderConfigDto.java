@@ -40,4 +40,6 @@ public class LlmProviderConfigDto {
     private String trackingToken;
 
     private String createdAt;
+
+    private String assignedTeam;
 }

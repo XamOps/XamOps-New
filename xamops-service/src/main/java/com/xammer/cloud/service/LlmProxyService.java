@@ -121,6 +121,11 @@ public class LlmProxyService {
                     .body("{\"error\":\"Provider configuration is inactive\"}");
         }
 
+        // Use header agent name if provided; fall back to the key's assigned team
+        if ((agentName == null || agentName.isBlank()) && config.getAssignedTeam() != null) {
+            agentName = config.getAssignedTeam();
+        }
+
         // 1.5 Budget enforcement
         ResponseEntity<String> budgetBlock = checkBudget(config);
         if (budgetBlock != null) {
@@ -146,7 +151,6 @@ public class LlmProxyService {
         // 4. Forward request and measure latency
         long startTime = System.currentTimeMillis();
         ResponseEntity<String> providerResponse;
-        boolean isError = false;
         String errorMessage = null;
 
         try {
@@ -154,7 +158,6 @@ public class LlmProxyService {
             providerResponse = restTemplate.exchange(targetUrl, method, requestEntity, String.class);
         } catch (HttpStatusCodeException e) {
             long latency = System.currentTimeMillis() - startTime;
-            isError = true;
             errorMessage = e.getResponseBodyAsString();
 
             // Log the failed request

@@ -78,6 +78,7 @@ const LLMProviderSetupModal: React.FC<LLMProviderSetupModalProps> = ({
   const [step, setStep] = useState<Step>('select');
   const [selectedProvider, setSelectedProvider] = useState<LlmProvider | null>(null);
   const [displayName, setDisplayName] = useState('');
+  const [teamName, setTeamName] = useState('');
   const [awsRegion, setAwsRegion] = useState('');
   const [awsAccessKey, setAwsAccessKey] = useState('');
   const [awsSecretKey, setAwsSecretKey] = useState('');
@@ -90,6 +91,7 @@ const LLMProviderSetupModal: React.FC<LLMProviderSetupModalProps> = ({
     setStep('select');
     setSelectedProvider(null);
     setDisplayName('');
+    setTeamName('');
     setAwsRegion('');
     setAwsAccessKey('');
     setAwsSecretKey('');
@@ -121,6 +123,7 @@ const LLMProviderSetupModal: React.FC<LLMProviderSetupModalProps> = ({
         provider: selectedProvider,
         displayName: displayName || selectedProvider,
         status: 'ACTIVE',
+        assignedTeam: teamName.trim() || undefined,
       };
       if (selectedProvider === 'BEDROCK') {
         config.awsRegion = awsRegion.trim();
@@ -259,6 +262,25 @@ const LLMProviderSetupModal: React.FC<LLMProviderSetupModalProps> = ({
                       placeholder={`e.g., Production ${selectedProvider}`}
                       className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
                     />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Assign to Team <span className="text-gray-400">(optional)</span>
+                    </label>
+                    <div className="relative">
+                      <i className="fas fa-users absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs" />
+                      <input
+                        type="text"
+                        value={teamName}
+                        onChange={e => setTeamName(e.target.value)}
+                        placeholder="e.g., backend-team, data-science, product"
+                        className="w-full pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+                      />
+                    </div>
+                    <p className="text-[11px] text-gray-400 mt-1">
+                      All requests through this key will be attributed to this team in analytics.
+                    </p>
                   </div>
 
                   {/* Bedrock-specific fields */}

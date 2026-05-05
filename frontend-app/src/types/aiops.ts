@@ -53,6 +53,7 @@ export interface LlmProviderConfig {
   proxyBaseUrl?: string;
   trackingToken?: string;
   createdAt?: string;
+  assignedTeam?: string | null;
   // Bedrock-specific (write-only, never returned from backend)
   awsRegion?: string;
   awsAccessKey?: string;
@@ -421,6 +422,7 @@ export interface ApiKeyStats {
   lastErrorMessage: string | null;
   usageLimit: number | null;
   createdAt: string | null;
+  assignedTeam: string | null;
 }
 
 export interface ApiKeyRotateRequest {

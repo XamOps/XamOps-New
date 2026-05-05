@@ -184,6 +184,9 @@ public class AIOpsService {
         config.setDisplayName(dto.getDisplayName() != null ? dto.getDisplayName() : dto.getProvider());
         config.setProxyEndpointId(UUID.randomUUID().toString());
         config.setStatus("ACTIVE");
+        if (dto.getAssignedTeam() != null && !dto.getAssignedTeam().isBlank()) {
+            config.setAssignedTeam(dto.getAssignedTeam().trim());
+        }
 
         // API key is optional — pass-through approach means key comes in each request
         if (dto.getApiKey() != null && !dto.getApiKey().isBlank()) {
@@ -216,6 +219,9 @@ public class AIOpsService {
 
         if (dto.getDisplayName() != null) {
             config.setDisplayName(dto.getDisplayName());
+        }
+        if (dto.getAssignedTeam() != null) {
+            config.setAssignedTeam(dto.getAssignedTeam().isBlank() ? null : dto.getAssignedTeam().trim());
         }
         if (dto.getApiKey() != null && !dto.getApiKey().isBlank()) {
             config.setApiKeyEncrypted(encryptionService.encrypt(dto.getApiKey()));
@@ -1026,7 +1032,8 @@ public class AIOpsService {
                     c.getLastErrorAt() != null ? c.getLastErrorAt().toString() : null,
                     c.getLastErrorMessage(),
                     c.getUsageLimit(),
-                    c.getCreatedAt() != null ? c.getCreatedAt().toString() : null
+                    c.getCreatedAt() != null ? c.getCreatedAt().toString() : null,
+                    c.getAssignedTeam()
             );
         }).collect(Collectors.toList());
     }
@@ -1066,6 +1073,18 @@ public class AIOpsService {
         }
         config.setUsageLimit(limit);
         providerConfigRepo.save(config);
+    }
+
+    @Transactional
+    public void assignTeam(Long clientId, Long configId, String teamName) {
+        LlmProviderConfig config = providerConfigRepo.findById(configId)
+                .orElseThrow(() -> new RuntimeException("Provider config not found"));
+        if (!config.getClient().getId().equals(clientId)) {
+            throw new SecurityException("Access denied");
+        }
+        config.setAssignedTeam(teamName == null || teamName.isBlank() ? null : teamName.trim());
+        providerConfigRepo.save(config);
+        logger.info("Assigned team '{}' to provider {} (client {})", teamName, config.getProvider(), clientId);
     }
 
     // ─── Cleanup: Orphaned Logs ────────────────────────────────────
@@ -1287,6 +1306,7 @@ public class AIOpsService {
         dto.setApiKeyConfigured(config.getApiKeyEncrypted() != null && !config.getApiKeyEncrypted().isBlank());
         dto.setTrackingToken(config.getProxyEndpointId());
         dto.setProxyBaseUrl(serverBaseUrl + "/api/llm-proxy");
+        dto.setAssignedTeam(config.getAssignedTeam());
         if (config.getAwsRegion() != null) {
             dto.setAwsRegion(config.getAwsRegion());
         }

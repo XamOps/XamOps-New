@@ -52,5 +52,13 @@ export function useApiKeysData() {
     return result;
   }, [loadKeys]);
 
-  return { keys, loading, loadKeys, rotateKey, updateUsageLimit, cleanupOrphanedLogs };
+  const assignTeam = useCallback(async (id: number, team: string | null) => {
+    const url = team
+      ? `/api/xamops/aiops/api-keys/${id}/assigned-team?team=${encodeURIComponent(team)}`
+      : `/api/xamops/aiops/api-keys/${id}/assigned-team`;
+    await apiFetchJson<void>(url, { method: 'PUT' });
+    setKeys(prev => prev.map(k => k.id === id ? { ...k, assignedTeam: team } : k));
+  }, []);
+
+  return { keys, loading, loadKeys, rotateKey, updateUsageLimit, cleanupOrphanedLogs, assignTeam };
 }
