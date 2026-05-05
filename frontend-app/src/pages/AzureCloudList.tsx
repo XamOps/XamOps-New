@@ -10,6 +10,7 @@ import { useAzureCloudListData } from '../hooks/useAzureCloudListData';
 import { getAzureServiceIcon, getStateClass } from '../api/azureCloudListApi';
 import { AzureServiceGroup, AzureResource } from '../types/azureCloudList';
 import { useTopbar } from '../contexts/TopbarContext';
+import { AnimatedItem } from '../components/Shared/AnimatedList';
 import '../styles/azureCloudList.css';
 
 // Color classes per detail key (light + dark mode)
@@ -422,7 +423,11 @@ const AzureCloudList: React.FC = () => {
             </div>
           )}
 
-          {filteredData.map((group) => renderServiceGroup(group))}
+          {filteredData.map((group, index) => (
+            <AnimatedItem key={group.serviceType} index={index} delay={index * 0.04}>
+              {renderServiceGroup(group)}
+            </AnimatedItem>
+          ))}
         </div>
       </div>
     </main>

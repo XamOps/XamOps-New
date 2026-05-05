@@ -1,11 +1,8 @@
-/**
- * ProviderSelector Component
- *
- * Card for selecting the cloud provider or service to add
- */
-
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { motion } from 'framer-motion';
+import { CheckCircle2, Plug } from 'lucide-react';
+import { cn } from '../../lib/utils';
+import { Card, CardContent } from '../ui/card';
 import type { Provider } from '../../types/addAccount';
 
 interface ProviderSelectorProps {
@@ -13,9 +10,8 @@ interface ProviderSelectorProps {
   onSelectProvider: (provider: Provider) => void;
 }
 
-// SVG Icons for cloud providers
 const AWSIcon = () => (
-  <svg viewBox="0 0 256 153" width="32" height="32" preserveAspectRatio="xMidYMid">
+  <svg viewBox="0 0 256 153" width="36" height="36" preserveAspectRatio="xMidYMid">
     <path d="M72.392 55.438c0 3.137.34 5.68.933 7.545a45.373 45.373 0 0 0 2.712 6.103c.424.678.593 1.356.593 1.95 0 .847-.508 1.695-1.61 2.543l-5.34 3.56c-.763.509-1.526.763-2.205.763-.848 0-1.695-.424-2.543-1.187a26.224 26.224 0 0 1-3.052-3.984c-.848-1.44-1.695-3.052-2.627-4.915-6.612 7.798-14.92 11.698-24.922 11.698-7.12 0-12.8-2.035-16.954-6.103-4.153-4.07-6.272-9.493-6.272-16.276 0-7.206 2.543-13.054 7.714-17.462 5.17-4.408 12.037-6.612 20.768-6.612 2.882 0 5.849.254 8.985.678 3.137.424 6.358 1.102 9.749 1.865V29.33c0-6.442-1.356-10.935-3.984-13.563-2.712-2.628-7.29-3.9-13.817-3.9-2.967 0-6.018.34-9.155 1.103-3.136.762-6.188 1.695-9.155 2.882-.848.424-1.526.678-1.95.848-.424.17-.763.254-1.017.254-.848 0-1.272-.593-1.272-1.865v-4.153c0-.932.17-1.61.509-2.034.339-.424 1.017-.848 2.034-1.356 2.967-1.526 6.527-2.798 10.68-3.815C33.908.763 38.316.254 42.978.254c9.832 0 17.038 2.204 21.7 6.612 4.577 4.408 6.867 11.105 6.867 20.091v26.481h.847Zm-34.417 12.884c2.798 0 5.68-.509 8.732-1.526 3.052-1.017 5.764-2.882 8.054-5.51 1.356-1.609 2.373-3.39 2.882-5.424.509-2.035.848-4.493.848-7.375v-3.56a70.791 70.791 0 0 0-7.799-1.44 63.874 63.874 0 0 0-7.968-.509c-5.68 0-9.833 1.102-12.63 3.391-2.798 2.289-4.154 5.51-4.154 9.748 0 3.984 1.017 6.951 3.137 8.986 2.035 2.119 5.002 3.22 8.898 3.22Zm68.069 9.155c-1.102 0-1.865-.17-2.374-.593-.508-.34-.932-1.102-1.356-2.12L83.751 4.745c-.424-1.102-.678-1.78-.678-2.12 0-.848.424-1.357 1.272-1.357h8.308c1.187 0 1.95.17 2.459.594.508.339.848 1.101 1.271 2.119l15.006 59.147 13.903-59.147c.339-1.102.678-1.78 1.187-2.12.509-.423 1.356-.593 2.543-.593h6.781c1.187 0 1.95.17 2.543.594.509.339.933 1.101 1.187 2.119l14.072 59.91L168.77 3.98c.424-1.102.848-1.78 1.272-2.12.509-.423 1.271-.593 2.374-.593h7.883c.848 0 1.357.424 1.357 1.272 0 .254-.085.508-.17.848-.085.339-.17.763-.424 1.356L161.48 74.68c-.424 1.102-.848 1.78-1.356 2.12-.509.339-1.272.593-2.374.593h-7.29c-1.187 0-1.95-.17-2.543-.593-.509-.424-.933-1.102-1.187-2.204L132.831 17.18l-13.818 57.332c-.339 1.102-.678 1.78-1.187 2.204-.509.424-1.356.593-2.543.593h-7.29l-.001.002Zm108.83 2.205c-4.408 0-8.816-.509-13.054-1.526-4.239-1.017-7.544-2.12-9.748-3.39-1.357-.763-2.29-1.611-2.628-2.374a5.983 5.983 0 0 1-.509-2.374V65.78c0-1.272.508-1.865 1.44-1.865.424 0 .848.085 1.271.254.424.17 1.017.424 1.695.678a36.472 36.472 0 0 0 7.459 2.374c2.713.593 5.34.847 8.053.847 4.239 0 7.544-.763 9.833-2.289 2.288-1.525 3.475-3.73 3.475-6.527 0-1.95-.594-3.56-1.78-4.915-1.187-1.356-3.391-2.543-6.527-3.73l-9.41-2.967c-4.746-1.525-8.223-3.814-10.342-6.866-2.12-2.967-3.221-6.357-3.221-10.087 0-2.883.593-5.51 1.78-7.799 1.187-2.289 2.798-4.323 4.832-5.934 2.035-1.695 4.408-2.966 7.205-3.814a29.695 29.695 0 0 1 8.986-1.272c1.526 0 3.137.085 4.662.339 1.61.254 3.052.509 4.493.848 1.356.339 2.628.678 3.814 1.102 1.187.424 2.12.848 2.798 1.271.932.509 1.61 1.017 2.034 1.61.424.509.593 1.187.593 2.035v4.153c0 1.272-.509 1.95-1.441 1.95-.509 0-1.271-.254-2.289-.678-3.39-1.526-7.205-2.289-11.444-2.289-3.899 0-6.951.593-9.07 1.865-2.12 1.271-3.221 3.221-3.221 5.934 0 1.95.678 3.645 2.035 5.001 1.356 1.356 3.814 2.712 7.29 3.899l9.24 2.966c4.661 1.526 8.053 3.645 10.087 6.358 2.034 2.712 2.966 5.849 2.966 9.325 0 2.966-.593 5.68-1.695 8.053-1.187 2.373-2.798 4.493-4.917 6.188-2.119 1.78-4.662 3.052-7.629 3.984-3.136 1.017-6.442 1.526-10.087 1.526h.001Z" fill="#252F3E" />
     <path d="M230.993 120.964c-27.888 20.599-68.408 31.534-103.247 31.534-48.827 0-92.821-18.056-126.05-48.064-2.628-2.373-.255-5.594 2.881-3.73 35.942 20.854 80.276 33.484 126.136 33.484 30.94 0 64.932-6.442 96.212-19.666 4.662-2.12 8.646 3.052 4.068 6.442Z" fill="#FF9900" />
     <path d="M242.605 107.656c-3.56-4.577-23.566-2.204-32.636-1.102-2.713.339-3.137-2.034-.678-3.814 15.936-11.19 42.163-7.968 45.214-4.239 3.052 3.815-.848 30.008-15.768 42.585-2.288 1.95-4.492.933-3.475-1.61 3.39-8.393 10.934-27.226 7.343-31.82Z" fill="#FF9900" />
@@ -23,7 +19,7 @@ const AWSIcon = () => (
 );
 
 const GCPIcon = () => (
-  <svg viewBox="0 0 256 206" width="32" height="32" preserveAspectRatio="xMidYMid">
+  <svg viewBox="0 0 256 206" width="36" height="36" preserveAspectRatio="xMidYMid">
     <path d="m170.252 56.819 22.253-22.253 1.483-9.37C153.437-11.677 88.976-7.496 52.42 33.92 42.267 45.423 34.734 59.764 30.717 74.573l7.97-1.123 44.505-7.34 3.436-3.513c19.797-21.742 53.27-24.667 76.128-6.168l7.496.39Z" fill="#EA4335" />
     <path d="M224.205 73.918a100.249 100.249 0 0 0-30.217-48.722l-31.232 31.232a55.515 55.515 0 0 1 20.379 44.037v5.544c15.35 0 27.797 12.445 27.797 27.796 0 15.352-12.446 27.485-27.797 27.485h-55.671l-5.466 5.934v33.34l5.466 5.231h55.67c39.93.311 72.553-31.494 72.864-71.424a72.303 72.303 0 0 0-31.793-60.453" fill="#4285F4" />
     <path d="M71.87 205.796h55.593V161.29H71.87a27.275 27.275 0 0 1-11.399-2.498l-7.886 2.42-22.409 22.253-1.952 7.574c12.567 9.489 27.9 14.825 43.646 14.757" fill="#34A853" />
@@ -32,97 +28,176 @@ const GCPIcon = () => (
 );
 
 const AzureIcon = () => (
-  <img src="/icons/azure-icon.png" alt="Microsoft Azure" width="32" height="32" style={{ objectFit: 'contain' }} />
+  <img src="/icons/azure-icon.png" alt="Microsoft Azure" width="36" height="36" style={{ objectFit: 'contain' }} />
 );
 
 const JenkinsIcon = () => (
-  <svg viewBox="0 0 256 256" width="32" height="32" xmlns="http://www.w3.org/2000/svg">
-    {/* Jenkins: teal/dark background with butler silhouette */}
+  <svg viewBox="0 0 256 256" width="36" height="36">
     <circle cx="128" cy="128" r="128" fill="#335061" />
     <circle cx="128" cy="128" r="112" fill="#3d6275" />
-    {/* Butler head */}
     <ellipse cx="128" cy="90" rx="38" ry="44" fill="#f5e6c8" />
-    {/* Top hat brim */}
     <rect x="86" y="72" width="84" height="8" rx="4" fill="#1a1a1a" />
-    {/* Top hat body */}
     <rect x="96" y="38" width="64" height="36" rx="4" fill="#1a1a1a" />
-    {/* Face features */}
     <ellipse cx="116" cy="88" rx="5" ry="6" fill="#1a1a1a" />
     <ellipse cx="140" cy="88" rx="5" ry="6" fill="#1a1a1a" />
     <path d="M112 104 Q128 116 144 104" stroke="#c0856a" strokeWidth="3" fill="none" strokeLinecap="round" />
-    {/* Bow tie */}
     <ellipse cx="128" cy="130" rx="14" ry="8" fill="#1a1a1a" />
-    {/* Body/suit */}
     <path d="M80 200 Q90 148 114 138 L128 150 L142 138 Q166 148 176 200 Z" fill="#f5e6c8" />
     <path d="M100 200 Q105 155 114 138 L128 155 L142 138 Q151 155 156 200 Z" fill="#1a1a1a" />
   </svg>
 );
 
 const GitHubIcon = () => (
-  <svg viewBox="0 0 24 24" width="32" height="32" fill="#1F2937">
+  <svg viewBox="0 0 24 24" width="36" height="36" fill="#1F2937">
     <path d="M12 0C5.374 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0 1 12 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z" />
   </svg>
 );
 
-const providers = [
-  { id: 'aws' as Provider, name: 'Amazon Web Services', Icon: AWSIcon },
-  { id: 'gcp' as Provider, name: 'Google Cloud Platform', Icon: GCPIcon },
-  { id: 'azure' as Provider, name: 'Microsoft Azure', Icon: AzureIcon },
-  { id: 'jenkins' as Provider, name: 'Jenkins Server', Icon: JenkinsIcon },
-];
+const providerConfig: Record<Provider, {
+  name: string; shortName: string; Icon: React.FC;
+  iconBg: string; iconBorder: string;
+  selectedBg: string; selectedBorder: string; selectedRing: string; checkBg: string;
+  badge: string | null; badgeColor: string;
+}> = {
+  aws: {
+    name: 'Amazon Web Services', shortName: 'AWS', Icon: AWSIcon,
+    iconBg: 'bg-gradient-to-br from-orange-50 to-amber-50', iconBorder: 'border-orange-100',
+    selectedBg: 'bg-gradient-to-br from-orange-50 to-amber-50', selectedBorder: 'border-orange-400',
+    selectedRing: 'ring-orange-400/20', checkBg: 'bg-gradient-to-br from-orange-400 to-orange-500',
+    badge: 'Popular', badgeColor: 'bg-orange-100 text-orange-700',
+  },
+  gcp: {
+    name: 'Google Cloud Platform', shortName: 'GCP', Icon: GCPIcon,
+    iconBg: 'bg-gradient-to-br from-blue-50 to-green-50', iconBorder: 'border-blue-100',
+    selectedBg: 'bg-gradient-to-br from-blue-50 to-green-50', selectedBorder: 'border-blue-400',
+    selectedRing: 'ring-blue-400/20', checkBg: 'bg-gradient-to-br from-blue-500 to-green-500',
+    badge: null, badgeColor: '',
+  },
+  azure: {
+    name: 'Microsoft Azure', shortName: 'Azure', Icon: AzureIcon,
+    iconBg: 'bg-gradient-to-br from-sky-50 to-blue-50', iconBorder: 'border-sky-100',
+    selectedBg: 'bg-gradient-to-br from-sky-50 to-blue-50', selectedBorder: 'border-sky-500',
+    selectedRing: 'ring-sky-500/20', checkBg: 'bg-gradient-to-br from-sky-500 to-blue-600',
+    badge: null, badgeColor: '',
+  },
+  jenkins: {
+    name: 'Jenkins Server', shortName: 'Jenkins', Icon: JenkinsIcon,
+    iconBg: 'bg-gradient-to-br from-slate-50 to-red-50', iconBorder: 'border-slate-100',
+    selectedBg: 'bg-gradient-to-br from-slate-50 to-red-50', selectedBorder: 'border-red-400',
+    selectedRing: 'ring-red-400/20', checkBg: 'bg-gradient-to-br from-red-500 to-red-600',
+    badge: null, badgeColor: '',
+  },
+  github: {
+    name: 'GitHub Actions', shortName: 'GitHub', Icon: GitHubIcon,
+    iconBg: 'bg-gradient-to-br from-slate-50 to-gray-100', iconBorder: 'border-slate-200',
+    selectedBg: 'bg-gradient-to-br from-slate-50 to-gray-100', selectedBorder: 'border-slate-700',
+    selectedRing: 'ring-slate-700/15', checkBg: 'bg-gradient-to-br from-slate-700 to-slate-900',
+    badge: null, badgeColor: '',
+  },
+};
 
-const ProviderSelector: React.FC<ProviderSelectorProps> = ({
-  selectedProvider,
-  onSelectProvider,
-}) => {
+const providers = (Object.keys(providerConfig) as Provider[]).map((id) => ({
+  id,
+  ...providerConfig[id],
+}));
 
+const containerVariants = {
+  hidden: {},
+  visible: { transition: { staggerChildren: 0.06 } },
+};
+
+const cardVariants = {
+  hidden: { opacity: 0, y: 12, scale: 0.97 },
+  visible: {
+    opacity: 1, y: 0, scale: 1,
+    transition: { type: 'spring' as const, stiffness: 320, damping: 26 },
+  },
+};
+
+const ProviderSelector: React.FC<ProviderSelectorProps> = ({ selectedProvider, onSelectProvider }) => {
   return (
-    <div className="form-card fade-in">
-      <div className="form-card-header">
-        <div className="step-number large">1</div>
-        <div>
-          <h2 className="form-card-title">Select Provider</h2>
-          <p className="form-card-subtitle">
-            Choose the cloud platform or service you want to connect
-          </p>
-        </div>
-      </div>
+    <Card className="shadow-sm border-slate-200 overflow-hidden">
+      {/* Top gradient accent */}
+      <div className="h-1 w-full bg-gradient-to-r from-indigo-500 via-violet-500 to-purple-500" />
 
-      <div className="provider-grid">
-        {providers.map((provider) => (
-          <button
-            key={provider.id}
-            type="button"
-            className={`provider-option ${selectedProvider === provider.id ? 'selected' : ''}`}
-            onClick={() => onSelectProvider(provider.id)}
-            aria-pressed={selectedProvider === provider.id}
-          >
-            <div className="provider-icon-wrapper">
-              <provider.Icon />
-            </div>
-            <h3>{provider.name}</h3>
-            {selectedProvider === provider.id && (
-              <span className="provider-check">
-                <i className="fas fa-check" />
-              </span>
-            )}
-          </button>
-        ))}
-
-        <Link
-          to="/add-github-config"
-          className="provider-option"
-        >
-          <div className="provider-icon-wrapper">
-            <GitHubIcon />
+      <CardContent className="p-6">
+        {/* Header */}
+        <div className="flex items-center gap-4 mb-6">
+          <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-500 text-white shadow-lg shadow-indigo-500/25 flex-shrink-0">
+            <Plug className="w-5 h-5" />
           </div>
-          <h3>GitHub Actions</h3>
-          <span className="provider-arrow">
-            <i className="fas fa-arrow-right" />
-          </span>
-        </Link>
-      </div>
-    </div>
+          <div>
+            <h2 className="text-lg font-bold text-slate-900 tracking-tight">Select Cloud Provider</h2>
+            <p className="text-sm text-slate-500">Choose the platform you want to connect to XamOps</p>
+          </div>
+          <div className="ml-auto hidden sm:flex items-center gap-1.5 text-xs text-slate-400 font-medium">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            Step 1 of 3
+          </div>
+        </div>
+
+        {/* Provider Grid */}
+        <motion.div
+          className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3"
+          variants={containerVariants}
+          initial="hidden"
+          animate="visible"
+        >
+          {providers.map((provider) => {
+            const isSelected = selectedProvider === provider.id;
+            const { Icon } = provider;
+            return (
+              <motion.button
+                key={provider.id}
+                type="button"
+                onClick={() => onSelectProvider(provider.id)}
+                aria-pressed={isSelected}
+                variants={cardVariants}
+                whileTap={{ scale: 0.97 }}
+                className={cn(
+                  'relative flex flex-col items-center gap-3 p-4 rounded-xl border-2 cursor-pointer transition-all duration-200 group text-left',
+                  'hover:-translate-y-0.5 hover:shadow-md',
+                  isSelected
+                    ? cn('shadow-md ring-4', provider.selectedBg, provider.selectedBorder, provider.selectedRing)
+                    : 'bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50'
+                )}
+              >
+                {/* Selected checkmark */}
+                {isSelected && (
+                  <motion.div
+                    initial={{ scale: 0, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    className={cn('absolute top-2 right-2 w-5 h-5 rounded-full flex items-center justify-center', provider.checkBg)}
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5 text-white" strokeWidth={2.5} />
+                  </motion.div>
+                )}
+
+                {/* Provider badge */}
+                {provider.badge && !isSelected && (
+                  <span className={cn('absolute top-2 left-2 text-[10px] font-bold px-1.5 py-0.5 rounded-full', provider.badgeColor)}>
+                    {provider.badge}
+                  </span>
+                )}
+
+                {/* Icon */}
+                <div className={cn(
+                  'w-14 h-14 rounded-xl border flex items-center justify-center transition-transform duration-200 group-hover:scale-105',
+                  provider.iconBg, provider.iconBorder
+                )}>
+                  <Icon />
+                </div>
+
+                <span className="text-xs font-semibold text-slate-700 text-center leading-tight">
+                  {provider.name}
+                </span>
+              </motion.button>
+            );
+          })}
+
+        </motion.div>
+      </CardContent>
+    </Card>
   );
 };
 

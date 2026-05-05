@@ -26,6 +26,10 @@
     "vite-plugin-html-include": "^1.5.1"
   },
   "dependencies": {
+    "@radix-ui/react-label": "^2.1.8",
+    "@radix-ui/react-radio-group": "^1.3.8",
+    "@radix-ui/react-separator": "^1.1.8",
+    "@radix-ui/react-slot": "^1.2.4",
     "@tanstack/query-sync-storage-persister": "^5.100.5",
     "@tanstack/react-query": "^5.100.5",
     "@tanstack/react-query-persist-client": "^5.100.5",
@@ -38,6 +42,7 @@
     "big.js": "^7.0.1",
     "chart.js": "^3.9.1",
     "chartjs-adapter-date-fns": "^2.0.1",
+    "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "cobe": "^2.0.1",
@@ -48,6 +53,7 @@
     "goey-toast": "^0.3.0",
     "highcharts": "^12.5.0",
     "highcharts-react-official": "^3.2.3",
+    "lucide-react": "^1.14.0",
     "marked": "^17.0.1",
     "prop-types": "^15.8.1",
     "react": "^19.2.3",
@@ -60,6 +66,7 @@
     "recharts": "^3.8.0",
     "sockjs-client": "^1.6.1",
     "sortablejs": "^1.15.2",
-    "stompjs": "^2.3.3"
+    "stompjs": "^2.3.3",
+    "tailwind-merge": "^3.5.0"
   }
 }

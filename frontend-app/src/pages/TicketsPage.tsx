@@ -21,6 +21,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useAccounts } from '../contexts/AccountContext';
 import { useTopbarActions } from '../contexts/TopbarContext';
 import Skeleton from '../components/Shared/Skeleton';
+import { AnimatedItem } from '../components/Shared/AnimatedList';
 import { DialogRoot, DialogPanel } from '../components/ui';
 
 // ---------------------------------------------------------------------------
@@ -495,13 +496,13 @@ const TicketsPage: React.FC = () => {
                 </div>
               )}
 
-              {tickets.map((ticket) => {
+              {tickets.map((ticket, index) => {
                 const { icon, className: sevClass } = getSeverityMeta(ticket.severity);
                 const accountName = ticket.accountId ? accountNameMap[ticket.accountId] : null;
 
                 return (
+                  <AnimatedItem key={ticket.id} index={index} delay={index * 0.03}>
                   <div
-                    key={ticket.id}
                     onClick={() => navigate(`/ticket-detail?id=${ticket.id}${ticket._source === 'billops' ? '&src=billops' : ''}`)}
                     className="flex items-center gap-4 px-5 py-4 bg-white border border-slate-200 rounded-2xl hover:border-indigo-300 hover:shadow-sm transition-all duration-200 cursor-pointer group"
                   >
@@ -562,6 +563,7 @@ const TicketsPage: React.FC = () => {
 
                     <i className="fas fa-chevron-right text-slate-300 text-xs group-hover:text-indigo-400 transition-colors" />
                   </div>
+                  </AnimatedItem>
                 );
               })}
             </div>

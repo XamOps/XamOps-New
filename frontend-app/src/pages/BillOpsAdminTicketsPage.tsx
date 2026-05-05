@@ -20,6 +20,7 @@
  */
 
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import { motion } from 'framer-motion';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useBillOpsAdminTickets } from '../hooks/useBillOpsAdminTickets';
@@ -521,9 +522,12 @@ const BillOpsAdminTicketsPage: React.FC = () => {
     </tr>
   );
 
-  const renderTicketRow = (ticket: AdminTicket) => (
-    <tr
+  const renderTicketRow = (ticket: AdminTicket, index: number) => (
+    <motion.tr
       key={ticket.id}
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.2, delay: index * 0.03, ease: 'easeOut' }}
       className={`hover:bg-indigo-50/30 transition-all cursor-pointer group border-b border-transparent hover:border-indigo-100 ${getRowClasses(ticket)}`}
       onClick={() => viewTicket(ticket.id)}
     >
@@ -645,7 +649,7 @@ const BillOpsAdminTicketsPage: React.FC = () => {
           <i className="fas fa-chevron-right text-xs"></i>
         </button>
       </td>
-    </tr>
+    </motion.tr>
   );
 
   return (
@@ -986,7 +990,7 @@ const BillOpsAdminTicketsPage: React.FC = () => {
                   </thead>
                   <tbody className="bg-white/20 divide-y divide-slate-50">
                     {paginatedTickets.length > 0
-                      ? paginatedTickets.map((ticket) => renderTicketRow(ticket))
+                      ? paginatedTickets.map((ticket, index) => renderTicketRow(ticket, index))
                       : renderEmptyState()}
                   </tbody>
                 </table>
