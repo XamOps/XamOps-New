@@ -20,6 +20,7 @@
  */
 
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useBillOpsAdminTickets } from '../hooks/useBillOpsAdminTickets';
 import { useTopbarActions } from '../contexts/TopbarContext';
@@ -153,6 +154,16 @@ const BillOpsAdminTicketsPage: React.FC = () => {
       setRaiseSubmitting(false);
     }
   }, [selectedClient, selectedAccount, raiseForm, fetchTickets]);
+
+  // Lock body scroll while the raise ticket modal is open
+  useEffect(() => {
+    if (showRaiseModal) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => { document.body.style.overflow = ''; };
+  }, [showRaiseModal]);
   // ──────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -1091,10 +1102,10 @@ const BillOpsAdminTicketsPage: React.FC = () => {
       </div>
 
       {/* ─── Admin Raise Ticket Modal ─────────────────────────────────────── */}
-      {showRaiseModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      {showRaiseModal && createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
           {/* Backdrop */}
-          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setShowRaiseModal(false)} />
+          <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={() => setShowRaiseModal(false)} />
 
           <div className="relative bg-white rounded-[2rem] shadow-2xl shadow-indigo-900/10 border border-white w-full max-w-lg overflow-hidden">
             {/* Modal Header */}
@@ -1337,7 +1348,8 @@ const BillOpsAdminTicketsPage: React.FC = () => {
               )}
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
       {/* ──────────────────────────────────────────────────────────────────── */}
     </div>
