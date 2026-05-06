@@ -1,0 +1,3 @@
+## 2025-05-14 - Topbar Accessibility & Micro-UX
+**Learning:** Icon-only buttons (Notifications, Help) in the `Topbar` lacked descriptive labels for screen readers and visual hints for mouse users. Standardizing on `TooltipWrapper` ensures both needs are met simultaneously. Additionally, the theme toggle was missing proper semantic roles (`role="switch"`) and focus indicators.
+**Action:** Always wrap icon-only header buttons in `TooltipWrapper` and provide an `aria-label` that matches the tooltip text. Use `focus-visible` ring offsets to ensure focus indicators are visible against both light and dark backgrounds.
