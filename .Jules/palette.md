@@ -1,0 +1,3 @@
+## 2025-05-14 - [Accessibility & PR hygiene]
+**Learning:** Adding accessibility wrappers (like `TooltipWrapper`) can trigger significant JSX re-indentation, potentially exceeding the 50-line PR constraint. Additionally, installing dependencies to fix local dev/build issues (like `quill`) should not be committed if they are unrelated to the UX change.
+**Action:** Use surgical `aria-*` attributes when possible to stay under line limits. Always restore lockfiles and remove temporary debugging dependencies before submitting. Ensure `TooltipWrapper` or similar components are used consistently across icon-only buttons to satisfy accessibility standards.
