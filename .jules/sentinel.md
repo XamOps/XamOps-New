@@ -1,0 +1,4 @@
+## 2026-05-09 - Broken Object Level Authorization (BOLA) in Agent Management
+**Vulnerability:** Management endpoints in `AgentController` (e.g., `/db/status`, `/events/{id}`) lacked ownership validation, allowing authenticated users to access agent status and events of other tenants by guessing IDs or provider account strings.
+**Learning:** The `/api/v1/agent/**` path was globally permitted in `SecurityConfig` to support API-key-based ingest from agents. This broad permission inadvertently bypassed session-based security checks for management endpoints in the same controller, necessitating manual ownership validation in the controller layer.
+**Prevention:** Implement explicit `validateCloudAccountOwnership` checks in controller methods that handle sensitive tenant data, especially when path-level security is permissive.
