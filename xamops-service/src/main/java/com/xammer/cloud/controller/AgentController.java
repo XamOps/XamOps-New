@@ -13,6 +13,8 @@ import com.xammer.cloud.repository.AgentDataCacheRepository;
 import com.xammer.cloud.repository.AgentEventRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.KubernetesClusterConfigRepository;
+import com.xammer.cloud.util.SecurityUtils;
+import org.springframework.security.access.AccessDeniedException;
 import com.xammer.cloud.service.AgentIngestService;
 import com.xammer.cloud.service.DbAgentService;
 import com.xammer.cloud.service.EksAutoscalingService;
@@ -237,6 +239,8 @@ public class AgentController {
                     .body(Map.of("error", "agentName and cloudAccountId are required"));
         }
 
+        validateCloudAccountOwnership(cloudAccountId);
+
         DbAgentConfig cfg = dbAgentService.registerDbAgent(cloudAccountId, agentName);
         if (cfg == null) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
@@ -259,6 +263,8 @@ public class AgentController {
     public ResponseEntity<Map<String, Object>> deleteDbAgent(
             @RequestParam String agentName,
             @RequestParam String cloudAccountId) {
+
+        validateCloudAccountOwnership(cloudAccountId);
 
         boolean deleted = dbAgentService.deleteDbAgent(cloudAccountId, agentName);
         if (!deleted) {
@@ -359,6 +365,8 @@ public class AgentController {
         }
 
         KubernetesClusterConfig config = configOpt.get();
+        validateCloudAccountOwnership(config.getCloudAccountId());
+
         Map<String, Object> status = new HashMap<>();
 
         status.put("clusterName", config.getClusterName());
@@ -426,6 +434,9 @@ public class AgentController {
      */
     @GetMapping("/install-info")
     public ResponseEntity<Map<String, String>> getInstallInfo() {
+        // Authenticate call to prevent leaking global API key
+        SecurityUtils.getPrincipal();
+
         return ResponseEntity.ok(Map.of(
                 "apiKey", agentIngestService.getGlobalApiKey()
         ));
@@ -463,6 +474,8 @@ public class AgentController {
             return ResponseEntity.badRequest().body(Map.of("error", "agentName and cloudAccountId are required"));
         }
 
+        validateCloudAccountOwnership(cloudAccountId);
+
         DbAgentConfig cfg = dbAgentService.saveConnectionConfig(
                 cloudAccountId, agentName,
                 body.get("dbEngine"), body.get("dbHost"), body.get("dbPort"),
@@ -485,6 +498,8 @@ public class AgentController {
     public ResponseEntity<Map<String, Object>> loadDbAgentConfig(
             @RequestParam String agentName,
             @RequestParam String cloudAccountId) {
+
+        validateCloudAccountOwnership(cloudAccountId);
 
         DbAgentConfig cfg = dbAgentService.loadConnectionConfig(cloudAccountId, agentName);
         if (cfg == null) {
@@ -511,6 +526,8 @@ public class AgentController {
     public ResponseEntity<Map<String, Object>> getDbAgentStatus(
             @RequestParam String agentName,
             @RequestParam String cloudAccountId) {
+
+        validateCloudAccountOwnership(cloudAccountId);
 
         java.util.Optional<DbAgentConfig> cfgOpt = dbAgentService.findDbAgent(cloudAccountId, agentName);
         if (cfgOpt.isEmpty()) {
@@ -552,6 +569,13 @@ public class AgentController {
     public ResponseEntity<List<AgentEvent>> getAgentEvents(
             @PathVariable Long clusterConfigId,
             @RequestParam(defaultValue = "50") int limit) {
+
+        Optional<KubernetesClusterConfig> configOpt = clusterConfigRepository.findById(clusterConfigId);
+        if (configOpt.isPresent()) {
+            validateCloudAccountOwnership(configOpt.get().getCloudAccountId());
+        } else {
+            return ResponseEntity.notFound().build();
+        }
 
         List<AgentEvent> events = agentEventRepository.findByClusterConfigIdOrderByCreatedAtDesc(
                 clusterConfigId, PageRequest.of(0, limit)).getContent();
@@ -711,6 +735,28 @@ public class AgentController {
             } catch (Exception e) {
                 logger.error("SRE auto-trigger failed for resourceId={}: {}", resourceId, e.getMessage());
             }
+        }
+    }
+
+    private void validateCloudAccountOwnership(String providerAccountId) {
+        CloudAccount account = dbAgentService.resolveAccount(providerAccountId);
+        validateOwnership(account);
+    }
+
+    private void validateCloudAccountOwnership(Long internalAccountId) {
+        CloudAccount account = cloudAccountRepository.findById(internalAccountId).orElse(null);
+        validateOwnership(account);
+    }
+
+    private void validateOwnership(CloudAccount account) {
+        if (account == null) {
+            throw new AccessDeniedException("Account not found");
+        }
+        Long userClientId = SecurityUtils.getPrincipal().getClientId();
+        if (!account.getClient().getId().equals(userClientId)) {
+            logger.warn("Security violation: User from client {} attempted to access account {} belonging to client {}",
+                    userClientId, account.getId(), account.getClient().getId());
+            throw new AccessDeniedException("You do not have permission to access this account");
         }
     }
 
