@@ -99,11 +99,13 @@ export const UnifiedDashboard: React.FC = () => {
   };
 
   const getTotalSavings = () => {
-    return (
-      (awsData?.selectedAccount?.optimizationSummary?.totalPotentialSavings || 0) +
-      (gcpData?.selectedAccount?.optimizationSummary?.totalPotentialSavings || 0) +
-      (azureData?.selectedAccount?.optimizationSummary?.totalPotentialSavings || 0)
-    );
+    const awsOpt = awsData?.selectedAccount?.optimizationSummary?.totalPotentialSavings || 0;
+    const awsSpot = awsData?.selectedAccount?.savingsSummary?.totalPotentialSavings || 0;
+    const gcpOpt = gcpData?.selectedAccount?.optimizationSummary?.totalPotentialSavings || 0;
+    const gcpSpot = gcpData?.selectedAccount?.savingsSummary?.totalPotentialSavings || 0;
+    const azureOpt = azureData?.selectedAccount?.optimizationSummary?.totalPotentialSavings || 0;
+    const azureSpot = azureData?.selectedAccount?.savingsSummary?.totalPotentialSavings || 0;
+    return awsOpt + awsSpot + gcpOpt + gcpSpot + azureOpt + azureSpot;
   };
 
   const getTotalWasteCount = () => {

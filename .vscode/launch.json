@@ -3,6 +3,13 @@
     "configurations": [
         {
             "type": "java",
+            "name": "PasswordGenerator",
+            "request": "launch",
+            "mainClass": "com.xammer.cloud.util.PasswordGenerator",
+            "projectName": "xamops-service"
+        },
+        {
+            "type": "java",
             "name": "ServiceRegistryApplication",
             "request": "launch",
             "mainClass": "com.xammer.service_registry.ServiceRegistryApplication",
