@@ -507,61 +507,6 @@ public class ProactiveCacheRefreshService {
     // }
     // }
 
-    @Scheduled(cron = "0 0 2 * * WED,SUN")
-    public void refreshFinOps() {
-        logger.info("--- [2:00 AM] Starting FinOps Refresh ---");
-        String startDate = LocalDate.now().withDayOfMonth(1).toString();
-        String endDate = LocalDate.now().toString();
-        List<String> tenants = fetchActiveTenants();
-
-        for (String tenantId : tenants) {
-            JobExecutionHistory jobHistory = new JobExecutionHistory("REFRESH_FINOPS", tenantId,
-                    LocalDateTime.now(), "RUNNING");
-
-            try {
-                TenantContext.setCurrentTenant(tenantId);
-                jobHistory = jobExecutionHistoryRepository.save(jobHistory);
-                logger.info(">> Processing Tenant: {}", tenantId);
-
-                int count = 0;
-                for (CloudAccount account : getAllAccounts()) {
-                    String accountId = getAccountId(account);
-                    if (accountId == null || !"AWS".equals(account.getProvider()))
-                        continue;
-
-                    try {
-                        FinOpsReportDto report = finOpsService
-                                .getFinOpsReport(accountId, true, startDate, endDate).join();
-                        if (report != null) {
-                            String key = "finops-" + accountId;
-                            dashboardDataService.saveFinOpsSnapshot(key, report);
-                            logger.info("✓ FinOps cached for {} (DB snapshot)", accountId);
-                        }
-                        count++;
-                    } catch (Exception e) {
-                        logger.error("Failed FinOps refresh for {}", accountId, e);
-                    }
-                }
-
-                jobHistory.setStatus("SUCCESS");
-                jobHistory.setItemsProcessed(count);
-                jobHistory.setEndTime(LocalDateTime.now());
-                jobExecutionHistoryRepository.save(jobHistory);
-
-            } catch (Exception e) {
-                logger.error("❌ Failed FinOps refresh for tenant {}", tenantId, e);
-                if (jobHistory.getId() != null) {
-                    jobHistory.setStatus("FAILURE");
-                    jobHistory.setErrorMessage(e.getMessage());
-                    jobHistory.setEndTime(LocalDateTime.now());
-                    jobExecutionHistoryRepository.save(jobHistory);
-                }
-            } finally {
-                TenantContext.clear();
-            }
-        }
-    }
-
     // ===================================================================================
     // 2:30 AM -> Cost Management (Data Intensive)
     // ===================================================================================
@@ -647,7 +592,7 @@ public class ProactiveCacheRefreshService {
                     if (accountId == null || "GCP".equals(account.getProvider()) || "Azure".equals(account.getProvider()))
                         continue;
                     try {
-                        dashboardDataService.getDashboardData(accountId, true, null);
+                        dashboardDataService.getGranularKpi(accountId, true, null);
                         count++;
                         logger.info("✅ Refreshed AWS Dashboard snapshot for account {}", accountId);
                     } catch (Exception e) {
@@ -742,54 +687,51 @@ public class ProactiveCacheRefreshService {
     }
 
     // ===================================================================================
-    // 3:30 AM -> Optimization (Waste & Rightsizing)
-    // OPTIMIZED: Changed from daily to Mon/Wed/Fri to reduce costs
+    // 5:10 AM -> Build Unified Dashboard Snapshots (AWS + GCP + Azure) — Wed/Sun
+    // Reads already-written per-account snapshots from DB — zero API calls, pure aggregation.
+    // AWS:   reads DASHBOARD_KPI         (written 3:30 AM)
+    // GCP:   reads GCP_DASHBOARD         (written 1:30 AM daily)
+    // Azure: reads AZURE_DASHBOARD       (written 4:30 AM Wed/Sun)
     // ===================================================================================
-    @Scheduled(cron = "0 30 3 * * WED,SUN")
-    public void refreshOptimization() {
-        logger.info("--- [3:30 AM] Starting Optimization Refresh (Waste & Rightsizing) ---");
+    @Scheduled(cron = "0 10 5 * * WED,SUN")
+    public void buildUnifiedSnapshots() {
+        logger.info("--- [5:10 AM] Building Unified Dashboard Snapshots (AWS + GCP + Azure) ---");
         List<String> tenants = fetchActiveTenants();
 
         for (String tenantId : tenants) {
-            JobExecutionHistory jobHistory = new JobExecutionHistory("REFRESH_OPTIMIZATION", tenantId,
+            JobExecutionHistory jobHistory = new JobExecutionHistory("BUILD_UNIFIED_SNAPSHOTS", tenantId,
                     LocalDateTime.now(), "RUNNING");
             try {
                 TenantContext.setCurrentTenant(tenantId);
                 jobHistory = jobExecutionHistoryRepository.save(jobHistory);
 
-                int count = 0;
-                for (CloudAccount account : getAllAccounts()) {
-                    String accountId = getAccountId(account);
-                    if (accountId == null)
-                        continue;
+                try {
+                    dashboardDataService.buildAndSaveUnifiedAwsSnapshot();
+                    logger.info("✅ Unified AWS snapshot built for tenant {}", tenantId);
+                } catch (Exception e) {
+                    logger.error("❌ Failed unified AWS snapshot for tenant {}: {}", tenantId, e.getMessage());
+                }
 
-                    try {
-                        List<DashboardData.RegionStatus> regions = getActiveRegions(account);
+                try {
+                    dashboardDataService.buildAndSaveUnifiedGcpSnapshot();
+                    logger.info("✅ Unified GCP snapshot built for tenant {}", tenantId);
+                } catch (Exception e) {
+                    logger.error("❌ Failed unified GCP snapshot for tenant {}: {}", tenantId, e.getMessage());
+                }
 
-                        // 1. Rightsizing
-                        optimizationService.getAllOptimizationRecommendations(accountId, true).join();
-
-                        // 2. Waste
-                        List<DashboardData.WastedResource> wasteData = optimizationService
-                                .getWastedResources(account, regions, true).join();
-
-                        String wasteKey = "waste-" + accountId;
-                        dashboardDataService.saveWasteSnapshot(wasteKey, wasteData);
-                        logger.info("✓ Waste cached for {} (database)", accountId);
-
-                        count++;
-                    } catch (Exception e) {
-                        logger.error("Failed Optimization refresh for {}", accountId, e);
-                    }
+                try {
+                    dashboardDataService.buildAndSaveUnifiedAzureSnapshot();
+                    logger.info("✅ Unified Azure snapshot built for tenant {}", tenantId);
+                } catch (Exception e) {
+                    logger.error("❌ Failed unified Azure snapshot for tenant {}: {}", tenantId, e.getMessage());
                 }
 
                 jobHistory.setStatus("SUCCESS");
-                jobHistory.setItemsProcessed(count);
                 jobHistory.setEndTime(LocalDateTime.now());
                 jobExecutionHistoryRepository.save(jobHistory);
 
             } catch (Exception e) {
-                logger.error("❌ Failed optimization refresh for tenant {}", tenantId, e);
+                logger.error("❌ Failed unified snapshots for tenant {}", tenantId, e);
                 if (jobHistory.getId() != null) {
                     jobHistory.setStatus("FAILURE");
                     jobHistory.setErrorMessage(e.getMessage());
@@ -870,12 +812,11 @@ public class ProactiveCacheRefreshService {
     }
 
     // ===================================================================================
-    // 3:00 AM -> Alerts (Quota & Cost Anomalies)
-    // SCHEDULED: Tuesday, Thursday, Saturday
+    // 3:20 AM -> Alerts (Quota & Cost Anomalies)
     // ===================================================================================
-    @Scheduled(cron = "0 0 3 * * WED,SUN")
+    @Scheduled(cron = "0 20 3 * * WED,SUN")
     public void refreshAlerts() {
-        logger.info("--- [3:00 AM] Starting Alerts Refresh (Tue/Thu/Sat) ---");
+        logger.info("--- [3:20 AM] Starting Alerts Refresh ---");
         List<String> tenants = fetchActiveTenants();
 
         for (String tenantId : tenants) {

@@ -11,13 +11,11 @@ import { useLocation, Outlet } from 'react-router-dom';
 const RouteChangeHandler: React.FC = () => {
     const location = useLocation();
 
-    // Log route changes
     React.useEffect(() => {
         console.log('🔄 [RouteChangeHandler] Route changed to:', location.pathname);
     }, [location.pathname]);
 
-    // Force remount by using pathname as key
-    return <Outlet key={location.pathname} />;
+    return <Outlet />;
 };
 
 export default RouteChangeHandler;

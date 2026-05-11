@@ -118,13 +118,13 @@ export const AccountBreakdownModal: React.FC<AccountBreakdownModalProps> = ({
 
                       {viewMode === 'waste' && (
                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-bold text-orange-600">
-                          {acc.optimizationSummary?.criticalAlerts || 0}
+                          {acc.wastedResourceCount ?? 0}
                         </td>
                       )}
 
                       {viewMode === 'alerts' && (
                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-bold text-red-600">
-                          {acc.optimizationSummary?.criticalAlerts || 0}
+                          {acc.activeAlertCount ?? 0}
                         </td>
                       )}
 

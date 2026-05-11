@@ -31,6 +31,8 @@ export interface SubAccount {
   resourceCount?: number;
   optimizationSummary?: OptimizationSummary;
   securityScore?: number;
+  wastedResourceCount?: number;
+  activeAlertCount?: number;
 }
 
 export interface SelectedAccount {
@@ -46,8 +48,15 @@ export interface SelectedAccount {
   azureAccountCount?: number;
 }
 
+export interface AvailableAccount {
+  id: string;
+  name: string;
+  provider?: string;
+}
+
 export interface ProviderData {
   selectedAccount: SelectedAccount;
+  availableAccounts?: AvailableAccount[];
   lastUpdated?: string;
   error?: string;
 }

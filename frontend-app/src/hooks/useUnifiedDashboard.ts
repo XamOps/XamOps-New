@@ -1,11 +1,14 @@
 /**
  * useUnifiedDashboard Hook
  *
- * Custom hook for managing unified dashboard state and data fetching
- * Handles fetching data from all providers (AWS, GCP, Azure) and summary endpoint
+ * Custom hook for managing unified dashboard state and data fetching.
+ * Uses React Query so responses are cached and shared across page navigations —
+ * if the user already visited any provider page, the Unified Dashboard renders
+ * instantly from cache without firing duplicate network calls.
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   ProviderData,
   SummaryData,
@@ -16,407 +19,402 @@ import type {
   SubAccount,
 } from '../types/dashboard';
 import { useCurrency } from './useCurrency';
+import { useAccounts } from '../contexts/AccountContext';
 
+// ---------------------------------------------------------------------------
+// Query keys — centralised so any page can invalidate them
+// ---------------------------------------------------------------------------
+export const unifiedDashboardKeys = {
+  summary: ['unified', 'summary'] as const,
+  provider: (p: 'aws' | 'gcp' | 'azure') => ['unified', 'provider', p] as const,
+  health: ['unified', 'health'] as const,
+  tickets: ['unified', 'tickets'] as const,
+};
+
+// ---------------------------------------------------------------------------
+// Fetcher functions (plain async, no React state)
+// ---------------------------------------------------------------------------
+const fetchSummaryData = async (force: boolean): Promise<SummaryData> => {
+  const url = '/api/xamops/dashboard/unified/summary' + (force ? '?forceRefresh=true' : '');
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('Summary failed');
+  return res.json();
+};
+
+const fetchProviderData = async (provider: 'aws' | 'gcp' | 'azure', force: boolean): Promise<ProviderData> => {
+  const url = `/api/xamops/dashboard/unified/${provider}` + (force ? '?forceRefresh=true' : '');
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`${provider.toUpperCase()} Failed`);
+  const data: ProviderData = await res.json();
+  if (data.error) throw new Error(data.error);
+  return data;
+};
+
+const fetchHealthData = async (): Promise<HealthData> => {
+  const res = await fetch('/api/xamops/dashboard/unified/health');
+  if (!res.ok) throw new Error('Health failed');
+  return res.json();
+};
+
+const fetchTicketCount = async (): Promise<number> => {
+  const res = await fetch('/api/xamops/tickets/category/Technical/count');
+  if (!res.ok) throw new Error('Tickets failed');
+  const data = await res.json();
+  return data.count ?? 0;
+};
+
+// ---------------------------------------------------------------------------
+// Hook
+// ---------------------------------------------------------------------------
 export const useUnifiedDashboard = () => {
   const { convert, loadRates } = useCurrency();
-  // Loading states
-  const [isLoading, setIsLoading] = useState<DashboardLoading>({
-    summary: true,
-    aws: true,
-    gcp: true,
-    azure: true,
-    health: true,
-    tickets: true,
-  });
+  const qc = useQueryClient();
+  const { accounts } = useAccounts();
 
-  // Error states
-  const [error, setError] = useState<DashboardErrors>({
-    summary: null,
-    aws: null,
-    gcp: null,
-    azure: null,
-    health: null,
-    tickets: null,
-  });
-
-  // Data states
-  const [summaryData, setSummaryData] = useState({
-    awsCount: 0,
-    gcpCount: 0,
-    azureCount: 0,
-    totalResources: 0,
-    totalAccounts: 0,
-  });
-  const [awsData, setAwsData] = useState<ProviderData | null>(null);
-  const [gcpData, setGcpData] = useState<ProviderData | null>(null);
-  const [azureData, setAzureData] = useState<ProviderData | null>(null);
-  const [healthData, setHealthData] = useState<HealthData | null>(null);
-  const [ticketCount, setTicketCount] = useState<number>(0);
+  // Load INR exchange rates once (needed for GCP/Azure USD conversion)
+  useEffect(() => {
+    loadRates('inr');
+  }, [loadRates]);
 
   // UI states
   const [showModal, setShowModal] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('cost');
   const [activeProvider, setActiveProvider] = useState('');
   const [activeAccountList, setActiveAccountList] = useState<SubAccount[]>([]);
+  const [notification, setNotification] = useState<{ type: 'error' | 'success'; title: string; message: string } | null>(null);
 
-  // Timestamp states
+  // Timestamp display
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [serverTime, setServerTime] = useState<string | null>(null);
   const [lastUpdatedText, setLastUpdatedText] = useState('Checking...');
-  const [notification, setNotification] = useState<{ type: 'error' | 'success', title: string, message: string } | null>(null);
 
-  // Intervals and initialization refs
-  const intervalsRef = useRef<{ timeAgo?: ReturnType<typeof setInterval>; autoRefresh?: ReturnType<typeof setInterval> }>({});
-  const initializedRef = useRef(false);
+  // Track whether we are doing a force-refresh (bypasses cache)
+  const [forceRefresh, setForceRefresh] = useState(false);
 
-  // Update time ago text - stable reference using ref
-  const updateTimeAgoRef = useRef<(() => void) | undefined>(undefined);
-  updateTimeAgoRef.current = () => {
-    if (!lastUpdated) {
-      setLastUpdatedText('Updating...');
-      return;
-    }
-    const diff = Math.floor((new Date().getTime() - lastUpdated.getTime()) / 60000);
-    if (diff < 1) setLastUpdatedText('Just now');
-    else setLastUpdatedText(`Updated ${diff} mins ago`);
-  };
+  // -------------------------------------------------------------------------
+  // React Query — one query per data source
+  // -------------------------------------------------------------------------
+  const summaryQuery = useQuery({
+    queryKey: [...unifiedDashboardKeys.summary, forceRefresh],
+    queryFn: () => fetchSummaryData(forceRefresh),
+    staleTime: forceRefresh ? 0 : 5 * 60 * 1000,
+    gcTime: 24 * 60 * 60 * 1000,
+    retry: 1,
+  });
 
-  const updateTimeAgo = useCallback(() => {
-    updateTimeAgoRef.current?.();
-  }, []);
+  const awsQuery = useQuery({
+    queryKey: [...unifiedDashboardKeys.provider('aws'), forceRefresh],
+    queryFn: () => fetchProviderData('aws', forceRefresh),
+    staleTime: forceRefresh ? 0 : 5 * 60 * 1000,
+    gcTime: 24 * 60 * 60 * 1000,
+    retry: 1,
+  });
 
-  // Fetch summary data
-  const fetchSummary = useCallback(async (force: boolean = false, silent: boolean = false) => {
-    setError((prev) => ({ ...prev, summary: null }));
+  const gcpQuery = useQuery({
+    queryKey: [...unifiedDashboardKeys.provider('gcp'), forceRefresh],
+    queryFn: () => fetchProviderData('gcp', forceRefresh),
+    staleTime: forceRefresh ? 0 : 5 * 60 * 1000,
+    gcTime: 24 * 60 * 60 * 1000,
+    retry: 1,
+  });
 
-    // Only show loading if forcing refresh AND not silent, or if we haven't loaded initially
-    if (!silent && (force || isLoading.summary)) {
-      setIsLoading((prev) => ({ ...prev, summary: true }));
-    }
+  const azureQuery = useQuery({
+    queryKey: [...unifiedDashboardKeys.provider('azure'), forceRefresh],
+    queryFn: () => fetchProviderData('azure', forceRefresh),
+    staleTime: forceRefresh ? 0 : 5 * 60 * 1000,
+    gcTime: 24 * 60 * 60 * 1000,
+    retry: 1,
+  });
 
-    try {
-      const url = '/api/xamops/dashboard/unified/summary' + (force ? '?forceRefresh=true' : '');
-      const res = await fetch(url);
-      if (!res.ok) throw new Error('Summary failed');
-      const data: SummaryData = await res.json();
-      const acc = data.selectedAccount;
+  const healthQuery = useQuery({
+    queryKey: unifiedDashboardKeys.health,
+    queryFn: fetchHealthData,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 24 * 60 * 60 * 1000,
+    retry: 1,
+  });
 
-      setSummaryData({
-        awsCount: acc.awsAccountCount,
-        gcpCount: acc.gcpAccountCount,
-        azureCount: acc.azureAccountCount,
-        totalAccounts: acc.awsAccountCount + acc.gcpAccountCount + acc.azureAccountCount,
-        totalResources: 0,
-      });
-    } catch (e) {
-      console.error(e);
-      setError((prev) => ({ ...prev, summary: 'Data Unavailable' }));
-    } finally {
-      setIsLoading((prev) => ({ ...prev, summary: false }));
-    }
-  }, []);
+  const ticketsQuery = useQuery({
+    queryKey: unifiedDashboardKeys.tickets,
+    queryFn: fetchTicketCount,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 24 * 60 * 60 * 1000,
+    retry: 1,
+  });
 
-  // Fetch provider data
-  const fetchProvider = useCallback(async (provider: 'aws' | 'gcp' | 'azure', force: boolean = false, silent: boolean = false) => {
-    // Only set loading if not silent AND (forced or if we don't have data yet)
-    if (!silent && (force || (provider === 'aws' && !awsData) || (provider === 'gcp' && !gcpData) || (provider === 'azure' && !azureData))) {
-      setIsLoading((prev) => ({ ...prev, [provider]: true }));
-    }
-    setError((prev) => ({ ...prev, [provider]: null }));
-
-    try {
-      const url = `/api/xamops/dashboard/unified/${provider}` + (force ? '?forceRefresh=true' : '');
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`${provider.toUpperCase()} Failed`);
-      const data: ProviderData = await res.json();
-      if (data.error) throw new Error(data.error);
-
-      let processedData = data;
-      if (provider === 'gcp' || provider === 'azure') {
-        processedData = convertGcpDataToUSD(data);
-      }
-
-      // Update state based on provider
-      if (provider === 'aws') setAwsData(processedData);
-      else if (provider === 'gcp') setGcpData(processedData);
-      else if (provider === 'azure') setAzureData(processedData);
-
-      // Update server time
-      if (data.lastUpdated) {
-        setServerTime(data.lastUpdated);
-      }
-
-      // Update total resources
-      if (data.selectedAccount?.resourceInventory) {
-        setSummaryData((prev) => ({
-          ...prev,
-          totalResources: prev.totalResources + (data.selectedAccount.resourceInventory.totalCount || 0),
-        }));
-      }
-    } catch (e: any) {
-      console.error(`Error loading ${provider}`, e);
-      setError((prev) => ({ ...prev, [provider]: e.message || 'Connection Failed' }));
-    } finally {
-      setIsLoading((prev) => ({ ...prev, [provider]: false }));
-    }
-  }, [awsData, gcpData, azureData]);
-
-  // Fetch health data
-  const fetchHealth = useCallback(async () => {
-    try {
-      const res = await fetch('/api/xamops/dashboard/unified/health');
-      if (res.ok) {
-        const data = await res.json();
-        setHealthData(data);
-      }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setIsLoading((prev) => ({ ...prev, health: false }));
-    }
-  }, []);
-
-  // Fetch ticket counts
-  const fetchTickets = useCallback(async () => {
-    try {
-      const res = await fetch('/api/xamops/tickets/category/Technical/count');
-      if (res.ok) {
-        const data = await res.json();
-        setTicketCount(data.count ?? 0);
-      }
-    } catch (e) {
-      console.error('Error fetching tickets:', e);
-      setError((prev) => ({ ...prev, tickets: 'Failed' }));
-    } finally {
-      setIsLoading((prev) => ({ ...prev, tickets: false }));
-    }
-  }, []);
-
-  // Store fetch functions in refs for stable reference in intervals
-  const fetchFunctionsRef = useRef({ fetchSummary, fetchProvider, fetchHealth, fetchTickets });
-  fetchFunctionsRef.current = { fetchSummary, fetchProvider, fetchHealth, fetchTickets };
-
-  // Fetch all data - using ref to avoid dependency issues
-  const fetchAllImpl = useCallback((force: boolean = false, silent: boolean = false) => {
-    const { fetchSummary, fetchProvider, fetchHealth } = fetchFunctionsRef.current;
-
-    if (force && !silent) {
-      // Reset states when forcing refresh (only if not silent)
-      setIsLoading({
-        summary: true,
-        aws: true,
-        gcp: true,
-        azure: true,
-        health: true,
-        tickets: true,
-      });
-      setError({
-        summary: null,
-        aws: null,
-        gcp: null,
-        azure: null,
-        health: null,
-        tickets: null,
-      });
-      setAwsData(null);
-      setGcpData(null);
-      setAzureData(null);
-      setSummaryData((prev) => ({ ...prev, totalResources: 0 }));
-    }
-
-    if (!silent) {
-      setLastUpdated(new Date());
-    }
-
-    fetchSummary(force, silent);
-    fetchProvider('aws', force, silent);
-    fetchProvider('gcp', force, silent);
-    fetchProvider('azure', force, silent);
-    fetchHealth();
-    fetchTickets();
-  }, []);
-
-  // Stable fetchAll reference for external use
-  const fetchAll = useCallback((force: boolean = false, silent: boolean = false) => {
-    fetchAllImpl(force, silent);
-  }, [fetchAllImpl]);
-
-  /**
-   * Update resource inventory from WebSocket (Real-time)
-   */
-  const updateResourceInventory = useCallback((accountId: string, inventory: any) => {
-    console.log(`📦 [useUnifiedDashboard] Received inventory update for ${accountId}`);
-
-    // Update AWS data if account belongs there
-    setAwsData(prev => {
-      if (!prev || !prev.selectedAccount) return prev;
-      const subAccounts = prev.selectedAccount.subAccounts || [];
-      const index = subAccounts.findIndex(a => a.id === accountId);
-      if (index === -1) return prev;
-
-      const newSubAccounts = [...subAccounts];
-      newSubAccounts[index] = { ...newSubAccounts[index], resourceInventory: inventory };
-
-      return {
-        ...prev,
-        selectedAccount: {
-          ...prev.selectedAccount,
-          subAccounts: newSubAccounts
-        }
-      };
-    });
-
-    // Update GCP data if account belongs there
-    setGcpData(prev => {
-      if (!prev || !prev.selectedAccount) return prev;
-      const subAccounts = prev.selectedAccount.subAccounts || [];
-      const index = subAccounts.findIndex(a => a.id === accountId);
-      if (index === -1) return prev;
-
-      const newSubAccounts = [...subAccounts];
-      newSubAccounts[index] = { ...newSubAccounts[index], resourceInventory: inventory };
-
-      return {
-        ...prev,
-        selectedAccount: {
-          ...prev.selectedAccount,
-          subAccounts: newSubAccounts
-        }
-      };
-    });
-
-    // Update Azure data if account belongs there
-    setAzureData(prev => {
-      if (!prev || !prev.selectedAccount) return prev;
-      const subAccounts = prev.selectedAccount.subAccounts || [];
-      const index = subAccounts.findIndex(a => a.id === accountId);
-      if (index === -1) return prev;
-
-      const newSubAccounts = [...subAccounts];
-      newSubAccounts[index] = { ...newSubAccounts[index], resourceInventory: inventory };
-
-      return {
-        ...prev,
-        selectedAccount: {
-          ...prev.selectedAccount,
-          subAccounts: newSubAccounts
-        }
-      };
-    });
-  }, []);
-
-  // Helper to get all accounts
-  const getAllAccounts = useCallback((): SubAccount[] => {
-    const all: SubAccount[] = [];
-    if (awsData?.selectedAccount?.subAccounts) all.push(...awsData.selectedAccount.subAccounts);
-    if (gcpData?.selectedAccount?.subAccounts) all.push(...gcpData.selectedAccount.subAccounts);
-    if (azureData?.selectedAccount?.subAccounts) all.push(...azureData.selectedAccount.subAccounts);
-    return JSON.parse(JSON.stringify(all));
-  }, [awsData, gcpData, azureData]);
-
-  // Helper to convert GCP data to USD
-  const convertGcpDataToUSD = useCallback((data: ProviderData): ProviderData => {
+  // -------------------------------------------------------------------------
+  // Currency conversion helper
+  // -------------------------------------------------------------------------
+  const convertToUSD = useCallback((data: ProviderData): ProviderData => {
     if (!data.selectedAccount) return data;
 
-    const convertValue = (val: number | undefined) => {
+    const cv = (val: number | undefined) => {
       if (!val) return 0;
       const converted = convert(val, 'usd');
       return converted !== null ? converted : val;
     };
 
-    const convertedAccount = {
-      ...data.selectedAccount,
-      monthToDateSpend: convertValue(data.selectedAccount.monthToDateSpend),
-      forecastedSpend: convertValue(data.selectedAccount.forecastedSpend),
-      optimizationSummary: {
-        ...data.selectedAccount.optimizationSummary,
-        totalPotentialSavings: convertValue(data.selectedAccount.optimizationSummary?.totalPotentialSavings),
-      },
-      costHistory: {
-        ...data.selectedAccount.costHistory,
-        costs: data.selectedAccount.costHistory?.costs?.map((c) => {
-          const converted = convert(c, 'usd');
-          return converted !== null ? converted : c;
-        }) || [],
-      },
-      subAccounts: data.selectedAccount.subAccounts?.map((acc) => ({
-        ...acc,
-        monthToDateSpend: convertValue(acc.monthToDateSpend),
-        forecastedSpend: convertValue(acc.forecastedSpend),
-        optimizationSummary: acc.optimizationSummary ? {
-          ...acc.optimizationSummary,
-          totalPotentialSavings: convertValue(acc.optimizationSummary.totalPotentialSavings),
-        } : undefined,
-      })) || [],
-    };
-
     return {
       ...data,
-      selectedAccount: convertedAccount,
+      selectedAccount: {
+        ...data.selectedAccount,
+        monthToDateSpend: cv(data.selectedAccount.monthToDateSpend),
+        forecastedSpend: cv(data.selectedAccount.forecastedSpend),
+        optimizationSummary: {
+          ...data.selectedAccount.optimizationSummary,
+          totalPotentialSavings: cv(data.selectedAccount.optimizationSummary?.totalPotentialSavings),
+        },
+        costHistory: {
+          ...data.selectedAccount.costHistory,
+          costs: data.selectedAccount.costHistory?.costs?.map((c) => {
+            const converted = convert(c, 'usd');
+            return converted !== null ? converted : c;
+          }) || [],
+        },
+        subAccounts: data.selectedAccount.subAccounts?.map((acc) => ({
+          ...acc,
+          monthToDateSpend: cv(acc.monthToDateSpend),
+          forecastedSpend: cv(acc.forecastedSpend),
+          optimizationSummary: acc.optimizationSummary
+            ? { ...acc.optimizationSummary, totalPotentialSavings: cv(acc.optimizationSummary.totalPotentialSavings) }
+            : undefined,
+        })) || [],
+      },
     };
   }, [convert]);
 
-  // Initialize on mount - only run once
-  useEffect(() => {
-    // Load INR rates for GCP conversion
-    loadRates('inr');
+  // -------------------------------------------------------------------------
+  // Derive processed provider data (with USD conversion for GCP/Azure)
+  // -------------------------------------------------------------------------
+  const awsData = awsQuery.data ?? null;
+  const gcpData = gcpQuery.data ? convertToUSD(gcpQuery.data) : null;
+  const azureData = azureQuery.data ? convertToUSD(azureQuery.data) : null;
+  const healthData = healthQuery.data ?? null;
+  const ticketCount = ticketsQuery.data ?? 0;
 
-    // Guard against double initialization (React Strict Mode)
-    if (initializedRef.current) {
+  // Derive summaryData from the summary query response
+  const summaryData = (() => {
+    const acc = summaryQuery.data?.selectedAccount;
+    if (!acc) return { awsCount: 0, gcpCount: 0, azureCount: 0, totalAccounts: 0, totalResources: 0 };
+
+    const totalResources =
+      (awsData?.selectedAccount?.resourceInventory?.totalCount || 0) +
+      (gcpData?.selectedAccount?.resourceInventory?.totalCount || 0) +
+      (azureData?.selectedAccount?.resourceInventory?.totalCount || 0);
+
+    return {
+      awsCount: acc.awsAccountCount,
+      gcpCount: acc.gcpAccountCount,
+      azureCount: acc.azureAccountCount,
+      totalAccounts: acc.awsAccountCount + acc.gcpAccountCount + acc.azureAccountCount,
+      totalResources,
+    };
+  })();
+
+  // -------------------------------------------------------------------------
+  // Stale snapshot detection — if the backend snapshot was built with fewer
+  // accounts than are currently connected, auto-trigger a force refresh so the
+  // unified dashboard always reflects the user's actual account list.
+  // -------------------------------------------------------------------------
+  const staleCheckDoneRef = useRef(false);
+  useEffect(() => {
+    if (staleCheckDoneRef.current) return;
+    if (accounts.length === 0) return;           // AccountContext not loaded yet
+    if (summaryQuery.isLoading) return;          // Summary not fetched yet
+    if (!summaryQuery.data) return;
+
+    const snapshotTotal = summaryData.totalAccounts;
+    const liveTotal = accounts.length;
+
+    if (snapshotTotal < liveTotal) {
+      console.log(`[UnifiedDashboard] Stale snapshot detected: snapshot has ${snapshotTotal} accounts, live has ${liveTotal}. Force-refreshing.`);
+      staleCheckDoneRef.current = true;
+      setForceRefresh((prev) => !prev);
+    } else {
+      staleCheckDoneRef.current = true;
+    }
+  }, [accounts.length, summaryQuery.isLoading, summaryQuery.data, summaryData.totalAccounts]);
+
+  // Derive loading states from React Query
+  const isLoading: DashboardLoading = {
+    summary: summaryQuery.isLoading,
+    aws: awsQuery.isLoading,
+    gcp: gcpQuery.isLoading,
+    azure: azureQuery.isLoading,
+    health: healthQuery.isLoading,
+    tickets: ticketsQuery.isLoading,
+  };
+
+  // Derive error states
+  const error: DashboardErrors = {
+    summary: summaryQuery.error ? 'Data Unavailable' : null,
+    aws: awsQuery.error ? (awsQuery.error as Error).message || 'Connection Failed' : null,
+    gcp: gcpQuery.error ? (gcpQuery.error as Error).message || 'Connection Failed' : null,
+    azure: azureQuery.error ? (azureQuery.error as Error).message || 'Connection Failed' : null,
+    health: healthQuery.error ? 'Health Unavailable' : null,
+    tickets: ticketsQuery.error ? 'Failed' : null,
+  };
+
+  // -------------------------------------------------------------------------
+  // Update serverTime from whichever provider responds first
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    const lastUpdatedVal =
+      awsQuery.data?.lastUpdated ||
+      gcpQuery.data?.lastUpdated ||
+      azureQuery.data?.lastUpdated;
+    if (lastUpdatedVal) setServerTime(lastUpdatedVal);
+  }, [awsQuery.data, gcpQuery.data, azureQuery.data]);
+
+  // -------------------------------------------------------------------------
+  // Track lastUpdated timestamp and "X mins ago" display
+  // -------------------------------------------------------------------------
+  const anyLoading = Object.values(isLoading).some(Boolean);
+  const prevAnyLoading = useRef(anyLoading);
+
+  useEffect(() => {
+    // When all queries finish loading, update the timestamp
+    if (prevAnyLoading.current && !anyLoading) {
+      setLastUpdated(new Date());
+    }
+    prevAnyLoading.current = anyLoading;
+  }, [anyLoading]);
+
+  useEffect(() => {
+    if (!lastUpdated) {
+      setLastUpdatedText('Updating...');
       return;
     }
-    initializedRef.current = true;
+    const update = () => {
+      const diff = Math.floor((new Date().getTime() - lastUpdated.getTime()) / 60000);
+      if (diff < 1) setLastUpdatedText('Just now');
+      else setLastUpdatedText(`Updated ${diff} mins ago`);
+    };
+    update();
+    const interval = setInterval(update, 60000);
+    return () => clearInterval(interval);
+  }, [lastUpdated]);
 
-    console.log('📊 Unified Dashboard: Initializing...');
-    fetchAllImpl(false);
-
-    // Setup intervals
-    intervalsRef.current.timeAgo = setInterval(() => {
-      updateTimeAgoRef.current?.();
-    }, 60000);
-
-    intervalsRef.current.autoRefresh = setInterval(async () => {
-      console.log('Auto-refreshing dashboard data (silent cache refresh)...');
-      const { fetchSummary, fetchProvider, fetchHealth, fetchTickets } = fetchFunctionsRef.current;
-
-      // Await all fetches to ensure data is updated before timestamp changes
-      // force=false: serve from Redis/DB cache; only user-triggered refreshes use force=true
-      const results = await Promise.allSettled([
-        fetchSummary(false, true),
-        fetchProvider('aws', false, true),
-        fetchProvider('gcp', false, true),
-        fetchProvider('azure', false, true),
-        fetchHealth(),
-        fetchTickets()
-      ]);
-
-
-      const failed = results.filter(r => r.status === 'rejected' || (r.status === 'fulfilled' && (r.value as any)?.error));
-      if (failed.length > 0) {
+  // -------------------------------------------------------------------------
+  // 24-hour silent background auto-refresh
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      console.log('Auto-refreshing unified dashboard (silent cache refresh)...');
+      try {
+        await Promise.all([
+          qc.invalidateQueries({ queryKey: unifiedDashboardKeys.summary }),
+          qc.invalidateQueries({ queryKey: unifiedDashboardKeys.provider('aws') }),
+          qc.invalidateQueries({ queryKey: unifiedDashboardKeys.provider('gcp') }),
+          qc.invalidateQueries({ queryKey: unifiedDashboardKeys.provider('azure') }),
+          qc.invalidateQueries({ queryKey: unifiedDashboardKeys.health }),
+          qc.invalidateQueries({ queryKey: unifiedDashboardKeys.tickets }),
+        ]);
+        setLastUpdated(new Date());
+      } catch {
         setNotification({
           type: 'error',
           title: 'Refresh Alert',
-          message: `${failed.length} provider(s) failed to refresh. Displaying last cached data.`
+          message: 'One or more providers failed to refresh. Displaying last cached data.',
         });
-        // Auto-clear notification after 5 seconds
         setTimeout(() => setNotification(null), 5000);
-      } else {
-        console.log('✅ Auto-refresh complete, updating lastUpdated timestamp');
-        setLastUpdated(new Date());
       }
-    }, 24 * 60 * 60 * 1000); // 24 hours
+    }, 24 * 60 * 60 * 1000);
 
-    // Cleanup
-    return () => {
-      if (intervalsRef.current.timeAgo) clearInterval(intervalsRef.current.timeAgo);
-      if (intervalsRef.current.autoRefresh) clearInterval(intervalsRef.current.autoRefresh);
+    return () => clearInterval(interval);
+  }, [qc]);
+
+  // -------------------------------------------------------------------------
+  // fetchAll — manual refresh (force=true bypasses backend cache)
+  // -------------------------------------------------------------------------
+  const fetchAll = useCallback((force: boolean = false) => {
+    if (force) {
+      // Toggle forceRefresh so query keys change → React Query refetches bypassing its own cache
+      setForceRefresh((prev) => !prev);
+    } else {
+      qc.invalidateQueries({ queryKey: ['unified'] });
+    }
+    setLastUpdated(new Date());
+  }, [qc]);
+
+  // fetchProvider — retry a single provider
+  const fetchProvider = useCallback((provider: 'aws' | 'gcp' | 'azure', force: boolean = false) => {
+    if (force) {
+      setForceRefresh((prev) => !prev);
+    } else {
+      qc.invalidateQueries({ queryKey: unifiedDashboardKeys.provider(provider) });
+    }
+  }, [qc]);
+
+  // -------------------------------------------------------------------------
+  // WebSocket real-time inventory updates
+  // -------------------------------------------------------------------------
+  const updateResourceInventory = useCallback((accountId: string, inventory: any) => {
+    console.log(`📦 [useUnifiedDashboard] Received inventory update for ${accountId}`);
+
+    const patchProvider = (prev: ProviderData | undefined): ProviderData | undefined => {
+      if (!prev?.selectedAccount) return prev;
+      const subAccounts = prev.selectedAccount.subAccounts || [];
+      const index = subAccounts.findIndex((a) => a.id === accountId);
+      if (index === -1) return prev;
+      const newSubs = [...subAccounts];
+      newSubs[index] = { ...newSubs[index], resourceInventory: inventory };
+      return { ...prev, selectedAccount: { ...prev.selectedAccount, subAccounts: newSubs } };
     };
-  }, []); // Empty dependency array - only run on mount
 
-  // Update time ago when lastUpdated changes
-  useEffect(() => {
-    updateTimeAgo();
-  }, [lastUpdated, updateTimeAgo]);
+    qc.setQueryData<ProviderData>(
+      [...unifiedDashboardKeys.provider('aws'), forceRefresh],
+      (prev) => patchProvider(prev) as ProviderData
+    );
+    qc.setQueryData<ProviderData>(
+      [...unifiedDashboardKeys.provider('gcp'), forceRefresh],
+      (prev) => patchProvider(prev) as ProviderData
+    );
+    qc.setQueryData<ProviderData>(
+      [...unifiedDashboardKeys.provider('azure'), forceRefresh],
+      (prev) => patchProvider(prev) as ProviderData
+    );
+  }, [qc, forceRefresh]);
+
+  // -------------------------------------------------------------------------
+  // Helper — merge subAccounts (accounts with live cost data) with the live
+  // account list from AccountContext filtered by provider. Any account whose
+  // backend data fetch failed still appears in the modal with $0 spend instead
+  // of being silently dropped. Uses AccountContext (not availableAccounts) so
+  // only the correct provider's accounts are included.
+  // -------------------------------------------------------------------------
+  const mergeProviderAccounts = useCallback((
+    data: typeof awsData,
+    provider: 'AWS' | 'GCP' | 'Azure'
+  ): SubAccount[] => {
+    if (!data) return [];
+    const withData = data.selectedAccount?.subAccounts ?? [];
+    const withDataIds = new Set(withData.map((a) => a.id));
+
+    // Get connected accounts for this provider from AccountContext
+    const providerAccounts = accounts.filter(
+      (a) => a.provider?.toLowerCase() === provider.toLowerCase()
+    );
+
+    const fallbacks: SubAccount[] = providerAccounts
+      .filter((a) => !withDataIds.has(a.id))
+      .map((a) => ({
+        id: a.id,
+        name: a.name,
+        monthToDateSpend: 0,
+        forecastedSpend: 0,
+      }));
+
+    return [...withData, ...fallbacks];
+  }, [accounts]);
+
+  const getAllAccounts = useCallback((): SubAccount[] => {
+    return JSON.parse(JSON.stringify([
+      ...mergeProviderAccounts(awsData, 'AWS'),
+      ...mergeProviderAccounts(gcpData, 'GCP'),
+      ...mergeProviderAccounts(azureData, 'Azure'),
+    ]));
+  }, [awsData, gcpData, azureData, mergeProviderAccounts]);
 
   return {
     // State
@@ -446,5 +444,6 @@ export const useUnifiedDashboard = () => {
     setActiveProvider,
     setActiveAccountList,
     getAllAccounts,
+    mergeProviderAccounts,
   };
 };

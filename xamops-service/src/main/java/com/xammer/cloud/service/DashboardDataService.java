@@ -8,6 +8,7 @@ import com.xammer.cloud.domain.CachedData;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.SonarQubeProject;
 import com.xammer.cloud.domain.User;
+import com.xammer.cloud.dto.AlertsResponseDto;
 import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.dto.CostDto;
 import com.xammer.cloud.dto.FinOpsReportDto;
@@ -71,8 +72,10 @@ public class DashboardDataService {
     // GCP billing in India is in INR, we convert to USD for unified display
     private static final double INR_TO_USD_RATE = 0.012; // Approximately 1 INR = 0.012 USD (83 INR = 1 USD)
 
-    // Limit concurrent account processing to prevent multiplicative thread explosion.
-    // 8 accounts × 15 regions × 10 services = 1,200 awsTaskExecutor tasks max (fits in queue=2000)
+    // Limit concurrent account processing to prevent multiplicative thread
+    // explosion.
+    // 8 accounts × 15 regions × 10 services = 1,200 awsTaskExecutor tasks max (fits
+    // in queue=2000)
     private static final Semaphore ACCOUNT_SEMAPHORE = new Semaphore(8);
 
     private final CloudAccountRepository cloudAccountRepository;
@@ -98,6 +101,7 @@ public class DashboardDataService {
     private final com.xammer.cloud.service.gcp.GcpDiskRightsizingService gcpDiskRightsizingService;
     private final com.xammer.cloud.service.azure.AzureAutoSpottingService azureAutoSpottingService;
     private final com.xammer.cloud.service.azure.AzureDiskRightsizingService azureDiskRightsizingService;
+    private final com.xammer.cloud.service.azure.AzureWasteService azureWasteService;
 
     // Phase 2: Master Data Access for Tenant Iteration
     private final JdbcTemplate masterJdbcTemplate;
@@ -139,6 +143,7 @@ public class DashboardDataService {
             @Lazy com.xammer.cloud.service.gcp.GcpDiskRightsizingService gcpDiskRightsizingService,
             @Lazy com.xammer.cloud.service.azure.AzureAutoSpottingService azureAutoSpottingService,
             @Lazy com.xammer.cloud.service.azure.AzureDiskRightsizingService azureDiskRightsizingService,
+            @Lazy com.xammer.cloud.service.azure.AzureWasteService azureWasteService,
             @Qualifier("backgroundTaskExecutor") TaskExecutor backgroundTaskExecutor) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
@@ -166,6 +171,7 @@ public class DashboardDataService {
         this.gcpDiskRightsizingService = gcpDiskRightsizingService;
         this.azureAutoSpottingService = azureAutoSpottingService;
         this.azureDiskRightsizingService = azureDiskRightsizingService;
+        this.azureWasteService = azureWasteService;
         this.backgroundTaskExecutor = backgroundTaskExecutor;
     }
 
@@ -173,129 +179,17 @@ public class DashboardDataService {
     // PHASE 2: ASYNC AGGREGATOR (BACKGROUND JOBS)
     // ============================================================================================
 
-    /**
-     * OPTIMIZED: Runs once daily to pre-calculate dashboard data for the current
-     * tenant only.
-     * Changed from every 6 hours to daily at 1:00 AM to reduce AWS API costs.
-     * Uses cron schedule instead of fixedDelay to ensure predictable execution
-     * time.
-     * No immediate execution on startup - waits until scheduled time.
-     */
-    @Scheduled(cron = "0 0 1 * * WED,SUN") // Wed + Sun at 1:00 AM — matches ProactiveCacheRefreshService cadence
+    // runBackgroundAggregation() removed — it called getGranularKpi() with
+    // forceRefresh=true
+    // at 1:00 AM (live CE API calls), then
+    // ProactiveCacheRefreshService.refreshAwsDashboardData()
+    // did the same at 3:30 AM. Replaced by buildUnifiedAwsSnapshot() at 3:55 AM
+    // which reads
+    // already-written DASHBOARD_KPI snapshots from DB — zero API calls.
+    @Deprecated
     public void runBackgroundAggregation() {
-        logger.info("⚡ [Async-Aggregator] Starting global dashboard aggregation...");
-        long totalStart = System.currentTimeMillis();
-
-        List<String> activeTenants = fetchActiveTenants();
-        logger.info("Found {} active tenants to process: {}", activeTenants.size(), activeTenants);
-
-        if (activeTenants.isEmpty()) {
-            logger.warn("⚠️ No active tenants found in Master DB. Checking default context...");
-            // Optional: You might want to process the default context here if needed
-        }
-
-        for (String tenantId : activeTenants) {
-            long tenantStart = System.currentTimeMillis();
-            com.xammer.cloud.domain.JobExecutionHistory jobHistory = new com.xammer.cloud.domain.JobExecutionHistory(
-                    "DASHBOARD_AGGREGATION", tenantId, LocalDateTime.now(), "RUNNING");
-
-            // We need to save this in the TENANT context? No, this history should probably
-            // be in the tenant DB.
-            // However, the `runBackgroundAggregation` iterates over tenants.
-            // If we want a central history, it should be in master DB, but we are using
-            // JpaRepository which usually binds to the current tenant DataSource.
-            // Given the requirement "in database the data should store in proper format",
-            // keeping it in the tenant DB is safer/easier with existing Jpa setup.
-
-            // Note: We need to switch context BEFORE saving the start record if we want it
-            // in Tenant DB.
-
-            try {
-                TenantContext.setCurrentTenant(tenantId);
-
-                // Save START record
-                jobHistory = jobExecutionHistoryRepository.save(jobHistory);
-
-                logger.info(">> Processing Tenant: {}", tenantId);
-
-                final String tenantIdFinal = tenantId;
-                final com.xammer.cloud.domain.JobExecutionHistory jobHistoryFinal = jobHistory;
-                CompletableFuture<Integer> tenantFuture = CompletableFuture.supplyAsync(() -> {
-                    TenantContext.setCurrentTenant(tenantIdFinal);
-                    try {
-                        return aggregateTenantData(tenantIdFinal);
-                    } finally {
-                        TenantContext.clear();
-                    }
-                });
-
-                int processedCount;
-                try {
-                    processedCount = tenantFuture.get(15, TimeUnit.MINUTES);
-                } catch (TimeoutException te) {
-                    logger.error("❌ Tenant {} timed out after 15 min — skipping to next tenant", tenantId);
-                    tenantFuture.cancel(true);
-                    try {
-                        if (jobHistoryFinal.getId() != null) {
-                            jobHistoryFinal.setEndTime(LocalDateTime.now());
-                            jobHistoryFinal.setStatus("TIMEOUT");
-                            jobHistoryFinal.setErrorMessage("Processing timed out after 15 minutes");
-                            jobExecutionHistoryRepository.save(jobHistoryFinal);
-                        }
-                    } catch (Exception writeEx) {
-                        logger.error("Failed to write timeout log to DB", writeEx);
-                    }
-                    continue;
-                } catch (java.util.concurrent.ExecutionException ee) {
-                    logger.error("❌ Tenant {} threw an unhandled exception — skipping to next tenant. Cause: {}",
-                            tenantId, ee.getCause() != null ? ee.getCause().getMessage() : ee.getMessage(), ee);
-                    tenantFuture.cancel(true);
-                    try {
-                        if (jobHistoryFinal.getId() != null) {
-                            jobHistoryFinal.setEndTime(LocalDateTime.now());
-                            jobHistoryFinal.setStatus("FAILURE");
-                            jobHistoryFinal.setErrorMessage("Unhandled exception: " + ee.getMessage());
-                            jobExecutionHistoryRepository.save(jobHistoryFinal);
-                        }
-                    } catch (Exception writeEx) {
-                        logger.error("Failed to write failure log to DB", writeEx);
-                    }
-                    continue;
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                    logger.error("❌ Thread interrupted while waiting for tenant {} — stopping aggregation", tenantId);
-                    break;
-                }
-
-                jobHistory.setEndTime(LocalDateTime.now());
-                jobHistory.setStatus("SUCCESS");
-                jobHistory.setItemsProcessed(processedCount);
-                jobExecutionHistoryRepository.save(jobHistory);
-
-                logger.info("<< Finished Tenant: {} | Time: {}ms | Saved to DB Context: {}", tenantId,
-                        (System.currentTimeMillis() - tenantStart), tenantId);
-            } catch (Exception e) {
-                logger.error("❌ Failed to process tenant {} | Time: {}ms", tenantId,
-                        (System.currentTimeMillis() - tenantStart), e);
-
-                // Try to log failure to DB implementation
-                try {
-                    // Ensure we are still in context to save error
-                    if (jobHistory.getId() != null) {
-                        jobHistory.setEndTime(LocalDateTime.now());
-                        jobHistory.setStatus("FAILURE");
-                        jobHistory.setErrorMessage(e.getMessage());
-                        jobExecutionHistoryRepository.save(jobHistory);
-                    }
-                } catch (Exception writeEx) {
-                    logger.error("Failed to write failure log to DB", writeEx);
-                }
-            } finally {
-                TenantContext.clear();
-            }
-        }
-        logger.info("✅ [Async-Aggregator] Global aggregation complete | Total Time: {}ms",
-                (System.currentTimeMillis() - totalStart));
+        // Removed — replaced by buildUnifiedSnapshots() scheduler at 5:10 AM Wed/Sun
+        // which reads existing per-account DB snapshots with zero API calls.
     }
 
     /**
@@ -315,7 +209,8 @@ public class DashboardDataService {
 
             // In local/UAT, there's no tenant_config table - just return the configured
             // tenant
-            if ("local".equals(activeProfile) || "uat".equals(activeProfile) || "preprod".equals(activeProfile) || "prod".equals(activeProfile)) {
+            if ("local".equals(activeProfile) || "uat".equals(activeProfile) || "preprod".equals(activeProfile)
+                    || "prod".equals(activeProfile)) {
                 String currentTenant = envConfig.getCurrentTenantId();
                 logger.info("✅ Using configured tenant '{}' for {} environment (no tenant_config query)",
                         currentTenant, activeProfile);
@@ -338,96 +233,6 @@ public class DashboardDataService {
             logger.error("❌ Failed to fetch tenants from Master DB", e);
             return Collections.emptyList();
         }
-    }
-
-    private int aggregateTenantData(String tenantId) {
-        // 1. Fetch all accounts for this tenant
-        List<CloudAccount> allAccounts = cloudAccountRepository.findAll();
-        if (allAccounts.isEmpty()) {
-            logger.info("No accounts found for tenant {}. Skipping.", tenantId);
-            return 0;
-        }
-        logger.info("Found {} total accounts for tenant {}", allAccounts.size(), tenantId);
-
-        // Build a map of clientId → accounts for that client (for per-client cache keys).
-        // Also include a "system" entry (null key) for admin/global view using all accounts.
-        Map<String, List<CloudAccount>> scopeMap = new LinkedHashMap<>();
-        scopeMap.put("system", allAccounts); // admins / background jobs
-
-        for (CloudAccount account : allAccounts) {
-            if (account.getClient() != null && account.getClient().getId() != null) {
-                String clientKey = account.getClient().getId().toString();
-                scopeMap.computeIfAbsent(clientKey, k -> new ArrayList<>()).add(account);
-            }
-        }
-
-        logger.info("Aggregating {} cache scopes (1 system + {} clients) for tenant {}",
-                scopeMap.size(), scopeMap.size() - 1, tenantId);
-
-        for (Map.Entry<String, List<CloudAccount>> entry : scopeMap.entrySet()) {
-            String scope = entry.getKey();
-            List<CloudAccount> accounts = entry.getValue();
-
-            // 2. AWS Aggregation for this scope
-            try {
-                List<String> awsIds = accounts.stream()
-                        .filter(a -> "AWS".equalsIgnoreCase(a.getProvider()))
-                        .map(CloudAccount::getAwsAccountId)
-                        .filter(id -> id != null && !id.isEmpty())
-                        .collect(Collectors.toList());
-
-                if (!awsIds.isEmpty()) {
-                    logger.info("Aggregating {} AWS accounts for tenant {} scope {}...", awsIds.size(), tenantId, scope);
-                    DashboardData awsData = getMultiAccountAwsDashboardData(awsIds, true, null);
-                    saveSnapshot(SNAPSHOT_KEY_AWS + "::" + tenantId + "::" + scope, awsData);
-                }
-            } catch (Exception e) {
-                logger.error("AWS Aggregation failed for tenant {} scope {}", tenantId, scope, e);
-            }
-
-            // 3. GCP Aggregation for this scope
-            try {
-                List<String> gcpIds = accounts.stream()
-                        .filter(a -> "GCP".equalsIgnoreCase(a.getProvider()))
-                        .map(CloudAccount::getGcpProjectId)
-                        .filter(id -> id != null && !id.isEmpty())
-                        .collect(Collectors.toList());
-
-                if (!gcpIds.isEmpty()) {
-                    logger.info("Aggregating {} GCP projects for tenant {} scope {}...", gcpIds.size(), tenantId, scope);
-                    DashboardData gcpData = getMultiAccountGcpDashboardData(gcpIds, true, null);
-                    saveSnapshot(SNAPSHOT_KEY_GCP + "::" + tenantId + "::" + scope, gcpData);
-                }
-            } catch (Exception e) {
-                logger.error("GCP Aggregation failed for tenant {} scope {}", tenantId, scope, e);
-            }
-
-            // 4. Azure Aggregation for this scope
-            try {
-                List<String> azureIds = accounts.stream()
-                        .filter(a -> "Azure".equalsIgnoreCase(a.getProvider()))
-                        .map(CloudAccount::getAzureSubscriptionId)
-                        .filter(id -> id != null && !id.isEmpty())
-                        .collect(Collectors.toList());
-
-                if (!azureIds.isEmpty()) {
-                    logger.info("Aggregating {} Azure subscriptions for tenant {} scope {}...", azureIds.size(), tenantId, scope);
-                    DashboardData azureData = getMultiAccountAzureDashboardData(azureIds, true, null);
-                    if (azureData != null) {
-                        saveSnapshot(SNAPSHOT_KEY_AZURE + "::" + tenantId + "::" + scope, azureData);
-                    }
-                }
-            } catch (Exception e) {
-                logger.error("Azure Aggregation failed for tenant {} scope {}", tenantId, scope, e);
-            }
-        }
-
-        // Per-account getDashboardData / cloudListService / getFinOpsReport / gcpFinOpsReport calls
-        // have been intentionally removed. ProactiveCacheRefreshService already handles all of these
-        // on the same WED+SUN schedule (refreshAwsDashboardData, refreshFinOps, etc.) — keeping them
-        // here would double the CE API calls and is the root cause of the $1/day bill.
-        logger.info("✅ Multi-account aggregation complete for tenant {}", tenantId);
-        return allAccounts.size();
     }
 
     private void saveSnapshot(String key, DashboardData data) {
@@ -604,11 +409,23 @@ public class DashboardDataService {
             try {
                 return objectMapper.readValue(cached.get().getJsonData(), typeRef);
             } catch (JsonProcessingException e) {
-                logger.warn("Stale/corrupted Alerts snapshot for key '{}' — deleting so warm-up can rebuild. Cause: {}", key, e.getMessage());
+                logger.warn("Stale/corrupted Alerts snapshot for key '{}' — deleting so warm-up can rebuild. Cause: {}",
+                        key, e.getMessage());
                 cachedDataRepository.deleteById(key);
             }
         }
         return null;
+    }
+
+    // DB-first, Redis-fallback read for alerts — used by unified snapshot builder
+    private AlertsResponseDto getAlertsFromCache(String accountId) {
+        String key = "alerts-" + accountId;
+        // 1. Try DB
+        AlertsResponseDto fromDb = (AlertsResponseDto) getAlertsSnapshot(key, new com.fasterxml.jackson.core.type.TypeReference<AlertsResponseDto>() {});
+        if (fromDb != null) return fromDb;
+        // 2. Fall back to Redis
+        Optional<AlertsResponseDto> fromRedis = redisCache.get(key, AlertsResponseDto.class);
+        return fromRedis.orElse(null);
     }
 
     public void saveReservationSnapshot(String key, ReservationDto data) {
@@ -653,7 +470,8 @@ public class DashboardDataService {
         Optional<CachedData> cached = cachedDataRepository.findById(key);
         if (cached.isPresent()) {
             try {
-                return objectMapper.readValue(cached.get().getJsonData(), new TypeReference<List<CostDto>>() {});
+                return objectMapper.readValue(cached.get().getJsonData(), new TypeReference<List<CostDto>>() {
+                });
             } catch (JsonProcessingException e) {
                 logger.error("Failed to deserialize Cost snapshot {}", key, e);
             }
@@ -713,6 +531,283 @@ public class DashboardDataService {
         return data;
     }
 
+    /**
+     * Reads already-written DASHBOARD_KPI::{accountId} snapshots from DB for all
+     * AWS accounts,
+     * aggregates them, and saves UNIFIED_DASHBOARD_AWS::{tenant}::system.
+     * Called by the 3:55 AM scheduler — zero API calls, pure DB read + math.
+     */
+    public void buildAndSaveUnifiedAwsSnapshot() {
+        String tenantId = TenantContext.getCurrentTenant();
+
+        List<CloudAccount> allAccounts = cloudAccountRepository.findAll();
+        List<CloudAccount> awsAccounts = allAccounts.stream()
+                .filter(a -> "AWS".equalsIgnoreCase(a.getProvider()) && a.getAwsAccountId() != null)
+                .collect(Collectors.toList());
+
+        if (awsAccounts.isEmpty()) {
+            logger.info("[UnifiedSnapshot] No AWS accounts found for tenant {}", tenantId);
+            return;
+        }
+
+        // Build one snapshot per client so each user sees only their own accounts
+        Map<Long, List<CloudAccount>> byClient = awsAccounts.stream()
+                .filter(a -> a.getClient() != null)
+                .collect(Collectors.groupingBy(a -> a.getClient().getId()));
+
+        for (Map.Entry<Long, List<CloudAccount>> entry : byClient.entrySet()) {
+            Long clientId = entry.getKey();
+            List<CloudAccount> clientAccounts = entry.getValue();
+            String scopedKey = SNAPSHOT_KEY_AWS + "::" + tenantId + "::system::" + clientId;
+
+            List<DashboardData> perAccountData = new ArrayList<>();
+            for (CloudAccount account : clientAccounts) {
+                DashboardData kpi = getSnapshot("DASHBOARD_KPI::" + account.getAwsAccountId());
+                if (kpi != null) {
+                    // Merge waste count from DASHBOARD_OPT snapshot — KPI does not store wastedResources
+                    DashboardData opt = getSnapshot("DASHBOARD_OPT::" + account.getAwsAccountId());
+                    if (opt != null && opt.getSelectedAccount() != null) {
+                        kpi.getSelectedAccount().setWastedResources(opt.getSelectedAccount().getWastedResources());
+                    }
+                    // Merge real alert count from alerts-{accountId} (DB or Redis)
+                    AlertsResponseDto alertsSnap = getAlertsFromCache(account.getAwsAccountId());
+                    if (alertsSnap != null) {
+                        int alertCount = alertsSnap.getAlerts() != null ? alertsSnap.getAlerts().size()
+                                : (alertsSnap.getMetadata() != null ? alertsSnap.getMetadata().getTotalAlerts() : 0);
+                        kpi.getSelectedAccount().setActiveAlertCount(alertCount);
+                    }
+                    perAccountData.add(kpi);
+                } else {
+                    logger.warn("[UnifiedSnapshot] No KPI snapshot found for account {} — skipping",
+                            account.getAwsAccountId());
+                }
+            }
+
+            if (perAccountData.isEmpty()) {
+                logger.warn("[UnifiedSnapshot] No per-account KPI snapshots for client {} tenant {} — skipping", clientId, tenantId);
+                continue;
+            }
+
+            List<String> accountNames = clientAccounts.stream().map(CloudAccount::getAccountName).collect(Collectors.toList());
+            DashboardData aggregated = aggregateDashboardData(perAccountData, clientAccounts, accountNames,
+                    Collections.emptyList());
+            aggregated.setLastUpdated(
+                    LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("MMM dd, HH:mm:ss")));
+            saveSnapshot(scopedKey, aggregated);
+            logger.info("[UnifiedSnapshot] Built UNIFIED_DASHBOARD_AWS for tenant {} client {} — {} accounts", tenantId,
+                    clientId, perAccountData.size());
+        }
+    }
+
+    public void buildAndSaveUnifiedAwsSnapshotForClient(Long clientId) {
+        String tenantId = TenantContext.getCurrentTenant();
+        String scopedKey = SNAPSHOT_KEY_AWS + "::" + tenantId + "::system::" + clientId;
+
+        List<CloudAccount> clientAccounts = cloudAccountRepository.findByClientId(clientId).stream()
+                .filter(a -> "AWS".equalsIgnoreCase(a.getProvider()) && a.getAwsAccountId() != null)
+                .collect(Collectors.toList());
+
+        if (clientAccounts.isEmpty()) {
+            logger.info("[UnifiedSnapshot] No AWS accounts for client {} tenant {}", clientId, tenantId);
+            return;
+        }
+
+        List<DashboardData> perAccountData = new ArrayList<>();
+        for (CloudAccount account : clientAccounts) {
+            DashboardData kpi = getSnapshot("DASHBOARD_KPI::" + account.getAwsAccountId());
+            if (kpi != null) {
+                DashboardData opt = getSnapshot("DASHBOARD_OPT::" + account.getAwsAccountId());
+                if (opt != null && opt.getSelectedAccount() != null) {
+                    kpi.getSelectedAccount().setWastedResources(opt.getSelectedAccount().getWastedResources());
+                }
+                AlertsResponseDto alertsSnap = (AlertsResponseDto) getAlertsSnapshot(
+                        "alerts-" + account.getAwsAccountId(), new com.fasterxml.jackson.core.type.TypeReference<AlertsResponseDto>() {});
+                if (alertsSnap != null) {
+                    int alertCount = alertsSnap.getAlerts() != null ? alertsSnap.getAlerts().size()
+                            : (alertsSnap.getMetadata() != null ? alertsSnap.getMetadata().getTotalAlerts() : 0);
+                    kpi.getSelectedAccount().setActiveAlertCount(alertCount);
+                }
+                perAccountData.add(kpi);
+            }
+        }
+
+        if (perAccountData.isEmpty()) return;
+
+        List<String> accountNames = clientAccounts.stream().map(CloudAccount::getAccountName).collect(Collectors.toList());
+        DashboardData aggregated = aggregateDashboardData(perAccountData, clientAccounts, accountNames, Collections.emptyList());
+        aggregated.setLastUpdated(LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("MMM dd, HH:mm:ss")));
+        saveSnapshot(scopedKey, aggregated);
+        logger.info("[UnifiedSnapshot] Force-rebuilt UNIFIED_DASHBOARD_AWS for tenant {} client {} — {} accounts", tenantId, clientId, perAccountData.size());
+    }
+
+    /**
+     * Reads already-written GCP_DASHBOARD::{gcpProjectId} snapshots from DB for all
+     * GCP accounts,
+     * aggregates them, and saves UNIFIED_DASHBOARD_GCP::{tenant}::system.
+     * Zero API calls — pure DB read + math.
+     */
+    public void buildAndSaveUnifiedGcpSnapshot() {
+        String tenantId = TenantContext.getCurrentTenant();
+
+        List<CloudAccount> allAccounts = cloudAccountRepository.findAll();
+        List<CloudAccount> gcpAccounts = allAccounts.stream()
+                .filter(a -> "GCP".equalsIgnoreCase(a.getProvider()) && a.getGcpProjectId() != null)
+                .collect(Collectors.toList());
+
+        if (gcpAccounts.isEmpty()) {
+            logger.info("[UnifiedSnapshot] No GCP accounts found for tenant {}", tenantId);
+            return;
+        }
+
+        Map<Long, List<CloudAccount>> byClient = gcpAccounts.stream()
+                .filter(a -> a.getClient() != null)
+                .collect(Collectors.groupingBy(a -> a.getClient().getId()));
+
+        for (Map.Entry<Long, List<CloudAccount>> entry : byClient.entrySet()) {
+            Long clientId = entry.getKey();
+            List<CloudAccount> clientAccounts = entry.getValue();
+            String scopedKey = SNAPSHOT_KEY_GCP + "::" + tenantId + "::system::" + clientId;
+
+            List<com.xammer.cloud.dto.gcp.GcpDashboardData> perAccountData = new ArrayList<>();
+            List<CloudAccount> found = new ArrayList<>();
+            for (CloudAccount account : clientAccounts) {
+                com.xammer.cloud.dto.gcp.GcpDashboardData snap = gcpDataService
+                        .getGcpDashboardSnapshot("GCP_DASHBOARD::" + account.getGcpProjectId());
+                if (snap != null) {
+                    perAccountData.add(snap);
+                    found.add(account);
+                } else {
+                    logger.warn("[UnifiedSnapshot] No GCP snapshot found for project {} — skipping",
+                            account.getGcpProjectId());
+                }
+            }
+
+            if (perAccountData.isEmpty()) {
+                logger.warn("[UnifiedSnapshot] No GCP snapshots for client {} tenant {} — skipping", clientId, tenantId);
+                continue;
+            }
+
+            List<String> accountNames = found.stream().map(CloudAccount::getAccountName).collect(Collectors.toList());
+            DashboardData aggregated = aggregateGcpDashboardData(perAccountData, found, accountNames,
+                    Collections.emptyList());
+            aggregated.setLastUpdated(
+                    LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("MMM dd, HH:mm:ss")));
+            saveSnapshot(scopedKey, aggregated);
+            logger.info("[UnifiedSnapshot] Built UNIFIED_DASHBOARD_GCP for tenant {} client {} — {} projects", tenantId,
+                    clientId, perAccountData.size());
+        }
+    }
+
+    public void buildAndSaveUnifiedGcpSnapshotForClient(Long clientId) {
+        String tenantId = TenantContext.getCurrentTenant();
+        String scopedKey = SNAPSHOT_KEY_GCP + "::" + tenantId + "::system::" + clientId;
+
+        List<CloudAccount> clientAccounts = cloudAccountRepository.findByClientId(clientId).stream()
+                .filter(a -> "GCP".equalsIgnoreCase(a.getProvider()) && a.getGcpProjectId() != null)
+                .collect(Collectors.toList());
+
+        if (clientAccounts.isEmpty()) return;
+
+        List<com.xammer.cloud.dto.gcp.GcpDashboardData> perAccountData = new ArrayList<>();
+        List<CloudAccount> found = new ArrayList<>();
+        for (CloudAccount account : clientAccounts) {
+            com.xammer.cloud.dto.gcp.GcpDashboardData snap = gcpDataService
+                    .getGcpDashboardSnapshot("GCP_DASHBOARD::" + account.getGcpProjectId());
+            if (snap != null) { perAccountData.add(snap); found.add(account); }
+        }
+
+        if (perAccountData.isEmpty()) return;
+
+        List<String> accountNames = found.stream().map(CloudAccount::getAccountName).collect(Collectors.toList());
+        DashboardData aggregated = aggregateGcpDashboardData(perAccountData, found, accountNames, Collections.emptyList());
+        aggregated.setLastUpdated(LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("MMM dd, HH:mm:ss")));
+        saveSnapshot(scopedKey, aggregated);
+        logger.info("[UnifiedSnapshot] Force-rebuilt UNIFIED_DASHBOARD_GCP for tenant {} client {} — {} projects", tenantId, clientId, perAccountData.size());
+    }
+
+    /**
+     * Reads already-written AZURE_DASHBOARD::{subscriptionId} snapshots from DB for
+     * all Azure accounts,
+     * aggregates them, and saves UNIFIED_DASHBOARD_AZURE::{tenant}::system.
+     * Zero API calls — pure DB read + math.
+     */
+    public void buildAndSaveUnifiedAzureSnapshot() {
+        String tenantId = TenantContext.getCurrentTenant();
+
+        List<CloudAccount> allAccounts = cloudAccountRepository.findAll();
+        List<CloudAccount> azureAccounts = allAccounts.stream()
+                .filter(a -> "Azure".equalsIgnoreCase(a.getProvider()) && a.getAzureSubscriptionId() != null)
+                .collect(Collectors.toList());
+
+        if (azureAccounts.isEmpty()) {
+            logger.info("[UnifiedSnapshot] No Azure accounts found for tenant {}", tenantId);
+            return;
+        }
+
+        Map<Long, List<CloudAccount>> byClient = azureAccounts.stream()
+                .filter(a -> a.getClient() != null)
+                .collect(Collectors.groupingBy(a -> a.getClient().getId()));
+
+        for (Map.Entry<Long, List<CloudAccount>> entry : byClient.entrySet()) {
+            Long clientId = entry.getKey();
+            List<CloudAccount> clientAccounts = entry.getValue();
+            String scopedKey = SNAPSHOT_KEY_AZURE + "::" + tenantId + "::system::" + clientId;
+
+            List<DashboardData> perAccountData = new ArrayList<>();
+            for (CloudAccount account : clientAccounts) {
+                com.xammer.cloud.dto.azure.AzureDashboardData snap = azureDashboardService
+                        .getDashboardFromDatabase("AZURE_DASHBOARD::" + account.getAzureSubscriptionId());
+                if (snap != null) {
+                    DashboardData mapped = mapAzureDataToDashboardData(snap, account);
+                    if (mapped != null) perAccountData.add(mapped);
+                } else {
+                    logger.warn("[UnifiedSnapshot] No Azure snapshot found for subscription {} — skipping",
+                            account.getAzureSubscriptionId());
+                }
+            }
+
+            if (perAccountData.isEmpty()) {
+                logger.warn("[UnifiedSnapshot] No Azure snapshots for client {} tenant {} — skipping", clientId, tenantId);
+                continue;
+            }
+
+            DashboardData aggregated = aggregateGenericDashboardData(perAccountData, "Azure");
+            aggregated.setLastUpdated(
+                    LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("MMM dd, HH:mm:ss")));
+            saveSnapshot(scopedKey, aggregated);
+            logger.info("[UnifiedSnapshot] Built UNIFIED_DASHBOARD_AZURE for tenant {} client {} — {} subscriptions",
+                    tenantId, clientId, perAccountData.size());
+        }
+    }
+
+    public void buildAndSaveUnifiedAzureSnapshotForClient(Long clientId) {
+        String tenantId = TenantContext.getCurrentTenant();
+        String scopedKey = SNAPSHOT_KEY_AZURE + "::" + tenantId + "::system::" + clientId;
+
+        List<CloudAccount> clientAccounts = cloudAccountRepository.findByClientId(clientId).stream()
+                .filter(a -> "Azure".equalsIgnoreCase(a.getProvider()) && a.getAzureSubscriptionId() != null)
+                .collect(Collectors.toList());
+
+        if (clientAccounts.isEmpty()) return;
+
+        List<DashboardData> perAccountData = new ArrayList<>();
+        for (CloudAccount account : clientAccounts) {
+            com.xammer.cloud.dto.azure.AzureDashboardData snap = azureDashboardService
+                    .getDashboardFromDatabase("AZURE_DASHBOARD::" + account.getAzureSubscriptionId());
+            if (snap != null) {
+                DashboardData mapped = mapAzureDataToDashboardData(snap, account);
+                if (mapped != null) perAccountData.add(mapped);
+            }
+        }
+
+        if (perAccountData.isEmpty()) return;
+
+        DashboardData aggregated = aggregateGenericDashboardData(perAccountData, "Azure");
+        aggregated.setLastUpdated(LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("MMM dd, HH:mm:ss")));
+        saveSnapshot(scopedKey, aggregated);
+        logger.info("[UnifiedSnapshot] Force-rebuilt UNIFIED_DASHBOARD_AZURE for tenant {} client {} — {} subscriptions", tenantId, clientId, perAccountData.size());
+    }
+
     public DashboardData getUnifiedAwsData(ClientUserDetails userDetails, boolean forceRefresh)
             throws ExecutionException, InterruptedException, IOException {
 
@@ -726,7 +821,11 @@ public class DashboardDataService {
                 : "system";
         String scopedKey = SNAPSHOT_KEY_AWS + "::" + tenantId + "::" + clientScope;
 
-        // 3. Try to fetch from Snapshot first
+        String clientId = (userDetails != null && userDetails.getClientId() != null)
+                ? userDetails.getClientId().toString() : null;
+        String prebuiltKey = SNAPSHOT_KEY_AWS + "::" + tenantId + "::system::" + (clientId != null ? clientId : "system");
+
+        // 3. Try to fetch from user-scoped cache, then fall back to pre-built client snapshot
         if (!forceRefresh) {
             DashboardData cached = getSnapshot(scopedKey);
             if (cached != null) {
@@ -735,28 +834,28 @@ public class DashboardDataService {
                 populateAvailableAccounts(cached, userDetails);
                 return cached;
             }
+            // Check if scheduled job already built a snapshot for this client
+            DashboardData prebuilt = getSnapshot(prebuiltKey);
+            if (prebuilt != null) {
+                if (!scopedKey.equals(prebuiltKey)) saveSnapshot(scopedKey, prebuilt);
+                populateAvailableAccounts(prebuilt, userDetails);
+                return prebuilt;
+            }
         }
 
-        // 4. Fallback to Live Fetch
-        List<CloudAccount> allAccounts = fetchUserAccounts(userDetails);
-        List<String> awsIds = allAccounts.stream()
-                .filter(a -> "AWS".equalsIgnoreCase(a.getProvider()))
-                .map(CloudAccount::getAwsAccountId)
-                .collect(Collectors.toList());
-
-        // 5. Handle Empty State gracefully
-        if (awsIds.isEmpty()) {
+        // On force-refresh or full cache miss: rebuild only this client's accounts — zero API calls.
+        if (clientId != null) {
+            buildAndSaveUnifiedAwsSnapshotForClient(userDetails.getClientId());
+        } else {
+            buildAndSaveUnifiedAwsSnapshot();
+        }
+        DashboardData built = getSnapshot(prebuiltKey);
+        if (built == null)
             return createEmptyDashboardData("AWS");
-        }
-
-        DashboardData result = getMultiAccountAwsDashboardData(awsIds, forceRefresh, userDetails);
-        result.setLastUpdated(java.time.LocalDateTime.now()
-                .format(java.time.format.DateTimeFormatter.ofPattern("MMM dd, HH:mm:ss")));
-
-        // 6. Save using SCOPED KEY
-        saveSnapshot(scopedKey, result);
-
-        return result;
+        if (!scopedKey.equals(prebuiltKey))
+            saveSnapshot(scopedKey, built);
+        populateAvailableAccounts(built, userDetails);
+        return built;
     }
 
     public DashboardData getUnifiedGcpData(ClientUserDetails userDetails, boolean forceRefresh) {
@@ -770,7 +869,10 @@ public class DashboardDataService {
                 : "system";
         String scopedKey = SNAPSHOT_KEY_GCP + "::" + tenantId + "::" + clientScope;
 
-        // 1. Try to fetch from Snapshot
+        String clientId = (userDetails != null && userDetails.getClientId() != null)
+                ? userDetails.getClientId().toString() : null;
+        String prebuiltKey = SNAPSHOT_KEY_GCP + "::" + tenantId + "::system::" + (clientId != null ? clientId : "system");
+
         if (!forceRefresh) {
             DashboardData cached = getSnapshot(scopedKey);
             if (cached != null) {
@@ -779,23 +881,26 @@ public class DashboardDataService {
                 populateAvailableAccounts(cached, userDetails);
                 return cached;
             }
+            DashboardData prebuilt = getSnapshot(prebuiltKey);
+            if (prebuilt != null) {
+                if (!scopedKey.equals(prebuiltKey)) saveSnapshot(scopedKey, prebuilt);
+                populateAvailableAccounts(prebuilt, userDetails);
+                return prebuilt;
+            }
         }
 
-        List<CloudAccount> allAccounts = fetchUserAccounts(userDetails);
-        List<String> gcpIds = allAccounts.stream()
-                .filter(a -> "GCP".equalsIgnoreCase(a.getProvider()))
-                .map(CloudAccount::getGcpProjectId)
-                .collect(Collectors.toList());
-
-        if (gcpIds.isEmpty()) {
+        if (clientId != null) {
+            buildAndSaveUnifiedGcpSnapshotForClient(userDetails.getClientId());
+        } else {
+            buildAndSaveUnifiedGcpSnapshot();
+        }
+        DashboardData built = getSnapshot(prebuiltKey);
+        if (built == null)
             return createEmptyDashboardData("GCP");
-        }
-
-        DashboardData result = getMultiAccountGcpDashboardData(gcpIds, forceRefresh, userDetails);
-        result.setLastUpdated(java.time.LocalDateTime.now()
-                .format(java.time.format.DateTimeFormatter.ofPattern("MMM dd, HH:mm:ss")));
-        saveSnapshot(scopedKey, result);
-        return result;
+        if (!scopedKey.equals(prebuiltKey))
+            saveSnapshot(scopedKey, built);
+        populateAvailableAccounts(built, userDetails);
+        return built;
     }
 
     public DashboardData getUnifiedAzureData(ClientUserDetails userDetails, boolean forceRefresh) {
@@ -809,7 +914,10 @@ public class DashboardDataService {
                 : "system";
         String scopedKey = SNAPSHOT_KEY_AZURE + "::" + tenantId + "::" + clientScope;
 
-        // 1. Try to fetch from Snapshot
+        String clientId = (userDetails != null && userDetails.getClientId() != null)
+                ? userDetails.getClientId().toString() : null;
+        String prebuiltKey = SNAPSHOT_KEY_AZURE + "::" + tenantId + "::system::" + (clientId != null ? clientId : "system");
+
         if (!forceRefresh) {
             DashboardData cached = getSnapshot(scopedKey);
             if (cached != null) {
@@ -818,25 +926,26 @@ public class DashboardDataService {
                 populateAvailableAccounts(cached, userDetails);
                 return cached;
             }
+            DashboardData prebuilt = getSnapshot(prebuiltKey);
+            if (prebuilt != null) {
+                if (!scopedKey.equals(prebuiltKey)) saveSnapshot(scopedKey, prebuilt);
+                populateAvailableAccounts(prebuilt, userDetails);
+                return prebuilt;
+            }
         }
 
-        List<CloudAccount> allAccounts = fetchUserAccounts(userDetails);
-        List<String> azureIds = allAccounts.stream()
-                .filter(a -> "Azure".equalsIgnoreCase(a.getProvider()))
-                .map(CloudAccount::getAzureSubscriptionId)
-                .collect(Collectors.toList());
-
-        if (azureIds.isEmpty()) {
+        if (clientId != null) {
+            buildAndSaveUnifiedAzureSnapshotForClient(userDetails.getClientId());
+        } else {
+            buildAndSaveUnifiedAzureSnapshot();
+        }
+        DashboardData built = getSnapshot(prebuiltKey);
+        if (built == null)
             return createEmptyDashboardData("Azure");
-        }
-
-        DashboardData result = getMultiAccountAzureDashboardData(azureIds, forceRefresh, userDetails);
-        if (result != null) {
-            result.setLastUpdated(java.time.LocalDateTime.now()
-                    .format(java.time.format.DateTimeFormatter.ofPattern("MMM dd, HH:mm:ss")));
-            saveSnapshot(scopedKey, result);
-        }
-        return result;
+        if (!scopedKey.equals(prebuiltKey))
+            saveSnapshot(scopedKey, built);
+        populateAvailableAccounts(built, userDetails);
+        return built;
     }
 
     // Helper method to create a safe empty response for users with no accounts
@@ -1075,6 +1184,10 @@ public class DashboardDataService {
                 subAcc.setResourceInventory(acc.getResourceInventory());
                 subAcc.setOptimizationSummary(acc.getOptimizationSummary());
                 subAcc.setSecurityScore(acc.getSecurityScore());
+                subAcc.setWastedResourceCount(acc.getWastedResources() != null ? acc.getWastedResources().size() : 0);
+                // Use real alert count from alerts-{accountId} snapshot if pre-set, else fall back to optimizationSummary
+                subAcc.setActiveAlertCount(acc.getActiveAlertCount() > 0 ? acc.getActiveAlertCount()
+                        : (acc.getOptimizationSummary() != null ? (int) acc.getOptimizationSummary().getCriticalAlerts() : 0));
                 subAccounts.add(subAcc);
             }
         }
@@ -1233,6 +1346,8 @@ public class DashboardDataService {
             }
             subAcc.setOptimizationSummary(gcpOptSum);
             subAcc.setSecurityScore(data.getSecurityScore());
+            subAcc.setWastedResourceCount(data.getWastedResources() != null ? data.getWastedResources().size() : 0);
+            subAcc.setActiveAlertCount(gcpOptSum != null ? (int) gcpOptSum.getCriticalAlerts() : 0);
             subAccounts.add(subAcc);
 
             if (data.getResourceInventory() != null) {
@@ -1388,11 +1503,15 @@ public class DashboardDataService {
             List<CompletableFuture<DashboardData>> futures = validAccounts.stream()
                     .map(account -> {
                         // Acquire OUTSIDE supplyAsync: blocks here until a slot is free.
-                        // This prevents executor thread starvation — threads only run when a permit is secured.
+                        // This prevents executor thread starvation — threads only run when a permit is
+                        // secured.
                         ACCOUNT_SEMAPHORE.acquireUninterruptibly();
                         return CompletableFuture.supplyAsync(() -> {
                             try {
-                                return getDashboardData(account.getAwsAccountId(), forceRefresh, userDetails);
+                                // Use getGranularKpi so the unified dashboard reads from the same
+                                // AWS_COST_BREAKDOWN cache as Account Dashboard, Cost, and FinOps pages.
+                                // This guarantees MTD spend is identical across all pages.
+                                return getGranularKpi(account.getAwsAccountId(), forceRefresh, userDetails);
                             } catch (Exception e) {
                                 logger.error("Failed to fetch data for account {} — isolated, continuing",
                                         account.getAwsAccountId(), e);
@@ -1408,7 +1527,9 @@ public class DashboardDataService {
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
                     .orTimeout(5, TimeUnit.MINUTES)
                     .exceptionally(ex -> {
-                        logger.warn("[MultiAccount] Timed out waiting for all accounts after 5 min — returning partial results: {}", ex.getMessage());
+                        logger.warn(
+                                "[MultiAccount] Timed out waiting for all accounts after 5 min — returning partial results: {}",
+                                ex.getMessage());
                         return null;
                     })
                     .join();
@@ -1417,8 +1538,11 @@ public class DashboardDataService {
 
             List<DashboardData> accountDataList = futures.stream()
                     .map(f -> {
-                        try { return f.getNow(null); }
-                        catch (Exception e) { return null; }
+                        try {
+                            return f.getNow(null);
+                        } catch (Exception e) {
+                            return null;
+                        }
                     })
                     .filter(Objects::nonNull)
                     .collect(Collectors.toList());
@@ -1427,6 +1551,7 @@ public class DashboardDataService {
                 throw new RuntimeException("Failed to fetch data from all selected AWS accounts");
             }
 
+            //
             DashboardData aggregatedData = aggregateDashboardData(accountDataList, validAccounts, accountNames,
                     failedAccounts);
             populateAvailableAccounts(aggregatedData, userDetails);
@@ -1449,7 +1574,9 @@ public class DashboardDataService {
             String normalizedB = normalizeMonthString(b);
 
             DateTimeFormatter formatter;
-            if (normalizedA.contains(" ")) {
+            if (normalizedA.contains
+                                (" ")) {
+                                
                 formatter = DateTimeFormatter.ofPattern("MMM yyyy", Locale.ENGLISH);
             } else if (normalizedA.contains("-")) {
                 formatter = DateTimeFormatter.ofPattern("yyyy-MM");
@@ -1527,6 +1654,8 @@ public class DashboardDataService {
             subAcc.setResourceInventory(account.getResourceInventory());
             subAcc.setOptimizationSummary(account.getOptimizationSummary());
             subAcc.setSecurityScore(account.getSecurityScore());
+            subAcc.setWastedResourceCount(account.getWastedResources() != null ? account.getWastedResources().size() : 0);
+            subAcc.setActiveAlertCount(account.getOptimizationSummary() != null ? (int) account.getOptimizationSummary().getCriticalAlerts() : 0);
             subAccounts.add(subAcc);
 
             totalMTD += account.getMonthToDateSpend();
@@ -1735,7 +1864,9 @@ public class DashboardDataService {
             logger.info("✅ [Single-Account-Fetch] Completed | Tenant: {} | Time: {}ms | Account: {}", tenant, duration,
                     accountId);
             return freshData;
+            // 
 
+            // 
         } catch (InterruptedException ie) {
             // Restore the interrupt flag so the per-account loop's isInterrupted() check fires
             // and breaks out of the loop. Without this, swallowing InterruptedException clears
@@ -2347,9 +2478,8 @@ public class DashboardDataService {
                         suggestions.add(new DashboardData.SavingsSuggestion("EBS Disk Rightsizing", ebsDiskSavings));
                     }
 
-                    double totalPotential = wasteSavings + rightsizingSavings + spotPotentialSavings + ebsDiskSavings;
-
-                    return new DashboardData.SavingsSummary(totalPotential, suggestions);
+                    double totalPotential = rightsizingSavings + wasteSavings + spotPotentialSavings + ebsDiskSavings;
+                    return new DashboardData.SavingsSummary(0.0, totalPotential, suggestions);
                 });
     }
 
@@ -2358,6 +2488,7 @@ public class DashboardDataService {
         String provider = account.getProvider();
 
         if ("AWS".equalsIgnoreCase(provider)) {
+                                    
             // AutoSpotting potential savings
             try {
                 com.xammer.cloud.dto.autospotting.CostResponse spot = autoSpottingService.getCostData(account.getId());
@@ -2371,6 +2502,7 @@ public class DashboardDataService {
             try {
                 total += ebsDiskRightsizingService.getTotalPotentialSavings(account.getAwsAccountId());
             } catch (Exception e) {
+                                    
                 logger.warn("[Dashboard] EBS disk savings unavailable for {}: {}", account.getAwsAccountId(), e.getMessage());
             }
             // CloudSitter scheduling savings
@@ -2407,6 +2539,7 @@ public class DashboardDataService {
             // Azure Spot Automation (VMSS) — hourly → monthly
             try {
                 com.xammer.cloud.dto.autospotting.CostResponse spot =
+                        
                         azureAutoSpottingService.getCostData(account.getAzureSubscriptionId());
                 if (spot != null && spot.getSummary() != null && spot.getSummary().getTotalPotentialSavings() != null) {
                     total += spot.getSummary().getTotalPotentialSavings() * 24 * 30;
@@ -2419,6 +2552,7 @@ public class DashboardDataService {
                 java.util.List<java.util.Map<String, Object>> disks =
                         azureDiskRightsizingService.getDisks(account.getId().toString(), false);
                 total += disks.stream()
+                        
                         .filter(d -> !"NONE".equals(d.get("recommendation")))
                         .mapToDouble(d -> {
                             Object s = d.get("estimatedSavings");
@@ -2429,11 +2563,11 @@ public class DashboardDataService {
             }
         }
 
+                        
         return total;
     }
 
-    private DashboardData.OptimizationSummary getOptimizationSummary(
-            List<DashboardData.WastedResource> wastedResources,
+    private DashboardData.OptimizationSummary getOptimizationSummary(List<DashboardData.WastedResource> wastedResources,
             List<DashboardData.OptimizationRecommendation> ec2Recs,
             List<DashboardData.OptimizationRecommendation> ebsRecs,
             List<DashboardData.OptimizationRecommendation> lambdaRecs,
@@ -2442,23 +2576,23 @@ public class DashboardDataService {
                 .flatMap(List::stream)
                 .mapToDouble(DashboardData.OptimizationRecommendation::getEstimatedMonthlySavings)
                 .sum();
+                        
 
         double wasteSavings = wastedResources.stream()
                 .mapToDouble(DashboardData.WastedResource::getMonthlySavings)
                 .sum();
 
         double totalSavings = rightsizingSavings + wasteSavings;
-        long criticalAlerts = (anomalies != null ? anomalies.size() : 0) + ec2Recs.size() + ebsRecs.size()
-                + lambdaRecs.size();
+        int criticalAlerts = (anomalies != null ? anomalies.size() : 0) + ec2Recs.size() + ebsRecs.size() + lambdaRecs.size();
         return new DashboardData.OptimizationSummary(totalSavings, criticalAlerts);
     }
 
     private int calculateSecurityScore(List<DashboardData.SecurityFinding> findings) {
+                        
         if (findings == null || findings.isEmpty()) {
             return 100;
         }
-        Map<String, Long> counts = findings.stream()
-                .collect(Collectors.groupingBy(DashboardData.SecurityFinding::getSeverity, Collectors.counting()));
+        Map<String, Long> counts = findings.stream().collect(Collectors.groupingBy(DashboardData.SecurityFinding::getSeverity, Collectors.counting()));
 
         long criticalWeight = 5;
         long highWeight = 2;
@@ -2467,6 +2601,7 @@ public class DashboardDataService {
 
         long weightedScore = (counts.getOrDefault("CRITICAL", 0L) * criticalWeight) +
                 (counts.getOrDefault("HIGH", 0L) * highWeight) +
+                        
                 (counts.getOrDefault("MEDIUM", 0L) * mediumWeight) +
                 (counts.getOrDefault("LOW", 0L) * lowWeight);
 
@@ -2535,7 +2670,24 @@ public class DashboardDataService {
         double azureExtra = computeAdditionalSavings(account);
         mainAccount.setOptimizationSummary(new DashboardData.OptimizationSummary(azureExtra, 0));
         mainAccount.setEc2Recommendations(new ArrayList<>());
-        mainAccount.setWastedResources(new ArrayList<>());
+        // Read Azure waste from cache (populated by Wed/Sun scheduler) — zero API calls
+        try {
+            List<com.xammer.cloud.dto.azure.AzureWasteItem> azureWaste =
+                    azureWasteService.getWasteItems(account.getAzureSubscriptionId(), false);
+            if (azureWaste != null && !azureWaste.isEmpty()) {
+                List<DashboardData.WastedResource> mapped = azureWaste.stream()
+                        .map(w -> new DashboardData.WastedResource(
+                                w.getResourceId(), w.getResourceName(), w.getResourceType(),
+                                w.getRegion(), w.getMonthlySavings() * INR_TO_USD_RATE, w.getReason()))
+                        .collect(Collectors.toList());
+                mainAccount.setWastedResources(mapped);
+            } else {
+                mainAccount.setWastedResources(new ArrayList<>());
+            }
+        } catch (Exception e) {
+            logger.warn("[AzureMap] Failed to load waste items for {}: {}", account.getAzureSubscriptionId(), e.getMessage());
+            mainAccount.setWastedResources(new ArrayList<>());
+        }
         mainAccount.setCloudWatchStatus(new DashboardData.CloudWatchStatus(0, 0, 0));
         mainAccount.setCostAnomalies(new ArrayList<>());
         mainAccount.setEbsRecommendations(new ArrayList<>());
@@ -2638,7 +2790,29 @@ public class DashboardDataService {
 
                 mainAccount.setMonthToDateSpend(mtd);
                 mainAccount.setLastMonthSpend(lastMonth);
+                // 
                 mainAccount.setForecastedSpend(forecast);
+                // 
+
+                // Merge EC2+EBS+Lambda into combined rightsizing list — serves the Rightsizing page.
+                // This is what refreshOptimization() used to do exclusively via getAllOptimizationRecommendations().
+                List<DashboardData.OptimizationRecommendation> allRecs = Stream
+                        .of(ec2Future.join(), ebsFuture.join(), lambdaFuture.join())
+                        .flatMap(List::stream).collect(Collectors.toList());
+                            
+                redisCache.put("allRecommendations-" + idToUse, allRecs, 60);
+                try {
+                    CachedData rightsizingSnap = cachedDataRepository.findById("rightsizing-" + idToUse).orElse(new CachedData());
+                    rightsizingSnap.setCacheKey("rightsizing-" + idToUse);
+                    rightsizingSnap.setJsonData(objectMapper.writeValueAsString(allRecs));
+                    rightsizingSnap.setLastUpdated(java.time.LocalDateTime.now());
+                    cachedDataRepository.save(rightsizingSnap);
+                } catch (Exception e) {
+                    logger.warn("Failed to save rightsizing snapshot for {}: {}", idToUse, e.getMessage());
+                }
+
+                // Save waste snapshot to DB — serves the Waste Management page.
+                saveWasteSnapshot("waste-" + idToUse, wasteFuture.join());
 
             } else {
                 // Fallback for other providers: Fetch full data and extract
@@ -2834,6 +3008,7 @@ public class DashboardDataService {
             } else {
                 DashboardData providerData = getDashboardData(idToUse, forceRefresh, userDetails);
                 if (providerData.getSelectedAccount() != null) {
+                                
                     double extra = computeAdditionalSavings(account);
                     if (extra > 0) {
                         DashboardData.OptimizationSummary existing = providerData.getSelectedAccount().getOptimizationSummary();

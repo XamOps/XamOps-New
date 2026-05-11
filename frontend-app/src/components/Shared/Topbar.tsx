@@ -14,7 +14,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { isDemoMode } from '../../demo/demoConfig';
 
 const Topbar: React.FC = () => {
-    const location = useLocation();
+    useLocation(); // subscribe to route changes so Topbar re-renders on navigation
     const { title: contextTitle, subtitle: contextSubtitle, actions, onHelpClick } = useTopbar();
     const { userProfile, logout, hasAnyRole } = useAuth();
     const { selectedAccountIds, selectedAccountDisplay } = useAccounts();
@@ -73,7 +73,12 @@ const Topbar: React.FC = () => {
         setIsLogoutModalOpen(false);
     };
 
-    // Simple breadcrumb logic based on the path
+    // Use window.location.pathname as source of truth — React 19 concurrent
+    // rendering can defer re-renders of stable layout components like Topbar,
+    // causing useLocation() to return a stale pathname while the URL has already
+    // changed. window.location.pathname always reflects the current browser URL.
+    const currentPath = window.location.pathname;
+
     const getPageTitle = (path: string) => {
         if (path === '/' || path === '/unified-dashboard') return 'Unified Command Center';
         if (path === '/my-profile') return 'Account Settings';
@@ -92,7 +97,7 @@ const Topbar: React.FC = () => {
             .trim();
     };
 
-    const pageTitle = contextTitle || getPageTitle(location.pathname);
+    const pageTitle = contextTitle || getPageTitle(currentPath);
     const displayName = isDemoMode()
         ? (userProfile?.username || 'User')
         : (userProfile?.email?.split('@')[0] || userProfile?.username || 'User');

@@ -393,7 +393,7 @@ const AuthenticatedLayout: React.FC = () => {
                     style={{ WebkitOverflowScrolling: 'touch' }}
                 >
                     <Topbar />
-                    <div className="flex-1 pt-6">
+                    <div className="flex-1 pt-6" key={location.key}>
                         <Suspense fallback={
                             <div className="flex items-center justify-center h-full min-h-[60vh]">
                                 <div className="flex flex-col items-center gap-3">

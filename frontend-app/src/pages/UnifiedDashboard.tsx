@@ -50,6 +50,7 @@ export const UnifiedDashboard: React.FC = () => {
     activeAccountList,
     setActiveAccountList,
     getAllAccounts,
+    mergeProviderAccounts,
     notification,
     setNotification,
   } = useUnifiedDashboard();
@@ -104,17 +105,13 @@ export const UnifiedDashboard: React.FC = () => {
   };
 
   const getTotalWasteCount = () => {
-    const awsWaste = awsData?.selectedAccount?.optimizationSummary?.criticalAlerts || 0;
-    const gcpWaste = gcpData?.selectedAccount?.optimizationSummary?.criticalAlerts || 0;
-    const azureWaste = azureData?.selectedAccount?.optimizationSummary?.criticalAlerts || 0;
-    return awsWaste + gcpWaste + azureWaste + 12;
+    const all = getAllAccounts();
+    return all.reduce((sum, a) => sum + (a.wastedResourceCount ?? 0), 0);
   };
 
   const getTotalAlertsCount = () => {
-    const awsAlerts = awsData?.selectedAccount?.optimizationSummary?.criticalAlerts || 0;
-    const gcpAlerts = gcpData?.selectedAccount?.optimizationSummary?.criticalAlerts || 0;
-    const azureAlerts = azureData?.selectedAccount?.optimizationSummary?.criticalAlerts || 0;
-    return awsAlerts + gcpAlerts + azureAlerts;
+    const all = getAllAccounts();
+    return all.reduce((sum, a) => sum + (a.activeAlertCount ?? 0), 0);
   };
 
   const getAverageSecurityScore = () => {
@@ -149,12 +146,13 @@ export const UnifiedDashboard: React.FC = () => {
   };
 
   // Modal handlers
-  const openBreakdown = (provider: string, list: SubAccount[] | undefined) => {
+  const openBreakdown = (provider: string, providerData: typeof awsData) => {
     setViewMode('cost');
     setActiveProvider(provider);
-    const sortedList = list
-      ? JSON.parse(JSON.stringify(list)).sort((a: SubAccount, b: SubAccount) => b.monthToDateSpend - a.monthToDateSpend)
-      : [];
+    const merged = mergeProviderAccounts(providerData, provider as 'AWS' | 'GCP' | 'Azure');
+    const sortedList = JSON.parse(JSON.stringify(merged)).sort(
+      (a: SubAccount, b: SubAccount) => b.monthToDateSpend - a.monthToDateSpend
+    );
     setActiveAccountList(sortedList);
     setShowModal(true);
   };
@@ -174,11 +172,9 @@ export const UnifiedDashboard: React.FC = () => {
   const openWasteBreakdown = () => {
     setViewMode('waste');
     setActiveProvider('All');
-    const accounts = getAllAccounts().sort((a, b) => {
-      const valA = a.optimizationSummary?.criticalAlerts || 0;
-      const valB = b.optimizationSummary?.criticalAlerts || 0;
-      return valB - valA;
-    });
+    const accounts = getAllAccounts().sort((a, b) =>
+      (b.wastedResourceCount ?? 0) - (a.wastedResourceCount ?? 0)
+    );
     setActiveAccountList(accounts);
     setShowModal(true);
   };
@@ -186,11 +182,9 @@ export const UnifiedDashboard: React.FC = () => {
   const openAlertsBreakdown = () => {
     setViewMode('alerts');
     setActiveProvider('All');
-    const accounts = getAllAccounts().sort((a, b) => {
-      const valA = a.optimizationSummary?.criticalAlerts || 0;
-      const valB = b.optimizationSummary?.criticalAlerts || 0;
-      return valB - valA;
-    });
+    const accounts = getAllAccounts().sort((a, b) =>
+      (b.activeAlertCount ?? 0) - (a.activeAlertCount ?? 0)
+    );
     setActiveAccountList(accounts);
     setShowModal(true);
   };
@@ -338,7 +332,7 @@ export const UnifiedDashboard: React.FC = () => {
         <DashboardHeader
           lastUpdatedText={lastUpdatedText}
           serverTime={serverTime}
-          isLoading={isLoading.summary}
+          isLoading={Object.values(isLoading).some(Boolean)}
           onRefresh={handleRefresh}
         />
 
@@ -565,7 +559,7 @@ export const UnifiedDashboard: React.FC = () => {
               error={error.aws}
               accountCount={summaryData.awsCount}
               onRetry={() => fetchProvider('aws', true)}
-              onViewBreakdown={() => openBreakdown('AWS', awsData?.selectedAccount?.subAccounts)}
+              onViewBreakdown={() => openBreakdown('AWS', awsData)}
             />
             <ProviderCard
               provider="GCP"
@@ -574,7 +568,7 @@ export const UnifiedDashboard: React.FC = () => {
               error={error.gcp}
               accountCount={summaryData.gcpCount}
               onRetry={() => fetchProvider('gcp', true)}
-              onViewBreakdown={() => openBreakdown('GCP', gcpData?.selectedAccount?.subAccounts)}
+              onViewBreakdown={() => openBreakdown('GCP', gcpData)}
             />
             <ProviderCard
               provider="Azure"
@@ -583,7 +577,7 @@ export const UnifiedDashboard: React.FC = () => {
               error={error.azure}
               accountCount={summaryData.azureCount}
               onRetry={() => fetchProvider('azure', true)}
-              onViewBreakdown={() => openBreakdown('Azure', azureData?.selectedAccount?.subAccounts)}
+              onViewBreakdown={() => openBreakdown('Azure', azureData)}
             />
           </div>
         </main>

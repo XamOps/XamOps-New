@@ -10,7 +10,6 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Card, CardContent } from '../ui/card';
-import { Badge } from '../ui/badge';
 import { Separator } from '../ui/separator';
 import { apiFetch } from '../../utils/apiClient';
 import type { GitHubDetails } from '../../types/addAccount';
