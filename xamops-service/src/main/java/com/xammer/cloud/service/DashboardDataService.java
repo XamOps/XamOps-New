@@ -420,12 +420,19 @@ public class DashboardDataService {
     // DB-first, Redis-fallback read for alerts — used by unified snapshot builder
     private AlertsResponseDto getAlertsFromCache(String accountId) {
         String key = "alerts-" + accountId;
-        // 1. Try DB
         AlertsResponseDto fromDb = (AlertsResponseDto) getAlertsSnapshot(key, new com.fasterxml.jackson.core.type.TypeReference<AlertsResponseDto>() {});
-        if (fromDb != null) return fromDb;
-        // 2. Fall back to Redis
+        if (fromDb != null) {
+            logger.info("[AlertsCache] DB hit for {}", key);
+            return fromDb;
+        }
         Optional<AlertsResponseDto> fromRedis = redisCache.get(key, AlertsResponseDto.class);
-        return fromRedis.orElse(null);
+        if (fromRedis.isPresent()) {
+            logger.info("[AlertsCache] Redis hit for {} — {} alerts", key,
+                    fromRedis.get().getAlerts() != null ? fromRedis.get().getAlerts().size() : 0);
+            return fromRedis.get();
+        }
+        logger.warn("[AlertsCache] No alerts found in DB or Redis for {}", key);
+        return null;
     }
 
     public void saveReservationSnapshot(String key, ReservationDto data) {
@@ -620,8 +627,7 @@ public class DashboardDataService {
                 if (opt != null && opt.getSelectedAccount() != null) {
                     kpi.getSelectedAccount().setWastedResources(opt.getSelectedAccount().getWastedResources());
                 }
-                AlertsResponseDto alertsSnap = (AlertsResponseDto) getAlertsSnapshot(
-                        "alerts-" + account.getAwsAccountId(), new com.fasterxml.jackson.core.type.TypeReference<AlertsResponseDto>() {});
+                AlertsResponseDto alertsSnap = getAlertsFromCache(account.getAwsAccountId());
                 if (alertsSnap != null) {
                     int alertCount = alertsSnap.getAlerts() != null ? alertsSnap.getAlerts().size()
                             : (alertsSnap.getMetadata() != null ? alertsSnap.getMetadata().getTotalAlerts() : 0);
@@ -1655,7 +1661,9 @@ public class DashboardDataService {
             subAcc.setOptimizationSummary(account.getOptimizationSummary());
             subAcc.setSecurityScore(account.getSecurityScore());
             subAcc.setWastedResourceCount(account.getWastedResources() != null ? account.getWastedResources().size() : 0);
-            subAcc.setActiveAlertCount(account.getOptimizationSummary() != null ? (int) account.getOptimizationSummary().getCriticalAlerts() : 0);
+            // Prefer real alert count set from alerts cache; fall back to optimizationSummary
+            subAcc.setActiveAlertCount(account.getActiveAlertCount() > 0 ? account.getActiveAlertCount()
+                    : (account.getOptimizationSummary() != null ? (int) account.getOptimizationSummary().getCriticalAlerts() : 0));
             subAccounts.add(subAcc);
 
             totalMTD += account.getMonthToDateSpend();
@@ -1713,8 +1721,11 @@ public class DashboardDataService {
 
             if (account.getOptimizationSummary() != null) {
                 totalOptimizationSavings += account.getOptimizationSummary().getTotalPotentialSavings();
-                totalCriticalAlerts += account.getOptimizationSummary().getCriticalAlerts();
             }
+            // Use real alert count (from alerts cache) over optimizationSummary.criticalAlerts
+            totalCriticalAlerts += account.getActiveAlertCount() > 0
+                    ? account.getActiveAlertCount()
+                    : (account.getOptimizationSummary() != null ? (long) account.getOptimizationSummary().getCriticalAlerts() : 0);
         }
 
         DashboardData.Account aggregatedAccount = new DashboardData.Account();

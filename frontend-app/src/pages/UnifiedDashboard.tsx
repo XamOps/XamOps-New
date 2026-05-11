@@ -25,9 +25,11 @@ import { ProviderDonutChart } from '../components/Dashboard/ProviderDonutChart';
 import { AccountBreakdownModal } from '../components/Dashboard/AccountBreakdownModal';
 import { useUnifiedDashboard } from '../hooks/useUnifiedDashboard';
 import { useWebSocket } from '../hooks/useWebSocket';
+import { useAccounts } from '../contexts/AccountContext';
 import type { SubAccount, ViewMode } from '../types/dashboard';
 
 export const UnifiedDashboard: React.FC = () => {
+  const { accounts: userAccounts } = useAccounts();
   const {
     isLoading,
     error,
@@ -213,6 +215,21 @@ export const UnifiedDashboard: React.FC = () => {
     console.log(`Selected account ${accountId} in ${mode} mode, provider: ${activeProvider}`);
     setShowModal(false);
 
+    // Only select accounts the current user actually has access to.
+    // Cross-tenant accounts appear in the unified snapshot but are not in the
+    // user's account list — selecting them sets an inaccessible ID in
+    // sessionStorage, leaving the sidebar and destination page in a broken state.
+    const accessible = userAccounts.find(a => a.id === accountId);
+    if (!accessible) {
+      setNotification({
+        type: 'error',
+        title: 'Account Not Accessible',
+        message: 'This account is not available in your current session.',
+      });
+      setTimeout(() => setNotification(null), 4000);
+      return;
+    }
+
     // Update session storage with selected account
     sessionStorage.setItem('selectedAccountIds', JSON.stringify([accountId]));
 
@@ -282,7 +299,7 @@ export const UnifiedDashboard: React.FC = () => {
     }
 
     navigate(`${targetPath}?${urlParams.toString()}`);
-  }, [setShowModal, activeProvider, navigate, getAllAccounts, awsData, gcpData, azureData]);
+  }, [setShowModal, activeProvider, navigate, getAllAccounts, awsData, gcpData, azureData, userAccounts, setNotification]);
 
   // Listen for account selection changes (for soft navigation)
   useEffect(() => {

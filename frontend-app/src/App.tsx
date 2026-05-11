@@ -227,51 +227,14 @@ import './styles/flexCompute.css';
 import './styles/autoscaling.css';
 // import './styles/accessops.css';
 
-// Helper function to check authentication
-// Note: Since cookies might be HttpOnly, we check by making an API call
-const checkAuth = async (): Promise<boolean> => {
-    try {
-        console.log('🔐 Checking auth... Cookies:', document.cookie);
-        const response = await fetch('/api/xamops/user/profile', {
-            credentials: 'include',
-            headers: {
-                'Accept': 'application/json'
-            }
-        });
-        console.log('🔐 Auth check response:', response.status, response.statusText);
-        console.log('🔐 Auth check URL:', response.url);
 
-        if (response.ok) {
-            const data = await response.json();
-            console.log('🔐 Auth check data:', data);
-        }
-
-        return response.ok;
-    } catch (error) {
-        console.error('❌ Auth check failed:', error);
-        return false;
-    }
-};
-
-// Protected Route wrapper
+// Protected Route wrapper — uses AuthContext so auth is checked once on app
+// mount, not re-checked every time this component remounts on navigation.
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const location = useLocation();
-    const [isAuthenticated, setIsAuthenticated] = React.useState<boolean | null>(null);
+    const { isLoading, authReady, userRoles } = useAuth();
 
-    React.useEffect(() => {
-        console.log('🔐 ProtectedRoute: Checking auth for path:', location.pathname);
-
-        checkAuth().then(authenticated => {
-            console.log('🔐 ProtectedRoute: isAuthenticated =', authenticated);
-            setIsAuthenticated(authenticated);
-        }).catch(() => {
-            console.log('🔐 ProtectedRoute: Auth check error');
-            setIsAuthenticated(false);
-        });
-    }, []); // Only check on mount, not on every path change
-
-    // Show loading while checking auth
-    if (isAuthenticated === null) {
+    if (isLoading || !authReady) {
         return (
             <div className="flex items-center justify-center h-screen">
                 <div className="text-gray-600">Loading...</div>
@@ -279,7 +242,7 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
         );
     }
 
-    if (!isAuthenticated) {
+    if (userRoles.length === 0) {
         console.log('Not authenticated, redirecting to login');
         return <Navigate to="/" replace state={{ from: location }} />;
     }
@@ -394,14 +357,7 @@ const AuthenticatedLayout: React.FC = () => {
                 >
                     <Topbar />
                     <div className="flex-1 pt-6" key={location.key}>
-                        <Suspense fallback={
-                            <div className="flex items-center justify-center h-full min-h-[60vh]">
-                                <div className="flex flex-col items-center gap-3">
-                                    <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-                                    <span className="text-sm text-gray-400">Loading...</span>
-                                </div>
-                            </div>
-                        }>
+                        <Suspense fallback={null}>
                             <Outlet />
                         </Suspense>
                     </div>

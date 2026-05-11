@@ -158,6 +158,26 @@ export const AccountProvider: React.FC<{ children: ReactNode }> = ({ children })
   }, []);
 
   /**
+   * Sync account selection from URL query params on every navigation.
+   * When navigating from the unified dashboard modal (?accountId=xxx), the URL
+   * param is the source of truth — update context + sessionStorage so the sidebar
+   * and all page hooks immediately reflect the correct account.
+   */
+  useEffect(() => {
+    const urlParams = new URLSearchParams(location.search);
+    const urlAccountId = urlParams.get('accountId') || urlParams.get('projectId') || urlParams.get('subscriptionId');
+    if (!urlAccountId) return;
+
+    const current = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+    if (current[0] === urlAccountId) return; // already in sync, nothing to do
+
+    console.log('[AccountContext] Syncing selection from URL param:', urlAccountId);
+    sessionStorage.setItem('selectedAccountIds', JSON.stringify([urlAccountId]));
+    setSelectedAccountIds([urlAccountId]);
+    setTempSelectedAccounts([urlAccountId]);
+  }, [location.search]);
+
+  /**
    * Initialize on mount — but only after AuthContext has finished its profile
    * fetch and corrected sessionStorage (authReady = true).  Waiting here
    * prevents fetchAccounts from sending stale impersonateUserId / selectedTenantId

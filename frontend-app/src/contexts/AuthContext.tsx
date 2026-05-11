@@ -148,7 +148,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // - in-memory roles already show a billops user (avoids wrong endpoint after SPA navigation), OR
     // - the caller passes an explicit hint (used by LoginForm based on the backend's redirectUrl).
     const isBillopsPage = path.includes('/billops');
-    const isBillopsUser = userRoles.some(r => r.startsWith('ROLE_BILLOPS'));
+    const cachedRoles: string[] = JSON.parse(sessionStorage.getItem('cached_user_roles') || '[]');
+    const isBillopsUser = cachedRoles.some((r: string) => r.startsWith('ROLE_BILLOPS'));
     const preferBillops = isBillopsPage || isBillopsUser || (billopsHint === true);
     const primaryEndpoint = preferBillops ? '/api/billops/profile' : '/api/xamops/user/profile';
     const fallbackEndpoint = preferBillops ? '/api/xamops/user/profile' : '/api/billops/profile';
@@ -262,7 +263,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       // AccountContext uses this to delay fetchAccounts until after cleanup.
       setAuthReady(true);
     }
-  }, [fetchTenants, fetchTenantUsers, userRoles]);
+  }, [fetchTenants, fetchTenantUsers]);
 
   /**
    * Check if user has any of the specified roles

@@ -12,10 +12,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Chart from 'chart.js/auto';
 import { useBillOpsAdminDashboard } from '../hooks/useBillOpsAdminDashboard';
-import { useBillOpsAdminNotifications } from '../hooks/useBillOpsAdminNotifications';
 import { useTopbar } from '../contexts/TopbarContext';
 import type { TopSpendingAccount, AdminInvoice, AdminTicket, SpendingTrendItem } from '../types/billopsAdminDashboard';
-import BillOpsNotificationDropdown from '../components/BillOps/BillOpsNotificationDropdown';
 import { apiFetch } from '../utils/apiClient';
 import { useCurrency } from '../hooks/useCurrency';
 import { useTabState } from '../hooks/useTabState';
@@ -43,23 +41,20 @@ interface ClientsApiData {
 type ActiveTab = 'overview' | 'clients' | 'invoices' | 'tickets';
 
 const TABS: { id: ActiveTab; label: string; icon: string }[] = [
-  { id: 'overview',  label: 'Overview',  icon: 'fas fa-chart-pie' },
-  { id: 'clients',   label: 'Clients',   icon: 'fas fa-users' },
-  { id: 'invoices',  label: 'Invoices',  icon: 'fas fa-file-invoice-dollar' },
-  { id: 'tickets',   label: 'Tickets',   icon: 'fas fa-ticket-alt' },
+  { id: 'overview', label: 'Overview', icon: 'fas fa-chart-pie' },
+  { id: 'clients', label: 'Clients', icon: 'fas fa-users' },
+  { id: 'invoices', label: 'Invoices', icon: 'fas fa-file-invoice-dollar' },
+  { id: 'tickets', label: 'Tickets', icon: 'fas fa-ticket-alt' },
 ];
 
 const BillOpsAdminDashboardPage: React.FC = () => {
   const { data, loading, isRefreshing, isRefreshingTopSpending, error, refreshDashboard, refreshTopSpending } = useBillOpsAdminDashboard();
-  const { notifications, counts, isLoading: notificationsLoading } = useBillOpsAdminNotifications();
   const { setActions, clearActions } = useTopbar();
   const { loadRates, convert } = useCurrency();
 
   const [activeTab, setActiveTab] = useTabState<ActiveTab>('overview');
-  const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const [invoiceFilter, setInvoiceFilter] = useState<string>('ALL');
   const [ticketFilter, setTicketFilter] = useState<string>('ALL');
-  const notificationRef = useRef<HTMLDivElement>(null);
 
   const [customerSavings, setCustomerSavings] = useState<CustomerSpotSavings[]>([]);
   const [customerSavingsLoading, setCustomerSavingsLoading] = useState(true);
@@ -108,11 +103,11 @@ const BillOpsAdminDashboardPage: React.FC = () => {
     }));
 
     const spendingByProvider = {
-      AWS:   data.spendingByProvider.AWS   || 0,
+      AWS: data.spendingByProvider.AWS || 0,
       Azure: data.spendingByProvider.Azure
         ? (convert(data.spendingByProvider.Azure, 'usd') ?? data.spendingByProvider.Azure)
         : 0,
-      GCP:   data.spendingByProvider.GCP
+      GCP: data.spendingByProvider.GCP
         ? (convert(data.spendingByProvider.GCP, 'usd') ?? data.spendingByProvider.GCP)
         : 0,
     };
@@ -121,9 +116,9 @@ const BillOpsAdminDashboardPage: React.FC = () => {
 
     const convertedSpendingTrend = data.spendingTrend?.map(item => {
       if (!item.costByProvider) return item;
-      const aws   = item.costByProvider.AWS   || 0;
+      const aws = item.costByProvider.AWS || 0;
       const azure = convert(item.costByProvider.Azure || 0, 'usd') ?? (item.costByProvider.Azure || 0);
-      const gcp   = convert(item.costByProvider.GCP   || 0, 'usd') ?? (item.costByProvider.GCP   || 0);
+      const gcp = convert(item.costByProvider.GCP || 0, 'usd') ?? (item.costByProvider.GCP || 0);
       return { ...item, cost: aws + azure + gcp, costByProvider: { AWS: aws, Azure: azure, GCP: gcp } };
     }) || [];
 
@@ -284,16 +279,6 @@ const BillOpsAdminDashboardPage: React.FC = () => {
     return () => { trendChartInstance.current?.destroy(); };
   }, [convertedData?.spendingTrend]);
 
-  // ── Click outside notification ─────────────────────────────────────────────
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (notificationRef.current && !notificationRef.current.contains(e.target as Node))
-        setIsNotificationOpen(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
-
   // ── Topbar actions ─────────────────────────────────────────────────────────
   useEffect(() => {
     setActions(
@@ -303,26 +288,6 @@ const BillOpsAdminDashboardPage: React.FC = () => {
             Last updated: {new Date(data.lastUpdated).toLocaleString()}
           </div>
         )}
-        <div className="relative" ref={notificationRef}>
-          <button
-            onClick={() => setIsNotificationOpen(!isNotificationOpen)}
-            className="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-100/50 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 transition-all relative"
-            title="Notifications"
-          >
-            <i className="fas fa-bell" />
-            {counts.total > 0 && (
-              <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] flex items-center justify-center px-1 bg-gradient-to-br from-orange-500 to-red-500 text-white text-[10px] font-bold rounded-full border-2 border-white shadow-lg">
-                {counts.total}
-              </span>
-            )}
-          </button>
-          {isNotificationOpen && (
-            <BillOpsNotificationDropdown
-              notifications={notifications} counts={counts}
-              isLoading={notificationsLoading} onClose={() => setIsNotificationOpen(false)}
-            />
-          )}
-        </div>
         <button
           onClick={refreshDashboard} disabled={isRefreshing}
           className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold shadow-lg shadow-indigo-500/20 hover:bg-indigo-700 transition-all disabled:opacity-50"
@@ -333,7 +298,7 @@ const BillOpsAdminDashboardPage: React.FC = () => {
       </div>
     );
     return () => clearActions();
-  }, [setActions, clearActions, data?.lastUpdated, isRefreshing, refreshDashboard, notifications, counts, notificationsLoading, isNotificationOpen]);
+  }, [setActions, clearActions, data?.lastUpdated, isRefreshing, refreshDashboard]);
 
   // ── Shimmer skeleton ───────────────────────────────────────────────────────
   const Shimmer = ({ className }: { className: string }) => (
@@ -457,11 +422,10 @@ const BillOpsAdminDashboardPage: React.FC = () => {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
-                activeTab === tab.id
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${activeTab === tab.id
                   ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20'
                   : 'text-gray-500 hover:text-gray-800 hover:bg-gray-100'
-              }`}
+                }`}
             >
               <i className={`${tab.icon} text-xs`} />
               {tab.label}
@@ -538,7 +502,7 @@ const BillOpsAdminDashboardPage: React.FC = () => {
               <div className="overflow-x-auto rounded-xl border border-gray-100">
                 {loading ? (
                   <div className="p-4 space-y-3">
-                    {[1,2,3].map(i => <Shimmer key={i} className="h-10 w-full" />)}
+                    {[1, 2, 3].map(i => <Shimmer key={i} className="h-10 w-full" />)}
                   </div>
                 ) : (
                   <table className="min-w-full divide-y divide-gray-200">
@@ -620,7 +584,7 @@ const BillOpsAdminDashboardPage: React.FC = () => {
               </div>
               <div className="overflow-x-auto rounded-xl border border-gray-100">
                 {customerSavingsLoading ? (
-                  <div className="p-4 space-y-3">{[1,2,3].map(i => <Shimmer key={i} className="h-10 w-full" />)}</div>
+                  <div className="p-4 space-y-3">{[1, 2, 3].map(i => <Shimmer key={i} className="h-10 w-full" />)}</div>
                 ) : customerSavings.length === 0 ? (
                   <div className="px-6 py-10 text-center text-gray-400 text-sm font-medium">
                     <i className="fas fa-bolt text-gray-300 text-2xl mb-2 block" />No customers have AutoSpotting enabled yet
@@ -671,7 +635,7 @@ const BillOpsAdminDashboardPage: React.FC = () => {
             </div>
             <div className="overflow-x-auto rounded-xl border border-gray-100">
               {loading ? (
-                <div className="p-4 space-y-3">{[1,2,3].map(i => <Shimmer key={i} className="h-14 w-full" />)}</div>
+                <div className="p-4 space-y-3">{[1, 2, 3].map(i => <Shimmer key={i} className="h-14 w-full" />)}</div>
               ) : clientGroups.length === 0 ? (
                 <div className="px-6 py-10 text-center text-gray-400 text-sm font-medium">
                   <i className="fas fa-users text-3xl mb-2 text-gray-200 block" />No client data available
@@ -753,9 +717,8 @@ const BillOpsAdminDashboardPage: React.FC = () => {
                     <button
                       key={f}
                       onClick={() => setInvoiceFilter(f)}
-                      className={`px-3 py-1 rounded-md text-xs font-semibold transition-all ${
-                        invoiceFilter === f ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                      }`}
+                      className={`px-3 py-1 rounded-md text-xs font-semibold transition-all ${invoiceFilter === f ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                        }`}
                     >
                       {f === 'ALL' ? 'All' : f.charAt(0) + f.slice(1).toLowerCase()}
                     </button>
@@ -769,7 +732,7 @@ const BillOpsAdminDashboardPage: React.FC = () => {
 
             <div className="overflow-x-auto rounded-xl border border-gray-100">
               {loading ? (
-                <div className="p-4 space-y-3">{[1,2,3,4].map(i => <Shimmer key={i} className="h-12 w-full" />)}</div>
+                <div className="p-4 space-y-3">{[1, 2, 3, 4].map(i => <Shimmer key={i} className="h-12 w-full" />)}</div>
               ) : filteredInvoices.length === 0 ? (
                 <div className="px-6 py-10 text-center text-gray-400 text-sm font-medium">
                   <i className="fas fa-file-invoice text-3xl mb-2 text-gray-200 block" />
@@ -839,9 +802,8 @@ const BillOpsAdminDashboardPage: React.FC = () => {
                     <button
                       key={f}
                       onClick={() => setTicketFilter(f)}
-                      className={`px-3 py-1 rounded-md text-xs font-semibold transition-all ${
-                        ticketFilter === f ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                      }`}
+                      className={`px-3 py-1 rounded-md text-xs font-semibold transition-all ${ticketFilter === f ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                        }`}
                     >
                       {f === 'ALL' ? 'All' : f === 'IN_PROGRESS' ? 'In Progress' : f.charAt(0) + f.slice(1).toLowerCase()}
                     </button>
@@ -855,7 +817,7 @@ const BillOpsAdminDashboardPage: React.FC = () => {
 
             <div className="overflow-x-auto rounded-xl border border-gray-100">
               {loading ? (
-                <div className="p-4 space-y-3">{[1,2,3,4].map(i => <Shimmer key={i} className="h-12 w-full" />)}</div>
+                <div className="p-4 space-y-3">{[1, 2, 3, 4].map(i => <Shimmer key={i} className="h-12 w-full" />)}</div>
               ) : filteredTickets.length === 0 ? (
                 <div className="px-6 py-10 text-center text-gray-400 text-sm font-medium">
                   <i className="fas fa-ticket-alt text-3xl mb-2 text-gray-200 block" />

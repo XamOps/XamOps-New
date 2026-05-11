@@ -88,40 +88,44 @@ export const useUnifiedDashboard = () => {
   const [serverTime, setServerTime] = useState<string | null>(null);
   const [lastUpdatedText, setLastUpdatedText] = useState('Checking...');
 
-  // Track whether we are doing a force-refresh (bypasses cache)
-  const [forceRefresh, setForceRefresh] = useState(false);
+  // Monotonically increasing counter — each Refresh click increments this,
+  // creating a unique query key so React Query always fires a real network
+  // request even when clicked multiple times in a row (avoids toggle confusion).
+  const [forceRefreshCount, setForceRefreshCount] = useState(0);
+  // Whether the current query cycle is a forced refresh (count > 0)
+  const isForced = forceRefreshCount > 0;
 
   // -------------------------------------------------------------------------
   // React Query — one query per data source
   // -------------------------------------------------------------------------
   const summaryQuery = useQuery({
-    queryKey: [...unifiedDashboardKeys.summary, forceRefresh],
-    queryFn: () => fetchSummaryData(forceRefresh),
-    staleTime: forceRefresh ? 0 : 5 * 60 * 1000,
+    queryKey: [...unifiedDashboardKeys.summary, forceRefreshCount],
+    queryFn: () => fetchSummaryData(isForced),
+    staleTime: isForced ? 0 : 5 * 60 * 1000,
     gcTime: 24 * 60 * 60 * 1000,
     retry: 1,
   });
 
   const awsQuery = useQuery({
-    queryKey: [...unifiedDashboardKeys.provider('aws'), forceRefresh],
-    queryFn: () => fetchProviderData('aws', forceRefresh),
-    staleTime: forceRefresh ? 0 : 5 * 60 * 1000,
+    queryKey: [...unifiedDashboardKeys.provider('aws'), forceRefreshCount],
+    queryFn: () => fetchProviderData('aws', isForced),
+    staleTime: isForced ? 0 : 5 * 60 * 1000,
     gcTime: 24 * 60 * 60 * 1000,
     retry: 1,
   });
 
   const gcpQuery = useQuery({
-    queryKey: [...unifiedDashboardKeys.provider('gcp'), forceRefresh],
-    queryFn: () => fetchProviderData('gcp', forceRefresh),
-    staleTime: forceRefresh ? 0 : 5 * 60 * 1000,
+    queryKey: [...unifiedDashboardKeys.provider('gcp'), forceRefreshCount],
+    queryFn: () => fetchProviderData('gcp', isForced),
+    staleTime: isForced ? 0 : 5 * 60 * 1000,
     gcTime: 24 * 60 * 60 * 1000,
     retry: 1,
   });
 
   const azureQuery = useQuery({
-    queryKey: [...unifiedDashboardKeys.provider('azure'), forceRefresh],
-    queryFn: () => fetchProviderData('azure', forceRefresh),
-    staleTime: forceRefresh ? 0 : 5 * 60 * 1000,
+    queryKey: [...unifiedDashboardKeys.provider('azure'), forceRefreshCount],
+    queryFn: () => fetchProviderData('azure', isForced),
+    staleTime: isForced ? 0 : 5 * 60 * 1000,
     gcTime: 24 * 60 * 60 * 1000,
     retry: 1,
   });
@@ -229,7 +233,7 @@ export const useUnifiedDashboard = () => {
     if (snapshotTotal < liveTotal) {
       console.log(`[UnifiedDashboard] Stale snapshot detected: snapshot has ${snapshotTotal} accounts, live has ${liveTotal}. Force-refreshing.`);
       staleCheckDoneRef.current = true;
-      setForceRefresh((prev) => !prev);
+      setForceRefreshCount((prev) => prev + 1);
     } else {
       staleCheckDoneRef.current = true;
     }
@@ -329,18 +333,18 @@ export const useUnifiedDashboard = () => {
   // -------------------------------------------------------------------------
   const fetchAll = useCallback((force: boolean = false) => {
     if (force) {
-      // Toggle forceRefresh so query keys change → React Query refetches bypassing its own cache
-      setForceRefresh((prev) => !prev);
+      // Increment counter so the query key changes → React Query fires a fresh
+      // request with ?forceRefresh=true even if clicked multiple times.
+      setForceRefreshCount((prev) => prev + 1);
     } else {
       qc.invalidateQueries({ queryKey: ['unified'] });
     }
-    setLastUpdated(new Date());
   }, [qc]);
 
   // fetchProvider — retry a single provider
   const fetchProvider = useCallback((provider: 'aws' | 'gcp' | 'azure', force: boolean = false) => {
     if (force) {
-      setForceRefresh((prev) => !prev);
+      setForceRefreshCount((prev) => prev + 1);
     } else {
       qc.invalidateQueries({ queryKey: unifiedDashboardKeys.provider(provider) });
     }
@@ -363,18 +367,18 @@ export const useUnifiedDashboard = () => {
     };
 
     qc.setQueryData<ProviderData>(
-      [...unifiedDashboardKeys.provider('aws'), forceRefresh],
+      [...unifiedDashboardKeys.provider('aws'), forceRefreshCount],
       (prev) => patchProvider(prev) as ProviderData
     );
     qc.setQueryData<ProviderData>(
-      [...unifiedDashboardKeys.provider('gcp'), forceRefresh],
+      [...unifiedDashboardKeys.provider('gcp'), forceRefreshCount],
       (prev) => patchProvider(prev) as ProviderData
     );
     qc.setQueryData<ProviderData>(
-      [...unifiedDashboardKeys.provider('azure'), forceRefresh],
+      [...unifiedDashboardKeys.provider('azure'), forceRefreshCount],
       (prev) => patchProvider(prev) as ProviderData
     );
-  }, [qc, forceRefresh]);
+  }, [qc, forceRefreshCount]);
 
   // -------------------------------------------------------------------------
   // Helper — merge subAccounts (accounts with live cost data) with the live
