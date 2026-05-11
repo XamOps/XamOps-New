@@ -19,6 +19,7 @@ import com.xammer.cloud.service.EksAutoscalingService;
 import com.xammer.cloud.service.OpenObserveService;
 import com.xammer.cloud.service.RedisCacheService;
 import com.xammer.cloud.service.sre.SreInvestigationService;
+import com.xammer.cloud.util.SecurityUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
@@ -423,9 +424,13 @@ public class AgentController {
      * GET /api/v1/agent/install-info
      * Returns pre-filled values needed to generate the agent install command in the UI.
      * Called by the frontend "Agent Stats" tab to build the one-liner.
+     * Requires authentication to prevent global API key exposure.
      */
     @GetMapping("/install-info")
     public ResponseEntity<Map<String, String>> getInstallInfo() {
+        // Enforce authentication
+        SecurityUtils.getPrincipal();
+
         return ResponseEntity.ok(Map.of(
                 "apiKey", agentIngestService.getGlobalApiKey()
         ));
