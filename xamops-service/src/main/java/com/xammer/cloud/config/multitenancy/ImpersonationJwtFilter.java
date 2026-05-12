@@ -1,11 +1,14 @@
 package com.xammer.cloud.config.multitenancy;
 
+import com.xammer.cloud.domain.User;
+import com.xammer.cloud.repository.UserRepository;
 import com.xammer.cloud.security.ClientUserDetails;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -39,6 +42,9 @@ public class ImpersonationJwtFilter extends OncePerRequestFilter {
     @Value("${app.impersonation.secret-key}")
     private String secretKey;
 
+    @Autowired
+    private UserRepository userRepository;
+
     @Override
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
@@ -66,12 +72,19 @@ public class ImpersonationJwtFilter extends OncePerRequestFilter {
                 role = "ROLE_" + role;
             }
 
-            // Build a minimal UserDetails from the JWT claims (no DB lookup needed)
+            // Resolve clientId from DB so DashboardDataService.fetchUserAccounts()
+            // can call cloudAccountRepository.findByClientId() and return real data.
+            Long clientId = null;
+            User user = userRepository.findById(userId).orElse(null);
+            if (user != null && user.getClient() != null) {
+                clientId = user.getClient().getId();
+            }
+
             ClientUserDetails userDetails = new ClientUserDetails(
                     claims.getSubject(),
                     null,
                     Collections.singletonList(new SimpleGrantedAuthority(role)),
-                    null,
+                    clientId,
                     userId,
                     TenantContext.getCurrentTenant()
             );

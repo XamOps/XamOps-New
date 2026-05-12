@@ -20,6 +20,7 @@ import type {
 } from '../types/dashboard';
 import { useCurrency } from './useCurrency';
 import { useAccounts } from '../contexts/AccountContext';
+import { apiFetch } from '../utils/apiClient';
 
 // ---------------------------------------------------------------------------
 // Query keys — centralised so any page can invalidate them
@@ -36,14 +37,14 @@ export const unifiedDashboardKeys = {
 // ---------------------------------------------------------------------------
 const fetchSummaryData = async (force: boolean): Promise<SummaryData> => {
   const url = '/api/xamops/dashboard/unified/summary' + (force ? '?forceRefresh=true' : '');
-  const res = await fetch(url);
+  const res = await apiFetch(url);
   if (!res.ok) throw new Error('Summary failed');
   return res.json();
 };
 
 const fetchProviderData = async (provider: 'aws' | 'gcp' | 'azure', force: boolean): Promise<ProviderData> => {
   const url = `/api/xamops/dashboard/unified/${provider}` + (force ? '?forceRefresh=true' : '');
-  const res = await fetch(url);
+  const res = await apiFetch(url);
   if (!res.ok) throw new Error(`${provider.toUpperCase()} Failed`);
   const data: ProviderData = await res.json();
   if (data.error) throw new Error(data.error);
@@ -51,13 +52,13 @@ const fetchProviderData = async (provider: 'aws' | 'gcp' | 'azure', force: boole
 };
 
 const fetchHealthData = async (): Promise<HealthData> => {
-  const res = await fetch('/api/xamops/dashboard/unified/health');
+  const res = await apiFetch('/api/xamops/dashboard/unified/health');
   if (!res.ok) throw new Error('Health failed');
   return res.json();
 };
 
 const fetchTicketCount = async (): Promise<number> => {
-  const res = await fetch('/api/xamops/tickets/category/Technical/count');
+  const res = await apiFetch('/api/xamops/tickets/category/Technical/count');
   if (!res.ok) throw new Error('Tickets failed');
   const data = await res.json();
   return data.count ?? 0;
