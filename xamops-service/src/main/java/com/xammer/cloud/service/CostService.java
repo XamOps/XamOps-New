@@ -161,6 +161,7 @@ public class CostService {
                                         } catch (Exception dbEx) {
                                                 logger.warn("Failed to save MTD cost DB snapshot {}: {}", dbKey, dbEx.getMessage());
                                         }
+                                        patchKpiMtdSpend(accountId, total);
                                         logger.info("✅ MTD cost derived from getCostBreakdown Redis cache for {}", accountId);
                                         return CompletableFuture.completedFuture(total);
                                 }
@@ -213,6 +214,7 @@ public class CostService {
                                 } catch (Exception dbEx) {
                                         logger.warn("Failed to save MTD cost DB snapshot {}: {}", dbKey, dbEx.getMessage());
                                 }
+                                patchKpiMtdSpend(accountId, total);
                                 return total;
                         } catch (Exception e) {
                                 logger.error("❌ Error fetching MTD cost for account {}: {}", accountId, e.getMessage());
@@ -1801,5 +1803,68 @@ public class CostService {
                                 return 0.0;
                         }
                 });
+        }
+
+        /**
+         * Writes mtd to AWS_MTD_COST and patches DASHBOARD_KPI in one call.
+         * Use this when the MTD value is already known (e.g. computed from billing summary)
+         * to keep all pages in sync without making a redundant CE API call.
+         */
+        public void patchMtdCaches(String accountId, double mtd) {
+                // 1. Write AWS_MTD_COST
+                String dbKey = "AWS_MTD_COST::" + accountId;
+                try {
+                        CachedData snap = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+                        snap.setCacheKey(dbKey);
+                        snap.setJsonData(objectMapper.writeValueAsString(mtd));
+                        snap.setLastUpdated(java.time.LocalDateTime.now());
+                        cachedDataRepository.save(snap);
+                        redisCache.put("totalMtdCost-" + accountId, mtd, 60 * 24);
+                        logger.info("[MtdSync] Updated AWS_MTD_COST::{} = {}", accountId, mtd);
+                } catch (Exception e) {
+                        logger.warn("[MtdSync] Failed to write AWS_MTD_COST::{}: {}", accountId, e.getMessage());
+                }
+                // 2. Patch DASHBOARD_KPI
+                patchKpiMtdSpend(accountId, mtd);
+        }
+
+        /**
+         * Patches selectedAccount.monthToDateSpend in the DASHBOARD_KPI::{accountId} DB snapshot
+         * without touching any other fields. Called after every AWS_MTD_COST write so that
+         * Unified Dashboard, Account Dashboard, and Cost page all read the same MTD value.
+         */
+        private void patchKpiMtdSpend(String accountId, double mtd) {
+                // 1. Patch DASHBOARD_KPI DB snapshot — read by Unified Dashboard snapshot builder
+                String kpiKey = "DASHBOARD_KPI::" + accountId;
+                try {
+                        Optional<CachedData> existing = cachedDataRepository.findById(kpiKey);
+                        if (existing.isPresent()) {
+                                Map<String, Object> kpiMap = objectMapper.readValue(
+                                        existing.get().getJsonData(), new TypeReference<Map<String, Object>>() {});
+                                @SuppressWarnings("unchecked")
+                                Map<String, Object> selectedAccount = (Map<String, Object>) kpiMap.get("selectedAccount");
+                                if (selectedAccount != null) {
+                                        selectedAccount.put("monthToDateSpend", mtd);
+                                        CachedData patched = existing.get();
+                                        patched.setJsonData(objectMapper.writeValueAsString(kpiMap));
+                                        patched.setLastUpdated(java.time.LocalDateTime.now());
+                                        cachedDataRepository.save(patched);
+                                        logger.info("[KpiPatch] Updated DASHBOARD_KPI::{} monthToDateSpend={}", accountId, mtd);
+                                }
+                        }
+                } catch (Exception e) {
+                        logger.warn("[KpiPatch] Failed to patch DASHBOARD_KPI::{}: {}", accountId, e.getMessage());
+                }
+
+                // 2. Evict Redis keys — Account Dashboard / FinOps / Cost page / Unified Dashboard
+                //    will re-fetch fresh data from CE on their next forceRefresh or from DB on normal load.
+                //    DO NOT patch DASHBOARD_DATA — it holds aggregated multi-account data and must be
+                //    rebuilt by getDashboardData() with forceRefresh, not patched with a single account value.
+                redisCache.evict("totalMtdCost-" + accountId);
+                redisCache.evict("finopsReport-" + accountId);
+                redisCache.evictByPattern("DASHBOARD_DATA::*::" + accountId);
+                redisCache.evictByPattern("UNIFIED_DASHBOARD_AWS::*");
+                redisCache.evictByPattern("UNIFIED_DASHBOARD_GCP::*");
+                redisCache.evictByPattern("UNIFIED_DASHBOARD_AZURE::*");
         }
 }

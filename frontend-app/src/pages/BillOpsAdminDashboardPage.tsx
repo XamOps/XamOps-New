@@ -65,14 +65,21 @@ const BillOpsAdminDashboardPage: React.FC = () => {
 
   const [clientsData, setClientsData] = useState<ClientsApiData[] | null>(null);
   const [clientsLoading, setClientsLoading] = useState(true);
+  const [clientsRefreshing, setClientsRefreshing] = useState(false);
 
-  useEffect(() => {
-    apiFetch('/api/xamops/billops-admin/clients', { credentials: 'include' })
+  const fetchClientsData = React.useCallback((forceRefresh = false) => {
+    const url = forceRefresh
+      ? '/api/xamops/billops-admin/clients?forceRefresh=true'
+      : '/api/xamops/billops-admin/clients';
+    if (forceRefresh) setClientsRefreshing(true);
+    apiFetch(url, { credentials: 'include' })
       .then(r => r.ok ? r.json() : Promise.reject(r.status))
       .then((d: ClientsApiData[]) => setClientsData(d))
       .catch(err => console.error('Failed to load clients data for spend total', err))
-      .finally(() => setClientsLoading(false));
+      .finally(() => { setClientsLoading(false); setClientsRefreshing(false); });
   }, []);
+
+  useEffect(() => { fetchClientsData(false); }, [fetchClientsData]);
 
   useEffect(() => {
     apiFetch('/api/admin/autospotting/customer-savings', { credentials: 'include' })
@@ -327,7 +334,13 @@ const BillOpsAdminDashboardPage: React.FC = () => {
   }, [convertedData?.spendingTrend]);
 
   // ── Topbar actions ─────────────────────────────────────────────────────────
+  const handleRefresh = React.useCallback(() => {
+    refreshDashboard();
+    fetchClientsData(true);
+  }, [refreshDashboard, fetchClientsData]);
+
   useEffect(() => {
+    const refreshing = isRefreshing || clientsRefreshing;
     setActions(
       <div className="flex items-center gap-4">
         {data?.lastUpdated && (
@@ -336,16 +349,16 @@ const BillOpsAdminDashboardPage: React.FC = () => {
           </div>
         )}
         <button
-          onClick={refreshDashboard} disabled={isRefreshing}
+          onClick={handleRefresh} disabled={refreshing}
           className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold shadow-lg shadow-indigo-500/20 hover:bg-indigo-700 transition-all disabled:opacity-50"
         >
-          <i className={`fas fa-sync-alt ${isRefreshing ? 'animate-spin' : ''}`} />
+          <i className={`fas fa-sync-alt ${refreshing ? 'animate-spin' : ''}`} />
           Refresh
         </button>
       </div>
     );
     return () => clearActions();
-  }, [setActions, clearActions, data?.lastUpdated, isRefreshing, refreshDashboard]);
+  }, [setActions, clearActions, data?.lastUpdated, isRefreshing, clientsRefreshing, handleRefresh, refreshDashboard]);
 
   // ── Shimmer skeleton ───────────────────────────────────────────────────────
   const Shimmer = ({ className }: { className: string }) => (

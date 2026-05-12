@@ -317,8 +317,9 @@ public class BillOpsAdminController {
     }
 
     @GetMapping("/clients")
-    public List<BillOpsClientDetailsDto> getClients() {
-        log.info("Fetching client details for BillOps Admin (Optimised)");
+    public List<BillOpsClientDetailsDto> getClients(
+            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+        log.info("Fetching client details for BillOps Admin (Optimised, forceRefresh={})", forceRefresh);
 
         // Detect ROLE_BILLOPS_ADMIN_SUB — scope to their owned clients only
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
@@ -350,24 +351,30 @@ public class BillOpsAdminController {
             return result;
         }
 
-        // 0. Return cached response if available (primary admin only)
-        Optional<List<BillOpsClientDetailsDto>> cached = redisCacheService.get(
-                CLIENTS_CACHE_KEY, new TypeReference<List<BillOpsClientDetailsDto>>() {});
-        if (cached.isPresent()) {
-            log.info("Returning client details from Redis cache");
-            return cached.get();
+        // 0. Return cached response if available (skip on forceRefresh)
+        if (!forceRefresh) {
+            Optional<List<BillOpsClientDetailsDto>> cached = redisCacheService.get(
+                    CLIENTS_CACHE_KEY, new TypeReference<List<BillOpsClientDetailsDto>>() {});
+            if (cached.isPresent()) {
+                log.info("Returning client details from Redis cache");
+                return cached.get();
+            }
         }
 
         // 1. Fetch all clients and build response
         List<Client> clients = clientRepository.findAll();
         if (clients.isEmpty()) return new ArrayList<>();
-        List<BillOpsClientDetailsDto> result = buildClientDtos(clients);
+        List<BillOpsClientDetailsDto> result = buildClientDtos(clients, forceRefresh);
         redisCacheService.put(CLIENTS_CACHE_KEY, result, CLIENTS_CACHE_TTL_MINUTES);
         return result;
     }
 
     /** Builds BillOpsClientDetailsDto list for a given set of clients (fetches costs in parallel). */
     private List<BillOpsClientDetailsDto> buildClientDtos(List<Client> clients) {
+        return buildClientDtos(clients, false);
+    }
+
+    private List<BillOpsClientDetailsDto> buildClientDtos(List<Client> clients, boolean forceRefresh) {
         if (clients.isEmpty()) return new ArrayList<>();
 
         List<Long> clientIds = clients.stream().map(Client::getId).collect(Collectors.toList());
@@ -398,13 +405,16 @@ public class BillOpsAdminController {
         // ── Batch-read MTD costs from DB cache (3 IN queries, one per provider) ──────
         // Same cache keys written by DashboardDataService / CostService — identical to
         // what the Account Dashboard shows, and safe for hundreds of accounts.
+        // When forceRefresh=true, skip the DB cache for AWS accounts so they all go through
+        // the live CE path, which writes fresh values back to AWS_MTD_COST + DASHBOARD_KPI.
         String currentMonth = YearMonth.now().toString();
 
         List<String> allCacheKeys = allAccounts.stream()
                 .map(a -> {
                     String id = a.getProviderAccountId();
                     if (id == null || id.isEmpty()) return null;
-                    if ("AWS".equalsIgnoreCase(a.getProvider()))   return "AWS_MTD_COST::" + id;
+                    // Skip AWS DB cache when forceRefresh — force live CE fetch
+                    if ("AWS".equalsIgnoreCase(a.getProvider()))   return forceRefresh ? null : "AWS_MTD_COST::" + id;
                     if ("GCP".equalsIgnoreCase(a.getProvider()))   return "GCP_MONTHLY_TOTAL::" + id + "::" + currentMonth;
                     if ("Azure".equalsIgnoreCase(a.getProvider())) return "AZURE_COST_BILLING_SUMMARY::" + id;
                     return null;
@@ -431,11 +441,14 @@ public class BillOpsAdminController {
             }
             try {
                 if ("AWS".equalsIgnoreCase(provider)) {
-                    String json = cacheJsonByKey.get("AWS_MTD_COST::" + providerAccId);
-                    if (json != null) {
-                        Double val = objectMapper.readValue(json, Double.class);
-                        costByAccountId.put(account.getId(), val != null ? val : 0.0);
-                        continue;
+                    // forceRefresh=true: skip cache, go straight to live CE
+                    if (!forceRefresh) {
+                        String json = cacheJsonByKey.get("AWS_MTD_COST::" + providerAccId);
+                        if (json != null) {
+                            Double val = objectMapper.readValue(json, Double.class);
+                            costByAccountId.put(account.getId(), val != null ? val : 0.0);
+                            continue;
+                        }
                     }
                 } else if ("GCP".equalsIgnoreCase(provider)) {
                     String json = cacheJsonByKey.get("GCP_MONTHLY_TOTAL::" + providerAccId + "::" + currentMonth);
@@ -463,7 +476,21 @@ public class BillOpsAdminController {
             cacheMissAccounts.add(account);
         }
 
-        // Live fallback — only for accounts not yet in DB cache (new accounts / first load)
+        // ── AWS credits — launched BEFORE waiting on MTD so both run in parallel ──────
+        Map<Long, Double> creditsByAccountId = new HashMap<>();
+        List<CompletableFuture<Double>> creditFutures = allAccounts.stream().map(account -> {
+            String providerAccId = account.getProviderAccountId();
+            String provider = account.getProvider();
+            if ("AWS".equalsIgnoreCase(provider) && providerAccId != null && !providerAccId.isEmpty()) {
+                return costService.getCreditsApplied(providerAccId)
+                        .exceptionally(e -> { log.warn("Credits fetch error for {}: {}", account.getId(), e.getMessage()); return 0.0; });
+            }
+            return CompletableFuture.completedFuture(0.0);
+        }).collect(Collectors.toList());
+
+        // Live fallback — for accounts not in DB cache (new accounts / first load / forceRefresh).
+        // Launched AFTER credits so both sets of CE calls run in parallel.
+        // forceRefresh=true ensures fresh CE values are written back to AWS_MTD_COST + DASHBOARD_KPI.
         if (!cacheMissAccounts.isEmpty()) {
             log.info("DB cache cold for {} account(s) — falling back to live API", cacheMissAccounts.size());
             List<CompletableFuture<Double>> missFutures = cacheMissAccounts.stream().map(account -> {
@@ -471,7 +498,7 @@ public class BillOpsAdminController {
                 String provider      = account.getProvider();
                 try {
                     if ("AWS".equalsIgnoreCase(provider))
-                        return costService.getTotalMonthToDateCost(providerAccId, false)
+                        return costService.getTotalMonthToDateCost(providerAccId, true)
                                 .exceptionally(e -> { log.error("AWS cost fallback error {}: {}", account.getId(), e.getMessage()); return 0.0; });
                     if ("GCP".equalsIgnoreCase(provider))
                         return gcpCostService.getUnfilteredMonthToDateSpend(providerAccId)
@@ -484,25 +511,20 @@ public class BillOpsAdminController {
                 }
                 return CompletableFuture.completedFuture(0.0);
             }).collect(Collectors.toList());
-            CompletableFuture.allOf(missFutures.toArray(new CompletableFuture[0])).join();
+            // Wait for both MTD and credits together in one allOf — max(CE_mtd, CE_credits) not sum
+            CompletableFuture.allOf(
+                    CompletableFuture.allOf(missFutures.toArray(new CompletableFuture[0])),
+                    CompletableFuture.allOf(creditFutures.toArray(new CompletableFuture[0]))
+            ).join();
             for (int i = 0; i < cacheMissAccounts.size(); i++) {
                 Double cost = missFutures.get(i).join();
                 costByAccountId.put(cacheMissAccounts.get(i).getId(), cost != null ? cost : 0.0);
             }
+        } else {
+            // No live MTD calls — still need to wait for credits
+            CompletableFuture.allOf(creditFutures.toArray(new CompletableFuture[0])).join();
         }
 
-        // ── AWS credits — parallel (no DB cache exists for credits) ──────────────────
-        Map<Long, Double> creditsByAccountId = new HashMap<>();
-        List<CompletableFuture<Double>> creditFutures = allAccounts.stream().map(account -> {
-            String providerAccId = account.getProviderAccountId();
-            String provider = account.getProvider();
-            if ("AWS".equalsIgnoreCase(provider) && providerAccId != null && !providerAccId.isEmpty()) {
-                return costService.getCreditsApplied(providerAccId)
-                        .exceptionally(e -> { log.warn("Credits fetch error for {}: {}", account.getId(), e.getMessage()); return 0.0; });
-            }
-            return CompletableFuture.completedFuture(0.0);
-        }).collect(Collectors.toList());
-        CompletableFuture.allOf(creditFutures.toArray(new CompletableFuture[0])).join();
         for (int i = 0; i < allAccounts.size(); i++) {
             Double credits = creditFutures.get(i).join();
             creditsByAccountId.put(allAccounts.get(i).getId(), credits != null ? credits : 0.0);

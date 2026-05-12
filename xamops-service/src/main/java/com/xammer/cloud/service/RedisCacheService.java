@@ -11,6 +11,7 @@ import java.util.concurrent.TimeUnit;
 
 import java.io.IOException;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.TimeUnit; // ✅ Added Import
 
 @Service
@@ -70,6 +71,19 @@ public class RedisCacheService {
             logger.info("--- EVICTED FROM REDIS CACHE: {} ---", key);
         } else {
             logger.warn("--- CACHE EVICTION SKIPPED: KEY '{}' NOT FOUND ---", key);
+        }
+    }
+
+    /** Evict all Redis keys matching a glob pattern (e.g. "*accountId*"). */
+    public void evictByPattern(String pattern) {
+        try {
+            Set<String> keys = redisTemplate.keys(pattern);
+            if (keys != null && !keys.isEmpty()) {
+                redisTemplate.delete(keys);
+                logger.info("--- EVICTED {} REDIS KEY(S) matching '{}' ---", keys.size(), pattern);
+            }
+        } catch (Exception e) {
+            logger.warn("evictByPattern failed for pattern '{}': {}", pattern, e.getMessage());
         }
     }
 

@@ -261,6 +261,7 @@ public class FinOpsService {
 
                         double mtdSpend = billingSummary.stream()
                                 .mapToDouble(DashboardData.BillingSummary::getMonthToDateCost).sum();
+                        costService.patchMtdCaches(accountId, mtdSpend);
                         double lastMonthSpend = 0.0;
                         if (costHistory.getLabels() != null && costHistory.getLabels().size() > 1) {
                             int lastMonthIndex = costHistory.getLabels().size() - 2;

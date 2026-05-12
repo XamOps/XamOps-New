@@ -83,20 +83,15 @@ const ClientDetailsPage: React.FC = () => {
 
     const { setActions, clearActions } = useTopbarActions();
 
-    const evictServerCache = useCallback(async () => {
-        try {
-            await apiClient.delete('/api/xamops/billops-admin/clients/cache');
-        } catch {
-            // non-critical
-        }
-    }, []);
-
-    const fetchClients = useCallback(async (silent = false) => {
+    const fetchClients = useCallback(async (silent = false, forceRefresh = false) => {
         if (!silent) setIsLoading(true);
         else setIsRefreshing(true);
         setError(null);
         try {
-            const data = await apiClient.get<ClientDetails[]>('/api/xamops/billops-admin/clients');
+            const url = forceRefresh
+                ? '/api/xamops/billops-admin/clients?forceRefresh=true'
+                : '/api/xamops/billops-admin/clients';
+            const data = await apiClient.get<ClientDetails[]>(url);
             setClients(data);
             writeCache(data);
         } catch (err: any) {
@@ -119,7 +114,7 @@ const ClientDetailsPage: React.FC = () => {
                     </span>
                 )}
                 <button
-                    onClick={async () => { localStorage.removeItem(CACHE_KEY); await evictServerCache(); fetchClients(true); }}
+                    onClick={() => { localStorage.removeItem(CACHE_KEY); fetchClients(true, true); }}
                     disabled={isLoading || isRefreshing}
                     className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg shadow-sm hover:shadow-md hover:bg-slate-50 transition-all font-bold text-slate-700 text-sm disabled:opacity-50"
                 >
@@ -129,27 +124,26 @@ const ClientDetailsPage: React.FC = () => {
             </div>
         );
         return () => clearActions();
-    }, [setActions, clearActions, isLoading, isRefreshing, evictServerCache, fetchClients]);
+    }, [setActions, clearActions, isLoading, isRefreshing, fetchClients]);
 
     useEffect(() => {
         const cached = readCache();
         if (cached) {
-            fetchClients(true);
+            fetchClients(true, false);
         } else {
-            fetchClients(false);
+            fetchClients(false, false);
         }
     }, [fetchClients]);
 
     // Listen for new client/user creation events so the list updates instantly
     useEffect(() => {
-        const handler = async () => {
+        const handler = () => {
             localStorage.removeItem(CACHE_KEY);
-            await evictServerCache();
-            fetchClients(true);
+            fetchClients(true, true);
         };
         window.addEventListener('billops:client-updated', handler);
         return () => window.removeEventListener('billops:client-updated', handler);
-    }, [fetchClients, evictServerCache]);
+    }, [fetchClients]);
 
     const toggleClient = (clientId: number) => {
         if (expandedClient === clientId) {
