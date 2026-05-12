@@ -358,6 +358,7 @@ const Sidebar: React.FC = () => {
                 icon="fas fa-stethoscope"
                 label="SRE"
                 gradientClass="from-indigo-500 to-violet-600"
+                badge="Coming Soon"
                 isOpen={openDropdown === 'sre'}
                 onToggle={() => toggleDropdown('sre')}
               >
