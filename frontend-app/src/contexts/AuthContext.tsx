@@ -43,6 +43,29 @@ interface AuthContextValue {
   logout: () => Promise<void>;
 }
 
+// Bootstrap impersonation token from URL hash synchronously before any React
+// rendering. This ensures sessionStorage has the JWT before fetchUserRoles fires
+// its first fetch, so the Authorization header is attached on the very first call.
+(function bootstrapImpersonationHash() {
+  const hash = window.location.hash;
+  if (!hash.startsWith('#imp=')) return;
+  const token = hash.slice(5);
+  try {
+    const payloadB64 = token.split('.')[1];
+    const claims = JSON.parse(atob(payloadB64.replace(/-/g, '+').replace(/_/g, '/')));
+    sessionStorage.setItem('impersonation_jwt', token);
+    sessionStorage.setItem('billops_impersonation', 'true');
+    if (claims.sub) sessionStorage.setItem('impersonateUserId', claims.sub);
+    if (claims.tenantId) sessionStorage.setItem('selectedTenantId', claims.tenantId);
+    if (claims.allowedAccountIds) sessionStorage.setItem('allowedAccountIds', claims.allowedAccountIds);
+    else sessionStorage.removeItem('allowedAccountIds');
+    sessionStorage.removeItem('cached_accounts');
+    sessionStorage.removeItem('selectedAccountIds');
+    // Strip the token from the address bar immediately
+    window.history.replaceState({}, '', window.location.pathname);
+  } catch (_) { /* malformed token — ignore */ }
+})();
+
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
@@ -401,49 +424,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     fetchUserRoles();
   }, []); // Empty dependency array - only run on mount
 
-  // Handle billops "Login As" JWT passed in URL hash: /unified-dashboard#imp=<token>
-  // The JWT never hits the server as a query param, so the admin's JSESSIONID is
-  // never overwritten. We decode the payload client-side only to extract tenant/account
-  // context — the backend re-validates the full signature on every API request.
-  useEffect(() => {
-    const hash = window.location.hash;
-    if (!hash.startsWith('#imp=')) return;
-
-    const token = hash.slice(5); // strip "#imp="
-    try {
-      // Decode JWT payload (middle segment) — no verification, just context extraction
-      const payloadB64 = token.split('.')[1];
-      const claims = JSON.parse(atob(payloadB64.replace(/-/g, '+').replace(/_/g, '/')));
-
-      sessionStorage.setItem('impersonation_jwt', token);
-      sessionStorage.setItem('billops_impersonation', 'true');
-
-      if (claims.sub) {
-        sessionStorage.setItem('impersonateUserId', claims.sub);
-        setImpersonateUser(claims.sub);
-      }
-      if (claims.tenantId) {
-        sessionStorage.setItem('selectedTenantId', claims.tenantId);
-        setSelectedTenant(claims.tenantId);
-      }
-      if (claims.allowedAccountIds) {
-        sessionStorage.setItem('allowedAccountIds', claims.allowedAccountIds);
-      } else {
-        sessionStorage.removeItem('allowedAccountIds');
-      }
-
-      // Clear stale account cache so AccountContext re-fetches for this user
-      sessionStorage.removeItem('cached_accounts');
-      sessionStorage.removeItem('selectedAccountIds');
-
-      // Remove the token from the address bar before reloading
-      window.history.replaceState({}, '', window.location.pathname);
-      window.location.reload();
-    } catch (e) {
-      console.error('Failed to parse impersonation JWT from hash', e);
-      window.history.replaceState({}, '', window.location.pathname);
-    }
-  }, []);
+  // bootstrapImpersonationHash() (module-level, above) already handles the #imp=
+  // token synchronously before first render, so this effect is intentionally a no-op.
 
   const value: AuthContextValue = React.useMemo(() => ({
     userRoles,

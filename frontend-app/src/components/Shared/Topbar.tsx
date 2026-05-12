@@ -73,6 +73,32 @@ const Topbar: React.FC = () => {
         setIsLogoutModalOpen(false);
     };
 
+    const openDemoTab = async (type: 'billops' | 'xamops') => {
+        try {
+            const res = await fetch('/api/billops/demo-token', {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type }),
+            });
+            if (!res.ok) return;
+            const { token, destination } = await res.json();
+            const url = `${window.location.origin}/${destination}#imp=${token}`;
+            // Open via a programmatic <a> click — avoids window.open('', '_blank') which
+            // clones the opener's sessionStorage into the new tab, contaminating the admin
+            // tab with impersonation keys when the new tab writes back before navigating.
+            const a = document.createElement('a');
+            a.href = url;
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        } catch {
+            // silently ignore
+        }
+    };
+
     // Use window.location.pathname as source of truth — React 19 concurrent
     // rendering can defer re-renders of stable layout components like Topbar,
     // causing useLocation() to return a stale pathname while the URL has already
@@ -195,6 +221,38 @@ const Topbar: React.FC = () => {
                             </button>
                         )}
                     </div>
+
+                    {/* Demo shortcuts — only for BillOps Admin, not in demo mode itself */}
+                    {isBillOpsAdmin && !isDemoMode() && (
+                        <div className="flex items-center gap-1.5">
+                            <button
+                                onClick={() => openDemoTab('xamops')}
+                                title="Open XamOps Demo"
+                                className={clsx(
+                                    'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all border',
+                                    theme === 'dark'
+                                        ? 'bg-indigo-900/40 border-indigo-700/50 text-indigo-300 hover:bg-indigo-800/60 hover:text-indigo-200'
+                                        : 'bg-indigo-50 border-indigo-200 text-indigo-600 hover:bg-indigo-100'
+                                )}
+                            >
+                                <i className="fas fa-cloud text-[10px]"></i>
+                                XamOps
+                            </button>
+                            <button
+                                onClick={() => openDemoTab('billops')}
+                                title="Open BillOps Demo"
+                                className={clsx(
+                                    'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all border',
+                                    theme === 'dark'
+                                        ? 'bg-purple-900/40 border-purple-700/50 text-purple-300 hover:bg-purple-800/60 hover:text-purple-200'
+                                        : 'bg-purple-50 border-purple-200 text-purple-600 hover:bg-purple-100'
+                                )}
+                            >
+                                <i className="fas fa-file-invoice-dollar text-[10px]"></i>
+                                BillOps
+                            </button>
+                        </div>
+                    )}
 
                     <div className={clsx(
                         'h-8 w-[1px] mx-1',

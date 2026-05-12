@@ -102,8 +102,20 @@ axios.defaults.adapter = async (config) => {
 if (isDemoMode()) {
   const DEMO_CACHE_VERSION = '2026-05-04-v4';
   if (sessionStorage.getItem('demoCacheVersion') !== DEMO_CACHE_VERSION) {
+    // Preserve impersonation keys before clearing — they are needed to
+    // re-authenticate the impersonation session on reload.
+    const impJwt = sessionStorage.getItem('impersonation_jwt');
+    const impFlag = sessionStorage.getItem('billops_impersonation');
+    const impUser = sessionStorage.getItem('impersonateUserId');
+    const impTenant = sessionStorage.getItem('selectedTenantId');
+    const impAccounts = sessionStorage.getItem('allowedAccountIds');
     sessionStorage.clear();
     sessionStorage.setItem('demoCacheVersion', DEMO_CACHE_VERSION);
+    if (impJwt) sessionStorage.setItem('impersonation_jwt', impJwt);
+    if (impFlag) sessionStorage.setItem('billops_impersonation', impFlag);
+    if (impUser) sessionStorage.setItem('impersonateUserId', impUser);
+    if (impTenant) sessionStorage.setItem('selectedTenantId', impTenant);
+    if (impAccounts) sessionStorage.setItem('allowedAccountIds', impAccounts);
   }
 }
 // ─────────────────────────────────────────────────────────────────────────────

@@ -29,12 +29,16 @@ interface CustomerSpotSavings {
 
 interface ClientsApiAccount {
   id: number;
+  name: string;
+  providerAccountId: string;
   provider: string;
   consumption: number;
+  creditsApplied?: number;
 }
 
 interface ClientsApiData {
   id: number;
+  name: string;
   accounts: ClientsApiAccount[];
 }
 
@@ -156,6 +160,49 @@ const BillOpsAdminDashboardPage: React.FC = () => {
     }
     return { byProvider, total };
   }, [clientsData, convert]);
+
+  // ── Top 10 accounts derived from clientsData (same source as Client Details page) ──
+  const top10FromClients = React.useMemo(() => {
+    if (!clientsData) return convertedData?.topSpendingAccounts ?? [];
+
+    // Build a lookup of lastMonthSpending from the backend top accounts by providerAccountId
+    const lastMonthMap: Record<string, number> = {};
+    if (data?.topSpendingAccounts) {
+      for (const acc of data.topSpendingAccounts) {
+        if (acc.accountIdentifier) lastMonthMap[acc.accountIdentifier] = acc.lastMonthSpending ?? 0;
+      }
+    }
+
+    const needsConversion = (provider: string) => provider === 'GCP' || provider === 'Azure';
+
+    const allAccounts: TopSpendingAccount[] = [];
+    for (const client of clientsData) {
+      for (const acc of client.accounts) {
+        const raw = acc.consumption || 0;
+        const currentMonthSpending = needsConversion(acc.provider)
+          ? (convert(raw, 'usd') ?? raw)
+          : raw;
+        const rawLast = lastMonthMap[acc.providerAccountId] ?? 0;
+        const lastMonthSpending = needsConversion(acc.provider)
+          ? (convert(rawLast, 'usd') ?? rawLast)
+          : rawLast;
+        allAccounts.push({
+          id: String(acc.id),
+          accountName: acc.name,
+          accountIdentifier: acc.providerAccountId,
+          provider: acc.provider as 'AWS' | 'GCP' | 'Azure',
+          clientName: client.name,
+          status: 'ACTIVE',
+          currentMonthSpending,
+          lastMonthSpending,
+        });
+      }
+    }
+
+    return allAccounts
+      .sort((a, b) => (b.currentMonthSpending ?? 0) - (a.currentMonthSpending ?? 0))
+      .slice(0, 10);
+  }, [clientsData, data, convert, convertedData]);
 
   // ── Clients grouped from top accounts ─────────────────────────────────────
   const clientGroups = React.useMemo(() => {
@@ -500,7 +547,7 @@ const BillOpsAdminDashboardPage: React.FC = () => {
                 </button>
               </div>
               <div className="overflow-x-auto rounded-xl border border-gray-100">
-                {loading ? (
+                {clientsLoading ? (
                   <div className="p-4 space-y-3">
                     {[1, 2, 3].map(i => <Shimmer key={i} className="h-10 w-full" />)}
                   </div>
@@ -519,8 +566,8 @@ const BillOpsAdminDashboardPage: React.FC = () => {
                       </tr>
                     </thead>
                     <tbody className="bg-white/40 divide-y divide-gray-200">
-                      {convertedData?.topSpendingAccounts?.length ? (
-                        [...convertedData.topSpendingAccounts].sort((a, b) => (b.currentMonthSpending ?? 0) - (a.currentMonthSpending ?? 0)).map((account: TopSpendingAccount, idx: number) => {
+                      {top10FromClients?.length ? (
+                        top10FromClients.map((account: TopSpendingAccount, idx: number) => {
                           const mom = getMoMChange(account.currentMonthSpending, account.lastMonthSpending);
                           return (
                             <tr key={account.id} className="admin-table-row">

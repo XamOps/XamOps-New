@@ -1,7 +1,9 @@
 package com.xammer.billops.config;
 
+import com.xammer.billops.config.multitenancy.ImpersonationJwtFilter;
 import com.xammer.billops.security.CustomAuthenticationSuccessHandler;
 import com.xammer.billops.security.CustomUserDetailsService; // <--- MUST use this one
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -12,10 +14,13 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.builders.WebSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configuration.WebSecurityCustomizer;
+import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
+import org.springframework.security.web.util.matcher.RequestHeaderRequestMatcher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -31,6 +36,9 @@ public class SecurityConfig {
 
     private final CustomAuthenticationSuccessHandler authenticationSuccessHandler;
     private final CustomUserDetailsService userDetailsService; // Inject this
+
+    @Autowired
+    private ImpersonationJwtFilter impersonationJwtFilter;
 
     @Value("${cors.allowed-origins:http://localhost:5173,https://live.xamops.com,https://prep.xamops.com,https://uat.xamops.com}")
     private String[] allowedOrigins;
@@ -60,7 +68,31 @@ public class SecurityConfig {
                 .antMatchers("/api/billops/support/files/**");
     }
 
+    /**
+     * Handles "Login As" requests carrying a billops-issued JWT in the Authorization header.
+     * STATELESS — no JSESSIONID is read or written, so the admin's session is never touched.
+     */
     @Bean
+    @Order(1)
+    public SecurityFilterChain impersonationJwtFilterChain(HttpSecurity http) throws Exception {
+        http
+                .requestMatcher(new RequestHeaderRequestMatcher("Authorization"))
+                .cors(withDefaults())
+                .csrf(csrf -> csrf.disable())
+                .sessionManagement(session -> session
+                        .sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .exceptionHandling(ex -> ex
+                        .defaultAuthenticationEntryPointFor(
+                                new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),
+                                new AntPathRequestMatcher("/api/**")))
+                .authorizeHttpRequests(auth -> auth
+                        .anyRequest().authenticated())
+                .addFilterBefore(impersonationJwtFilter, UsernamePasswordAuthenticationFilter.class);
+        return http.build();
+    }
+
+    @Bean
+    @Order(2)
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
                 .cors(withDefaults())
