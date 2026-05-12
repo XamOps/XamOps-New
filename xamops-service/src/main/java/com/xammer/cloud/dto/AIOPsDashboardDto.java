@@ -488,6 +488,7 @@ public class AIOPsDashboardDto implements Serializable {
         private String lastErrorMessage;
         private Long usageLimit;
         private String createdAt;
+        private String assignedTeam;
     }
 
     @Data

@@ -19,6 +19,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAccounts } from '../contexts/AccountContext';
 import { useTopbarActions } from '../contexts/TopbarContext';
 import Skeleton from '../components/Shared/Skeleton';
+import { AnimatedItem } from '../components/Shared/AnimatedList';
 import { DialogRoot, DialogPanel } from '../components/ui';
 import {
   BillOpsTicket,
@@ -390,13 +391,13 @@ const BillOpsTicketsPage: React.FC = () => {
           {/* Ticket list */}
           {showTickets && (
             <div className="space-y-2">
-              {tickets.map((ticket) => {
+              {tickets.map((ticket, index) => {
                 const { dotClass, textClass } = getSeverityMeta(ticket.severity);
                 const accountName = ticket.accountId ? accountNameMap[ticket.accountId] : null;
 
                 return (
+                  <AnimatedItem key={ticket.id} index={index} delay={index * 0.03}>
                   <div
-                    key={ticket.id}
                     onClick={() => navigate(`/billops-ticket-detail?id=${ticket.id}`)}
                     className={`flex items-center gap-4 px-5 py-4 bg-white border rounded-2xl hover:shadow-sm transition-all duration-200 cursor-pointer group ${
                       ticket.hasUnreadAdminReply
@@ -469,6 +470,7 @@ const BillOpsTicketsPage: React.FC = () => {
 
                     <i className="fas fa-chevron-right text-slate-300 text-xs group-hover:text-indigo-400 transition-colors" />
                   </div>
+                  </AnimatedItem>
                 );
               })}
             </div>

@@ -4,7 +4,7 @@
  * Types for the Add Account page - managing cloud provider connections
  */
 
-export type Provider = 'aws' | 'gcp' | 'azure' | 'jenkins';
+export type Provider = 'aws' | 'gcp' | 'azure' | 'jenkins' | 'github';
 
 export type AccessType = 'read-only' | 'read-write';
 

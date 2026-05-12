@@ -591,6 +591,23 @@ public class AIOpsController {
         }
     }
 
+    @PutMapping("/api-keys/{id}/assigned-team")
+    public ResponseEntity<Void> assignTeam(
+            @AuthenticationPrincipal ClientUserDetails userDetails,
+            @PathVariable Long id,
+            @RequestParam(required = false) String team) {
+        try {
+            Long clientId = userDetails.getClientId();
+            aiOpsService.assignTeam(clientId, id, team);
+            return ResponseEntity.ok().build();
+        } catch (SecurityException e) {
+            return ResponseEntity.status(403).build();
+        } catch (Exception e) {
+            logger.error("Error assigning team: {}", e.getMessage(), e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
     // ─── Cleanup: Orphaned Logs ────────────────────────────────────
 
     @PostMapping("/cleanup-orphaned-logs")

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { GcpServiceGroup, GcpCloudListPageData } from '../types/gcpCloudList';
 import { useTopbar } from '../contexts/TopbarContext';
+import { AnimatedItem } from '../components/Shared/AnimatedList';
 import clsx from 'clsx';
 import '../styles/gcpCloudList.css';
 
@@ -434,8 +435,9 @@ const GcpCloudListPage: React.FC = () => {
         ) : (
           <>
             <div className="gcp-service-groups">
-              {filteredGroups.map((group) => (
-                <div key={group.serviceType} className="gcp-service-group">
+              {filteredGroups.map((group, index) => (
+                <AnimatedItem key={group.serviceType} index={index} delay={index * 0.04}>
+                <div className="gcp-service-group">
                   <div
                     className="gcp-service-group-header"
                     onClick={() => toggleGroup(group.serviceType)}
@@ -483,6 +485,7 @@ const GcpCloudListPage: React.FC = () => {
                     </div>
                   )}
                 </div>
+                </AnimatedItem>
               ))}
             </div>
 

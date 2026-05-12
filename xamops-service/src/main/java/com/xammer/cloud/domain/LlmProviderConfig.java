@@ -64,6 +64,9 @@ public class LlmProviderConfig {
     @Column(name = "usage_limit")
     private Long usageLimit;
 
+    @Column(name = "assigned_team")
+    private String assignedTeam;
+
     @Column(name = "created_at")
     private Instant createdAt;
 

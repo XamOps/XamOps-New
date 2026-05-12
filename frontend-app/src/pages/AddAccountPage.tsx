@@ -29,6 +29,7 @@
 
 import React, { useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useAddAccount } from '../hooks/useAddAccount';
 import { useTopbarActions } from '../contexts/TopbarContext';
 import {
@@ -38,6 +39,7 @@ import {
   GCPForm,
   AzureForm,
   JenkinsForm,
+  GitHubForm,
   PolicyModal,
 } from '../components/AddAccount';
 
@@ -90,6 +92,8 @@ const AddAccountPage: React.FC = () => {
         return { name: 'Azure', icon: 'fab fa-microsoft', colorClass: 'azure' };
       case 'jenkins':
         return { name: 'Jenkins', icon: 'fab fa-jenkins', colorClass: 'jenkins' };
+      case 'github':
+        return { name: 'GitHub', icon: 'fab fa-github', colorClass: 'github' };
       default:
         return { name: 'Cloud', icon: 'fas fa-cloud', colorClass: 'default' };
     }
@@ -100,22 +104,106 @@ const AddAccountPage: React.FC = () => {
     navigate('/account-manager');
   }, [navigate]);
 
+  // Lock outer scroll and propagate a defined height through every ancestor
+  // wrapper so height:100% resolves correctly down to .aa-form-scroll.
+  useEffect(() => {
+    const shell = document.getElementById('main-content');
+    if (!shell) return;
+
+    // Collect every element between #main-content and this page's root
+    // that needs height:100% + overflow:hidden to form a proper chain.
+    const wrappers: HTMLElement[] = [];
+
+    // Walk down: shell's children after <Topbar> (first child)
+    let el: HTMLElement | null = shell.querySelector(':scope > *:nth-child(2)');
+    while (el && !el.classList.contains('aa-page-shell')) {
+      wrappers.push(el);
+      el = el.firstElementChild as HTMLElement | null;
+    }
+
+    // Save originals and apply
+    const originals = wrappers.map((w) => ({
+      display: w.style.display,
+      flexDirection: w.style.flexDirection,
+      height: w.style.height,
+      overflow: w.style.overflow,
+      paddingTop: w.style.paddingTop,
+    }));
+
+    wrappers.forEach((w) => {
+      w.style.display = 'flex';
+      w.style.flexDirection = 'column';
+      w.style.height = '100%';
+      w.style.overflow = 'hidden';
+      w.style.paddingTop = '0';
+    });
+
+    const prevShellOverflow = shell.style.overflowY;
+    shell.style.overflowY = 'hidden';
+
+    return () => {
+      shell.style.overflowY = prevShellOverflow;
+      wrappers.forEach((w, i) => {
+        w.style.display = originals[i].display;
+        w.style.flexDirection = originals[i].flexDirection;
+        w.style.height = originals[i].height;
+        w.style.overflow = originals[i].overflow;
+        w.style.paddingTop = originals[i].paddingTop;
+      });
+    };
+  }, []);
+
   // Set topbar actions
   useEffect(() => {
     setActions(
       <div className="flex items-center gap-3">
-        <button
+        <motion.button
           onClick={handleBackToAccounts}
-          className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all"
+          className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 rounded-xl overflow-hidden relative group"
+          whileHover="hover"
+          whileTap={{ scale: 0.96 }}
+          style={{ border: 'none', outline: 'none' }}
         >
-          <i className="fas fa-arrow-left"></i>
-          <span>Back to Accounts</span>
-        </button>
+          {/* Sliding background fill on hover */}
+          <motion.span
+            className="absolute inset-0 bg-indigo-50 rounded-xl"
+            initial={{ x: '-100%' }}
+            variants={{ hover: { x: 0 } }}
+            transition={{ duration: 0.25, ease: 'easeOut' }}
+          />
+          {/* Arrow icon — rotates and bounces left on hover */}
+          <motion.span
+            className="relative z-10"
+            variants={{
+              hover: { x: -4, rotate: -15, color: '#6366f1' },
+            }}
+            transition={{ type: 'spring', stiffness: 400, damping: 15 }}
+          >
+            <i className="fas fa-arrow-left text-sm"></i>
+          </motion.span>
+          <motion.span
+            className="relative z-10"
+            variants={{ hover: { color: '#6366f1' } }}
+            transition={{ duration: 0.2 }}
+          >
+            Back to Accounts
+          </motion.span>
+        </motion.button>
         {provider && (
-          <div className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium aa-provider-badge-topbar ${providerInfo.colorClass}`}>
-            <i className={providerInfo.icon}></i>
+          <motion.div
+            key={provider}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium aa-provider-badge-topbar ${providerInfo.colorClass}`}
+            initial={{ opacity: 0, scale: 0.85 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ type: 'spring', stiffness: 350, damping: 18 }}
+          >
+            <motion.i
+              className={providerInfo.icon}
+              animate={{ rotate: [0, -15, 12, -8, 5, 0] }}
+              transition={{ duration: 0.6, ease: 'easeInOut', delay: 0.1 }}
+            />
             <span>{providerInfo.name}</span>
-          </div>
+          </motion.div>
         )}
       </div>
     );
@@ -165,32 +253,73 @@ const AddAccountPage: React.FC = () => {
             onSubmit={addJenkinsAccount}
           />
         );
+      case 'github':
+        return <GitHubForm />;
       default:
         return null;
     }
   };
 
+  const currentStep = useMemo(() => {
+    if (autoConnected) return 3;
+    if (isVerifying) return 3;
+    if (isLoading) return 2;
+    if (provider) return 1;
+    return 0;
+  }, [autoConnected, isVerifying, isLoading, provider]);
+
+  const mainVariants = {
+    hidden: {},
+    visible: { transition: { staggerChildren: 0.12, delayChildren: 0.1 } },
+  };
+
+  const itemVariants = {
+    hidden: { opacity: 0, y: 20 },
+    visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' as const } },
+  };
+
   return (
-    <main className="add-account-page fade-in">
-      {/* Content */}
-      <div className="aa-content">
-        <div className="aa-layout">
-          {/* Left Column - Connection Steps */}
-          <aside className="aa-sidebar">
-            <ConnectionSteps provider={provider} />
-          </aside>
+    <main className="aa-page-shell">
+      {/* ── Row 1: Provider Selector — sticky, never scrolls ── */}
+      <motion.div
+        className="aa-sticky-top"
+        variants={mainVariants}
+        initial="hidden"
+        animate="visible"
+      >
+        <motion.div variants={itemVariants} className="aa-provider-row">
+          <ProviderSelector
+            selectedProvider={provider}
+            onSelectProvider={setProvider}
+          />
+        </motion.div>
+      </motion.div>
 
-          {/* Right Column - Forms */}
-          <div className="aa-main">
-            {/* Provider Selector */}
-            <ProviderSelector
-              selectedProvider={provider}
-              onSelectProvider={setProvider}
-            />
+      {/* ── Row 2: Sidebar (sticky) + Form (scrollable) ── */}
+      <div className="aa-body-row">
+        {/* Sidebar sticks alongside the form area */}
+        <motion.aside
+          className="aa-sidebar-sticky"
+          initial={{ opacity: 0, x: -20 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.4, delay: 0.15 }}
+        >
+          <ConnectionSteps provider={provider} currentStep={currentStep} />
+        </motion.aside>
 
-            {/* Provider-specific Form */}
-            {renderProviderForm()}
-          </div>
+        {/* Form: the ONLY thing that scrolls */}
+        <div className="aa-form-scroll">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={provider || 'empty'}
+              initial={{ opacity: 0, x: 40 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -40 }}
+              transition={{ duration: 0.25, ease: 'easeInOut' }}
+            >
+              {renderProviderForm()}
+            </motion.div>
+          </AnimatePresence>
         </div>
       </div>
 

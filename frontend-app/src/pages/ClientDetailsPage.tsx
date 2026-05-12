@@ -39,7 +39,7 @@ const PAGE_SIZE = 10;
 
 function readCache(): ClientDetails[] | null {
     try {
-        const raw = sessionStorage.getItem(CACHE_KEY);
+        const raw = localStorage.getItem(CACHE_KEY);
         if (!raw) return null;
         const { data } = JSON.parse(raw);
         return data as ClientDetails[];
@@ -50,13 +50,13 @@ function readCache(): ClientDetails[] | null {
 
 function writeCache(data: ClientDetails[]) {
     try {
-        sessionStorage.setItem(CACHE_KEY, JSON.stringify({ data, ts: Date.now() }));
+        localStorage.setItem(CACHE_KEY, JSON.stringify({ data, ts: Date.now() }));
     } catch {}
 }
 
 const ClientDetailsPage: React.FC = () => {
-    const [clients, setClients] = useState<ClientDetails[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
+    const [clients, setClients] = useState<ClientDetails[]>(() => readCache() ?? []);
+    const [isLoading, setIsLoading] = useState(() => readCache() === null);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [expandedClient, setExpandedClient] = useState<number | null>(null);
@@ -119,7 +119,7 @@ const ClientDetailsPage: React.FC = () => {
                     </span>
                 )}
                 <button
-                    onClick={async () => { sessionStorage.removeItem(CACHE_KEY); await evictServerCache(); fetchClients(false); }}
+                    onClick={async () => { localStorage.removeItem(CACHE_KEY); await evictServerCache(); fetchClients(true); }}
                     disabled={isLoading || isRefreshing}
                     className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg shadow-sm hover:shadow-md hover:bg-slate-50 transition-all font-bold text-slate-700 text-sm disabled:opacity-50"
                 >
@@ -134,9 +134,6 @@ const ClientDetailsPage: React.FC = () => {
     useEffect(() => {
         const cached = readCache();
         if (cached) {
-            // Show cached data immediately, then silently refresh in background
-            setClients(cached);
-            setIsLoading(false);
             fetchClients(true);
         } else {
             fetchClients(false);
@@ -146,7 +143,7 @@ const ClientDetailsPage: React.FC = () => {
     // Listen for new client/user creation events so the list updates instantly
     useEffect(() => {
         const handler = async () => {
-            sessionStorage.removeItem(CACHE_KEY);
+            localStorage.removeItem(CACHE_KEY);
             await evictServerCache();
             fetchClients(true);
         };
@@ -174,9 +171,7 @@ const ClientDetailsPage: React.FC = () => {
         });
     };
 
-    const handleLoginAs = (userId: number, client: ClientDetails, user: BillOpsUser) => {
-        // Compute the provider account IDs this user is allowed to see.
-        // Empty accountAccessIds = primary user → full access to all client accounts.
+    const handleLoginAs = async (userId: number, client: ClientDetails, user: BillOpsUser) => {
         const allowedProviderIds: string[] =
             user.accountAccessIds.length === 0
                 ? client.accounts.map(a => a.providerAccountId)
@@ -184,23 +179,39 @@ const ClientDetailsPage: React.FC = () => {
                       .map(id => client.accounts.find(a => a.id === id)?.providerAccountId)
                       .filter((pid): pid is string => Boolean(pid));
 
-        const params = new URLSearchParams({
-            impersonateUserId: String(userId),
-            tenantId: client.name,
-        });
-        if (allowedProviderIds.length > 0) {
-            params.set('allowedAccountIds', allowedProviderIds.join(','));
-        }
+        try {
+            const res = await fetch('/api/billops/generate-impersonation-token', {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    userId,
+                    tenantId: client.name,
+                    allowedAccountIds: allowedProviderIds.join(','),
+                }),
+            });
 
-        // noopener,noreferrer forces a separate browsing context group so
-        // Tab B gets its own isolated sessionStorage — preventing Tab A's
-        // admin session from being contaminated when Tab B writes
-        // impersonateUserId / selectedTenantId into sessionStorage.
-        window.open(
-            `${window.location.origin}/unified-dashboard?${params.toString()}`,
-            '_blank',
-            'noopener,noreferrer'
-        );
+            if (!res.ok) {
+                console.error('Failed to generate impersonation token', res.status);
+                return;
+            }
+
+            const { token } = await res.json();
+            const url = `${window.location.origin}/unified-dashboard#imp=${token}`;
+            // Use a programmatic <a> click instead of window.open('', '_blank').
+            // window.open with a blank URL clones the opener's sessionStorage into the new
+            // tab — when bootstrapImpersonationHash writes back, the admin tab's session
+            // gets contaminated and reloading shows the impersonated account.
+            const a = document.createElement('a');
+            a.href = url;
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        } catch (err) {
+            console.error('Error during Login As', err);
+        }
     };
 
     const stats = useMemo(() => ({

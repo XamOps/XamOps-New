@@ -606,6 +606,7 @@ const AIOpsPage: React.FC = () => {
                 apiKeys.loadKeys();
               }}
               onCleanupOrphanedLogs={apiKeys.cleanupOrphanedLogs}
+              onAssignTeam={apiKeys.assignTeam}
             />
           )}
 

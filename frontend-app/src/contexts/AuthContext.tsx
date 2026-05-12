@@ -43,6 +43,29 @@ interface AuthContextValue {
   logout: () => Promise<void>;
 }
 
+// Bootstrap impersonation token from URL hash synchronously before any React
+// rendering. This ensures sessionStorage has the JWT before fetchUserRoles fires
+// its first fetch, so the Authorization header is attached on the very first call.
+(function bootstrapImpersonationHash() {
+  const hash = window.location.hash;
+  if (!hash.startsWith('#imp=')) return;
+  const token = hash.slice(5);
+  try {
+    const payloadB64 = token.split('.')[1];
+    const claims = JSON.parse(atob(payloadB64.replace(/-/g, '+').replace(/_/g, '/')));
+    sessionStorage.setItem('impersonation_jwt', token);
+    sessionStorage.setItem('billops_impersonation', 'true');
+    if (claims.sub) sessionStorage.setItem('impersonateUserId', claims.sub);
+    if (claims.tenantId) sessionStorage.setItem('selectedTenantId', claims.tenantId);
+    if (claims.allowedAccountIds) sessionStorage.setItem('allowedAccountIds', claims.allowedAccountIds);
+    else sessionStorage.removeItem('allowedAccountIds');
+    sessionStorage.removeItem('cached_accounts');
+    sessionStorage.removeItem('selectedAccountIds');
+    // Strip the token from the address bar immediately
+    window.history.replaceState({}, '', window.location.pathname);
+  } catch (_) { /* malformed token — ignore */ }
+})();
+
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
@@ -148,7 +171,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // - in-memory roles already show a billops user (avoids wrong endpoint after SPA navigation), OR
     // - the caller passes an explicit hint (used by LoginForm based on the backend's redirectUrl).
     const isBillopsPage = path.includes('/billops');
-    const isBillopsUser = userRoles.some(r => r.startsWith('ROLE_BILLOPS'));
+    const cachedRoles: string[] = JSON.parse(sessionStorage.getItem('cached_user_roles') || '[]');
+    const isBillopsUser = cachedRoles.some((r: string) => r.startsWith('ROLE_BILLOPS'));
     const preferBillops = isBillopsPage || isBillopsUser || (billopsHint === true);
     const primaryEndpoint = preferBillops ? '/api/billops/profile' : '/api/xamops/user/profile';
     const fallbackEndpoint = preferBillops ? '/api/xamops/user/profile' : '/api/billops/profile';
@@ -262,7 +286,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       // AccountContext uses this to delay fetchAccounts until after cleanup.
       setAuthReady(true);
     }
-  }, [fetchTenants, fetchTenantUsers, userRoles]);
+  }, [fetchTenants, fetchTenantUsers]);
 
   /**
    * Check if user has any of the specified roles
@@ -400,53 +424,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     fetchUserRoles();
   }, []); // Empty dependency array - only run on mount
 
-  // Check for impersonateUserId, tenantId and allowedAccountIds in URL query parameters
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const userId = params.get('impersonateUserId');
-    const tenantId = params.get('tenantId');
-    const allowedAccountIds = params.get('allowedAccountIds');
-
-    if (userId || tenantId || allowedAccountIds) {
-      console.log('🔄 Detected impersonation/tenant context in URL:', { userId, tenantId, allowedAccountIds });
-
-      // Clear existing context to ensure clean isolation
-      if (userId) {
-        sessionStorage.removeItem('impersonateUserId');
-        sessionStorage.setItem('impersonateUserId', userId);
-        // Mark this as a billops "Login as" session so fetchUserRoles does not
-        // clear impersonateUserId when it sees a non-super-admin profile.
-        sessionStorage.setItem('billops_impersonation', 'true');
-        setImpersonateUser(userId);
-      }
-
-      if (tenantId) {
-        sessionStorage.removeItem('selectedTenantId');
-        sessionStorage.setItem('selectedTenantId', tenantId);
-        setSelectedTenant(tenantId);
-      }
-
-      // Store the allowed provider account IDs for this impersonated user so
-      // AccountContext can filter the sidebar to only show their permitted accounts.
-      if (allowedAccountIds) {
-        sessionStorage.setItem('allowedAccountIds', allowedAccountIds);
-      } else {
-        sessionStorage.removeItem('allowedAccountIds');
-      }
-
-      // Clear stale account cache so AccountContext re-fetches after reload
-      // instead of showing the previous user's (admin's) cached accounts.
-      sessionStorage.removeItem('cached_accounts');
-      sessionStorage.removeItem('selectedAccountIds');
-
-      // Clean up the URL
-      const newUrl = window.location.pathname;
-      window.history.replaceState({}, '', newUrl);
-
-      // Refresh to apply context
-      window.location.reload();
-    }
-  }, []);
+  // bootstrapImpersonationHash() (module-level, above) already handles the #imp=
+  // token synchronously before first render, so this effect is intentionally a no-op.
 
   const value: AuthContextValue = React.useMemo(() => ({
     userRoles,

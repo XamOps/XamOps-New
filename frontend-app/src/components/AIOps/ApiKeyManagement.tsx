@@ -11,6 +11,7 @@ interface ApiKeyManagementProps {
   onUpdateUsageLimit: (id: number, limit: number | null) => Promise<void>;
   onDeleteProvider?: (id: number) => Promise<void>;
   onCleanupOrphanedLogs?: () => Promise<{ deleted: number; message: string }>;
+  onAssignTeam?: (id: number, team: string | null) => Promise<void>;
 }
 
 const HEALTH_BADGE: Record<string, { bg: string; text: string; icon: string }> = {
@@ -142,11 +143,108 @@ function RotateKeyModal({
   );
 }
 
+// ─── Assign Team Modal ───────────────────────────────────────
+function AssignTeamModal({
+  isOpen,
+  onClose,
+  keyInfo,
+  onSave,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  keyInfo: ApiKeyStats | null;
+  onSave: (id: number, team: string | null) => Promise<void>;
+}) {
+  const [teamName, setTeamName] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  React.useEffect(() => {
+    if (isOpen && keyInfo) {
+      setTeamName(keyInfo.assignedTeam || '');
+    }
+  }, [isOpen, keyInfo]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!keyInfo) return;
+    setSaving(true);
+    await onSave(keyInfo.id, teamName.trim() || null);
+    setSaving(false);
+    onClose();
+  };
+
+  const handleRemove = async () => {
+    if (!keyInfo) return;
+    setSaving(true);
+    await onSave(keyInfo.id, null);
+    setSaving(false);
+    onClose();
+  };
+
+  return (
+    <DialogRoot isOpen={isOpen} onClose={onClose}>
+      <DialogPanel title={`Assign Team — ${keyInfo?.displayName || keyInfo?.provider}`}>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-lg text-xs text-indigo-700">
+            <i className="fas fa-info-circle mr-1" />
+            All requests made through this key will be automatically tagged with this team name and appear in team analytics.
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">
+              Team Name <span className="text-gray-400 font-normal">(e.g. backend-team, data-science, product)</span>
+            </label>
+            <input
+              type="text"
+              value={teamName}
+              onChange={e => setTeamName(e.target.value)}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+              placeholder="Enter team name..."
+            />
+          </div>
+
+          <div className="flex items-center justify-between pt-2">
+            <div>
+              {keyInfo?.assignedTeam && (
+                <button
+                  type="button"
+                  onClick={handleRemove}
+                  disabled={saving}
+                  className="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors disabled:opacity-50"
+                >
+                  <i className="fas fa-times mr-1" />Remove Assignment
+                </button>
+              )}
+            </div>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={saving || !teamName.trim()}
+                className="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-indigo-500 to-purple-600 rounded-lg hover:from-indigo-600 hover:to-purple-700 transition-all disabled:opacity-50"
+              >
+                {saving ? 'Saving...' : 'Assign Team'}
+              </button>
+            </div>
+          </div>
+        </form>
+      </DialogPanel>
+    </DialogRoot>
+  );
+}
+
 // ─── Main Component ──────────────────────────────────────────
 const ApiKeyManagement: React.FC<ApiKeyManagementProps> = ({
-  keys, loading, onRotateKey, onUpdateUsageLimit, onDeleteProvider, onCleanupOrphanedLogs,
+  keys, loading, onRotateKey, onUpdateUsageLimit, onDeleteProvider, onCleanupOrphanedLogs, onAssignTeam,
 }) => {
   const [rotatingKey, setRotatingKey] = useState<ApiKeyStats | null>(null);
+  const [assigningTeamKey, setAssigningTeamKey] = useState<ApiKeyStats | null>(null);
   const [editingLimit, setEditingLimit] = useState<number | null>(null);
   const [limitValue, setLimitValue] = useState('');
   const [deletingKey, setDeletingKey] = useState<ApiKeyStats | null>(null);
@@ -241,14 +339,12 @@ const ApiKeyManagement: React.FC<ApiKeyManagementProps> = ({
         </div>
         <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider inline-flex items-center gap-1">Errors <InfoTooltip placement="bottom">Keys in ERROR or DEGRADED health state.</InfoTooltip></span>
-            <div className="w-8 h-8 bg-gradient-to-br from-red-500 to-rose-600 rounded-lg flex items-center justify-center">
-              <i className="fas fa-exclamation-circle text-white text-xs" />
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider inline-flex items-center gap-1">Team Assigned <InfoTooltip placement="bottom">Keys that have a team assigned for automatic usage attribution.</InfoTooltip></span>
+            <div className="w-8 h-8 bg-gradient-to-br from-violet-500 to-indigo-600 rounded-lg flex items-center justify-center">
+              <i className="fas fa-users text-white text-xs" />
             </div>
           </div>
-          <p className="text-2xl font-bold text-gray-900">
-            {keys.filter(k => k.healthStatus === 'ERROR' || k.healthStatus === 'DEGRADED').length}
-          </p>
+          <p className="text-2xl font-bold text-gray-900">{keys.filter(k => k.assignedTeam).length}</p>
         </div>
       </div>
 
@@ -274,10 +370,24 @@ const ApiKeyManagement: React.FC<ApiKeyManagementProps> = ({
                     <p className="text-xs text-gray-400">{key.provider}</p>
                   </div>
                 </div>
-                <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold ${health.bg} ${health.text}`}>
-                  <i className={`${health.icon} text-[10px]`} />
-                  {key.healthStatus}
-                </span>
+                <div className="flex items-center gap-2">
+                  {/* Team badge */}
+                  {key.assignedTeam ? (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-700 border border-indigo-200">
+                      <i className="fas fa-users text-[10px]" />
+                      {key.assignedTeam}
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-400 border border-gray-200">
+                      <i className="fas fa-user-slash text-[9px]" />
+                      No Team
+                    </span>
+                  )}
+                  <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold ${health.bg} ${health.text}`}>
+                    <i className={`${health.icon} text-[10px]`} />
+                    {key.healthStatus}
+                  </span>
+                </div>
               </div>
 
               {/* Body */}
@@ -348,7 +458,7 @@ const ApiKeyManagement: React.FC<ApiKeyManagementProps> = ({
               </div>
 
               {/* Actions */}
-              <div className="px-5 py-3 border-t border-gray-100 bg-gray-50/50 flex items-center gap-2">
+              <div className="px-5 py-3 border-t border-gray-100 bg-gray-50/50 flex items-center gap-2 flex-wrap">
                 <button
                   onClick={() => setRotatingKey(key)}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-700 bg-amber-100 rounded-lg hover:bg-amber-200 transition-colors"
@@ -356,6 +466,19 @@ const ApiKeyManagement: React.FC<ApiKeyManagementProps> = ({
                   <i className="fas fa-sync-alt" />
                   Rotate Key
                 </button>
+                {onAssignTeam && (
+                  <button
+                    onClick={() => setAssigningTeamKey(key)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                      key.assignedTeam
+                        ? 'text-indigo-700 bg-indigo-100 hover:bg-indigo-200'
+                        : 'text-violet-700 bg-violet-100 hover:bg-violet-200'
+                    }`}
+                  >
+                    <i className="fas fa-users" />
+                    {key.assignedTeam ? 'Change Team' : 'Assign Team'}
+                  </button>
+                )}
                 {onDeleteProvider && (
                   <button
                     onClick={() => setDeletingKey(key)}
@@ -415,6 +538,16 @@ const ApiKeyManagement: React.FC<ApiKeyManagementProps> = ({
         keyInfo={rotatingKey}
         onSave={onRotateKey}
       />
+
+      {/* Assign Team Modal */}
+      {onAssignTeam && (
+        <AssignTeamModal
+          isOpen={!!assigningTeamKey}
+          onClose={() => setAssigningTeamKey(null)}
+          keyInfo={assigningTeamKey}
+          onSave={onAssignTeam}
+        />
+      )}
 
       {/* Delete Confirmation Modal */}
       <DialogRoot isOpen={!!deletingKey} onClose={() => setDeletingKey(null)}>

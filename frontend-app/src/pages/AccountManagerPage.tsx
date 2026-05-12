@@ -16,6 +16,8 @@
 
 import React, { useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
+import { motion } from 'framer-motion';
+import { Plus } from 'lucide-react';
 import { useAccountManager } from '../hooks/useAccountManager';
 import { useTopbar } from '../contexts/TopbarContext';
 import {
@@ -46,37 +48,22 @@ const AccountManagerPage: React.FC = () => {
     updateBillingTable,
   } = useAccountManager();
 
-  console.log('🏗️ AccountManagerPage render:', {
-    accountsCount: accounts.length,
-    githubCount: githubConfigs.length,
-    jenkinsCount: jenkinsConfigs.length,
-    isLoading,
-    isGithubLoading,
-    isJenkinsLoading
-  });
 
   const { setActions, clearActions, setOnHelpClick } = useTopbar();
 
   React.useEffect(() => {
-    console.log('🚀 AccountManagerPage Mounted!');
-
     // Register Topbar actions
     setActions(
-      <div className="flex items-center gap-3">
-        <Link
-          to="/add-account"
-          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-500/20"
-        >
-          <i className="fas fa-plus"></i>
-          <span>Add Account</span>
-        </Link>
-        <Link
-          to="/add-github-config"
-          className="flex items-center gap-2 px-4 py-2 bg-gray-700 text-white rounded-xl text-xs font-bold hover:bg-gray-800 transition-all shadow-lg shadow-gray-500/10"
-        >
-          <i className="fab fa-github"></i>
-          <span>Add Repo</span>
-        </Link>
+      <div className="flex items-center gap-2">
+        <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
+          <Link
+            to="/add-account"
+            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-indigo-500 to-violet-600 text-white rounded-xl text-xs font-bold shadow-lg shadow-indigo-500/25 hover:shadow-indigo-500/40 hover:from-indigo-600 hover:to-violet-700 transition-all"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Add Account</span>
+          </Link>
+        </motion.div>
       </div>
     );
 
@@ -155,7 +142,6 @@ const AccountManagerPage: React.FC = () => {
 
   return (
     <div className="account-manager-page pb-12">
-      {/* Content */}
       <div className="account-manager-content pt-6">
         {/* KPI Cards */}
         <AccountManagerKPICards

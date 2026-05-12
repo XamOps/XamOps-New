@@ -20,6 +20,8 @@
  */
 
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import { motion } from 'framer-motion';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useBillOpsAdminTickets } from '../hooks/useBillOpsAdminTickets';
 import { useTopbarActions } from '../contexts/TopbarContext';
@@ -153,6 +155,16 @@ const BillOpsAdminTicketsPage: React.FC = () => {
       setRaiseSubmitting(false);
     }
   }, [selectedClient, selectedAccount, raiseForm, fetchTickets]);
+
+  // Lock body scroll while the raise ticket modal is open
+  useEffect(() => {
+    if (showRaiseModal) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => { document.body.style.overflow = ''; };
+  }, [showRaiseModal]);
   // ──────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -510,9 +522,12 @@ const BillOpsAdminTicketsPage: React.FC = () => {
     </tr>
   );
 
-  const renderTicketRow = (ticket: AdminTicket) => (
-    <tr
+  const renderTicketRow = (ticket: AdminTicket, index: number) => (
+    <motion.tr
       key={ticket.id}
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.2, delay: index * 0.03, ease: 'easeOut' }}
       className={`hover:bg-indigo-50/30 transition-all cursor-pointer group border-b border-transparent hover:border-indigo-100 ${getRowClasses(ticket)}`}
       onClick={() => viewTicket(ticket.id)}
     >
@@ -634,7 +649,7 @@ const BillOpsAdminTicketsPage: React.FC = () => {
           <i className="fas fa-chevron-right text-xs"></i>
         </button>
       </td>
-    </tr>
+    </motion.tr>
   );
 
   return (
@@ -975,7 +990,7 @@ const BillOpsAdminTicketsPage: React.FC = () => {
                   </thead>
                   <tbody className="bg-white/20 divide-y divide-slate-50">
                     {paginatedTickets.length > 0
-                      ? paginatedTickets.map((ticket) => renderTicketRow(ticket))
+                      ? paginatedTickets.map((ticket, index) => renderTicketRow(ticket, index))
                       : renderEmptyState()}
                   </tbody>
                 </table>
@@ -1091,10 +1106,10 @@ const BillOpsAdminTicketsPage: React.FC = () => {
       </div>
 
       {/* ─── Admin Raise Ticket Modal ─────────────────────────────────────── */}
-      {showRaiseModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      {showRaiseModal && createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
           {/* Backdrop */}
-          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setShowRaiseModal(false)} />
+          <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={() => setShowRaiseModal(false)} />
 
           <div className="relative bg-white rounded-[2rem] shadow-2xl shadow-indigo-900/10 border border-white w-full max-w-lg overflow-hidden">
             {/* Modal Header */}
@@ -1337,7 +1352,8 @@ const BillOpsAdminTicketsPage: React.FC = () => {
               )}
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
       {/* ──────────────────────────────────────────────────────────────────── */}
     </div>

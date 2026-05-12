@@ -42,7 +42,7 @@ export const useDashboardData = ({
 }: UseDashboardDataOptions): UseDashboardDataReturn => {
   const [dashboardData, setDashboardData] = useState<DashboardAccount | null>(null);
   const [loadingState, setLoadingState] = useState<LoadingState>({
-    global: false,
+    global: selectedAccountIds.length > 0, // start loading immediately if accounts are selected
     kpi: false,
     inventory: false,
     cost: false,

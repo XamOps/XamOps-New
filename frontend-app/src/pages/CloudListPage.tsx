@@ -25,6 +25,7 @@ import SockJS from 'sockjs-client';
 import Stomp from 'stompjs';
 import { useTopbar } from '../contexts/TopbarContext';
 import Skeleton from '../components/Shared/Skeleton';
+import { AnimatedItem } from '../components/Shared/AnimatedList';
 import LabelBadge from '../components/Labels/LabelBadge';
 import LabelAssignPopover from '../components/Labels/LabelAssignPopover';
 import { fetchLabels, fetchResourceLabelMap, assignLabel, removeLabel, fetchConnectedResources } from '../services/resourceLabelsApi';
@@ -332,7 +333,7 @@ const CloudListPage: React.FC = () => {
   // ── Load all labels for the client once ──────────────────────────────────
   useEffect(() => {
     fetchLabels()
-      .then(setAllLabels)
+      .then(data => setAllLabels(Array.isArray(data) ? data : []))
       .catch(err => console.error('[Labels] Failed to load labels:', err));
   }, []);
 
@@ -834,9 +835,9 @@ const CloudListPage: React.FC = () => {
         ) : (
           <>
             <div className="space-y-6">
-              {filteredGroups.map(group => (
+              {filteredGroups.map((group, index) => (
+                <AnimatedItem key={group.serviceType} index={index} delay={index * 0.04}>
                 <div
-                  key={group.serviceType}
                   className="cloudlist-service-group rounded-2xl shadow-lg border border-gray-200/50"
                   style={group.resources.some(r => openPopoverResourceId === r.id)
                     ? { overflow: 'visible', zIndex: 200, position: 'relative' }
@@ -1136,6 +1137,7 @@ const CloudListPage: React.FC = () => {
                     </div>
                   )}
                 </div>
+                </AnimatedItem>
               ))}
             </div>
 

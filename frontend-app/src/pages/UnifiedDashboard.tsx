@@ -25,9 +25,11 @@ import { ProviderDonutChart } from '../components/Dashboard/ProviderDonutChart';
 import { AccountBreakdownModal } from '../components/Dashboard/AccountBreakdownModal';
 import { useUnifiedDashboard } from '../hooks/useUnifiedDashboard';
 import { useWebSocket } from '../hooks/useWebSocket';
+import { useAccounts } from '../contexts/AccountContext';
 import type { SubAccount, ViewMode } from '../types/dashboard';
 
 export const UnifiedDashboard: React.FC = () => {
+  const { accounts: userAccounts } = useAccounts();
   const {
     isLoading,
     error,
@@ -50,6 +52,7 @@ export const UnifiedDashboard: React.FC = () => {
     activeAccountList,
     setActiveAccountList,
     getAllAccounts,
+    mergeProviderAccounts,
     notification,
     setNotification,
   } = useUnifiedDashboard();
@@ -96,25 +99,20 @@ export const UnifiedDashboard: React.FC = () => {
   };
 
   const getTotalSavings = () => {
-    return (
-      (awsData?.selectedAccount?.optimizationSummary?.totalPotentialSavings || 0) +
-      (gcpData?.selectedAccount?.optimizationSummary?.totalPotentialSavings || 0) +
-      (azureData?.selectedAccount?.optimizationSummary?.totalPotentialSavings || 0)
-    );
+    const awsOpt = awsData?.selectedAccount?.optimizationSummary?.totalPotentialSavings || 0;
+    const gcpOpt = gcpData?.selectedAccount?.optimizationSummary?.totalPotentialSavings || 0;
+    const azureOpt = azureData?.selectedAccount?.optimizationSummary?.totalPotentialSavings || 0;
+    return awsOpt + gcpOpt + azureOpt;
   };
 
   const getTotalWasteCount = () => {
-    const awsWaste = awsData?.selectedAccount?.optimizationSummary?.criticalAlerts || 0;
-    const gcpWaste = gcpData?.selectedAccount?.optimizationSummary?.criticalAlerts || 0;
-    const azureWaste = azureData?.selectedAccount?.optimizationSummary?.criticalAlerts || 0;
-    return awsWaste + gcpWaste + azureWaste + 12;
+    const all = getAllAccounts();
+    return all.reduce((sum, a) => sum + (a.wastedResourceCount ?? 0), 0);
   };
 
   const getTotalAlertsCount = () => {
-    const awsAlerts = awsData?.selectedAccount?.optimizationSummary?.criticalAlerts || 0;
-    const gcpAlerts = gcpData?.selectedAccount?.optimizationSummary?.criticalAlerts || 0;
-    const azureAlerts = azureData?.selectedAccount?.optimizationSummary?.criticalAlerts || 0;
-    return awsAlerts + gcpAlerts + azureAlerts;
+    const all = getAllAccounts();
+    return all.reduce((sum, a) => sum + (a.activeAlertCount ?? 0), 0);
   };
 
   const getAverageSecurityScore = () => {
@@ -149,12 +147,13 @@ export const UnifiedDashboard: React.FC = () => {
   };
 
   // Modal handlers
-  const openBreakdown = (provider: string, list: SubAccount[] | undefined) => {
+  const openBreakdown = (provider: string, providerData: typeof awsData) => {
     setViewMode('cost');
     setActiveProvider(provider);
-    const sortedList = list
-      ? JSON.parse(JSON.stringify(list)).sort((a: SubAccount, b: SubAccount) => b.monthToDateSpend - a.monthToDateSpend)
-      : [];
+    const merged = mergeProviderAccounts(providerData, provider as 'AWS' | 'GCP' | 'Azure');
+    const sortedList = JSON.parse(JSON.stringify(merged)).sort(
+      (a: SubAccount, b: SubAccount) => b.monthToDateSpend - a.monthToDateSpend
+    );
     setActiveAccountList(sortedList);
     setShowModal(true);
   };
@@ -174,11 +173,9 @@ export const UnifiedDashboard: React.FC = () => {
   const openWasteBreakdown = () => {
     setViewMode('waste');
     setActiveProvider('All');
-    const accounts = getAllAccounts().sort((a, b) => {
-      const valA = a.optimizationSummary?.criticalAlerts || 0;
-      const valB = b.optimizationSummary?.criticalAlerts || 0;
-      return valB - valA;
-    });
+    const accounts = getAllAccounts().sort((a, b) =>
+      (b.wastedResourceCount ?? 0) - (a.wastedResourceCount ?? 0)
+    );
     setActiveAccountList(accounts);
     setShowModal(true);
   };
@@ -186,11 +183,9 @@ export const UnifiedDashboard: React.FC = () => {
   const openAlertsBreakdown = () => {
     setViewMode('alerts');
     setActiveProvider('All');
-    const accounts = getAllAccounts().sort((a, b) => {
-      const valA = a.optimizationSummary?.criticalAlerts || 0;
-      const valB = b.optimizationSummary?.criticalAlerts || 0;
-      return valB - valA;
-    });
+    const accounts = getAllAccounts().sort((a, b) =>
+      (b.activeAlertCount ?? 0) - (a.activeAlertCount ?? 0)
+    );
     setActiveAccountList(accounts);
     setShowModal(true);
   };
@@ -218,6 +213,21 @@ export const UnifiedDashboard: React.FC = () => {
   const handleSelectAccount = useCallback((accountId: string, mode: ViewMode) => {
     console.log(`Selected account ${accountId} in ${mode} mode, provider: ${activeProvider}`);
     setShowModal(false);
+
+    // Only select accounts the current user actually has access to.
+    // Cross-tenant accounts appear in the unified snapshot but are not in the
+    // user's account list — selecting them sets an inaccessible ID in
+    // sessionStorage, leaving the sidebar and destination page in a broken state.
+    const accessible = userAccounts.find(a => a.id === accountId);
+    if (!accessible) {
+      setNotification({
+        type: 'error',
+        title: 'Account Not Accessible',
+        message: 'This account is not available in your current session.',
+      });
+      setTimeout(() => setNotification(null), 4000);
+      return;
+    }
 
     // Update session storage with selected account
     sessionStorage.setItem('selectedAccountIds', JSON.stringify([accountId]));
@@ -288,7 +298,7 @@ export const UnifiedDashboard: React.FC = () => {
     }
 
     navigate(`${targetPath}?${urlParams.toString()}`);
-  }, [setShowModal, activeProvider, navigate, getAllAccounts, awsData, gcpData, azureData]);
+  }, [setShowModal, activeProvider, navigate, getAllAccounts, awsData, gcpData, azureData, userAccounts, setNotification]);
 
   // Listen for account selection changes (for soft navigation)
   useEffect(() => {
@@ -338,7 +348,7 @@ export const UnifiedDashboard: React.FC = () => {
         <DashboardHeader
           lastUpdatedText={lastUpdatedText}
           serverTime={serverTime}
-          isLoading={isLoading.summary}
+          isLoading={Object.values(isLoading).some(Boolean)}
           onRefresh={handleRefresh}
         />
 
@@ -565,7 +575,7 @@ export const UnifiedDashboard: React.FC = () => {
               error={error.aws}
               accountCount={summaryData.awsCount}
               onRetry={() => fetchProvider('aws', true)}
-              onViewBreakdown={() => openBreakdown('AWS', awsData?.selectedAccount?.subAccounts)}
+              onViewBreakdown={() => openBreakdown('AWS', awsData)}
             />
             <ProviderCard
               provider="GCP"
@@ -574,7 +584,7 @@ export const UnifiedDashboard: React.FC = () => {
               error={error.gcp}
               accountCount={summaryData.gcpCount}
               onRetry={() => fetchProvider('gcp', true)}
-              onViewBreakdown={() => openBreakdown('GCP', gcpData?.selectedAccount?.subAccounts)}
+              onViewBreakdown={() => openBreakdown('GCP', gcpData)}
             />
             <ProviderCard
               provider="Azure"
@@ -583,7 +593,7 @@ export const UnifiedDashboard: React.FC = () => {
               error={error.azure}
               accountCount={summaryData.azureCount}
               onRetry={() => fetchProvider('azure', true)}
-              onViewBreakdown={() => openBreakdown('Azure', azureData?.selectedAccount?.subAccounts)}
+              onViewBreakdown={() => openBreakdown('Azure', azureData)}
             />
           </div>
         </main>

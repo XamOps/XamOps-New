@@ -116,7 +116,7 @@ export const useBillOpsAdminDashboard = (): UseBillOpsAdminDashboardReturn => {
       if (isMountedRef.current) {
         setData(prev => {
           if (!prev) return prev;
-          const updated = { ...prev, topSpendingAccounts: freshTop10, lastUpdated: Date.now() };
+          const updated = { ...prev, topSpendingAccounts: freshTop10, lastUpdated: new Date().toISOString() };
           localStorage.setItem(cacheKeyRef.current, JSON.stringify(updated));
           return updated;
         });

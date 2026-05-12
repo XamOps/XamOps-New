@@ -18,20 +18,31 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Res
 
   // Demo mode: short-circuit before any network call
   if (isInternal && isDemoMode()) {
-    const mockResponse = resolveDemoResponse(url);
+    const method = (typeof init?.method === 'string' ? init.method : 'GET').toUpperCase();
+    const body = typeof init?.body === 'string' ? init.body : undefined;
+    const mockResponse = resolveDemoResponse(url, method, body);
     if (mockResponse) return mockResponse;
   }
 
   if (isInternal) {
-    const tenantId    = sessionStorage.getItem('selectedTenantId');
-    const impersonate = sessionStorage.getItem('impersonateUserId');
-    const csrfToken   = document.cookie.split('; ').find(r => r.startsWith('XSRF-TOKEN='))?.split('=')[1];
+    const tenantId       = sessionStorage.getItem('selectedTenantId');
+    const impersonate    = sessionStorage.getItem('impersonateUserId');
+    const impersonateJwt = sessionStorage.getItem('impersonation_jwt');
+    const csrfToken      = document.cookie.split('; ').find(r => r.startsWith('XSRF-TOKEN='))?.split('=')[1];
 
     const headers = new Headers(init?.headers as HeadersInit);
-    if (tenantId    && tenantId    !== 'null') headers.set('X-Tenant-ID',        tenantId);
+    if (tenantId  && tenantId  !== 'null') headers.set('X-Tenant-ID',        tenantId);
     if (impersonate && impersonate !== 'null') headers.set('X-Impersonate-User', impersonate);
-    if (csrfToken)                             headers.set('X-XSRF-TOKEN',       csrfToken);
 
+    if (impersonateJwt) {
+      // Billops "Login As" session — authenticate via JWT only.
+      // credentials: 'omit' prevents the browser from sending JSESSIONID,
+      // which would overwrite the admin's cookie domain-wide.
+      headers.set('Authorization', `Bearer ${impersonateJwt}`);
+      return _nativeFetch(input, { ...init, headers, credentials: 'omit' });
+    }
+
+    if (csrfToken) headers.set('X-XSRF-TOKEN', csrfToken);
     return _nativeFetch(input, { credentials: 'include', ...init, headers });
   }
 
@@ -39,25 +50,73 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Res
 };
 // ─────────────────────────────────────────────────────────────────────────────
 
-// ─── Axios Demo Interceptor ──────────────────────────────────────────────────
-// gcpDashboardApi.ts (and any other file) uses axios directly instead of
-// window.fetch, so the fetch patch above doesn't catch those calls.
-// This adapter replaces axios's network layer in demo mode so all axios
-// requests are also short-circuited through the same mock router.
-if (isDemoMode()) {
-  const _nativeAxiosAdapter = axios.defaults.adapter;
-  axios.defaults.adapter = async (config) => {
-    const url = config.url ?? '';
-    const isInternal = url.startsWith('/') || url.startsWith(window.location.origin);
-    if (isInternal) {
-      const mockResponse = resolveDemoResponse(url);
-      if (mockResponse) {
-        const data = mockResponse.status === 404 ? null : await mockResponse.json().catch(() => null);
-        return { data, status: mockResponse.status, statusText: 'OK', headers: {}, config, request: {} };
-      }
+// ─── Axios Interceptor ───────────────────────────────────────────────────────
+// gcpDashboardApi.ts uses axios directly (not window.fetch), so the fetch patch
+// above doesn't catch those calls. We replace axios's adapter unconditionally so
+// that isDemoMode() is checked at request time rather than at module-init time.
+// This also fixes axios 1.x compatibility: defaults.adapter is an array in 1.x,
+// not a callable function, so the old passthrough pattern threw TypeError.
+axios.defaults.adapter = async (config) => {
+  const url = config.url ?? '';
+  const isInternal = url.startsWith('/') || url.startsWith(window.location.origin);
+
+  if (isInternal && isDemoMode()) {
+    const axiosMethod = (config.method || 'GET').toUpperCase();
+    const axiosBody = config.data != null ? (typeof config.data === 'string' ? config.data : JSON.stringify(config.data)) : undefined;
+    const mockResponse = resolveDemoResponse(url, axiosMethod, axiosBody);
+    if (mockResponse) {
+      const data = mockResponse.status === 404 ? null : await mockResponse.json().catch(() => null);
+      return { data, status: mockResponse.status, statusText: 'OK', headers: {}, config, request: {} };
     }
-    return (_nativeAxiosAdapter as any)(config);
-  };
+  }
+
+  // Passthrough: delegate to window.fetch which is already patched for tenant
+  // headers and demo intercept, so this path works for both demo and production.
+  const method = (config.method || 'GET').toUpperCase();
+  const params = config.params ? '?' + new URLSearchParams(config.params as Record<string, string>).toString() : '';
+  const fullUrl = `${url}${params}`;
+  const res = await window.fetch(fullUrl, {
+    method,
+    headers: config.headers as HeadersInit,
+    body: config.data != null
+      ? (typeof config.data === 'string' ? config.data : JSON.stringify(config.data))
+      : undefined,
+    credentials: 'include',
+  });
+  const responseData = await res.json().catch(() => null);
+  if (!res.ok) {
+    const err: any = new Error(`Request failed with status code ${res.status}`);
+    err.response = { data: responseData, status: res.status, statusText: res.statusText, headers: {}, config, request: {} };
+    err.isAxiosError = true;
+    err.config = config;
+    throw err;
+  }
+  return { data: responseData, status: res.status, statusText: res.statusText, headers: {}, config, request: {} };
+};
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─── Demo Mode Cache Buster ──────────────────────────────────────────────────
+// Hooks cache API responses in sessionStorage. After mock data changes, stale
+// zero-value entries persist and override corrected mocks. Bump DEMO_CACHE_VERSION
+// whenever mock data is updated to force a clean slate on next startup.
+if (isDemoMode()) {
+  const DEMO_CACHE_VERSION = '2026-05-04-v4';
+  if (sessionStorage.getItem('demoCacheVersion') !== DEMO_CACHE_VERSION) {
+    // Preserve impersonation keys before clearing — they are needed to
+    // re-authenticate the impersonation session on reload.
+    const impJwt = sessionStorage.getItem('impersonation_jwt');
+    const impFlag = sessionStorage.getItem('billops_impersonation');
+    const impUser = sessionStorage.getItem('impersonateUserId');
+    const impTenant = sessionStorage.getItem('selectedTenantId');
+    const impAccounts = sessionStorage.getItem('allowedAccountIds');
+    sessionStorage.clear();
+    sessionStorage.setItem('demoCacheVersion', DEMO_CACHE_VERSION);
+    if (impJwt) sessionStorage.setItem('impersonation_jwt', impJwt);
+    if (impFlag) sessionStorage.setItem('billops_impersonation', impFlag);
+    if (impUser) sessionStorage.setItem('impersonateUserId', impUser);
+    if (impTenant) sessionStorage.setItem('selectedTenantId', impTenant);
+    if (impAccounts) sessionStorage.setItem('allowedAccountIds', impAccounts);
+  }
 }
 // ─────────────────────────────────────────────────────────────────────────────
 

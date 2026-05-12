@@ -11,4 +11,5 @@ export { default as AWSForm } from './AWSForm';
 export { default as GCPForm } from './GCPForm';
 export { default as AzureForm } from './AzureForm';
 export { default as JenkinsForm } from './JenkinsForm';
+export { default as GitHubForm } from './GitHubForm';
 export { default as PolicyModal } from './PolicyModal';

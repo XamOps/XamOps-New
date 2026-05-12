@@ -215,6 +215,10 @@ public class DashboardData {
     private List<String> gcpProjectIds;
     private List<String> azureSubscriptionIds;
 
+    // Per-account counts for unified dashboard breakdown modal
+    private int wastedResourceCount;
+    private int activeAlertCount;
+
     // --- NEW: Account Breakdown Lists for Smart View ---
     private List<Account> subAccounts; // Generic breakdown
     private List<Account> awsAccountList; // Specific to Unified View

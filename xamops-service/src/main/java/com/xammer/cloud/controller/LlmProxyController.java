@@ -45,7 +45,7 @@ public class LlmProxyController {
                     ? fullPath.substring(prefix.length() + 1)
                     : "";
 
-            // Extract optional agent name
+            // Extract optional agent name — header takes priority, falls back to key's assigned team
             String agentName = request.getHeader(AGENT_HEADER);
 
             HttpMethod method = HttpMethod.valueOf(request.getMethod());

@@ -1,22 +1,28 @@
 package com.xammer.cloud.config;
 
+import com.xammer.cloud.config.multitenancy.ImpersonationJwtFilter;
 import com.xammer.cloud.security.CustomAuthenticationFailureHandler;
 import com.xammer.cloud.security.CustomAuthenticationSuccessHandler;
 import com.xammer.cloud.security.CustomLogoutSuccessHandler;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.method.configuration.EnableGlobalMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.firewall.HttpFirewall;
 import org.springframework.security.web.firewall.StrictHttpFirewall;
 import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
+import org.springframework.security.web.util.matcher.RequestHeaderRequestMatcher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -36,6 +42,9 @@ public class SecurityConfig {
         private final CustomLogoutSuccessHandler logoutSuccessHandler;
         private final UserDetailsService userDetailsService;
 
+        @Autowired
+        private ImpersonationJwtFilter impersonationJwtFilter;
+
         public SecurityConfig(CustomAuthenticationSuccessHandler authenticationSuccessHandler,
                         CustomAuthenticationFailureHandler authenticationFailureHandler,
                         CustomLogoutSuccessHandler logoutSuccessHandler,
@@ -44,6 +53,31 @@ public class SecurityConfig {
                 this.authenticationFailureHandler = authenticationFailureHandler;
                 this.logoutSuccessHandler = logoutSuccessHandler;
                 this.userDetailsService = userDetailsService;
+        }
+
+        /**
+         * Handles impersonation requests that carry a billops-issued JWT.
+         * STATELESS — SecurityContextPersistenceFilter skips session read/write entirely,
+         * so the admin's JSESSIONID is never touched by these requests.
+         */
+        @Bean
+        @Order(1)
+        public SecurityFilterChain impersonationJwtFilterChain(HttpSecurity http) throws Exception {
+                http
+                        .requestMatcher(new RequestHeaderRequestMatcher("Authorization"))
+                        .cors(withDefaults())
+                        .csrf(csrf -> csrf.disable())
+                        .sessionManagement(session -> session
+                                .sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                        .exceptionHandling(ex -> ex
+                                .defaultAuthenticationEntryPointFor(
+                                        new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),
+                                        new AntPathRequestMatcher("/api/**")))
+                        .authorizeHttpRequests(auth -> auth
+                                .anyRequest().authenticated())
+                        .addFilterBefore(impersonationJwtFilter, UsernamePasswordAuthenticationFilter.class);
+
+                return http.build();
         }
 
         @Bean

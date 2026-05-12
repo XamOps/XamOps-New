@@ -28,6 +28,12 @@ interface AdminUser {
   username: string;
 }
 
+interface AttachmentInfo {
+  url: string;
+  name: string;
+  type: string;
+}
+
 interface TicketReply {
   id: number;
   message: string;
@@ -36,6 +42,8 @@ interface TicketReply {
   admin: boolean;
   isInternal?: boolean;
   createdAt: string;
+  attachments?: AttachmentInfo[];
+  // legacy single-file fields
   attachmentUrl?: string;
   fileName?: string;
   edited?: boolean;
@@ -75,8 +83,7 @@ const TicketDetailPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [newReply, setNewReply] = useState('');
-  const [attachment, setAttachment] = useState<File | null>(null);
-  const [fileName, setFileName] = useState('');
+  const [attachments, setAttachments] = useState<File[]>([]);
 
   // Internal note toggle (admin only)
   const [isInternalNote, setIsInternalNote] = useState(false);
@@ -231,7 +238,7 @@ const TicketDetailPage: React.FC = () => {
     e.preventDefault();
     const textContent = newReply.replace(/<[^>]*>/g, '').trim();
 
-    if (!textContent && !attachment) {
+    if (!textContent && attachments.length === 0) {
       globalThis.alert('Reply cannot be empty.');
       return;
     }
@@ -241,7 +248,7 @@ const TicketDetailPage: React.FC = () => {
     formData.append('message', newReply);
     formData.append('ticketId', ticketId!);
     formData.append('authorId', String(userProfile?.id || ''));
-    if (attachment) formData.append('file', attachment);
+    attachments.forEach(f => formData.append('files', f));
     if (isAdmin) formData.append('isInternal', String(isInternalNote));
 
     try {
@@ -254,8 +261,7 @@ const TicketDetailPage: React.FC = () => {
       const updatedTicket = await response.json();
       setTicket(updatedTicket);
       setNewReply('');
-      setAttachment(null);
-      setFileName('');
+      setAttachments([]);
       setIsInternalNote(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
       window.dispatchEvent(new CustomEvent('ticket:updated'));
@@ -684,18 +690,23 @@ const TicketDetailPage: React.FC = () => {
                         )}
 
                         {/* Attachments (only if not deleted) */}
-                        {!reply.deleted && (reply.attachmentUrl || reply.fileName) && (
-                          <div
-                            className={`mt-4 flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all ${isMe(reply) ? 'bg-white/10 border border-white/20 hover:bg-white/20' : 'bg-slate-50 border border-slate-100 hover:bg-slate-100'}`}
-                            onClick={() => globalThis.open(reply.attachmentUrl as string, '_blank')}
-                          >
-                            <div className={`w-8 h-8 flex items-center justify-center rounded-lg ${isMe(reply) ? 'bg-white/20' : 'bg-white shadow-sm text-indigo-500'}`}>
-                              <i className="fas fa-file-invoice"></i>
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-[10px] font-bold truncate leading-tight">{reply.fileName || 'Attachment'}</p>
-                              <p className="text-[8px] font-bold opacity-70 uppercase tracking-widest mt-0.5">Click to view</p>
-                            </div>
+                        {!reply.deleted && reply.attachments && reply.attachments.length > 0 && (
+                          <div className="mt-4 flex flex-col gap-2">
+                            {reply.attachments.map((att, i) => (
+                              <div
+                                key={i}
+                                className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all ${isMe(reply) ? 'bg-white/10 border border-white/20 hover:bg-white/20' : 'bg-slate-50 border border-slate-100 hover:bg-slate-100'}`}
+                                onClick={() => globalThis.open(att.url, '_blank')}
+                              >
+                                <div className={`w-8 h-8 flex items-center justify-center rounded-lg ${isMe(reply) ? 'bg-white/20' : 'bg-white shadow-sm text-indigo-500'}`}>
+                                  <i className="fas fa-file-invoice"></i>
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-[10px] font-bold truncate leading-tight">{att.name || 'Attachment'}</p>
+                                  <p className="text-[8px] font-bold opacity-70 uppercase tracking-widest mt-0.5">Click to view</p>
+                                </div>
+                              </div>
+                            ))}
                           </div>
                         )}
                       </div>
@@ -789,14 +800,14 @@ const TicketDetailPage: React.FC = () => {
                     {isInternalNote ? 'Internal Note (Admin Only)' : 'Official Response'}
                   </div>
                   <div className="flex items-center gap-2">
-                    {attachment && (
-                      <div className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-full border border-indigo-100">
-                        <span className="max-w-[120px] truncate">{fileName}</span>
-                        <button type="button" onClick={() => { setAttachment(null); setFileName(''); }} className="hover:text-rose-500">
+                    {attachments.map((f, i) => (
+                      <div key={i} className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-full border border-indigo-100">
+                        <span className="max-w-[120px] truncate">{f.name}</span>
+                        <button type="button" onClick={() => setAttachments(prev => prev.filter((_, idx) => idx !== i))} className="hover:text-rose-500">
                           <i className="fas fa-times"></i>
                         </button>
                       </div>
-                    )}
+                    ))}
                     {/* Internal note toggle (admin only) */}
                     {isAdmin && (
                       <button
@@ -833,16 +844,18 @@ const TicketDetailPage: React.FC = () => {
                     <input
                       ref={fileInputRef}
                       type="file"
+                      multiple
                       className="hidden"
                       onChange={(e) => {
-                        const f = e.target.files?.[0];
-                        if (f) { setAttachment(f); setFileName(f.name); }
+                        const selected = Array.from(e.target.files || []);
+                        if (selected.length) setAttachments(prev => [...prev, ...selected]);
+                        if (fileInputRef.current) fileInputRef.current.value = '';
                       }}
                     />
                   </label>
                   <button
                     type="submit"
-                    disabled={isSubmitting || (!newReply.replace(/<[^>]*>/g, '').trim() && !attachment)}
+                    disabled={isSubmitting || (!newReply.replace(/<[^>]*>/g, '').trim() && attachments.length === 0)}
                     className={`px-6 py-2.5 text-white rounded-xl text-[11px] font-black uppercase tracking-widest shadow-lg transition-all disabled:opacity-50 active:scale-95 ${
                       isInternalNote
                         ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-200'

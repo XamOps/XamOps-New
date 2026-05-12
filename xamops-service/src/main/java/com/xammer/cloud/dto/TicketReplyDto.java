@@ -3,6 +3,7 @@ package com.xammer.cloud.dto;
 import lombok.Getter;
 import lombok.Setter;
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Setter
 @Getter
@@ -17,10 +18,21 @@ public class TicketReplyDto {
 
     private boolean isInternal;
 
-    // --- NEW FIELDS ---
-    private String attachmentUrl;  // The secure, temporary link
+    // legacy single-file fields (kept for backward compat with old rows)
+    private String attachmentUrl;
     private String attachmentName;
     private String attachmentType;
+
+    // multi-file attachments
+    private List<AttachmentInfo> attachments;
+
+    @Getter
+    @Setter
+    public static class AttachmentInfo {
+        private String url;
+        private String name;
+        private String type;
+    }
 
     // --- EDIT / DELETE FIELDS ---
     private boolean edited;
