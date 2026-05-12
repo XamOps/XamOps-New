@@ -71,11 +71,10 @@ const formatTicketAge = (isoString: string): string => {
 // preventing re-renders on 30 s background polls that return the same data.
 interface TicketRowProps {
   ticket: AdminTicket;
-  index: number;
   onView: (id: number) => void;
 }
 
-const TicketRow = React.memo<TicketRowProps>(({ ticket, index, onView }) => {
+const TicketRow = React.memo<TicketRowProps>(({ ticket, onView }) => {
   const isClosed = ticket.status === 'CLOSED';
   const sla = ticket.createdAt
     ? getSlaStatus(ticket.createdAt, ticket.severity, isClosed, ticket.closedAt)
@@ -114,7 +113,6 @@ const TicketRow = React.memo<TicketRowProps>(({ ticket, index, onView }) => {
   return (
     <tr
       className={`ticket-row-enter hover:bg-indigo-50/30 transition-all cursor-pointer group border-b border-transparent hover:border-indigo-100 ${rowBorderClass}`}
-      style={{ animationDelay: `${index * 0.03}s` }}
       onClick={() => onView(ticket.id)}
     >
       {/* ID */}
@@ -1003,8 +1001,8 @@ const BillOpsAdminTicketsPage: React.FC = () => {
                   </thead>
                   <tbody className="bg-white/20 divide-y divide-slate-50">
                     {paginatedTickets.length > 0
-                      ? paginatedTickets.map((ticket, index) => (
-                          <TicketRow key={ticket.id} ticket={ticket} index={index} onView={viewTicket} />
+                      ? paginatedTickets.map((ticket) => (
+                          <TicketRow key={ticket.id} ticket={ticket} onView={viewTicket} />
                         ))
                       : renderEmptyState()}
                   </tbody>
