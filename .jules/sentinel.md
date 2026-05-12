@@ -1,0 +1,4 @@
+## 2026-05-12 - [CRITICAL] Unauthorized WebSocket Access to Cloud Shell
+**Vulnerability:** The `/terminal` WebSocket endpoint was marked as `.permitAll()`, allowing unauthenticated users to establish connections. Additionally, the handler trusted `tenantId` from query parameters and lacked cloud account ownership validation.
+**Learning:** WebSocket endpoints in Spring Security must be explicitly secured in `SecurityFilterChain`. Unlike standard REST controllers, they often bypass common session-based filters if not correctly mapped. Multi-tenant context switching must always derive from the authenticated principal rather than client-provided parameters.
+**Prevention:** Always require authentication for WebSocket handshakes in `SecurityConfig`. Implement ownership validation (`clientId` check) in `afterConnectionEstablished` before initializing expensive or sensitive resources (like cloud-credentialed Docker containers).
