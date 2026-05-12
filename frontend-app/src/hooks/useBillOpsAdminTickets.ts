@@ -253,7 +253,23 @@ export const useBillOpsAdminTickets = (): UseBillOpsAdminTicketsReturn => {
       localStorage.setItem(cacheKeyRef.current, JSON.stringify(cacheData));
 
       setLastUpdated(now);
-      setTickets(sortedTickets);
+
+      // Skip state update when background poll returns identical data — prevents full re-render every 30 s
+      setTickets(prev => {
+        if (
+          !forceRefresh &&
+          prev.length === sortedTickets.length &&
+          prev.every((t, i) =>
+            t.id === sortedTickets[i].id &&
+            t.updatedAt === sortedTickets[i].updatedAt &&
+            t.hasUnreadUserReply === sortedTickets[i].hasUnreadUserReply
+          )
+        ) {
+          return prev;
+        }
+        return sortedTickets;
+      });
+
       setError(null);
 
     } catch (err) {

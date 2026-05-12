@@ -20,7 +20,6 @@
  */
 
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
-import { motion } from 'framer-motion';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useBillOpsAdminTickets } from '../hooks/useBillOpsAdminTickets';
@@ -39,6 +38,212 @@ const SEVERITY_ORDER = ['Critical', 'Urgent', 'High', 'Normal', 'Medium', 'Low',
 
 type SortField = 'id' | 'status' | 'severity' | 'sla' | 'createdAt' | '';
 type QuickFilter = 'none' | 'breached' | 'unassigned';
+
+// ─── Helpers hoisted outside component (stable references, no closure over state) ─
+
+const getStatusBadgeClasses = (status: string) => {
+  if (status === 'OPEN') return 'bg-emerald-500 text-white ring-4 ring-emerald-500/10';
+  if (status === 'IN_PROGRESS') return 'bg-amber-500 text-white ring-4 ring-amber-500/10';
+  return 'bg-slate-400 text-white ring-4 ring-slate-400/10';
+};
+
+const getSeverityDotClasses = (severity: string): string => {
+  if (['High', 'Critical', 'Urgent'].includes(severity)) return 'bg-red-500';
+  if (['Normal', 'Medium'].includes(severity)) return 'bg-yellow-500';
+  if (['Low', 'Info'].includes(severity)) return 'bg-blue-500';
+  return 'bg-gray-500';
+};
+
+const formatTicketAge = (isoString: string): string => {
+  if (!isoString) return '—';
+  const ms = Date.now() - new Date(isoString).getTime();
+  const mins = Math.floor(ms / 60000);
+  const hours = Math.floor(ms / 3600000);
+  const days = Math.floor(ms / 86400000);
+  if (days > 0) return `${days}d`;
+  if (hours > 0) return `${hours}h`;
+  if (mins > 0) return `${mins}m`;
+  return 'now';
+};
+
+// ─── TicketRow ─────────────────────────────────────────────────────────────────
+// React.memo with value-based comparator: bails out when ticket data is unchanged,
+// preventing re-renders on 30 s background polls that return the same data.
+interface TicketRowProps {
+  ticket: AdminTicket;
+  index: number;
+  onView: (id: number) => void;
+}
+
+const TicketRow = React.memo<TicketRowProps>(({ ticket, index, onView }) => {
+  const isClosed = ticket.status === 'CLOSED';
+  const sla = ticket.createdAt
+    ? getSlaStatus(ticket.createdAt, ticket.severity, isClosed, ticket.closedAt)
+    : null;
+
+  const rowBorderClass = (() => {
+    if (!sla) return '';
+    if (sla.status === 'breached') return 'border-l-[3px] border-l-red-400 bg-red-50/20';
+    if (['Critical', 'Urgent'].includes(ticket.severity) && !isClosed)
+      return 'border-l-[3px] border-l-orange-400 bg-orange-50/10';
+    return '';
+  })();
+
+  const slaBadge = sla ? (() => {
+    const colorMap = {
+      ok: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+      warning: 'bg-amber-100 text-amber-700 border-amber-200',
+      breached: 'bg-red-100 text-red-700 border-red-200',
+    };
+    const dotMap = {
+      ok: 'bg-emerald-500',
+      warning: 'bg-amber-500 animate-pulse',
+      breached: 'bg-red-500 animate-pulse',
+    };
+    return (
+      <span
+        className={`inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-black rounded-full border uppercase tracking-widest ${colorMap[sla.status]}`}
+        title={sla.label}
+      >
+        <span className={`w-1.5 h-1.5 rounded-full ${dotMap[sla.status]}`}></span>
+        {sla.status === 'breached' ? 'Breached' : sla.status === 'warning' ? 'Warning' : 'On Track'}
+      </span>
+    );
+  })() : null;
+
+  return (
+    <tr
+      className={`ticket-row-enter hover:bg-indigo-50/30 transition-all cursor-pointer group border-b border-transparent hover:border-indigo-100 ${rowBorderClass}`}
+      style={{ animationDelay: `${index * 0.03}s` }}
+      onClick={() => onView(ticket.id)}
+    >
+      {/* ID */}
+      <td className="px-3 py-3 whitespace-nowrap">
+        <span className="text-xs font-bold text-slate-400 font-mono tracking-tighter opacity-60">#{ticket.id}</span>
+      </td>
+
+      {/* Account Name */}
+      <td className="px-3 py-3 whitespace-nowrap max-w-[120px]">
+        {ticket.accountName ? (
+          <div title={ticket.accountId}>
+            <span className="text-[11px] font-bold text-slate-700 truncate block max-w-[110px]">
+              {ticket.accountName}
+            </span>
+            <span className="text-[9px] text-slate-400 font-mono truncate block max-w-[110px]">
+              {ticket.accountId}
+            </span>
+          </div>
+        ) : (
+          <span className="px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded-lg text-[10px] font-bold font-mono tracking-tight border border-slate-200/50 truncate max-w-[90px] block">
+            {ticket.accountId || 'GLOBAL'}
+          </span>
+        )}
+      </td>
+
+      {/* Subject + Service */}
+      <td className="px-3 py-3 max-w-[180px]">
+        <div className="text-xs font-bold text-slate-800 group-hover:text-indigo-600 transition-colors leading-tight mb-0.5 truncate">
+          {ticket.subject}
+        </div>
+        <div className="text-[10px] text-slate-400 font-medium truncate opacity-80">
+          {ticket.service}
+        </div>
+      </td>
+
+      {/* Status + Read/Unread */}
+      <td className="px-3 py-3 whitespace-nowrap">
+        <div className="flex flex-col gap-1">
+          <span className={`flex items-center gap-1 px-2 py-0.5 text-[10px] font-black rounded-full shadow-sm ring-1 ring-inset w-fit ${getStatusBadgeClasses(ticket.status)}`}>
+            <span className={`w-1.5 h-1.5 rounded-full bg-white shadow-[0_0_8px_white] ${ticket.status === 'OPEN' ? 'animate-pulse' : ''}`}></span>
+            {ticket.status === 'IN_PROGRESS' ? 'IN PROG' : ticket.status}
+          </span>
+          {ticket.hasUnreadUserReply && (
+            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wide bg-amber-100 text-amber-700 w-fit">
+              Unread
+            </span>
+          )}
+        </div>
+      </td>
+
+      {/* Severity */}
+      <td className="px-3 py-3 whitespace-nowrap">
+        <div className="flex items-center gap-1.5">
+          <span className={`w-2 h-2 rounded-full ${getSeverityDotClasses(ticket.severity)} flex-shrink-0`}></span>
+          <span className="text-[10px] font-bold text-slate-600 uppercase tracking-widest">{ticket.severity}</span>
+        </div>
+      </td>
+
+      {/* SLA */}
+      <td className="px-3 py-3 whitespace-nowrap">
+        {slaBadge}
+      </td>
+
+      {/* Created (IST) + Relative Age */}
+      <td className="px-3 py-3 whitespace-nowrap">
+        <div className="text-[10px] font-bold text-slate-500 leading-tight">
+          {ticket.createdAt ? formatIST(ticket.createdAt) : '—'}
+        </div>
+        {ticket.createdAt && !isClosed && (
+          <div className="text-[9px] font-bold text-slate-400 mt-0.5 opacity-60">
+            {formatTicketAge(ticket.createdAt)} old
+          </div>
+        )}
+      </td>
+
+      {/* Chat Started */}
+      <td className="px-3 py-3 whitespace-nowrap hidden xl:table-cell">
+        {ticket.chatStartedAt ? (
+          <div className="text-[10px] font-bold text-indigo-600 leading-tight">
+            {formatIST(ticket.chatStartedAt)}
+          </div>
+        ) : (
+          <span className="text-[10px] text-slate-300 font-bold">—</span>
+        )}
+      </td>
+
+      {/* Closed At */}
+      <td className="px-3 py-3 whitespace-nowrap hidden xl:table-cell">
+        {ticket.closedAt ? (
+          <div className="text-[10px] font-bold text-slate-500 leading-tight">
+            {formatIST(ticket.closedAt)}
+          </div>
+        ) : (
+          <span className="text-[10px] text-slate-300 font-bold">—</span>
+        )}
+      </td>
+
+      {/* Assigned To */}
+      <td className="px-3 py-3 whitespace-nowrap">
+        {ticket.assignedToUsername ? (
+          <div className="flex items-center gap-1.5" title={ticket.creatorUsername ? `Creator: ${ticket.creatorUsername}` : undefined}>
+            <div className="w-5 h-5 rounded-full bg-indigo-600 flex items-center justify-center text-white text-[8px] font-black flex-shrink-0">
+              {ticket.assignedToUsername.charAt(0).toUpperCase()}
+            </div>
+            <span className="text-[10px] font-bold text-slate-700 truncate max-w-[70px]">{ticket.assignedToUsername}</span>
+          </div>
+        ) : (
+          <span className="text-[10px] text-slate-300 font-bold italic">Unassigned</span>
+        )}
+      </td>
+
+      {/* Action */}
+      <td className="px-3 py-3 whitespace-nowrap">
+        <button
+          onClick={(e) => { e.stopPropagation(); onView(ticket.id); }}
+          className="text-slate-400 hover:text-indigo-600 bg-slate-100 hover:bg-indigo-100 transition-all w-8 h-8 flex items-center justify-center rounded-xl border border-transparent hover:border-indigo-200 shadow-sm group-hover:scale-110 active:scale-95"
+        >
+          <i className="fas fa-chevron-right text-xs"></i>
+        </button>
+      </td>
+    </tr>
+  );
+}, (prev, next) =>
+  prev.ticket.id === next.ticket.id &&
+  prev.ticket.updatedAt === next.ticket.updatedAt &&
+  prev.ticket.hasUnreadUserReply === next.ticket.hasUnreadUserReply
+);
+
+// ──────────────────────────────────────────────────────────────────────────────
 
 const BillOpsAdminTicketsPage: React.FC = () => {
   const navigate = useNavigate();
@@ -280,79 +485,17 @@ const BillOpsAdminTicketsPage: React.FC = () => {
   // Reset to page 1 whenever the filtered result set changes
   useEffect(() => { setPage(1); }, [filteredTickets, quickFilter, pageSize]);
 
-  const getStatusBadgeClasses = (status: string) => {
-    if (status === 'OPEN') return 'bg-emerald-500 text-white ring-4 ring-emerald-500/10';
-    if (status === 'IN_PROGRESS') return 'bg-amber-500 text-white ring-4 ring-amber-500/10';
-    return 'bg-slate-400 text-white ring-4 ring-slate-400/10';
-  };
-
-  const getSeverityDotClasses = (severity: string): string => {
-    if (['High', 'Critical', 'Urgent'].includes(severity)) return 'bg-red-500';
-    if (['Normal', 'Medium'].includes(severity)) return 'bg-yellow-500';
-    if (['Low', 'Info'].includes(severity)) return 'bg-blue-500';
-    return 'bg-gray-500';
-  };
-
-  const getSlaBadge = (ticket: AdminTicket) => {
-    if (!ticket.createdAt) return null;
-    const isClosed = ticket.status === 'CLOSED';
-    const sla = getSlaStatus(ticket.createdAt, ticket.severity, isClosed, ticket.closedAt);
-    const colorMap = {
-      ok: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-      warning: 'bg-amber-100 text-amber-700 border-amber-200',
-      breached: 'bg-red-100 text-red-700 border-red-200'
-    };
-    const dotMap = {
-      ok: 'bg-emerald-500',
-      warning: 'bg-amber-500 animate-pulse',
-      breached: 'bg-red-500 animate-pulse'
-    };
-    return (
-      <span
-        className={`inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-black rounded-full border uppercase tracking-widest ${colorMap[sla.status]}`}
-        title={sla.label}
-      >
-        <span className={`w-1.5 h-1.5 rounded-full ${dotMap[sla.status]}`}></span>
-        {sla.status === 'breached' ? 'Breached' : sla.status === 'warning' ? 'Warning' : 'On Track'}
-      </span>
-    );
-  };
-
-  /** Row left-border tinting based on SLA and severity */
-  const getRowClasses = (ticket: AdminTicket): string => {
-    if (!ticket.createdAt) return '';
-    const sla = getSlaStatus(ticket.createdAt, ticket.severity, ticket.status === 'CLOSED', ticket.closedAt);
-    if (sla.status === 'breached') return 'border-l-[3px] border-l-red-400 bg-red-50/20';
-    if (['Critical', 'Urgent'].includes(ticket.severity) && ticket.status !== 'CLOSED') {
-      return 'border-l-[3px] border-l-orange-400 bg-orange-50/10';
-    }
-    return '';
-  };
-
-  /** Compact age string: "3d", "5h", "12m", or "now" */
-  const formatTicketAge = (isoString: string): string => {
-    if (!isoString) return '—';
-    const ms = Date.now() - new Date(isoString).getTime();
-    const mins = Math.floor(ms / 60000);
-    const hours = Math.floor(ms / 3600000);
-    const days = Math.floor(ms / 86400000);
-    if (days > 0) return `${days}d`;
-    if (hours > 0) return `${hours}h`;
-    if (mins > 0) return `${mins}m`;
-    return 'now';
-  };
-
   /** Sort icon for a given column */
   const renderSortIcon = (field: Exclude<SortField, ''>) => {
     if (sortField !== field) return <i className="fas fa-sort ml-1 opacity-20 text-[8px]"></i>;
     return <i className={`fas fa-chevron-${sortDir === 'asc' ? 'up' : 'down'} ml-1 text-indigo-500 text-[8px]`}></i>;
   };
 
-  const viewTicket = (id: number) => {
-    // Always use billops-ticket-detail — admins are authenticated through billops
-    // and /ticket-detail calls /api/xamops/ which returns 401 for billops sessions
+  // Always use billops-ticket-detail — admins are authenticated through billops;
+  // /ticket-detail calls /api/xamops/ which returns 401 for billops sessions
+  const viewTicket = useCallback((id: number) => {
     navigate(`/billops-ticket-detail?id=${id}`);
-  };
+  }, [navigate]);
 
   const toggleStatusFilter = useCallback((status: string) => {
     setFilters({
@@ -520,136 +663,6 @@ const BillOpsAdminTicketsPage: React.FC = () => {
         </div>
       </td>
     </tr>
-  );
-
-  const renderTicketRow = (ticket: AdminTicket, index: number) => (
-    <motion.tr
-      key={ticket.id}
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.2, delay: index * 0.03, ease: 'easeOut' }}
-      className={`hover:bg-indigo-50/30 transition-all cursor-pointer group border-b border-transparent hover:border-indigo-100 ${getRowClasses(ticket)}`}
-      onClick={() => viewTicket(ticket.id)}
-    >
-      {/* ID */}
-      <td className="px-3 py-3 whitespace-nowrap">
-        <span className="text-xs font-bold text-slate-400 font-mono tracking-tighter opacity-60">#{ticket.id}</span>
-      </td>
-
-      {/* Account Name */}
-      <td className="px-3 py-3 whitespace-nowrap max-w-[120px]">
-        {ticket.accountName ? (
-          <div title={ticket.accountId}>
-            <span className="text-[11px] font-bold text-slate-700 truncate block max-w-[110px]">
-              {ticket.accountName}
-            </span>
-            <span className="text-[9px] text-slate-400 font-mono truncate block max-w-[110px]">
-              {ticket.accountId}
-            </span>
-          </div>
-        ) : (
-          <span className="px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded-lg text-[10px] font-bold font-mono tracking-tight border border-slate-200/50 truncate max-w-[90px] block">
-            {ticket.accountId || 'GLOBAL'}
-          </span>
-        )}
-      </td>
-
-      {/* Subject + Service */}
-      <td className="px-3 py-3 max-w-[180px]">
-        <div className="text-xs font-bold text-slate-800 group-hover:text-indigo-600 transition-colors leading-tight mb-0.5 truncate">
-          {ticket.subject}
-        </div>
-        <div className="text-[10px] text-slate-400 font-medium truncate opacity-80">
-          {ticket.service}
-        </div>
-      </td>
-
-      {/* Status + Read/Unread */}
-      <td className="px-3 py-3 whitespace-nowrap">
-        <div className="flex flex-col gap-1">
-          <span className={`flex items-center gap-1 px-2 py-0.5 text-[10px] font-black rounded-full shadow-sm ring-1 ring-inset w-fit ${getStatusBadgeClasses(ticket.status)}`}>
-            <span className={`w-1.5 h-1.5 rounded-full bg-white shadow-[0_0_8px_white] ${ticket.status === 'OPEN' ? 'animate-pulse' : ''}`}></span>
-            {ticket.status === 'IN_PROGRESS' ? 'IN PROG' : ticket.status}
-          </span>
-          {ticket.hasUnreadUserReply && (
-            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wide bg-amber-100 text-amber-700 w-fit">
-              Unread
-            </span>
-          )}
-        </div>
-      </td>
-
-      {/* Severity */}
-      <td className="px-3 py-3 whitespace-nowrap">
-        <div className="flex items-center gap-1.5">
-          <span className={`w-2 h-2 rounded-full ${getSeverityDotClasses(ticket.severity)} flex-shrink-0`}></span>
-          <span className="text-[10px] font-bold text-slate-600 uppercase tracking-widest">{ticket.severity}</span>
-        </div>
-      </td>
-
-      {/* SLA */}
-      <td className="px-3 py-3 whitespace-nowrap">
-        {getSlaBadge(ticket)}
-      </td>
-
-      {/* Created (IST) + Relative Age */}
-      <td className="px-3 py-3 whitespace-nowrap">
-        <div className="text-[10px] font-bold text-slate-500 leading-tight">
-          {ticket.createdAt ? formatIST(ticket.createdAt) : '—'}
-        </div>
-        {ticket.createdAt && ticket.status !== 'CLOSED' && (
-          <div className="text-[9px] font-bold text-slate-400 mt-0.5 opacity-60">
-            {formatTicketAge(ticket.createdAt)} old
-          </div>
-        )}
-      </td>
-
-      {/* Chat Started */}
-      <td className="px-3 py-3 whitespace-nowrap hidden xl:table-cell">
-        {ticket.chatStartedAt ? (
-          <div className="text-[10px] font-bold text-indigo-600 leading-tight">
-            {formatIST(ticket.chatStartedAt)}
-          </div>
-        ) : (
-          <span className="text-[10px] text-slate-300 font-bold">—</span>
-        )}
-      </td>
-
-      {/* Closed At */}
-      <td className="px-3 py-3 whitespace-nowrap hidden xl:table-cell">
-        {ticket.closedAt ? (
-          <div className="text-[10px] font-bold text-slate-500 leading-tight">
-            {formatIST(ticket.closedAt)}
-          </div>
-        ) : (
-          <span className="text-[10px] text-slate-300 font-bold">—</span>
-        )}
-      </td>
-
-      {/* Assigned To (with creator tooltip) */}
-      <td className="px-3 py-3 whitespace-nowrap">
-        {ticket.assignedToUsername ? (
-          <div className="flex items-center gap-1.5" title={ticket.creatorUsername ? `Creator: ${ticket.creatorUsername}` : undefined}>
-            <div className="w-5 h-5 rounded-full bg-indigo-600 flex items-center justify-center text-white text-[8px] font-black flex-shrink-0">
-              {ticket.assignedToUsername.charAt(0).toUpperCase()}
-            </div>
-            <span className="text-[10px] font-bold text-slate-700 truncate max-w-[70px]">{ticket.assignedToUsername}</span>
-          </div>
-        ) : (
-          <span className="text-[10px] text-slate-300 font-bold italic">Unassigned</span>
-        )}
-      </td>
-
-      {/* Action */}
-      <td className="px-3 py-3 whitespace-nowrap">
-        <button
-          onClick={(e) => { e.stopPropagation(); viewTicket(ticket.id); }}
-          className="text-slate-400 hover:text-indigo-600 bg-slate-100 hover:bg-indigo-100 transition-all w-8 h-8 flex items-center justify-center rounded-xl border border-transparent hover:border-indigo-200 shadow-sm group-hover:scale-110 active:scale-95"
-        >
-          <i className="fas fa-chevron-right text-xs"></i>
-        </button>
-      </td>
-    </motion.tr>
   );
 
   return (
@@ -990,7 +1003,9 @@ const BillOpsAdminTicketsPage: React.FC = () => {
                   </thead>
                   <tbody className="bg-white/20 divide-y divide-slate-50">
                     {paginatedTickets.length > 0
-                      ? paginatedTickets.map((ticket, index) => renderTicketRow(ticket, index))
+                      ? paginatedTickets.map((ticket, index) => (
+                          <TicketRow key={ticket.id} ticket={ticket} index={index} onView={viewTicket} />
+                        ))
                       : renderEmptyState()}
                   </tbody>
                 </table>
