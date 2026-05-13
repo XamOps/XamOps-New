@@ -8,6 +8,7 @@
 import React from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import clsx from 'clsx';
+import { TooltipWrapper } from '../ui';
 
 const SuperAdminTopBar: React.FC = () => {
     const {
@@ -110,13 +111,15 @@ const SuperAdminTopBar: React.FC = () => {
             </div>
 
             {/* Reset Button */}
-            <button
-                onClick={resetContext}
-                className="ml-1 p-1.5 bg-rose-100 hover:bg-rose-500 text-rose-600 hover:text-white rounded-xl transition-all duration-200 flex items-center justify-center group shadow-sm border border-rose-200/50"
-                title="Reset Context"
-            >
-                <i className="fas fa-undo-alt text-xs group-hover:rotate-[-45deg] transition-transform" />
-            </button>
+            <TooltipWrapper tip="Reset Context">
+                <button
+                    onClick={resetContext}
+                    aria-label="Reset Context"
+                    className="ml-1 p-1.5 bg-rose-100 hover:bg-rose-500 text-rose-600 hover:text-white rounded-xl transition-all duration-200 flex items-center justify-center group shadow-sm border border-rose-200/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1"
+                >
+                    <i className="fas fa-undo-alt text-xs group-hover:rotate-[-45deg] transition-transform" />
+                </button>
+            </TooltipWrapper>
 
             {/* Environment Badge */}
             <div className={clsx(
