@@ -125,4 +125,12 @@ public class RedisCacheService {
         redisTemplate.delete(key);
     }
 
+    public boolean hasKey(String key) {
+        return Boolean.TRUE.equals(redisTemplate.hasKey(key));
+    }
+
+    public void setFlag(String key, int ttlMinutes) {
+        redisTemplate.opsForValue().set(key, "1", ttlMinutes, TimeUnit.MINUTES);
+    }
+
 }

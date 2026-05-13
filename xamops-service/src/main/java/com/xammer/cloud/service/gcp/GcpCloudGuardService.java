@@ -22,6 +22,8 @@ import com.xammer.cloud.domain.User;
 import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.UserRepository;
+import com.xammer.cloud.service.AlertEmailBuilder;
+import com.xammer.cloud.service.AlertNotificationDeduplicator;
 import com.xammer.cloud.service.EmailService;
 import com.xammer.cloud.service.RedisCacheService;
 import lombok.extern.slf4j.Slf4j;
@@ -51,6 +53,8 @@ public class GcpCloudGuardService {
     private final CachedDataRepository cachedDataRepository;
     private final ObjectMapper objectMapper;
     private final UserRepository userRepository;
+    private final AlertEmailBuilder alertEmailBuilder;
+    private final AlertNotificationDeduplicator deduplicator;
 
     // Define Quota details
     private static final String NETWORK_QUOTA_NAME = "NETWORKS";
@@ -68,7 +72,9 @@ public class GcpCloudGuardService {
             EmailService emailService,
             CachedDataRepository cachedDataRepository,
             ObjectMapper objectMapper,
-            UserRepository userRepository
+            UserRepository userRepository,
+            AlertEmailBuilder alertEmailBuilder,
+            AlertNotificationDeduplicator deduplicator
     ) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.gcpClientProvider = gcpClientProvider;
@@ -80,6 +86,8 @@ public class GcpCloudGuardService {
         this.cachedDataRepository = cachedDataRepository;
         this.objectMapper = objectMapper;
         this.userRepository = userRepository;
+        this.alertEmailBuilder = alertEmailBuilder;
+        this.deduplicator = deduplicator;
     }
 
     private void saveToDb(String dbKey, Object data) {
@@ -171,17 +179,24 @@ public class GcpCloudGuardService {
                     alerts.addAll(anomaliesFuture.join());
                     alerts.addAll(securityFuture.join());
 
-                    // Send emails to all sub-users if alerts exist
+                    // Send a single HTML digest — at most once per 23 hours per project
                     if (!recipients.isEmpty() && !alerts.isEmpty()) {
-                        log.info("Sending {} alert emails to {} recipients", alerts.size(), recipients.size());
-                        for (AlertDto alert : alerts) {
+                        if (deduplicator.gcpDigestAlreadySentToday(gcpProjectId)) {
+                            log.info("[Dedup] GCP digest already sent today for project {} — skipping email", gcpProjectId);
+                        } else {
+                            String accountName = account.getAccountName() != null ? account.getAccountName() : gcpProjectId;
+                            String htmlBody = alertEmailBuilder.buildAlertDigestEmail(alerts, accountName, gcpProjectId);
+                            String subject = String.format("[XamOps] GCP Alert Digest — %d alert%s for %s",
+                                    alerts.size(), alerts.size() == 1 ? "" : "s", accountName);
                             for (String email : recipients) {
                                 try {
-                                    emailService.sendEmail(email, "[GCP Alert] " + alert.getName(), alert.getDescription());
+                                    emailService.sendHtmlEmail(email, subject, htmlBody);
+                                    log.info("Sent GCP alert digest email to {}", email);
                                 } catch (Exception e) {
-                                    log.error("Failed to send GCP alert email for alert '{}' to {}: {}", alert.getId(), email, e.getMessage());
+                                    log.error("Failed to send GCP alert digest email to {}: {}", email, e.getMessage());
                                 }
                             }
+                            deduplicator.markGcpDigestSent(gcpProjectId);
                         }
                     } else if (!alerts.isEmpty()) {
                         log.warn("No recipient emails configured for account {}, cannot send alert emails.", gcpProjectId);
