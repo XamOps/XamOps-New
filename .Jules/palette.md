@@ -1,0 +1,3 @@
+## 2025-05-14 - Standardizing Top Navigation Accessibility
+**Learning:** Icon-only buttons in the global navigation (Notifications, Help, Reset Context) lacked accessible labels and discoverable tips, and the theme toggle did not semantically communicate its state. Standardizing these with `TooltipWrapper`, `aria-label`, and `role="switch"` ensures a consistent and accessible experience for all users.
+**Action:** Always wrap icon-only buttons in `TooltipWrapper` and provide a matching `aria-label`. Use `role="switch"` and `aria-checked` for toggle interactions. Apply standard focus-visible rings (`focus-visible:ring-2 focus-visible:ring-indigo-500`) to all interactive elements for keyboard navigation visibility.
