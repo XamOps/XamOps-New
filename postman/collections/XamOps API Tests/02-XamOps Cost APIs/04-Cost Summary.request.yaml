@@ -1,0 +1,33 @@
+$kind: http-request
+name: Cost Summary
+method: GET
+url: '{{xamopsBaseUrl}}/api/xamops/costs/summary'
+order: 4000
+queryParams:
+  - key: accountId
+    value: '{{awsAccountId}}'
+  - key: days
+    value: '30'
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      pm.test("Status is 200", function() {
+        pm.response.to.have.status(200);
+      });
+      pm.test("Response has serviceBreakdown", function() {
+        const json = pm.response.json();
+        pm.expect(json).to.have.property("serviceBreakdown");
+      });
+      pm.test("Response has regionBreakdown", function() {
+        const json = pm.response.json();
+        pm.expect(json).to.have.property("regionBreakdown");
+      });
+      pm.test("Response has historicalTrend", function() {
+        const json = pm.response.json();
+        pm.expect(json).to.have.property("historicalTrend");
+      });
+      pm.test("Response accountId equals awsAccountId variable", function() {
+        const json = pm.response.json();
+        pm.expect(json.accountId).to.eql(pm.variables.get("awsAccountId"));
+      });

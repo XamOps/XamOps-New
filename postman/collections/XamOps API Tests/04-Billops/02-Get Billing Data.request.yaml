@@ -1,0 +1,24 @@
+$kind: http-request
+name: Get Billing Data
+method: GET
+url: '{{billopsBaseUrl}}/api/billops/billing'
+order: 2000
+queryParams:
+  - key: accountIds
+    value: '{{awsAccountId}}'
+  - key: year
+    value: '2025'
+  - key: month
+    value: '11'
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      pm.test("Status is 200 or 401", function() {
+        pm.expect(pm.response.code).to.be.oneOf([200, 401]);
+      });
+      pm.test("If 200: response has body", function() {
+        if (pm.response.code === 200) {
+          pm.expect(pm.response.text()).to.not.be.empty;
+        }
+      });

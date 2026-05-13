@@ -1,0 +1,41 @@
+$kind: http-request
+name: 'Forecast Cost - Periods Out of Range'
+method: POST
+url: '{{forecastBaseUrl}}/forecast/cost'
+order: 5000
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "data": [
+        {"ds": "2025-01-01", "y": 1200.50},
+        {"ds": "2025-02-01", "y": 1350.75},
+        {"ds": "2025-03-01", "y": 1100.00},
+        {"ds": "2025-04-01", "y": 1450.25},
+        {"ds": "2025-05-01", "y": 1600.00},
+        {"ds": "2025-06-01", "y": 1380.50},
+        {"ds": "2025-07-01", "y": 1520.75},
+        {"ds": "2025-08-01", "y": 1700.00},
+        {"ds": "2025-09-01", "y": 1250.25},
+        {"ds": "2025-10-01", "y": 1800.50}
+      ],
+      "periods": 9999
+    }
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      pm.test("Status is 400", function() {
+        pm.response.to.have.status(400);
+      });
+      pm.test("Response status equals error", function() {
+        const json = pm.response.json();
+        pm.expect(json.status).to.eql("error");
+      });
+      pm.test("Response message contains Periods must be between", function() {
+        const json = pm.response.json();
+        pm.expect(json.message).to.include("Periods must be between");
+      });

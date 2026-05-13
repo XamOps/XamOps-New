@@ -1,0 +1,14 @@
+name: XamOps Local
+values:
+  - key: forecastBaseUrl
+    value: 'http://localhost:5002'
+    enabled: true
+  - key: xamopsBaseUrl
+    value: 'http://localhost:8080'
+    enabled: true
+  - key: billopsBaseUrl
+    value: 'http://localhost:8081'
+    enabled: true
+  - key: awsAccountId
+    value: '123456789012'
+    enabled: true

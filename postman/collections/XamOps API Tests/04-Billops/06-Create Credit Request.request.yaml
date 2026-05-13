@@ -1,0 +1,27 @@
+$kind: http-request
+name: Create Credit Request
+method: POST
+url: '{{billopsBaseUrl}}/api/billops/credits'
+order: 6000
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "accountId": "{{awsAccountId}}",
+      "amount": 500.00,
+      "reason": "Test credit request from Postman",
+      "requestedBy": "test@xammer.com"
+    }
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      pm.test("Status is 200, 400, or 401", function() {
+        pm.expect(pm.response.code).to.be.oneOf([200, 400, 401]);
+      });
+      pm.test("Response has body", function() {
+        pm.expect(pm.response.text()).to.not.be.empty;
+      });

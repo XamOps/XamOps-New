@@ -1,0 +1,12 @@
+$kind: collection
+name: XamOps API Tests
+description: 'Comprehensive API test suite for XamOps platform — covers Forecast Service (Python/Flask), XamOps Cost APIs, Reservations, and Billops billing service.'
+variables:
+  - key: forecastBaseUrl
+    value: 'http://localhost:5002'
+  - key: xamopsBaseUrl
+    value: 'http://localhost:8080'
+  - key: billopsBaseUrl
+    value: 'http://localhost:8081'
+  - key: awsAccountId
+    value: '123456789012'

@@ -1,0 +1,64 @@
+$kind: http-request
+name: 'Forecast Cost - Valid'
+method: POST
+url: '{{forecastBaseUrl}}/forecast/cost'
+order: 2000
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "data": [
+        {"ds": "2025-01-01", "y": 1200.50},
+        {"ds": "2025-02-01", "y": 1350.75},
+        {"ds": "2025-03-01", "y": 1100.00},
+        {"ds": "2025-04-01", "y": 1450.25},
+        {"ds": "2025-05-01", "y": 1600.00},
+        {"ds": "2025-06-01", "y": 1380.50},
+        {"ds": "2025-07-01", "y": 1520.75},
+        {"ds": "2025-08-01", "y": 1700.00},
+        {"ds": "2025-09-01", "y": 1250.25},
+        {"ds": "2025-10-01", "y": 1800.50}
+      ],
+      "periods": 30,
+      "weekly_seasonality": true,
+      "yearly_seasonality": false
+    }
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      pm.test("Status is 200", function() {
+        pm.response.to.have.status(200);
+      });
+      pm.test("Response status equals success", function() {
+        const json = pm.response.json();
+        pm.expect(json.status).to.eql("success");
+      });
+      pm.test("Response has forecast array", function() {
+        const json = pm.response.json();
+        pm.expect(json).to.have.property("forecast");
+        pm.expect(json.forecast).to.be.an("array");
+      });
+      pm.test("Forecast array is not empty", function() {
+        const json = pm.response.json();
+        pm.expect(json.forecast).to.have.length.above(0);
+      });
+      pm.test("Response has metadata object", function() {
+        const json = pm.response.json();
+        pm.expect(json).to.have.property("metadata");
+        pm.expect(json.metadata).to.be.an("object");
+      });
+      pm.test("metadata.forecast_periods equals 30", function() {
+        const json = pm.response.json();
+        pm.expect(json.metadata.forecast_periods).to.eql(30);
+      });
+      pm.test("metadata.historical_data_points equals 10", function() {
+        const json = pm.response.json();
+        pm.expect(json.metadata.historical_data_points).to.eql(10);
+      });
+      pm.test("Response time is less than 5000ms", function() {
+        pm.expect(pm.response.responseTime).to.be.below(5000);
+      });

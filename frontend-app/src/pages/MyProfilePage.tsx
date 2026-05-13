@@ -20,47 +20,28 @@ import { TeamUser, CloudAccount } from '../types/myProfile';
 
 const ProfileSkeleton: React.FC = () => {
   return (
-    <div className="w-full">
-      <div className="flex items-center mb-10">
-        <div className="skeleton h-12 w-12 rounded-2xl mr-4"></div>
-        <div className="skeleton h-10 w-64 rounded-lg"></div>
-      </div>
-
-      <div className="rounded-3xl mb-12 overflow-hidden bg-white border border-slate-100">
-        <div className="p-10 bg-slate-50 flex items-center">
-          <div className="skeleton h-24 w-24 rounded-3xl mr-8"></div>
+    <div className="w-full space-y-4">
+      <div className="bg-white border border-gray-200 rounded-md overflow-hidden">
+        <div className="px-6 py-5 border-b border-gray-100 flex items-center gap-4">
+          <div className="skeleton h-14 w-14 rounded-md flex-shrink-0"></div>
           <div>
-            <div className="skeleton h-10 w-48 rounded-lg mb-3"></div>
-            <div className="skeleton h-6 w-64 rounded-md mb-4"></div>
-            <div className="skeleton h-8 w-32 rounded-xl"></div>
+            <div className="skeleton h-5 w-40 rounded mb-2"></div>
+            <div className="skeleton h-4 w-56 rounded"></div>
           </div>
         </div>
-        <div className="p-10">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-10">
-            <div className="p-6 border border-slate-50 rounded-2xl">
-              <div className="skeleton h-4 w-24 mb-3"></div>
-              <div className="skeleton h-6 w-40"></div>
-            </div>
-            <div className="p-6 border border-slate-50 rounded-2xl">
-              <div className="skeleton h-4 w-24 mb-3"></div>
-              <div className="skeleton h-6 w-40"></div>
-            </div>
+        <div className="p-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
+            <div className="skeleton h-16 rounded-md"></div>
+            <div className="skeleton h-16 rounded-md"></div>
           </div>
-          <div className="pt-8 border-t border-slate-50">
-            <div className="skeleton h-12 w-56 rounded-xl"></div>
+          <div className="pt-4 border-t border-gray-100">
+            <div className="skeleton h-9 w-48 rounded-md"></div>
           </div>
         </div>
       </div>
-
-      <div className="flex justify-between items-end mb-10">
-        <div>
-          <div className="flex items-center mb-2">
-            <div className="skeleton h-10 w-10 rounded-2xl mr-4"></div>
-            <div className="skeleton h-8 w-64 rounded-lg"></div>
-          </div>
-          <div className="skeleton h-4 w-96 rounded-md"></div>
-        </div>
-        <div className="skeleton h-12 w-48 rounded-xl"></div>
+      <div className="flex justify-between items-center">
+        <div className="skeleton h-5 w-48 rounded"></div>
+        <div className="skeleton h-9 w-40 rounded-md"></div>
       </div>
     </div>
   );
@@ -152,11 +133,11 @@ const MyProfilePage: React.FC = () => {
   if (error) {
     return (
       <div className="flex items-center justify-center flex-1 bg-[#f8fafc] p-10">
-        <div className="bg-red-50 text-red-700 p-8 rounded-3xl border border-red-100 max-w-md text-center shadow-sm">
-          <i className="fas fa-circle-exclamation text-4xl mb-4"></i>
-          <h2 className="text-2xl font-bold mb-2">Access Denied</h2>
-          <p className="font-medium mb-6">{error}</p>
-          <button onClick={() => window.location.reload()} className="px-6 py-2 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-colors">
+        <div className="bg-red-50 text-red-700 p-6 rounded-md border border-red-100 max-w-md text-center">
+          <i className="fas fa-circle-exclamation text-2xl mb-3"></i>
+          <h2 className="text-base font-semibold mb-2">Access Denied</h2>
+          <p className="text-sm mb-4">{error}</p>
+          <button onClick={() => window.location.reload()} className="px-4 py-2 bg-red-600 text-white rounded-md text-sm font-medium hover:bg-red-700 transition-colors">
             Try Reauthenticating
           </button>
         </div>
@@ -165,37 +146,37 @@ const MyProfilePage: React.FC = () => {
   }
 
   return (
-    <main id="profile-main-container" className="flex-1 w-full flex flex-col items-stretch p-6 lg:p-8 bg-[#f8fafc] my-profile-page">
+    <main id="profile-main-container" className="flex-1 w-full flex flex-col items-stretch p-6 bg-[#f5f6f8] my-profile-page">
       {loading && !profile.username ? (
         <ProfileSkeleton />
       ) : (
-        <div className="w-full">
+        <div className="w-full space-y-4">
           {/* Profile Card */}
-          <div className="rounded-3xl mb-12 overflow-hidden profile-card-container">
-            <div className="profile-header-gradient p-10 text-white">
-              <div className="flex items-center">
+          <div className="profile-card-container">
+            <div className="profile-header-gradient px-6 py-5">
+              <div className="flex items-center gap-4">
                 <div className="profile-avatar">
-                  <span className="text-5xl font-black">
+                  <span className="text-xl font-bold text-white">
                     {profile.username ? profile.username.charAt(0).toUpperCase() : 'U'}
                   </span>
                 </div>
-                <div className="ml-8">
-                  <div className="flex items-center gap-3 mb-2">
-                    <h2 className="text-4xl font-extrabold tracking-tight">{profile.username || 'Loading...'}</h2>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <h2 className="text-[15px] font-semibold text-gray-900 truncate">{profile.username || 'Loading...'}</h2>
                     {profile.isPrimaryUser && (
-                      <span className="bg-white/20 backdrop-blur-md px-3 py-1 rounded-lg text-xs font-bold uppercase tracking-widest border border-white/20 flex items-center gap-2">
-                        <i className="fas fa-crown text-amber-300"></i>
+                      <span className="px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide border border-amber-200 bg-amber-50 text-amber-700 flex items-center gap-1 flex-shrink-0">
+                        <i className="fas fa-crown text-amber-500 text-[9px]"></i>
                         Admin
                       </span>
                     )}
                   </div>
-                  <p className="text-white/80 text-lg mb-4 flex items-center">
-                    <i className="fas fa-envelope-open mr-3"></i>
-                    {profile.email || ''}
-                  </p>
-                  <div className="flex gap-3">
-                    <span className="inline-flex items-center px-4 py-1.5 bg-white/10 backdrop-blur-md rounded-xl text-sm font-bold border border-white/10">
-                      <i className="fas fa-user-shield mr-2"></i>
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <p className="text-xs text-gray-500 flex items-center gap-1.5">
+                      <i className="fas fa-envelope text-gray-400 text-[10px]"></i>
+                      {profile.email || ''}
+                    </p>
+                    <span className="inline-flex items-center px-2 py-0.5 bg-white rounded text-[11px] font-medium text-gray-600 border border-gray-200">
+                      <i className="fas fa-user-shield mr-1.5 text-indigo-400 text-[10px]"></i>
                       {profile.role || ''}
                     </span>
                   </div>
@@ -203,16 +184,16 @@ const MyProfilePage: React.FC = () => {
               </div>
             </div>
 
-            <div className="p-10">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-10">
-                <div className="profile-info-item group">
+            <div className="p-5">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-5">
+                <div className="profile-info-item">
                   <label className="profile-info-label">
                     <i className="fas fa-building-columns mr-2"></i>
                     Organization
                   </label>
                   <p className="profile-info-value">{profile.clientName || 'N/A'}</p>
                 </div>
-                <div className="profile-info-item group">
+                <div className="profile-info-item">
                   <label className="profile-info-label">
                     <i className="fas fa-fingerprint mr-2"></i>
                     Account Type
@@ -224,12 +205,12 @@ const MyProfilePage: React.FC = () => {
               </div>
 
               {/* Connected Cloud Accounts */}
-              <div className="mb-10">
-                <label className="profile-info-label mb-5 flex items-center">
+              <div className="mb-5">
+                <label className="profile-info-label mb-3 flex items-center">
                   <i className="fas fa-network-wired mr-2"></i>
                   Authorized Cloud Environments
                 </label>
-                <div className="flex flex-wrap gap-4">
+                <div className="flex flex-wrap gap-1.5">
                   {profile.cloudAccounts && profile.cloudAccounts.length > 0 ? (
                     profile.cloudAccounts.map((account: CloudAccount) => (
                       <span
@@ -241,19 +222,12 @@ const MyProfilePage: React.FC = () => {
                             : 'cloud-account-azure'
                           }`}
                       >
-                        <i
-                          className={`mr-3 text-lg ${account.provider === 'AWS'
-                            ? 'fab fa-aws'
-                            : account.provider === 'GCP'
-                              ? 'fab fa-google'
-                              : 'fab fa-microsoft'
-                            }`}
-                        ></i>
+                        <i className={account.provider === 'AWS' ? 'fab fa-aws' : account.provider === 'GCP' ? 'fab fa-google' : 'fab fa-microsoft'}></i>
                         {account.accountName}
                       </span>
                     ))
                   ) : (
-                    <div className="p-6 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200 text-slate-400 w-full text-center font-medium">
+                    <div className="p-4 bg-gray-50 rounded-md border border-dashed border-gray-200 text-gray-400 w-full text-center text-sm">
                       <i className="fas fa-cloud-slash mr-2"></i>
                       No cloud environments linked to this profile
                     </div>
@@ -262,12 +236,12 @@ const MyProfilePage: React.FC = () => {
               </div>
 
               {/* Change Password Button */}
-              <div className="pt-8 border-t border-slate-100">
+              <div className="pt-4 border-t border-gray-100 flex items-center gap-3">
                 <button
                   onClick={() => setShowPasswordModal(true)}
-                  className="btn-change-password group"
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 transition-colors"
                 >
-                  <i className="fas fa-shield-halved mr-3 text-indigo-600 transition-transform group-hover:rotate-12"></i>
+                  <i className="fas fa-shield-halved text-indigo-500 text-xs"></i>
                   Security & Password Settings
                 </button>
               </div>
@@ -276,29 +250,31 @@ const MyProfilePage: React.FC = () => {
 
           {/* Team Users Section (Only for Primary Users) */}
           {profile.isPrimaryUser && (
-            <div className="team-members-section">
-              <div className="flex justify-between items-end mb-10">
-                <div>
-                  <h2 className="text-3xl font-extrabold text-slate-900 flex items-center tracking-tight mb-2">
-                    <i className="fas fa-users-gear mr-4 text-indigo-600 bg-indigo-50 p-3 rounded-2xl"></i>
-                    Team Management
-                  </h2>
-                  <p className="text-slate-500 font-medium">Manage access and account permissions for your organization's team members.</p>
+            <div className="team-members-section space-y-3">
+              <div className="bg-white border border-gray-200 rounded-md px-5 py-4 flex justify-between items-center shadow-sm">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-md bg-indigo-50 border border-indigo-100 flex items-center justify-center flex-shrink-0">
+                    <i className="fas fa-users-gear text-indigo-500 text-xs"></i>
+                  </div>
+                  <div>
+                    <h2 className="text-[13px] font-semibold text-gray-900">Team Management</h2>
+                    <p className="text-xs text-gray-400 mt-0.5">Manage access and permissions for your organization's team members.</p>
+                  </div>
                 </div>
                 <button
                   onClick={newTeamUser}
                   className="btn-add-team-member"
                 >
-                  <i className="fas fa-plus-circle mr-3"></i>
-                  Provision New Member
+                  <i className="fas fa-plus mr-2 text-xs"></i>
+                  Add Member
                 </button>
               </div>
 
               {/* Team User Form */}
               {isEditing && (
-                <div className="bg-white p-10 rounded-3xl shadow-2xl mb-12 border border-slate-200 team-user-form relative z-10">
-                  <h3 className="text-2xl font-black text-slate-900 mb-8 flex items-center">
-                    <i className="fas fa-user-plus mr-3 text-indigo-600"></i>
+                <div className="bg-white p-5 rounded-md border border-gray-200 team-user-form relative z-10">
+                  <h3 className="text-[13px] font-semibold text-gray-900 mb-4 pb-3 border-b border-gray-100 flex items-center gap-2">
+                    <i className="fas fa-user-plus text-indigo-500 text-xs"></i>
                     {selectedUser.id ? 'Modify Permissions' : 'Onboard Team Member'}
                   </h3>
                   <form
@@ -403,9 +379,9 @@ const MyProfilePage: React.FC = () => {
                           <button
                             type="button"
                             onClick={() => handleAccountModeChange('all')}
-                            className={`flex items-center gap-3 p-3 rounded-xl border-2 transition-all text-left ${
+                            className={`flex items-center gap-3 p-3 rounded-md border transition-all text-left ${
                               accountAccessMode === 'all'
-                                ? 'border-indigo-500 bg-indigo-50'
+                                ? 'border-indigo-400 bg-indigo-50'
                                 : 'border-gray-200 bg-white hover:border-indigo-300'
                             }`}
                           >
@@ -422,9 +398,9 @@ const MyProfilePage: React.FC = () => {
                           <button
                             type="button"
                             onClick={() => handleAccountModeChange('selected')}
-                            className={`flex items-center gap-3 p-3 rounded-xl border-2 transition-all text-left ${
+                            className={`flex items-center gap-3 p-3 rounded-md border transition-all text-left ${
                               accountAccessMode === 'selected'
-                                ? 'border-indigo-500 bg-indigo-50'
+                                ? 'border-indigo-400 bg-indigo-50'
                                 : 'border-gray-200 bg-white hover:border-indigo-300'
                             }`}
                           >
@@ -444,7 +420,7 @@ const MyProfilePage: React.FC = () => {
 
                         {/* Selected mode: search + filter + scrollable list */}
                         {accountAccessMode === 'selected' && (
-                          <div className="border border-gray-200 rounded-xl overflow-hidden">
+                          <div className="border border-gray-200 rounded-md overflow-hidden">
                             {/* Search bar */}
                             <div className="p-3 border-b border-gray-100 bg-gray-50">
                               <div className="relative">
@@ -592,7 +568,7 @@ const MyProfilePage: React.FC = () => {
 
                         {/* Ticket Category Sub-Access — shown when All Tickets tab is enabled */}
                         {selectedUser.allowedTabs.includes('all-tickets') && (
-                          <div className="mt-3 ml-4 p-4 bg-indigo-50 rounded-xl border border-indigo-200">
+                          <div className="mt-3 ml-4 p-4 bg-indigo-50 rounded-md border border-indigo-200">
                             <p className="text-xs font-bold text-indigo-700 uppercase tracking-widest mb-3">
                               <i className="fas fa-filter mr-1.5"></i>
                               Ticket Category Access
@@ -644,157 +620,181 @@ const MyProfilePage: React.FC = () => {
                 </div>
               )}
 
-              {/* Team Users Table */}
-              <div className="bg-white rounded-xl shadow-md overflow-hidden border border-gray-100">
-                <div className="overflow-x-auto">
-                  <table className="team-users-table">
-                    <thead>
-                      <tr>
-                        <th>
-                          <i className="fas fa-signature mr-2 text-indigo-500"></i>
-                          Member
-                        </th>
-                        <th>
-                          <i className="fas fa-at mr-2 text-indigo-500"></i>
-                          Email Address
-                        </th>
-                        <th>
-                          <i className="fas fa-user-gear mr-2 text-indigo-500"></i>
-                          Access Role
-                        </th>
-                        <th>
-                          <i className="fas fa-key mr-2 text-indigo-500"></i>
-                          Environments
-                        </th>
-                        {profile.role === 'ROLE_BILLOPS_ADMIN' && (
-                          <th>
-                            <i className="fas fa-th-large mr-2 text-indigo-500"></i>
-                            Tab Access
-                          </th>
-                        )}
-                        <th>
-                          <i className="fas fa-sliders mr-2 text-indigo-500"></i>
-                          Actions
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {teamUsers.length > 0 ? (
-                        teamUsers.map((user: TeamUser) => (
-                          <tr key={user.id}>
-                            <td className="font-medium text-gray-900">
-                              <i className="fas fa-user-circle mr-2 text-indigo-500"></i>
-                              {user.username}
-                            </td>
-                            <td className="text-gray-600">{user.email}</td>
-                            <td>
-                              <span className="role-badge">{user.role}</span>
-                            </td>
-                            <td>
-                              {user.allAccountsAccess ? (
-                                <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-green-50 text-green-700 border border-green-100">
-                                  <i className="fas fa-globe mr-1"></i>
-                                  All Accounts (dynamic)
-                                </span>
-                              ) : user.cloudAccounts && user.cloudAccounts.length > 0 ? (
-                                <div className="flex flex-wrap gap-2">
-                                  {user.cloudAccounts.map((account: CloudAccount) => (
-                                    <span
-                                      key={account.id}
-                                      className={`cloud-account-badge-small ${account.provider === 'AWS'
-                                        ? 'cloud-account-aws'
-                                        : account.provider === 'GCP'
-                                          ? 'cloud-account-gcp'
-                                          : 'cloud-account-azure'
-                                        }`}
-                                    >
-                                      <i
-                                        className={`mr-1 ${account.provider === 'AWS'
-                                          ? 'fab fa-aws'
-                                          : account.provider === 'GCP'
-                                            ? 'fab fa-google'
-                                            : 'fab fa-microsoft'
-                                          }`}
-                                      ></i>
-                                      {account.accountName}
-                                    </span>
-                                  ))}
-                                </div>
-                              ) : (
-                                <span className="text-xs text-gray-400 italic">No access</span>
-                              )}
-                            </td>
-                            {profile.role === 'ROLE_BILLOPS_ADMIN' && (
-                              <td>
-                                {user.allowedTabs && user.allowedTabs.length > 0 ? (() => {
-                                  const TICKET_CATEGORY_LABELS: Record<string, { label: string; icon: string }> = {
-                                    'tickets-account-billing': { label: 'Account & Billing', icon: 'fas fa-file-invoice-dollar' },
-                                    'tickets-technical': { label: 'Technical Support', icon: 'fas fa-server' },
-                                    'tickets-all': { label: 'All Categories', icon: 'fas fa-list' },
-                                  };
-                                  const mainTabs = user.allowedTabs.filter(k => !k.startsWith('tickets-'));
-                                  const ticketCats = user.allowedTabs.filter(k => k.startsWith('tickets-'));
-                                  return (
-                                    <div className="flex flex-wrap gap-1">
-                                      {mainTabs.map(tabKey => {
-                                        const tab = BILLOPS_ADMIN_TABS.find(t => t.key === tabKey);
-                                        return tab ? (
-                                          <span key={tabKey} className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">
-                                            <i className={`${tab.icon} mr-1`}></i>
-                                            {tab.label}
-                                          </span>
-                                        ) : null;
-                                      })}
-                                      {ticketCats.map(catKey => {
-                                        const cat = TICKET_CATEGORY_LABELS[catKey];
-                                        return cat ? (
-                                          <span key={catKey} className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-amber-50 text-amber-700 border border-amber-100">
-                                            <i className={`${cat.icon} mr-1`}></i>
-                                            {cat.label}
-                                          </span>
-                                        ) : null;
-                                      })}
-                                    </div>
-                                  );
-                                })() : (
-                                  <span className="text-xs text-gray-400 italic">No tab access</span>
-                                )}
-                              </td>
-                            )}
-                            <td>
-                              <div className="flex space-x-3">
-                                <button
-                                  onClick={() => editTeamUser(user)}
-                                  className="action-btn action-btn-edit"
-                                >
-                                  <i className="fas fa-edit mr-1"></i>
-                                  Edit
-                                </button>
-                                <button
-                                  onClick={() => deleteTeamUser(user.id)}
-                                  className="action-btn action-btn-delete"
-                                >
-                                  <i className="fas fa-trash-alt mr-1"></i>
-                                  Delete
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))
-                      ) : (
-                        <tr>
-                          <td colSpan={profile.role === 'ROLE_BILLOPS_ADMIN' ? 6 : 5} className="text-center py-12">
-                            <i className="fas fa-users text-5xl text-gray-300 mb-3 block"></i>
-                            <p className="text-gray-500 text-lg">
-                              No team members yet. Add one to get started!
-                            </p>
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
+              {/* Stats bar */}
+              {teamUsers.length > 0 && (
+                <div className="bg-white border border-gray-200 rounded-md grid grid-cols-3 divide-x divide-gray-100 shadow-sm">
+                  <div className="px-5 py-3 flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-md bg-indigo-50 border border-indigo-100 flex items-center justify-center flex-shrink-0">
+                      <i className="fas fa-users text-indigo-500 text-xs"></i>
+                    </div>
+                    <div>
+                      <p className="text-lg font-bold text-gray-900 leading-none">{teamUsers.length}</p>
+                      <p className="text-[11px] text-gray-400 mt-0.5">Members</p>
+                    </div>
+                  </div>
+                  <div className="px-5 py-3 flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-md bg-emerald-50 border border-emerald-100 flex items-center justify-center flex-shrink-0">
+                      <i className="fas fa-cloud text-emerald-500 text-xs"></i>
+                    </div>
+                    <div>
+                      <p className="text-lg font-bold text-gray-900 leading-none">
+                        {teamUsers.filter(u => u.allAccountsAccess).length > 0
+                          ? `${teamUsers.filter(u => u.allAccountsAccess).length} all-access`
+                          : teamUsers.reduce((sum, u) => sum + (u.cloudAccounts?.length ?? 0), 0)}
+                      </p>
+                      <p className="text-[11px] text-gray-400 mt-0.5">Env. grants</p>
+                    </div>
+                  </div>
+                  <div className="px-5 py-3 flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-md bg-purple-50 border border-purple-100 flex items-center justify-center flex-shrink-0">
+                      <i className="fas fa-th-large text-purple-500 text-xs"></i>
+                    </div>
+                    <div>
+                      <p className="text-lg font-bold text-gray-900 leading-none">
+                        {teamUsers.reduce((sum, u) => sum + (u.allowedTabs?.filter(t => !t.startsWith('tickets-')).length ?? 0), 0)}
+                      </p>
+                      <p className="text-[11px] text-gray-400 mt-0.5">Tab grants</p>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              )}
+
+              {/* Member cards */}
+              {teamUsers.length > 0 ? (
+                <div className="space-y-2">
+                  {teamUsers.map((user: TeamUser) => {
+                    const TICKET_CATEGORY_LABELS: Record<string, { label: string; icon: string }> = {
+                      'tickets-account-billing': { label: 'Account & Billing', icon: 'fas fa-file-invoice-dollar' },
+                      'tickets-technical':       { label: 'Technical Support', icon: 'fas fa-server' },
+                      'tickets-all':             { label: 'All Categories', icon: 'fas fa-list' },
+                    };
+                    const TAB_COLORS: Record<string, string> = {
+                      'admin-dashboard':    'bg-purple-50 text-purple-700 border-purple-200',
+                      'support-inbox':      'bg-sky-50 text-sky-700 border-sky-200',
+                      'all-tickets':        'bg-blue-50 text-blue-700 border-blue-200',
+                      'all-invoices':       'bg-teal-50 text-teal-700 border-teal-200',
+                      'credit-requests':    'bg-emerald-50 text-emerald-700 border-emerald-200',
+                      'agreement-admin':    'bg-gray-50 text-gray-600 border-gray-300',
+                      'client-details':     'bg-indigo-50 text-indigo-700 border-indigo-200',
+                      'autospotting-admin': 'bg-orange-50 text-orange-700 border-orange-200',
+                      'user-manager':       'bg-rose-50 text-rose-700 border-rose-200',
+                    };
+                    const mainTabs = (user.allowedTabs ?? []).filter(k => !k.startsWith('tickets-'));
+                    const ticketCats = (user.allowedTabs ?? []).filter(k => k.startsWith('tickets-'));
+                    const AVATAR_GRADIENTS = [
+                      'linear-gradient(135deg, #6366f1, #a855f7)',
+                      'linear-gradient(135deg, #ec4899, #f97316)',
+                      'linear-gradient(135deg, #06b6d4, #3b82f6)',
+                      'linear-gradient(135deg, #84cc16, #10b981)',
+                      'linear-gradient(135deg, #f43f5e, #ec4899)',
+                      'linear-gradient(135deg, #8b5cf6, #06b6d4)',
+                      'linear-gradient(135deg, #f97316, #eab308)',
+                      'linear-gradient(135deg, #14b8a6, #6366f1)',
+                    ];
+                    const avatarColor = AVATAR_GRADIENTS[(user.username?.charCodeAt(0) ?? 0) % AVATAR_GRADIENTS.length];
+
+                    return (
+                      <div key={user.id} className="member-card bg-white border border-gray-200 rounded-md shadow-sm overflow-hidden">
+                        {/* Card top — identity + actions */}
+                        <div className="px-4 py-3 flex items-center gap-3 border-b border-gray-100">
+                          {/* Avatar */}
+                          <div
+                            className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 text-white text-sm font-bold shadow-sm"
+                            style={{ background: avatarColor }}
+                          >
+                            {user.username ? user.username.charAt(0).toUpperCase() : '?'}
+                          </div>
+                          {/* Name + email */}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-gray-900 truncate">{user.username}</p>
+                            <p className="text-xs text-gray-400 truncate">{user.email}</p>
+                          </div>
+                          {/* Role badge */}
+                          <span className="role-badge flex-shrink-0">{user.role?.replace('ROLE_', '')}</span>
+                          {/* Actions */}
+                          <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
+                            <button
+                              onClick={() => editTeamUser(user)}
+                              className="action-btn action-btn-edit"
+                            >
+                              <i className="fas fa-pen text-[10px] mr-1"></i>Edit
+                            </button>
+                            <button
+                              onClick={() => deleteTeamUser(user.id)}
+                              className="action-btn action-btn-delete"
+                            >
+                              <i className="fas fa-trash text-[10px] mr-1"></i>Delete
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Card bottom — environments + tabs */}
+                        <div className="px-4 py-2.5 bg-gray-50 flex flex-wrap items-center gap-x-6 gap-y-2">
+                          {/* Environments */}
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mr-0.5">Env</span>
+                            {user.allAccountsAccess ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-green-50 text-green-700 border border-green-200">
+                                <i className="fas fa-globe mr-1 text-[9px]"></i>All accounts
+                              </span>
+                            ) : user.cloudAccounts && user.cloudAccounts.length > 0 ? (
+                              user.cloudAccounts.map((account: CloudAccount) => (
+                                <span
+                                  key={account.id}
+                                  className={`cloud-account-badge-small ${account.provider === 'AWS' ? 'cloud-account-aws' : account.provider === 'GCP' ? 'cloud-account-gcp' : 'cloud-account-azure'}`}
+                                >
+                                  <i className={account.provider === 'AWS' ? 'fab fa-aws' : account.provider === 'GCP' ? 'fab fa-google' : 'fab fa-microsoft'}></i>
+                                  {account.accountName}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="text-[11px] text-gray-400 italic">None</span>
+                            )}
+                          </div>
+
+                          {/* Tab access */}
+                          {profile.role === 'ROLE_BILLOPS_ADMIN' && (
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mr-0.5">Tabs</span>
+                              {mainTabs.length === 0 && ticketCats.length === 0 ? (
+                                <span className="text-[11px] text-gray-400 italic">None</span>
+                              ) : (
+                                <>
+                                  {mainTabs.map(tabKey => {
+                                    const tab = BILLOPS_ADMIN_TABS.find(t => t.key === tabKey);
+                                    const color = TAB_COLORS[tabKey] ?? 'bg-gray-50 text-gray-600 border-gray-300';
+                                    return tab ? (
+                                      <span key={tabKey} className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium border ${color}`}>
+                                        <i className={`${tab.icon} mr-1 text-[9px]`}></i>{tab.label}
+                                      </span>
+                                    ) : null;
+                                  })}
+                                  {ticketCats.map(catKey => {
+                                    const cat = TICKET_CATEGORY_LABELS[catKey];
+                                    return cat ? (
+                                      <span key={catKey} className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                                        <i className={`${cat.icon} mr-1 text-[9px]`}></i>{cat.label}
+                                      </span>
+                                    ) : null;
+                                  })}
+                                </>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="bg-white border border-dashed border-gray-200 rounded-md py-12 text-center">
+                  <div className="w-12 h-12 rounded-md bg-gray-50 border border-gray-200 flex items-center justify-center mx-auto mb-3">
+                    <i className="fas fa-users text-gray-300 text-lg"></i>
+                  </div>
+                  <p className="text-sm font-medium text-gray-400">No team members yet</p>
+                  <p className="text-xs text-gray-300 mt-1">Click "Add Member" to get started</p>
+                </div>
+              )}
             </div>
           )}
 

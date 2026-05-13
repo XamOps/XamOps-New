@@ -1,0 +1,29 @@
+$kind: http-request
+name: 'Forecast Cost - Missing Data Field'
+method: POST
+url: '{{forecastBaseUrl}}/forecast/cost'
+order: 3000
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "periods": 30
+    }
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      pm.test("Status is 400", function() {
+        pm.response.to.have.status(400);
+      });
+      pm.test("Response status equals error", function() {
+        const json = pm.response.json();
+        pm.expect(json.status).to.eql("error");
+      });
+      pm.test("Response message contains Missing required field", function() {
+        const json = pm.response.json();
+        pm.expect(json.message).to.include("Missing required field");
+      });

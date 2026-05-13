@@ -1,0 +1,27 @@
+$kind: http-request
+name: Health Check
+method: GET
+url: '{{forecastBaseUrl}}/health'
+order: 1000
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      pm.test("Status is 200", function() {
+        pm.response.to.have.status(200);
+      });
+      pm.test("Response has status field equal to healthy", function() {
+        const json = pm.response.json();
+        pm.expect(json.status).to.eql("healthy");
+      });
+      pm.test("Response has service field", function() {
+        const json = pm.response.json();
+        pm.expect(json).to.have.property("service");
+      });
+      pm.test("Response has timestamp field", function() {
+        const json = pm.response.json();
+        pm.expect(json).to.have.property("timestamp");
+      });
+      pm.test("Response time is less than 500ms", function() {
+        pm.expect(pm.response.responseTime).to.be.below(500);
+      });

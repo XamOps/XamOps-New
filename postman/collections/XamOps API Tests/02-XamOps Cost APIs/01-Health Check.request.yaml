@@ -1,0 +1,20 @@
+$kind: http-request
+name: Health Check
+method: GET
+url: '{{xamopsBaseUrl}}/api/xamops/costs/health'
+order: 1000
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      pm.test("Status is 200", function() {
+        pm.response.to.have.status(200);
+      });
+      pm.test("Response status equals healthy", function() {
+        const json = pm.response.json();
+        pm.expect(json.status).to.eql("healthy");
+      });
+      pm.test("Response has timestamp", function() {
+        const json = pm.response.json();
+        pm.expect(json).to.have.property("timestamp");
+      });

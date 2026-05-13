@@ -1,0 +1,22 @@
+$kind: http-request
+name: Historical Cost Trend
+method: GET
+url: '{{xamopsBaseUrl}}/api/xamops/costs/historical-trend'
+order: 5000
+queryParams:
+  - key: accountId
+    value: '{{awsAccountId}}'
+  - key: days
+    value: '30'
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      pm.test("Status is 200", function() {
+        pm.response.to.have.status(200);
+      });
+      pm.test("Response has labels array", function() {
+        const json = pm.response.json();
+        pm.expect(json).to.have.property("labels");
+        pm.expect(json.labels).to.be.an("array");
+      });

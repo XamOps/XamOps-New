@@ -1,0 +1,21 @@
+$kind: http-request
+name: Get Reservation Cost by Tag
+method: GET
+url: '{{xamopsBaseUrl}}/api/xamops/reservations/cost-by-tag'
+order: 3000
+queryParams:
+  - key: accountId
+    value: '{{awsAccountId}}'
+  - key: tagKey
+    value: Environment
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      pm.test("Status is 200", function() {
+        pm.response.to.have.status(200);
+      });
+      pm.test("Response is an array", function() {
+        const json = pm.response.json();
+        pm.expect(json).to.be.an("array");
+      });

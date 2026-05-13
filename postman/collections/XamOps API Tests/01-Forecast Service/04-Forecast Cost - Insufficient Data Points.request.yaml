@@ -1,0 +1,33 @@
+$kind: http-request
+name: 'Forecast Cost - Insufficient Data Points'
+method: POST
+url: '{{forecastBaseUrl}}/forecast/cost'
+order: 4000
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "data": [
+        {"ds": "2025-01-01", "y": 1200.50},
+        {"ds": "2025-02-01", "y": 1350.75}
+      ],
+      "periods": 30
+    }
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      pm.test("Status is 400", function() {
+        pm.response.to.have.status(400);
+      });
+      pm.test("Response status equals error", function() {
+        const json = pm.response.json();
+        pm.expect(json.status).to.eql("error");
+      });
+      pm.test("Response message contains Insufficient data", function() {
+        const json = pm.response.json();
+        pm.expect(json.message).to.include("Insufficient data");
+      });

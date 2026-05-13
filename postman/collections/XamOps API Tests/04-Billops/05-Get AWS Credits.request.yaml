@@ -1,0 +1,20 @@
+$kind: http-request
+name: Get AWS Credits
+method: GET
+url: '{{billopsBaseUrl}}/api/billops/aws-credits'
+order: 5000
+queryParams:
+  - key: accountId
+    value: '{{awsAccountId}}'
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      pm.test("Status is 200, 401, or 404", function() {
+        pm.expect(pm.response.code).to.be.oneOf([200, 401, 404]);
+      });
+      pm.test("If 200: response has body", function() {
+        if (pm.response.code === 200) {
+          pm.expect(pm.response.text()).to.not.be.empty;
+        }
+      });

@@ -1,0 +1,25 @@
+$kind: http-request
+name: 'Cost Breakdown - By Region'
+method: GET
+url: '{{xamopsBaseUrl}}/api/xamops/costs/breakdown'
+order: 3000
+queryParams:
+  - key: accountId
+    value: '{{awsAccountId}}'
+  - key: groupBy
+    value: REGION
+  - key: startDate
+    value: '2025-11-01'
+  - key: endDate
+    value: '2025-11-30'
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      pm.test("Status is 200", function() {
+        pm.response.to.have.status(200);
+      });
+      pm.test("Response is an array", function() {
+        const json = pm.response.json();
+        pm.expect(json).to.be.an("array");
+      });

@@ -1,0 +1,27 @@
+$kind: http-request
+name: Get Reservation Recommendations
+method: GET
+url: '{{xamopsBaseUrl}}/api/xamops/reservations/recommendations'
+order: 2000
+queryParams:
+  - key: accountId
+    value: '{{awsAccountId}}'
+  - key: term
+    value: ONE_YEAR
+  - key: paymentOption
+    value: NO_UPFRONT
+  - key: lookback
+    value: THIRTY_DAYS
+  - key: offeringClass
+    value: STANDARD
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      pm.test("Status is 200", function() {
+        pm.response.to.have.status(200);
+      });
+      pm.test("Response is an array", function() {
+        const json = pm.response.json();
+        pm.expect(json).to.be.an("array");
+      });

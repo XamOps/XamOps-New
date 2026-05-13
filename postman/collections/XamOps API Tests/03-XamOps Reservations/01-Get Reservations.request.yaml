@@ -1,0 +1,20 @@
+$kind: http-request
+name: Get Reservations
+method: GET
+url: '{{xamopsBaseUrl}}/api/xamops/reservations'
+order: 1000
+queryParams:
+  - key: accountId
+    value: '{{awsAccountId}}'
+  - key: forceRefresh
+    value: 'false'
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      pm.test("Status is 200", function() {
+        pm.response.to.have.status(200);
+      });
+      pm.test("Response time is less than 10000ms", function() {
+        pm.expect(pm.response.responseTime).to.be.below(10000);
+      });

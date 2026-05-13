@@ -1,0 +1,30 @@
+$kind: http-request
+name: 'Cost Breakdown - By Service'
+method: GET
+url: '{{xamopsBaseUrl}}/api/xamops/costs/breakdown'
+order: 2000
+queryParams:
+  - key: accountId
+    value: '{{awsAccountId}}'
+  - key: groupBy
+    value: SERVICE
+  - key: startDate
+    value: '2025-11-01'
+  - key: endDate
+    value: '2025-11-30'
+  - key: forceRefresh
+    value: 'false'
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      pm.test("Status is 200", function() {
+        pm.response.to.have.status(200);
+      });
+      pm.test("Response is an array", function() {
+        const json = pm.response.json();
+        pm.expect(json).to.be.an("array");
+      });
+      pm.test("Response time is less than 10000ms", function() {
+        pm.expect(pm.response.responseTime).to.be.below(10000);
+      });

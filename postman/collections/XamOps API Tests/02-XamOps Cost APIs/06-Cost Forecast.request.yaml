@@ -1,0 +1,33 @@
+$kind: http-request
+name: Cost Forecast
+method: GET
+url: '{{xamopsBaseUrl}}/api/xamops/forecast/cost'
+order: 6000
+queryParams:
+  - key: accountId
+    value: '{{awsAccountId}}'
+  - key: periods
+    value: '30'
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      pm.test("Status is 200", function() {
+        pm.response.to.have.status(200);
+      });
+      pm.test("Response status equals success", function() {
+        const json = pm.response.json();
+        pm.expect(json.status).to.eql("success");
+      });
+      pm.test("Response has forecast", function() {
+        const json = pm.response.json();
+        pm.expect(json).to.have.property("forecast");
+      });
+      pm.test("Response has metadata", function() {
+        const json = pm.response.json();
+        pm.expect(json).to.have.property("metadata");
+      });
+      pm.test("metadata.forecastPeriods equals 30", function() {
+        const json = pm.response.json();
+        pm.expect(json.metadata.forecastPeriods).to.eql(30);
+      });

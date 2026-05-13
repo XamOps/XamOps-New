@@ -1,0 +1,25 @@
+$kind: http-request
+name: Get Detailed Breakdown
+method: GET
+url: '{{billopsBaseUrl}}/api/billops/detailed-breakdown'
+order: 3000
+queryParams:
+  - key: accountIds
+    value: '{{awsAccountId}}'
+  - key: year
+    value: '2025'
+  - key: month
+    value: '11'
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      pm.test("Status is 200 or 401", function() {
+        pm.expect(pm.response.code).to.be.oneOf([200, 401]);
+      });
+      pm.test("If 200: response is an array", function() {
+        if (pm.response.code === 200) {
+          const json = pm.response.json();
+          pm.expect(json).to.be.an("array");
+        }
+      });
