@@ -5,6 +5,7 @@ import com.xammer.cloud.domain.User;
 import com.xammer.cloud.dto.DashboardData.BudgetDetails;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.UserRepository;
+import com.xammer.cloud.service.AlertNotificationDeduplicator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -33,18 +34,21 @@ public class BudgetAlertScheduler {
     private final FinOpsService finOpsService;
     private final EmailService emailService;
     private final BudgetEmailBuilder budgetEmailBuilder;
+    private final AlertNotificationDeduplicator deduplicator;
 
     public BudgetAlertScheduler(
             CloudAccountRepository cloudAccountRepository,
             UserRepository userRepository,
             FinOpsService finOpsService,
             EmailService emailService,
-            BudgetEmailBuilder budgetEmailBuilder) {
+            BudgetEmailBuilder budgetEmailBuilder,
+            AlertNotificationDeduplicator deduplicator) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.userRepository = userRepository;
         this.finOpsService = finOpsService;
         this.emailService = emailService;
         this.budgetEmailBuilder = budgetEmailBuilder;
+        this.deduplicator = deduplicator;
     }
 
     @Scheduled(cron = "0 0 8 * * *") // 08:00 UTC daily
@@ -86,22 +90,35 @@ public class BudgetAlertScheduler {
             double actualPct  = pct(budget.getActualSpend(),     budget.getBudgetLimit());
             double forecastPct = pct(budget.getForecastedSpend(), budget.getBudgetLimit());
 
-            // Check actual thresholds (50, 80, 100)
+            // Check actual thresholds (50, 80, 100) — send the highest breached, once per month
+            String accountId = account.getAwsAccountId();
             for (double threshold : ACTUAL_THRESHOLDS) {
                 if (actualPct >= threshold) {
-                    for (String email : recipients) {
-                        sendThresholdEmail(email, budget, accountName, account.getAwsAccountId(),
-                                threshold, false);
+                    int pct = (int) threshold;
+                    if (deduplicator.budgetAlertAlreadySent(accountId, budget.getBudgetName(), pct)) {
+                        logger.debug("[Dedup] Budget actual alert already sent for {}/{}/{}% — skipping",
+                                accountId, budget.getBudgetName(), pct);
+                    } else {
+                        for (String email : recipients) {
+                            sendThresholdEmail(email, budget, accountName, accountId, threshold, false);
+                        }
+                        deduplicator.markBudgetAlertSent(accountId, budget.getBudgetName(), pct);
                     }
                     break; // send only the highest breached threshold per run
                 }
             }
 
-            // Check forecasted overage separately
+            // Check forecasted overage separately — once per month
             if (forecastPct >= FORECAST_THRESHOLD) {
-                for (String email : recipients) {
-                    sendThresholdEmail(email, budget, accountName, account.getAwsAccountId(),
-                            FORECAST_THRESHOLD, true);
+                int pct = (int) FORECAST_THRESHOLD + 1000; // distinct key from actual 100%
+                if (deduplicator.budgetAlertAlreadySent(accountId, budget.getBudgetName(), pct)) {
+                    logger.debug("[Dedup] Budget forecast alert already sent for {}/{} — skipping",
+                            accountId, budget.getBudgetName());
+                } else {
+                    for (String email : recipients) {
+                        sendThresholdEmail(email, budget, accountName, accountId, FORECAST_THRESHOLD, true);
+                    }
+                    deduplicator.markBudgetAlertSent(accountId, budget.getBudgetName(), pct);
                 }
             }
         }

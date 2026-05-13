@@ -48,6 +48,7 @@ public class CloudGuardService {
     private final AwsSecurityHubService securityHubService;
     private final AlertEmailBuilder alertEmailBuilder;
     private final UserRepository userRepository;
+    private final AlertNotificationDeduplicator deduplicator;
 
     @Autowired
     public CloudGuardService(
@@ -60,7 +61,8 @@ public class CloudGuardService {
             @Lazy DashboardDataService dashboardDataService,
             AwsSecurityHubService securityHubService,
             AlertEmailBuilder alertEmailBuilder,
-            UserRepository userRepository) {
+            UserRepository userRepository,
+            AlertNotificationDeduplicator deduplicator) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
         this.redisCache = redisCache;
@@ -71,6 +73,7 @@ public class CloudGuardService {
         this.securityHubService = securityHubService;
         this.alertEmailBuilder = alertEmailBuilder;
         this.userRepository = userRepository;
+        this.deduplicator = deduplicator;
     }
 
     private CloudAccount getAccount(String accountId) {
@@ -154,7 +157,7 @@ public class CloudGuardService {
                                 double utilization = (serviceQuota.value() > 0) ? (usage / serviceQuota.value()) * 100.0
                                         : 0.0;
 
-                                if (utilization > ALERT_THRESHOLD_PERCENTAGE || usage > 0) {
+                                if (utilization >= ALERT_THRESHOLD_PERCENTAGE) {
                                     allQuotaInfo.add(new DashboardData.ServiceQuotaInfo(
                                             "VPC",
                                             serviceQuota.quotaName(),
@@ -297,7 +300,7 @@ public class CloudGuardService {
                 double limit = q.value();
                 double utilization = (limit > 0) ? (currentUsage / limit) * 100.0 : 0.0;
 
-                if (utilization >= ALERT_THRESHOLD_PERCENTAGE || currentUsage > 0) {
+                if (utilization >= ALERT_THRESHOLD_PERCENTAGE) {
                     quotaList.add(new DashboardData.ServiceQuotaInfo(
                             serviceName,
                             quotaName,
@@ -508,17 +511,23 @@ public class CloudGuardService {
                                 .build());
                     }
 
-                    // Send HTML email digest to all sub-users
+                    // Send HTML email digest — at most once per 23 hours per account
                     if (!recipients.isEmpty() && !alerts.isEmpty()) {
-                        String htmlBody = alertEmailBuilder.buildAlertDigestEmail(alerts, accountName, accountId);
-                        String subject = "[XamOps] Alert Digest - " + alerts.size() + " alerts require attention";
-                        for (String email : recipients) {
-                            try {
-                                emailService.sendHtmlEmail(email, subject, htmlBody);
-                                logger.info("Sent alert digest email to {}", email);
-                            } catch (Exception e) {
-                                logger.error("Failed to send alert digest email to {}: {}", email, e.getMessage());
+                        if (deduplicator.awsDigestAlreadySentToday(accountId)) {
+                            logger.info("[Dedup] AWS digest already sent today for account {} — skipping email", accountId);
+                        } else {
+                            String htmlBody = alertEmailBuilder.buildAlertDigestEmail(alerts, accountName, accountId);
+                            String subject = String.format("[XamOps] Alert Digest — %d alert%s for %s",
+                                    alerts.size(), alerts.size() == 1 ? "" : "s", accountName);
+                            for (String email : recipients) {
+                                try {
+                                    emailService.sendHtmlEmail(email, subject, htmlBody);
+                                    logger.info("Sent alert digest email to {}", email);
+                                } catch (Exception e) {
+                                    logger.error("Failed to send alert digest email to {}: {}", email, e.getMessage());
+                                }
                             }
+                            deduplicator.markAwsDigestSent(accountId);
                         }
                     }
 
