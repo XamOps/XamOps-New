@@ -104,6 +104,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
   // Assignment dropdown state
   const [showAssignDropdown, setShowAssignDropdown] = useState(false);
   const [isAssigning, setIsAssigning] = useState(false);
+  const [showActionsDropdown, setShowActionsDropdown] = useState(false);
 
   // Email Thread Modal
   const [showEmailModal, setShowEmailModal] = useState(false);
@@ -336,6 +337,17 @@ const BillOpsTicketDetailPage: React.FC = () => {
     return () => document.removeEventListener('keydown', handler);
   }, [isAdmin]);
 
+  // Close actions dropdown on outside click
+  useEffect(() => {
+    if (!showActionsDropdown) return;
+    const handler = (e: MouseEvent) => {
+      const el = document.querySelector('[data-actions-dropdown]');
+      if (el && !el.contains(e.target as Node)) setShowActionsDropdown(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showActionsDropdown]);
+
   /**
    * Initialize the note Quill editor when the note panel opens.
    * The editor div is always in the DOM while the panel is open (hidden via CSS on tasks tab),
@@ -526,67 +538,74 @@ const BillOpsTicketDetailPage: React.FC = () => {
             </div>
           )}
 
-          {isAdmin && ticket.status !== 'CLOSED' && (
+          {/* Actions dropdown */}
+          <div className="relative" data-actions-dropdown>
             <button
-              onClick={() => setShowRcaModal(true)}
-              title="Generate RCA"
-              className="flex items-center gap-2 px-3 py-2 lg:px-4 bg-purple-600 text-white rounded-xl text-xs font-bold shadow-lg shadow-purple-500/20 hover:bg-purple-700 transition-all hover:-translate-y-0.5"
+              onClick={() => setShowActionsDropdown(v => !v)}
+              className="flex items-center gap-2 px-3 py-2 lg:px-4 bg-indigo-600 text-white rounded-xl text-xs font-bold shadow-lg shadow-indigo-500/20 hover:bg-indigo-700 transition-all"
             >
-              <i className="fas fa-file-medical-alt"></i>
-              <span className="hidden lg:inline">Generate RCA</span>
+              <i className="fas fa-bolt"></i>
+              <span className="hidden lg:inline">Actions</span>
+              <i className="fas fa-chevron-down text-[8px] opacity-70 ml-0.5"></i>
             </button>
-          )}
 
-          {isAdmin && ticket.status !== 'CLOSED' && (
-            <button
-              onClick={openMeetModal}
-              title="Schedule Google Meet"
-              className="flex items-center gap-2 px-3 py-2 lg:px-4 bg-emerald-50 text-emerald-700 rounded-xl text-xs font-bold border border-emerald-200 hover:bg-emerald-100 transition-all active:scale-95"
-            >
-              <i className="fas fa-video"></i>
-              <span className="hidden lg:inline">Schedule Meet</span>
-            </button>
-          )}
-
-          {isAdmin && (ticket.replies?.length ?? 0) > 0 && (
-            <button
-              onClick={() => setShowEmailModal(true)}
-              title="Email Thread"
-              className="flex items-center gap-2 px-3 py-2 lg:px-4 bg-sky-50 text-sky-700 rounded-xl text-xs font-bold border border-sky-200 hover:bg-sky-100 transition-all active:scale-95"
-            >
-              <i className="fas fa-envelope"></i>
-              <span className="hidden lg:inline">Email Thread</span>
-            </button>
-          )}
-
-          {ticket.status !== 'CLOSED' && (
-            <button
-              onClick={handleCloseTicket}
-              title="Close Ticket"
-              className="flex items-center gap-2 px-3 py-2 lg:px-4 bg-rose-50 text-rose-600 rounded-xl text-xs font-bold border border-rose-100 hover:bg-rose-100 transition-all active:scale-95"
-            >
-              <i className="far fa-times-circle"></i>
-              <span className="hidden lg:inline">Close Ticket</span>
-            </button>
-          )}
-
-          {isAdmin && ticket.status === 'CLOSED' && (
-            <button
-              onClick={handleReopenTicket}
-              title="Reopen Ticket"
-              className="flex items-center gap-2 px-3 py-2 lg:px-4 bg-emerald-50 text-emerald-700 rounded-xl text-xs font-bold border border-emerald-200 hover:bg-emerald-100 transition-all active:scale-95"
-            >
-              <i className="fas fa-lock-open"></i>
-              <span className="hidden lg:inline">Reopen Ticket</span>
-            </button>
-          )}
+            {showActionsDropdown && (
+              <div className="absolute top-full right-0 mt-1 w-52 bg-white rounded-xl shadow-xl border border-slate-100 py-1 z-50 overflow-hidden">
+                {isAdmin && ticket.status !== 'CLOSED' && (
+                  <button
+                    onClick={() => { setShowRcaModal(true); setShowActionsDropdown(false); }}
+                    className="w-full text-left flex items-center gap-3 px-4 py-2.5 text-[11px] font-bold text-slate-700 hover:bg-purple-50 hover:text-purple-700 transition-colors"
+                  >
+                    <i className="fas fa-file-medical-alt text-purple-500 w-4 text-center"></i>
+                    Generate RCA
+                  </button>
+                )}
+                {isAdmin && ticket.status !== 'CLOSED' && (
+                  <button
+                    onClick={() => { openMeetModal(); setShowActionsDropdown(false); }}
+                    className="w-full text-left flex items-center gap-3 px-4 py-2.5 text-[11px] font-bold text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 transition-colors"
+                  >
+                    <i className="fas fa-video text-emerald-500 w-4 text-center"></i>
+                    Schedule Meet
+                  </button>
+                )}
+                {isAdmin && (ticket.replies?.length ?? 0) > 0 && (
+                  <button
+                    onClick={() => { setShowEmailModal(true); setShowActionsDropdown(false); }}
+                    className="w-full text-left flex items-center gap-3 px-4 py-2.5 text-[11px] font-bold text-slate-700 hover:bg-sky-50 hover:text-sky-700 transition-colors"
+                  >
+                    <i className="fas fa-envelope text-sky-500 w-4 text-center"></i>
+                    Email Thread
+                  </button>
+                )}
+                {ticket.status !== 'CLOSED' && (
+                  <button
+                    onClick={() => { handleCloseTicket(); setShowActionsDropdown(false); }}
+                    className="w-full text-left flex items-center gap-3 px-4 py-2.5 text-[11px] font-bold text-rose-600 hover:bg-rose-50 transition-colors border-t border-slate-50"
+                  >
+                    <i className="far fa-times-circle text-rose-500 w-4 text-center"></i>
+                    Close Ticket
+                  </button>
+                )}
+                {isAdmin && ticket.status === 'CLOSED' && (
+                  <button
+                    onClick={() => { handleReopenTicket(); setShowActionsDropdown(false); }}
+                    className="w-full text-left flex items-center gap-3 px-4 py-2.5 text-[11px] font-bold text-emerald-700 hover:bg-emerald-50 transition-colors"
+                  >
+                    <i className="fas fa-lock-open text-emerald-500 w-4 text-center"></i>
+                    Reopen Ticket
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     );
 
     return () => clearActions();
   }, [setActions, clearActions, ticket, isAdmin, handleCloseTicket, handleReopenTicket, goBackToTickets,
-      adminUsers, showAssignDropdown, isAssigning, handleAssign, showEmailModal, openMeetModal]);
+      adminUsers, showAssignDropdown, isAssigning, handleAssign, showEmailModal, openMeetModal, showActionsDropdown]);
 
   const addEmailRecipient = (email: string) => {
     const trimmed = email.trim().toLowerCase();
@@ -1151,7 +1170,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                               <i className="fas fa-lock text-xs"></i>
                             </div>
                           </div>
-                          <div className="space-y-2 text-right min-w-0">
+                          <div className="space-y-2 text-left min-w-0">
                             <div className="flex items-center justify-end gap-2 px-1">
                               <span className="px-2 py-0.5 text-[8px] font-black bg-amber-100 text-amber-600 border border-amber-200 rounded-full uppercase tracking-widest flex-shrink-0">Internal Note</span>
                               <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter flex-shrink-0">{formatIST(reply.createdAt)}</span>
@@ -1188,7 +1207,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                         </div>
                       </div>
 
-                      <div className={`space-y-2 min-w-0 ${isMine ? 'text-right' : 'text-left'}`}>
+                      <div className="space-y-2 min-w-0 text-left">
                         <div className={`flex items-center gap-1.5 px-1 ${isMine ? 'justify-end' : 'justify-start'}`}>
                           {!isMine && <span className="text-[10px] font-black text-slate-800 uppercase tracking-widest">{reply.authorUsername}</span>}
                           <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">{formatIST(reply.createdAt)}</span>
@@ -1216,7 +1235,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
 
                           {/* ── Edit / Delete hover buttons ── */}
                           {isMine && !reply.deleted && ticket.status !== 'CLOSED' && (
-                            <div className={`absolute top-2 ${isMine ? 'left-2' : 'right-2'} opacity-0 group-hover/msg:opacity-100 transition-opacity flex items-center gap-1 z-10`}>
+                            <div className="absolute top-2 right-2 opacity-0 group-hover/msg:opacity-100 transition-opacity flex items-center gap-1 z-10">
                               {/* Edit — only within 15 min */}
                               {(Date.now() - new Date(reply.createdAt).getTime()) < 15 * 60 * 1000 && (
                                 <button
