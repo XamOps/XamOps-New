@@ -93,6 +93,7 @@ public class BillOpsSupportController {
             conv.put("lastMessage", latest.isDeleted() ? "(deleted)" : latest.getContent());
             conv.put("lastMessageTime", latest.getTimestamp().toString());
             conv.put("unreadCount", (int) unreadCount);
+            conv.put("clientId", sender.getClient() != null ? sender.getClient().getId() : null);
             result.add(conv);
         }
 

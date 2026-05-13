@@ -44,6 +44,7 @@ interface UseBillOpsTicketDetailReturn {
   fetchTicketDetails: () => Promise<void>;
   submitReply: (message: string, file: File | null, isInternal?: boolean) => Promise<void>;
   closeTicket: () => Promise<void>;
+  reopenTicket: () => Promise<void>;
   submitRCA: (rcaData: RCAFormData) => Promise<void>;
   assignTicket: (adminId: number, adminUsername: string) => Promise<void>;
   sendEmailThread: (recipientEmails: string[], sendMode?: 'separate' | 'combined') => Promise<void>;
@@ -211,6 +212,31 @@ export const useBillOpsTicketDetail = (
       window.dispatchEvent(new CustomEvent('ticket:updated'));
     } catch (err) {
       console.error('Error closing ticket:', err);
+      throw err;
+    }
+  }, [ticketId]);
+
+  /**
+   * Reopen a closed ticket (admin only)
+   */
+  const reopenTicket = useCallback(async () => {
+    if (!ticketId) return;
+
+    try {
+      const response = await fetch(`/api/billops/tickets/${ticketId}/reopen`, {
+        method: 'POST',
+        credentials: 'include'
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to reopen ticket');
+      }
+
+      const updatedTicket = await response.json();
+      setTicket(updatedTicket);
+      window.dispatchEvent(new CustomEvent('ticket:updated'));
+    } catch (err) {
+      console.error('Error reopening ticket:', err);
       throw err;
     }
   }, [ticketId]);
@@ -510,6 +536,7 @@ export const useBillOpsTicketDetail = (
     fetchTicketDetails,
     submitReply,
     closeTicket,
+    reopenTicket,
     submitRCA,
     assignTicket,
     sendEmailThread,

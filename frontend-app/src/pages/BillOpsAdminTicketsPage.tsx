@@ -72,9 +72,10 @@ const formatTicketAge = (isoString: string): string => {
 interface TicketRowProps {
   ticket: AdminTicket;
   onView: (id: number) => void;
+  isStarredClient: boolean;
 }
 
-const TicketRow = React.memo<TicketRowProps>(({ ticket, onView }) => {
+const TicketRow = React.memo<TicketRowProps>(({ ticket, onView, isStarredClient }) => {
   const isClosed = ticket.status === 'CLOSED';
   const sla = ticket.createdAt
     ? getSlaStatus(ticket.createdAt, ticket.severity, isClosed, ticket.closedAt)
@@ -117,7 +118,12 @@ const TicketRow = React.memo<TicketRowProps>(({ ticket, onView }) => {
     >
       {/* ID */}
       <td className="px-3 py-3 whitespace-nowrap">
-        <span className="text-xs font-bold text-slate-400 font-mono tracking-tighter opacity-60">#{ticket.id}</span>
+        <div className="flex items-center gap-1">
+          {isStarredClient && (
+            <i className="fas fa-star text-amber-400 text-[10px]" title="Primary client"></i>
+          )}
+          <span className="text-xs font-bold text-slate-400 font-mono tracking-tighter opacity-60">#{ticket.id}</span>
+        </div>
       </td>
 
       {/* Account Name */}
@@ -238,7 +244,8 @@ const TicketRow = React.memo<TicketRowProps>(({ ticket, onView }) => {
 }, (prev, next) =>
   prev.ticket.id === next.ticket.id &&
   prev.ticket.updatedAt === next.ticket.updatedAt &&
-  prev.ticket.hasUnreadUserReply === next.ticket.hasUnreadUserReply
+  prev.ticket.hasUnreadUserReply === next.ticket.hasUnreadUserReply &&
+  prev.isStarredClient === next.isStarredClient
 );
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -248,6 +255,7 @@ const BillOpsAdminTicketsPage: React.FC = () => {
   const {
     tickets,
     filteredTickets,
+    starredClientIds,
     loading,
     isUpdating,
     error,
@@ -1002,7 +1010,12 @@ const BillOpsAdminTicketsPage: React.FC = () => {
                   <tbody className="bg-white/20 divide-y divide-slate-50">
                     {paginatedTickets.length > 0
                       ? paginatedTickets.map((ticket) => (
-                          <TicketRow key={ticket.id} ticket={ticket} onView={viewTicket} />
+                          <TicketRow
+                            key={ticket.id}
+                            ticket={ticket}
+                            onView={viewTicket}
+                            isStarredClient={ticket.clientId != null && starredClientIds.has(ticket.clientId)}
+                          />
                         ))
                       : renderEmptyState()}
                   </tbody>

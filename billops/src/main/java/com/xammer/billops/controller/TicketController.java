@@ -287,6 +287,20 @@ public class TicketController {
         }
     }
 
+    @PostMapping("/tickets/{id}/reopen")
+    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
+    public ResponseEntity<TicketDto> reopenTicket(@PathVariable Long id) {
+        try {
+            return ResponseEntity.ok(ticketService.reopenTicket(id));
+        } catch (IllegalStateException e) {
+            logger.warn("Cannot reopen ticket {}: {}", id, e.getMessage());
+            return ResponseEntity.status(HttpStatus.CONFLICT).build();
+        } catch (RuntimeException e) {
+            logger.error("Error reopening ticket {}: {}", id, e.getMessage());
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        }
+    }
+
     @PostMapping("/tickets/{id}/email")
     @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
     public ResponseEntity<Void> sendTicketEmail(

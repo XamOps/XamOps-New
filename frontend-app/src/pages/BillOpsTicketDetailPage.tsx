@@ -52,6 +52,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
     adminUsers,
     submitReply,
     closeTicket,
+    reopenTicket,
     submitRCA,
     assignTicket,
     sendEmailThread,
@@ -169,6 +170,16 @@ const BillOpsTicketDetailPage: React.FC = () => {
       }
     }
   }, [closeTicket]);
+
+  const handleReopenTicket = useCallback(async () => {
+    if (globalThis.confirm('Reopen this ticket?')) {
+      try {
+        await reopenTicket();
+      } catch (err) {
+        globalThis.alert('Error reopening ticket. Please try again.');
+      }
+    }
+  }, [reopenTicket]);
 
   const goBackToTickets = useCallback(() => {
     if (isAdmin) {
@@ -558,12 +569,23 @@ const BillOpsTicketDetailPage: React.FC = () => {
               <span className="hidden lg:inline">Close Ticket</span>
             </button>
           )}
+
+          {isAdmin && ticket.status === 'CLOSED' && (
+            <button
+              onClick={handleReopenTicket}
+              title="Reopen Ticket"
+              className="flex items-center gap-2 px-3 py-2 lg:px-4 bg-emerald-50 text-emerald-700 rounded-xl text-xs font-bold border border-emerald-200 hover:bg-emerald-100 transition-all active:scale-95"
+            >
+              <i className="fas fa-lock-open"></i>
+              <span className="hidden lg:inline">Reopen Ticket</span>
+            </button>
+          )}
         </div>
       </div>
     );
 
     return () => clearActions();
-  }, [setActions, clearActions, ticket, isAdmin, handleCloseTicket, goBackToTickets,
+  }, [setActions, clearActions, ticket, isAdmin, handleCloseTicket, handleReopenTicket, goBackToTickets,
       adminUsers, showAssignDropdown, isAssigning, handleAssign, showEmailModal, openMeetModal]);
 
   const addEmailRecipient = (email: string) => {
@@ -1006,7 +1028,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
         className="flex-1 min-h-0 overflow-y-auto custom-scrollbar bg-slate-50/50 scroll-smooth"
         onScroll={handleChatScroll}
       >
-        <div className="max-w-4xl mx-auto p-6 lg:p-10 space-y-8">
+        <div className="w-full p-6 lg:p-10 space-y-8">
 
           {/* Original Ticket + Metadata Card */}
           <div className="relative group bg-white/70 backdrop-blur-xl border border-white p-8 rounded-[2.5rem] shadow-[0_8px_40px_rgba(0,0,0,0.03)] hover:shadow-[0_24px_48px_rgba(0,0,0,0.06)] transition-all duration-500 overflow-hidden">
@@ -1322,12 +1344,23 @@ const BillOpsTicketDetailPage: React.FC = () => {
             </div>
           )}
 
-          {/* Closed banner — shown inline at bottom of chat, same as TicketDetailPage */}
+          {/* Closed banner — shown inline at bottom of chat */}
           {isClosed && (
-            <div className="flex items-center gap-3 px-6 py-4 bg-slate-100 rounded-2xl border border-slate-200 text-[11px] font-bold text-slate-500">
-              <i className="fas fa-lock-open text-slate-400"></i>
-              This ticket was closed
-              {ticket.closedAt && <span className="text-slate-400">· {formatIST(ticket.closedAt)}</span>}
+            <div className="flex items-center justify-between gap-3 px-6 py-4 bg-slate-100 rounded-2xl border border-slate-200 text-[11px] font-bold text-slate-500">
+              <div className="flex items-center gap-3">
+                <i className="fas fa-lock text-slate-400"></i>
+                This ticket was closed
+                {ticket.closedAt && <span className="text-slate-400">· {formatIST(ticket.closedAt)}</span>}
+              </div>
+              {isAdmin && (
+                <button
+                  onClick={handleReopenTicket}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg text-[10px] font-bold border border-emerald-200 hover:bg-emerald-100 transition-all active:scale-95"
+                >
+                  <i className="fas fa-lock-open text-[9px]"></i>
+                  Reopen
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -1349,7 +1382,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
       {/* Footer - Reply Form */}
       {ticket.status !== 'CLOSED' ? (
         <div className="p-6 bg-white/70 backdrop-blur-xl border-t border-slate-200/50">
-          <div className="max-w-4xl mx-auto">
+          <div className="w-full">
             <form onSubmit={handleSubmitReply}>
               <div className="relative bg-white rounded-3xl border overflow-hidden focus-within:ring-4 transition-all shadow-sm border-slate-200 focus-within:ring-indigo-500/10 focus-within:border-indigo-400/40">
                 <div className="px-5 py-3 border-b border-slate-50 flex items-center justify-between bg-slate-50/30">

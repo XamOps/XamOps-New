@@ -21,6 +21,7 @@ export interface AdminTicket {
   region?: string;
   accountId?: string;
   accountName?: string;
+  clientId?: number;
   creatorId?: number;
   creatorUsername?: string;
   createdAt: string;

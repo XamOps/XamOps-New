@@ -32,6 +32,7 @@ export interface SupportConversation {
   adminUnreadCount?: number;        // admin messages the user hasn't seen yet
   ticketStatus?: TicketStatus;      // OPEN | IN_PROGRESS | CLOSED
   assignedAdminUsername?: string;   // Which admin is currently handling this ticket
+  clientId?: number;                // Client this user belongs to (for starred indicator)
 }
 
 /**

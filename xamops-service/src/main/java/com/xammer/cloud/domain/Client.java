@@ -23,6 +23,9 @@ public class Client {
     @Column(nullable = true)
     private Long ownerAdminId;
 
+    @Column(nullable = false, columnDefinition = "boolean default false")
+    private boolean starred = false;
+
     // Establishes a one-to-many relationship with users
     @OneToMany(mappedBy = "client", cascade = CascadeType.ALL, orphanRemoval = true)
     @lombok.ToString.Exclude

@@ -351,6 +351,27 @@ public class TicketService {
         return convertToDto(updatedTicket);
     }
 
+    @Transactional
+    @Caching(evict = {
+        @CacheEvict(value = "tickets", allEntries = true),
+        @CacheEvict(value = "tickets_by_category", allEntries = true)
+    })
+    public TicketDto reopenTicket(Long ticketId) {
+        Ticket ticket = ticketRepository.findById(ticketId)
+                .orElseThrow(() -> new RuntimeException("Ticket not found"));
+
+        if (!"CLOSED".equalsIgnoreCase(ticket.getStatus())) {
+            throw new IllegalStateException("Only closed tickets can be reopened.");
+        }
+
+        ticket.setStatus("OPEN");
+        ticket.setClosedAt(null);
+        Ticket updatedTicket = ticketRepository.save(ticket);
+        evictCountCache(updatedTicket.getCategory());
+        broadcastTicketChange();
+        return convertToDto(updatedTicket);
+    }
+
     // User-scoped cache key: tickets are filtered per user so each user gets their own Redis entry.
     @Transactional(readOnly = true)
     @Cacheable(value = "tickets_by_category", key = "#category + ':user:' + T(com.xammer.cloud.util.SecurityUtils).getCurrentUserId()")

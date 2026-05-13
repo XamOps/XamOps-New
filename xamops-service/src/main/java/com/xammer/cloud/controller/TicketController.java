@@ -112,6 +112,12 @@ public class TicketController {
         return ResponseEntity.ok(ticketService.closeTicket(id));
     }
 
+    @PostMapping("/tickets/{id}/reopen")
+    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN')")
+    public ResponseEntity<TicketDto> reopenTicket(@PathVariable Long id) {
+        return ResponseEntity.ok(ticketService.reopenTicket(id));
+    }
+
     @GetMapping("/tickets/category/{category}")
     public ResponseEntity<List<TicketDto>> getTicketsByCategory(
             @PathVariable String category,

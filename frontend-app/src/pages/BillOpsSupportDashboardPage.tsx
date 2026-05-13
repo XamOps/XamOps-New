@@ -621,6 +621,20 @@ const BillOpsSupportDashboardPage: React.FC = () => {
 
   /* ════════════════════════════ render helpers ══════════════════ */
 
+  const starredClientIds = useMemo((): Set<number> => {
+    try {
+      const raw = localStorage.getItem('billops_clients_cache');
+      if (!raw) return new Set();
+      const { data } = JSON.parse(raw);
+      if (!Array.isArray(data)) return new Set();
+      return new Set(
+        data.filter((c: { id: number; starred: boolean }) => c.starred).map((c: { id: number }) => c.id)
+      );
+    } catch {
+      return new Set();
+    }
+  }, [conversations]); // re-derive when inbox refreshes
+
   const renderConversationItem = (conv: SupportConversation) => {
     const isActive = activeAccount?.userId === conv.userId;
     return (
@@ -636,6 +650,9 @@ const BillOpsSupportDashboardPage: React.FC = () => {
           <h3 className="font-bold text-gray-800 text-sm truncate pr-2 group-hover:text-indigo-700 transition-colors flex items-center gap-1.5">
             <i className="fas fa-user-circle text-indigo-400 text-xs"></i>
             {conv.username || conv.senderUsername || 'Unknown User'}
+            {conv.clientId != null && starredClientIds.has(conv.clientId) && (
+              <i className="fas fa-star text-amber-400 text-[10px] flex-shrink-0" title="Primary client"></i>
+            )}
           </h3>
           <div className="flex items-center gap-2">
             {!!conv.unreadCount && conv.unreadCount > 0 && (

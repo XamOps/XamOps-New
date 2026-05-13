@@ -488,6 +488,25 @@ public class TicketService {
     }
 
     @Transactional
+    public TicketDto reopenTicket(Long ticketId) {
+        Ticket ticket = ticketRepository.findById(ticketId)
+                .orElseThrow(() -> new RuntimeException("Ticket not found"));
+
+        if (!"CLOSED".equalsIgnoreCase(ticket.getStatus())) {
+            throw new IllegalStateException("Only closed tickets can be reopened.");
+        }
+
+        ticket.setStatus("OPEN");
+        ticket.setClosedAt(null);
+        ticket.setUpdatedAt(java.time.LocalDateTime.now());
+        Ticket updatedTicket = ticketRepository.save(ticket);
+
+        evictTicketCaches(updatedTicket.getCategory());
+
+        return convertToDto(updatedTicket, true);
+    }
+
+    @Transactional
     public void assignTicket(Long ticketId, Long adminId, String adminUsername) {
         Ticket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new RuntimeException("Ticket not found"));

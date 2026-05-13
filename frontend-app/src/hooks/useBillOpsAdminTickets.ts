@@ -34,6 +34,7 @@ const DEFAULT_FILTERS: TicketFilters = {
 interface UseBillOpsAdminTicketsReturn {
   tickets: AdminTicket[];
   filteredTickets: AdminTicket[];
+  starredClientIds: Set<number>;
   loading: boolean;
   isUpdating: boolean;
   error: string | null;
@@ -337,9 +338,25 @@ export const useBillOpsAdminTickets = (): UseBillOpsAdminTicketsReturn => {
     return () => clearInterval(intervalId);
   }, [fetchTickets]);
 
+  // Derive starred client IDs from the clients cache written by ClientDetailsPage
+  const starredClientIds = useMemo((): Set<number> => {
+    try {
+      const raw = localStorage.getItem('billops_clients_cache');
+      if (!raw) return new Set();
+      const { data } = JSON.parse(raw);
+      if (!Array.isArray(data)) return new Set();
+      return new Set(
+        data.filter((c: { id: number; starred: boolean }) => c.starred).map((c: { id: number }) => c.id)
+      );
+    } catch {
+      return new Set();
+    }
+  }, [tickets]); // re-derive whenever tickets refresh (cache may have updated)
+
   return {
     tickets,
     filteredTickets,
+    starredClientIds,
     loading,
     isUpdating,
     error,

@@ -184,6 +184,7 @@ class BillOpsClientDetailsDto {
     private List<BillOpsAccountDto> accounts;
     private List<BillOpsUserDto> users;
     private Double totalConsumption;
+    private boolean starred;
 
     // Getters and Setters
     public Long getId() {
@@ -232,6 +233,14 @@ class BillOpsClientDetailsDto {
 
     public void setTotalConsumption(Double totalConsumption) {
         this.totalConsumption = totalConsumption;
+    }
+
+    public boolean isStarred() {
+        return starred;
+    }
+
+    public void setStarred(boolean starred) {
+        this.starred = starred;
     }
 }
 
@@ -300,6 +309,24 @@ public class BillOpsAdminController {
     public ResponseEntity<String> evictClientsCache() {
         redisCacheService.evict(CLIENTS_CACHE_KEY);
         return ResponseEntity.ok("Cache evicted");
+    }
+
+    /** Toggle the starred (primary) flag for a client — visible to all ROLE_BILLOPS_ADMIN users */
+    @PostMapping("/clients/{clientId}/star")
+    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN') or hasAuthority('ROLE_SUPER_ADMIN')")
+    public ResponseEntity<Map<String, Object>> toggleClientStar(@PathVariable Long clientId) {
+        Client client = clientRepository.findById(clientId)
+                .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(
+                        org.springframework.http.HttpStatus.NOT_FOUND, "Client not found: " + clientId));
+        client.setStarred(!client.isStarred());
+        clientRepository.save(client);
+        // Evict all admin caches so the star is reflected on next fetch
+        redisCacheService.evict(CLIENTS_CACHE_KEY);
+        log.info("Client {} starred={}", clientId, client.isStarred());
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("clientId", clientId);
+        response.put("starred", client.isStarred());
+        return ResponseEntity.ok(response);
     }
 
     /** Debug: check last_login_at values directly from DB (bypasses Redis cache) */
@@ -515,6 +542,7 @@ public class BillOpsAdminController {
             clientDto.setId(client.getId());
             clientDto.setName(client.getName());
             clientDto.setEmail(client.getEmail());
+            clientDto.setStarred(client.isStarred());
 
             List<CloudAccount> accounts = accountsByClientId.getOrDefault(client.getId(), new ArrayList<>());
             List<BillOpsAccountDto> accountDtos = new ArrayList<>();

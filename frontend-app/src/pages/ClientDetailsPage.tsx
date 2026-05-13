@@ -32,6 +32,7 @@ interface ClientDetails {
     accounts: BillOpsAccount[];
     users: BillOpsUser[];
     totalConsumption: number;
+    starred: boolean;
 }
 
 const CACHE_KEY = 'billops_clients_cache';
@@ -213,6 +214,21 @@ const ClientDetailsPage: React.FC = () => {
             console.error('Error during Login As', err);
         }
     };
+
+    const toggleStar = useCallback(async (e: React.MouseEvent, clientId: number) => {
+        e.stopPropagation();
+        // Optimistic update
+        setClients(prev => prev.map(c => c.id === clientId ? { ...c, starred: !c.starred } : c));
+        try {
+            await apiClient.post(`/api/xamops/billops-admin/clients/${clientId}/star`, {});
+            // Refresh cache silently so other pages pick up the change
+            localStorage.removeItem(CACHE_KEY);
+        } catch (err) {
+            // Roll back on failure
+            setClients(prev => prev.map(c => c.id === clientId ? { ...c, starred: !c.starred } : c));
+            console.error('Failed to toggle star:', err);
+        }
+    }, []);
 
     const stats = useMemo(() => ({
         clients: clients.length,
@@ -441,6 +457,13 @@ const ClientDetailsPage: React.FC = () => {
                                         </div>
                                     </div>
                                 </div>
+                                <button
+                                    onClick={(e) => toggleStar(e, client.id)}
+                                    title={client.starred ? 'Remove primary flag' : 'Mark as primary client'}
+                                    className={`w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200 hover:scale-110 active:scale-95 ${client.starred ? 'text-amber-400 hover:text-amber-500' : 'text-slate-300 hover:text-amber-300'}`}
+                                >
+                                    <i className={`${client.starred ? 'fas' : 'far'} fa-star text-sm`}></i>
+                                </button>
                                 <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-all duration-500 ${expandedClient === client.id ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200 rotate-180' : 'bg-gray-50 text-gray-400'}`}>
                                     <i className="fas fa-chevron-down text-xs"></i>
                                 </div>
