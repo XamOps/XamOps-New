@@ -511,10 +511,11 @@ public class CloudGuardService {
                                 .build());
                     }
 
-                    // Send HTML email digest — at most once per 23 hours per account
+                    // Send HTML email digest only when alert content changes
                     if (!recipients.isEmpty() && !alerts.isEmpty()) {
-                        if (deduplicator.awsDigestAlreadySentToday(accountId)) {
-                            logger.info("[Dedup] AWS digest already sent today for account {} — skipping email", accountId);
+                        String fingerprint = AlertNotificationDeduplicator.computeFingerprint(alerts);
+                        if (deduplicator.awsDigestAlreadySentForContent(accountId, fingerprint)) {
+                            logger.info("[Dedup] Same alerts already notified for account {} — skipping email", accountId);
                         } else {
                             String htmlBody = alertEmailBuilder.buildAlertDigestEmail(alerts, accountName, accountId);
                             String subject = String.format("[XamOps] Alert Digest — %d alert%s for %s",
@@ -527,7 +528,7 @@ public class CloudGuardService {
                                     logger.error("Failed to send alert digest email to {}: {}", email, e.getMessage());
                                 }
                             }
-                            deduplicator.markAwsDigestSent(accountId);
+                            deduplicator.markAwsDigestSent(accountId, fingerprint);
                         }
                     }
 

@@ -179,10 +179,11 @@ public class GcpCloudGuardService {
                     alerts.addAll(anomaliesFuture.join());
                     alerts.addAll(securityFuture.join());
 
-                    // Send a single HTML digest — at most once per 23 hours per project
+                    // Send HTML digest only when alert content changes
                     if (!recipients.isEmpty() && !alerts.isEmpty()) {
-                        if (deduplicator.gcpDigestAlreadySentToday(gcpProjectId)) {
-                            log.info("[Dedup] GCP digest already sent today for project {} — skipping email", gcpProjectId);
+                        String fingerprint = AlertNotificationDeduplicator.computeFingerprint(alerts);
+                        if (deduplicator.gcpDigestAlreadySentForContent(gcpProjectId, fingerprint)) {
+                            log.info("[Dedup] Same alerts already notified for project {} — skipping email", gcpProjectId);
                         } else {
                             String accountName = account.getAccountName() != null ? account.getAccountName() : gcpProjectId;
                             String htmlBody = alertEmailBuilder.buildAlertDigestEmail(alerts, accountName, gcpProjectId);
@@ -196,7 +197,7 @@ public class GcpCloudGuardService {
                                     log.error("Failed to send GCP alert digest email to {}: {}", email, e.getMessage());
                                 }
                             }
-                            deduplicator.markGcpDigestSent(gcpProjectId);
+                            deduplicator.markGcpDigestSent(gcpProjectId, fingerprint);
                         }
                     } else if (!alerts.isEmpty()) {
                         log.warn("No recipient emails configured for account {}, cannot send alert emails.", gcpProjectId);
