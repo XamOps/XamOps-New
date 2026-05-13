@@ -588,31 +588,31 @@ const BillOpsSupportDashboardPage: React.FC = () => {
 
   useEffect(() => {
     setActions(
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2">
         <button
           onClick={openNewChatModal}
-          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all"
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-xs font-semibold transition-colors"
         >
-          <i className="fas fa-plus"></i>
-          <span>New Chat</span>
+          <i className="fas fa-plus text-[10px]"></i>
+          New Chat
         </button>
         <button
           onClick={openIntegrationsModal}
-          className="flex items-center gap-2 px-4 py-2 bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-50 rounded-xl text-xs font-bold shadow-sm transition-all"
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 rounded-md text-xs font-semibold transition-colors"
         >
-          <i className="fas fa-plug text-xs"></i>
-          <span>Integrations</span>
+          <i className="fas fa-plug text-[10px]"></i>
+          Integrations
         </button>
         <button
           onClick={() => refreshInbox()}
-          className={`flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all ${loading ? 'opacity-50' : ''}`}
+          className={`flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 rounded-md text-xs font-semibold transition-colors ${loading ? 'opacity-50' : ''}`}
         >
-          <i className={`fas fa-sync-alt ${loading ? 'animate-spin' : ''}`}></i>
-          <span>Refresh</span>
+          <i className={`fas fa-sync-alt text-[10px] ${loading ? 'animate-spin' : ''}`}></i>
+          Refresh
         </button>
-        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest bg-slate-100/50 px-3 py-1.5 rounded-full border border-slate-200/50 flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.4)]"></span>
-          Live
+        <span className="flex items-center gap-1.5 text-[11px] font-medium text-gray-500 bg-white border border-gray-200 px-2.5 py-1.5 rounded-md">
+          <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
+          LIVE
         </span>
       </div>
     );
@@ -641,55 +641,51 @@ const BillOpsSupportDashboardPage: React.FC = () => {
       <div
         key={`user-${conv.userId ?? 'null'}`}
         onClick={() => selectConversation(conv)}
-        className={`p-4 border-b border-gray-50 cursor-pointer transition-all hover:bg-white hover:shadow-sm group relative ${isActive
-          ? 'bg-indigo-50/80 border-l-4 border-l-indigo-600'
-          : 'border-l-4 border-l-transparent'}`}
+        className={`px-4 py-3 border-b border-gray-100 cursor-pointer group relative transition-colors ${
+          isActive ? 'bg-indigo-50 border-l-[3px] border-l-indigo-600' : 'border-l-[3px] border-l-transparent hover:bg-gray-50'
+        }`}
       >
-        <div className="flex justify-between items-start mb-1">
-          {/* Username is now the primary conversation identifier */}
-          <h3 className="font-bold text-gray-800 text-sm truncate pr-2 group-hover:text-indigo-700 transition-colors flex items-center gap-1.5">
-            <i className="fas fa-user-circle text-indigo-400 text-xs"></i>
-            {conv.username || conv.senderUsername || 'Unknown User'}
+        <div className="flex items-start justify-between gap-2 mb-1">
+          <h3 className={`font-semibold text-[13px] truncate flex items-center gap-1.5 ${isActive ? 'text-indigo-700' : 'text-gray-800'}`}>
+            <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${isActive ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-500'}`}>
+              {(conv.username || conv.senderUsername || '?').charAt(0).toUpperCase()}
+            </span>
+            <span className="truncate">{conv.username || conv.senderUsername || 'Unknown User'}</span>
             {conv.clientId != null && starredClientIds.has(conv.clientId) && (
-              <i className="fas fa-star text-amber-400 text-[10px] flex-shrink-0" title="Primary client"></i>
+              <i className="fas fa-star text-amber-400 text-[9px] flex-shrink-0"></i>
             )}
           </h3>
-          <div className="flex items-center gap-2">
-            {!!conv.unreadCount && conv.unreadCount > 0 && (
-              <span className="flex items-center justify-center bg-rose-500 text-white text-[10px] font-bold h-5 min-w-[20px] px-1.5 rounded-full shadow-sm animate-pulse ring-2 ring-white">
-                {conv.unreadCount}
-              </span>
-            )}
-          </div>
+          {!!conv.unreadCount && conv.unreadCount > 0 && (
+            <span className="flex-shrink-0 flex items-center justify-center bg-red-500 text-white text-[10px] font-semibold h-5 min-w-[18px] px-1 rounded-full leading-none">
+              {conv.unreadCount}
+            </span>
+          )}
         </div>
-        <p className="text-xs text-gray-500 font-medium truncate mb-0.5">{conv.lastMessage || 'No messages yet'}</p>
-        <div className="flex items-center justify-between mt-1 gap-2">
-          <span className="text-[10px] text-gray-400 truncate flex-1">
+
+        <p className="text-[11px] text-gray-500 truncate ml-7.5 mb-1.5 pl-0.5">{conv.lastMessage || 'No messages yet'}</p>
+
+        <div className="flex items-center justify-between ml-7.5 gap-2 pl-0.5">
+          <span className="text-[10px] text-gray-400 truncate">
             {conv.lastMessageTime ? formatTime(conv.lastMessageTime) : ''}
           </span>
-          <div className="flex items-center gap-1.5 flex-shrink-0">
+          <div className="flex items-center gap-1 flex-shrink-0">
             {(conv.unreadCount ?? 0) > 0 ? (
-              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wide bg-amber-100 text-amber-700">
-                Unread
-              </span>
+              <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 border border-amber-200">Unread</span>
             ) : (
-              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wide bg-green-100 text-green-700">
-                Read
-              </span>
+              <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">Read</span>
             )}
-            {/* Admin messages user hasn't seen yet — shown as blue ticks count */}
             {(conv.adminUnreadCount ?? 0) > 0 && (
               <span
-                title={`${conv.adminUnreadCount} of your messages not yet seen by user`}
-                style={{ color: '#0ea5e9', background: '#e0f2fe', borderColor: '#bae6fd' }}
-                className="flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full border"
+                title={`${conv.adminUnreadCount} of your messages not yet seen`}
+                className="flex items-center gap-0.5 text-[9px] font-semibold px-1.5 py-0.5 rounded border"
+                style={{ color: '#0ea5e9', background: '#f0f9ff', borderColor: '#bae6fd' }}
               >
-                <span style={{ letterSpacing: '-1px', fontSize: '11px' }}>✓✓</span>
+                <span style={{ letterSpacing: '-1px', fontSize: '10px' }}>✓✓</span>
                 {conv.adminUnreadCount}
               </span>
             )}
             {conv.assignedAdminUsername && (
-              <span className="text-[9px] text-purple-500 font-semibold truncate max-w-[60px]" title={`Assigned: ${conv.assignedAdminUsername}`}>
+              <span className="text-[9px] text-purple-500 font-medium truncate max-w-[55px]" title={`Assigned: ${conv.assignedAdminUsername}`}>
                 <i className="fas fa-user-shield text-[8px] mr-0.5"></i>{conv.assignedAdminUsername}
               </span>
             )}
@@ -787,11 +783,11 @@ const BillOpsSupportDashboardPage: React.FC = () => {
           )}
         </span>
       )}
-      <div className={`max-w-[75%] rounded-2xl px-5 py-3 shadow-sm text-sm relative group ${msg.userMessage
-        ? 'bg-white text-gray-800 rounded-tl-none border border-gray-200'
+      <div className={`max-w-[72%] rounded-xl px-4 py-2.5 text-sm relative group ${msg.userMessage
+        ? 'bg-white text-gray-800 rounded-tl-sm border border-gray-200 shadow-sm'
         : msg.isDeleted
-          ? 'bg-gray-100 text-gray-400 rounded-tr-none border border-gray-200'
-          : 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white rounded-tr-none shadow-indigo-200'}`}
+          ? 'bg-gray-100 text-gray-400 rounded-tr-sm border border-gray-200'
+          : 'bg-indigo-600 text-white rounded-tr-sm shadow-md shadow-indigo-200/50'}`}
       >
         {/* Deleted message */}
         {msg.isDeleted ? (
@@ -918,39 +914,36 @@ const BillOpsSupportDashboardPage: React.FC = () => {
   );
 
   const renderNoActiveConversation = () => (
-    <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400 bg-white/50 backdrop-blur-sm z-10">
-      <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mb-4 shadow-inner">
-        <i className="fas fa-comments text-3xl text-gray-300"></i>
+    <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400 bg-white z-10">
+      <div className="w-14 h-14 bg-gray-100 rounded-xl flex items-center justify-center mb-4">
+        <i className="fas fa-comments text-2xl text-gray-300"></i>
       </div>
-      <p className="font-medium text-sm text-gray-500 mb-6">Select a conversation or start a new one</p>
-      <div className="flex items-stretch gap-3">
-        {/* In-App Chat */}
+      <p className="font-medium text-sm text-gray-500 mb-1">No conversation selected</p>
+      <p className="text-xs text-gray-400 mb-6">Pick one from the inbox or start a new chat</p>
+      <div className="flex items-center gap-2">
         <button
           onClick={openNewChatModal}
-          className="flex flex-col items-center gap-2 px-6 py-4 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-md transition-all active:scale-95 min-w-[96px]"
+          className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium rounded-md transition-colors"
         >
-          <i className="fas fa-comments text-xl"></i>
-          <span>New Chat</span>
+          <i className="fas fa-plus text-[10px]"></i>
+          New Chat
         </button>
-        {/* Email */}
         <button
           onClick={openNewChatModal}
-          className="flex flex-col items-center gap-2 px-6 py-4 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl shadow-md transition-all active:scale-95 min-w-[96px]"
+          className="flex items-center gap-1.5 px-4 py-2 bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 text-xs font-medium rounded-md transition-colors"
         >
-          <i className="fas fa-envelope text-xl"></i>
-          <span>Via Email</span>
+          <i className="fas fa-envelope text-[10px]"></i>
+          Via Email
         </button>
-        {/* WhatsApp — coming soon */}
         <div className="relative">
           <button
             disabled
-            className="flex flex-col items-center gap-2 px-6 py-4 bg-gray-200 text-gray-400 text-xs font-bold rounded-xl cursor-not-allowed min-w-[96px]"
-            title="Coming soon"
+            className="flex items-center gap-1.5 px-4 py-2 bg-gray-50 text-gray-300 text-xs font-medium rounded-md cursor-not-allowed border border-gray-200"
           >
-            <i className="fab fa-whatsapp text-xl"></i>
-            <span>WhatsApp</span>
+            <i className="fab fa-whatsapp text-[10px]"></i>
+            WhatsApp
           </button>
-          <span className="absolute -top-2 -right-2 text-[8px] bg-amber-400 text-white px-1.5 py-0.5 rounded-full font-bold leading-none">Soon</span>
+          <span className="absolute -top-2 -right-1 text-[8px] bg-amber-400 text-white px-1 py-0.5 rounded font-bold leading-none">Soon</span>
         </div>
       </div>
     </div>
@@ -960,72 +953,72 @@ const BillOpsSupportDashboardPage: React.FC = () => {
 
   return (
     <div className="support-dashboard-page flex flex-col h-[calc(100vh-80px)] bg-transparent overflow-hidden">
-      <div className="flex flex-1 overflow-hidden p-6 gap-6 h-full">
+      <div className="flex flex-1 overflow-hidden p-4 gap-4 h-full">
 
         {/* ─── Inbox Panel ─── */}
-        <div className="w-1/3 min-w-[300px] flex flex-col bg-white/95 backdrop-blur border border-gray-200 rounded-xl overflow-hidden h-full shadow-sm border-l-4 border-l-indigo-500">
-          <div className="px-5 pt-4 pb-3 border-b border-gray-100 bg-white/80 flex-shrink-0">
+        <div className="w-[300px] min-w-[280px] flex flex-col bg-white border border-gray-200 rounded-md overflow-hidden h-full shadow-sm">
+          {/* Inbox header */}
+          <div className="px-4 pt-3.5 pb-3 border-b border-gray-100 flex-shrink-0">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-bold text-gray-700 flex items-center gap-2">
-                <i className="fas fa-inbox text-indigo-500"></i> Support Inbox
+              <h2 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+                <i className="fas fa-inbox text-indigo-500 text-xs"></i>
+                Support Inbox
                 {totalUnread > 0 && (
-                  <span className="flex items-center justify-center bg-rose-500 text-white text-[10px] font-bold h-5 min-w-[20px] px-1.5 rounded-full shadow-sm">
+                  <span className="flex items-center justify-center bg-red-500 text-white text-[10px] font-semibold h-4.5 min-w-[18px] px-1.5 rounded-full leading-none py-0.5">
                     {totalUnread}
                   </span>
                 )}
               </h2>
               <button
                 onClick={openNewChatModal}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold rounded-lg shadow-sm transition-all active:scale-95"
+                className="flex items-center gap-1 px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-medium rounded-md transition-colors"
               >
                 <i className="fas fa-plus text-[9px]"></i> New Chat
               </button>
             </div>
-            <div className="relative group mb-3">
-              <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-indigo-500 transition-colors text-xs"></i>
+            <div className="relative mb-2.5">
+              <i className="fas fa-search absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-[10px]"></i>
               <input
                 type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
-                className="w-full pl-8 pr-4 py-2 bg-white border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all shadow-sm"
+                className="w-full pl-7 pr-3 py-1.5 bg-gray-50 border border-gray-200 rounded-md text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all"
                 placeholder="Search by account, user..."
               />
             </div>
-            <div className="flex items-center gap-2">
-              <select
-                value={inboxSort}
-                onChange={e => setInboxSort(e.target.value as 'default' | 'unread' | 'name')}
-                className="text-[11px] font-semibold px-2 py-1.5 rounded-lg border border-gray-200 bg-white text-gray-600 cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-400 flex-1"
-              >
-                <option value="default">Latest</option>
-                <option value="unread">Unread first</option>
-                <option value="name">Name A → Z</option>
-              </select>
-            </div>
+            <select
+              value={inboxSort}
+              onChange={e => setInboxSort(e.target.value as 'default' | 'unread' | 'name')}
+              className="w-full text-[11px] font-medium px-2.5 py-1.5 rounded-md border border-gray-200 bg-white text-gray-600 cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-400"
+            >
+              <option value="default">Latest</option>
+              <option value="unread">Unread first</option>
+              <option value="name">Name A → Z</option>
+            </select>
           </div>
-          <div className="flex-1 overflow-y-auto custom-scrollbar bg-white/40">
+          <div className="flex-1 overflow-y-auto custom-scrollbar">
             {loading ? renderInboxSkeleton() : sortedConversations.length === 0 ? renderEmptyInbox() : sortedConversations.map(renderConversationItem)}
           </div>
         </div>
 
         {/* ─── Chat Panel ─── */}
-        <div className="flex-1 flex flex-col bg-white/95 backdrop-blur border border-gray-200 rounded-xl shadow-sm overflow-hidden relative border-t-4 border-t-purple-500">
+        <div className="flex-1 flex flex-col bg-white border border-gray-200 rounded-md shadow-sm overflow-hidden relative">
 
           {/* Chat Header */}
           {activeAccount && (
-            <div className="bg-white/80 border-b border-gray-100 px-5 py-2.5 flex items-center justify-between flex-shrink-0 backdrop-blur-sm gap-3">
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-indigo-100 text-indigo-600 text-sm shadow-sm flex-shrink-0">
-                  <i className="fas fa-user-circle"></i>
+            <div className="bg-white border-b border-gray-100 px-4 py-2.5 flex items-center justify-between flex-shrink-0 gap-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-md flex items-center justify-center bg-indigo-600 text-white text-xs font-bold flex-shrink-0">
+                  {(activeAccount.username || activeAccount.senderUsername || '?').charAt(0).toUpperCase()}
                 </div>
                 <div className="min-w-0">
-                  <h2 className="font-bold text-gray-800 text-sm leading-tight truncate">
+                  <h2 className="font-semibold text-gray-900 text-sm leading-tight truncate">
                     {activeAccount.username || activeAccount.senderUsername || 'Unknown User'}
                   </h2>
                   <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                     {messages.length > 0 && (
-                      <span className="text-[10px] text-indigo-400 font-semibold">{messages.length} messages</span>
+                      <span className="text-[10px] text-gray-400">{messages.length} messages</span>
                     )}
                     {activeAccount.assignedAdminUsername && (
-                      <span className="text-[10px] text-purple-500 font-semibold flex items-center gap-1">
+                      <span className="text-[10px] text-purple-500 font-medium flex items-center gap-1">
                         <i className="fas fa-user-shield text-[9px]"></i>
                         {activeAccount.assignedAdminUsername}
                       </span>
@@ -1035,12 +1028,12 @@ const BillOpsSupportDashboardPage: React.FC = () => {
               </div>
 
               {/* Right side: platform pills + email + refresh */}
-              <div className="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end">
+              <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap justify-end">
                 {/* Connected platform pills */}
                 {userConnections.map(conn => (
                   <span
                     key={conn.platform}
-                    className="text-[9px] px-2 py-0.5 rounded-full font-bold text-white"
+                    className="text-[9px] px-2 py-0.5 rounded font-semibold text-white"
                     style={{ background: platformColor(conn.platform) }}
                     title={`Connected via ${platformLabel(conn.platform)}`}
                   >
@@ -1050,7 +1043,7 @@ const BillOpsSupportDashboardPage: React.FC = () => {
                 ))}
                 <button
                   onClick={openConnectModal}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 bg-indigo-50 border border-dashed border-indigo-300 text-indigo-500 hover:bg-indigo-100 rounded-lg text-[10px] font-bold transition-all"
+                  className="flex items-center gap-1 px-2.5 py-1.5 bg-gray-50 border border-gray-200 text-gray-600 hover:bg-gray-100 rounded-md text-[10px] font-medium transition-colors"
                   title="Connect a messaging platform for this user"
                 >
                   <i className="fas fa-plug text-[9px]"></i>
@@ -1081,22 +1074,18 @@ const BillOpsSupportDashboardPage: React.FC = () => {
 
                 {/* Teams Invite Button */}
                 {integrationConfigs.some(c => c.platform === 'TEAMS' && c.botTokenConfigured && c.clientIdConfigured) && (
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1">
                     <button
                       onClick={handleSendTeamsInvite}
                       disabled={sendingTeamsInvite || !activeAccount?.email}
-                      className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[#6264A7]/10 border border-[#6264A7]/30 text-[#6264A7] hover:bg-[#6264A7]/20 rounded-lg text-[10px] font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="flex items-center gap-1 px-2.5 py-1.5 bg-gray-50 border border-gray-200 text-gray-600 hover:bg-gray-100 rounded-md text-[10px] font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                       title={activeAccount?.email ? `Send Teams invite to ${activeAccount.email}` : 'User has no email address'}
                     >
-                      {sendingTeamsInvite
-                        ? <i className="fas fa-circle-notch fa-spin text-[9px]"></i>
-                        : <i className="fab fa-microsoft text-[10px]"></i>}
-                      {userConnections.some(c => c.platform === 'TEAMS' && c.channelId && c.webhookUrl)
-                        ? 'Teams Connected ✓'
-                        : 'Send Teams Invite'}
+                      {sendingTeamsInvite ? <i className="fas fa-circle-notch fa-spin text-[9px]"></i> : <i className="fab fa-microsoft text-[10px]"></i>}
+                      {userConnections.some(c => c.platform === 'TEAMS' && c.channelId && c.webhookUrl) ? 'Teams Connected ✓' : 'Send Teams Invite'}
                     </button>
                     {teamsInviteResult && (
-                      <span className={`text-[10px] font-semibold px-2 py-1 rounded-lg ${teamsInviteResult.invited ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>
+                      <span className={`text-[10px] font-medium px-2 py-1 rounded ${teamsInviteResult.invited ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-600 border border-red-200'}`}>
                         {teamsInviteResult.invited ? 'Invite sent ✓' : teamsInviteResult.error}
                       </span>
                     )}
@@ -1105,35 +1094,27 @@ const BillOpsSupportDashboardPage: React.FC = () => {
 
                 {/* Google Chat Setup Button */}
                 {integrationConfigs.some(c => c.platform === 'GOOGLE_CHAT' && c.serviceAccountConfigured) && (
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1">
                     <button
                       onClick={handleSetupGoogleChat}
                       disabled={settingUpGChat || !activeAccount?.email}
-                      className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[#1A73E8]/10 border border-[#1A73E8]/30 text-[#1A73E8] hover:bg-[#1A73E8]/20 rounded-lg text-[10px] font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="flex items-center gap-1 px-2.5 py-1.5 bg-gray-50 border border-gray-200 text-gray-600 hover:bg-gray-100 rounded-md text-[10px] font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                       title={activeAccount?.email ? `Send Google Chat invite to ${activeAccount.email}` : 'User has no email address'}
                     >
-                      {settingUpGChat
-                        ? <i className="fas fa-circle-notch fa-spin text-[9px]"></i>
-                        : <i className="fab fa-google text-[10px]"></i>}
-                      {userConnections.some(c => c.platform === 'GOOGLE_CHAT' && c.channelId?.startsWith('spaces/'))
-                        ? 'G.Chat Connected ✓'
-                        : 'Send G.Chat Invite'}
+                      {settingUpGChat ? <i className="fas fa-circle-notch fa-spin text-[9px]"></i> : <i className="fab fa-google text-[10px]"></i>}
+                      {userConnections.some(c => c.platform === 'GOOGLE_CHAT' && c.channelId?.startsWith('spaces/')) ? 'G.Chat Connected ✓' : 'Send G.Chat Invite'}
                     </button>
                     {gchatSetupResult && (
                       <span
                         title={gchatSetupResult.suggestion || gchatSetupResult.error || ''}
-                        className={`text-[10px] font-semibold px-2 py-1 rounded-lg ${
-                          gchatSetupResult.connected
-                            ? 'bg-green-100 text-green-700'
-                            : gchatSetupResult.errorCode === 'USER_ORG_BLOCKS_EXTERNAL'
-                              ? 'bg-yellow-100 text-yellow-700'
-                              : 'bg-red-100 text-red-600'
+                        className={`text-[10px] font-medium px-2 py-1 rounded border ${
+                          gchatSetupResult.connected ? 'bg-green-50 text-green-700 border-green-200'
+                            : gchatSetupResult.errorCode === 'USER_ORG_BLOCKS_EXTERNAL' ? 'bg-amber-50 text-amber-700 border-amber-200'
+                            : 'bg-red-50 text-red-600 border-red-200'
                         }`}>
-                        {gchatSetupResult.connected
-                          ? 'Space created ✓'
-                          : gchatSetupResult.errorCode === 'USER_ORG_BLOCKS_EXTERNAL'
-                            ? '⚠ Org blocks external chat'
-                            : gchatSetupResult.error || 'Setup failed'}
+                        {gchatSetupResult.connected ? 'Space created ✓'
+                          : gchatSetupResult.errorCode === 'USER_ORG_BLOCKS_EXTERNAL' ? '⚠ Org blocks external'
+                          : gchatSetupResult.error || 'Setup failed'}
                       </span>
                     )}
                   </div>
@@ -1142,15 +1123,15 @@ const BillOpsSupportDashboardPage: React.FC = () => {
                 {/* Send Email button */}
                 <button
                   onClick={openEmailModal}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 bg-purple-50 border border-purple-200 text-purple-700 hover:bg-purple-100 rounded-lg text-[11px] font-bold transition-all"
+                  className="flex items-center gap-1 px-2.5 py-1.5 bg-gray-50 border border-gray-200 text-gray-600 hover:bg-gray-100 rounded-md text-[10px] font-medium transition-colors"
                   title="Send chat thread as email"
                 >
                   <i className="fas fa-envelope text-[10px]"></i>
                   Email Thread
                 </button>
 
-                <button onClick={() => refreshChat()} className="text-gray-400 hover:text-indigo-600 transition p-2 rounded-full hover:bg-gray-100" title="Refresh">
-                  <i className="fas fa-sync-alt text-sm"></i>
+                <button onClick={() => refreshChat()} className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-gray-100 rounded-md transition-colors" title="Refresh">
+                  <i className="fas fa-sync-alt text-xs"></i>
                 </button>
               </div>
             </div>
@@ -1161,7 +1142,7 @@ const BillOpsSupportDashboardPage: React.FC = () => {
               {/* Messages Area with drag & drop */}
               <div
                 ref={chatBoxRef}
-                className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar bg-gray-50/30 relative"
+                className="flex-1 overflow-y-auto p-5 space-y-4 custom-scrollbar bg-[#f8fafc] relative"
                 onScroll={handleChatScroll}
                 onDragEnter={handleDragEnter}
                 onDragLeave={handleDragLeave}
@@ -1247,41 +1228,37 @@ const BillOpsSupportDashboardPage: React.FC = () => {
               )}
 
               {/* Reply Input */}
-              <div className="p-4 bg-white border-t border-gray-100 flex-shrink-0">
+              <div className="px-4 py-3 bg-white border-t border-gray-100 flex-shrink-0">
                 {/* Platform selector */}
-                <div className="flex items-center gap-1.5 mb-2 flex-wrap">
-                  <span className="text-[10px] text-gray-400 font-semibold mr-1">Send via:</span>
-                  {/* Dashboard (default) */}
+                <div className="flex items-center gap-1 mb-2.5 flex-wrap">
+                  <span className="text-[10px] text-gray-400 font-medium mr-1.5">Send via:</span>
                   <button
                     onClick={() => setSelectedPlatform('')}
-                    className={`flex items-center gap-1 text-[10px] px-2.5 py-1 rounded-lg border font-semibold transition-all ${selectedPlatform === '' ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'}`}
+                    className={`flex items-center gap-1 text-[10px] px-2.5 py-1 rounded-md border font-medium transition-colors ${selectedPlatform === '' ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400 hover:text-gray-700'}`}
                   >
                     <i className="fas fa-comments text-[9px]"></i> Dashboard
                   </button>
-                  {/* Slack */}
                   <button
                     onClick={() => hasConnection('SLACK') && setSelectedPlatform('SLACK')}
-                    className={`flex items-center gap-1 text-[10px] px-2.5 py-1 rounded-lg border font-semibold transition-all ${selectedPlatform === 'SLACK' ? 'text-white border-[#4A154B]' : hasConnection('SLACK') ? 'bg-white border-[#4A154B]/40 hover:border-[#4A154B]' : 'bg-gray-50 text-gray-300 border-gray-200 cursor-not-allowed'}`}
-                    style={selectedPlatform === 'SLACK' ? { background: '#4A154B', color: '#fff' } : hasConnection('SLACK') ? { color: '#4A154B' } : {}}
-                    title={hasConnection('SLACK') ? (activeAccount?.email ? `Send via Slack (auto-discover: ${activeAccount.email})` : 'Send via Slack') : 'Slack not configured — add bot token in Integrations'}
+                    className={`flex items-center gap-1 text-[10px] px-2.5 py-1 rounded-md border font-medium transition-colors ${selectedPlatform === 'SLACK' ? 'text-white border-[#4A154B]' : hasConnection('SLACK') ? 'bg-white border-gray-200 hover:border-[#4A154B]/50' : 'bg-gray-50 text-gray-300 border-gray-200 cursor-not-allowed'}`}
+                    style={selectedPlatform === 'SLACK' ? { background: '#4A154B' } : hasConnection('SLACK') ? { color: '#4A154B' } : {}}
+                    title={hasConnection('SLACK') ? 'Send via Slack' : 'Slack not configured'}
                   >
                     <i className="fab fa-slack text-[10px]"></i> Slack
                   </button>
-                  {/* Teams */}
                   <button
                     onClick={() => hasConnection('TEAMS') && setSelectedPlatform('TEAMS')}
-                    className={`flex items-center gap-1 text-[10px] px-2.5 py-1 rounded-lg border font-semibold transition-all ${selectedPlatform === 'TEAMS' ? 'text-white border-[#464EB8]' : hasConnection('TEAMS') ? 'bg-white border-[#464EB8]/40 hover:border-[#464EB8]' : 'bg-gray-50 text-gray-300 border-gray-200 cursor-not-allowed'}`}
-                    style={selectedPlatform === 'TEAMS' ? { background: '#464EB8', color: '#fff' } : hasConnection('TEAMS') ? { color: '#464EB8' } : {}}
-                    title={hasConnection('TEAMS') ? 'Send via Teams' : 'No Teams webhook configured for this user'}
+                    className={`flex items-center gap-1 text-[10px] px-2.5 py-1 rounded-md border font-medium transition-colors ${selectedPlatform === 'TEAMS' ? 'text-white border-[#464EB8]' : hasConnection('TEAMS') ? 'bg-white border-gray-200 hover:border-[#464EB8]/50' : 'bg-gray-50 text-gray-300 border-gray-200 cursor-not-allowed'}`}
+                    style={selectedPlatform === 'TEAMS' ? { background: '#464EB8' } : hasConnection('TEAMS') ? { color: '#464EB8' } : {}}
+                    title={hasConnection('TEAMS') ? 'Send via Teams' : 'No Teams webhook configured'}
                   >
                     <i className="fab fa-microsoft text-[10px]"></i> Teams
                   </button>
-                  {/* Google Chat */}
                   <button
                     onClick={() => hasConnection('GOOGLE_CHAT') && setSelectedPlatform('GOOGLE_CHAT')}
-                    className={`flex items-center gap-1 text-[10px] px-2.5 py-1 rounded-lg border font-semibold transition-all ${selectedPlatform === 'GOOGLE_CHAT' ? 'text-white border-[#1A73E8]' : hasConnection('GOOGLE_CHAT') ? 'bg-white border-[#1A73E8]/40 hover:border-[#1A73E8]' : 'bg-gray-50 text-gray-300 border-gray-200 cursor-not-allowed'}`}
-                    style={selectedPlatform === 'GOOGLE_CHAT' ? { background: '#1A73E8', color: '#fff' } : hasConnection('GOOGLE_CHAT') ? { color: '#1A73E8' } : {}}
-                    title={hasConnection('GOOGLE_CHAT') ? 'Send via Google Chat' : 'No Google Chat webhook configured for this user'}
+                    className={`flex items-center gap-1 text-[10px] px-2.5 py-1 rounded-md border font-medium transition-colors ${selectedPlatform === 'GOOGLE_CHAT' ? 'text-white border-[#1A73E8]' : hasConnection('GOOGLE_CHAT') ? 'bg-white border-gray-200 hover:border-[#1A73E8]/50' : 'bg-gray-50 text-gray-300 border-gray-200 cursor-not-allowed'}`}
+                    style={selectedPlatform === 'GOOGLE_CHAT' ? { background: '#1A73E8' } : hasConnection('GOOGLE_CHAT') ? { color: '#1A73E8' } : {}}
+                    title={hasConnection('GOOGLE_CHAT') ? 'Send via Google Chat' : 'No Google Chat configured'}
                   >
                     <i className="fab fa-google text-[10px]"></i> G.Chat
                   </button>
@@ -1327,33 +1304,33 @@ const BillOpsSupportDashboardPage: React.FC = () => {
                     )}
                   </div>
 
-                  {/* Textarea input — auto-expands, Shift+Enter for newline */}
+                  {/* Textarea */}
                   <textarea
                     ref={textareaRef}
                     value={replyText}
                     onChange={e => handleReplyChange(e.target.value)}
                     onKeyDown={handleKeyPress}
                     rows={1}
-                    className="flex-1 border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 shadow-inner bg-gray-50 focus:bg-white transition-all resize-none overflow-hidden"
+                    className="flex-1 border border-gray-200 rounded-md px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 bg-gray-50 focus:bg-white transition-all resize-none overflow-hidden"
                     placeholder={pendingAttachment ? 'Add a caption (optional)...' : 'Type your reply here...'}
                     disabled={sending}
-                    style={{ minHeight: '44px', maxHeight: '120px' }}
+                    style={{ minHeight: '40px', maxHeight: '120px' }}
                   />
 
-                  {/* Send button — color reflects selected platform */}
+                  {/* Send button */}
                   <button
                     onClick={handleSendReply}
                     disabled={sending || uploading || (!replyText.trim() && !pendingAttachment)}
-                    className="text-white px-5 py-3 rounded-xl font-bold text-sm shadow-md hover:shadow-lg transition-all active:scale-95 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 flex-shrink-0"
+                    className="text-white px-4 py-2.5 rounded-md font-semibold text-sm transition-colors active:scale-95 flex items-center gap-1.5 disabled:opacity-45 disabled:cursor-not-allowed flex-shrink-0"
                     style={{
                       background: selectedPlatform === 'SLACK'       ? '#4A154B' :
                                   selectedPlatform === 'TEAMS'       ? '#464EB8' :
                                   selectedPlatform === 'GOOGLE_CHAT' ? '#1A73E8' :
-                                  'linear-gradient(to right, #4f46e5, #7c3aed)',
+                                  '#4f46e5',
                     }}
                   >
                     {sending ? (
-                      <><i className="fas fa-circle-notch fa-spin text-xs"></i><span className="hidden sm:inline">Sending</span></>
+                      <><i className="fas fa-circle-notch fa-spin text-xs"></i><span className="hidden sm:inline text-xs">Sending</span></>
                     ) : (
                       <>
                         <span className="hidden sm:inline">Send</span>
@@ -1362,7 +1339,7 @@ const BillOpsSupportDashboardPage: React.FC = () => {
                     )}
                   </button>
                 </div>
-                <p className="text-[10px] text-gray-400 mt-1.5 ml-1">
+                <p className="text-[10px] text-gray-400 mt-1.5">
                   Enter to send · Shift+Enter for new line · Drag & drop files · <i className="fas fa-bolt text-[9px]"></i> for quick replies
                 </p>
               </div>

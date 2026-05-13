@@ -114,7 +114,7 @@ const ClientDetailsPage: React.FC = () => {
         setActions(
             <div className="flex items-center gap-3">
                 {isRefreshing && (
-                    <span className="text-xs text-slate-400 flex items-center gap-1">
+                    <span className="text-xs text-gray-400 flex items-center gap-1">
                         <i className="fas fa-circle-notch fa-spin text-indigo-400"></i>
                         Refreshing...
                     </span>
@@ -122,9 +122,9 @@ const ClientDetailsPage: React.FC = () => {
                 <button
                     onClick={async () => { localStorage.removeItem(CACHE_KEY); await evictServerCache(); fetchClients(true); }}
                     disabled={isLoading || isRefreshing}
-                    className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg shadow-sm hover:shadow-md hover:bg-slate-50 transition-all font-bold text-slate-700 text-sm disabled:opacity-50"
+                    className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50"
                 >
-                    <i className={`fas fa-sync-alt text-slate-400 ${isRefreshing ? 'animate-spin' : ''}`}></i>
+                    <i className={`fas fa-sync-alt text-gray-400 ${isRefreshing ? 'animate-spin' : ''}`}></i>
                     Refresh
                 </button>
             </div>
@@ -279,7 +279,7 @@ const ClientDetailsPage: React.FC = () => {
 
     if (isLoading) {
         return (
-            <div className="p-4 md:p-8 bg-gray-50/50 min-h-screen">
+            <div className="p-5" style={{ background: '#f5f6f8', minHeight: '100%' }}>
                 <ClientDetailsSkeleton />
             </div>
         );
@@ -297,44 +297,44 @@ const ClientDetailsPage: React.FC = () => {
     }
 
     return (
-        <div className="p-4 md:p-8 space-y-6 bg-gray-50/50 min-h-screen">
+        <div className="p-5 space-y-4" style={{ background: '#f5f6f8', minHeight: '100%' }}>
             {/* Stats Summary */}
             {!isLoading && clients.length > 0 && (
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 animate-premium-fade-in">
-                    <div className="bg-white rounded-xl border border-slate-200 p-4 flex items-center gap-4 shadow-sm">
-                        <div className="w-10 h-10 rounded-lg bg-indigo-50 flex items-center justify-center flex-shrink-0">
+                    <div className="bg-white rounded-md border border-gray-200 p-4 flex items-center gap-4 shadow-sm">
+                        <div className="w-9 h-9 rounded-md bg-indigo-50 flex items-center justify-center flex-shrink-0">
                             <i className="fas fa-building text-indigo-600 text-sm"></i>
                         </div>
                         <div>
-                            <p className="text-2xl font-black text-slate-900">{stats.clients}</p>
-                            <p className="text-xs font-semibold text-slate-500">Clients</p>
+                            <p className="text-2xl font-bold text-gray-900">{stats.clients}</p>
+                            <p className="text-xs font-medium text-gray-500">Clients</p>
                         </div>
                     </div>
-                    <div className="bg-white rounded-xl border border-slate-200 p-4 flex items-center gap-4 shadow-sm">
-                        <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
+                    <div className="bg-white rounded-md border border-gray-200 p-4 flex items-center gap-4 shadow-sm">
+                        <div className="w-9 h-9 rounded-md bg-blue-50 flex items-center justify-center flex-shrink-0">
                             <i className="fas fa-cloud text-blue-600 text-sm"></i>
                         </div>
                         <div>
-                            <p className="text-2xl font-black text-slate-900">{stats.accounts}</p>
-                            <p className="text-xs font-semibold text-slate-500">Cloud Accounts</p>
+                            <p className="text-2xl font-bold text-gray-900">{stats.accounts}</p>
+                            <p className="text-xs font-medium text-gray-500">Cloud Accounts</p>
                         </div>
                     </div>
-                    <div className="bg-white rounded-xl border border-slate-200 p-4 flex items-center gap-4 shadow-sm">
-                        <div className="w-10 h-10 rounded-lg bg-purple-50 flex items-center justify-center flex-shrink-0">
+                    <div className="bg-white rounded-md border border-gray-200 p-4 flex items-center gap-4 shadow-sm">
+                        <div className="w-9 h-9 rounded-md bg-purple-50 flex items-center justify-center flex-shrink-0">
                             <i className="fas fa-users text-purple-600 text-sm"></i>
                         </div>
                         <div>
-                            <p className="text-2xl font-black text-slate-900">{stats.users}</p>
-                            <p className="text-xs font-semibold text-slate-500">Total Users</p>
+                            <p className="text-2xl font-bold text-gray-900">{stats.users}</p>
+                            <p className="text-xs font-medium text-gray-500">Total Users</p>
                         </div>
                     </div>
-                    <div className="bg-white rounded-xl border border-slate-200 p-4 flex items-center gap-4 shadow-sm">
-                        <div className="w-10 h-10 rounded-lg bg-emerald-50 flex items-center justify-center flex-shrink-0">
+                    <div className="bg-white rounded-md border border-gray-200 p-4 flex items-center gap-4 shadow-sm">
+                        <div className="w-9 h-9 rounded-md bg-emerald-50 flex items-center justify-center flex-shrink-0">
                             <i className="fas fa-dollar-sign text-emerald-600 text-sm"></i>
                         </div>
                         <div>
-                            <p className="text-xl font-black text-slate-900">${stats.spend.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
-                            <p className="text-xs font-semibold text-slate-500">Total Spend</p>
+                            <p className="text-xl font-bold text-gray-900">${stats.spend.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
+                            <p className="text-xs font-medium text-gray-500">Total Spend</p>
                         </div>
                     </div>
                 </div>
@@ -343,18 +343,18 @@ const ClientDetailsPage: React.FC = () => {
             {/* Search & Filters Toolbar */}
             <div className="flex flex-col md:flex-row gap-3 animate-premium-fade-in">
                 <div className="relative flex-1">
-                    <i className="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
+                    <i className="fas fa-search absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm"></i>
                     <input
                         type="text"
                         placeholder={`Search ${clients.length} clients by name, email, account or user...`}
                         value={search}
                         onChange={e => setSearch(e.target.value)}
-                        className="w-full pl-10 pr-10 py-3 bg-white border border-slate-200 rounded-xl shadow-sm text-sm font-medium text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all"
+                        className="w-full pl-9 pr-9 py-2.5 bg-white border border-gray-200 rounded-md text-sm font-medium text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-colors"
                     />
                     {search && (
                         <button
                             onClick={() => setSearch('')}
-                            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
                         >
                             <i className="fas fa-times text-xs"></i>
                         </button>
@@ -364,7 +364,7 @@ const ClientDetailsPage: React.FC = () => {
                     <select
                         value={filterProvider}
                         onChange={e => setFilterProvider(e.target.value)}
-                        className="px-3 py-3 bg-white border border-slate-200 rounded-xl shadow-sm text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all min-w-[150px] cursor-pointer"
+                        className="px-3 py-2.5 bg-white border border-gray-200 rounded-md text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-colors min-w-[150px] cursor-pointer"
                     >
                         <option value="">All Providers</option>
                         {availableProviders.map(p => (
@@ -375,7 +375,7 @@ const ClientDetailsPage: React.FC = () => {
                 <select
                     value={sortBy}
                     onChange={e => setSortBy(e.target.value)}
-                    className="px-3 py-3 bg-white border border-slate-200 rounded-xl shadow-sm text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all min-w-[170px] cursor-pointer"
+                    className="px-3 py-2.5 bg-white border border-gray-200 rounded-md text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-colors min-w-[170px] cursor-pointer"
                 >
                     <option value="">Sort: Default</option>
                     <option value="name-asc">Name A → Z</option>
@@ -387,7 +387,7 @@ const ClientDetailsPage: React.FC = () => {
 
             {/* Results count + clear all */}
             <div className="flex items-center justify-between -mt-2">
-                <p className="text-xs text-slate-500 font-medium">
+                <p className="text-xs text-gray-500 font-medium">
                     {filteredClients.length === 0
                         ? '0 clients'
                         : (() => {
@@ -414,7 +414,7 @@ const ClientDetailsPage: React.FC = () => {
                 {paginatedClients.map((client, index) => (
                     <div
                         key={client.id}
-                        className={`premium-glass rounded-2xl premium-card-shadow premium-card-hover border transition-all duration-500 overflow-hidden animate-premium-fade-in stagger-${(index % 5) + 1} ${expandedClient === client.id ? 'border-indigo-500 ring-4 ring-indigo-500/5' : 'border-white/40'
+                        className={`bg-white border rounded-md shadow-sm overflow-hidden animate-premium-fade-in stagger-${(index % 5) + 1} transition-colors ${expandedClient === client.id ? 'border-indigo-300' : 'border-gray-200'
                             }`}
                     >
                         {/* Client Header Card */}
@@ -423,14 +423,14 @@ const ClientDetailsPage: React.FC = () => {
                             onClick={() => toggleClient(client.id)}
                         >
                             <div className="flex items-center gap-5">
-                                <div className="w-14 h-14 rounded-xl bg-indigo-600 flex items-center justify-center text-white text-xl font-black shadow-lg shadow-indigo-200">
+                                <div className="w-11 h-11 rounded-md bg-indigo-600 flex items-center justify-center text-white text-base font-bold flex-shrink-0">
                                     {client.name.charAt(0).toUpperCase()}
                                 </div>
                                 <div className="space-y-1">
-                                    <h2 className="text-xl font-bold text-slate-900 tracking-tight">{client.name}</h2>
-                                    <div className="flex items-center gap-3 text-xs font-semibold text-slate-500">
-                                        <span className="flex items-center gap-1.5 px-2 py-0.5 bg-slate-50 rounded border border-slate-100 uppercase tracking-tighter">
-                                            <i className="fas fa-envelope text-slate-400"></i>
+                                    <h2 className="text-base font-semibold text-gray-900">{client.name}</h2>
+                                    <div className="flex items-center gap-3 text-xs font-medium text-gray-500">
+                                        <span className="flex items-center gap-1.5 px-2 py-0.5 bg-gray-50 rounded border border-gray-200">
+                                            <i className="fas fa-envelope text-gray-400"></i>
                                             {client.email}
                                         </span>
                                         <span className="text-indigo-600/70">REF: #{client.id}</span>
@@ -440,14 +440,14 @@ const ClientDetailsPage: React.FC = () => {
 
                             <div className="flex items-center gap-8">
                                 <div className="text-right">
-                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Live Consumption</p>
-                                    <p className="text-3xl font-black text-slate-800">
+                                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest">Live Consumption</p>
+                                    <p className="text-2xl font-bold text-gray-800">
                                         ${clientTotal(client).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                     </p>
                                 </div>
                                 <div className="w-px h-12 bg-gray-100 hidden md:block"></div>
                                 <div className="flex flex-col items-center">
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-2">Inventory Summary</p>
+                                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest mb-1.5">Inventory</p>
                                     <div className="flex gap-2">
                                         <div className="badge-enterprise badge-enterprise-blue">
                                             {client.accounts.length} Accounts
@@ -460,11 +460,11 @@ const ClientDetailsPage: React.FC = () => {
                                 <button
                                     onClick={(e) => toggleStar(e, client.id)}
                                     title={client.starred ? 'Remove primary flag' : 'Mark as primary client'}
-                                    className={`w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200 hover:scale-110 active:scale-95 ${client.starred ? 'text-amber-400 hover:text-amber-500' : 'text-slate-300 hover:text-amber-300'}`}
+                                    className={`w-7 h-7 rounded-md flex items-center justify-center transition-colors ${client.starred ? 'text-amber-400 hover:text-amber-500' : 'text-gray-300 hover:text-amber-300'}`}
                                 >
                                     <i className={`${client.starred ? 'fas' : 'far'} fa-star text-sm`}></i>
                                 </button>
-                                <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-all duration-500 ${expandedClient === client.id ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200 rotate-180' : 'bg-gray-50 text-gray-400'}`}>
+                                <div className={`w-7 h-7 rounded-md flex items-center justify-center transition-all duration-300 ${expandedClient === client.id ? 'bg-indigo-600 text-white rotate-180' : 'bg-gray-100 text-gray-400'}`}>
                                     <i className="fas fa-chevron-down text-xs"></i>
                                 </div>
                             </div>
@@ -476,29 +476,26 @@ const ClientDetailsPage: React.FC = () => {
                                 {/* Sub-navigation */}
                                 <div className="flex border-b border-gray-100 px-8 gap-8">
                                     <button
-                                        className={`py-4 text-xs font-black uppercase tracking-widest transition-all relative ${expandedSection === 'accounts' ? 'text-indigo-600' : 'text-gray-400 hover:text-gray-600'
-                                            }`}
+                                        className={`py-3 text-xs font-semibold uppercase tracking-wider transition-colors relative ${expandedSection === 'accounts' ? 'text-indigo-600' : 'text-gray-400 hover:text-gray-600'}`}
                                         onClick={() => setExpandedSection('accounts')}
                                     >
-                                        <i className="fas fa-microchip mr-2 text-slate-400"></i>
-                                        Connected Accounts
+                                        <i className="fas fa-microchip mr-1.5 text-gray-400"></i>
+                                        Accounts
                                         {expandedSection === 'accounts' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600"></div>}
                                     </button>
                                     <button
-                                        className={`py-4 text-xs font-bold uppercase tracking-widest transition-all relative ${expandedSection === 'users' ? 'text-indigo-600' : 'text-slate-400 hover:text-slate-600'
-                                            }`}
+                                        className={`py-3 text-xs font-semibold uppercase tracking-wider transition-colors relative ${expandedSection === 'users' ? 'text-indigo-600' : 'text-gray-400 hover:text-gray-600'}`}
                                         onClick={() => setExpandedSection('users')}
                                     >
-                                        <i className="fas fa-user-shield mr-2 text-slate-400"></i>
-                                        Access Management
+                                        <i className="fas fa-user-shield mr-1.5 text-gray-400"></i>
+                                        Users
                                         {expandedSection === 'users' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600"></div>}
                                     </button>
                                     <button
-                                        className={`py-4 text-xs font-bold uppercase tracking-widest transition-all relative ${expandedSection === 'savings' ? 'text-indigo-600' : 'text-slate-400 hover:text-slate-600'
-                                            }`}
+                                        className={`py-3 text-xs font-semibold uppercase tracking-wider transition-colors relative ${expandedSection === 'savings' ? 'text-indigo-600' : 'text-gray-400 hover:text-gray-600'}`}
                                         onClick={() => setExpandedSection('savings')}
                                     >
-                                        <i className="fas fa-piggy-bank mr-2 text-slate-400"></i>
+                                        <i className="fas fa-piggy-bank mr-1.5 text-gray-400"></i>
                                         Savings
                                         {expandedSection === 'savings' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600"></div>}
                                     </button>
@@ -508,26 +505,26 @@ const ClientDetailsPage: React.FC = () => {
                                     {expandedSection === 'accounts' && (
                                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                                             {client.accounts.map((acc, accIdx) => (
-                                                <div key={acc.id} className={`bg-white p-5 rounded-2xl border border-gray-100 shadow-sm hover:shadow-xl hover:border-indigo-200 transition-all duration-300 animate-premium-fade-in stagger-${(accIdx % 5) + 1}`}>
-                                                    <div className="flex items-center justify-between mb-4">
-                                                        <span className={`text-[10px] font-black px-2.5 py-1 rounded-lg uppercase tracking-wider ${acc.provider === 'AWS' ? 'bg-orange-50 text-orange-700 border border-orange-100' :
-                                                            acc.provider === 'GCP' ? 'bg-blue-50 text-blue-700 border border-blue-100' :
-                                                                'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                                                <div key={acc.id} className={`bg-white p-4 rounded-md border border-gray-200 hover:border-indigo-200 transition-colors animate-premium-fade-in stagger-${(accIdx % 5) + 1}`}>
+                                                    <div className="flex items-center justify-between mb-3">
+                                                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded border uppercase tracking-wider ${acc.provider === 'AWS' ? 'bg-orange-50 text-orange-700 border-orange-200' :
+                                                            acc.provider === 'GCP' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                                                                'bg-emerald-50 text-emerald-700 border-emerald-200'
                                                             }`}>
                                                             {acc.provider}
                                                         </span>
-                                                        <span className="text-lg font-black text-gray-900">
+                                                        <span className="text-base font-semibold text-gray-900">
                                                             ${convertConsumption(acc.consumption || 0, acc.provider).toLocaleString(undefined, { maximumFractionDigits: 2 })}
                                                         </span>
                                                     </div>
-                                                    <h3 className="font-extrabold text-gray-800 line-clamp-1 text-sm">{acc.name}</h3>
+                                                    <h3 className="font-semibold text-gray-800 line-clamp-1 text-sm">{acc.name}</h3>
                                                     {acc.provider === 'AWS' && acc.creditsApplied != null && acc.creditsApplied > 0 && (
                                                         <div className="mt-2 flex items-center justify-between">
                                                             <span className="text-[10px] font-semibold text-emerald-600 flex items-center gap-1">
                                                                 <i className="fas fa-tag text-emerald-500"></i>
                                                                 Credits Applied
                                                             </span>
-                                                            <span className="text-[10px] font-black text-emerald-600">
+                                                            <span className="text-[10px] font-semibold text-emerald-600">
                                                                 -${convertConsumption(acc.creditsApplied, 'AWS').toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                             </span>
                                                         </div>
@@ -577,15 +574,15 @@ const ClientDetailsPage: React.FC = () => {
                                         );
 
                                         return (
-                                            <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+                                            <div className="rounded-md border border-gray-200 bg-white overflow-hidden">
                                                 <table className="w-full text-left">
                                                     <thead className="bg-gray-50 border-b border-gray-200">
                                                         <tr>
-                                                            <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase">User</th>
-                                                            <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase">Email</th>
-                                                            <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase">Account Access</th>
-                                                            <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase">Last Active</th>
-                                                            <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase text-right">Actions</th>
+                                                            <th className="px-4 py-2.5 text-[11px] font-semibold text-gray-500 uppercase tracking-widest">User</th>
+                                                            <th className="px-4 py-2.5 text-[11px] font-semibold text-gray-500 uppercase tracking-widest">Email</th>
+                                                            <th className="px-4 py-2.5 text-[11px] font-semibold text-gray-500 uppercase tracking-widest">Account Access</th>
+                                                            <th className="px-4 py-2.5 text-[11px] font-semibold text-gray-500 uppercase tracking-widest">Last Active</th>
+                                                            <th className="px-4 py-2.5 text-[11px] font-semibold text-gray-500 uppercase tracking-widest text-right">Actions</th>
                                                         </tr>
                                                     </thead>
                                                     <tbody className="divide-y divide-gray-100">
@@ -617,7 +614,7 @@ const ClientDetailsPage: React.FC = () => {
                                                                                 ) : (
                                                                                     <span className="w-5 h-5 flex-shrink-0"></span>
                                                                                 )}
-                                                                                <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-bold flex-shrink-0">
+                                                                                <div className="w-7 h-7 rounded-md bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-semibold flex-shrink-0">
                                                                                     {primary.username.charAt(0).toUpperCase()}
                                                                                 </div>
                                                                                 <div>
@@ -645,7 +642,7 @@ const ClientDetailsPage: React.FC = () => {
                                                                         <td className="px-6 py-3.5 text-right">
                                                                             <button
                                                                                 onClick={() => handleLoginAs(primary.id, client, primary)}
-                                                                                className="px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-slate-900 transition-all flex items-center gap-2 ml-auto shadow-sm"
+                                                                                className="px-3 py-1.5 bg-indigo-600 text-white rounded-md text-xs font-medium hover:bg-indigo-700 transition-colors flex items-center gap-1.5 ml-auto"
                                                                             >
                                                                                 <i className="fas fa-user-secret text-[9px]"></i>
                                                                                 Login as
@@ -655,11 +652,11 @@ const ClientDetailsPage: React.FC = () => {
 
                                                                     {/* Sub-user rows */}
                                                                     {hasSubUsers && isPrimaryExpanded && subUsers.map(sub => (
-                                                                        <tr key={sub.id} className="hover:bg-emerald-50/30 transition-colors border-l-4 border-l-emerald-200/60 bg-slate-50/40">
+                                                                        <tr key={sub.id} className="hover:bg-emerald-50/30 transition-colors border-l-4 border-l-emerald-200/60 bg-gray-50/50">
                                                                             <td className="px-4 py-3 pl-16">
                                                                                 <div className="flex items-center gap-3">
-                                                                                    <i className="fas fa-level-up-alt fa-rotate-90 text-slate-300 text-xs flex-shrink-0"></i>
-                                                                                    <div className="w-7 h-7 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center text-xs font-bold flex-shrink-0">
+                                                                                    <i className="fas fa-level-up-alt fa-rotate-90 text-gray-300 text-xs flex-shrink-0"></i>
+                                                                                    <div className="w-6 h-6 rounded-md bg-emerald-100 text-emerald-700 flex items-center justify-center text-xs font-semibold flex-shrink-0">
                                                                                         {sub.username.charAt(0).toUpperCase()}
                                                                                     </div>
                                                                                     <span className="font-medium text-gray-700 text-sm">{sub.username}</span>
@@ -681,7 +678,7 @@ const ClientDetailsPage: React.FC = () => {
                                                                             <td className="px-6 py-3 text-right">
                                                                                 <button
                                                                                     onClick={() => handleLoginAs(sub.id, client, sub)}
-                                                                                    className="px-4 py-1.5 bg-emerald-600 text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-slate-900 transition-all flex items-center gap-2 ml-auto shadow-sm"
+                                                                                    className="px-3 py-1.5 bg-emerald-600 text-white rounded-md text-xs font-medium hover:bg-emerald-700 transition-colors flex items-center gap-1.5 ml-auto"
                                                                                 >
                                                                                     <i className="fas fa-user-secret text-[9px]"></i>
                                                                                     Login as
@@ -704,7 +701,7 @@ const ClientDetailsPage: React.FC = () => {
                 ))}
 
                 {filteredClients.length === 0 && !isLoading && (
-                    <div className="text-center py-12 bg-white rounded-xl border border-dashed border-gray-300">
+                    <div className="text-center py-12 bg-white rounded-md border border-dashed border-gray-300">
                         <i className="fas fa-user-friends text-4xl text-gray-300 mb-3"></i>
                         <p className="text-gray-500">
                             {search ? `No clients match "${search}"` : 'No clients found matching your administrative scope.'}
@@ -719,7 +716,7 @@ const ClientDetailsPage: React.FC = () => {
                     <button
                         onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                         disabled={currentPage === 1}
-                        className="flex items-center gap-1.5 px-4 py-2 bg-white border border-slate-200 rounded-lg shadow-sm text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                     >
                         <i className="fas fa-chevron-left text-xs"></i>
                         Prev
@@ -732,7 +729,7 @@ const ClientDetailsPage: React.FC = () => {
                         if (!isEdge && !isNearCurrent) {
                             // Show ellipsis only once per gap
                             if (page === 2 || page === totalPages - 1) {
-                                return <span key={page} className="px-1 text-slate-400 text-sm select-none">…</span>;
+                                return <span key={page} className="px-1 text-gray-400 text-sm select-none">…</span>;
                             }
                             return null;
                         }
@@ -740,10 +737,10 @@ const ClientDetailsPage: React.FC = () => {
                             <button
                                 key={page}
                                 onClick={() => setCurrentPage(page)}
-                                className={`w-9 h-9 rounded-lg text-sm font-bold transition-all ${
+                                className={`w-8 h-8 rounded-md text-sm font-medium transition-colors ${
                                     isActive
-                                        ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200'
-                                        : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 shadow-sm'
+                                        ? 'bg-indigo-600 text-white'
+                                        : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
                                 }`}
                             >
                                 {page}
@@ -754,7 +751,7 @@ const ClientDetailsPage: React.FC = () => {
                     <button
                         onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                         disabled={currentPage === totalPages}
-                        className="flex items-center gap-1.5 px-4 py-2 bg-white border border-slate-200 rounded-lg shadow-sm text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                     >
                         Next
                         <i className="fas fa-chevron-right text-xs"></i>

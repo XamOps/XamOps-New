@@ -16,7 +16,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useBillOpsTicketDetail } from '../hooks/useBillOpsTicketDetail';
 import { RCAFormData, RCAFormSection, TicketReply } from '../types/billopsTickets';
 import { useTopbarActions } from '../contexts/TopbarContext';
-import { formatIST, getSlaStatus, getResponseSlaLabel } from '../utils/timeUtils';
+import { getSlaStatus, getResponseSlaLabel } from '../utils/timeUtils';
 import Quill from 'quill';
 import 'quill/dist/quill.snow.css';
 import '../styles/billopsTicketDetail.css';
@@ -143,9 +143,9 @@ const BillOpsTicketDetailPage: React.FC = () => {
   const [showScrollBtn, setShowScrollBtn] = useState(false);
 
   const getStatusBadgeClasses = (status: string) => {
-    if (status === 'OPEN') return 'bg-emerald-500 text-white shadow-emerald-200 ring-4 ring-emerald-500/10';
-    if (status === 'IN_PROGRESS') return 'bg-amber-500 text-white shadow-amber-200 ring-4 ring-amber-500/10';
-    return 'bg-slate-400 text-white shadow-slate-200 ring-4 ring-slate-400/10';
+    if (status === 'OPEN') return 'bg-emerald-50 text-emerald-700 border border-emerald-200';
+    if (status === 'IN_PROGRESS') return 'bg-amber-50 text-amber-700 border border-amber-200';
+    return 'bg-gray-100 text-gray-500 border border-gray-200';
   };
 
   const getInitials = useCallback((name: string): string => {
@@ -455,150 +455,148 @@ const BillOpsTicketDetailPage: React.FC = () => {
     if (!ticket) return;
 
     setActions(
-      <div className="flex items-center gap-6">
-        <div className="flex items-center gap-4 pr-6 border-r border-slate-200/50">
-          <button
-            onClick={goBackToTickets}
-            className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-100 text-slate-500 hover:text-indigo-600 hover:bg-slate-200 transition-all font-bold flex-shrink-0"
-            title="Back to List"
-          >
-            <i className="fas fa-arrow-left"></i>
-          </button>
-          <div className="min-w-0">
-            <h1 className="text-sm font-bold text-slate-900 leading-none truncate max-w-[180px] lg:max-w-[360px]">
-              {ticket.subject}
-            </h1>
-            <p className="text-[10px] text-slate-500 font-medium mt-1 truncate max-w-[180px] lg:max-w-[360px]">
-              Case #{ticket.id} • {ticket.service}
-            </p>
-          </div>
+      <div className="flex items-center gap-3">
+        <button
+          onClick={goBackToTickets}
+          className="w-8 h-8 flex items-center justify-center rounded-md bg-gray-100 text-gray-500 hover:text-indigo-600 hover:bg-gray-200 transition-colors flex-shrink-0"
+          title="Back to List"
+        >
+          <i className="fas fa-arrow-left text-[12px]"></i>
+        </button>
+
+        <div className="hidden lg:block min-w-0 pr-3 border-r border-gray-200">
+          <h1 className="text-[13px] font-semibold text-gray-900 leading-none truncate max-w-[240px] xl:max-w-[400px]">
+            {ticket.subject}
+          </h1>
+          <p className="text-[11px] text-gray-400 mt-0.5 truncate max-w-[240px] xl:max-w-[400px]">
+            Case #{ticket.id} · {ticket.service}
+          </p>
         </div>
 
-        <div className="flex items-center flex-wrap gap-2">
-          <span className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider shadow-sm transition-all ${getStatusBadgeClasses(ticket.status)}`}>
-            <span className={`w-1.5 h-1.5 rounded-full bg-white shadow-[0_0_8px_white] ${ticket.status === 'OPEN' ? 'animate-pulse' : ''}`}></span>
-            {ticket.status}
-          </span>
+        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium ${getStatusBadgeClasses(ticket.status)}`}>
+          {ticket.status === 'OPEN' && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse flex-shrink-0"></span>}
+          {ticket.status === 'IN_PROGRESS' && <span className="w-1.5 h-1.5 rounded-full bg-amber-500 flex-shrink-0"></span>}
+          {ticket.status === 'IN_PROGRESS' ? 'In Progress' : ticket.status === 'OPEN' ? 'Open' : 'Closed'}
+        </span>
 
-          {/* Assign dropdown (admin only) */}
-          {isAdmin && (
-            <div className="relative" data-assign-dropdown>
-              <button
-                onClick={() => setShowAssignDropdown(v => !v)}
-                disabled={isAssigning || ticket.status === 'CLOSED'}
-                className={`flex items-center gap-2 px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${
-                  ticket.assignedToUsername
-                    ? 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
-                    : 'bg-slate-50 text-slate-500 border-slate-200 hover:border-indigo-300 hover:text-indigo-600'
-                } disabled:opacity-50 disabled:cursor-not-allowed`}
-              >
-                {ticket.assignedToUsername ? (
-                  <>
-                    <div className="w-4 h-4 rounded-full bg-indigo-600 flex items-center justify-center text-white text-[7px] font-black flex-shrink-0">
-                      {ticket.assignedToUsername.charAt(0).toUpperCase()}
-                    </div>
-                    <span className="hidden xl:inline truncate max-w-[80px]">{ticket.assignedToUsername}</span>
-                  </>
-                ) : (
-                  <><i className="fas fa-user-plus text-[10px]"></i><span className="hidden xl:inline"> Assign</span></>
-                )}
-                {!isAssigning && ticket.status !== 'CLOSED' && <i className="fas fa-chevron-down text-[8px] opacity-50 ml-1"></i>}
-                {isAssigning && <i className="fas fa-circle-notch fa-spin text-[8px] ml-1"></i>}
-              </button>
-
-              {showAssignDropdown && adminUsers.length > 0 && (
-                <div className="absolute top-full right-0 mt-1 w-48 bg-white rounded-xl shadow-xl border border-slate-100 py-1 z-50 overflow-hidden">
-                  <div className="px-3 py-1.5 text-[9px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-50">Assign to</div>
-                  {adminUsers.map(admin => (
-                    <button
-                      key={admin.id}
-                      onClick={() => handleAssign(admin.id, admin.username)}
-                      className={`w-full text-left flex items-center gap-2 px-3 py-2 text-[11px] font-bold hover:bg-indigo-50 hover:text-indigo-700 transition-colors ${
-                        ticket.assignedToId === admin.id ? 'bg-indigo-50 text-indigo-700' : 'text-slate-700'
-                      }`}
-                    >
-                      <div className="w-5 h-5 rounded-full bg-indigo-600 flex items-center justify-center text-white text-[8px] font-black flex-shrink-0">
-                        {admin.username.charAt(0).toUpperCase()}
-                      </div>
-                      {admin.username}
-                      {ticket.assignedToId === admin.id && <i className="fas fa-check text-indigo-500 ml-auto text-[9px]"></i>}
-                    </button>
-                  ))}
-                  {ticket.assignedToUsername && (
-                    <button
-                      onClick={() => handleAssign(0, '')}
-                      className="w-full text-left flex items-center gap-2 px-3 py-2 text-[11px] font-bold text-rose-500 hover:bg-rose-50 transition-colors border-t border-slate-50"
-                    >
-                      <i className="fas fa-user-times text-[10px]"></i>
-                      Unassign
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Actions dropdown */}
-          <div className="relative" data-actions-dropdown>
+        {/* Assign dropdown (admin only) */}
+        {isAdmin && (
+          <div className="relative" data-assign-dropdown>
             <button
-              onClick={() => setShowActionsDropdown(v => !v)}
-              className="flex items-center gap-2 px-3 py-2 lg:px-4 bg-indigo-600 text-white rounded-xl text-xs font-bold shadow-lg shadow-indigo-500/20 hover:bg-indigo-700 transition-all"
+              onClick={() => setShowAssignDropdown(v => !v)}
+              disabled={isAssigning || ticket.status === 'CLOSED'}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[12px] font-medium border transition-colors ${
+                ticket.assignedToUsername
+                  ? 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
+                  : 'bg-white text-gray-500 border-gray-200 hover:border-indigo-300 hover:text-indigo-600'
+              } disabled:opacity-50 disabled:cursor-not-allowed`}
             >
-              <i className="fas fa-bolt"></i>
-              <span className="hidden lg:inline">Actions</span>
-              <i className="fas fa-chevron-down text-[8px] opacity-70 ml-0.5"></i>
+              {ticket.assignedToUsername ? (
+                <>
+                  <div className="w-4 h-4 rounded-md bg-indigo-600 flex items-center justify-center text-white text-[8px] font-semibold flex-shrink-0">
+                    {ticket.assignedToUsername.charAt(0).toUpperCase()}
+                  </div>
+                  <span className="hidden xl:inline truncate max-w-[80px]">{ticket.assignedToUsername}</span>
+                </>
+              ) : (
+                <><i className="fas fa-user-plus text-[10px]"></i><span className="hidden xl:inline ml-1">Assign</span></>
+              )}
+              {!isAssigning && ticket.status !== 'CLOSED' && <i className="fas fa-chevron-down text-[9px] opacity-50 ml-0.5"></i>}
+              {isAssigning && <i className="fas fa-circle-notch fa-spin text-[10px] ml-0.5"></i>}
             </button>
 
-            {showActionsDropdown && (
-              <div className="absolute top-full right-0 mt-1 w-52 bg-white rounded-xl shadow-xl border border-slate-100 py-1 z-50 overflow-hidden">
-                {isAdmin && ticket.status !== 'CLOSED' && (
+            {showAssignDropdown && adminUsers.length > 0 && (
+              <div className="absolute top-full right-0 mt-1 w-48 bg-white rounded-md shadow-lg border border-gray-100 py-1 z-50 overflow-hidden">
+                <div className="px-3 py-1.5 text-[10px] font-semibold text-gray-400 uppercase tracking-widest border-b border-gray-100">Assign to</div>
+                {adminUsers.map(admin => (
                   <button
-                    onClick={() => { setShowRcaModal(true); setShowActionsDropdown(false); }}
-                    className="w-full text-left flex items-center gap-3 px-4 py-2.5 text-[11px] font-bold text-slate-700 hover:bg-purple-50 hover:text-purple-700 transition-colors"
+                    key={admin.id}
+                    onClick={() => handleAssign(admin.id, admin.username)}
+                    className={`w-full text-left flex items-center gap-2 px-3 py-2 text-[12px] hover:bg-indigo-50 hover:text-indigo-700 transition-colors ${
+                      ticket.assignedToId === admin.id ? 'bg-indigo-50 text-indigo-700' : 'text-gray-700'
+                    }`}
                   >
-                    <i className="fas fa-file-medical-alt text-purple-500 w-4 text-center"></i>
-                    Generate RCA
+                    <div className="w-5 h-5 rounded-md bg-indigo-600 flex items-center justify-center text-white text-[9px] font-semibold flex-shrink-0">
+                      {admin.username.charAt(0).toUpperCase()}
+                    </div>
+                    {admin.username}
+                    {ticket.assignedToId === admin.id && <i className="fas fa-check text-indigo-500 ml-auto text-[10px]"></i>}
                   </button>
-                )}
-                {isAdmin && ticket.status !== 'CLOSED' && (
+                ))}
+                {ticket.assignedToUsername && (
                   <button
-                    onClick={() => { openMeetModal(); setShowActionsDropdown(false); }}
-                    className="w-full text-left flex items-center gap-3 px-4 py-2.5 text-[11px] font-bold text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 transition-colors"
+                    onClick={() => handleAssign(0, '')}
+                    className="w-full text-left flex items-center gap-2 px-3 py-2 text-[12px] text-red-500 hover:bg-red-50 transition-colors border-t border-gray-100"
                   >
-                    <i className="fas fa-video text-emerald-500 w-4 text-center"></i>
-                    Schedule Meet
-                  </button>
-                )}
-                {isAdmin && (ticket.replies?.length ?? 0) > 0 && (
-                  <button
-                    onClick={() => { setShowEmailModal(true); setShowActionsDropdown(false); }}
-                    className="w-full text-left flex items-center gap-3 px-4 py-2.5 text-[11px] font-bold text-slate-700 hover:bg-sky-50 hover:text-sky-700 transition-colors"
-                  >
-                    <i className="fas fa-envelope text-sky-500 w-4 text-center"></i>
-                    Email Thread
-                  </button>
-                )}
-                {ticket.status !== 'CLOSED' && (
-                  <button
-                    onClick={() => { handleCloseTicket(); setShowActionsDropdown(false); }}
-                    className="w-full text-left flex items-center gap-3 px-4 py-2.5 text-[11px] font-bold text-rose-600 hover:bg-rose-50 transition-colors border-t border-slate-50"
-                  >
-                    <i className="far fa-times-circle text-rose-500 w-4 text-center"></i>
-                    Close Ticket
-                  </button>
-                )}
-                {isAdmin && ticket.status === 'CLOSED' && (
-                  <button
-                    onClick={() => { handleReopenTicket(); setShowActionsDropdown(false); }}
-                    className="w-full text-left flex items-center gap-3 px-4 py-2.5 text-[11px] font-bold text-emerald-700 hover:bg-emerald-50 transition-colors"
-                  >
-                    <i className="fas fa-lock-open text-emerald-500 w-4 text-center"></i>
-                    Reopen Ticket
+                    <i className="fas fa-user-times text-[10px]"></i>
+                    Unassign
                   </button>
                 )}
               </div>
             )}
           </div>
+        )}
+
+        {/* Actions dropdown */}
+        <div className="relative" data-actions-dropdown>
+          <button
+            onClick={() => setShowActionsDropdown(v => !v)}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-md text-[12px] font-medium hover:bg-indigo-700 transition-colors"
+          >
+            <i className="fas fa-bolt text-[10px]"></i>
+            <span className="hidden lg:inline">Actions</span>
+            <i className="fas fa-chevron-down text-[9px] opacity-70 ml-0.5"></i>
+          </button>
+
+          {showActionsDropdown && (
+            <div className="absolute top-full right-0 mt-1 w-52 bg-white rounded-md shadow-lg border border-gray-100 py-1 z-50 overflow-hidden">
+              {isAdmin && ticket.status !== 'CLOSED' && (
+                <button
+                  onClick={() => { setShowRcaModal(true); setShowActionsDropdown(false); }}
+                  className="w-full text-left flex items-center gap-3 px-4 py-2.5 text-[12px] text-gray-700 hover:bg-purple-50 hover:text-purple-700 transition-colors"
+                >
+                  <i className="fas fa-file-medical-alt text-purple-500 w-4 text-center"></i>
+                  Generate RCA
+                </button>
+              )}
+              {isAdmin && ticket.status !== 'CLOSED' && (
+                <button
+                  onClick={() => { openMeetModal(); setShowActionsDropdown(false); }}
+                  className="w-full text-left flex items-center gap-3 px-4 py-2.5 text-[12px] text-gray-700 hover:bg-emerald-50 hover:text-emerald-700 transition-colors"
+                >
+                  <i className="fas fa-video text-emerald-500 w-4 text-center"></i>
+                  Schedule Meet
+                </button>
+              )}
+              {isAdmin && (ticket.replies?.length ?? 0) > 0 && (
+                <button
+                  onClick={() => { setShowEmailModal(true); setShowActionsDropdown(false); }}
+                  className="w-full text-left flex items-center gap-3 px-4 py-2.5 text-[12px] text-gray-700 hover:bg-sky-50 hover:text-sky-700 transition-colors"
+                >
+                  <i className="fas fa-envelope text-sky-500 w-4 text-center"></i>
+                  Email Thread
+                </button>
+              )}
+              {ticket.status !== 'CLOSED' && (
+                <button
+                  onClick={() => { handleCloseTicket(); setShowActionsDropdown(false); }}
+                  className="w-full text-left flex items-center gap-3 px-4 py-2.5 text-[12px] text-red-600 hover:bg-red-50 transition-colors border-t border-gray-100"
+                >
+                  <i className="far fa-times-circle text-red-500 w-4 text-center"></i>
+                  Close Ticket
+                </button>
+              )}
+              {isAdmin && ticket.status === 'CLOSED' && (
+                <button
+                  onClick={() => { handleReopenTicket(); setShowActionsDropdown(false); }}
+                  className="w-full text-left flex items-center gap-3 px-4 py-2.5 text-[12px] text-emerald-700 hover:bg-emerald-50 transition-colors"
+                >
+                  <i className="fas fa-lock-open text-emerald-500 w-4 text-center"></i>
+                  Reopen Ticket
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
     );
@@ -1040,46 +1038,45 @@ const BillOpsTicketDetailPage: React.FC = () => {
   const responseSlaLabel = getResponseSlaLabel(ticket.createdAt, ticket.severity, ticket.chatStartedAt);
 
   return (
-    <div className="flex flex-col overflow-hidden bg-transparent" style={{ height: 'calc(100dvh - 104px)' }}>
+    <div className="flex flex-col overflow-hidden" style={{ height: 'calc(100dvh - 104px)', background: '#f5f6f8' }}>
       {/* Chat Container */}
       <div
         ref={chatContainerRef}
-        className="flex-1 min-h-0 overflow-y-auto custom-scrollbar bg-slate-50/50 scroll-smooth"
+        className="flex-1 min-h-0 overflow-y-auto custom-scrollbar scroll-smooth"
+        style={{ background: '#f5f6f8' }}
         onScroll={handleChatScroll}
       >
-        <div className="w-full p-6 lg:p-10 space-y-8">
+        <div className="w-full p-5 lg:p-8 space-y-6">
 
           {/* Original Ticket + Metadata Card */}
-          <div className="relative group bg-white/70 backdrop-blur-xl border border-white p-8 rounded-[2.5rem] shadow-[0_8px_40px_rgba(0,0,0,0.03)] hover:shadow-[0_24px_48px_rgba(0,0,0,0.06)] transition-all duration-500 overflow-hidden">
-            <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-br from-indigo-500/5 to-purple-500/5 rounded-full blur-3xl -mr-20 -mt-20 group-hover:scale-150 transition-transform duration-700"></div>
-
-            <div className="relative flex gap-6">
+          <div className="bg-white border border-gray-200 rounded-md shadow-sm p-6">
+            <div className="flex gap-4">
               <div className="flex-shrink-0">
-                <div className="w-12 h-12 rounded-2xl bg-indigo-600 flex items-center justify-center text-white shadow-lg shadow-indigo-200">
-                  <i className="fas fa-ticket-alt text-lg"></i>
+                <div className="w-10 h-10 rounded-md bg-indigo-600 flex items-center justify-center text-white">
+                  <i className="fas fa-ticket-alt text-sm"></i>
                 </div>
               </div>
               <div className="flex-1 min-w-0 space-y-4">
                 <div className="flex justify-between items-center gap-2">
-                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none truncate min-w-0">Original Issue Description</span>
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter flex-shrink-0">Request #{ticket.id}</span>
+                  <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest">Original Issue Description</span>
+                  <span className="text-[11px] text-gray-400">Request #{ticket.id}</span>
                 </div>
-                <div className="text-base text-slate-700 font-medium leading-relaxed whitespace-pre-wrap break-words">
-                  {ticket.description || <span className="text-slate-400 italic text-sm">No description provided.</span>}
+                <div className="text-[14px] text-gray-700 leading-relaxed whitespace-pre-wrap break-words">
+                  {ticket.description || <span className="text-gray-400 italic text-sm">No description provided.</span>}
                 </div>
 
-                <div className="flex flex-wrap gap-4 pt-4 border-t border-slate-100">
+                <div className="flex flex-wrap gap-x-5 gap-y-2 pt-4 border-t border-gray-100">
                   {ticket.accountId && (
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Account / Project:</span>
-                      <span className="text-[10px] font-black text-indigo-600 font-mono">{ticket.accountId}</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] text-gray-400 uppercase tracking-widest">Account / Project:</span>
+                      <span className="text-[11px] font-medium text-indigo-600 font-mono">{ticket.accountId}</span>
                     </div>
                   )}
                   {ticket.creatorUsername && (
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Raised by:</span>
-                      <span className="flex items-center gap-1.5 text-[10px] font-black text-slate-700">
-                        <span className="w-4 h-4 rounded-full bg-slate-300 text-slate-600 flex items-center justify-center text-[7px] font-black">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] text-gray-400 uppercase tracking-widest">Raised by:</span>
+                      <span className="flex items-center gap-1.5 text-[11px] font-medium text-gray-700">
+                        <span className="w-4 h-4 rounded-md bg-gray-200 text-gray-600 flex items-center justify-center text-[8px] font-semibold">
                           {ticket.creatorUsername.charAt(0).toUpperCase()}
                         </span>
                         {ticket.creatorUsername}
@@ -1087,44 +1084,44 @@ const BillOpsTicketDetailPage: React.FC = () => {
                     </div>
                   )}
                   {isAdmin && ticket.assignedToUsername && (
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Assigned:</span>
-                      <span className="flex items-center gap-1.5 text-[10px] font-black text-indigo-700">
-                        <span className="w-4 h-4 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[7px] font-black">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] text-gray-400 uppercase tracking-widest">Assigned:</span>
+                      <span className="flex items-center gap-1.5 text-[11px] font-medium text-indigo-700">
+                        <span className="w-4 h-4 rounded-md bg-indigo-600 text-white flex items-center justify-center text-[8px] font-semibold">
                           {ticket.assignedToUsername.charAt(0).toUpperCase()}
                         </span>
                         {ticket.assignedToUsername}
                       </span>
                     </div>
                   )}
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Service:</span>
-                    <span className="text-[10px] font-black text-indigo-600">{ticket.service}</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] text-gray-400 uppercase tracking-widest">Service:</span>
+                    <span className="text-[11px] font-medium text-indigo-600">{ticket.service}</span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Submitted:</span>
-                    <span className="text-[10px] font-black text-slate-600">{formatIST(ticket.createdAt)}</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] text-gray-400 uppercase tracking-widest">Submitted:</span>
+                    <span className="text-[11px] text-gray-600">{ticket.createdAt ? new Date(ticket.createdAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : '—'}</span>
                   </div>
                   {ticket.chatStartedAt && (
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Chat Started:</span>
-                      <span className="text-[10px] font-black text-indigo-600">{formatIST(ticket.chatStartedAt)}</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] text-gray-400 uppercase tracking-widest">Chat Started:</span>
+                      <span className="text-[11px] font-medium text-indigo-600">{new Date(ticket.chatStartedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</span>
                     </div>
                   )}
                   {ticket.closedAt && (
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Closed At:</span>
-                      <span className="text-[10px] font-black text-slate-600">{formatIST(ticket.closedAt)}</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] text-gray-400 uppercase tracking-widest">Closed At:</span>
+                      <span className="text-[11px] text-gray-600">{new Date(ticket.closedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</span>
                     </div>
                   )}
                 </div>
 
-                {/* SLA card (admin only) — same style as TicketDetailPage */}
+                {/* SLA card (admin only) */}
                 {isAdmin && (
-                  <div className={`flex items-center gap-3 px-4 py-3 rounded-2xl border ${
-                    slaStatus.status === 'ok' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' :
-                    slaStatus.status === 'warning' ? 'bg-amber-100 text-amber-700 border-amber-200' :
-                    'bg-red-100 text-red-700 border-red-200'
+                  <div className={`flex items-center gap-3 px-4 py-3 rounded-md border ${
+                    slaStatus.status === 'ok' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                    slaStatus.status === 'warning' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                    'bg-red-50 text-red-700 border-red-200'
                   }`}>
                     <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
                       slaStatus.status === 'ok' ? 'bg-emerald-500' :
@@ -1132,12 +1129,12 @@ const BillOpsTicketDetailPage: React.FC = () => {
                       'bg-red-500 animate-pulse'
                     }`}></span>
                     <div className="flex-1 min-w-0">
-                      <div className="text-[10px] font-black uppercase tracking-widest leading-none mb-1">
+                      <div className="text-[11px] font-semibold uppercase tracking-wide leading-none mb-1">
                         Resolution SLA — {slaStatus.status === 'breached' ? 'Breached' : slaStatus.status === 'warning' ? 'At Risk' : 'On Track'}
                       </div>
-                      <div className="text-[11px] font-bold">{slaStatus.label}</div>
+                      <div className="text-[11px]">{slaStatus.label}</div>
                     </div>
-                    <div className="text-[10px] font-black opacity-70 whitespace-nowrap">{responseSlaLabel}</div>
+                    <div className="text-[11px] opacity-70 whitespace-nowrap">{responseSlaLabel}</div>
                   </div>
                 )}
               </div>
@@ -1145,10 +1142,10 @@ const BillOpsTicketDetailPage: React.FC = () => {
           </div>
 
           {/* Discussion Header */}
-          <div className="flex items-center gap-3 text-slate-400">
-            <span className="text-[10px] font-black uppercase tracking-[0.2em] whitespace-nowrap">Correspondence Log</span>
-            <div className="h-px bg-slate-200 flex-1"></div>
-            <span className="text-[10px] font-bold text-slate-400 whitespace-nowrap">{ticket.replies?.length || 0} msg{(ticket.replies?.length || 0) !== 1 ? 's' : ''}</span>
+          <div className="flex items-center gap-3 text-gray-400">
+            <span className="text-[11px] font-semibold uppercase tracking-widest whitespace-nowrap">Correspondence Log</span>
+            <div className="h-px bg-gray-200 flex-1"></div>
+            <span className="text-[11px] text-gray-400 whitespace-nowrap">{ticket.replies?.length || 0} msg{(ticket.replies?.length || 0) !== 1 ? 's' : ''}</span>
           </div>
 
           {/* Replies */}
@@ -1164,18 +1161,18 @@ const BillOpsTicketDetailPage: React.FC = () => {
                   return (
                     <React.Fragment key={reply.id}>
                       <div className="flex w-full justify-end">
-                        <div className="flex max-w-[85%] md:max-w-[70%] gap-4 flex-row-reverse min-w-0">
+                        <div className="flex max-w-[85%] md:max-w-[70%] gap-3 flex-row-reverse min-w-0">
                           <div className="flex-shrink-0 mt-auto">
-                            <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-sm font-black shadow-sm bg-amber-500 text-white">
+                            <div className="w-8 h-8 rounded-md flex items-center justify-center text-sm shadow-sm bg-amber-500 text-white">
                               <i className="fas fa-lock text-xs"></i>
                             </div>
                           </div>
-                          <div className="space-y-2 text-left min-w-0">
+                          <div className="space-y-1 text-left min-w-0">
                             <div className="flex items-center justify-end gap-2 px-1">
-                              <span className="px-2 py-0.5 text-[8px] font-black bg-amber-100 text-amber-600 border border-amber-200 rounded-full uppercase tracking-widest flex-shrink-0">Internal Note</span>
-                              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter flex-shrink-0">{formatIST(reply.createdAt)}</span>
+                              <span className="px-2 py-0.5 text-[10px] font-medium bg-amber-50 text-amber-600 border border-amber-200 rounded uppercase tracking-wide flex-shrink-0">Internal Note</span>
+                              <span className="text-[10px] text-gray-400 flex-shrink-0">{reply.createdAt ? new Date(reply.createdAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : ''}</span>
                             </div>
-                            <div className="p-4 rounded-[1.5rem] rounded-tr-none shadow-sm text-sm font-medium leading-relaxed overflow-hidden bg-amber-50 text-amber-900 border border-amber-200">
+                            <div className="p-4 rounded-xl rounded-tr-sm shadow-sm text-sm leading-relaxed overflow-hidden bg-amber-50 text-amber-900 border border-amber-200">
                               <div dangerouslySetInnerHTML={{ __html: reply.message }} className="prose-chat break-words" />
                             </div>
                           </div>
@@ -1190,27 +1187,27 @@ const BillOpsTicketDetailPage: React.FC = () => {
                     {/* ── "Unread" divider — shown before the first unread message from the other side ── */}
                     {index === firstUnreadIndex && firstUnreadIndex > 0 && (
                       <div className="flex items-center gap-3 py-1">
-                        <div className="h-px bg-rose-200 flex-1"></div>
-                        <span className="flex items-center gap-1.5 text-[10px] font-black text-rose-600 uppercase tracking-widest px-2.5 py-0.5 bg-rose-50 border border-rose-200 rounded-full">
-                          <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse flex-shrink-0"></span>
+                        <div className="h-px bg-red-200 flex-1"></div>
+                        <span className="flex items-center gap-1.5 text-[10px] font-medium text-red-600 px-2.5 py-0.5 bg-red-50 border border-red-200 rounded">
+                          <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse flex-shrink-0"></span>
                           Unread
                         </span>
-                        <div className="h-px bg-rose-200 flex-1"></div>
+                        <div className="h-px bg-red-200 flex-1"></div>
                       </div>
                     )}
 
                   <div className={`flex w-full ${isMine ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`flex max-w-[85%] md:max-w-[70%] gap-4 min-w-0 ${isMine ? 'flex-row-reverse' : ''}`}>
+                    <div className={`flex max-w-[85%] md:max-w-[72%] gap-3 min-w-0 ${isMine ? 'flex-row-reverse' : ''}`}>
                       <div className="flex-shrink-0 mt-auto">
-                        <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-sm font-black shadow-sm ${reply.admin ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-600'}`}>
-                          {reply.admin ? <i className="fas fa-shield-alt"></i> : <span>{getInitials(reply.authorUsername)}</span>}
+                        <div className={`w-8 h-8 rounded-md flex items-center justify-center text-sm font-semibold ${reply.admin ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-600'}`}>
+                          {reply.admin ? <i className="fas fa-shield-alt text-xs"></i> : <span>{getInitials(reply.authorUsername)}</span>}
                         </div>
                       </div>
 
-                      <div className="space-y-2 min-w-0 text-left">
+                      <div className="space-y-1.5 min-w-0 text-left">
                         <div className={`flex items-center gap-1.5 px-1 ${isMine ? 'justify-end' : 'justify-start'}`}>
-                          {!isMine && <span className="text-[10px] font-black text-slate-800 uppercase tracking-widest">{reply.authorUsername}</span>}
-                          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">{formatIST(reply.createdAt)}</span>
+                          {!isMine && <span className="text-[11px] font-semibold text-gray-800">{reply.authorUsername}</span>}
+                          <span className="text-[10px] text-gray-400">{reply.createdAt ? new Date(reply.createdAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : ''}</span>
                           {/* ── Read receipt ticks (only on my outgoing messages) ── */}
                           {isMine && (
                             <span
@@ -1225,13 +1222,13 @@ const BillOpsTicketDetailPage: React.FC = () => {
                             >✓✓</span>
                           )}
                           {isMine && (
-                            <span className="text-[10px] font-black text-slate-800 uppercase tracking-widest">
+                            <span className="text-[11px] font-semibold text-gray-800">
                               {isAdmin ? reply.authorUsername : 'You'}
                             </span>
                           )}
                         </div>
 
-                        <div className={`group/msg relative p-4 rounded-[1.5rem] shadow-sm text-sm font-medium leading-relaxed overflow-visible ${isMine ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white text-slate-700 border border-slate-100 rounded-tl-none'}`}>
+                        <div className={`group/msg relative p-4 rounded-xl shadow-sm text-sm leading-relaxed overflow-visible ${isMine ? 'bg-indigo-600 text-white rounded-tr-sm' : 'bg-white text-gray-700 border border-gray-200 rounded-tl-sm'}`}>
 
                           {/* ── Edit / Delete hover buttons ── */}
                           {isMine && !reply.deleted && ticket.status !== 'CLOSED' && (
@@ -1304,10 +1301,10 @@ const BillOpsTicketDetailPage: React.FC = () => {
 
                           {/* Attachments (only if not deleted) */}
                           {!reply.deleted && (reply.attachmentUrl || reply.attachmentName) && (
-                            <div className="mt-4">
+                            <div className="mt-3">
                               {reply.attachmentType?.startsWith('image/') && (
                                 <div
-                                  className="mb-3 rounded-2xl overflow-hidden border border-white/20 shadow-md max-w-xs cursor-pointer hover:opacity-90 transition-opacity"
+                                  className="mb-3 rounded-lg overflow-hidden border border-white/20 shadow-sm max-w-xs cursor-pointer hover:opacity-90 transition-opacity"
                                   onClick={() => globalThis.open(reply.attachmentUrl, '_blank')}
                                 >
                                   <img src={reply.attachmentUrl} alt={reply.attachmentName} className="w-full h-auto object-cover max-h-60" />
@@ -1316,35 +1313,35 @@ const BillOpsTicketDetailPage: React.FC = () => {
 
                               {reply.attachmentName?.startsWith('rca_ticket_') && (
                                 <div
-                                  className="group cursor-pointer bg-white/10 backdrop-blur-md rounded-2xl overflow-hidden border border-white/20 hover:border-purple-300 transition-colors shadow-lg"
+                                  className="cursor-pointer rounded-lg overflow-hidden border border-white/20 hover:border-purple-300 transition-colors"
                                   onClick={() => reply.attachmentUrl ? globalThis.open(reply.attachmentUrl, '_blank') : globalThis.alert('File URL not found')}
                                 >
-                                  <div className={`flex items-center p-4 ${isMine ? 'bg-white/10' : 'bg-purple-50'}`}>
-                                    <div className="p-3 bg-purple-600 text-white rounded-xl mr-4 shadow-lg shadow-purple-200">
-                                      <i className="fas fa-file-medical-alt text-xl"></i>
+                                  <div className={`flex items-center p-3 ${isMine ? 'bg-white/10' : 'bg-purple-50'}`}>
+                                    <div className="p-2 bg-purple-600 text-white rounded-md mr-3">
+                                      <i className="fas fa-file-medical-alt"></i>
                                     </div>
                                     <div className="flex-1">
-                                      <h4 className={`text-sm font-black leading-tight ${isMine ? 'text-white' : 'text-purple-900'}`}>RCA Report Generated</h4>
-                                      <p className={`text-[10px] font-bold mt-1 uppercase tracking-widest ${isMine ? 'text-white/70' : 'text-purple-600'}`}>Download PDF Report</p>
+                                      <h4 className={`text-sm font-semibold leading-tight ${isMine ? 'text-white' : 'text-purple-900'}`}>RCA Report Generated</h4>
+                                      <p className={`text-[10px] mt-0.5 ${isMine ? 'text-white/70' : 'text-purple-600'}`}>Download PDF Report</p>
                                     </div>
-                                    <i className={`fas fa-download ${isMine ? 'text-white/50' : 'text-purple-400'}`}></i>
+                                    <i className={`fas fa-download text-sm ${isMine ? 'text-white/50' : 'text-purple-400'}`}></i>
                                   </div>
                                 </div>
                               )}
 
                               {(!reply.attachmentName || !reply.attachmentName.startsWith('rca_ticket_')) && (
                                 <div
-                                  className={`flex items-center p-3 rounded-2xl transition-all cursor-pointer ${isMine ? 'bg-white/10 border border-white/20 hover:bg-white/20' : 'bg-slate-50 border border-slate-100 hover:bg-slate-100'}`}
+                                  className={`flex items-center p-3 rounded-lg transition-colors cursor-pointer ${isMine ? 'bg-white/10 border border-white/20 hover:bg-white/20' : 'bg-gray-50 border border-gray-100 hover:bg-gray-100'}`}
                                   onClick={() => reply.attachmentUrl ? globalThis.open(reply.attachmentUrl, '_blank') : alert('File URL not found')}
                                 >
-                                  <div className={`w-10 h-10 flex items-center justify-center rounded-xl mr-3 ${isMine ? 'bg-white/20 text-white' : 'bg-white shadow-sm text-indigo-500'}`}>
-                                    {reply.attachmentType?.startsWith('image/') ? <i className="fas fa-file-image text-lg"></i> : reply.attachmentType?.includes('pdf') ? <i className="fas fa-file-pdf text-lg"></i> : <i className="fas fa-file-alt text-lg"></i>}
+                                  <div className={`w-8 h-8 flex items-center justify-center rounded-md mr-3 ${isMine ? 'bg-white/20 text-white' : 'bg-white border border-gray-200 text-indigo-500'}`}>
+                                    {reply.attachmentType?.startsWith('image/') ? <i className="fas fa-file-image"></i> : reply.attachmentType?.includes('pdf') ? <i className="fas fa-file-pdf"></i> : <i className="fas fa-file-alt"></i>}
                                   </div>
                                   <div className="flex-1 min-w-0">
-                                    <p className={`text-xs font-bold truncate ${isMine ? 'text-white' : 'text-slate-800'}`}>{reply.attachmentName || 'Attached File'}</p>
-                                    <p className={`text-[9px] font-bold uppercase tracking-widest mt-0.5 ${isMine ? 'text-white/60' : 'text-slate-400'}`}>Click to view</p>
+                                    <p className={`text-xs font-medium truncate ${isMine ? 'text-white' : 'text-gray-800'}`}>{reply.attachmentName || 'Attached File'}</p>
+                                    <p className={`text-[10px] mt-0.5 ${isMine ? 'text-white/60' : 'text-gray-400'}`}>Click to view</p>
                                   </div>
-                                  <i className={`fas fa-download text-xs ${isMine ? 'text-white/40' : 'text-slate-300'}`}></i>
+                                  <i className={`fas fa-download text-xs ${isMine ? 'text-white/40' : 'text-gray-300'}`}></i>
                                 </div>
                               )}
                             </div>
@@ -1365,18 +1362,18 @@ const BillOpsTicketDetailPage: React.FC = () => {
 
           {/* Closed banner — shown inline at bottom of chat */}
           {isClosed && (
-            <div className="flex items-center justify-between gap-3 px-6 py-4 bg-slate-100 rounded-2xl border border-slate-200 text-[11px] font-bold text-slate-500">
-              <div className="flex items-center gap-3">
-                <i className="fas fa-lock text-slate-400"></i>
+            <div className="flex items-center justify-between gap-3 px-5 py-3.5 bg-gray-100 rounded-md border border-gray-200 text-[12px] text-gray-500">
+              <div className="flex items-center gap-2.5">
+                <i className="fas fa-lock text-gray-400"></i>
                 This ticket was closed
-                {ticket.closedAt && <span className="text-slate-400">· {formatIST(ticket.closedAt)}</span>}
+                {ticket.closedAt && <span className="text-gray-400">· {new Date(ticket.closedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</span>}
               </div>
               {isAdmin && (
                 <button
                   onClick={handleReopenTicket}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg text-[10px] font-bold border border-emerald-200 hover:bg-emerald-100 transition-all active:scale-95"
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-md text-[11px] font-medium border border-emerald-200 hover:bg-emerald-100 transition-colors"
                 >
-                  <i className="fas fa-lock-open text-[9px]"></i>
+                  <i className="fas fa-lock-open text-[10px]"></i>
                   Reopen
                 </button>
               )}
@@ -1386,10 +1383,10 @@ const BillOpsTicketDetailPage: React.FC = () => {
 
         {/* Scroll-to-bottom floating button */}
         {showScrollBtn && (
-          <div className="sticky bottom-2 flex justify-end pointer-events-none">
+          <div className="sticky bottom-2 flex justify-end pointer-events-none px-5">
             <button
               onClick={scrollToBottom}
-              className="pointer-events-auto flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold rounded-full shadow-lg transition-all"
+              className="pointer-events-auto flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-medium rounded-md shadow-md transition-colors"
             >
               <i className="fas fa-chevron-down text-[9px]"></i>
               Latest
@@ -1400,73 +1397,70 @@ const BillOpsTicketDetailPage: React.FC = () => {
 
       {/* Footer - Reply Form */}
       {ticket.status !== 'CLOSED' ? (
-        <div className="p-6 bg-white/70 backdrop-blur-xl border-t border-slate-200/50">
-          <div className="w-full">
-            <form onSubmit={handleSubmitReply}>
-              <div className="relative bg-white rounded-3xl border overflow-hidden focus-within:ring-4 transition-all shadow-sm border-slate-200 focus-within:ring-indigo-500/10 focus-within:border-indigo-400/40">
-                <div className="px-5 py-3 border-b border-slate-50 flex items-center justify-between bg-slate-50/30">
-                  <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest leading-none text-slate-500">
-                    <i className="fas fa-reply text-indigo-500"></i>
-                    Official Ticket Response
-                  </div>
-                  <div className="flex items-center gap-3">
-                    {attachment && (
-                      <div className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-lg border border-indigo-100 text-[9px] font-black uppercase tracking-widest">
-                        <i className="fas fa-paperclip"></i>
-                        <span className="max-w-[150px] truncate">{fileName}</span>
-                        <button type="button" onClick={clearFile} className="hover:text-rose-500 transition-colors">
-                          <i className="fas fa-times"></i>
-                        </button>
-                      </div>
-                    )}
-                    {/* Sticky note side panel trigger - admin only */}
-                    {isAdmin && (
-                      <button
-                        type="button"
-                        onClick={() => setShowNotePanel(true)}
-                        title={noteFirstLine ? `📝 ${noteFirstLine}` : 'Internal note pad (Ctrl/⌘+Shift+N)'}
-                        className="relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest border transition-all bg-amber-50 text-amber-600 border-amber-300 hover:bg-amber-100 active:scale-95"
-                      >
-                        <i className="fas fa-sticky-note"></i>
-                        Note
-                        {hasNoteContent && (
-                          <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-500 border border-white"></span>
-                        )}
-                        {noteTasks.filter(t => !t.done).length > 0 && (
-                          <span className="absolute -top-1.5 -left-1 min-w-[14px] h-[14px] flex items-center justify-center rounded-full bg-indigo-500 border border-white text-white text-[7px] font-black px-0.5">
-                            {noteTasks.filter(t => !t.done).length}
-                          </span>
-                        )}
+        <div className="px-5 py-4 bg-white border-t border-gray-200">
+          <form onSubmit={handleSubmitReply}>
+            <div className="bg-white rounded-md border border-gray-200 overflow-hidden focus-within:ring-2 focus-within:ring-indigo-500/20 focus-within:border-indigo-400 transition-all">
+              <div className="px-4 py-2.5 border-b border-gray-100 flex items-center justify-between bg-gray-50">
+                <div className="flex items-center gap-2 text-[11px] font-medium text-gray-500">
+                  <i className="fas fa-reply text-indigo-500 text-[10px]"></i>
+                  Official Ticket Response
+                </div>
+                <div className="flex items-center gap-2">
+                  {attachment && (
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-md border border-indigo-100 text-[11px] font-medium">
+                      <i className="fas fa-paperclip text-[10px]"></i>
+                      <span className="max-w-[140px] truncate">{fileName}</span>
+                      <button type="button" onClick={clearFile} className="hover:text-red-500 transition-colors ml-0.5">
+                        <i className="fas fa-times text-[10px]"></i>
                       </button>
-                    )}
-                  </div>
-                </div>
-
-                <div className="quill-minimal-wrapper">
-                  <div ref={quillRef} className="bg-white"></div>
-                </div>
-
-                <div className="px-5 py-3 border-t border-slate-50 flex items-center justify-between bg-slate-50/10">
-                  <label className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest cursor-pointer transition-all active:scale-95">
-                    <i className="fas fa-paperclip text-sm"></i>
-                    <span>Attach Files</span>
-                    <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileSelect} />
-                  </label>
-
-                  <button
-                    type="submit"
-                    disabled={isSubmitting || (!newReplyHasContent && !attachment)}
-                    className="flex items-center gap-2 px-6 py-2.5 text-white rounded-xl text-[11px] font-black uppercase tracking-widest shadow-lg transition-all disabled:opacity-50 active:scale-95 bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200"
-                  >
-                    {isSubmitting
-                      ? <><i className="fas fa-circle-notch fa-spin"></i> Sending...</>
-                      : <><i className="fas fa-paper-plane"></i> Send</>
-                    }
-                  </button>
+                    </div>
+                  )}
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      onClick={() => setShowNotePanel(true)}
+                      title={noteFirstLine ? `Note: ${noteFirstLine}` : 'Internal note pad (Ctrl/⌘+Shift+N)'}
+                      className="relative flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium border transition-colors bg-amber-50 text-amber-600 border-amber-200 hover:bg-amber-100"
+                    >
+                      <i className="fas fa-sticky-note text-[10px]"></i>
+                      Note
+                      {hasNoteContent && (
+                        <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-500 border border-white"></span>
+                      )}
+                      {noteTasks.filter(t => !t.done).length > 0 && (
+                        <span className="absolute -top-1.5 -left-1 min-w-[14px] h-[14px] flex items-center justify-center rounded-full bg-indigo-500 border border-white text-white text-[8px] font-semibold px-0.5">
+                          {noteTasks.filter(t => !t.done).length}
+                        </span>
+                      )}
+                    </button>
+                  )}
                 </div>
               </div>
-            </form>
-          </div>
+
+              <div className="quill-minimal-wrapper">
+                <div ref={quillRef} className="bg-white"></div>
+              </div>
+
+              <div className="px-4 py-2.5 border-t border-gray-100 flex items-center justify-between bg-gray-50">
+                <label className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 hover:bg-gray-50 text-gray-600 rounded-md text-[11px] font-medium cursor-pointer transition-colors">
+                  <i className="fas fa-paperclip text-[11px]"></i>
+                  Attach Files
+                  <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileSelect} />
+                </label>
+
+                <button
+                  type="submit"
+                  disabled={isSubmitting || (!newReplyHasContent && !attachment)}
+                  className="flex items-center gap-1.5 px-5 py-2 text-white rounded-md text-[12px] font-medium transition-colors disabled:opacity-50 bg-indigo-600 hover:bg-indigo-700"
+                >
+                  {isSubmitting
+                    ? <><i className="fas fa-circle-notch fa-spin text-[11px]"></i> Sending...</>
+                    : <><i className="fas fa-paper-plane text-[11px]"></i> Send</>
+                  }
+                </button>
+              </div>
+            </div>
+          </form>
         </div>
       ) : null}
 

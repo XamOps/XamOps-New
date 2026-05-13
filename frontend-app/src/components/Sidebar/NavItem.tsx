@@ -26,12 +26,14 @@ const NavItem: React.FC<NavItemProps> = ({
   const isReactRoute = !href.includes('.html');
 
   const className = clsx(
-    'nav-item flex items-center rounded-lg transition-all duration-300 ease-in-out px-3 py-2.5',
+    'nav-item flex items-center rounded-md transition-colors duration-150 ease-in-out px-3 py-2',
     isActive
-      ? `bg-gradient-to-r ${gradientClass} text-white shadow-lg shadow-blue-500/25 ring-1 ring-white/10`
+      ? theme === 'dark'
+        ? 'bg-indigo-600/20 text-indigo-400 font-semibold'
+        : 'bg-indigo-50 text-indigo-700 font-semibold'
       : theme === 'dark'
-        ? 'text-slate-400 hover:bg-slate-800 hover:text-indigo-400'
-        : 'text-gray-700 hover:bg-gray-100'
+        ? 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+        : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
   );
 
   const content = (
