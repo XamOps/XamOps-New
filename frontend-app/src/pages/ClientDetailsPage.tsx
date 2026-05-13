@@ -297,59 +297,59 @@ const ClientDetailsPage: React.FC = () => {
     }
 
     return (
-        <div className="p-5 space-y-4" style={{ background: '#f5f6f8', minHeight: '100%' }}>
+        <div className="p-5 space-y-3" style={{ background: '#f5f6f8', minHeight: '100%' }}>
             {/* Stats Summary */}
             {!isLoading && clients.length > 0 && (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 animate-premium-fade-in">
-                    <div className="bg-white rounded-md border border-gray-200 p-4 flex items-center gap-4 shadow-sm">
-                        <div className="w-9 h-9 rounded-md bg-indigo-50 flex items-center justify-center flex-shrink-0">
-                            <i className="fas fa-building text-indigo-600 text-sm"></i>
+                <div className="bg-white rounded-md border border-gray-200 shadow-sm divide-x divide-gray-100 grid grid-cols-2 md:grid-cols-4 animate-premium-fade-in">
+                    <div className="p-4 flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-md bg-gray-100 flex items-center justify-center flex-shrink-0">
+                            <i className="fas fa-building text-gray-500 text-xs"></i>
                         </div>
                         <div>
-                            <p className="text-2xl font-bold text-gray-900">{stats.clients}</p>
-                            <p className="text-xs font-medium text-gray-500">Clients</p>
+                            <p className="text-xl font-bold text-gray-900 leading-none">{stats.clients}</p>
+                            <p className="text-[11px] text-gray-400 mt-0.5">Clients</p>
                         </div>
                     </div>
-                    <div className="bg-white rounded-md border border-gray-200 p-4 flex items-center gap-4 shadow-sm">
-                        <div className="w-9 h-9 rounded-md bg-blue-50 flex items-center justify-center flex-shrink-0">
-                            <i className="fas fa-cloud text-blue-600 text-sm"></i>
+                    <div className="p-4 flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-md bg-gray-100 flex items-center justify-center flex-shrink-0">
+                            <i className="fas fa-cloud text-gray-500 text-xs"></i>
                         </div>
                         <div>
-                            <p className="text-2xl font-bold text-gray-900">{stats.accounts}</p>
-                            <p className="text-xs font-medium text-gray-500">Cloud Accounts</p>
+                            <p className="text-xl font-bold text-gray-900 leading-none">{stats.accounts}</p>
+                            <p className="text-[11px] text-gray-400 mt-0.5">Cloud Accounts</p>
                         </div>
                     </div>
-                    <div className="bg-white rounded-md border border-gray-200 p-4 flex items-center gap-4 shadow-sm">
-                        <div className="w-9 h-9 rounded-md bg-purple-50 flex items-center justify-center flex-shrink-0">
-                            <i className="fas fa-users text-purple-600 text-sm"></i>
+                    <div className="p-4 flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-md bg-gray-100 flex items-center justify-center flex-shrink-0">
+                            <i className="fas fa-users text-gray-500 text-xs"></i>
                         </div>
                         <div>
-                            <p className="text-2xl font-bold text-gray-900">{stats.users}</p>
-                            <p className="text-xs font-medium text-gray-500">Total Users</p>
+                            <p className="text-xl font-bold text-gray-900 leading-none">{stats.users}</p>
+                            <p className="text-[11px] text-gray-400 mt-0.5">Total Users</p>
                         </div>
                     </div>
-                    <div className="bg-white rounded-md border border-gray-200 p-4 flex items-center gap-4 shadow-sm">
-                        <div className="w-9 h-9 rounded-md bg-emerald-50 flex items-center justify-center flex-shrink-0">
-                            <i className="fas fa-dollar-sign text-emerald-600 text-sm"></i>
+                    <div className="p-4 flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-md bg-gray-100 flex items-center justify-center flex-shrink-0">
+                            <i className="fas fa-dollar-sign text-gray-500 text-xs"></i>
                         </div>
                         <div>
-                            <p className="text-xl font-bold text-gray-900">${stats.spend.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
-                            <p className="text-xs font-medium text-gray-500">Total Spend</p>
+                            <p className="text-xl font-bold text-gray-900 leading-none">${stats.spend.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
+                            <p className="text-[11px] text-gray-400 mt-0.5">Total Spend</p>
                         </div>
                     </div>
                 </div>
             )}
 
             {/* Search & Filters Toolbar */}
-            <div className="flex flex-col md:flex-row gap-3 animate-premium-fade-in">
+            <div className="flex flex-col md:flex-row gap-2 animate-premium-fade-in">
                 <div className="relative flex-1">
-                    <i className="fas fa-search absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm"></i>
+                    <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i>
                     <input
                         type="text"
                         placeholder={`Search ${clients.length} clients by name, email, account or user...`}
                         value={search}
                         onChange={e => setSearch(e.target.value)}
-                        className="w-full pl-9 pr-9 py-2.5 bg-white border border-gray-200 rounded-md text-sm font-medium text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-colors"
+                        className="w-full pl-8 pr-8 py-2 bg-white border border-gray-200 rounded-md text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-colors"
                     />
                     {search && (
                         <button
@@ -364,7 +364,7 @@ const ClientDetailsPage: React.FC = () => {
                     <select
                         value={filterProvider}
                         onChange={e => setFilterProvider(e.target.value)}
-                        className="px-3 py-2.5 bg-white border border-gray-200 rounded-md text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-colors min-w-[150px] cursor-pointer"
+                        className="px-3 py-2 bg-white border border-gray-200 rounded-md text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-colors min-w-[140px] cursor-pointer"
                     >
                         <option value="">All Providers</option>
                         {availableProviders.map(p => (
@@ -375,7 +375,7 @@ const ClientDetailsPage: React.FC = () => {
                 <select
                     value={sortBy}
                     onChange={e => setSortBy(e.target.value)}
-                    className="px-3 py-2.5 bg-white border border-gray-200 rounded-md text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-colors min-w-[170px] cursor-pointer"
+                    className="px-3 py-2 bg-white border border-gray-200 rounded-md text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-colors min-w-[160px] cursor-pointer"
                 >
                     <option value="">Sort: Default</option>
                     <option value="name-asc">Name A → Z</option>
@@ -386,7 +386,7 @@ const ClientDetailsPage: React.FC = () => {
             </div>
 
             {/* Results count + clear all */}
-            <div className="flex items-center justify-between -mt-2">
+            <div className="flex items-center justify-between">
                 <p className="text-xs text-gray-500 font-medium">
                     {filteredClients.length === 0
                         ? '0 clients'
@@ -410,62 +410,57 @@ const ClientDetailsPage: React.FC = () => {
                 )}
             </div>
 
-            <div className="grid gap-4">
+            <div className="grid gap-2">
                 {paginatedClients.map((client, index) => (
                     <div
                         key={client.id}
-                        className={`bg-white border rounded-md shadow-sm overflow-hidden animate-premium-fade-in stagger-${(index % 5) + 1} transition-colors ${expandedClient === client.id ? 'border-indigo-300' : 'border-gray-200'
+                        className={`bg-white border rounded-md overflow-hidden animate-premium-fade-in stagger-${(index % 5) + 1} transition-colors ${expandedClient === client.id ? 'border-indigo-300' : 'border-gray-200 hover:border-gray-300'
                             }`}
                     >
-                        {/* Client Header Card */}
+                        {/* Client Header Row */}
                         <div
-                            className="p-6 flex flex-col md:flex-row md:items-center justify-between gap-6 cursor-pointer"
+                            className="px-5 py-3.5 flex flex-col md:flex-row md:items-center justify-between gap-4 cursor-pointer"
                             onClick={() => toggleClient(client.id)}
                         >
-                            <div className="flex items-center gap-5">
-                                <div className="w-11 h-11 rounded-md bg-indigo-600 flex items-center justify-center text-white text-base font-bold flex-shrink-0">
+                            <div className="flex items-center gap-3.5">
+                                <div className="w-9 h-9 rounded-md bg-gray-100 flex items-center justify-center text-gray-600 text-sm font-semibold flex-shrink-0">
                                     {client.name.charAt(0).toUpperCase()}
                                 </div>
-                                <div className="space-y-1">
-                                    <h2 className="text-base font-semibold text-gray-900">{client.name}</h2>
-                                    <div className="flex items-center gap-3 text-xs font-medium text-gray-500">
-                                        <span className="flex items-center gap-1.5 px-2 py-0.5 bg-gray-50 rounded border border-gray-200">
-                                            <i className="fas fa-envelope text-gray-400"></i>
-                                            {client.email}
-                                        </span>
-                                        <span className="text-indigo-600/70">REF: #{client.id}</span>
+                                <div>
+                                    <h2 className="text-sm font-semibold text-gray-900 leading-tight">{client.name}</h2>
+                                    <div className="flex items-center gap-2 mt-0.5">
+                                        <span className="text-[11px] text-gray-400">{client.email}</span>
+                                        <span className="text-gray-200">·</span>
+                                        <span className="text-[11px] text-gray-400">#{client.id}</span>
                                     </div>
                                 </div>
                             </div>
 
-                            <div className="flex items-center gap-8">
+                            <div className="flex items-center gap-6 ml-auto">
                                 <div className="text-right">
-                                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest">Live Consumption</p>
-                                    <p className="text-2xl font-bold text-gray-800">
+                                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest leading-none">Consumption</p>
+                                    <p className="text-base font-semibold text-gray-800 mt-1 leading-none">
                                         ${clientTotal(client).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                     </p>
                                 </div>
-                                <div className="w-px h-12 bg-gray-100 hidden md:block"></div>
-                                <div className="flex flex-col items-center">
-                                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest mb-1.5">Inventory</p>
-                                    <div className="flex gap-2">
-                                        <div className="badge-enterprise badge-enterprise-blue">
-                                            {client.accounts.length} Accounts
-                                        </div>
-                                        <div className="badge-enterprise badge-enterprise-purple">
-                                            {client.users.length} Users
-                                        </div>
+                                <div className="w-px h-8 bg-gray-100 hidden md:block"></div>
+                                <div className="flex items-center gap-1.5">
+                                    <div className="badge-enterprise badge-enterprise-blue">
+                                        {client.accounts.length} Accounts
+                                    </div>
+                                    <div className="badge-enterprise badge-enterprise-purple">
+                                        {client.users.length} Users
                                     </div>
                                 </div>
                                 <button
                                     onClick={(e) => toggleStar(e, client.id)}
                                     title={client.starred ? 'Remove primary flag' : 'Mark as primary client'}
-                                    className={`w-7 h-7 rounded-md flex items-center justify-center transition-colors ${client.starred ? 'text-amber-400 hover:text-amber-500' : 'text-gray-300 hover:text-amber-300'}`}
+                                    className={`w-6 h-6 flex items-center justify-center transition-colors ${client.starred ? 'text-amber-400 hover:text-amber-500' : 'text-gray-300 hover:text-amber-300'}`}
                                 >
-                                    <i className={`${client.starred ? 'fas' : 'far'} fa-star text-sm`}></i>
+                                    <i className={`${client.starred ? 'fas' : 'far'} fa-star text-xs`}></i>
                                 </button>
-                                <div className={`w-7 h-7 rounded-md flex items-center justify-center transition-all duration-300 ${expandedClient === client.id ? 'bg-indigo-600 text-white rotate-180' : 'bg-gray-100 text-gray-400'}`}>
-                                    <i className="fas fa-chevron-down text-xs"></i>
+                                <div className={`w-6 h-6 rounded-md flex items-center justify-center transition-all duration-300 ${expandedClient === client.id ? 'bg-indigo-600 text-white rotate-180' : 'bg-gray-100 text-gray-400'}`}>
+                                    <i className="fas fa-chevron-down text-[9px]"></i>
                                 </div>
                             </div>
                         </div>
@@ -614,7 +609,7 @@ const ClientDetailsPage: React.FC = () => {
                                                                                 ) : (
                                                                                     <span className="w-5 h-5 flex-shrink-0"></span>
                                                                                 )}
-                                                                                <div className="w-7 h-7 rounded-md bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-semibold flex-shrink-0">
+                                                                                <div className="w-7 h-7 rounded-md bg-gray-100 text-gray-600 flex items-center justify-center text-xs font-semibold flex-shrink-0">
                                                                                     {primary.username.charAt(0).toUpperCase()}
                                                                                 </div>
                                                                                 <div>

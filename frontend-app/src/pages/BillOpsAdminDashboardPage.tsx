@@ -435,7 +435,7 @@ const BillOpsAdminDashboardPage: React.FC = () => {
   // ══════════════════════════════════════════════════════════════════════════
   return (
     <div className="admin-dashboard flex-1 flex flex-col h-full bg-transparent overflow-hidden">
-      <main className="flex-1 overflow-y-auto p-6 space-y-5 admin-scrollbar">
+      <main className="flex-1 overflow-y-auto p-5 space-y-4 admin-scrollbar">
 
         {/* Error */}
         {error && (
@@ -450,93 +450,94 @@ const BillOpsAdminDashboardPage: React.FC = () => {
         {/* ── Stats Grid (always visible) ─────────────────────────────────── */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {/* Total Spend */}
-          <div className="admin-glass-card admin-metric-card admin-border-indigo rounded-md p-5">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-widest">Total System Spend</p>
-              <div className="admin-icon-indigo w-8 h-8 rounded-md flex items-center justify-center">
-                <i className="fas fa-dollar-sign text-indigo-600 text-sm" />
+          <div className="admin-glass-card admin-metric-card admin-border-indigo rounded-md p-4">
+            <div className="flex items-start justify-between">
+              <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest leading-none">Total System Spend</p>
+              <div className="admin-icon-indigo w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0">
+                <i className="fas fa-dollar-sign text-indigo-600 text-xs" />
               </div>
             </div>
             {!loading && !clientsLoading ? (
-              <div className="admin-fade-in">
-                <span className="text-2xl font-bold admin-metric-value tracking-tight">
+              <div className="admin-fade-in mt-3">
+                <span className="text-[26px] font-bold admin-metric-value leading-none tracking-tight">
                   {formatCurrency(clientsSpend?.total ?? convertedData?.totalSpending)}
                 </span>
-                <p className="text-[11px] text-gray-400 mt-1.5">Aggregated across all clients</p>
+                <p className="text-[11px] text-gray-400 mt-2">All clients · current month</p>
               </div>
-            ) : <div className="space-y-2"><Shimmer className="h-8 w-32" /><Shimmer className="h-2.5 w-24" /></div>}
+            ) : <div className="space-y-2 mt-3"><Shimmer className="h-7 w-32" /><Shimmer className="h-2.5 w-24" /></div>}
           </div>
 
           {/* Total Accounts */}
-          <div className="admin-glass-card admin-metric-card admin-border-purple rounded-md p-5">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-widest">Total Accounts</p>
-              <div className="admin-icon-purple w-8 h-8 rounded-md flex items-center justify-center">
-                <i className="fas fa-layer-group text-purple-600 text-sm" />
+          <div className="admin-glass-card admin-metric-card admin-border-purple rounded-md p-4">
+            <div className="flex items-start justify-between">
+              <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest leading-none">Cloud Accounts</p>
+              <div className="admin-icon-purple w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0">
+                <i className="fas fa-layer-group text-purple-600 text-xs" />
               </div>
             </div>
             {!loading ? (
-              <div className="admin-fade-in">
-                <div className="flex items-baseline justify-between mb-1">
-                  <span className="text-2xl font-bold admin-metric-value tracking-tight">{data?.totalAccounts || 0}</span>
-                  <div className="admin-provider-stack">
-                    <div className="admin-provider-icon" title="AWS"><i className="fab fa-aws admin-provider-aws text-xs" /></div>
-                    <div className="admin-provider-icon" title="GCP"><i className="fab fa-google admin-provider-gcp text-xs" /></div>
-                    <div className="admin-provider-icon" title="Azure"><i className="fab fa-microsoft admin-provider-azure text-xs" /></div>
+              <div className="admin-fade-in mt-3">
+                <div className="flex items-end justify-between">
+                  <span className="text-[26px] font-bold admin-metric-value leading-none tracking-tight">{data?.totalAccounts || 0}</span>
+                  <div className="admin-provider-stack mb-0.5">
+                    <div className="admin-provider-icon" title="AWS"><i className="fab fa-aws admin-provider-aws" /></div>
+                    <div className="admin-provider-icon" title="GCP"><i className="fab fa-google admin-provider-gcp" /></div>
+                    <div className="admin-provider-icon" title="Azure"><i className="fab fa-microsoft admin-provider-azure" /></div>
                   </div>
                 </div>
-                <p className="text-[11px] text-gray-400 mt-1">
+                <p className="text-[11px] text-gray-400 mt-2">
                   {data?.awsAccountsCount || 0} AWS · {data?.gcpAccountsCount || 0} GCP · {data?.azureAccountsCount || 0} Azure
                 </p>
               </div>
-            ) : <div className="space-y-2"><Shimmer className="h-8 w-16" /><Shimmer className="h-2.5 w-full" /></div>}
+            ) : <div className="space-y-2 mt-3"><Shimmer className="h-7 w-16" /><Shimmer className="h-2.5 w-full" /></div>}
           </div>
 
           {/* Invoices */}
           <div
-            className="admin-glass-card admin-metric-card admin-border-blue rounded-md p-5 cursor-pointer"
+            className="admin-glass-card admin-metric-card admin-border-blue rounded-md p-4 cursor-pointer"
             onClick={() => setActiveTab('invoices')}
             title="Click to view invoices"
           >
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-widest">Total Invoices</p>
-              <div className="admin-icon-blue w-8 h-8 rounded-md flex items-center justify-center">
-                <i className="fas fa-file-invoice-dollar text-blue-600 text-sm" />
+            <div className="flex items-start justify-between">
+              <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest leading-none">Invoices</p>
+              <div className="admin-icon-blue w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0">
+                <i className="fas fa-file-invoice-dollar text-blue-600 text-xs" />
               </div>
             </div>
             {!loading ? (
-              <div className="admin-fade-in">
-                <span className="text-2xl font-bold admin-metric-value tracking-tight">
+              <div className="admin-fade-in mt-3">
+                <span className="text-[26px] font-bold admin-metric-value leading-none tracking-tight">
                   {(data?.pendingInvoices || 0) + (data?.finalizedInvoices || 0)}
                 </span>
-                <p className="text-[11px] text-gray-400 mt-1.5">
-                  <span className="text-amber-600 font-semibold">{data?.pendingInvoices || 0}</span> Pending &nbsp;·&nbsp;{' '}
-                  <span className="text-green-600 font-semibold">{data?.finalizedInvoices || 0}</span> Finalized
+                <p className="text-[11px] text-gray-400 mt-2">
+                  <span className="text-amber-600 font-semibold">{data?.pendingInvoices || 0} pending</span>
+                  <span className="mx-1 text-gray-300">·</span>
+                  <span className="text-green-600 font-semibold">{data?.finalizedInvoices || 0} finalized</span>
                 </p>
               </div>
-            ) : <div className="space-y-2"><Shimmer className="h-8 w-20" /><Shimmer className="h-2.5 w-28" /></div>}
+            ) : <div className="space-y-2 mt-3"><Shimmer className="h-7 w-20" /><Shimmer className="h-2.5 w-28" /></div>}
           </div>
 
           {/* Tickets */}
           <div
-            className="admin-glass-card admin-metric-card admin-border-orange rounded-md p-5 cursor-pointer"
+            className="admin-glass-card admin-metric-card admin-border-orange rounded-md p-4 cursor-pointer"
             onClick={() => setActiveTab('tickets')}
             title="Click to view tickets"
           >
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-widest">System Tickets</p>
-              <div className="admin-icon-orange w-8 h-8 rounded-md flex items-center justify-center">
-                <i className="fas fa-ticket-alt text-orange-600 text-sm" />
+            <div className="flex items-start justify-between">
+              <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest leading-none">Open Tickets</p>
+              <div className="admin-icon-orange w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0">
+                <i className="fas fa-ticket-alt text-orange-600 text-xs" />
               </div>
             </div>
             {!loading ? (
-              <div className="admin-fade-in">
-                <span className="text-2xl font-bold admin-metric-value tracking-tight">{data?.openTickets || 0}</span>
-                <p className="text-[11px] text-gray-400 mt-1.5">
-                  Total Clients: <span className="text-gray-700 font-semibold">{data?.totalClients || 0}</span>
+              <div className="admin-fade-in mt-3">
+                <span className="text-[26px] font-bold admin-metric-value leading-none tracking-tight">{data?.openTickets || 0}</span>
+                <p className="text-[11px] text-gray-400 mt-2">
+                  <span className="text-gray-600 font-semibold">{data?.totalClients || 0}</span> total clients
                 </p>
               </div>
-            ) : <div className="space-y-2"><Shimmer className="h-8 w-20" /><Shimmer className="h-2.5 w-28" /></div>}
+            ) : <div className="space-y-2 mt-3"><Shimmer className="h-7 w-20" /><Shimmer className="h-2.5 w-28" /></div>}
           </div>
         </div>
 
@@ -555,12 +556,12 @@ const BillOpsAdminDashboardPage: React.FC = () => {
               <i className={`${tab.icon} text-xs`} />
               {tab.label}
               {tab.id === 'invoices' && (data?.pendingInvoices || 0) > 0 && (
-                <span className="ml-1 px-1.5 py-0.5 bg-amber-100 text-amber-700 text-[10px] font-semibold rounded">
+                <span className="ml-1 min-w-[18px] h-[18px] px-1 flex items-center justify-center bg-amber-100 text-amber-700 text-[10px] font-bold rounded">
                   {data?.pendingInvoices}
                 </span>
               )}
               {tab.id === 'tickets' && (data?.openTickets || 0) > 0 && (
-                <span className="ml-1 px-1.5 py-0.5 bg-red-100 text-red-600 text-[10px] font-semibold rounded">
+                <span className="ml-1 min-w-[18px] h-[18px] px-1 flex items-center justify-center bg-red-100 text-red-600 text-[10px] font-bold rounded">
                   {data?.openTickets}
                 </span>
               )}
@@ -576,9 +577,9 @@ const BillOpsAdminDashboardPage: React.FC = () => {
             {/* Charts Row */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div className="admin-glass-card admin-border-top-indigo rounded-md p-5 flex flex-col">
-                <div className="mb-3">
-                  <h3 className="text-sm font-semibold text-gray-900">Global Spending Distribution</h3>
-                  <p className="text-xs text-gray-400 mt-0.5">By Cloud Provider</p>
+                <div className="mb-4 pb-3 border-b border-gray-100">
+                  <h3 className="text-[13px] font-semibold text-gray-900 tracking-tight">Global Spending Distribution</h3>
+                  <p className="text-xs text-gray-400 mt-0.5">By cloud provider · current month</p>
                 </div>
                 {!loading && !Object.values(clientsSpend?.byProvider ?? convertedData?.spendingByProvider ?? {}).some(v => v > 0) ? (
                   <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">
@@ -590,9 +591,9 @@ const BillOpsAdminDashboardPage: React.FC = () => {
               </div>
 
               <div className="admin-glass-card admin-border-top-purple rounded-md p-5 flex flex-col">
-                <div className="mb-3">
-                  <h3 className="text-sm font-semibold text-gray-900">Spending Trend (Last 6 Months)</h3>
-                  <p className="text-xs text-gray-400 mt-0.5">Aggregated Cloud Spend in USD</p>
+                <div className="mb-4 pb-3 border-b border-gray-100">
+                  <h3 className="text-[13px] font-semibold text-gray-900 tracking-tight">Spending Trend</h3>
+                  <p className="text-xs text-gray-400 mt-0.5">Aggregated cloud spend in USD · last 6 months</p>
                 </div>
                 {!loading && !convertedData?.spendingTrend?.length ? (
                   <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">
@@ -606,10 +607,13 @@ const BillOpsAdminDashboardPage: React.FC = () => {
 
             {/* Top 10 Accounts */}
             <div className="admin-glass-card admin-border-cyan rounded-md p-5">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-                  <i className="fas fa-trophy text-cyan-600 text-xs" />Top 10 Spending Accounts
-                </h3>
+              <div className="flex items-center justify-between pb-3 mb-4 border-b border-gray-100">
+                <div>
+                  <h3 className="text-[13px] font-semibold text-gray-900 flex items-center gap-2 tracking-tight">
+                    <i className="fas fa-trophy text-cyan-600 text-xs" />Top 10 Spending Accounts
+                  </h3>
+                  <p className="text-xs text-gray-400 mt-0.5">Ranked by current month spend</p>
+                </div>
                 <button
                   onClick={refreshTopSpending}
                   disabled={isRefreshingTopSpending}
@@ -692,12 +696,12 @@ const BillOpsAdminDashboardPage: React.FC = () => {
 
             {/* AutoSpotting Savings */}
             <div className="admin-glass-card admin-border-green rounded-md p-5">
-              <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center justify-between pb-3 mb-4 border-b border-gray-100">
                 <div>
-                  <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-                    <i className="fas fa-bolt text-green-600 text-xs" />AutoSpotting Savings by Customer
+                  <h3 className="text-[13px] font-semibold text-gray-900 flex items-center gap-2 tracking-tight">
+                    <i className="fas fa-bolt text-green-600 text-xs" />AutoSpotting Savings
                   </h3>
-                  <p className="text-xs text-gray-400 mt-0.5">Only customers with AutoSpotting enabled</p>
+                  <p className="text-xs text-gray-400 mt-0.5">Customers with AutoSpotting enabled</p>
                 </div>
                 <Link to="/autospotting-admin" className="text-xs font-medium text-green-600 hover:text-green-800 hover:underline">
                   Full Report →
@@ -744,13 +748,13 @@ const BillOpsAdminDashboardPage: React.FC = () => {
         ══════════════════════════════════════════════════════════════════ */}
         {activeTab === 'clients' && (
           <div className="admin-glass-card admin-border-purple rounded-md p-5">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between pb-3 mb-4 border-b border-gray-100">
               <div>
-                <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                <h3 className="text-[13px] font-semibold text-gray-900 flex items-center gap-2 tracking-tight">
                   <i className="fas fa-users text-purple-600 text-xs" />Client Spending Summary
                 </h3>
                 <p className="text-xs text-gray-400 mt-0.5">
-                  Grouped from top 10 spending accounts · {clientGroups.length} client{clientGroups.length !== 1 ? 's' : ''}
+                  {clientGroups.length} client{clientGroups.length !== 1 ? 's' : ''} · grouped from top spending accounts
                 </p>
               </div>
             </div>
@@ -824,9 +828,9 @@ const BillOpsAdminDashboardPage: React.FC = () => {
         ══════════════════════════════════════════════════════════════════ */}
         {activeTab === 'invoices' && (
           <div className="admin-glass-card rounded-md p-5">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between pb-3 mb-4 border-b border-gray-100">
               <div>
-                <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                <h3 className="text-[13px] font-semibold text-gray-900 flex items-center gap-2 tracking-tight">
                   <i className="fas fa-file-invoice-dollar text-blue-600 text-xs" />Recent Invoices
                 </h3>
                 <p className="text-xs text-gray-400 mt-0.5">Last 10 invoices across all clients</p>
@@ -907,9 +911,9 @@ const BillOpsAdminDashboardPage: React.FC = () => {
         ══════════════════════════════════════════════════════════════════ */}
         {activeTab === 'tickets' && (
           <div className="admin-glass-card rounded-md p-5">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between pb-3 mb-4 border-b border-gray-100">
               <div>
-                <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                <h3 className="text-[13px] font-semibold text-gray-900 flex items-center gap-2 tracking-tight">
                   <i className="fas fa-ticket-alt text-orange-600 text-xs" />Recent Tickets
                 </h3>
                 <p className="text-xs text-gray-400 mt-0.5">Last 10 tickets across all clients</p>

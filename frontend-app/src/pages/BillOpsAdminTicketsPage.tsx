@@ -43,7 +43,7 @@ type QuickFilter = 'none' | 'breached' | 'unassigned';
 
 const getStatusBadgeClasses = (status: string) => {
   if (status === 'OPEN') return 'bg-emerald-50 text-emerald-700 border border-emerald-200';
-  if (status === 'IN_PROGRESS') return 'bg-amber-50 text-amber-700 border border-amber-200';
+  if (status === 'IN_PROGRESS') return 'bg-blue-50 text-blue-700 border border-blue-200';
   return 'bg-gray-100 text-gray-500 border border-gray-200';
 };
 
@@ -159,7 +159,7 @@ const TicketRow = React.memo<TicketRowProps>(({ ticket, onView, isStarredClient 
         <div className="flex flex-col gap-1">
           <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded w-fit ${getStatusBadgeClasses(ticket.status)}`}>
             {ticket.status === 'OPEN' && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse flex-shrink-0"></span>}
-            {ticket.status === 'IN_PROGRESS' && <span className="w-1.5 h-1.5 rounded-full bg-amber-500 flex-shrink-0"></span>}
+            {ticket.status === 'IN_PROGRESS' && <span className="w-1.5 h-1.5 rounded-full bg-blue-500 flex-shrink-0"></span>}
             {ticket.status === 'IN_PROGRESS' ? 'In Prog' : ticket.status === 'OPEN' ? 'Open' : 'Closed'}
           </span>
           {ticket.hasUnreadUserReply && (
@@ -221,7 +221,7 @@ const TicketRow = React.memo<TicketRowProps>(({ ticket, onView, isStarredClient 
       <td className="px-4 py-3 whitespace-nowrap">
         {ticket.assignedToUsername ? (
           <div className="flex items-center gap-1.5" title={ticket.creatorUsername ? `Creator: ${ticket.creatorUsername}` : undefined}>
-            <div className="w-6 h-6 rounded-md bg-indigo-600 flex items-center justify-center text-white text-[9px] font-semibold flex-shrink-0">
+            <div className="w-6 h-6 rounded-md bg-gray-100 flex items-center justify-center text-gray-600 text-[9px] font-semibold flex-shrink-0">
               {ticket.assignedToUsername.charAt(0).toUpperCase()}
             </div>
             <span className="text-[11px] text-gray-700 truncate max-w-[80px]">{ticket.assignedToUsername}</span>
@@ -664,70 +664,65 @@ const BillOpsAdminTicketsPage: React.FC = () => {
       <div className="flex-1 overflow-x-hidden overflow-y-auto custom-scrollbar p-5">
         <div className="max-w-full mx-auto space-y-4">
 
-          {/* Stats Summary Cards */}
+          {/* Stats Summary — unified bar */}
           {!loading && hasData && (
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-white border border-gray-200 rounded-md shadow-sm grid grid-cols-2 lg:grid-cols-4 divide-x divide-gray-100">
               {/* Total */}
-              <div className="bg-white border border-gray-200 rounded-md p-5 shadow-sm admin-border-indigo">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="w-8 h-8 rounded-md bg-indigo-50 flex items-center justify-center">
-                    <i className="fas fa-ticket-alt text-indigo-500 text-sm"></i>
-                  </div>
-                  <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest">Total</span>
+              <div className="p-4 flex items-center gap-3">
+                <div className="w-8 h-8 rounded-md bg-gray-100 flex items-center justify-center flex-shrink-0">
+                  <i className="fas fa-ticket-alt text-gray-500 text-xs"></i>
                 </div>
-                <p className="text-2xl font-bold text-gray-900 leading-none">{stats.total}</p>
-                <p className="text-[11px] text-gray-400 mt-1">All Tickets</p>
+                <div>
+                  <p className="text-xl font-bold text-gray-900 leading-none">{stats.total}</p>
+                  <p className="text-[11px] text-gray-400 mt-0.5">Total</p>
+                </div>
               </div>
 
               {/* Open */}
-              <div className="bg-white border border-gray-200 rounded-md p-5 shadow-sm admin-border-green">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="w-8 h-8 rounded-md bg-emerald-50 flex items-center justify-center">
-                    <i className="fas fa-circle text-emerald-500 text-sm"></i>
-                  </div>
-                  <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest">Open</span>
+              <div className="p-4 flex items-center gap-3">
+                <div className="w-8 h-8 rounded-md bg-emerald-50 flex items-center justify-center flex-shrink-0">
+                  <i className="fas fa-circle text-emerald-500 text-xs"></i>
                 </div>
-                <p className="text-2xl font-bold text-emerald-600 leading-none">{stats.open}</p>
-                <p className="text-[11px] text-gray-400 mt-1">Awaiting Response</p>
+                <div>
+                  <p className="text-xl font-bold text-emerald-600 leading-none">{stats.open}</p>
+                  <p className="text-[11px] text-gray-400 mt-0.5">Open</p>
+                </div>
               </div>
 
               {/* In Progress */}
-              <div className="bg-white border border-gray-200 rounded-md p-5 shadow-sm admin-border-orange">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="w-8 h-8 rounded-md bg-amber-50 flex items-center justify-center">
-                    <i className="fas fa-spinner text-amber-500 text-sm"></i>
-                  </div>
-                  <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest">In Prog</span>
+              <div className="p-4 flex items-center gap-3">
+                <div className="w-8 h-8 rounded-md bg-blue-50 flex items-center justify-center flex-shrink-0">
+                  <i className="fas fa-spinner text-blue-500 text-xs"></i>
                 </div>
-                <p className="text-2xl font-bold text-amber-600 leading-none">{stats.inProgress}</p>
-                <p className="text-[11px] text-gray-400 mt-1">Being Handled</p>
+                <div>
+                  <p className="text-xl font-bold text-blue-600 leading-none">{stats.inProgress}</p>
+                  <p className="text-[11px] text-gray-400 mt-0.5">In Progress</p>
+                </div>
               </div>
 
-              {/* SLA Breached — clickable shortcut to quick filter */}
+              {/* SLA Breached — clickable */}
               <div
-                className={`bg-white border rounded-md p-5 shadow-sm cursor-pointer transition-colors ${
+                className={`p-4 flex items-center gap-3 cursor-pointer transition-colors ${
                   stats.breached > 0
                     ? quickFilter === 'breached'
-                      ? 'border-red-300 bg-red-50'
-                      : 'border-red-200 hover:bg-red-50'
-                    : 'border-gray-200 hover:bg-gray-50'
-                } admin-border-top-purple`}
-                style={{ borderTopColor: stats.breached > 0 ? '#ef4444' : undefined }}
+                      ? 'bg-red-50'
+                      : 'hover:bg-red-50/50'
+                    : 'hover:bg-gray-50'
+                }`}
                 onClick={() => setQuickFilter(q => q === 'breached' ? 'none' : 'breached')}
                 title="Click to filter by SLA Breached"
               >
-                <div className="flex items-center justify-between mb-3">
-                  <div className={`w-8 h-8 rounded-md flex items-center justify-center ${stats.breached > 0 ? 'bg-red-50' : 'bg-gray-100'}`}>
-                    <i className={`fas fa-exclamation-triangle text-sm ${stats.breached > 0 ? 'text-red-500' : 'text-gray-400'}`}></i>
-                  </div>
-                  <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest">SLA</span>
+                <div className={`w-8 h-8 rounded-md flex items-center justify-center flex-shrink-0 ${stats.breached > 0 ? 'bg-red-50' : 'bg-gray-100'}`}>
+                  <i className={`fas fa-exclamation-triangle text-xs ${stats.breached > 0 ? 'text-red-500' : 'text-gray-400'}`}></i>
                 </div>
-                <p className={`text-2xl font-bold leading-none ${stats.breached > 0 ? 'text-red-600' : 'text-gray-400'}`}>
-                  {stats.breached}
-                </p>
-                <p className={`text-[11px] mt-1 ${stats.breached > 0 ? 'text-red-400' : 'text-gray-400'}`}>
-                  {quickFilter === 'breached' ? 'Filtered — click to clear' : 'Breached'}
-                </p>
+                <div>
+                  <p className={`text-xl font-bold leading-none ${stats.breached > 0 ? 'text-red-600' : 'text-gray-400'}`}>
+                    {stats.breached}
+                  </p>
+                  <p className={`text-[11px] mt-0.5 ${stats.breached > 0 ? 'text-red-400' : 'text-gray-400'}`}>
+                    {quickFilter === 'breached' ? 'Click to clear' : 'SLA Breached'}
+                  </p>
+                </div>
               </div>
             </div>
           )}
@@ -850,7 +845,7 @@ const BillOpsAdminTicketsPage: React.FC = () => {
                             ? status === 'OPEN'
                               ? 'bg-emerald-600 text-white border-emerald-600'
                               : status === 'IN_PROGRESS'
-                                ? 'bg-amber-500 text-white border-amber-500'
+                                ? 'bg-blue-600 text-white border-blue-600'
                                 : 'bg-gray-500 text-white border-gray-500'
                             : 'bg-gray-50 text-gray-500 border-gray-200 hover:border-gray-400'
                         }`}
@@ -1184,7 +1179,7 @@ const BillOpsAdminTicketsPage: React.FC = () => {
                           className="w-full flex items-center justify-between px-4 py-3 rounded-md border border-gray-100 hover:border-indigo-200 hover:bg-indigo-50 text-left transition-colors group"
                         >
                           <div className="flex items-center gap-3">
-                            <div className="w-7 h-7 rounded-md bg-indigo-100 flex items-center justify-center text-indigo-600 text-xs font-semibold">
+                            <div className="w-7 h-7 rounded-md bg-gray-100 flex items-center justify-center text-gray-600 text-xs font-semibold">
                               {c.name.charAt(0).toUpperCase()}
                             </div>
                             <span className="text-[13px] font-medium text-gray-700 group-hover:text-indigo-700">{c.name}</span>
