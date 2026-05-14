@@ -12,12 +12,18 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.security.SecureRandom;
 import java.util.Optional;
-import java.util.Random;
 
 @RestController
 @RequestMapping("/api/auth")
 public class PasswordResetController {
+
+    private static final Logger log = LoggerFactory.getLogger(PasswordResetController.class);
+    private final SecureRandom secureRandom = new SecureRandom();
 
     @Autowired
     private UserRepository userRepository;
@@ -67,8 +73,8 @@ public class PasswordResetController {
                 return ResponseEntity.badRequest().body("Email does not match our records.");
             }
 
-            // Generate 6-digit OTP
-            String otp = String.format("%06d", new Random().nextInt(999999));
+            // Generate 6-digit OTP using SecureRandom for cryptographic strength
+            String otp = String.format("%06d", secureRandom.nextInt(1000000));
             
             // Save OTP to Redis (Expires in 5 minutes)
             redisCacheService.saveOtp(username, otp);
@@ -79,16 +85,14 @@ public class PasswordResetController {
                           "<p>Your verification code is: <strong>" + otp + "</strong></p>" +
                           "<p>This code expires in 5 minutes.</p>";
             
-            // Log for debugging (in case email fails)
-            System.out.println(">>> OTP for " + username + ": " + otp);
-            
             emailService.sendHtmlEmail(email, subject, body);
 
+            log.info("OTP sent successfully to email for user: {}", username);
             return ResponseEntity.ok().body("OTP sent to your email.");
 
         } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.badRequest().body("Error: " + e.getMessage());
+            log.error("Failed to send OTP for user {}: {}", username, e.getMessage());
+            return ResponseEntity.badRequest().body("An error occurred while processing your request.");
         }
     }
 
@@ -133,7 +137,8 @@ public class PasswordResetController {
             return ResponseEntity.ok().body("Password updated successfully.");
 
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body("Failed to reset password: " + e.getMessage());
+            log.error("Failed to reset password for user {}: {}", username, e.getMessage());
+            return ResponseEntity.badRequest().body("An error occurred while resetting your password.");
         }
     }
 }
