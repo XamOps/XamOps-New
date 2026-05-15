@@ -1,4 +1,4 @@
-```yaml
+
 name: Multi Service CI/CD
 
 on:
@@ -11,13 +11,9 @@ permissions:
   contents: read
   packages: write
 
-env:
-  REGISTRY: ghcr.io
-
 jobs:
 
   detect-changes:
-    name: Detect Changed Services
     runs-on: ubuntu-latest
 
     outputs:
@@ -26,10 +22,10 @@ jobs:
       xamops_service: ${{ steps.filter.outputs.xamops_service }}
 
     steps:
-      - name: Checkout Source
+      - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Detect File Changes
+      - name: Detect Changed Files
         id: filter
         uses: dorny/paths-filter@v3
         with:
@@ -44,190 +40,97 @@ jobs:
               - 'xamops-service/**'
 
   frontend_app:
-    name: Frontend App Build & Deploy
+    name: Frontend Build & Push
     runs-on: ubuntu-latest
     needs: detect-changes
 
-    if: needs.detect-changes.outputs.frontend == 'true' && github.ref == 'refs/heads/main'
+    if: needs.detect-changes.outputs.frontend == 'true'
 
     steps:
-      - name: Checkout Source
+      - name: Checkout Code
         uses: actions/checkout@v4
 
       - name: Login to GHCR
         run: |
           echo "${{ secrets.SSH_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-      - name: Build Frontend Image
+      - name: Build Frontend Docker Image
         run: |
           docker build \
             -t ghcr.io/xamops/frontend-app:latest \
             ./frontend-app
 
-      - name: Push Frontend Image
+      - name: Push Frontend Docker Image
         run: |
           docker push ghcr.io/xamops/frontend-app:latest
 
-      - name: Setup SSH
-        run: |
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-
-          echo "${{ secrets.BASTION_SSH_KEY }}" > ~/.ssh/bastion_key
-          echo "${{ secrets.SSH_KEY }}" > ~/.ssh/uat_key
-
-          chmod 600 ~/.ssh/bastion_key
-          chmod 600 ~/.ssh/uat_key
-
-      - name: Deploy Frontend
-        run: |
-          ssh \
-            -o StrictHostKeyChecking=no \
-            -o "ProxyCommand=ssh -i ~/.ssh/bastion_key -o StrictHostKeyChecking=no -W %h:%p ec2-user@${{ secrets.BASTION_HOST }}" \
-            -i ~/.ssh/uat_key \
-            ec2-user@${{ secrets.SSH_HOST }} "
-          
-            docker pull ghcr.io/xamops/frontend-app:latest
-
-            docker stop frontend-app || true
-            docker rm frontend-app || true
-
-            docker run -d \
-              --name frontend-app \
-              --restart unless-stopped \
-              -p 3000:3000 \
-              ghcr.io/xamops/frontend-app:latest
-          "
-
   billops:
-    name: BillOps Build & Deploy
+    name: Billops Build & Push
     runs-on: ubuntu-latest
     needs: detect-changes
 
-    if: needs.detect-changes.outputs.billops == 'true' && github.ref == 'refs/heads/main'
+    if: needs.detect-changes.outputs.billops == 'true'
 
     steps:
-      - name: Checkout Source
+      - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup JDK
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
-          cache: maven
 
-      - name: Build BillOps Jar
-        run: mvn -pl billops clean package -DskipTests
+      - name: Build Billops Jar
+        run: |
+          mvn -pl billops clean package -DskipTests
 
       - name: Login to GHCR
         run: |
           echo "${{ secrets.SSH_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-      - name: Build BillOps Image
+      - name: Build Billops Docker Image
         run: |
           docker build \
             -t ghcr.io/xamops/billops:latest \
             ./billops
 
-      - name: Push BillOps Image
+      - name: Push Billops Docker Image
         run: |
           docker push ghcr.io/xamops/billops:latest
 
-      - name: Setup SSH
-        run: |
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-
-          echo "${{ secrets.BASTION_SSH_KEY }}" > ~/.ssh/bastion_key
-          echo "${{ secrets.SSH_KEY }}" > ~/.ssh/uat_key
-
-          chmod 600 ~/.ssh/bastion_key
-          chmod 600 ~/.ssh/uat_key
-
-      - name: Deploy BillOps
-        run: |
-          ssh \
-            -o StrictHostKeyChecking=no \
-            -o "ProxyCommand=ssh -i ~/.ssh/bastion_key -o StrictHostKeyChecking=no -W %h:%p ec2-user@${{ secrets.BASTION_HOST }}" \
-            -i ~/.ssh/uat_key \
-            ec2-user@${{ secrets.SSH_HOST }} "
-
-            docker pull ghcr.io/xamops/billops:latest
-
-            docker stop billops || true
-            docker rm billops || true
-
-            docker run -d \
-              --name billops \
-              --restart unless-stopped \
-              -p 8081:8081 \
-              ghcr.io/xamops/billops:latest
-          "
-
   xamops_service:
-    name: XamOps Service Build & Deploy
+    name: XamOps Service Build & Push
     runs-on: ubuntu-latest
     needs: detect-changes
 
-    if: needs.detect-changes.outputs.xamops_service == 'true' && github.ref == 'refs/heads/main'
+    if: needs.detect-changes.outputs.xamops_service == 'true'
 
     steps:
-      - name: Checkout Source
+      - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup JDK
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
-          cache: maven
 
-      - name: Build XamOps Jar
-        run: mvn -pl xamops-service clean package -DskipTests
+      - name: Build XamOps Service Jar
+        run: |
+          mvn -pl xamops-service clean package -DskipTests
 
       - name: Login to GHCR
         run: |
           echo "${{ secrets.SSH_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-      - name: Build XamOps Image
+      - name: Build XamOps Service Docker Image
         run: |
           docker build \
             -t ghcr.io/xamops/xamops-service:latest \
             ./xamops-service
 
-      - name: Push XamOps Image
+      - name: Push XamOps Service Docker Image
         run: |
           docker push ghcr.io/xamops/xamops-service:latest
-
-      - name: Setup SSH
-        run: |
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-
-          echo "${{ secrets.BASTION_SSH_KEY }}" > ~/.ssh/bastion_key
-          echo "${{ secrets.SSH_KEY }}" > ~/.ssh/uat_key
-
-          chmod 600 ~/.ssh/bastion_key
-          chmod 600 ~/.ssh/uat_key
-
-      - name: Deploy XamOps Service
-        run: |
-          ssh \
-            -o StrictHostKeyChecking=no \
-            -o "ProxyCommand=ssh -i ~/.ssh/bastion_key -o StrictHostKeyChecking=no -W %h:%p ec2-user@${{ secrets.BASTION_HOST }}" \
-            -i ~/.ssh/uat_key \
-            ec2-user@${{ secrets.SSH_HOST }} "
-
-            docker pull ghcr.io/xamops/xamops-service:latest
-
-            docker stop xamops-service || true
-            docker rm xamops-service || true
-
-            docker run -d \
-              --name xamops-service \
-              --restart unless-stopped \
-              -p 9090:9090 \
-              ghcr.io/xamops/xamops-service:latest
-          "
 ```
