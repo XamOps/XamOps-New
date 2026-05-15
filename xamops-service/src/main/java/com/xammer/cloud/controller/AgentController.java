@@ -237,6 +237,9 @@ public class AgentController {
                     .body(Map.of("error", "agentName and cloudAccountId are required"));
         }
 
+        // Validate cloud account ownership
+        validateCloudAccountOwnership(cloudAccountId);
+
         DbAgentConfig cfg = dbAgentService.registerDbAgent(cloudAccountId, agentName);
         if (cfg == null) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
@@ -259,6 +262,9 @@ public class AgentController {
     public ResponseEntity<Map<String, Object>> deleteDbAgent(
             @RequestParam String agentName,
             @RequestParam String cloudAccountId) {
+
+        // Validate cloud account ownership
+        validateCloudAccountOwnership(cloudAccountId);
 
         boolean deleted = dbAgentService.deleteDbAgent(cloudAccountId, agentName);
         if (!deleted) {
@@ -353,12 +359,7 @@ public class AgentController {
      */
     @GetMapping("/status/{clusterConfigId}")
     public ResponseEntity<Map<String, Object>> getAgentStatus(@PathVariable Long clusterConfigId) {
-        Optional<KubernetesClusterConfig> configOpt = clusterConfigRepository.findById(clusterConfigId);
-        if (configOpt.isEmpty()) {
-            return ResponseEntity.notFound().build();
-        }
-
-        KubernetesClusterConfig config = configOpt.get();
+        KubernetesClusterConfig config = validateClusterConfigOwnership(clusterConfigId);
         Map<String, Object> status = new HashMap<>();
 
         status.put("clusterName", config.getClusterName());
@@ -404,6 +405,9 @@ public class AgentController {
     public ResponseEntity<Map<String, Object>> getAgentStatusByCluster(
             @RequestParam String clusterName,
             @RequestParam Long cloudAccountId) {
+
+        // Validate that the cloud account belongs to the user
+        validateCloudAccountOwnershipById(cloudAccountId);
 
         Optional<KubernetesClusterConfig> configOpt = clusterConfigRepository
                 .findByCloudAccountIdAndClusterName(cloudAccountId, clusterName);
@@ -463,6 +467,9 @@ public class AgentController {
             return ResponseEntity.badRequest().body(Map.of("error", "agentName and cloudAccountId are required"));
         }
 
+        // Validate cloud account ownership (providerAccountId version)
+        validateCloudAccountOwnership(cloudAccountId);
+
         DbAgentConfig cfg = dbAgentService.saveConnectionConfig(
                 cloudAccountId, agentName,
                 body.get("dbEngine"), body.get("dbHost"), body.get("dbPort"),
@@ -485,6 +492,9 @@ public class AgentController {
     public ResponseEntity<Map<String, Object>> loadDbAgentConfig(
             @RequestParam String agentName,
             @RequestParam String cloudAccountId) {
+
+        // Validate cloud account ownership
+        validateCloudAccountOwnership(cloudAccountId);
 
         DbAgentConfig cfg = dbAgentService.loadConnectionConfig(cloudAccountId, agentName);
         if (cfg == null) {
@@ -511,6 +521,9 @@ public class AgentController {
     public ResponseEntity<Map<String, Object>> getDbAgentStatus(
             @RequestParam String agentName,
             @RequestParam String cloudAccountId) {
+
+        // Validate cloud account ownership
+        validateCloudAccountOwnership(cloudAccountId);
 
         java.util.Optional<DbAgentConfig> cfgOpt = dbAgentService.findDbAgent(cloudAccountId, agentName);
         if (cfgOpt.isEmpty()) {
@@ -552,6 +565,8 @@ public class AgentController {
     public ResponseEntity<List<AgentEvent>> getAgentEvents(
             @PathVariable Long clusterConfigId,
             @RequestParam(defaultValue = "50") int limit) {
+
+        validateClusterConfigOwnership(clusterConfigId);
 
         List<AgentEvent> events = agentEventRepository.findByClusterConfigIdOrderByCreatedAtDesc(
                 clusterConfigId, PageRequest.of(0, limit)).getContent();
@@ -752,6 +767,41 @@ public class AgentController {
             logger.info("[disk-agent] stored disk data for {} instances (account {} provider={})",
                     byInstance.size(), cloudAccountId, isGcp ? "GCP" : "AWS");
         }
+    }
+
+    /**
+     * Helper to validate that a CloudAccount exists and belongs to the current user's client.
+     */
+    private CloudAccount validateCloudAccountOwnership(String providerAccountId) {
+        Long clientId = com.xammer.cloud.util.SecurityUtils.getPrincipal().getClientId();
+        return cloudAccountRepository.findByProviderAccountId(providerAccountId)
+                .filter(a -> a.getClient().getId().equals(clientId))
+                .orElseThrow(() -> new RuntimeException("Access denied: Cloud account not found or does not belong to your client"));
+    }
+
+    /**
+     * Helper to validate that a CloudAccount exists (by its DB ID) and belongs to the current user's client.
+     */
+    private CloudAccount validateCloudAccountOwnershipById(Long cloudAccountId) {
+        Long clientId = com.xammer.cloud.util.SecurityUtils.getPrincipal().getClientId();
+        return cloudAccountRepository.findById(cloudAccountId)
+                .filter(a -> a.getClient().getId().equals(clientId))
+                .orElseThrow(() -> new RuntimeException("Access denied: Cloud account not found or does not belong to your client"));
+    }
+
+    /**
+     * Helper to validate that a KubernetesClusterConfig exists and belongs to the current user's client.
+     */
+    private KubernetesClusterConfig validateClusterConfigOwnership(Long clusterConfigId) {
+        Long clientId = com.xammer.cloud.util.SecurityUtils.getPrincipal().getClientId();
+        KubernetesClusterConfig config = clusterConfigRepository.findById(clusterConfigId)
+                .orElseThrow(() -> new RuntimeException("Access denied: Cluster not found or does not belong to your client"));
+
+        cloudAccountRepository.findById(config.getCloudAccountId())
+                .filter(a -> a.getClient().getId().equals(clientId))
+                .orElseThrow(() -> new RuntimeException("Access denied: Cluster not found or does not belong to your client"));
+
+        return config;
     }
 
 }
