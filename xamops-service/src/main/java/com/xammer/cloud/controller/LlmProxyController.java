@@ -63,7 +63,7 @@ public class LlmProxyController {
         } catch (RuntimeException e) {
             logger.error("Proxy error: {}", e.getMessage());
             return ResponseEntity.badRequest()
-                    .body("{\"error\":\"" + e.getMessage() + "\"}");
+                    .body("{\"error\":\"An error occurred while processing the proxy request\"}");
         }
     }
 }
