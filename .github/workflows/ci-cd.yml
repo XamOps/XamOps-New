@@ -102,41 +102,43 @@ jobs:
     environment: uat
 
     steps:
-      # Step 1 - Setup SSH Keys
       - name: Setup SSH Keys
         run: |
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
 
-          # Bastion key
-          printf '%s\n' "${{ secrets.BASTION_SSH_KEY }}" > ~/.ssh/bastion_key
+          # Write bastion key
+          cat << 'SSHKEY' > ~/.ssh/bastion_key
+          ${{ secrets.BASTION_SSH_KEY }}
+          SSHKEY
           chmod 600 ~/.ssh/bastion_key
 
-          # UAT key
-          printf '%s\n' "${{ secrets.SSH_KEY }}" > ~/.ssh/uat_key
+          # Write UAT key
+          cat << 'SSHKEY' > ~/.ssh/uat_key
+          ${{ secrets.SSH_KEY }}
+          SSHKEY
           chmod 600 ~/.ssh/uat_key
 
-          # SSH config - skip host verification (no ssh-keyscan needed)
-          cat >> ~/.ssh/config << 'EOF'
+          # SSH global config
+          cat > ~/.ssh/config << 'EOF'
           Host *
             StrictHostKeyChecking no
             UserKnownHostsFile /dev/null
+            ServerAliveInterval 60
+            ServerAliveCountMax 10
           EOF
           chmod 600 ~/.ssh/config
 
           echo "✅ SSH keys configured!"
 
-      # Step 2 - Test Bastion Connection
       - name: Test Bastion Connection
         run: |
           ssh -i ~/.ssh/bastion_key \
               -o StrictHostKeyChecking=no \
               -o ConnectTimeout=30 \
-              -p 22 \
               ec2-user@${{ secrets.BASTION_HOST }} \
               "echo '✅ Bastion connected!'"
 
-      # Step 3 - Deploy via Bastion Jump
       - name: Deploy via Bastion
         run: |
           ssh \
