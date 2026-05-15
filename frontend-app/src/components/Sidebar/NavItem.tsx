@@ -17,7 +17,6 @@ const NavItem: React.FC<NavItemProps> = ({
   href,
   icon,
   label,
-  gradientClass = 'from-[#4169e1] to-[#5e5ce6]',
   isActive = false,
   onClick,
 }) => {

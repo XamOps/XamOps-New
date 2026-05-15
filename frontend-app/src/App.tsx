@@ -29,6 +29,7 @@ import { SupportChatWidget } from './components/SupportChat';
 import AdminSupportNotificationListener from './components/Shared/AdminSupportNotificationListener';
 import UserSupportNotificationListener from './components/Shared/UserSupportNotificationListener';
 import ErrorBoundary from './components/Shared/ErrorBoundary';
+import UpdateBanner from './components/Shared/UpdateBanner';
 import RouteChangeHandler from './components/Shared/RouteChangeHandler';
 import { CommandPalette } from './components/Shared/CommandPalette';
 import { GooeyToaster } from 'goey-toast';
@@ -372,6 +373,7 @@ const AuthenticatedLayout: React.FC = () => {
                 <UserSupportNotificationListener />
             </div>
             <GooeyToaster position="bottom-right" />
+            <UpdateBanner />
         </ErrorBoundary>
     );
 };

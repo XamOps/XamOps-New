@@ -205,8 +205,8 @@ export const Dashboard: React.FC = () => {
         </>
       )}
 
-      {/* Loading Skeleton */}
-      {selectedAccountIds.length > 0 && loadingState.global && (
+      {/* Loading Skeleton — also shown when account is selected but data hasn't arrived yet */}
+      {selectedAccountIds.length > 0 && (loadingState.global || (!dashboardData && !error)) && (
         <>
           {console.log('🎯 [Dashboard] Rendering LoadingSkeleton')}
           <LoadingSkeleton />

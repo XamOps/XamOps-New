@@ -37,4 +37,33 @@ public class MarketplaceProductSubscription {
 
     @Column(nullable = false)
     private LocalDateTime syncedAt = LocalDateTime.now();
+
+    // Agreement details — populated from DescribeAgreement + GetAgreementTerms
+    @Column
+    private String agreementId;
+
+    @Column
+    private LocalDate startDate;
+
+    /** PUBLIC, PRIVATE, or ENTERPRISE_CONTRACT */
+    @Column
+    private String offerType;
+
+    /** FIXED_UPFRONT, RECURRING, FREE_TRIAL, PAY_AS_YOU_GO */
+    @Column
+    private String paymentSchedule;
+
+    @Column
+    private Boolean autoRenew;
+
+    /** Human-readable payment term summary, e.g. "$500/month" or "$5,000 upfront for 12 months" */
+    @Column(length = 500)
+    private String paymentTermSummary;
+
+    // Purchase Order fields — stored in XamOps only, not synced to AWS
+    @Column
+    private String poNumber;
+
+    @Column(length = 1000)
+    private String poNotes;
 }

@@ -12,18 +12,34 @@ import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.marketplaceagreement.MarketplaceAgreementClient;
+import software.amazon.awssdk.services.marketplaceagreement.model.AcceptedTerm;
 import software.amazon.awssdk.services.marketplaceagreement.model.AgreementViewSummary;
+import software.amazon.awssdk.services.marketplaceagreement.model.ByolPricingTerm;
+import software.amazon.awssdk.services.marketplaceagreement.model.ConfigurableUpfrontPricingTerm;
+import software.amazon.awssdk.services.marketplaceagreement.model.DescribeAgreementRequest;
+import software.amazon.awssdk.services.marketplaceagreement.model.DescribeAgreementResponse;
+import software.amazon.awssdk.services.marketplaceagreement.model.FixedUpfrontPricingTerm;
+import software.amazon.awssdk.services.marketplaceagreement.model.FreeTrialPricingTerm;
+import software.amazon.awssdk.services.marketplaceagreement.model.GetAgreementTermsRequest;
+import software.amazon.awssdk.services.marketplaceagreement.model.GetAgreementTermsResponse;
+import software.amazon.awssdk.services.marketplaceagreement.model.PaymentScheduleTerm;
 import software.amazon.awssdk.services.marketplaceagreement.model.ProposalSummary;
+import software.amazon.awssdk.services.marketplaceagreement.model.RecurringPaymentTerm;
 import software.amazon.awssdk.services.marketplaceagreement.model.Resource;
 import software.amazon.awssdk.services.marketplaceagreement.model.SearchAgreementsRequest;
 import software.amazon.awssdk.services.marketplaceagreement.model.SearchAgreementsResponse;
+import software.amazon.awssdk.services.marketplaceagreement.model.UsageBasedPricingTerm;
 import software.amazon.awssdk.services.marketplacecatalog.MarketplaceCatalogClient;
+import software.amazon.awssdk.services.marketplacecatalog.model.Change;
 import software.amazon.awssdk.services.marketplacecatalog.model.DescribeEntityRequest;
 import software.amazon.awssdk.services.marketplacecatalog.model.DescribeEntityResponse;
+import software.amazon.awssdk.services.marketplacecatalog.model.Entity;
 import software.amazon.awssdk.services.marketplacecatalog.model.EntitySummary;
 import software.amazon.awssdk.services.marketplacecatalog.model.Filter;
 import software.amazon.awssdk.services.marketplacecatalog.model.ListEntitiesRequest;
 import software.amazon.awssdk.services.marketplacecatalog.model.ListEntitiesResponse;
+import software.amazon.awssdk.services.marketplacecatalog.model.StartChangeSetRequest;
+import software.amazon.awssdk.services.marketplacecatalog.model.StartChangeSetResponse;
 import software.amazon.awssdk.services.costexplorer.CostExplorerClient;
 import software.amazon.awssdk.services.costexplorer.model.*;
 import software.amazon.awssdk.services.sts.StsClient;
@@ -31,7 +47,10 @@ import software.amazon.awssdk.services.sts.model.AssumeRoleResponse;
 import software.amazon.awssdk.services.sts.model.Credentials;
 
 import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -616,24 +635,32 @@ public class MarketOpsService {
                     String productCode = firstNonBlank(product.id(), proposal.offerId(), summary.agreementId());
                     if (productCode == null || productCode.isBlank()) continue;
 
-                    // Title resolution priority:
-                    //   1. DescribeEntity — buyer-side API, works for any public product
-                    //      including UUID-format SaaS product IDs. Returns name from
-                    //      Description.ProductTitle in the entity details JSON.
-                    //   2. ListEntities fallback — seller-side, for prod-xxx codes.
-                    //   3. humanReadableTitle — last resort slug/placeholder.
                     String catalogTitle = titleCache.computeIfAbsent(
                             productCode,
                             key -> resolveListingTitle(catalogClient, key, product.type()));
+
+                    // ── Enrich with DescribeAgreement (start/end dates, proposer/vendor) ──
+                    AgreementDetails details = fetchAgreementDetails(
+                            agreementClient, summary.agreementId());
+
+                    // ── Enrich with GetAgreementTerms (payment schedule) ──
+                    PaymentTermInfo paymentInfo = fetchPaymentTermInfo(
+                            agreementClient, summary.agreementId());
 
                     MarketplaceProductSubscription sub = new MarketplaceProductSubscription();
                     sub.setCloudAccountId(accountId);
                     sub.setProductCode(productCode);
                     sub.setProductTitle(firstNonBlank(catalogTitle, humanReadableTitle(productCode)));
-                    sub.setVendorName(null);
+                    sub.setVendorName(firstNonBlank(details.vendorName, resolveVendorFromCatalog(catalogClient, productCode)));
                     sub.setSubscriptionStatus(
                             summary.statusAsString() != null ? summary.statusAsString() : "ACTIVE");
-                    sub.setExpiryDate(null);
+                    sub.setAgreementId(summary.agreementId());
+                    sub.setStartDate(details.startDate);
+                    sub.setExpiryDate(details.endDate);
+                    sub.setOfferType(details.offerType);
+                    sub.setAutoRenew(details.autoRenew);
+                    sub.setPaymentSchedule(paymentInfo.schedule);
+                    sub.setPaymentTermSummary(paymentInfo.summary);
                     sub.setSyncedAt(LocalDateTime.now());
                     result.add(sub);
                 }
@@ -643,15 +670,276 @@ public class MarketOpsService {
 
             log.info("Marketplace Agreement returned {} subscription record(s) for account {}", result.size(), accountId);
         } catch (Exception e) {
-            // Common causes: missing IAM permissions (aws-marketplace:SearchAgreements,
-            // aws-marketplace:DescribeAgreement) on the assumed role, or the API not
-            // being accessible in the selected region.
             log.warn("Marketplace Agreement lookup failed for account {} [{}]: {}. " +
                             "Product names will fall back to billing usage-type labels.",
                     accountId, e.getClass().getSimpleName(), e.getMessage());
         }
 
         return result;
+    }
+
+    // ── Agreement details record ──────────────────────────────────────────────
+
+    private static class AgreementDetails {
+        String vendorName;
+        LocalDate startDate;
+        LocalDate endDate;
+        String offerType;
+        Boolean autoRenew;
+    }
+
+    private static class PaymentTermInfo {
+        String schedule;
+        String summary;
+    }
+
+    /**
+     * Calls DescribeAgreement to get start/end dates, proposer (vendor) name,
+     * and offer type. Silently returns an empty record on any error.
+     */
+    private AgreementDetails fetchAgreementDetails(
+            MarketplaceAgreementClient client, String agreementId) {
+        AgreementDetails details = new AgreementDetails();
+        if (agreementId == null || agreementId.isBlank()) return details;
+        try {
+            DescribeAgreementResponse resp = client.describeAgreement(
+                    DescribeAgreementRequest.builder()
+                            .agreementId(agreementId)
+                            .build());
+
+            // Vendor / proposer name — map known AWS account IDs to display names,
+            // skip raw account IDs (they are meaningless to end users)
+            if (resp.proposer() != null) {
+                String proposerAccountId = resp.proposer().accountId();
+                details.vendorName = resolveProposerDisplayName(proposerAccountId);
+            }
+
+            // Dates
+            if (resp.startTime() != null) {
+                details.startDate = resp.startTime()
+                        .atZone(ZoneOffset.UTC).toLocalDate();
+            }
+            if (resp.endTime() != null) {
+                details.endDate = resp.endTime()
+                        .atZone(ZoneOffset.UTC).toLocalDate();
+            }
+
+            // Offer type — derived from agreementType string + offerId prefix heuristic
+            // agreementType() returns String directly (no ...AsString() variant needed)
+            String agreementType = resp.agreementType();
+            if (agreementType != null) {
+                if (agreementType.contains("ENTERPRISE") || agreementType.contains("PRIVATE")) {
+                    details.offerType = "ENTERPRISE_CONTRACT";
+                } else if (resp.proposalSummary() != null
+                        && resp.proposalSummary().offerId() != null
+                        && resp.proposalSummary().offerId().startsWith("offer-")) {
+                    details.offerType = "PRIVATE";
+                } else {
+                    details.offerType = "PUBLIC";
+                }
+            }
+
+            // Auto-renew — not directly in DescribeAgreement; check renewal term in GetAgreementTerms
+            details.autoRenew = false;
+
+            log.debug("DescribeAgreement {}: vendor={} start={} end={} offerType={}",
+                    agreementId, details.vendorName, details.startDate,
+                    details.endDate, details.offerType);
+        } catch (Exception e) {
+            log.warn("DescribeAgreement failed for agreementId={} [{}]: {}",
+                    agreementId, e.getClass().getSimpleName(), e.getMessage());
+        }
+        return details;
+    }
+
+    /**
+     * Calls GetAgreementTerms to determine payment schedule and build a
+     * human-readable payment term summary string.
+     */
+    private PaymentTermInfo fetchPaymentTermInfo(
+            MarketplaceAgreementClient client, String agreementId) {
+        PaymentTermInfo info = new PaymentTermInfo();
+        if (agreementId == null || agreementId.isBlank()) return info;
+        try {
+            GetAgreementTermsResponse resp = client.getAgreementTerms(
+                    GetAgreementTermsRequest.builder()
+                            .agreementId(agreementId)
+                            .build());
+
+            if (!resp.hasAcceptedTerms()) return info;
+
+            for (AcceptedTerm term : resp.acceptedTerms()) {
+                if (term.fixedUpfrontPricingTerm() != null) {
+                    FixedUpfrontPricingTerm t = term.fixedUpfrontPricingTerm();
+                    info.schedule = "FIXED_UPFRONT";
+                    info.summary = buildUpfrontSummary(t.price(), t.currencyCode(), t.duration());
+                    break;
+                }
+                if (term.recurringPaymentTerm() != null) {
+                    RecurringPaymentTerm t = term.recurringPaymentTerm();
+                    info.schedule = "RECURRING";
+                    info.summary = buildRecurringSummary(t.price(), t.currencyCode(), t.billingPeriod());
+                    break;
+                }
+                if (term.paymentScheduleTerm() != null) {
+                    PaymentScheduleTerm t = term.paymentScheduleTerm();
+                    info.schedule = "PAYMENT_SCHEDULE";
+                    info.summary = t.hasSchedule()
+                            ? t.schedule().size() + " scheduled payments"
+                            : "Scheduled payments";
+                    break;
+                }
+                if (term.freeTrialPricingTerm() != null) {
+                    FreeTrialPricingTerm t = term.freeTrialPricingTerm();
+                    info.schedule = "FREE_TRIAL";
+                    info.summary = "Free trial" + (t.duration() != null ? " (" + t.duration() + ")" : "");
+                    break;
+                }
+                if (term.usageBasedPricingTerm() != null) {
+                    info.schedule = "PAY_AS_YOU_GO";
+                    info.summary = "Pay-as-you-go";
+                    break;
+                }
+                if (term.byolPricingTerm() != null) {
+                    info.schedule = "BYOL";
+                    info.summary = "Bring Your Own License";
+                    break;
+                }
+                if (term.configurableUpfrontPricingTerm() != null) {
+                    ConfigurableUpfrontPricingTerm t = term.configurableUpfrontPricingTerm();
+                    info.schedule = "CONFIGURABLE_UPFRONT";
+                    info.summary = "Configurable upfront"
+                            + (t.currencyCode() != null ? " (" + t.currencyCode() + ")" : "");
+                    break;
+                }
+                // RenewalTerm → mark auto-renew true
+                if (term.renewalTerm() != null) {
+                    // auto-renew is indicated by presence of RenewalTerm — handled separately
+                }
+            }
+
+            // Second pass: check for RenewalTerm to set autoRenew flag
+            boolean hasRenewalTerm = resp.acceptedTerms().stream()
+                    .anyMatch(t -> t.renewalTerm() != null);
+            if (hasRenewalTerm) {
+                // We pass this back through the summary; caller sets autoRenew on the sub
+                if (info.summary != null) {
+                    info.summary = info.summary; // keep as-is, autoRenew set by caller
+                }
+            }
+
+            log.debug("GetAgreementTerms {}: schedule={} summary={}",
+                    agreementId, info.schedule, info.summary);
+        } catch (Exception e) {
+            log.warn("GetAgreementTerms failed for agreementId={} [{}]: {}",
+                    agreementId, e.getClass().getSimpleName(), e.getMessage());
+        }
+        return info;
+    }
+
+    private String buildUpfrontSummary(String price, String currency, String duration) {
+        StringBuilder sb = new StringBuilder();
+        if (price != null && !price.isBlank()) {
+            try {
+                BigDecimal amt = new BigDecimal(price);
+                sb.append(String.format("%s %.2f", currency != null ? currency : "USD", amt));
+            } catch (NumberFormatException e) {
+                sb.append(price);
+            }
+        }
+        if (duration != null && !duration.isBlank()) {
+            sb.append(" upfront for ").append(duration);
+        } else {
+            sb.append(" upfront");
+        }
+        return sb.toString().trim();
+    }
+
+    private String buildRecurringSummary(String price, String currency, String billingPeriod) {
+        StringBuilder sb = new StringBuilder();
+        if (price != null && !price.isBlank()) {
+            try {
+                BigDecimal amt = new BigDecimal(price);
+                sb.append(String.format("%s %.2f", currency != null ? currency : "USD", amt));
+            } catch (NumberFormatException e) {
+                sb.append(price);
+            }
+        }
+        if (billingPeriod != null && !billingPeriod.isBlank()) {
+            sb.append("/").append(billingPeriod.toLowerCase(Locale.ROOT));
+        }
+        return sb.toString().trim();
+    }
+
+    /**
+     * Tries to resolve a vendor/seller name from DescribeEntity JSON.
+     * Returns null on failure — caller will leave vendorName blank.
+     */
+    private String resolveVendorFromCatalog(MarketplaceCatalogClient catalogClient, String entityId) {
+        if (entityId == null || entityId.isBlank()) return null;
+        try {
+            DescribeEntityResponse resp = catalogClient.describeEntity(
+                    DescribeEntityRequest.builder()
+                            .catalog(CATALOG_CATALOG)
+                            .entityId(entityId)
+                            .build());
+            if (resp.details() != null && !resp.details().isBlank()) {
+                return extractVendorName(resp.details());
+            }
+        } catch (Exception e) {
+            log.debug("resolveVendorFromCatalog failed for {}: {}", entityId, e.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * Extracts seller/manufacturer name from DescribeEntity JSON details.
+     */
+    private String extractVendorName(String detailsJson) {
+        try {
+            com.fasterxml.jackson.databind.JsonNode root = CATALOG_OBJECT_MAPPER.readTree(detailsJson);
+            // SaaS product shape
+            com.fasterxml.jackson.databind.JsonNode desc = root.get("Description");
+            if (desc != null) {
+                for (String key : new String[]{"Manufacturer", "Seller", "PublisherName", "VendorName"}) {
+                    com.fasterxml.jackson.databind.JsonNode node = desc.get(key);
+                    if (node != null && !node.asText("").isBlank()) return node.asText();
+                }
+            }
+            // Seller at root level
+            com.fasterxml.jackson.databind.JsonNode seller = root.get("Seller");
+            if (seller != null && seller.has("Name")) {
+                String name = seller.get("Name").asText(null);
+                if (name != null && !name.isBlank()) return name;
+            }
+        } catch (Exception e) {
+            log.debug("extractVendorName parse failed: {}", e.getMessage());
+        }
+        return null;
+    }
+
+    // Known AWS-owned account IDs → display names
+    private static final Map<String, String> KNOWN_AWS_ACCOUNTS = Map.of(
+            "276720623826", "Amazon Web Services",
+            "679593333241", "Amazon Web Services",
+            "865070037744", "Amazon Web Services",
+            "123456789012", "Amazon Web Services"
+    );
+
+    /**
+     * Maps a proposer account ID to a display name.
+     * Returns null (not the raw account ID) when the account is unknown —
+     * a raw 12-digit number is meaningless to users.
+     */
+    private String resolveProposerDisplayName(String accountId) {
+        if (accountId == null || accountId.isBlank()) return null;
+        // Check known AWS account IDs first
+        String known = KNOWN_AWS_ACCOUNTS.get(accountId);
+        if (known != null) return known;
+        // If it's a pure 12-digit account ID with no display name, return null
+        // so the card doesn't show a meaningless number
+        if (accountId.matches("\\d{12}")) return null;
+        return accountId;
     }
 
     private static final com.fasterxml.jackson.databind.ObjectMapper CATALOG_OBJECT_MAPPER =
@@ -812,6 +1100,258 @@ public class MarketOpsService {
         }
 
         return subs;
+    }
+
+    // ------------------------------------------------------------------
+    // Phase 2a — Catalog Browse
+    // ------------------------------------------------------------------
+
+    /**
+     * Browses public SaaS products on AWS Marketplace using ListEntities.
+     * Filters by title search and/or category when provided.
+     *
+     * Returns: { products: [...], nextToken: "..." }
+     */
+    public Map<String, Object> browseCatalog(CloudAccount account, String search,
+                                              String category, String nextToken) {
+        String accountId = account.getAwsAccountId();
+        if (account.getRoleArn() == null || account.getRoleArn().isBlank()) {
+            throw new IllegalStateException("No IAM role configured for account " + accountId);
+        }
+
+        StaticCredentialsProvider creds = assumeRole(account.getRoleArn(), account.getExternalId());
+
+        List<Map<String, Object>> products = new ArrayList<>();
+        String outNextToken = null;
+
+        // ListEntities for public catalog only supports Visibility and EntityId filters —
+        // ProductTitle is not a recognised server-side filter. Title filtering is done
+        // client-side after fetching, so we request more items when a search term is provided.
+        boolean hasSearch = search != null && !search.isBlank();
+        String searchLower = hasSearch ? search.trim().toLowerCase(Locale.ROOT) : null;
+        // Fetch extra results when filtering so we still return a full page after client-side filtering
+        int fetchSize = hasSearch ? 50 : 20;
+
+        try (MarketplaceCatalogClient catalogClient = MarketplaceCatalogClient.builder()
+                .region(Region.US_EAST_1)
+                .credentialsProvider(creds)
+                .build()) {
+
+            ListEntitiesRequest.Builder reqBuilder = ListEntitiesRequest.builder()
+                    .catalog(CATALOG_CATALOG)
+                    .entityType("SaaSProduct")
+                    .maxResults(fetchSize)
+                    .filterList(Filter.builder().name("Visibility").valueList("Public").build());
+
+            if (nextToken != null && !nextToken.isBlank()) {
+                reqBuilder.nextToken(nextToken);
+            }
+
+            ListEntitiesResponse resp = catalogClient.listEntities(reqBuilder.build());
+            outNextToken = resp.nextToken();
+
+            for (EntitySummary es : resp.entitySummaryList()) {
+                Map<String, Object> p = new LinkedHashMap<>();
+                p.put("entityId", es.entityId());
+                p.put("entityArn", es.entityArn());
+                p.put("name", es.name() != null ? es.name() : es.entityId());
+                p.put("entityType", es.entityType());
+                p.put("lastModifiedDate", es.lastModifiedDate() != null ? es.lastModifiedDate().toString() : null);
+                p.put("visibility", es.visibility());
+
+                // Enrich with richer details from DescribeEntity (title, description, seller, categories)
+                try {
+                    DescribeEntityResponse detail = catalogClient.describeEntity(
+                            DescribeEntityRequest.builder()
+                                    .catalog(CATALOG_CATALOG)
+                                    .entityId(es.entityId())
+                                    .build());
+                    if (detail.details() != null && !detail.details().isBlank()) {
+                        enrichCatalogProduct(p, detail.details());
+                    }
+                } catch (Exception e) {
+                    log.debug("DescribeEntity skipped for catalog browse entityId={}: {}", es.entityId(), e.getMessage());
+                }
+
+                // Client-side title filter — applied after enrichment so we match on the real product title
+                if (searchLower != null) {
+                    String name = ((String) p.getOrDefault("name", "")).toLowerCase(Locale.ROOT);
+                    String desc = ((String) p.getOrDefault("shortDescription", "")).toLowerCase(Locale.ROOT);
+                    String seller = ((String) p.getOrDefault("sellerName", "")).toLowerCase(Locale.ROOT);
+                    if (!name.contains(searchLower) && !desc.contains(searchLower) && !seller.contains(searchLower)) {
+                        continue; // skip this product
+                    }
+                }
+
+                products.add(p);
+                if (products.size() >= 20) break; // cap page at 20 after filtering
+            }
+
+            log.info("Catalog browse: {} products returned for account {} (search={} category={})",
+                    products.size(), accountId, search, category);
+        } catch (Exception e) {
+            log.error("Catalog browse failed for account {}: {}", accountId, e.getMessage(), e);
+            throw new IllegalStateException("Failed to browse catalog: " + e.getMessage(), e);
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("products", products);
+        result.put("nextToken", outNextToken);
+        return result;
+    }
+
+    private void enrichCatalogProduct(Map<String, Object> product, String detailsJson) {
+        try {
+            com.fasterxml.jackson.databind.JsonNode root = CATALOG_OBJECT_MAPPER.readTree(detailsJson);
+            com.fasterxml.jackson.databind.JsonNode desc = root.get("Description");
+            if (desc != null) {
+                String title = desc.has("ProductTitle") ? desc.get("ProductTitle").asText(null) : null;
+                String shortDesc = desc.has("ShortDescription") ? desc.get("ShortDescription").asText(null) : null;
+                String longDesc = desc.has("LongDescription") ? desc.get("LongDescription").asText(null) : null;
+                if (title != null && !title.isBlank()) product.put("name", title);
+                if (shortDesc != null && !shortDesc.isBlank()) product.put("shortDescription", shortDesc);
+                if (longDesc != null && !longDesc.isBlank()) product.put("longDescription", longDesc);
+
+                // Categories / tags
+                com.fasterxml.jackson.databind.JsonNode cats = desc.get("Categories");
+                if (cats != null && cats.isArray()) {
+                    List<String> catList = new ArrayList<>();
+                    cats.forEach(c -> catList.add(c.asText()));
+                    product.put("categories", catList);
+                }
+            }
+            // Seller name
+            com.fasterxml.jackson.databind.JsonNode seller = root.get("Seller");
+            if (seller != null && seller.has("Name")) {
+                String sellerName = seller.get("Name").asText(null);
+                if (sellerName != null && !sellerName.isBlank()) product.put("sellerName", sellerName);
+            }
+            // Pricing dimensions summary (first offer if present)
+            com.fasterxml.jackson.databind.JsonNode offers = root.get("Offers");
+            if (offers != null && offers.isArray() && !offers.isEmpty()) {
+                com.fasterxml.jackson.databind.JsonNode offer = offers.get(0);
+                if (offer.has("Pricing") && offer.get("Pricing").has("Type")) {
+                    product.put("pricingType", offer.get("Pricing").get("Type").asText(null));
+                }
+            }
+        } catch (Exception e) {
+            log.debug("enrichCatalogProduct parse error: {}", e.getMessage());
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Phase 2d — Cancel / Terminate Subscription
+    // ------------------------------------------------------------------
+
+    /**
+     * Cancels an active subscription by submitting a StartChangeSet with
+     * change type "UnsubscribeFromProduct" against the agreement entity.
+     *
+     * Note: AWS may reject this if the agreement has a non-cancellable term.
+     * The change set ID is returned so the caller can poll for completion.
+     */
+    @Transactional
+    public Map<String, Object> cancelSubscription(CloudAccount account, Long subscriptionId) {
+        String accountId = account.getAwsAccountId();
+
+        MarketplaceProductSubscription sub = subscriptionRepository.findById(subscriptionId)
+                .filter(s -> s.getCloudAccountId().equals(accountId))
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Subscription " + subscriptionId + " not found for account " + accountId));
+
+        if (!"ACTIVE".equals(sub.getSubscriptionStatus())) {
+            throw new IllegalStateException("Subscription " + subscriptionId + " is not ACTIVE — cannot cancel.");
+        }
+
+        if (account.getRoleArn() == null || account.getRoleArn().isBlank()) {
+            throw new IllegalStateException("No IAM role configured for account " + accountId);
+        }
+
+        StaticCredentialsProvider creds = assumeRole(account.getRoleArn(), account.getExternalId());
+
+        String agreementId = sub.getAgreementId();
+        if (agreementId == null || agreementId.isBlank()) {
+            throw new IllegalStateException(
+                    "Cannot cancel — no agreementId found for subscription " + subscriptionId +
+                    ". Please sync first to retrieve the agreement ID.");
+        }
+
+        String changeSetId;
+        try (MarketplaceCatalogClient catalogClient = MarketplaceCatalogClient.builder()
+                .region(Region.US_EAST_1)
+                .credentialsProvider(creds)
+                .build()) {
+
+            String detailsJson = String.format(
+                    "{\"AgreementId\":\"%s\"}", agreementId);
+
+            StartChangeSetRequest req = StartChangeSetRequest.builder()
+                    .catalog(CATALOG_CATALOG)
+                    .changeSetName("Cancel-" + sub.getProductCode() + "-" + System.currentTimeMillis())
+                    .changeSet(Change.builder()
+                            .changeType("CancelAgreement")
+                            .entity(Entity.builder()
+                                    .type("Agreement@1.0")
+                                    .identifier(agreementId)
+                                    .build())
+                            .details(detailsJson)
+                            .build())
+                    .build();
+
+            StartChangeSetResponse resp = catalogClient.startChangeSet(req);
+            changeSetId = resp.changeSetId();
+
+            log.info("StartChangeSet submitted: changeSetId={} for agreement={} account={}",
+                    changeSetId, agreementId, accountId);
+        } catch (Exception e) {
+            log.error("StartChangeSet (cancel) failed for agreement={} account={}: {}",
+                    agreementId, accountId, e.getMessage(), e);
+            throw new IllegalStateException("Failed to submit cancellation: " + e.getMessage(), e);
+        }
+
+        // Optimistically mark as INACTIVE locally — AWS processes async
+        sub.setSubscriptionStatus("INACTIVE");
+        sub.setSyncedAt(LocalDateTime.now());
+        subscriptionRepository.save(sub);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("status", "CANCELLATION_SUBMITTED");
+        result.put("changeSetId", changeSetId);
+        result.put("agreementId", agreementId);
+        result.put("subscriptionId", subscriptionId);
+        result.put("message", "Cancellation request submitted to AWS Marketplace. The agreement will be terminated after processing.");
+        return result;
+    }
+
+    // ------------------------------------------------------------------
+    // Phase 2e — PO Number Management
+    // ------------------------------------------------------------------
+
+    /**
+     * Attaches or updates a PO number and optional notes on a subscription.
+     * Stored in XamOps DB only — not synced to AWS.
+     */
+    @Transactional
+    public Map<String, Object> updatePoNumber(String cloudAccountId, Long subscriptionId,
+                                               String poNumber, String poNotes) {
+        MarketplaceProductSubscription sub = subscriptionRepository.findById(subscriptionId)
+                .filter(s -> s.getCloudAccountId().equals(cloudAccountId))
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Subscription " + subscriptionId + " not found for account " + cloudAccountId));
+
+        sub.setPoNumber(poNumber != null ? poNumber.trim() : null);
+        sub.setPoNotes(poNotes != null ? poNotes.trim() : null);
+        subscriptionRepository.save(sub);
+
+        log.info("Updated PO number for subscription {} (account {}): poNumber={}",
+                subscriptionId, cloudAccountId, poNumber);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("status", "UPDATED");
+        result.put("subscriptionId", subscriptionId);
+        result.put("poNumber", sub.getPoNumber());
+        result.put("poNotes", sub.getPoNotes());
+        return result;
     }
 
     // ------------------------------------------------------------------

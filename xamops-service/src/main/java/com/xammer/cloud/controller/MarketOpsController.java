@@ -10,6 +10,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Optional;
+
 import java.math.BigDecimal;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -89,6 +91,16 @@ public class MarketOpsController {
             dto.put("expiryDate", sub.getExpiryDate() != null ? sub.getExpiryDate().toString() : null);
             dto.put("totalCostUsd", totalCostByProduct.getOrDefault(sub.getProductCode(), BigDecimal.ZERO));
             dto.put("syncedAt", sub.getSyncedAt().toString());
+            // Agreement detail fields
+            dto.put("agreementId", sub.getAgreementId());
+            dto.put("startDate", sub.getStartDate() != null ? sub.getStartDate().toString() : null);
+            dto.put("offerType", sub.getOfferType());
+            dto.put("paymentSchedule", sub.getPaymentSchedule());
+            dto.put("autoRenew", sub.getAutoRenew());
+            dto.put("paymentTermSummary", sub.getPaymentTermSummary());
+            // PO fields
+            dto.put("poNumber", sub.getPoNumber());
+            dto.put("poNotes", sub.getPoNotes());
             // Included when per-product attribution is not available (shared billing scenario)
             if (!anyDirectMatch && accountTotalCostUsd.compareTo(BigDecimal.ZERO) > 0) {
                 dto.put("accountTotalCostUsd", accountTotalCostUsd);
@@ -217,6 +229,57 @@ public class MarketOpsController {
         CloudAccount account = resolveAccount(cloudAccountId);
         // force=true: user-triggered syncs always bypass the 24-hour freshness cache
         Map<String, Object> result = marketOpsService.syncAll(account, true);
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * GET /api/marketops/catalog?cloudAccountId={awsAccountId}&search={query}&category={cat}&nextToken={token}
+     *
+     * Browses public SaaS products available on AWS Marketplace via ListEntities.
+     */
+    @GetMapping("/catalog")
+    public ResponseEntity<Map<String, Object>> getCatalog(
+            @RequestParam String cloudAccountId,
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) String category,
+            @RequestParam(required = false) String nextToken) {
+
+        CloudAccount account = resolveAccount(cloudAccountId);
+        Map<String, Object> result = marketOpsService.browseCatalog(account, search, category, nextToken);
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * POST /api/marketops/subscriptions/{subscriptionId}/cancel?cloudAccountId={awsAccountId}
+     *
+     * Cancels/terminates an active marketplace subscription via StartChangeSet.
+     */
+    @PostMapping("/subscriptions/{subscriptionId}/cancel")
+    public ResponseEntity<Map<String, Object>> cancelSubscription(
+            @PathVariable Long subscriptionId,
+            @RequestParam String cloudAccountId) {
+
+        CloudAccount account = resolveAccount(cloudAccountId);
+        Map<String, Object> result = marketOpsService.cancelSubscription(account, subscriptionId);
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * PUT /api/marketops/subscriptions/{subscriptionId}/po?cloudAccountId={awsAccountId}
+     *
+     * Attaches a PO number and optional notes to a subscription (stored in XamOps DB only).
+     *
+     * Body: { "poNumber": "PO-12345", "poNotes": "Approved by Finance" }
+     */
+    @PutMapping("/subscriptions/{subscriptionId}/po")
+    public ResponseEntity<Map<String, Object>> updatePoNumber(
+            @PathVariable Long subscriptionId,
+            @RequestParam String cloudAccountId,
+            @RequestBody Map<String, String> body) {
+
+        String poNumber = body.get("poNumber");
+        String poNotes  = body.get("poNotes");
+        Map<String, Object> result = marketOpsService.updatePoNumber(cloudAccountId, subscriptionId, poNumber, poNotes);
         return ResponseEntity.ok(result);
     }
 

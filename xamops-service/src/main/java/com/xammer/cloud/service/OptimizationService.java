@@ -2,6 +2,8 @@ package com.xammer.cloud.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+// Explicit import to resolve ambiguity with computeoptimizer.model.Dimension (SDK 2.34.0)
+import software.amazon.awssdk.services.cloudwatch.model.Dimension;
 import com.xammer.cloud.domain.CachedData;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.DashboardData;

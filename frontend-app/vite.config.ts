@@ -1,5 +1,7 @@
 import { defineConfig, createLogger } from 'vite';
 import react from '@vitejs/plugin-react';
+import fs from 'fs';
+import path from 'path';
 // Suppress noisy "Failed to load source map" warnings from third-party packages
 // that reference .map files they don't actually ship (e.g. react-quill-new).
 const logger = createLogger();
@@ -41,11 +43,29 @@ const cookieRewrite = (proxyRes: any, _req: any) => {
   }
 };
 
+// Writes public/version.json with the build timestamp so the app can detect new deploys.
+// Only runs during `vite build` — skipped in dev server to avoid the HMR reload loop
+// caused by Vite watching public/ and re-triggering on every write to version.json.
+function versionPlugin() {
+  return {
+    name: 'version-plugin',
+    apply: 'build' as const,
+    buildStart() {
+      const version = { version: Date.now().toString() };
+      fs.writeFileSync(
+        path.resolve(__dirname, 'public/version.json'),
+        JSON.stringify(version)
+      );
+    },
+  };
+}
+
 export default defineConfig({
   customLogger: logger,
 
   plugins: [
     react(),
+    versionPlugin(),
   ],
 
   css: {

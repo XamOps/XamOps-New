@@ -10,20 +10,27 @@
     "preview": "vite preview"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/big.js": "^6.2.2",
     "@types/marked": "^5.0.2",
     "@types/node": "^25.0.10",
     "@types/react": "^19.2.9",
     "@types/react-dom": "^19.2.3",
     "@types/react-simple-maps": "^3.0.6",
+    "@types/sortablejs": "^1.15.9",
     "@vitejs/plugin-react": "^5.1.2",
+    "@vitest/ui": "^4.1.6",
     "autoprefixer": "^10.4.19",
     "cross-env": "^7.0.3",
+    "jsdom": "^29.1.1",
     "postcss": "^8.4.38",
     "tailwindcss": "^3.4.3",
     "typescript": "^5.9.3",
     "vite": "^5.2.0",
-    "vite-plugin-html-include": "^1.5.1"
+    "vite-plugin-html-include": "^1.5.1",
+    "vitest": "^4.1.6"
   },
   "dependencies": {
     "@radix-ui/react-label": "^2.1.8",

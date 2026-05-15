@@ -95,11 +95,10 @@ export const AccountProvider: React.FC<{ children: ReactNode }> = ({ children })
   const fetchAccounts = useCallback(async () => {
     // Clear stale state immediately so the sidebar never shows a previous user's
     // accounts while the new fetch is in-flight (or if the fetch fails for this user).
+    // NOTE: preserve selectedAccountIds during the fetch so useDashboardData keeps
+    // its loading state and doesn't flash a blank screen mid-cycle.
     setAccounts([]);
-    setSelectedAccountIds([]);
-    setTempSelectedAccounts([]);
     sessionStorage.removeItem('cached_accounts');
-    sessionStorage.removeItem('selectedAccountIds');
 
     setIsLoading(true);
 
@@ -139,9 +138,22 @@ export const AccountProvider: React.FC<{ children: ReactNode }> = ({ children })
       setAccounts(filtered);
       sessionStorage.setItem('cached_accounts', JSON.stringify(filtered));
 
-      // Auto-select first account if none selected, prioritizing AWS accounts
-      const currentSelectedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
-      if (currentSelectedIds.length === 0 && filtered.length > 0) {
+      const filteredIds = new Set(filtered.map(a => a.id));
+
+      // Validate previously selected accounts against the new list.
+      // This handles user-switch: stale ids from a previous session are cleared.
+      const currentSelectedIds: string[] = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
+      const validSelectedIds = currentSelectedIds.filter(id => filteredIds.has(id));
+
+      if (validSelectedIds.length !== currentSelectedIds.length) {
+        // Some ids were stale — clear them
+        sessionStorage.removeItem('selectedAccountIds');
+        setSelectedAccountIds([]);
+        setTempSelectedAccounts([]);
+      }
+
+      // Auto-select first account if none (or all) selected were invalid
+      if (validSelectedIds.length === 0 && filtered.length > 0) {
         // Prioritize AWS accounts, then fall back to first available account
         const firstAwsAccount = filtered.find(acc => acc.provider === 'AWS');
         const accountToSelect = firstAwsAccount || filtered[0];
