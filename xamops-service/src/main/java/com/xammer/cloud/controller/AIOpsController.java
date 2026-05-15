@@ -27,11 +27,39 @@ public class AIOpsController {
 
     private final AIOpsService aiOpsService;
     private final com.xammer.cloud.service.AIOpsInsightsService insightsService;
+    private final com.xammer.cloud.service.LiteLLMConfigService liteLLMConfigService;
 
     public AIOpsController(AIOpsService aiOpsService,
-                           com.xammer.cloud.service.AIOpsInsightsService insightsService) {
+                           com.xammer.cloud.service.AIOpsInsightsService insightsService,
+                           com.xammer.cloud.service.LiteLLMConfigService liteLLMConfigService) {
         this.aiOpsService = aiOpsService;
         this.insightsService = insightsService;
+        this.liteLLMConfigService = liteLLMConfigService;
+    }
+
+    // ─── AI Gateway Status ───────────────────────────────────────
+
+    @GetMapping("/gateway/status")
+    public ResponseEntity<Map<String, Object>> getGatewayStatus(
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        try {
+            return ResponseEntity.ok(liteLLMConfigService.getStatus());
+        } catch (Exception e) {
+            logger.error("Error fetching gateway status: {}", e.getMessage());
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    @PostMapping("/gateway/sync")
+    public ResponseEntity<Map<String, Object>> syncGateway(
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        try {
+            liteLLMConfigService.syncConfig(userDetails.getClientId());
+            return ResponseEntity.ok(Map.of("message", "Gateway sync triggered"));
+        } catch (Exception e) {
+            logger.error("Error syncing gateway: {}", e.getMessage());
+            return ResponseEntity.internalServerError().build();
+        }
     }
 
     // ─── Dashboard Endpoints ─────────────────────────────────────

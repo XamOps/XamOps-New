@@ -16,6 +16,7 @@ interface UseGcpWasteDataReturn {
   wasteItems: GcpWasteResource[];
   isLoading: boolean;
   isRefreshing: boolean;
+  isPartial: boolean;
   loadWasteReport: (forceRefresh?: boolean) => Promise<void>;
 }
 
@@ -28,6 +29,7 @@ export const useGcpWasteData = ({
   const [wasteItems, setWasteItems] = useState<GcpWasteResource[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isPartial, setIsPartial] = useState(false);
 
   // Refs for stable execution
   const isFetchingRef = useRef(false);
@@ -131,16 +133,16 @@ export const useGcpWasteData = ({
       }
 
       const data = await response.json();
-      console.log('[GCP Waste] Waste report received:', Array.isArray(data) ? data.length : 0, 'items');
 
-      const wasteData = Array.isArray(data)
-        ? data.map(item => ({
-          ...item,
-          detailsOpen: false,
-        }))
-        : [];
+      // Backend now returns { items: [...], partial: boolean }
+      const rawItems = Array.isArray(data) ? data : (data?.items ?? []);
+      const partial: boolean = data?.partial ?? false;
+      console.log('[GCP Waste] Waste report received:', rawItems.length, 'items, partial:', partial);
+
+      const wasteData = rawItems.map((item: GcpWasteResource) => ({ ...item, detailsOpen: false }));
 
       setWasteItems(wasteData);
+      setIsPartial(partial);
       saveToCache(wasteData);
     } catch (err) {
       console.error('[GCP Waste] Failed to load GCP waste report:', err);
@@ -176,6 +178,7 @@ export const useGcpWasteData = ({
     wasteItems,
     isLoading,
     isRefreshing,
+    isPartial,
     loadWasteReport,
   };
 };

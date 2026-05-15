@@ -26,6 +26,7 @@ import { useComputeMetricsData } from '../hooks/useComputeMetricsData';
 import ComputeMetricsSection from '../components/AIOps/ComputeMetricsSection';
 import ManagedInferenceTab from '../components/AIOps/ManagedInferenceTab';
 import { useManagedInferenceData } from '../hooks/useManagedInferenceData';
+import LiteLLMTab from '../components/AIOps/LiteLLMTab';
 import { useDashboardEnhancedData } from '../hooks/useDashboardEnhancedData';
 import type { LlmProviderConfig, BudgetConfig } from '../types/aiops';
 import { PROVIDER_COLORS } from '../types/aiops';
@@ -48,6 +49,7 @@ const TOP_TABS = [
   { id: 'api-keys', label: 'API Keys', icon: 'fas fa-key' },
   { id: 'managed-inference', label: 'Inference', icon: 'fas fa-server' },
   { id: 'insights', label: 'Insights', icon: 'fas fa-lightbulb' },
+  { id: 'litellm', label: 'AI Gateway', icon: 'fas fa-network-wired' },
 ];
 
 const USAGE_SUB_TABS = [
@@ -141,7 +143,7 @@ function UsageAnalyticsFilters({
   );
 }
 
-type AIOpsTab = 'dashboard' | 'usage-analytics' | 'budget-controls' | 'cost-optimizer' | 'api-keys' | 'managed-inference' | 'insights';
+type AIOpsTab = 'dashboard' | 'usage-analytics' | 'budget-controls' | 'cost-optimizer' | 'api-keys' | 'managed-inference' | 'insights' | 'litellm';
 
 // ─── Main Page ───────────────────────────────────────────────
 const AIOpsPage: React.FC = () => {
@@ -627,6 +629,16 @@ const AIOpsPage: React.FC = () => {
             <InsightsDashboard
               data={insights.data}
               loading={insights.loading}
+            />
+          )}
+
+          {/* ═══════════════════════════════════════════════════════
+              Tab 8: LiteLLM
+              ═══════════════════════════════════════════════════════ */}
+          {activeTab === 'litellm' && (
+            <LiteLLMTab
+              providers={providers}
+              serverBaseUrl={import.meta.env.VITE_API_BASE_URL ?? 'https://api.xamops.com'}
             />
           )}
         </div>

@@ -48,6 +48,7 @@ public class AIOpsService {
     private final EncryptionService encryptionService;
     private final ClientRepository clientRepository;
     private final RestTemplate restTemplate;
+    private final LiteLLMConfigService liteLLMConfigService;
 
     @Value("${xamops.server.url:https://api.xamops.com}")
     private String serverBaseUrl;
@@ -60,7 +61,8 @@ public class AIOpsService {
             LlmRoutingRuleRepository routingRuleRepo,
             EncryptionService encryptionService,
             ClientRepository clientRepository,
-            RestTemplate restTemplate) {
+            RestTemplate restTemplate,
+            LiteLLMConfigService liteLLMConfigService) {
         this.providerConfigRepo = providerConfigRepo;
         this.usageLogRepo = usageLogRepo;
         this.budgetRepo = budgetRepo;
@@ -69,6 +71,7 @@ public class AIOpsService {
         this.encryptionService = encryptionService;
         this.clientRepository = clientRepository;
         this.restTemplate = restTemplate;
+        this.liteLLMConfigService = liteLLMConfigService;
     }
 
     // ─── Dashboard ───────────────────────────────────────────────
@@ -204,6 +207,7 @@ public class AIOpsService {
         }
 
         LlmProviderConfig saved = providerConfigRepo.save(config);
+        liteLLMConfigService.syncConfig(clientId);
         logger.info("Added LLM provider {} for client {}", dto.getProvider(), clientId);
         return toDto(saved);
     }
@@ -237,6 +241,7 @@ public class AIOpsService {
         }
 
         LlmProviderConfig saved = providerConfigRepo.save(config);
+        liteLLMConfigService.syncConfig(clientId);
         logger.info("Updated LLM provider {} for client {}", config.getProvider(), clientId);
         return toDto(saved);
     }
@@ -254,6 +259,7 @@ public class AIOpsService {
         usageLogRepo.deleteByProviderConfigId(configId);
 
         providerConfigRepo.delete(config);
+        liteLLMConfigService.syncConfig(clientId);
         logger.info("Deleted LLM provider {} (and associated usage logs) for client {}", config.getProvider(), clientId);
     }
 

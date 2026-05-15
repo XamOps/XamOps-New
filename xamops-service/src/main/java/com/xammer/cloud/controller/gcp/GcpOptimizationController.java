@@ -1,6 +1,7 @@
 package com.xammer.cloud.controller.gcp;
 
 import com.xammer.cloud.dto.gcp.GcpOptimizationRecommendation;
+import com.xammer.cloud.dto.gcp.GcpWasteReport;
 import com.xammer.cloud.service.gcp.GcpOptimizationService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -57,21 +58,22 @@ public class GcpOptimizationController {
         return CompletableFuture
                 .supplyAsync(() -> gcpOptimizationService.getWasteReport(accountId, forceRefresh),
                         backgroundTaskExecutor)
-                .orTimeout(55, TimeUnit.SECONDS)
-                .<ResponseEntity<?>>thenApply(items -> {
-                    log.info("[GcpWaste] /waste-report OK — {} items durationMs={}",
-                            items.size(), System.currentTimeMillis() - startMs);
-                    return ResponseEntity.ok(items);
+                .orTimeout(100, TimeUnit.SECONDS)
+                .<ResponseEntity<?>>thenApply(report -> {
+                    log.info("[GcpWaste] /waste-report OK — {} items partial={} durationMs={}",
+                            report.getItems().size(), report.isPartial(), System.currentTimeMillis() - startMs);
+                    return ResponseEntity.ok(report);
                 })
                 .exceptionally(ex -> {
                     Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
                     if (cause instanceof TimeoutException) {
                         log.warn("[GcpWaste] /waste-report TIMEOUT — project={} durationMs={}",
                                 accountId, System.currentTimeMillis() - startMs);
-                        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Collections.emptyList());
+                        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                                .body(new GcpWasteReport(Collections.emptyList(), true));
                     }
                     log.error("[GcpWaste] /waste-report ERROR — project={}", accountId, cause);
-                    return ResponseEntity.ok(Collections.emptyList());
+                    return ResponseEntity.ok(new GcpWasteReport(Collections.emptyList(), false));
                 });
     }
 }

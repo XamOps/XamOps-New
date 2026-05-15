@@ -44,6 +44,12 @@ public class LlmProxyService {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
 
+    @org.springframework.beans.factory.annotation.Value("${litellm.base-url:http://localhost:4000}")
+    private String litellmBaseUrl;
+
+    @org.springframework.beans.factory.annotation.Value("${litellm.master-key:sk-xamops-master}")
+    private String litellmMasterKey;
+
     // Budget spend cache: key = "clientId:providerConfigId", value = [spend, timestampMs]
     private final ConcurrentHashMap<String, double[]> spendCache = new ConcurrentHashMap<>();
     private static final long CACHE_TTL_MS = 60_000;
@@ -95,7 +101,9 @@ public class LlmProxyService {
             LlmBudgetRepository budgetRepo,
             EncryptionService encryptionService,
             RestTemplate restTemplate,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            @org.springframework.beans.factory.annotation.Autowired(required = false)
+            LiteLLMConfigService liteLLMConfigService) {
         this.configRepo = configRepo;
         this.usageLogRepo = usageLogRepo;
         this.budgetRepo = budgetRepo;
@@ -103,6 +111,8 @@ public class LlmProxyService {
         this.restTemplate = restTemplate;
         this.objectMapper = objectMapper;
     }
+
+    // ─── LiteLLM-backed proxy ─────────────────────────────────────
 
     public ResponseEntity<String> proxyRequest(
             String proxyEndpointId,
@@ -132,64 +142,110 @@ public class LlmProxyService {
             return budgetBlock;
         }
 
-        // 2. Route BEDROCK separately — uses SigV4 with stored credentials
-        String provider = config.getProvider().toUpperCase();
-        if ("BEDROCK".equals(provider)) {
-            return forwardBedrockRequest(config, subPath, method, body, agentName);
+        // 2. Route through LiteLLM — use proxyEndpointId as the model alias.
+        //    LiteLLM handles all provider differences (Bedrock SigV4, Anthropic headers, etc.)
+        //    transparently. We still keep forwardBedrockRequest as a fallback if LiteLLM is down.
+        return forwardViaLiteLLM(config, subPath, method, incomingHeaders, body, agentName);
+    }
+
+    private ResponseEntity<String> forwardViaLiteLLM(
+            LlmProviderConfig config,
+            String subPath,
+            HttpMethod method,
+            HttpHeaders incomingHeaders,
+            String body,
+            String agentName) {
+
+        // Rewrite model in request body to LiteLLM alias (proxyEndpointId)
+        String rewrittenBody = rewriteModelInBody(body, config.getProxyEndpointId());
+
+        // LiteLLM exposes an OpenAI-compatible endpoint
+        String targetUrl = litellmBaseUrl + "/v1/" + (subPath != null && !subPath.isBlank() ? subPath : "chat/completions");
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.setBearerAuth(litellmMasterKey);
+        if (agentName != null && !agentName.isBlank()) {
+            headers.set("X-XamOps-Agent", agentName);
         }
 
-        String apiKey = extractBearerToken(incomingHeaders);
-        if (apiKey == null || apiKey.isBlank()) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body("{\"error\":\"API key is required. Pass your provider API key via Authorization: Bearer YOUR_KEY header.\"}");
-        }
-
-        // 3. Build real provider URL and headers
-        String targetUrl = buildTargetUrl(provider, subPath);
-        HttpHeaders targetHeaders = buildProviderHeaders(provider, apiKey, incomingHeaders);
-
-        // 4. Forward request and measure latency
         long startTime = System.currentTimeMillis();
-        ResponseEntity<String> providerResponse;
-        String errorMessage = null;
 
         try {
-            HttpEntity<String> requestEntity = new HttpEntity<>(body, targetHeaders);
-            providerResponse = restTemplate.exchange(targetUrl, method, requestEntity, String.class);
+            HttpEntity<String> entity = new HttpEntity<>(rewrittenBody, headers);
+            ResponseEntity<String> response = restTemplate.exchange(targetUrl, method, entity, String.class);
+            long latency = System.currentTimeMillis() - startTime;
+
+            logUsageAsync(config, subPath, body, response.getBody(),
+                    response.getStatusCodeValue(), latency, false, null, agentName);
+
+            return ResponseEntity.status(response.getStatusCode())
+                    .headers(filterResponseHeaders(response.getHeaders()))
+                    .body(response.getBody());
+
         } catch (HttpStatusCodeException e) {
             long latency = System.currentTimeMillis() - startTime;
-            errorMessage = e.getResponseBodyAsString();
-
-            // Log the failed request
-            logUsageAsync(config, subPath, body, e.getResponseBodyAsString(),
-                    e.getStatusCode().value(), latency, true, errorMessage, agentName);
+            String errorBody = e.getResponseBodyAsString();
+            logUsageAsync(config, subPath, body, errorBody,
+                    e.getStatusCode().value(), latency, true, errorBody, agentName);
 
             return ResponseEntity.status(e.getStatusCode())
                     .headers(filterResponseHeaders(e.getResponseHeaders()))
-                    .body(e.getResponseBodyAsString());
+                    .body(errorBody);
+
         } catch (Exception e) {
             long latency = System.currentTimeMillis() - startTime;
-            logger.error("Proxy request failed: {}", e.getMessage());
+            logger.warn("LiteLLM unreachable ({}), falling back to direct proxy", e.getMessage());
 
-            logUsageAsync(config, subPath, body, null,
-                    500, latency, true, e.getMessage(), agentName);
+            // Fallback: route directly if LiteLLM is down
+            String provider = config.getProvider().toUpperCase();
+            if ("BEDROCK".equals(provider)) {
+                return forwardBedrockRequest(config, subPath, method, body, agentName);
+            }
 
-            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                    .body("{\"error\":\"Failed to reach LLM provider: " + e.getMessage() + "\"}");
+            String apiKey = extractBearerToken(incomingHeaders);
+            if (apiKey == null || apiKey.isBlank()) {
+                // Try stored key
+                if (config.getApiKeyEncrypted() != null) {
+                    try { apiKey = encryptionService.decrypt(config.getApiKeyEncrypted()); } catch (Exception ex) { /* ignore */ }
+                }
+            }
+            if (apiKey == null || apiKey.isBlank()) {
+                logUsageAsync(config, subPath, body, null, 502, latency, true, e.getMessage(), agentName);
+                return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                        .body("{\"error\":\"AI Gateway unavailable and no API key provided for direct fallback.\"}");
+            }
+
+            String targetUrl2 = buildTargetUrl(provider, subPath);
+            HttpHeaders fallbackHeaders = buildProviderHeaders(provider, apiKey, incomingHeaders);
+            try {
+                HttpEntity<String> fallbackEntity = new HttpEntity<>(body, fallbackHeaders);
+                ResponseEntity<String> fallbackResp = restTemplate.exchange(targetUrl2, method, fallbackEntity, String.class);
+                long lat2 = System.currentTimeMillis() - startTime;
+                logUsageAsync(config, subPath, body, fallbackResp.getBody(),
+                        fallbackResp.getStatusCodeValue(), lat2, false, null, agentName);
+                return ResponseEntity.status(fallbackResp.getStatusCode())
+                        .headers(filterResponseHeaders(fallbackResp.getHeaders()))
+                        .body(fallbackResp.getBody());
+            } catch (Exception ex) {
+                long lat2 = System.currentTimeMillis() - startTime;
+                logUsageAsync(config, subPath, body, null, 502, lat2, true, ex.getMessage(), agentName);
+                return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                        .body("{\"error\":\"Failed to reach AI provider: " + ex.getMessage() + "\"}");
+            }
         }
+    }
 
-        long latency = System.currentTimeMillis() - startTime;
-
-        // 5. Log usage asynchronously
-        logUsageAsync(config, subPath, body,
-                providerResponse.getBody(),
-                providerResponse.getStatusCodeValue(),
-                latency, false, null, agentName);
-
-        // 6. Return provider response
-        return ResponseEntity.status(providerResponse.getStatusCode())
-                .headers(filterResponseHeaders(providerResponse.getHeaders()))
-                .body(providerResponse.getBody());
+    private String rewriteModelInBody(String body, String modelAlias) {
+        if (body == null || body.isBlank()) return body;
+        try {
+            com.fasterxml.jackson.databind.node.ObjectNode node =
+                    (com.fasterxml.jackson.databind.node.ObjectNode) objectMapper.readTree(body);
+            node.put("model", modelAlias);
+            return objectMapper.writeValueAsString(node);
+        } catch (Exception e) {
+            return body;
+        }
     }
 
     @Async

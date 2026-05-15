@@ -27,7 +27,10 @@ import com.xammer.cloud.dto.gcp.GcpCudUtilizationDto;
 import com.xammer.cloud.dto.gcp.GcpOptimizationRecommendation;
 import com.xammer.cloud.dto.gcp.GcpReservationPageDto;
 import com.xammer.cloud.dto.gcp.GcpWasteItem;
+import com.xammer.cloud.dto.gcp.GcpWasteReport;
 import com.xammer.cloud.repository.CachedDataRepository;
+import com.google.cloud.monitoring.v3.MetricServiceClient;
+import com.google.cloud.container.v1.ClusterManagerClient;
 import com.xammer.cloud.service.RedisCacheService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.Cacheable;
@@ -757,28 +760,34 @@ public class GcpOptimizationService {
         return "Unknown"; // Fallback
     }
 
+    /** Legacy single-return used internally (e.g. getSavingsSummary). */
     public List<GcpWasteItem> getWasteReport(String gcpProjectId) {
-        return getWasteReport(gcpProjectId, false);
+        return getWasteReport(gcpProjectId, false).getItems();
     }
 
-    public List<GcpWasteItem> getWasteReport(String gcpProjectId, boolean forceRefresh) {
+    /**
+     * Returns a GcpWasteReport with items + partial flag.
+     * Fast group (existing detectors + Tier-1 compute) waits up to 45 s.
+     * Slow group (Functions, GKE, BigQuery, Storage, Artifact, Scheduler) waits up to 40 s
+     * independently — if it times out, partial=true is set and fast results are returned.
+     */
+    public com.xammer.cloud.dto.gcp.GcpWasteReport getWasteReport(String gcpProjectId, boolean forceRefresh) {
         String cacheKey = "gcp:waste-report:" + gcpProjectId;
         String dbKey = "GCP_WASTE::" + gcpProjectId;
 
         if (!forceRefresh) {
-            // 1. Try Redis
-            Optional<List<GcpWasteItem>> cached = redisCacheService.get(cacheKey, new TypeReference<>() {});
+            Optional<com.xammer.cloud.dto.gcp.GcpWasteReport> cached =
+                    redisCacheService.get(cacheKey, new TypeReference<>() {});
             if (cached.isPresent()) {
                 log.info("✅ Returning Redis-cached waste report for project {}", gcpProjectId);
                 return cached.get();
             }
-
-            // 2. Try DB snapshot
             try {
                 Optional<CachedData> dbSnapshot = cachedDataRepository.findById(dbKey);
                 if (dbSnapshot.isPresent()) {
-                    List<GcpWasteItem> dbResult = objectMapper.readValue(
-                            dbSnapshot.get().getJsonData(), new TypeReference<>() {});
+                    com.xammer.cloud.dto.gcp.GcpWasteReport dbResult = objectMapper.readValue(
+                            dbSnapshot.get().getJsonData(),
+                            new TypeReference<com.xammer.cloud.dto.gcp.GcpWasteReport>() {});
                     log.info("✅ Returning DB-cached waste report for project {} — re-warming Redis", gcpProjectId);
                     redisCacheService.put(cacheKey, dbResult, 60);
                     return dbResult;
@@ -789,10 +798,8 @@ public class GcpOptimizationService {
         }
 
         log.info("[GcpWaste] Starting waste scan for project: {}", gcpProjectId);
-        List<CompletableFuture<List<GcpWasteItem>>> futures = new ArrayList<>();
 
-        // Gap 2: derive active locations from already-cached CloudList resources;
-        // fall back to getDynamicRegions() only when no resources are found.
+        // Derive active locations
         List<String> locations;
         try {
             List<com.xammer.cloud.dto.gcp.GcpResourceDto> resources =
@@ -810,50 +817,97 @@ public class GcpOptimizationService {
             locations = getDynamicRegions(gcpProjectId);
         }
 
-        // Recommender-based detectors (per active location)
+        // ── Fast group (existing detectors + Tier-1 compute) ──
+        List<CompletableFuture<List<GcpWasteItem>>> fastFutures = new ArrayList<>();
         for (String location : locations) {
-            futures.add(findIdleResources(gcpProjectId, "google.compute.disk.IdleResourceRecommender",
+            fastFutures.add(findIdleResources(gcpProjectId, "google.compute.disk.IdleResourceRecommender",
                     "Idle Persistent Disk", location));
-            futures.add(findIdleResources(gcpProjectId, "google.compute.address.IdleResourceRecommender",
+            fastFutures.add(findIdleResources(gcpProjectId, "google.compute.address.IdleResourceRecommender",
                     "Unused IP Address", location));
-            futures.add(findIdleResources(gcpProjectId, "google.compute.instance.IdleResourceRecommender",
+            fastFutures.add(findIdleResources(gcpProjectId, "google.compute.instance.IdleResourceRecommender",
                     "Idle VM Instance", location));
-            futures.add(findIdleResources(gcpProjectId, "google.cloudsql.instance.IdleRecommender",
+            fastFutures.add(findIdleResources(gcpProjectId, "google.cloudsql.instance.IdleRecommender",
                     "Idle Cloud SQL Instance", location));
         }
+        fastFutures.add(findUnattachedDisks(gcpProjectId));
+        fastFutures.add(findUnusedCustomImages(gcpProjectId));
+        fastFutures.add(findUnusedFirewallRules(gcpProjectId));
+        fastFutures.add(findOldSqlSnapshots(gcpProjectId));
+        fastFutures.add(findOldComputeSnapshots(gcpProjectId));
+        fastFutures.add(findReservedUnusedIps(gcpProjectId));
+        fastFutures.add(findLongStoppedInstances(gcpProjectId));
+        fastFutures.add(findIdlePubSubTopics(gcpProjectId));
+        // Tier-1 compute — same clients, just new detectors
+        fastFutures.add(findEmptyInstanceGroups(gcpProjectId));
+        fastFutures.add(findUnusedSslCertificates(gcpProjectId));
+        fastFutures.add(findDownVpnTunnels(gcpProjectId));
+        fastFutures.add(findEmptyTargetPools(gcpProjectId));
 
-        // Direct API detectors (region-independent / aggregated)
-        futures.add(findUnattachedDisks(gcpProjectId));
-        futures.add(findUnusedCustomImages(gcpProjectId));
-        futures.add(findUnusedFirewallRules(gcpProjectId));
-        futures.add(findOldSqlSnapshots(gcpProjectId));
-        futures.add(findOldComputeSnapshots(gcpProjectId));
-        futures.add(findReservedUnusedIps(gcpProjectId));
-        futures.add(findLongStoppedInstances(gcpProjectId));
-        futures.add(findIdlePubSubTopics(gcpProjectId));
-
-        List<CompletableFuture<List<GcpWasteItem>>> safeFutures = futures.stream()
+        List<CompletableFuture<List<GcpWasteItem>>> safeFast = fastFutures.stream()
                 .map(f -> f.exceptionally(e -> {
-                    log.warn("[GcpWaste] Detector failed, skipping: {}", e.getMessage());
-                    return Collections.emptyList();
+                    log.warn("[GcpWaste] Fast detector failed: {}", e.getMessage());
+                    return Collections.<GcpWasteItem>emptyList();
                 }))
                 .collect(Collectors.toList());
 
-        CompletableFuture.allOf(safeFutures.toArray(new CompletableFuture[0])).join();
+        List<GcpWasteItem> fastResults;
+        try {
+            CompletableFuture.allOf(safeFast.toArray(new CompletableFuture[0]))
+                    .get(45, java.util.concurrent.TimeUnit.SECONDS);
+            fastResults = safeFast.stream().map(CompletableFuture::join)
+                    .flatMap(List::stream).collect(Collectors.toList());
+        } catch (Exception e) {
+            log.warn("[GcpWaste] Fast group timed out — collecting completed futures: {}", e.getMessage());
+            fastResults = safeFast.stream()
+                    .filter(f -> f.isDone() && !f.isCompletedExceptionally())
+                    .map(CompletableFuture::join)
+                    .flatMap(List::stream).collect(Collectors.toList());
+        }
 
-        List<GcpWasteItem> allWaste = safeFutures.stream()
-                .map(CompletableFuture::join)
-                .flatMap(List::stream)
+        // ── Slow group (higher-latency clients) ──
+        List<CompletableFuture<List<GcpWasteItem>>> slowFutures = List.of(
+                findFunctionsWithNoInvocations(gcpProjectId, locations),
+                findIdleGkeClusters(gcpProjectId),
+                findBigQueryDatasetsNotQueried(gcpProjectId),
+                findStorageBucketsWithNoReads(gcpProjectId),
+                findStaleArtifactRepos(gcpProjectId, locations),
+                findAlwaysFailingSchedulerJobs(gcpProjectId, locations)
+        );
+
+        List<CompletableFuture<List<GcpWasteItem>>> safeSlow = slowFutures.stream()
+                .map(f -> f.exceptionally(e -> {
+                    log.warn("[GcpWaste] Slow detector failed: {}", e.getMessage());
+                    return Collections.<GcpWasteItem>emptyList();
+                }))
                 .collect(Collectors.toList());
 
-        log.info("[GcpWaste] Total waste items found: {} for project {}", allWaste.size(), gcpProjectId);
+        boolean partial = false;
+        List<GcpWasteItem> slowResults;
+        try {
+            CompletableFuture.allOf(safeSlow.toArray(new CompletableFuture[0]))
+                    .get(40, java.util.concurrent.TimeUnit.SECONDS);
+            slowResults = safeSlow.stream().map(CompletableFuture::join)
+                    .flatMap(List::stream).collect(Collectors.toList());
+        } catch (Exception e) {
+            log.warn("[GcpWaste] Slow group timed out — returning partial results: {}", e.getMessage());
+            partial = true;
+            slowResults = safeSlow.stream()
+                    .filter(f -> f.isDone() && !f.isCompletedExceptionally())
+                    .map(CompletableFuture::join)
+                    .flatMap(List::stream).collect(Collectors.toList());
+        }
 
-        // Gap 7: Superset archiving
+        List<GcpWasteItem> allWaste = new ArrayList<>(fastResults);
+        allWaste.addAll(slowResults);
+        log.info("[GcpWaste] Total: {} items (partial={}) for project {}", allWaste.size(), partial, gcpProjectId);
+
         saveToDb("WASTE::" + gcpProjectId + "::" + java.time.LocalDate.now(), allWaste);
 
-        redisCacheService.put(cacheKey, allWaste, 60);
-        saveToDb(dbKey, allWaste);
-        return allWaste;
+        com.xammer.cloud.dto.gcp.GcpWasteReport report =
+                new com.xammer.cloud.dto.gcp.GcpWasteReport(allWaste, partial);
+        redisCacheService.put(cacheKey, report, 60);
+        saveToDb(dbKey, report);
+        return report;
     }
 
     //
@@ -2594,6 +2648,322 @@ public class GcpOptimizationService {
             log.error("Failed to find billing table in project {}: {}", gcpProjectId, e.getMessage());
         }
         return Optional.empty(); // Return empty if not found or error occurred
+    }
+
+    // ── Tier-1: Compute — same client jar, new detectors ──────────────────────
+
+    // Managed instance groups with targetSize == 0 — paying for the group config, no VMs.
+    private CompletableFuture<List<GcpWasteItem>> findEmptyInstanceGroups(String gcpProjectId) {
+        return CompletableFuture.supplyAsync(() -> {
+            Optional<InstanceGroupManagersClient> clientOpt =
+                    gcpClientProvider.getInstanceGroupManagersClient(gcpProjectId);
+            if (clientOpt.isEmpty()) return List.of();
+            try (InstanceGroupManagersClient client = clientOpt.get()) {
+                List<GcpWasteItem> items = new ArrayList<>();
+                for (var entry : client.aggregatedList(gcpProjectId).iterateAll()) {
+                    for (var igm : entry.getValue().getInstanceGroupManagersList()) {
+                        if (igm.getTargetSize() == 0) {
+                            String zoneUrl = igm.getZone();
+                            String zone = zoneUrl.contains("/") ? zoneUrl.substring(zoneUrl.lastIndexOf('/') + 1) : zoneUrl;
+                            items.add(new GcpWasteItem(igm.getName(), igm.getName(),
+                                    "Empty Instance Group", zone, 0.0,
+                                    "Managed instance group has 0 target instances"));
+                        }
+                    }
+                }
+                return items;
+            } catch (Exception e) {
+                log.warn("[GcpWaste] findEmptyInstanceGroups failed for {}: {}", gcpProjectId, e.getMessage());
+                return List.of();
+            }
+        }, executor);
+    }
+
+    // SSL certificates not attached to any forwarding rule — paying for cert storage.
+    private CompletableFuture<List<GcpWasteItem>> findUnusedSslCertificates(String gcpProjectId) {
+        return CompletableFuture.supplyAsync(() -> {
+            Optional<SslCertificatesClient> certOpt = gcpClientProvider.getSslCertificatesClient(gcpProjectId);
+            Optional<TargetHttpsProxiesClient> proxyOpt = gcpClientProvider.getTargetHttpsProxiesClient(gcpProjectId);
+            if (certOpt.isEmpty()) return List.of();
+            try (SslCertificatesClient certClient = certOpt.get()) {
+                Set<String> usedCertSelfLinks = new HashSet<>();
+                if (proxyOpt.isPresent()) {
+                    try (TargetHttpsProxiesClient proxyClient = proxyOpt.get()) {
+                        StreamSupport.stream(proxyClient.aggregatedList(gcpProjectId).iterateAll().spliterator(), false)
+                                .flatMap(e -> e.getValue().getTargetHttpsProxiesList().stream())
+                                .forEach(proxy -> usedCertSelfLinks.addAll(proxy.getSslCertificatesList()));
+                    } catch (Exception e) {
+                        log.warn("[GcpWaste] Could not list TargetHttpsProxies: {}", e.getMessage());
+                    }
+                }
+                List<GcpWasteItem> items = new ArrayList<>();
+                StreamSupport.stream(certClient.aggregatedList(gcpProjectId).iterateAll().spliterator(), false)
+                        .flatMap(e -> e.getValue().getSslCertificatesList().stream())
+                        .filter(cert -> !usedCertSelfLinks.contains(cert.getSelfLink()))
+                        .forEach(cert -> items.add(new GcpWasteItem(
+                                cert.getName(), cert.getName(),
+                                "Unused SSL Certificate", "global", 0.0,
+                                "Certificate is not attached to any HTTPS proxy")));
+                return items;
+            } catch (Exception e) {
+                log.warn("[GcpWaste] findUnusedSslCertificates failed for {}: {}", gcpProjectId, e.getMessage());
+                return List.of();
+            }
+        }, executor);
+    }
+
+    // VPN tunnels not in ESTABLISHED state — still billed at ~$36/mo per tunnel.
+    private CompletableFuture<List<GcpWasteItem>> findDownVpnTunnels(String gcpProjectId) {
+        return CompletableFuture.supplyAsync(() -> {
+            Optional<VpnTunnelsClient> clientOpt = gcpClientProvider.getVpnTunnelsClient(gcpProjectId);
+            if (clientOpt.isEmpty()) return List.of();
+            try (VpnTunnelsClient client = clientOpt.get()) {
+                List<GcpWasteItem> items = new ArrayList<>();
+                StreamSupport.stream(client.aggregatedList(gcpProjectId).iterateAll().spliterator(), false)
+                        .flatMap(e -> e.getValue().getVpnTunnelsList().stream())
+                        .filter(t -> !"ESTABLISHED".equalsIgnoreCase(t.getStatus()))
+                        .forEach(t -> {
+                            String regionUrl = t.getRegion();
+                            String region = regionUrl.contains("/") ? regionUrl.substring(regionUrl.lastIndexOf('/') + 1) : regionUrl;
+                            items.add(new GcpWasteItem(t.getName(), t.getName(),
+                                    "Down VPN Tunnel", region, 36.0,
+                                    "VPN tunnel status is " + t.getStatus() + " (not ESTABLISHED)"));
+                        });
+                return items;
+            } catch (Exception e) {
+                log.warn("[GcpWaste] findDownVpnTunnels failed for {}: {}", gcpProjectId, e.getMessage());
+                return List.of();
+            }
+        }, executor);
+    }
+
+    // Target pools with no instances — load balancer config with nothing to route to.
+    private CompletableFuture<List<GcpWasteItem>> findEmptyTargetPools(String gcpProjectId) {
+        return CompletableFuture.supplyAsync(() -> {
+            Optional<TargetPoolsClient> clientOpt = gcpClientProvider.getTargetPoolsClient(gcpProjectId);
+            if (clientOpt.isEmpty()) return List.of();
+            try (TargetPoolsClient client = clientOpt.get()) {
+                List<GcpWasteItem> items = new ArrayList<>();
+                StreamSupport.stream(client.aggregatedList(gcpProjectId).iterateAll().spliterator(), false)
+                        .flatMap(e -> e.getValue().getTargetPoolsList().stream())
+                        .filter(tp -> tp.getInstancesList().isEmpty())
+                        .forEach(tp -> {
+                            String regionUrl = tp.getRegion();
+                            String region = regionUrl.contains("/") ? regionUrl.substring(regionUrl.lastIndexOf('/') + 1) : regionUrl;
+                            items.add(new GcpWasteItem(tp.getName(), tp.getName(),
+                                    "Empty Target Pool", region, 0.0,
+                                    "Target pool has no backend instances"));
+                        });
+                return items;
+            } catch (Exception e) {
+                log.warn("[GcpWaste] findEmptyTargetPools failed for {}: {}", gcpProjectId, e.getMessage());
+                return List.of();
+            }
+        }, executor);
+    }
+
+    // ── Tier-2: Slow group ────────────────────────────────────────────────────
+
+    // Cloud Functions with 0 invocations in 30 days — deployed and forgotten.
+    private CompletableFuture<List<GcpWasteItem>> findFunctionsWithNoInvocations(
+            String gcpProjectId, List<String> locations) {
+        return CompletableFuture.supplyAsync(() -> {
+            Optional<com.google.cloud.functions.v2.FunctionServiceClient> clientOpt =
+                    gcpClientProvider.getFunctionServiceClient(gcpProjectId);
+            Optional<MetricServiceClient> metricsOpt =
+                    gcpClientProvider.getMetricServiceClient(gcpProjectId);
+            if (clientOpt.isEmpty() || metricsOpt.isEmpty()) return List.of();
+
+            List<GcpWasteItem> items = new ArrayList<>();
+            try (com.google.cloud.functions.v2.FunctionServiceClient fnClient = clientOpt.get();
+                 MetricServiceClient metricsClient = metricsOpt.get()) {
+
+                com.google.protobuf.Timestamp end = com.google.protobuf.Timestamp.newBuilder()
+                        .setSeconds(Instant.now().getEpochSecond()).build();
+                com.google.protobuf.Timestamp start = com.google.protobuf.Timestamp.newBuilder()
+                        .setSeconds(Instant.now().minus(30, ChronoUnit.DAYS).getEpochSecond()).build();
+
+                for (String location : locations) {
+                    String parent = "projects/" + gcpProjectId + "/locations/" + location;
+                    try {
+                        for (var fn : fnClient.listFunctions(parent).iterateAll()) {
+                            String fnName = fn.getName().substring(fn.getName().lastIndexOf('/') + 1);
+                            String filter = "metric.type=\"cloudfunctions.googleapis.com/function/call_count\" " +
+                                    "AND resource.labels.function_name=\"" + fnName + "\"";
+                            var req = com.google.monitoring.v3.ListTimeSeriesRequest.newBuilder()
+                                    .setName("projects/" + gcpProjectId)
+                                    .setFilter(filter)
+                                    .setInterval(com.google.monitoring.v3.TimeInterval.newBuilder()
+                                            .setStartTime(start).setEndTime(end).build())
+                                    .setView(com.google.monitoring.v3.ListTimeSeriesRequest.TimeSeriesView.HEADERS)
+                                    .build();
+                            boolean hasData = metricsClient.listTimeSeries(req).iterateAll().iterator().hasNext();
+                            if (!hasData) {
+                                items.add(new GcpWasteItem(fn.getName(), fnName,
+                                        "Cloud Function (0 invocations)", location, 0.0,
+                                        "No invocations in 30 days"));
+                            }
+                        }
+                    } catch (Exception e) {
+                        log.warn("[GcpWaste] Functions scan failed in {}/{}: {}", gcpProjectId, location, e.getMessage());
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("[GcpWaste] findFunctionsWithNoInvocations failed for {}: {}", gcpProjectId, e.getMessage());
+            }
+            return items;
+        }, executor);
+    }
+
+    // GKE clusters with no non-system node pools running — cluster cost without workloads.
+    private CompletableFuture<List<GcpWasteItem>> findIdleGkeClusters(String gcpProjectId) {
+        return CompletableFuture.supplyAsync(() -> {
+            Optional<ClusterManagerClient> clientOpt = gcpClientProvider.getClusterManagerClient(gcpProjectId);
+            if (clientOpt.isEmpty()) return List.of();
+            try (ClusterManagerClient client = clientOpt.get()) {
+                List<GcpWasteItem> items = new ArrayList<>();
+                String parent = "projects/" + gcpProjectId + "/locations/-";
+                for (var cluster : client.listClusters(parent).getClustersList()) {
+                    int totalNodes = cluster.getNodePoolsList().stream()
+                            .mapToInt(np -> np.getInitialNodeCount())
+                            .sum();
+                    if (totalNodes == 0) {
+                        items.add(new GcpWasteItem(cluster.getName(), cluster.getName(),
+                                "Idle GKE Cluster", cluster.getLocation(), 0.0,
+                                "Cluster has 0 nodes across all node pools"));
+                    }
+                }
+                return items;
+            } catch (Exception e) {
+                log.warn("[GcpWaste] findIdleGkeClusters failed for {}: {}", gcpProjectId, e.getMessage());
+                return List.of();
+            }
+        }, executor);
+    }
+
+    // BigQuery datasets with no tables — paying for reservation with no data.
+    private CompletableFuture<List<GcpWasteItem>> findBigQueryDatasetsNotQueried(String gcpProjectId) {
+        return CompletableFuture.supplyAsync(() -> {
+            Optional<BigQuery> clientOpt = gcpClientProvider.getBigQueryClient(gcpProjectId);
+            if (clientOpt.isEmpty()) return List.of();
+            BigQuery bq = clientOpt.get();
+            List<GcpWasteItem> items = new ArrayList<>();
+            try {
+                for (var dataset : bq.listDatasets(gcpProjectId).iterateAll()) {
+                    String datasetId = dataset.getDatasetId().getDataset();
+                    try {
+                        boolean hasTables = bq.listTables(dataset.getDatasetId()).iterateAll().iterator().hasNext();
+                        if (!hasTables) {
+                            items.add(new GcpWasteItem(datasetId, datasetId,
+                                    "Empty BigQuery Dataset", "global", 0.0,
+                                    "Dataset has no tables"));
+                        }
+                    } catch (Exception e) {
+                        log.warn("[GcpWaste] Could not list tables in dataset {}: {}", datasetId, e.getMessage());
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("[GcpWaste] findBigQueryDatasetsNotQueried failed for {}: {}", gcpProjectId, e.getMessage());
+            }
+            return items;
+        }, executor);
+    }
+
+    // GCS buckets with no lifecycle rules — data accumulating in STANDARD storage silently.
+    private CompletableFuture<List<GcpWasteItem>> findStorageBucketsWithNoReads(String gcpProjectId) {
+        return CompletableFuture.supplyAsync(() -> {
+            Optional<com.google.cloud.storage.Storage> clientOpt = gcpClientProvider.getStorageClient(gcpProjectId);
+            if (clientOpt.isEmpty()) return List.of();
+            com.google.cloud.storage.Storage storage = clientOpt.get();
+            List<GcpWasteItem> items = new ArrayList<>();
+            try {
+                for (var bucket : storage.list().iterateAll()) {
+                    try {
+                        var fullBucket = storage.get(bucket.getName(),
+                                com.google.cloud.storage.Storage.BucketGetOption.fields(
+                                        com.google.cloud.storage.Storage.BucketField.LIFECYCLE));
+                        if (fullBucket != null
+                                && (fullBucket.getLifecycleRules() == null || fullBucket.getLifecycleRules().isEmpty())) {
+                            items.add(new GcpWasteItem(bucket.getName(), bucket.getName(),
+                                    "GCS Bucket (No Lifecycle Policy)", "global", 0.0,
+                                    "Bucket has no lifecycle rules — data may accumulate in STANDARD storage indefinitely"));
+                        }
+                    } catch (Exception e) {
+                        log.warn("[GcpWaste] Could not inspect lifecycle for bucket {}: {}", bucket.getName(), e.getMessage());
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("[GcpWaste] findStorageBucketsWithNoReads failed for {}: {}", gcpProjectId, e.getMessage());
+            }
+            return items;
+        }, executor);
+    }
+
+    // Artifact Registry repos not updated in 60 days — stale container image storage.
+    private CompletableFuture<List<GcpWasteItem>> findStaleArtifactRepos(
+            String gcpProjectId, List<String> locations) {
+        return CompletableFuture.supplyAsync(() -> {
+            Optional<com.google.devtools.artifactregistry.v1.ArtifactRegistryClient> clientOpt =
+                    gcpClientProvider.getArtifactRegistryClient(gcpProjectId);
+            if (clientOpt.isEmpty()) return List.of();
+            List<GcpWasteItem> items = new ArrayList<>();
+            Instant cutoff = Instant.now().minus(60, ChronoUnit.DAYS);
+            try (com.google.devtools.artifactregistry.v1.ArtifactRegistryClient client = clientOpt.get()) {
+                for (String location : locations) {
+                    String parent = "projects/" + gcpProjectId + "/locations/" + location;
+                    try {
+                        for (var repo : client.listRepositories(parent).iterateAll()) {
+                            var updateTime = repo.getUpdateTime();
+                            Instant updated = Instant.ofEpochSecond(updateTime.getSeconds(), updateTime.getNanos());
+                            if (updated.isBefore(cutoff)) {
+                                String repoName = repo.getName().substring(repo.getName().lastIndexOf('/') + 1);
+                                items.add(new GcpWasteItem(repo.getName(), repoName,
+                                        "Stale Artifact Registry Repo", location, 0.0,
+                                        "Repository not updated in 60+ days"));
+                            }
+                        }
+                    } catch (Exception e) {
+                        log.warn("[GcpWaste] Artifact Registry scan failed in {}/{}: {}", gcpProjectId, location, e.getMessage());
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("[GcpWaste] findStaleArtifactRepos failed for {}: {}", gcpProjectId, e.getMessage());
+            }
+            return items;
+        }, executor);
+    }
+
+    // Cloud Scheduler jobs that consistently fail — firing but never succeeding.
+    private CompletableFuture<List<GcpWasteItem>> findAlwaysFailingSchedulerJobs(
+            String gcpProjectId, List<String> locations) {
+        return CompletableFuture.supplyAsync(() -> {
+            Optional<com.google.cloud.scheduler.v1.CloudSchedulerClient> clientOpt =
+                    gcpClientProvider.getSchedulerClient(gcpProjectId);
+            if (clientOpt.isEmpty()) return List.of();
+            List<GcpWasteItem> items = new ArrayList<>();
+            try (com.google.cloud.scheduler.v1.CloudSchedulerClient client = clientOpt.get()) {
+                for (String location : locations) {
+                    String parent = "projects/" + gcpProjectId + "/locations/" + location;
+                    try {
+                        for (var job : client.listJobs(parent).iterateAll()) {
+                            var lastAttempt = job.getLastAttemptTime();
+                            // Job has been attempted but last status is not OK (code 0 = OK)
+                            if (lastAttempt.getSeconds() > 0 && job.getStatus().getCode() != 0) {
+                                String jobName = job.getName().substring(job.getName().lastIndexOf('/') + 1);
+                                items.add(new GcpWasteItem(job.getName(), jobName,
+                                        "Failing Scheduler Job", location, 0.0,
+                                        "Job last attempt failed: " + job.getStatus().getMessage()));
+                            }
+                        }
+                    } catch (Exception e) {
+                        log.warn("[GcpWaste] Scheduler scan failed in {}/{}: {}", gcpProjectId, location, e.getMessage());
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("[GcpWaste] findAlwaysFailingSchedulerJobs failed for {}: {}", gcpProjectId, e.getMessage());
+            }
+            return items;
+        }, executor);
     }
 
 }

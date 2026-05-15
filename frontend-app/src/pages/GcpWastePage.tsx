@@ -33,7 +33,7 @@ const GcpWastePage: React.FC = () => {
   const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
 
   // Get waste data using custom hook
-  const { wasteItems, isLoading, isRefreshing, loadWasteReport } = useGcpWasteData({
+  const { wasteItems, isLoading, isRefreshing, isPartial, loadWasteReport } = useGcpWasteData({
     selectedAccountId,
   });
 
@@ -123,6 +123,20 @@ const GcpWastePage: React.FC = () => {
         {/* Waste Data Content */}
         {selectedAccountId && !isLoading && (
           <>
+            {/* Partial scan warning */}
+            {isPartial && (
+              <div className="gcp-waste-partial-banner">
+                <i className="fas fa-exclamation-triangle"></i>
+                <span>
+                  Some detectors timed out — results may be incomplete. Use{' '}
+                  <button onClick={() => loadWasteReport(true)} className="gcp-waste-partial-refresh">
+                    Force Refresh
+                  </button>{' '}
+                  to run a full scan.
+                </span>
+              </div>
+            )}
+
             {/* KPI Cards */}
             <GcpWasteKPICards wasteItems={wasteItems} isLoading={isLoading} />
 

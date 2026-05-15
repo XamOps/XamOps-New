@@ -1,0 +1,41 @@
+version: '3.8'
+
+# Bring up with:
+#   docker compose -f docker-compose.litellm.yml up -d
+#
+# LiteLLM acts as the AI gateway sidecar for xamops-service.
+# xamops-service writes /app/litellm-config.yaml and LiteLLM hot-reloads it.
+# All LLM traffic flows: User → /api/llm-proxy/** (Java) → LiteLLM:4000 → Provider
+
+services:
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    container_name: xamops-litellm
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    volumes:
+      # Shared config volume — Java writes, LiteLLM reads
+      - litellm-config:/app
+    environment:
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-sk-xamops-master}
+      # Disable LiteLLM UI (users interact through XamOps only)
+      - LITELLM_UI_ENABLED=false
+      - STORE_MODEL_IN_DB=false
+      # Keep logs compact
+      - LITELLM_LOG=INFO
+    command: >
+      --config /app/litellm-config.yaml
+      --port 4000
+      --num_workers 4
+      --detailed_debug false
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  litellm-config:
+    driver: local

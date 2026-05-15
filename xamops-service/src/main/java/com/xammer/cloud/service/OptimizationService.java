@@ -44,6 +44,14 @@ import software.amazon.awssdk.services.rds.RdsClient;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.sns.SnsClient;
 import software.amazon.awssdk.services.sqs.SqsClient;
+import software.amazon.awssdk.services.autoscaling.AutoScalingClient;
+import software.amazon.awssdk.services.cloudfront.CloudFrontClient;
+import software.amazon.awssdk.services.route53.Route53Client;
+import software.amazon.awssdk.services.glue.GlueClient;
+import software.amazon.awssdk.services.sfn.SfnClient;
+import software.amazon.awssdk.services.apigateway.ApiGatewayClient;
+import software.amazon.awssdk.services.codebuild.CodeBuildClient;
+import software.amazon.awssdk.services.kinesis.KinesisClient;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -145,11 +153,12 @@ public class OptimizationService {
                 Optional<CachedData> dbCache = cachedDataRepository.findById(dbKey);
                 if (dbCache.isPresent()) {
                     List<DashboardData.OptimizationRecommendation> allRecs = objectMapper.readValue(
-                        dbCache.get().getJsonData(),
-                        new TypeReference<List<DashboardData.OptimizationRecommendation>>() {});
+                            dbCache.get().getJsonData(),
+                            new TypeReference<List<DashboardData.OptimizationRecommendation>>() {
+                            });
                     if (!allRecs.isEmpty()) {
                         logger.info("✅ Serving {} rightsizing recs from DB — repopulating Redis for account {}",
-                            allRecs.size(), accountId);
+                                allRecs.size(), accountId);
                         redisCache.put(cacheKey, allRecs, 60); // re-warm Redis so next request skips DB
                         return CompletableFuture.completedFuture(allRecs);
                     }
@@ -259,7 +268,8 @@ public class OptimizationService {
                             } else {
                                 // Graviton/ARM instances often return 0 from the Pricing API.
                                 // Fall back: price the current (x86) instance and derive recommended cost.
-                                currentCost = pricingService.getEc2InstanceMonthlyPrice(r.currentInstanceType(), regionId);
+                                currentCost = pricingService.getEc2InstanceMonthlyPrice(r.currentInstanceType(),
+                                        regionId);
                                 recommendedCost = Math.max(0, currentCost - savings);
                             }
 
@@ -274,12 +284,11 @@ public class OptimizationService {
                             }
                             // --- End of Fix ---
 
-                            DashboardData.OptimizationRecommendation rec =
-                                    new DashboardData.OptimizationRecommendation(
-                                            "EC2", r.instanceArn().split("/")[1], r.currentInstanceType(),
-                                            bestOption.instanceType(),
-                                            savings, reason, // Use the new 'reason' variable
-                                            currentCost, recommendedCost);
+                            DashboardData.OptimizationRecommendation rec = new DashboardData.OptimizationRecommendation(
+                                    "EC2", r.instanceArn().split("/")[1], r.currentInstanceType(),
+                                    bestOption.instanceType(),
+                                    savings, reason, // Use the new 'reason' variable
+                                    currentCost, recommendedCost);
                             rec.setRegion(regionId);
                             if (r.instanceName() != null && !r.instanceName().isBlank()) {
                                 rec.setInstanceName(r.instanceName());
@@ -478,7 +487,20 @@ public class OptimizationService {
                 findS3StorageClassWaste(account), findIdleEfsFileSystems(account, activeRegions),
                 findIdleElastiCacheClusters(account, activeRegions), findUnusedDynamoDbTables(account, activeRegions),
                 findStaleEcrRepositories(account, activeRegions), findExpiredAcmCertificates(account, activeRegions),
-                findIdleSnsTopics(account, activeRegions), findIdleSqsQueues(account, activeRegions));
+                findIdleSnsTopics(account, activeRegions), findIdleSqsQueues(account, activeRegions),
+                findOversizedEc2Instances(account, activeRegions),
+                findIdleAutoScalingGroups(account, activeRegions),
+                findIdleNatGateways(account, activeRegions),
+                findS3BucketsWithNoReads(account),
+                findLogGroupsWithNoRetentionPolicy(account, activeRegions),
+                findAttachedButIdleEbsVolumes(account, activeRegions),
+                findCloudFrontDistributionsWithNoTraffic(account),
+                findUnusedRoute53HostedZones(account),
+                findGlueJobsNeverRan(account, activeRegions),
+                findIdleStepFunctionsMachines(account, activeRegions),
+                findApiGatewayApisWithNoTraffic(account, activeRegions),
+                findCodeBuildProjectsWithNoBuilds(account, activeRegions),
+                findIdleKinesisStreams(account, activeRegions));
 
         List<CompletableFuture<List<DashboardData.WastedResource>>> safeFutures = futures.stream()
                 .map(f -> f.exceptionally(e -> {
@@ -569,11 +591,12 @@ public class OptimizationService {
         return fetchAllRegionalResources(account, activeRegions, regionId -> {
             RdsClient rds = awsClientProvider.getRdsClient(account, regionId);
             CloudWatchClient cw = awsClientProvider.getCloudWatchClient(account, regionId);
-            List<software.amazon.awssdk.services.rds.model.DBInstance> instances =
-                    rds.describeDBInstances().dbInstances().stream()
-                            .filter(db -> "available".equalsIgnoreCase(db.dbInstanceStatus()))
-                            .collect(Collectors.toList());
-            if (instances.isEmpty()) return List.of();
+            List<software.amazon.awssdk.services.rds.model.DBInstance> instances = rds.describeDBInstances()
+                    .dbInstances().stream()
+                    .filter(db -> "available".equalsIgnoreCase(db.dbInstanceStatus()))
+                    .collect(Collectors.toList());
+            if (instances.isEmpty())
+                return List.of();
 
             Instant end = Instant.now();
             Instant start = end.minus(7, ChronoUnit.DAYS);
@@ -583,7 +606,8 @@ public class OptimizationService {
                         .metricStat(MetricStat.builder()
                                 .metric(Metric.builder().namespace("AWS/RDS").metricName("DatabaseConnections")
                                         .dimensions(Dimension.builder().name("DBInstanceIdentifier")
-                                                .value(instances.get(i).dbInstanceIdentifier()).build()).build())
+                                                .value(instances.get(i).dbInstanceIdentifier()).build())
+                                        .build())
                                 .period(86400).stat("Maximum").build())
                         .returnData(true).build());
             }
@@ -629,7 +653,8 @@ public class OptimizationService {
             EksClient eks = awsClientProvider.getEksClient(account, regionId);
             CloudWatchClient cw = awsClientProvider.getCloudWatchClient(account, regionId);
             List<String> clusters = eks.listClusters().clusters();
-            if (clusters.isEmpty()) return List.of();
+            if (clusters.isEmpty())
+                return List.of();
 
             Instant end = Instant.now();
             Instant start = end.minus(14, ChronoUnit.DAYS);
@@ -637,8 +662,11 @@ public class OptimizationService {
             for (int i = 0; i < clusters.size(); i++) {
                 queries.add(MetricDataQuery.builder().id("eks" + i)
                         .metricStat(MetricStat.builder()
-                                .metric(Metric.builder().namespace("ContainerInsights").metricName("node_cpu_utilization")
-                                        .dimensions(Dimension.builder().name("ClusterName").value(clusters.get(i)).build()).build())
+                                .metric(Metric.builder().namespace("ContainerInsights")
+                                        .metricName("node_cpu_utilization")
+                                        .dimensions(
+                                                Dimension.builder().name("ClusterName").value(clusters.get(i)).build())
+                                        .build())
                                 .period(86400).stat("Average").build())
                         .returnData(true).build());
             }
@@ -678,9 +706,10 @@ public class OptimizationService {
         return fetchAllRegionalResources(account, activeRegions, regionId -> {
             LambdaClient lambda = awsClientProvider.getLambdaClient(account, regionId);
             CloudWatchClient cw = awsClientProvider.getCloudWatchClient(account, regionId);
-            List<software.amazon.awssdk.services.lambda.model.FunctionConfiguration> functions =
-                    lambda.listFunctions().functions();
-            if (functions.isEmpty()) return List.of();
+            List<software.amazon.awssdk.services.lambda.model.FunctionConfiguration> functions = lambda.listFunctions()
+                    .functions();
+            if (functions.isEmpty())
+                return List.of();
 
             Instant end = Instant.now();
             Instant start = end.minus(30, ChronoUnit.DAYS);
@@ -690,7 +719,8 @@ public class OptimizationService {
                         .metricStat(MetricStat.builder()
                                 .metric(Metric.builder().namespace("AWS/Lambda").metricName("Invocations")
                                         .dimensions(Dimension.builder().name("FunctionName")
-                                                .value(functions.get(i).functionName()).build()).build())
+                                                .value(functions.get(i).functionName()).build())
+                                        .build())
                                 .period(86400).stat("Sum").build())
                         .returnData(true).build());
             }
@@ -789,7 +819,8 @@ public class OptimizationService {
             List<Instance> instances = ec2
                     .describeInstances(r -> r.filters(f -> f.name("instance-state-name").values("running")))
                     .reservations().stream().flatMap(r -> r.instances().stream()).collect(Collectors.toList());
-            if (instances.isEmpty()) return List.of();
+            if (instances.isEmpty())
+                return List.of();
 
             Instant end = Instant.now();
             Instant start = end.minus(30, ChronoUnit.DAYS);
@@ -827,8 +858,10 @@ public class OptimizationService {
                         .mapToDouble(Double::doubleValue).max().orElse(100.0);
                 List<Double> ninVals = netResults.getOrDefault("nin" + i, List.of());
                 List<Double> nouVals = netResults.getOrDefault("nou" + i, List.of());
-                double networkIn = ninVals.isEmpty() ? Double.MAX_VALUE : ninVals.stream().mapToDouble(Double::doubleValue).sum();
-                double networkOut = nouVals.isEmpty() ? Double.MAX_VALUE : nouVals.stream().mapToDouble(Double::doubleValue).sum();
+                double networkIn = ninVals.isEmpty() ? Double.MAX_VALUE
+                        : ninVals.stream().mapToDouble(Double::doubleValue).sum();
+                double networkOut = nouVals.isEmpty() ? Double.MAX_VALUE
+                        : nouVals.stream().mapToDouble(Double::doubleValue).sum();
                 if (maxCpu < maxCpuThreshold && networkIn < networkThreshold && networkOut < networkThreshold) {
                     Instance inst = instances.get(i);
                     findings.add(new DashboardData.WastedResource(inst.instanceId(),
@@ -926,8 +959,10 @@ public class OptimizationService {
     }
 
     /**
-     * Executes CloudWatch GetMetricData in batches of 500 queries (API limit) and returns
-     * a map of query ID → list of metric values. Replaces individual GetMetricStatistics calls.
+     * Executes CloudWatch GetMetricData in batches of 500 queries (API limit) and
+     * returns
+     * a map of query ID → list of metric values. Replaces individual
+     * GetMetricStatistics calls.
      */
     private Map<String, List<Double>> batchGetMetrics(CloudWatchClient cw, List<MetricDataQuery> queries,
             Instant start, Instant end) {
@@ -966,7 +1001,8 @@ public class OptimizationService {
             try {
                 S3Client s3 = awsClientProvider.getS3Client(account, "us-east-1");
                 List<software.amazon.awssdk.services.s3.model.Bucket> buckets = s3.listBuckets().buckets();
-                if (buckets.isEmpty()) return output;
+                if (buckets.isEmpty())
+                    return output;
 
                 // Group buckets by region to batch one GetMetricData call per region
                 Map<String, List<String>> bucketsByRegion = new HashMap<>();
@@ -994,8 +1030,10 @@ public class OptimizationService {
                                     .metricStat(MetricStat.builder()
                                             .metric(Metric.builder().namespace("AWS/S3").metricName("BucketSizeBytes")
                                                     .dimensions(
-                                                            Dimension.builder().name("BucketName").value(regionBuckets.get(i)).build(),
-                                                            Dimension.builder().name("StorageType").value("StandardStorage").build())
+                                                            Dimension.builder().name("BucketName")
+                                                                    .value(regionBuckets.get(i)).build(),
+                                                            Dimension.builder().name("StorageType")
+                                                                    .value("StandardStorage").build())
                                                     .build())
                                             .period(86400).stat("Average").build())
                                     .returnData(true).build());
@@ -1009,7 +1047,8 @@ public class OptimizationService {
                                 String name = regionBuckets.get(i);
                                 output.add(new DashboardData.WastedResource(name, name, "S3 Bucket", region,
                                         gbInStandard * (0.023 - 0.0125),
-                                        String.format("%.1f GB in Standard storage - consider Intelligent-Tiering or Standard-IA",
+                                        String.format(
+                                                "%.1f GB in Standard storage - consider Intelligent-Tiering or Standard-IA",
                                                 gbInStandard)));
                             }
                         }
@@ -1029,9 +1068,11 @@ public class OptimizationService {
         return fetchAllRegionalResources(account, activeRegions, regionId -> {
             EfsClient efs = awsClientProvider.getEfsClient(account, regionId);
             CloudWatchClient cw = awsClientProvider.getCloudWatchClient(account, regionId);
-            List<software.amazon.awssdk.services.efs.model.FileSystemDescription> fileSystems =
-                    efs.describeFileSystems(r -> {}).fileSystems();
-            if (fileSystems.isEmpty()) return List.of();
+            List<software.amazon.awssdk.services.efs.model.FileSystemDescription> fileSystems = efs
+                    .describeFileSystems(r -> {
+                    }).fileSystems();
+            if (fileSystems.isEmpty())
+                return List.of();
 
             Instant end = Instant.now();
             Instant start = end.minus(90, ChronoUnit.DAYS);
@@ -1041,7 +1082,8 @@ public class OptimizationService {
                         .metricStat(MetricStat.builder()
                                 .metric(Metric.builder().namespace("AWS/EFS").metricName("MeteredIOBytes")
                                         .dimensions(Dimension.builder().name("FileSystemId")
-                                                .value(fileSystems.get(i).fileSystemId()).build()).build())
+                                                .value(fileSystems.get(i).fileSystemId()).build())
+                                        .build())
                                 .period(86400).stat("Sum").build())
                         .returnData(true).build());
             }
@@ -1068,11 +1110,12 @@ public class OptimizationService {
         return fetchAllRegionalResources(account, activeRegions, regionId -> {
             ElastiCacheClient ec = awsClientProvider.getElastiCacheClient(account, regionId);
             CloudWatchClient cw = awsClientProvider.getCloudWatchClient(account, regionId);
-            List<software.amazon.awssdk.services.elasticache.model.CacheCluster> clusters =
-                    ec.describeCacheClusters(r -> r.showCacheNodeInfo(true)).cacheClusters().stream()
-                            .filter(cluster -> "available".equals(cluster.cacheClusterStatus()))
-                            .collect(Collectors.toList());
-            if (clusters.isEmpty()) return List.of();
+            List<software.amazon.awssdk.services.elasticache.model.CacheCluster> clusters = ec
+                    .describeCacheClusters(r -> r.showCacheNodeInfo(true)).cacheClusters().stream()
+                    .filter(cluster -> "available".equals(cluster.cacheClusterStatus()))
+                    .collect(Collectors.toList());
+            if (clusters.isEmpty())
+                return List.of();
 
             Instant end = Instant.now();
             Instant start = end.minus(90, ChronoUnit.DAYS);
@@ -1082,7 +1125,8 @@ public class OptimizationService {
                         .metricStat(MetricStat.builder()
                                 .metric(Metric.builder().namespace("AWS/ElastiCache").metricName("CurrConnections")
                                         .dimensions(Dimension.builder().name("CacheClusterId")
-                                                .value(clusters.get(i).cacheClusterId()).build()).build())
+                                                .value(clusters.get(i).cacheClusterId()).build())
+                                        .build())
                                 .period(86400).stat("Maximum").build())
                         .returnData(true).build());
             }
@@ -1110,7 +1154,8 @@ public class OptimizationService {
             DynamoDbClient ddb = awsClientProvider.getDynamoDbClient(account, regionId);
             CloudWatchClient cw = awsClientProvider.getCloudWatchClient(account, regionId);
             List<String> tableNames = ddb.listTables().tableNames();
-            if (tableNames.isEmpty()) return List.of();
+            if (tableNames.isEmpty())
+                return List.of();
 
             Instant end = Instant.now();
             Instant start = end.minus(90, ChronoUnit.DAYS);
@@ -1119,13 +1164,15 @@ public class OptimizationService {
                 String tbl = tableNames.get(i);
                 queries.add(MetricDataQuery.builder().id("ddbr" + i)
                         .metricStat(MetricStat.builder()
-                                .metric(Metric.builder().namespace("AWS/DynamoDB").metricName("ConsumedReadCapacityUnits")
+                                .metric(Metric.builder().namespace("AWS/DynamoDB")
+                                        .metricName("ConsumedReadCapacityUnits")
                                         .dimensions(Dimension.builder().name("TableName").value(tbl).build()).build())
                                 .period(86400).stat("Sum").build())
                         .returnData(true).build());
                 queries.add(MetricDataQuery.builder().id("ddbw" + i)
                         .metricStat(MetricStat.builder()
-                                .metric(Metric.builder().namespace("AWS/DynamoDB").metricName("ConsumedWriteCapacityUnits")
+                                .metric(Metric.builder().namespace("AWS/DynamoDB")
+                                        .metricName("ConsumedWriteCapacityUnits")
                                         .dimensions(Dimension.builder().name("TableName").value(tbl).build()).build())
                                 .period(86400).stat("Sum").build())
                         .returnData(true).build());
@@ -1134,8 +1181,10 @@ public class OptimizationService {
 
             List<DashboardData.WastedResource> findings = new ArrayList<>();
             for (int i = 0; i < tableNames.size(); i++) {
-                double reads = results.getOrDefault("ddbr" + i, List.of()).stream().mapToDouble(Double::doubleValue).sum();
-                double writes = results.getOrDefault("ddbw" + i, List.of()).stream().mapToDouble(Double::doubleValue).sum();
+                double reads = results.getOrDefault("ddbr" + i, List.of()).stream().mapToDouble(Double::doubleValue)
+                        .sum();
+                double writes = results.getOrDefault("ddbw" + i, List.of()).stream().mapToDouble(Double::doubleValue)
+                        .sum();
                 if (reads == 0.0 && writes == 0.0) {
                     String tableName = tableNames.get(i);
                     double sizeGb;
@@ -1161,8 +1210,10 @@ public class OptimizationService {
             return ecr.describeRepositories().repositories().stream()
                     .filter(repo -> {
                         try {
-                            var images = ecr.describeImages(r -> r.repositoryName(repo.repositoryName())).imageDetails();
-                            if (images.isEmpty()) return true;
+                            var images = ecr.describeImages(r -> r.repositoryName(repo.repositoryName()))
+                                    .imageDetails();
+                            if (images.isEmpty())
+                                return true;
                             return images.stream().allMatch(img -> img.imagePushedAt() != null
                                     && img.imagePushedAt().isBefore(ninetyDaysAgo));
                         } catch (Exception e) {
@@ -1210,7 +1261,8 @@ public class OptimizationService {
             SnsClient sns = awsClientProvider.getSnsClient(account, regionId);
             CloudWatchClient cw = awsClientProvider.getCloudWatchClient(account, regionId);
             List<software.amazon.awssdk.services.sns.model.Topic> topics = sns.listTopics().topics();
-            if (topics.isEmpty()) return List.of();
+            if (topics.isEmpty())
+                return List.of();
 
             Instant end = Instant.now();
             Instant start = end.minus(90, ChronoUnit.DAYS);
@@ -1220,7 +1272,8 @@ public class OptimizationService {
                 queries.add(MetricDataQuery.builder().id("sns" + i)
                         .metricStat(MetricStat.builder()
                                 .metric(Metric.builder().namespace("AWS/SNS").metricName("NumberOfMessagesPublished")
-                                        .dimensions(Dimension.builder().name("TopicName").value(topicName).build()).build())
+                                        .dimensions(Dimension.builder().name("TopicName").value(topicName).build())
+                                        .build())
                                 .period(86400).stat("Sum").build())
                         .returnData(true).build());
             }
@@ -1247,7 +1300,8 @@ public class OptimizationService {
             SqsClient sqs = awsClientProvider.getSqsClient(account, regionId);
             CloudWatchClient cw = awsClientProvider.getCloudWatchClient(account, regionId);
             List<String> queueUrls = sqs.listQueues().queueUrls();
-            if (queueUrls.isEmpty()) return List.of();
+            if (queueUrls.isEmpty())
+                return List.of();
 
             Instant end = Instant.now();
             Instant sentStart = end.minus(90, ChronoUnit.DAYS);
@@ -1259,13 +1313,16 @@ public class OptimizationService {
                 queries.add(MetricDataQuery.builder().id("sqss" + i)
                         .metricStat(MetricStat.builder()
                                 .metric(Metric.builder().namespace("AWS/SQS").metricName("NumberOfMessagesSent")
-                                        .dimensions(Dimension.builder().name("QueueName").value(queueName).build()).build())
+                                        .dimensions(Dimension.builder().name("QueueName").value(queueName).build())
+                                        .build())
                                 .period(86400).stat("Sum").build())
                         .returnData(true).build());
                 queries.add(MetricDataQuery.builder().id("sqsv" + i)
                         .metricStat(MetricStat.builder()
-                                .metric(Metric.builder().namespace("AWS/SQS").metricName("ApproximateNumberOfMessagesVisible")
-                                        .dimensions(Dimension.builder().name("QueueName").value(queueName).build()).build())
+                                .metric(Metric.builder().namespace("AWS/SQS")
+                                        .metricName("ApproximateNumberOfMessagesVisible")
+                                        .dimensions(Dimension.builder().name("QueueName").value(queueName).build())
+                                        .build())
                                 .period(86400).stat("Maximum").build())
                         .returnData(true).build());
             }
@@ -1277,8 +1334,10 @@ public class OptimizationService {
 
             List<DashboardData.WastedResource> findings = new ArrayList<>();
             for (int i = 0; i < queueUrls.size(); i++) {
-                double sent = sentResults.getOrDefault("sqss" + i, List.of()).stream().mapToDouble(Double::doubleValue).sum();
-                double visible = visibleResults.getOrDefault("sqsv" + i, List.of()).stream().mapToDouble(Double::doubleValue).max().orElse(0.0);
+                double sent = sentResults.getOrDefault("sqss" + i, List.of()).stream().mapToDouble(Double::doubleValue)
+                        .sum();
+                double visible = visibleResults.getOrDefault("sqsv" + i, List.of()).stream()
+                        .mapToDouble(Double::doubleValue).max().orElse(0.0);
                 if (sent == 0.0 && visible == 0.0) {
                     String queueUrl = queueUrls.get(i);
                     String queueName = queueUrl.substring(queueUrl.lastIndexOf('/') + 1);
@@ -1300,5 +1359,615 @@ public class OptimizationService {
                 .build();
         return GetMetricDataRequest.builder().startTime(Instant.now().minus(1, ChronoUnit.DAYS)).endTime(Instant.now())
                 .metricDataQueries(metricDataQuery).scanBy(ScanBy.TIMESTAMP_DESCENDING).build();
+    }
+
+    // EC2 instances that are technically running but oversized — CPU < 10% avg over
+    // 14 days
+    // on an instance type of xlarge or larger where idle capacity carries real
+    // cost.
+    private CompletableFuture<List<DashboardData.WastedResource>> findOversizedEc2Instances(CloudAccount account,
+            List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            Ec2Client ec2 = awsClientProvider.getEc2Client(account, regionId);
+            CloudWatchClient cw = awsClientProvider.getCloudWatchClient(account, regionId);
+
+            List<software.amazon.awssdk.services.ec2.model.Instance> instances = ec2.describeInstances(
+                    r -> r.filters(software.amazon.awssdk.services.ec2.model.Filter.builder()
+                            .name("instance-state-name").values("running").build()))
+                    .reservations().stream()
+                    .flatMap(res -> res.instances().stream())
+                    .filter(i -> {
+                        String t = i.instanceTypeAsString();
+                        return t.contains("xlarge") || t.endsWith("2xlarge") || t.endsWith("4xlarge")
+                                || t.endsWith("8xlarge") || t.endsWith("12xlarge") || t.endsWith("16xlarge")
+                                || t.endsWith("24xlarge") || t.endsWith("32xlarge") || t.endsWith("48xlarge");
+                    })
+                    .collect(Collectors.toList());
+
+            if (instances.isEmpty())
+                return List.of();
+
+            Instant end = Instant.now();
+            Instant start = end.minus(14, ChronoUnit.DAYS);
+            List<MetricDataQuery> queries = new ArrayList<>();
+            for (int i = 0; i < instances.size(); i++) {
+                queries.add(MetricDataQuery.builder().id("ec2oc" + i)
+                        .metricStat(MetricStat.builder()
+                                .metric(Metric.builder().namespace("AWS/EC2").metricName("CPUUtilization")
+                                        .dimensions(Dimension.builder().name("InstanceId")
+                                                .value(instances.get(i).instanceId()).build())
+                                        .build())
+                                .period(86400).stat("Average").build())
+                        .returnData(true).build());
+            }
+            Map<String, List<Double>> results = batchGetMetrics(cw, queries, start, end);
+
+            List<DashboardData.WastedResource> findings = new ArrayList<>();
+            for (int i = 0; i < instances.size(); i++) {
+                List<Double> values = results.getOrDefault("ec2oc" + i, List.of());
+                if (!values.isEmpty() && values.stream().allMatch(v -> v < 10.0)) {
+                    var inst = instances.get(i);
+                    String name = getTagName(inst.tags(), inst.instanceId());
+                    double cost = pricingService.getEc2InstanceMonthlyPrice(inst.instanceTypeAsString(), regionId);
+                    findings.add(new DashboardData.WastedResource(inst.instanceId(), name,
+                            "EC2 Instance", regionId, cost,
+                            "Oversized: CPU < 10% avg over 14 days (" + inst.instanceTypeAsString() + ")"));
+                }
+            }
+            return findings;
+        }, "Oversized EC2 Instances");
+    }
+
+    // Auto Scaling Groups that have never scaled in/out in 30 days — capacity is
+    // provisioned but static.
+    private CompletableFuture<List<DashboardData.WastedResource>> findIdleAutoScalingGroups(CloudAccount account,
+            List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            AutoScalingClient asg = awsClientProvider.getAutoScalingClient(account, regionId);
+            CloudWatchClient cw = awsClientProvider.getCloudWatchClient(account, regionId);
+
+            List<software.amazon.awssdk.services.autoscaling.model.AutoScalingGroup> groups = asg
+                    .describeAutoScalingGroups().autoScalingGroups().stream()
+                    .filter(g -> g.minSize() > 0)
+                    .collect(Collectors.toList());
+
+            if (groups.isEmpty())
+                return List.of();
+
+            Instant end = Instant.now();
+            Instant start = end.minus(30, ChronoUnit.DAYS);
+            List<MetricDataQuery> scaleOutQueries = new ArrayList<>();
+            List<MetricDataQuery> scaleInQueries = new ArrayList<>();
+            for (int i = 0; i < groups.size(); i++) {
+                String asgName = groups.get(i).autoScalingGroupName();
+                scaleOutQueries.add(MetricDataQuery.builder().id("asgout" + i)
+                        .metricStat(MetricStat.builder()
+                                .metric(Metric.builder().namespace("AWS/AutoScaling")
+                                        .metricName("GroupTotalInstances")
+                                        .dimensions(Dimension.builder().name("AutoScalingGroupName")
+                                                .value(asgName).build())
+                                        .build())
+                                .period(86400).stat("Maximum").build())
+                        .returnData(true).build());
+                scaleInQueries.add(MetricDataQuery.builder().id("asgin" + i)
+                        .metricStat(MetricStat.builder()
+                                .metric(Metric.builder().namespace("AWS/AutoScaling")
+                                        .metricName("GroupTotalInstances")
+                                        .dimensions(Dimension.builder().name("AutoScalingGroupName")
+                                                .value(asgName).build())
+                                        .build())
+                                .period(86400).stat("Minimum").build())
+                        .returnData(true).build());
+            }
+            Map<String, List<Double>> maxResults = batchGetMetrics(cw, scaleOutQueries, start, end);
+            Map<String, List<Double>> minResults = batchGetMetrics(cw, scaleInQueries, start, end);
+
+            List<DashboardData.WastedResource> findings = new ArrayList<>();
+            for (int i = 0; i < groups.size(); i++) {
+                List<Double> maxVals = maxResults.getOrDefault("asgout" + i, List.of());
+                List<Double> minVals = minResults.getOrDefault("asgin" + i, List.of());
+                if (maxVals.isEmpty() || minVals.isEmpty())
+                    continue;
+                double overallMax = maxVals.stream().mapToDouble(Double::doubleValue).max().orElse(0);
+                double overallMin = minVals.stream().mapToDouble(Double::doubleValue).min().orElse(0);
+                // No scaling activity: max and min stayed equal across all days
+                if (overallMax == overallMin) {
+                    var g = groups.get(i);
+                    findings.add(new DashboardData.WastedResource(
+                            g.autoScalingGroupARN(), g.autoScalingGroupName(),
+                            "Auto Scaling Group", regionId, 0.0,
+                            "No scale-in/scale-out activity in 30 days"));
+                }
+            }
+            return findings;
+        }, "Idle Auto Scaling Groups");
+    }
+
+    // NAT Gateways with very low processed bytes — fixed cost ~$32/mo even when
+    // unused.
+    private CompletableFuture<List<DashboardData.WastedResource>> findIdleNatGateways(CloudAccount account,
+            List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            Ec2Client ec2 = awsClientProvider.getEc2Client(account, regionId);
+            CloudWatchClient cw = awsClientProvider.getCloudWatchClient(account, regionId);
+
+            List<software.amazon.awssdk.services.ec2.model.NatGateway> gateways = ec2.describeNatGateways(r -> r.filter(
+                    software.amazon.awssdk.services.ec2.model.Filter.builder()
+                            .name("state").values("available").build()))
+                    .natGateways();
+
+            if (gateways.isEmpty())
+                return List.of();
+
+            Instant end = Instant.now();
+            Instant start = end.minus(30, ChronoUnit.DAYS);
+            List<MetricDataQuery> queries = new ArrayList<>();
+            for (int i = 0; i < gateways.size(); i++) {
+                queries.add(MetricDataQuery.builder().id("nat" + i)
+                        .metricStat(MetricStat.builder()
+                                .metric(Metric.builder().namespace("AWS/NATGateway")
+                                        .metricName("BytesOutToDestination")
+                                        .dimensions(Dimension.builder().name("NatGatewayId")
+                                                .value(gateways.get(i).natGatewayId()).build())
+                                        .build())
+                                .period(2592000).stat("Sum").build())
+                        .returnData(true).build());
+            }
+            Map<String, List<Double>> results = batchGetMetrics(cw, queries, start, end);
+
+            List<DashboardData.WastedResource> findings = new ArrayList<>();
+            for (int i = 0; i < gateways.size(); i++) {
+                double totalBytes = results.getOrDefault("nat" + i, List.of())
+                        .stream().mapToDouble(Double::doubleValue).sum();
+                // Flag if less than 1 MB of outbound traffic in 30 days
+                if (totalBytes < 1_048_576) {
+                    var gw = gateways.get(i);
+                    String name = gw.tags().stream().filter(t -> "Name".equals(t.key()))
+                            .map(software.amazon.awssdk.services.ec2.model.Tag::value)
+                            .findFirst().orElse(gw.natGatewayId());
+                    findings.add(new DashboardData.WastedResource(gw.natGatewayId(), name,
+                            "NAT Gateway", regionId, 32.40,
+                            "Near-zero traffic in 30 days (<1 MB outbound)"));
+                }
+            }
+            return findings;
+        }, "Idle NAT Gateways");
+    }
+
+    // S3 buckets with no GET requests in 90 days — data sitting cold without
+    // Glacier pricing.
+    private CompletableFuture<List<DashboardData.WastedResource>> findS3BucketsWithNoReads(CloudAccount account) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                S3Client s3 = awsClientProvider.getS3Client(account, "us-east-1");
+                CloudWatchClient cw = awsClientProvider.getCloudWatchClient(account, "us-east-1");
+                List<software.amazon.awssdk.services.s3.model.Bucket> buckets = s3.listBuckets().buckets();
+                if (buckets.isEmpty())
+                    return List.of();
+
+                Instant end = Instant.now();
+                Instant start = end.minus(90, ChronoUnit.DAYS);
+                List<MetricDataQuery> queries = new ArrayList<>();
+                for (int i = 0; i < buckets.size(); i++) {
+                    queries.add(MetricDataQuery.builder().id("s3r" + i)
+                            .metricStat(MetricStat.builder()
+                                    .metric(Metric.builder().namespace("AWS/S3")
+                                            .metricName("GetRequests")
+                                            .dimensions(
+                                                    Dimension.builder().name("BucketName")
+                                                            .value(buckets.get(i).name()).build(),
+                                                    Dimension.builder().name("FilterId")
+                                                            .value("EntireBucket").build())
+                                            .build())
+                                    .period(2592000).stat("Sum").build())
+                            .returnData(true).build());
+                }
+                Map<String, List<Double>> results = batchGetMetrics(cw, queries, start, end);
+
+                List<DashboardData.WastedResource> findings = new ArrayList<>();
+                for (int i = 0; i < buckets.size(); i++) {
+                    double gets = results.getOrDefault("s3r" + i, List.of())
+                            .stream().mapToDouble(Double::doubleValue).sum();
+                    if (gets == 0.0) {
+                        String bucketName = buckets.get(i).name();
+                        findings.add(new DashboardData.WastedResource(bucketName, bucketName,
+                                "S3 Bucket", "global", 0.0,
+                                "No GET requests in 90 days — consider Glacier or deletion"));
+                    }
+                }
+                return findings;
+            } catch (Exception e) {
+                logger.warn("S3 no-read scan failed: {}", e.getMessage());
+                return Collections.emptyList();
+            }
+        });
+    }
+
+    // CloudWatch Log Groups with no retention policy — logs accumulate forever at
+    // $0.03/GB/month.
+    private CompletableFuture<List<DashboardData.WastedResource>> findLogGroupsWithNoRetentionPolicy(
+            CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            CloudWatchLogsClient logs = awsClientProvider.getCloudWatchLogsClient(account, regionId);
+            return logs.describeLogGroups().logGroups().stream()
+                    .filter(lg -> lg.retentionInDays() == null && lg.storedBytes() != null && lg.storedBytes() > 0)
+                    .map(lg -> {
+                        double monthlyCost = (lg.storedBytes() / 1_073_741_824.0) * 0.03;
+                        return new DashboardData.WastedResource(lg.logGroupName(), lg.logGroupName(),
+                                "CloudWatch Log Group", regionId, monthlyCost,
+                                "No retention policy — logs accumulate indefinitely");
+                    })
+                    .collect(Collectors.toList());
+        }, "Log Groups With No Retention");
+    }
+
+    // EBS volumes that are attached to an instance but have had zero read/write ops
+    // in 14 days.
+    private CompletableFuture<List<DashboardData.WastedResource>> findAttachedButIdleEbsVolumes(CloudAccount account,
+            List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            Ec2Client ec2 = awsClientProvider.getEc2Client(account, regionId);
+            CloudWatchClient cw = awsClientProvider.getCloudWatchClient(account, regionId);
+
+            List<Volume> volumes = ec2.describeVolumes(r -> r.filters(
+                    software.amazon.awssdk.services.ec2.model.Filter.builder()
+                            .name("status").values("in-use").build()))
+                    .volumes();
+
+            if (volumes.isEmpty())
+                return List.of();
+
+            Instant end = Instant.now();
+            Instant start = end.minus(14, ChronoUnit.DAYS);
+            List<MetricDataQuery> readQueries = new ArrayList<>();
+            List<MetricDataQuery> writeQueries = new ArrayList<>();
+            for (int i = 0; i < volumes.size(); i++) {
+                String vid = volumes.get(i).volumeId();
+                readQueries.add(MetricDataQuery.builder().id("ebsr" + i)
+                        .metricStat(MetricStat.builder()
+                                .metric(Metric.builder().namespace("AWS/EBS").metricName("VolumeReadOps")
+                                        .dimensions(Dimension.builder().name("VolumeId").value(vid).build()).build())
+                                .period(1209600).stat("Sum").build())
+                        .returnData(true).build());
+                writeQueries.add(MetricDataQuery.builder().id("ebsw" + i)
+                        .metricStat(MetricStat.builder()
+                                .metric(Metric.builder().namespace("AWS/EBS").metricName("VolumeWriteOps")
+                                        .dimensions(Dimension.builder().name("VolumeId").value(vid).build()).build())
+                                .period(1209600).stat("Sum").build())
+                        .returnData(true).build());
+            }
+            Map<String, List<Double>> readResults = batchGetMetrics(cw, readQueries, start, end);
+            Map<String, List<Double>> writeResults = batchGetMetrics(cw, writeQueries, start, end);
+
+            List<DashboardData.WastedResource> findings = new ArrayList<>();
+            for (int i = 0; i < volumes.size(); i++) {
+                double reads = readResults.getOrDefault("ebsr" + i, List.of())
+                        .stream().mapToDouble(Double::doubleValue).sum();
+                double writes = writeResults.getOrDefault("ebsw" + i, List.of())
+                        .stream().mapToDouble(Double::doubleValue).sum();
+                if (reads == 0.0 && writes == 0.0) {
+                    Volume v = volumes.get(i);
+                    double cost = calculateEbsMonthlyCost(v, regionId);
+                    findings.add(new DashboardData.WastedResource(v.volumeId(),
+                            getTagName(v.tags(), v.volumeId()), "EBS Volume", regionId, cost,
+                            "Attached but 0 read/write ops in 14 days"));
+                }
+            }
+            return findings;
+        }, "Attached But Idle EBS Volumes");
+    }
+
+    // CloudFront distributions with zero requests in 30 days — still incur origin
+    // transfer costs.
+    private CompletableFuture<List<DashboardData.WastedResource>> findCloudFrontDistributionsWithNoTraffic(
+            CloudAccount account) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                CloudFrontClient cf = awsClientProvider.getCloudFrontClient(account);
+                CloudWatchClient cw = awsClientProvider.getCloudWatchClient(account, "us-east-1");
+
+                List<software.amazon.awssdk.services.cloudfront.model.DistributionSummary> distributions = cf
+                        .listDistributions().distributionList().items();
+                if (distributions.isEmpty())
+                    return List.of();
+
+                Instant end = Instant.now();
+                Instant start = end.minus(30, ChronoUnit.DAYS);
+                List<MetricDataQuery> queries = new ArrayList<>();
+                for (int i = 0; i < distributions.size(); i++) {
+                    queries.add(MetricDataQuery.builder().id("cf" + i)
+                            .metricStat(MetricStat.builder()
+                                    .metric(Metric.builder().namespace("AWS/CloudFront")
+                                            .metricName("Requests")
+                                            .dimensions(
+                                                    Dimension.builder().name("DistributionId")
+                                                            .value(distributions.get(i).id()).build(),
+                                                    Dimension.builder().name("Region").value("Global").build())
+                                            .build())
+                                    .period(2592000).stat("Sum").build())
+                            .returnData(true).build());
+                }
+                Map<String, List<Double>> results = batchGetMetrics(cw, queries, start, end);
+
+                List<DashboardData.WastedResource> findings = new ArrayList<>();
+                for (int i = 0; i < distributions.size(); i++) {
+                    double requests = results.getOrDefault("cf" + i, List.of())
+                            .stream().mapToDouble(Double::doubleValue).sum();
+                    if (requests == 0.0) {
+                        var dist = distributions.get(i);
+                        findings.add(new DashboardData.WastedResource(dist.id(), dist.domainName(),
+                                "CloudFront Distribution", "global", 0.0,
+                                "Zero requests in 30 days"));
+                    }
+                }
+                return findings;
+            } catch (Exception e) {
+                logger.warn("CloudFront idle scan failed: {}", e.getMessage());
+                return Collections.<DashboardData.WastedResource>emptyList();
+            }
+        });
+    }
+
+    // Route 53 hosted zones with no DNS queries — $0.50/zone/month accumulates
+    // across abandoned projects.
+    private CompletableFuture<List<DashboardData.WastedResource>> findUnusedRoute53HostedZones(
+            CloudAccount account) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                Route53Client r53 = awsClientProvider.getRoute53Client(account);
+                CloudWatchClient cw = awsClientProvider.getCloudWatchClient(account, "us-east-1");
+
+                List<software.amazon.awssdk.services.route53.model.HostedZone> zones = r53.listHostedZones()
+                        .hostedZones().stream()
+                        .filter(z -> !z.config().privateZone())
+                        .collect(Collectors.toList());
+                if (zones.isEmpty())
+                    return List.of();
+
+                Instant end = Instant.now();
+                Instant start = end.minus(30, ChronoUnit.DAYS);
+                List<MetricDataQuery> queries = new ArrayList<>();
+                for (int i = 0; i < zones.size(); i++) {
+                    String zoneId = zones.get(i).id().replace("/hostedzone/", "");
+                    queries.add(MetricDataQuery.builder().id("r53" + i)
+                            .metricStat(MetricStat.builder()
+                                    .metric(Metric.builder().namespace("AWS/Route53")
+                                            .metricName("DNSQueries")
+                                            .dimensions(Dimension.builder().name("HostedZoneId")
+                                                    .value(zoneId).build())
+                                            .build())
+                                    .period(2592000).stat("Sum").build())
+                            .returnData(true).build());
+                }
+                Map<String, List<Double>> results = batchGetMetrics(cw, queries, start, end);
+
+                List<DashboardData.WastedResource> findings = new ArrayList<>();
+                for (int i = 0; i < zones.size(); i++) {
+                    double queries2 = results.getOrDefault("r53" + i, List.of())
+                            .stream().mapToDouble(Double::doubleValue).sum();
+                    if (queries2 == 0.0) {
+                        var zone = zones.get(i);
+                        findings.add(new DashboardData.WastedResource(zone.id(), zone.name(),
+                                "Route53 Hosted Zone", "global", 0.50,
+                                "Zero DNS queries in 30 days"));
+                    }
+                }
+                return findings;
+            } catch (Exception e) {
+                logger.warn("Route53 idle scan failed: {}", e.getMessage());
+                return Collections.<DashboardData.WastedResource>emptyList();
+            }
+        });
+    }
+
+    // Glue jobs that were created but have never been triggered — ETL pipelines for
+    // dead projects.
+    private CompletableFuture<List<DashboardData.WastedResource>> findGlueJobsNeverRan(CloudAccount account,
+            List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            GlueClient glue = awsClientProvider.getGlueClient(account, regionId);
+            List<DashboardData.WastedResource> findings = new ArrayList<>();
+            try {
+                var jobs = glue.getJobs(r -> {}).jobs();
+                for (var job : jobs) {
+                    try {
+                        var runs = glue.getJobRuns(r -> r.jobName(job.name()).maxResults(1)).jobRuns();
+                        if (runs.isEmpty()) {
+                            findings.add(new DashboardData.WastedResource(job.name(), job.name(),
+                                    "Glue Job", regionId, 0.0, "Job created but never executed"));
+                        }
+                    } catch (Exception e) {
+                        logger.warn("Could not get runs for Glue job {}: {}", job.name(), e.getMessage());
+                    }
+                }
+            } catch (Exception e) {
+                logger.warn("Glue job scan failed in {}: {}", regionId, e.getMessage());
+            }
+            return findings;
+        }, "Glue Jobs Never Ran");
+    }
+
+    // Step Functions state machines with zero executions in 30 days — forgotten
+    // automations.
+    private CompletableFuture<List<DashboardData.WastedResource>> findIdleStepFunctionsMachines(CloudAccount account,
+            List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            SfnClient sfn = awsClientProvider.getSfnClient(account, regionId);
+            CloudWatchClient cw = awsClientProvider.getCloudWatchClient(account, regionId);
+
+            List<software.amazon.awssdk.services.sfn.model.StateMachineListItem> machines = sfn.listStateMachines()
+                    .stateMachines();
+            if (machines.isEmpty())
+                return List.of();
+
+            Instant end = Instant.now();
+            Instant start = end.minus(30, ChronoUnit.DAYS);
+            List<MetricDataQuery> queries = new ArrayList<>();
+            for (int i = 0; i < machines.size(); i++) {
+                String machineName = machines.get(i).name();
+                queries.add(MetricDataQuery.builder().id("sfn" + i)
+                        .metricStat(MetricStat.builder()
+                                .metric(Metric.builder().namespace("AWS/States")
+                                        .metricName("ExecutionsStarted")
+                                        .dimensions(Dimension.builder().name("StateMachineArn")
+                                                .value(machines.get(i).stateMachineArn()).build())
+                                        .build())
+                                .period(2592000).stat("Sum").build())
+                        .returnData(true).build());
+            }
+            Map<String, List<Double>> results = batchGetMetrics(cw, queries, start, end);
+
+            List<DashboardData.WastedResource> findings = new ArrayList<>();
+            for (int i = 0; i < machines.size(); i++) {
+                double executions = results.getOrDefault("sfn" + i, List.of())
+                        .stream().mapToDouble(Double::doubleValue).sum();
+                if (executions == 0.0) {
+                    var m = machines.get(i);
+                    findings.add(new DashboardData.WastedResource(m.stateMachineArn(), m.name(),
+                            "Step Functions State Machine", regionId, 0.0,
+                            "Zero executions in 30 days"));
+                }
+            }
+            return findings;
+        }, "Idle Step Functions State Machines");
+    }
+
+    // API Gateway REST APIs with zero calls in 30 days — live endpoints nobody is
+    // hitting.
+    private CompletableFuture<List<DashboardData.WastedResource>> findApiGatewayApisWithNoTraffic(
+            CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            ApiGatewayClient apigw = awsClientProvider.getApiGatewayClient(account, regionId);
+            CloudWatchClient cw = awsClientProvider.getCloudWatchClient(account, regionId);
+
+            List<software.amazon.awssdk.services.apigateway.model.RestApi> apis = apigw.getRestApis().items();
+            if (apis.isEmpty())
+                return List.of();
+
+            Instant end = Instant.now();
+            Instant start = end.minus(30, ChronoUnit.DAYS);
+            List<MetricDataQuery> queries = new ArrayList<>();
+            for (int i = 0; i < apis.size(); i++) {
+                queries.add(MetricDataQuery.builder().id("apigw" + i)
+                        .metricStat(MetricStat.builder()
+                                .metric(Metric.builder().namespace("AWS/ApiGateway")
+                                        .metricName("Count")
+                                        .dimensions(Dimension.builder().name("ApiName")
+                                                .value(apis.get(i).name()).build())
+                                        .build())
+                                .period(2592000).stat("Sum").build())
+                        .returnData(true).build());
+            }
+            Map<String, List<Double>> results = batchGetMetrics(cw, queries, start, end);
+
+            List<DashboardData.WastedResource> findings = new ArrayList<>();
+            for (int i = 0; i < apis.size(); i++) {
+                double count = results.getOrDefault("apigw" + i, List.of())
+                        .stream().mapToDouble(Double::doubleValue).sum();
+                if (count == 0.0) {
+                    var api = apis.get(i);
+                    findings.add(new DashboardData.WastedResource(api.id(), api.name(),
+                            "API Gateway REST API", regionId, 0.0,
+                            "Zero API calls in 30 days"));
+                }
+            }
+            return findings;
+        }, "Idle API Gateway APIs");
+    }
+
+    // CodeBuild projects with no builds in 60 days — CI pipelines for dead or
+    // migrated projects.
+    private CompletableFuture<List<DashboardData.WastedResource>> findCodeBuildProjectsWithNoBuilds(
+            CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            CodeBuildClient cb = awsClientProvider.getCodeBuildClient(account, regionId);
+            CloudWatchClient cw = awsClientProvider.getCloudWatchClient(account, regionId);
+
+            List<String> projectNames = cb.listProjects().projects();
+            if (projectNames.isEmpty())
+                return List.of();
+
+            Instant end = Instant.now();
+            Instant start = end.minus(60, ChronoUnit.DAYS);
+            List<MetricDataQuery> queries = new ArrayList<>();
+            for (int i = 0; i < projectNames.size(); i++) {
+                queries.add(MetricDataQuery.builder().id("cb" + i)
+                        .metricStat(MetricStat.builder()
+                                .metric(Metric.builder().namespace("AWS/CodeBuild")
+                                        .metricName("Builds")
+                                        .dimensions(Dimension.builder().name("ProjectName")
+                                                .value(projectNames.get(i)).build())
+                                        .build())
+                                .period(5184000).stat("Sum").build())
+                        .returnData(true).build());
+            }
+            Map<String, List<Double>> results = batchGetMetrics(cw, queries, start, end);
+
+            List<DashboardData.WastedResource> findings = new ArrayList<>();
+            for (int i = 0; i < projectNames.size(); i++) {
+                double builds = results.getOrDefault("cb" + i, List.of())
+                        .stream().mapToDouble(Double::doubleValue).sum();
+                if (builds == 0.0) {
+                    String name = projectNames.get(i);
+                    findings.add(new DashboardData.WastedResource(name, name,
+                            "CodeBuild Project", regionId, 0.0,
+                            "No builds in 60 days"));
+                }
+            }
+            return findings;
+        }, "Idle CodeBuild Projects");
+    }
+
+    // Kinesis streams with provisioned shards but no data — each shard costs
+    // ~$15/month idle.
+    private CompletableFuture<List<DashboardData.WastedResource>> findIdleKinesisStreams(CloudAccount account,
+            List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            KinesisClient kinesis = awsClientProvider.getKinesisClient(account, regionId);
+            CloudWatchClient cw = awsClientProvider.getCloudWatchClient(account, regionId);
+
+            List<String> streamNames = kinesis.listStreams().streamNames();
+            if (streamNames.isEmpty())
+                return List.of();
+
+            Instant end = Instant.now();
+            Instant start = end.minus(30, ChronoUnit.DAYS);
+            List<MetricDataQuery> queries = new ArrayList<>();
+            for (int i = 0; i < streamNames.size(); i++) {
+                queries.add(MetricDataQuery.builder().id("kin" + i)
+                        .metricStat(MetricStat.builder()
+                                .metric(Metric.builder().namespace("AWS/Kinesis")
+                                        .metricName("PutRecords.Records")
+                                        .dimensions(Dimension.builder().name("StreamName")
+                                                .value(streamNames.get(i)).build())
+                                        .build())
+                                .period(2592000).stat("Sum").build())
+                        .returnData(true).build());
+            }
+            Map<String, List<Double>> results = batchGetMetrics(cw, queries, start, end);
+
+            List<DashboardData.WastedResource> findings = new ArrayList<>();
+            for (int i = 0; i < streamNames.size(); i++) {
+                double records = results.getOrDefault("kin" + i, List.of())
+                        .stream().mapToDouble(Double::doubleValue).sum();
+                if (records == 0.0) {
+                    try {
+                        final String streamName = streamNames.get(i);
+                        var desc = kinesis.describeStreamSummary(r -> r.streamName(streamName))
+                                .streamDescriptionSummary();
+                        int shardCount = desc.openShardCount();
+                        double monthlyCost = shardCount * 15.12;
+                        findings.add(new DashboardData.WastedResource(
+                                desc.streamARN(), streamName,
+                                "Kinesis Stream", regionId, monthlyCost,
+                                "No records in 30 days (" + shardCount + " provisioned shard"
+                                        + (shardCount != 1 ? "s" : "") + ")"));
+                    } catch (Exception e) {
+                        logger.warn("Could not describe Kinesis stream {}: {}", streamNames.get(i), e.getMessage());
+                    }
+                }
+            }
+            return findings;
+        }, "Idle Kinesis Streams");
     }
 }

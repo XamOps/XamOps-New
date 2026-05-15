@@ -1022,4 +1022,65 @@ public class GcpClientProvider {
         });
     }
 
+    public Optional<TargetHttpsProxiesClient> getTargetHttpsProxiesClient(String gcpProjectId) {
+        return getCredentials(gcpProjectId).map(credentials -> {
+            try {
+                return TargetHttpsProxiesClient.create(TargetHttpsProxiesSettings.newBuilder()
+                        .setCredentialsProvider(() -> credentials).build());
+            } catch (IOException e) {
+                log.error("Failed to create TargetHttpsProxiesClient for project {}: {}", gcpProjectId, e.getMessage());
+                return null;
+            }
+        });
+    }
+
+    public Optional<SslCertificatesClient> getSslCertificatesClient(String gcpProjectId) {
+        return getCredentials(gcpProjectId).map(credentials -> {
+            try {
+                return SslCertificatesClient.create(SslCertificatesSettings.newBuilder()
+                        .setCredentialsProvider(() -> credentials).build());
+            } catch (IOException e) {
+                log.error("Failed to create SslCertificatesClient for project {}: {}", gcpProjectId, e.getMessage());
+                return null;
+            }
+        });
+    }
+
+    public Optional<VpnTunnelsClient> getVpnTunnelsClient(String gcpProjectId) {
+        return getCredentials(gcpProjectId).map(credentials -> {
+            try {
+                return VpnTunnelsClient.create(VpnTunnelsSettings.newBuilder()
+                        .setCredentialsProvider(() -> credentials).build());
+            } catch (IOException e) {
+                log.error("Failed to create VpnTunnelsClient for project {}: {}", gcpProjectId, e.getMessage());
+                return null;
+            }
+        });
+    }
+
+    public Optional<TargetPoolsClient> getTargetPoolsClient(String gcpProjectId) {
+        return getCredentials(gcpProjectId).map(credentials -> {
+            try {
+                return TargetPoolsClient.create(TargetPoolsSettings.newBuilder()
+                        .setCredentialsProvider(() -> credentials).build());
+            } catch (IOException e) {
+                log.error("Failed to create TargetPoolsClient for project {}: {}", gcpProjectId, e.getMessage());
+                return null;
+            }
+        });
+    }
+
+    public Optional<com.google.devtools.artifactregistry.v1.ArtifactRegistryClient> getArtifactRegistryClient(String gcpProjectId) {
+        return getCredentials(gcpProjectId).map(credentials -> {
+            try {
+                return com.google.devtools.artifactregistry.v1.ArtifactRegistryClient.create(
+                        com.google.devtools.artifactregistry.v1.ArtifactRegistrySettings.newBuilder()
+                                .setCredentialsProvider(() -> credentials).build());
+            } catch (IOException e) {
+                log.error("Failed to create ArtifactRegistryClient for project {}: {}", gcpProjectId, e.getMessage());
+                return null;
+            }
+        });
+    }
+
 }
