@@ -107,17 +107,19 @@ jobs:
       - name: Setup SSH Keys
         run: |
           mkdir -p ~/.ssh
+           chmod 700 ~/.ssh
           
           # Bastion key
-          echo "${{ secrets.BASTION_SSH_KEY }}" > ~/.ssh/bastion_key
+          printf '%s\n' "${{ secrets.BASTION_SSH_KEY }}" > ~/.ssh/bastion_key
           chmod 600 ~/.ssh/bastion_key
           
           # UAT key
-          echo "${{ secrets.SSH_KEY }}" > ~/.ssh/uat_key
+           printf '%s\n' "${{ secrets.SSH_KEY }}" > ~/.ssh/uat_key 
           chmod 600 ~/.ssh/uat_key
           
           # Add both hosts to known_hosts
           ssh-keyscan -H ${{ secrets.BASTION_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+           echo "✅ Done!"
 
       # Step 2 - Test Bastion connection
       - name: Test Bastion Connection
@@ -184,5 +186,3 @@ jobs:
             echo "🚀 Deployment complete!"
 
           ENDSSH
-            
-        
