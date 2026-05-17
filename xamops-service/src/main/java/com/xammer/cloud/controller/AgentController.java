@@ -19,12 +19,14 @@ import com.xammer.cloud.service.EksAutoscalingService;
 import com.xammer.cloud.service.OpenObserveService;
 import com.xammer.cloud.service.RedisCacheService;
 import com.xammer.cloud.service.sre.SreInvestigationService;
+import com.xammer.cloud.util.SecurityUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import javax.servlet.http.HttpServletRequest;
 import java.time.Instant;
@@ -237,6 +239,13 @@ public class AgentController {
                     .body(Map.of("error", "agentName and cloudAccountId are required"));
         }
 
+        CloudAccount account = dbAgentService.resolveAccount(cloudAccountId);
+        if (account == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("error", "Cloud account not found. Add account to XamOps first."));
+        }
+        validateCloudAccountOwnership(account);
+
         DbAgentConfig cfg = dbAgentService.registerDbAgent(cloudAccountId, agentName);
         if (cfg == null) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
@@ -259,6 +268,8 @@ public class AgentController {
     public ResponseEntity<Map<String, Object>> deleteDbAgent(
             @RequestParam String agentName,
             @RequestParam String cloudAccountId) {
+
+        validateDbAgentOwnership(cloudAccountId, agentName);
 
         boolean deleted = dbAgentService.deleteDbAgent(cloudAccountId, agentName);
         if (!deleted) {
@@ -353,12 +364,7 @@ public class AgentController {
      */
     @GetMapping("/status/{clusterConfigId}")
     public ResponseEntity<Map<String, Object>> getAgentStatus(@PathVariable Long clusterConfigId) {
-        Optional<KubernetesClusterConfig> configOpt = clusterConfigRepository.findById(clusterConfigId);
-        if (configOpt.isEmpty()) {
-            return ResponseEntity.notFound().build();
-        }
-
-        KubernetesClusterConfig config = configOpt.get();
+        KubernetesClusterConfig config = validateClusterConfigOwnership(clusterConfigId);
         Map<String, Object> status = new HashMap<>();
 
         status.put("clusterName", config.getClusterName());
@@ -404,6 +410,10 @@ public class AgentController {
     public ResponseEntity<Map<String, Object>> getAgentStatusByCluster(
             @RequestParam String clusterName,
             @RequestParam Long cloudAccountId) {
+
+        CloudAccount account = cloudAccountRepository.findById(cloudAccountId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Cloud account not found"));
+        validateCloudAccountOwnership(account);
 
         Optional<KubernetesClusterConfig> configOpt = clusterConfigRepository
                 .findByCloudAccountIdAndClusterName(cloudAccountId, clusterName);
@@ -463,6 +473,8 @@ public class AgentController {
             return ResponseEntity.badRequest().body(Map.of("error", "agentName and cloudAccountId are required"));
         }
 
+        validateDbAgentOwnership(cloudAccountId, agentName);
+
         DbAgentConfig cfg = dbAgentService.saveConnectionConfig(
                 cloudAccountId, agentName,
                 body.get("dbEngine"), body.get("dbHost"), body.get("dbPort"),
@@ -486,7 +498,7 @@ public class AgentController {
             @RequestParam String agentName,
             @RequestParam String cloudAccountId) {
 
-        DbAgentConfig cfg = dbAgentService.loadConnectionConfig(cloudAccountId, agentName);
+        DbAgentConfig cfg = validateDbAgentOwnership(cloudAccountId, agentName);
         if (cfg == null) {
             return ResponseEntity.ok(Map.of("found", false));
         }
@@ -512,15 +524,7 @@ public class AgentController {
             @RequestParam String agentName,
             @RequestParam String cloudAccountId) {
 
-        java.util.Optional<DbAgentConfig> cfgOpt = dbAgentService.findDbAgent(cloudAccountId, agentName);
-        if (cfgOpt.isEmpty()) {
-            return ResponseEntity.ok(Map.of(
-                    "registered", false,
-                    "status", "not_registered"
-            ));
-        }
-
-        DbAgentConfig cfg = cfgOpt.get();
+        DbAgentConfig cfg = validateDbAgentOwnership(cloudAccountId, agentName);
         Map<String, Object> result = new HashMap<>();
         result.put("registered", true);
         result.put("status", cfg.getStatus());
@@ -552,6 +556,8 @@ public class AgentController {
     public ResponseEntity<List<AgentEvent>> getAgentEvents(
             @PathVariable Long clusterConfigId,
             @RequestParam(defaultValue = "50") int limit) {
+
+        validateClusterConfigOwnership(clusterConfigId);
 
         List<AgentEvent> events = agentEventRepository.findByClusterConfigIdOrderByCreatedAtDesc(
                 clusterConfigId, PageRequest.of(0, limit)).getContent();
@@ -751,6 +757,32 @@ public class AgentController {
             }
             logger.info("[disk-agent] stored disk data for {} instances (account {} provider={})",
                     byInstance.size(), cloudAccountId, isGcp ? "GCP" : "AWS");
+        }
+    }
+
+    private KubernetesClusterConfig validateClusterConfigOwnership(Long clusterConfigId) {
+        KubernetesClusterConfig config = clusterConfigRepository.findById(clusterConfigId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Cluster config not found"));
+        CloudAccount account = cloudAccountRepository.findById(config.getCloudAccountId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Cloud account not found"));
+        validateCloudAccountOwnership(account);
+        return config;
+    }
+
+    private DbAgentConfig validateDbAgentOwnership(String cloudAccountId, String agentName) {
+        DbAgentConfig cfg = dbAgentService.findDbAgent(cloudAccountId, agentName)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "DB agent not found"));
+        CloudAccount account = cloudAccountRepository.findById(cfg.getCloudAccountId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Cloud account not found"));
+        validateCloudAccountOwnership(account);
+        return cfg;
+    }
+
+    private void validateCloudAccountOwnership(CloudAccount account) {
+        Long userClientId = SecurityUtils.getPrincipal().getClientId();
+        if (!account.getClient().getId().equals(userClientId)) {
+            logger.warn("Access denied: Cloud account {} does not belong to client {}", account.getId(), userClientId);
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Access denied: Account not found or does not belong to your client");
         }
     }
 
