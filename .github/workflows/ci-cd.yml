@@ -426,7 +426,9 @@ jobs:
 
       - name: Build React app
         working-directory: frontend-app
-        run: npm run build
+        run: npx vite build
+        env:
+          NODE_OPTIONS: "--max-old-space-size=4096"
 
       - name: Log in to GHCR
         run: echo "${{ secrets.SSH_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
