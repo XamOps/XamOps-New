@@ -118,50 +118,9 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      - name: Build .jar (from repo root so parent POM resolves)
-        run: mvn package -B -DskipTests --no-transfer-progress -pl billops -am
-
-      - name: Copy jar to billops folder
-        run: cp billops/target/*.jar billops/app.jar
-
-      - name: Patch billops Dockerfile - remove mvn build, copy pre-built jar
-        run: |
-          python3 - <<PYEOF
-          import re
-          with open("billops/Dockerfile", "r") as f:
-              lines = f.readlines()
-
-          # Find the last FROM line - that is the final runtime stage
-          last_from_idx = 0
-          for i, line in enumerate(lines):
-              if line.strip().upper().startswith("FROM"):
-                  last_from_idx = i
-
-          # Only keep lines from the last FROM stage onwards
-          runtime_lines = lines[last_from_idx:]
-
-          # Remove RUN mvn lines
-          # Replace COPY --from=build ... *.jar with COPY app.jar app.jar
-          patched = []
-          for line in runtime_lines:
-              stripped = line.strip()
-              if re.search(r"RUN\s+mvn", stripped):
-                  print(f"REMOVED mvn: {stripped}")
-                  continue
-              if re.search(r"COPY\s+--from=", stripped):
-                  print(f"REPLACED: {stripped}")
-                  patched.append("COPY app.jar app.jar
-")
-                  continue
-              line = re.sub(r"COPY\s+target/\*\.jar\s+\S+", "COPY app.jar app.jar", line)
-              line = re.sub(r"COPY\s+\*\.jar\s+\S+", "COPY app.jar app.jar", line)
-              patched.append(line)
-
-          with open("billops/Dockerfile", "w") as f:
-              f.writelines(patched)
-          print("\nFinal patched Dockerfile:")
-          print("".join(patched))
-          PYEOF
+      - name: Build .jar
+        working-directory: billops
+        run: mvn package -B -DskipTests --no-transfer-progress
 
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
@@ -169,7 +128,6 @@ jobs:
       - name: Build & Push Docker image
         run: |
           docker build \
-            --no-cache \
             -t ghcr.io/xamops/billops:latest \
             -t ghcr.io/xamops/billops:sha-${{ github.sha }} \
             ./billops
@@ -314,46 +272,9 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      - name: Build .jar (from repo root so parent POM resolves)
-        run: mvn package -B -DskipTests --no-transfer-progress -pl xamops-service -am
-
-      - name: Copy jar to xamops-service folder
-        run: cp xamops-service/target/*.jar xamops-service/app.jar
-
-      - name: Patch xamops-service Dockerfile - remove mvn build, copy pre-built jar
-        run: |
-          python3 - <<PYEOF
-          import re
-          with open("xamops-service/Dockerfile", "r") as f:
-              lines = f.readlines()
-
-          last_from_idx = 0
-          for i, line in enumerate(lines):
-              if line.strip().upper().startswith("FROM"):
-                  last_from_idx = i
-
-          runtime_lines = lines[last_from_idx:]
-
-          patched = []
-          for line in runtime_lines:
-              stripped = line.strip()
-              if re.search(r"RUN\s+mvn", stripped):
-                  print(f"REMOVED mvn: {stripped}")
-                  continue
-              if re.search(r"COPY\s+--from=", stripped):
-                  print(f"REPLACED: {stripped}")
-                  patched.append("COPY app.jar app.jar
-")
-                  continue
-              line = re.sub(r"COPY\s+target/\*\.jar\s+\S+", "COPY app.jar app.jar", line)
-              line = re.sub(r"COPY\s+\*\.jar\s+\S+", "COPY app.jar app.jar", line)
-              patched.append(line)
-
-          with open("xamops-service/Dockerfile", "w") as f:
-              f.writelines(patched)
-          print("\nFinal patched Dockerfile:")
-          print("".join(patched))
-          PYEOF
+      - name: Build .jar
+        working-directory: xamops-service
+        run: mvn package -B -DskipTests --no-transfer-progress
 
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
@@ -361,7 +282,6 @@ jobs:
       - name: Build & Push Docker image
         run: |
           docker build \
-            --no-cache \
             -t ghcr.io/xamops/xamops-new:latest \
             -t ghcr.io/xamops/xamops-new:sha-${{ github.sha }} \
             ./xamops-service
