@@ -118,9 +118,11 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      - name: Build .jar
-        working-directory: billops
-        run: mvn package -B -DskipTests --no-transfer-progress
+      - name: Build .jar (from repo root so parent POM resolves)
+        run: mvn package -B -DskipTests --no-transfer-progress -pl billops -am
+
+      - name: Copy jar to billops folder
+        run: cp billops/target/*.jar billops/app.jar
 
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
@@ -128,6 +130,8 @@ jobs:
       - name: Build & Push Docker image
         run: |
           docker build \
+            --no-cache \
+            --build-arg JAR_FILE=app.jar \
             -t ghcr.io/xamops/billops:latest \
             -t ghcr.io/xamops/billops:sha-${{ github.sha }} \
             ./billops
@@ -272,9 +276,11 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      - name: Build .jar
-        working-directory: xamops-service
-        run: mvn package -B -DskipTests --no-transfer-progress
+      - name: Build .jar (from repo root so parent POM resolves)
+        run: mvn package -B -DskipTests --no-transfer-progress -pl xamops-service -am
+
+      - name: Copy jar to xamops-service folder
+        run: cp xamops-service/target/*.jar xamops-service/app.jar
 
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
@@ -282,6 +288,8 @@ jobs:
       - name: Build & Push Docker image
         run: |
           docker build \
+            --no-cache \
+            --build-arg JAR_FILE=app.jar \
             -t ghcr.io/xamops/xamops-new:latest \
             -t ghcr.io/xamops/xamops-new:sha-${{ github.sha }} \
             ./xamops-service
