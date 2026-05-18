@@ -16,33 +16,52 @@ permissions:
 jobs:
 
   # ────────────────────────────────────────────
-  #  JOB 0 – Detect which services changed
+  #  JOB 0 – Detect which services changed (native git diff)
   # ────────────────────────────────────────────
   changes:
     name: Detect Changed Services
     runs-on: ubuntu-latest
     outputs:
-      billops:  ${{ steps.filter.outputs.billops }}
-      xamops:   ${{ steps.filter.outputs.xamops }}
-      frontend: ${{ steps.filter.outputs.frontend }}
+      billops:  ${{ steps.diff.outputs.billops }}
+      xamops:   ${{ steps.diff.outputs.xamops }}
+      frontend: ${{ steps.diff.outputs.frontend }}
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0        # full history so dorny can diff against base branch
+          fetch-depth: 0
 
-      - name: Filter changed paths
-        uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          base: ${{ github.event.before }}   # diff current vs previous commit
-          filters: |
-            billops:
-              - 'billops/**'
-            xamops:
-              - 'xamops-service/**'
-            frontend:
-              - 'frontend-app/**'
+      - name: Detect changed services via git diff
+        id: diff
+        run: |
+          # Get the previous commit SHA; fallback to empty tree on first push
+          BASE="${{ github.event.before }}"
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            BASE=$(git hash-object -t tree /dev/null)
+          fi
+
+          echo "Comparing $BASE → ${{ github.sha }}"
+          CHANGED=$(git diff --name-only "$BASE" "${{ github.sha }}")
+          echo "Changed files:"
+          echo "$CHANGED"
+
+          if echo "$CHANGED" | grep -q "^billops/"; then
+            echo "billops=true" >> $GITHUB_OUTPUT
+          else
+            echo "billops=false" >> $GITHUB_OUTPUT
+          fi
+
+          if echo "$CHANGED" | grep -q "^xamops-service/"; then
+            echo "xamops=true" >> $GITHUB_OUTPUT
+          else
+            echo "xamops=false" >> $GITHUB_OUTPUT
+          fi
+
+          if echo "$CHANGED" | grep -q "^frontend-app/"; then
+            echo "frontend=true" >> $GITHUB_OUTPUT
+          else
+            echo "frontend=false" >> $GITHUB_OUTPUT
+          fi
 
 
   # ══════════════════════════════════════════════════════════
