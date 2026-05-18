@@ -30,11 +30,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          submodules: false   # ✅ FIX 2: skip broken my-vault submodule
 
       - name: Detect changed services via git diff
         id: diff
         run: |
-          # Get the previous commit SHA; fallback to empty tree on first push
           BASE="${{ github.event.before }}"
           if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
             BASE=$(git hash-object -t tree /dev/null)
@@ -77,6 +77,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           lfs: false
+          submodules: false   # ✅ FIX 2: skip broken my-vault submodule
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -84,6 +85,26 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
           cache: maven
+
+      # ✅ FIX 1: Install the private parent POM into local Maven cache
+      #    before running any mvn command.
+      #    Option A – if you have the .pom file committed inside billops/:
+      - name: Install parent POM into local Maven repo
+        working-directory: billops
+        run: |
+          if [ -f "xamops-platform-1.0.0.pom" ]; then
+            mvn install:install-file \
+              -Dfile=xamops-platform-1.0.0.pom \
+              -DgroupId=com.xammer \
+              -DartifactId=xamops-platform \
+              -Dversion=1.0.0 \
+              -Dpackaging=pom \
+              -B --no-transfer-progress
+            echo "✅ Parent POM installed from file"
+          else
+            echo "⚠️  xamops-platform-1.0.0.pom not found – skipping install step."
+            echo "    Make sure to commit it inside billops/ OR publish it to GitHub Packages."
+          fi
 
       - name: Run tests
         working-directory: billops
@@ -110,6 +131,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           lfs: false
+          submodules: false   # ✅ FIX 2: skip broken my-vault submodule
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -117,6 +139,23 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
           cache: maven
+
+      # ✅ FIX 1: Install parent POM before packaging
+      - name: Install parent POM into local Maven repo
+        working-directory: billops
+        run: |
+          if [ -f "xamops-platform-1.0.0.pom" ]; then
+            mvn install:install-file \
+              -Dfile=xamops-platform-1.0.0.pom \
+              -DgroupId=com.xammer \
+              -DartifactId=xamops-platform \
+              -Dversion=1.0.0 \
+              -Dpackaging=pom \
+              -B --no-transfer-progress
+            echo "✅ Parent POM installed from file"
+          else
+            echo "⚠️  xamops-platform-1.0.0.pom not found in billops/ – skipping."
+          fi
 
       - name: Build .jar
         working-directory: billops
@@ -231,6 +270,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           lfs: false
+          submodules: false   # ✅ FIX 2: skip broken my-vault submodule
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -264,6 +304,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           lfs: false
+          submodules: false   # ✅ FIX 2: skip broken my-vault submodule
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -387,6 +428,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           lfs: false
+          submodules: false   # ✅ FIX 2: skip broken my-vault submodule
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -414,6 +456,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           lfs: false
+          submodules: false   # ✅ FIX 2: skip broken my-vault submodule
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
