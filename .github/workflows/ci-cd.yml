@@ -126,15 +126,26 @@ jobs:
 
       - name: Patch billops Dockerfile - remove mvn build, copy pre-built jar
         run: |
-          cd billops
-          # Remove the maven build stage entirely, replace with COPY of pre-built jar
-          sed -i '/RUN mvn/d' Dockerfile
-          sed -i '/RUN apt-get.*maven\|RUN apt-get.*java\|FROM.*maven\|FROM.*jdk/Id' Dockerfile
-          # Add COPY for pre-built jar before any COPY *.jar line
-          sed -i 's|COPY \*\.jar\|COPY app.jar|g' Dockerfile
-          sed -i 's|COPY target/\*\.jar\|COPY app.jar|g' Dockerfile
-          echo "✅ Patched Dockerfile:"
-          cat Dockerfile
+          python3 - <<PYEOF
+          import re
+          with open("billops/Dockerfile", "r") as f:
+              lines = f.readlines()
+          patched = []
+          for line in lines:
+              stripped = line.strip()
+              # Skip any line that runs maven inside docker
+              if re.search(r"RUN\s+mvn", stripped):
+                  print(f"REMOVED: {stripped}")
+                  continue
+              # Replace COPY target/*.jar or COPY *.jar with our pre-built jar
+              line = re.sub(r"COPY\s+target/\*\.jar", "COPY app.jar", line)
+              line = re.sub(r"COPY\s+\*\.jar", "COPY app.jar", line)
+              patched.append(line)
+          with open("billops/Dockerfile", "w") as f:
+              f.writelines(patched)
+          print("Patched Dockerfile:")
+          print("".join(patched))
+          PYEOF
 
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
@@ -295,13 +306,24 @@ jobs:
 
       - name: Patch xamops-service Dockerfile - remove mvn build, copy pre-built jar
         run: |
-          cd xamops-service
-          sed -i '/RUN mvn/d' Dockerfile
-          sed -i '/RUN apt-get.*maven\|RUN apt-get.*java\|FROM.*maven\|FROM.*jdk/Id' Dockerfile
-          sed -i 's|COPY \*\.jar\|COPY app.jar|g' Dockerfile
-          sed -i 's|COPY target/\*\.jar\|COPY app.jar|g' Dockerfile
-          echo "✅ Patched Dockerfile:"
-          cat Dockerfile
+          python3 - <<PYEOF
+          import re
+          with open("xamops-service/Dockerfile", "r") as f:
+              lines = f.readlines()
+          patched = []
+          for line in lines:
+              stripped = line.strip()
+              if re.search(r"RUN\s+mvn", stripped):
+                  print(f"REMOVED: {stripped}")
+                  continue
+              line = re.sub(r"COPY\s+target/\*\.jar", "COPY app.jar", line)
+              line = re.sub(r"COPY\s+\*\.jar", "COPY app.jar", line)
+              patched.append(line)
+          with open("xamops-service/Dockerfile", "w") as f:
+              f.writelines(patched)
+          print("Patched Dockerfile:")
+          print("".join(patched))
+          PYEOF
 
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
