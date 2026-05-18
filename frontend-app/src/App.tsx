@@ -1,7 +1,7 @@
 /**
  * Main App Component
  *
- * This is the root component of the React application.
+ * This is the root component of the React application. 
  * Uses React Router for navigation between pages.
  *
  * Routes:
