@@ -130,20 +130,36 @@ jobs:
           import re
           with open("billops/Dockerfile", "r") as f:
               lines = f.readlines()
+
+          # Find the last FROM line - that is the final runtime stage
+          last_from_idx = 0
+          for i, line in enumerate(lines):
+              if line.strip().upper().startswith("FROM"):
+                  last_from_idx = i
+
+          # Only keep lines from the last FROM stage onwards
+          runtime_lines = lines[last_from_idx:]
+
+          # Remove RUN mvn lines
+          # Replace COPY --from=build ... *.jar with COPY app.jar app.jar
           patched = []
-          for line in lines:
+          for line in runtime_lines:
               stripped = line.strip()
-              # Skip any line that runs maven inside docker
               if re.search(r"RUN\s+mvn", stripped):
-                  print(f"REMOVED: {stripped}")
+                  print(f"REMOVED mvn: {stripped}")
                   continue
-              # Replace COPY target/*.jar or COPY *.jar with our pre-built jar
-              line = re.sub(r"COPY\s+target/\*\.jar", "COPY app.jar", line)
-              line = re.sub(r"COPY\s+\*\.jar", "COPY app.jar", line)
+              if re.search(r"COPY\s+--from=", stripped):
+                  print(f"REPLACED: {stripped}")
+                  patched.append("COPY app.jar app.jar
+")
+                  continue
+              line = re.sub(r"COPY\s+target/\*\.jar\s+\S+", "COPY app.jar app.jar", line)
+              line = re.sub(r"COPY\s+\*\.jar\s+\S+", "COPY app.jar app.jar", line)
               patched.append(line)
+
           with open("billops/Dockerfile", "w") as f:
               f.writelines(patched)
-          print("Patched Dockerfile:")
+          print("\nFinal patched Dockerfile:")
           print("".join(patched))
           PYEOF
 
@@ -310,18 +326,32 @@ jobs:
           import re
           with open("xamops-service/Dockerfile", "r") as f:
               lines = f.readlines()
+
+          last_from_idx = 0
+          for i, line in enumerate(lines):
+              if line.strip().upper().startswith("FROM"):
+                  last_from_idx = i
+
+          runtime_lines = lines[last_from_idx:]
+
           patched = []
-          for line in lines:
+          for line in runtime_lines:
               stripped = line.strip()
               if re.search(r"RUN\s+mvn", stripped):
-                  print(f"REMOVED: {stripped}")
+                  print(f"REMOVED mvn: {stripped}")
                   continue
-              line = re.sub(r"COPY\s+target/\*\.jar", "COPY app.jar", line)
-              line = re.sub(r"COPY\s+\*\.jar", "COPY app.jar", line)
+              if re.search(r"COPY\s+--from=", stripped):
+                  print(f"REPLACED: {stripped}")
+                  patched.append("COPY app.jar app.jar
+")
+                  continue
+              line = re.sub(r"COPY\s+target/\*\.jar\s+\S+", "COPY app.jar app.jar", line)
+              line = re.sub(r"COPY\s+\*\.jar\s+\S+", "COPY app.jar app.jar", line)
               patched.append(line)
+
           with open("xamops-service/Dockerfile", "w") as f:
               f.writelines(patched)
-          print("Patched Dockerfile:")
+          print("\nFinal patched Dockerfile:")
           print("".join(patched))
           PYEOF
 
