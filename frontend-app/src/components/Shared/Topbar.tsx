@@ -11,6 +11,7 @@ import LogoutModal from './LogoutModal';
 import NotificationDropdown from './NotificationDropdown';
 import BillOpsUserNotificationDropdown from '../BillOps/BillOpsUserNotificationDropdown';
 import { useTheme } from '../../contexts/ThemeContext';
+import { TooltipWrapper } from '../ui';
 import { isDemoMode } from '../../demo/demoConfig';
 
 const Topbar: React.FC = () => {
@@ -170,21 +171,24 @@ const Topbar: React.FC = () => {
                         {/* Notifications - Show for XamOps and BillOps users, but not BillOps Admin (they have their own on dashboard) */}
                         {!isBillOpsAdmin && (
                             <div className="relative" ref={notificationRef}>
-                                <button
-                                    onClick={toggleNotifications}
-                                    className={clsx(
-                                        'w-10 h-10 flex items-center justify-center rounded-xl transition-all relative',
-                                        theme === 'dark' ? 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-indigo-400' : 'bg-slate-100/50 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600'
-                                    )}
-                                >
-                                    <i className="fas fa-bell"></i>
-                                    {counts.total > 0 && (
-                                        <span className={clsx(
-                                            'absolute top-2 right-2 w-2 h-2 bg-rose-500 rounded-full border-2',
-                                            theme === 'dark' ? 'border-slate-800' : 'border-white'
-                                        )}></span>
-                                    )}
-                                </button>
+                                <TooltipWrapper tip="Notifications">
+                                    <button
+                                        onClick={toggleNotifications}
+                                        className={clsx(
+                                            'w-10 h-10 flex items-center justify-center rounded-xl transition-all relative',
+                                            theme === 'dark' ? 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-indigo-400' : 'bg-slate-100/50 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600'
+                                        )}
+                                        aria-label="Notifications"
+                                    >
+                                        <i className="fas fa-bell"></i>
+                                        {counts.total > 0 && (
+                                            <span className={clsx(
+                                                'absolute top-2 right-2 w-2 h-2 bg-rose-500 rounded-full border-2',
+                                                theme === 'dark' ? 'border-slate-800' : 'border-white'
+                                            )}></span>
+                                        )}
+                                    </button>
+                                </TooltipWrapper>
 
                                 {isNotificationOpen && (
                                     <>
@@ -209,16 +213,18 @@ const Topbar: React.FC = () => {
                         )}
 
                         {onHelpClick && (
-                            <button
-                                onClick={onHelpClick}
-                                className={clsx(
-                                    'w-10 h-10 flex items-center justify-center rounded-xl transition-all',
-                                    theme === 'dark' ? 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-indigo-400' : 'bg-slate-100/50 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600'
-                                )}
-                                aria-label="Open help guide"
-                            >
-                                <i className="fas fa-question-circle"></i>
-                            </button>
+                            <TooltipWrapper tip="Help Guide">
+                                <button
+                                    onClick={onHelpClick}
+                                    className={clsx(
+                                        'w-10 h-10 flex items-center justify-center rounded-xl transition-all',
+                                        theme === 'dark' ? 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-indigo-400' : 'bg-slate-100/50 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600'
+                                    )}
+                                    aria-label="Open help guide"
+                                >
+                                    <i className="fas fa-question-circle"></i>
+                                </button>
+                            </TooltipWrapper>
                         )}
                     </div>
 
@@ -321,6 +327,9 @@ const Topbar: React.FC = () => {
                                         e.stopPropagation();
                                         toggleTheme();
                                     }}
+                                    role="switch"
+                                    aria-checked={theme === 'dark'}
+                                    aria-label="Toggle dark mode"
                                     className={clsx(
                                         'w-full flex items-center justify-between px-4 py-2.5 text-sm transition-colors',
                                         theme === 'dark' ? 'hover:bg-slate-800 hover:text-indigo-400' : 'hover:bg-indigo-50 hover:text-indigo-600'
