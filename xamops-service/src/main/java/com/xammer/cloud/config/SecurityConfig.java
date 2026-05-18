@@ -64,7 +64,14 @@ public class SecurityConfig {
         @Order(1)
         public SecurityFilterChain impersonationJwtFilterChain(HttpSecurity http) throws Exception {
                 http
-                        .requestMatcher(new RequestHeaderRequestMatcher("Authorization"))
+                        // Match requests with Authorization header BUT exclude /api/llm-proxy/**
+                        // which uses X-XamOps-Key for auth — the Authorization header there carries
+                        // the provider API key, not an impersonation JWT.
+                        .requestMatcher(request -> {
+                            String path = request.getRequestURI();
+                            String auth = request.getHeader("Authorization");
+                            return auth != null && !path.startsWith("/api/llm-proxy/");
+                        })
                         .cors(withDefaults())
                         .csrf(csrf -> csrf.disable())
                         .sessionManagement(session -> session
