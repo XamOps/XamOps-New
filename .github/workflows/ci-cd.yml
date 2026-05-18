@@ -123,7 +123,7 @@ jobs:
         run: mvn package -B -DskipTests --no-transfer-progress
 
       - name: Log in to GHCR
-        run: echo "${{ secrets.SSH_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
       - name: Build & Push Docker image
         run: |
@@ -180,7 +180,7 @@ jobs:
             ec2-user@${{ secrets.SSH_HOST }} << 'ENDSSH'
 
             echo "🔄 Deploying billops..."
-            echo "${{ secrets.SSH_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
             docker pull ghcr.io/xamops/billops:latest
 
             docker network inspect xamops-network >/dev/null 2>&1 || docker network create xamops-network
@@ -277,7 +277,7 @@ jobs:
         run: mvn package -B -DskipTests --no-transfer-progress
 
       - name: Log in to GHCR
-        run: echo "${{ secrets.SSH_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
       - name: Build & Push Docker image
         run: |
@@ -334,7 +334,7 @@ jobs:
             ec2-user@${{ secrets.SSH_HOST }} << 'ENDSSH'
 
             echo "🔄 Deploying xamops-service..."
-            echo "${{ secrets.SSH_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
             docker pull ghcr.io/xamops/xamops-new:latest
 
             docker network inspect xamops-network >/dev/null 2>&1 || docker network create xamops-network
@@ -438,7 +438,7 @@ jobs:
           grep -n "npm\|vite" Dockerfile
 
       - name: Log in to GHCR
-        run: echo "${{ secrets.SSH_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
       - name: Build & Push Docker image
         run: |
@@ -497,7 +497,7 @@ jobs:
             ec2-user@${{ secrets.SSH_HOST }} << 'ENDSSH'
 
             echo "🔄 Deploying frontend-app..."
-            echo "${{ secrets.SSH_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
             docker pull ghcr.io/xamops/frontend-app:latest
 
             docker network inspect xamops-network >/dev/null 2>&1 || docker network create xamops-network
