@@ -90,4 +90,42 @@ public class RestTemplateConfig {
         factory.setReadTimeout(8000);     // 8 seconds
         return new RestTemplate(factory);
     }
+
+    /**
+     * RestTemplate for direct LLM provider calls (OpenAI, Anthropic, Gemini).
+     * 30s read timeout covers slow first-token latency without hanging forever.
+     */
+    @Bean
+    @Qualifier("llmRestTemplate")
+    public RestTemplate llmRestTemplate() throws KeyStoreException, NoSuchAlgorithmException, KeyManagementException {
+        SSLContext sslContext = SSLContextBuilder
+                .create()
+                .loadTrustMaterial((chain, authType) -> true)
+                .build();
+        SSLConnectionSocketFactory socketFactory = new SSLConnectionSocketFactory(
+                sslContext, NoopHostnameVerifier.INSTANCE);
+        CloseableHttpClient httpClient = HttpClients.custom()
+                .setSSLSocketFactory(socketFactory)
+                .setMaxConnTotal(50)
+                .setMaxConnPerRoute(10)
+                .build();
+        HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory(httpClient);
+        factory.setConnectTimeout(10000); // 10s connect
+        factory.setReadTimeout(30000);    // 30s read
+        return new RestTemplate(factory);
+    }
+
+    /**
+     * Short-timeout RestTemplate for LiteLLM sidecar calls.
+     * LiteLLM is optional — if it's not running we must fail fast so the
+     * calling thread (even async) doesn't block for 15+ seconds.
+     */
+    @Bean
+    @Qualifier("litellmRestTemplate")
+    public RestTemplate litellmRestTemplate() {
+        HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory();
+        factory.setConnectTimeout(2000); // 2s — fail fast if LiteLLM not running
+        factory.setReadTimeout(5000);    // 5s read
+        return new RestTemplate(factory);
+    }
 }

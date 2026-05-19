@@ -151,12 +151,13 @@ const AIOpsPage: React.FC = () => {
   const [activeTab, setActiveTab] = useTabState<AIOpsTab>('dashboard');
   const [activeSubTab, setActiveSubTab] = useState('request-logs');
   const [isProviderModalOpen, setIsProviderModalOpen] = useState(false);
+  const [editingProvider, setEditingProvider] = useState<LlmProviderConfig | null>(null);
   const [copiedUrl, setCopiedUrl] = useState(false);
 
   const {
     kpis, allTimeMetrics, costTrend, providerBreakdown, modelUsageTable,
     anomalies, providers, sectionLoading, isLoading, error,
-    loadDashboard, addProvider, deleteProvider,
+    loadDashboard, addProvider, updateProvider, deleteProvider,
   } = useAIOpsData({ period });
 
   const analytics = useUsageAnalyticsData(period);
@@ -638,7 +639,8 @@ const AIOpsPage: React.FC = () => {
           {activeTab === 'litellm' && (
             <LiteLLMTab
               providers={providers}
-              serverBaseUrl={import.meta.env.VITE_API_BASE_URL ?? 'https://api.xamops.com'}
+              serverBaseUrl={(typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_BASE_URL) || 'https://api.xamops.com'}
+              onEditProvider={p => { setEditingProvider(p); setIsProviderModalOpen(true); }}
             />
           )}
         </div>
@@ -647,8 +649,10 @@ const AIOpsPage: React.FC = () => {
       {/* Provider Setup Modal */}
       <LLMProviderSetupModal
         isOpen={isProviderModalOpen}
-        onClose={() => setIsProviderModalOpen(false)}
+        onClose={() => { setIsProviderModalOpen(false); setEditingProvider(null); }}
         onSave={addProvider}
+        onUpdate={(id, config) => updateProvider(id, config)}
+        editProvider={editingProvider}
         existingProviders={providers}
       />
 

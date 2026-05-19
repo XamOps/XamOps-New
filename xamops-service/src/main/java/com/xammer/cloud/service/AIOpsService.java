@@ -3,16 +3,24 @@ package com.xammer.cloud.service;
 import com.xammer.cloud.domain.Client;
 import com.xammer.cloud.domain.LlmBudget;
 import com.xammer.cloud.domain.LlmBudgetAlert;
+import com.xammer.cloud.domain.LlmKeyGroup;
+import com.xammer.cloud.domain.LlmMasterKey;
 import com.xammer.cloud.domain.LlmProviderConfig;
+import com.xammer.cloud.domain.LlmProviderKey;
 import com.xammer.cloud.domain.LlmRoutingRule;
 import com.xammer.cloud.domain.LlmUsageLog;
 import com.xammer.cloud.dto.AIOPsDashboardDto;
 import com.xammer.cloud.dto.AIOPsDashboardDto.*;
+import com.xammer.cloud.dto.LlmKeyGroupDto;
 import com.xammer.cloud.dto.LlmProviderConfigDto;
+import com.xammer.cloud.dto.LlmProviderKeyDto;
 import com.xammer.cloud.repository.ClientRepository;
 import com.xammer.cloud.repository.LlmBudgetAlertRepository;
 import com.xammer.cloud.repository.LlmBudgetRepository;
+import com.xammer.cloud.repository.LlmKeyGroupRepository;
+import com.xammer.cloud.repository.LlmMasterKeyRepository;
 import com.xammer.cloud.repository.LlmProviderConfigRepository;
+import com.xammer.cloud.repository.LlmProviderKeyRepository;
 import com.xammer.cloud.repository.LlmRoutingRuleRepository;
 import com.xammer.cloud.repository.LlmUsageLogRepository;
 import org.slf4j.Logger;
@@ -45,10 +53,14 @@ public class AIOpsService {
     private final LlmBudgetRepository budgetRepo;
     private final LlmBudgetAlertRepository budgetAlertRepo;
     private final LlmRoutingRuleRepository routingRuleRepo;
+    private final LlmMasterKeyRepository masterKeyRepo;
+    private final LlmKeyGroupRepository keyGroupRepo;
+    private final LlmProviderKeyRepository providerKeyRepo;
     private final EncryptionService encryptionService;
     private final ClientRepository clientRepository;
     private final RestTemplate restTemplate;
     private final LiteLLMConfigService liteLLMConfigService;
+    private final KeyPoolService keyPoolService;
 
     @Value("${xamops.server.url:https://api.xamops.com}")
     private String serverBaseUrl;
@@ -59,19 +71,114 @@ public class AIOpsService {
             LlmBudgetRepository budgetRepo,
             LlmBudgetAlertRepository budgetAlertRepo,
             LlmRoutingRuleRepository routingRuleRepo,
+            LlmMasterKeyRepository masterKeyRepo,
+            LlmKeyGroupRepository keyGroupRepo,
+            LlmProviderKeyRepository providerKeyRepo,
             EncryptionService encryptionService,
             ClientRepository clientRepository,
             RestTemplate restTemplate,
-            LiteLLMConfigService liteLLMConfigService) {
+            LiteLLMConfigService liteLLMConfigService,
+            KeyPoolService keyPoolService) {
         this.providerConfigRepo = providerConfigRepo;
         this.usageLogRepo = usageLogRepo;
         this.budgetRepo = budgetRepo;
         this.budgetAlertRepo = budgetAlertRepo;
         this.routingRuleRepo = routingRuleRepo;
+        this.masterKeyRepo = masterKeyRepo;
+        this.keyGroupRepo = keyGroupRepo;
+        this.providerKeyRepo = providerKeyRepo;
         this.encryptionService = encryptionService;
         this.clientRepository = clientRepository;
         this.restTemplate = restTemplate;
         this.liteLLMConfigService = liteLLMConfigService;
+        this.keyPoolService = keyPoolService;
+    }
+
+    // ─── Master Key ───────────────────────────────────────────────
+
+    public Map<String, String> getOrCreateMasterKey(Long clientId) {
+        Client client = clientRepository.findById(clientId)
+                .orElseThrow(() -> new RuntimeException("Client not found"));
+        LlmMasterKey mk = masterKeyRepo.findByClientId(clientId).orElseGet(() -> {
+            LlmMasterKey newKey = new LlmMasterKey();
+            newKey.setClient(client);
+            newKey.setMasterKey("sk-xamops-" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 24));
+            return masterKeyRepo.save(newKey);
+        });
+        return Map.of("masterKey", mk.getMasterKey());
+    }
+
+    // ─── Key Groups ───────────────────────────────────────────────
+
+    public List<LlmKeyGroupDto> getKeyGroups(Long clientId) {
+        return keyGroupRepo.findByClientId(clientId).stream()
+                .map(this::toKeyGroupDto)
+                .collect(java.util.stream.Collectors.toList());
+    }
+
+    @Transactional
+    public LlmKeyGroupDto createKeyGroup(Long clientId, LlmKeyGroupDto dto) {
+        Client client = clientRepository.findById(clientId)
+                .orElseThrow(() -> new RuntimeException("Client not found"));
+
+        LlmKeyGroup group = new LlmKeyGroup();
+        group.setClient(client);
+        group.setName(dto.getName().trim());
+        group.setDescription(dto.getDescription());
+        group.setGroupKey("sk-xamops-grp-" + UUID.randomUUID().toString().replace("-", "").substring(0, 20));
+
+        if (dto.getProviderIds() != null && !dto.getProviderIds().isEmpty()) {
+            List<LlmProviderConfig> providers = providerConfigRepo.findAllById(dto.getProviderIds());
+            providers = providers.stream()
+                    .filter(p -> p.getClient().getId().equals(clientId))
+                    .collect(java.util.stream.Collectors.toList());
+            group.setProviders(new java.util.HashSet<>(providers));
+        }
+
+        return toKeyGroupDto(keyGroupRepo.save(group));
+    }
+
+    @Transactional
+    public LlmKeyGroupDto updateKeyGroup(Long clientId, Long groupId, LlmKeyGroupDto dto) {
+        LlmKeyGroup group = keyGroupRepo.findByIdAndClientId(groupId, clientId)
+                .orElseThrow(() -> new RuntimeException("Key group not found"));
+
+        if (dto.getName() != null) group.setName(dto.getName().trim());
+        if (dto.getDescription() != null) group.setDescription(dto.getDescription());
+
+        if (dto.getProviderIds() != null) {
+            List<LlmProviderConfig> providers = providerConfigRepo.findAllById(dto.getProviderIds());
+            providers = providers.stream()
+                    .filter(p -> p.getClient().getId().equals(clientId))
+                    .collect(java.util.stream.Collectors.toList());
+            group.setProviders(new java.util.HashSet<>(providers));
+        }
+
+        return toKeyGroupDto(keyGroupRepo.save(group));
+    }
+
+    @Transactional
+    public void deleteKeyGroup(Long clientId, Long groupId) {
+        LlmKeyGroup group = keyGroupRepo.findByIdAndClientId(groupId, clientId)
+                .orElseThrow(() -> new RuntimeException("Key group not found"));
+        keyGroupRepo.delete(group);
+    }
+
+    private LlmKeyGroupDto toKeyGroupDto(LlmKeyGroup g) {
+        LlmKeyGroupDto dto = new LlmKeyGroupDto();
+        dto.setId(g.getId());
+        dto.setName(g.getName());
+        dto.setDescription(g.getDescription());
+        dto.setGroupKey(g.getGroupKey());
+        dto.setLoadBalanceStrategy(g.getLoadBalanceStrategy());
+        dto.setKeyCount((int) providerKeyRepo.countByKeyGroupId(g.getId()));
+        dto.setCreatedAt(g.getCreatedAt());
+        dto.setProviderIds(g.getProviders().stream()
+                .map(LlmProviderConfig::getId).collect(java.util.stream.Collectors.toList()));
+        dto.setProviderNames(g.getProviders().stream()
+                .map(p -> p.getDisplayName() != null ? p.getDisplayName() : p.getProvider())
+                .collect(java.util.stream.Collectors.toList()));
+        return dto;
     }
 
     // ─── Dashboard ───────────────────────────────────────────────
@@ -191,9 +298,12 @@ public class AIOpsService {
             config.setAssignedTeam(dto.getAssignedTeam().trim());
         }
 
-        // API key is optional — pass-through approach means key comes in each request
         if (dto.getApiKey() != null && !dto.getApiKey().isBlank()) {
             config.setApiKeyEncrypted(encryptionService.encrypt(dto.getApiKey()));
+        }
+
+        if (dto.getEnabledModels() != null && !dto.getEnabledModels().isBlank()) {
+            config.setEnabledModels(dto.getEnabledModels());
         }
 
         if ("BEDROCK".equalsIgnoreCase(dto.getProvider())) {
@@ -208,6 +318,7 @@ public class AIOpsService {
 
         LlmProviderConfig saved = providerConfigRepo.save(config);
         liteLLMConfigService.syncConfig(clientId);
+        getOrCreateMasterKey(clientId); // ensure master key exists as soon as first provider added
         logger.info("Added LLM provider {} for client {}", dto.getProvider(), clientId);
         return toDto(saved);
     }
@@ -229,6 +340,9 @@ public class AIOpsService {
         }
         if (dto.getApiKey() != null && !dto.getApiKey().isBlank()) {
             config.setApiKeyEncrypted(encryptionService.encrypt(dto.getApiKey()));
+        }
+        if (dto.getEnabledModels() != null && !dto.getEnabledModels().isBlank()) {
+            config.setEnabledModels(dto.getEnabledModels());
         }
         if ("BEDROCK".equalsIgnoreCase(config.getProvider())) {
             if (dto.getAwsRegion() != null) config.setAwsRegion(dto.getAwsRegion());
@@ -269,20 +383,20 @@ public class AIOpsService {
         Map<String, Object> result = new HashMap<>();
         try {
             String provider = dto.getProvider().toUpperCase();
-            boolean success;
+            String errorMessage;
 
             switch (provider) {
                 case "OPENAI":
-                    success = testOpenAI(dto.getApiKey());
+                    errorMessage = testOpenAI(dto.getApiKey());
                     break;
                 case "ANTHROPIC":
-                    success = testAnthropic(dto.getApiKey());
+                    errorMessage = testAnthropic(dto.getApiKey());
                     break;
                 case "GEMINI":
-                    success = testGemini(dto.getApiKey());
+                    errorMessage = testGemini(dto.getApiKey());
                     break;
                 case "BEDROCK":
-                    success = testBedrock(dto);
+                    errorMessage = testBedrock(dto);
                     break;
                 default:
                     result.put("success", false);
@@ -290,8 +404,9 @@ public class AIOpsService {
                     return result;
             }
 
+            boolean success = errorMessage == null;
             result.put("success", success);
-            result.put("message", success ? "Connection successful" : "Connection failed");
+            result.put("message", success ? "Connection successful — API key is valid" : errorMessage);
         } catch (Exception e) {
             logger.error("Test connection failed for {}: {}", dto.getProvider(), e.getMessage());
             result.put("success", false);
@@ -300,7 +415,8 @@ public class AIOpsService {
         return result;
     }
 
-    private boolean testOpenAI(String apiKey) {
+    // Returns null on success, human-readable error string on failure
+    private String testOpenAI(String apiKey) {
         HttpHeaders headers = new HttpHeaders();
         headers.setBearerAuth(apiKey);
         HttpEntity<Void> entity = new HttpEntity<>(headers);
@@ -309,52 +425,102 @@ public class AIOpsService {
             ResponseEntity<String> response = restTemplate.exchange(
                     "https://api.openai.com/v1/models",
                     HttpMethod.GET, entity, String.class);
-            return response.getStatusCode().is2xxSuccessful();
+            return response.getStatusCode().is2xxSuccessful() ? null
+                    : "OpenAI returned HTTP " + response.getStatusCode().value();
+        } catch (org.springframework.web.client.HttpClientErrorException e) {
+            int status = e.getStatusCode().value();
+            String reason = extractApiError(e.getResponseBodyAsString());
+            if (status == 401) return "Invalid API key — OpenAI rejected it (401 Unauthorized). " + reason;
+            if (status == 429) return "Rate limit or quota exceeded (429). " + reason;
+            return "OpenAI error " + status + ": " + reason;
         } catch (Exception e) {
             logger.warn("OpenAI test failed: {}", e.getMessage());
-            return false;
+            return "Could not reach OpenAI: " + e.getMessage();
         }
     }
 
-    private boolean testAnthropic(String apiKey) {
+    // Returns null on success, human-readable error string on failure
+    private String testAnthropic(String apiKey) {
         HttpHeaders headers = new HttpHeaders();
         headers.set("x-api-key", apiKey);
         headers.set("anthropic-version", "2023-06-01");
-        headers.setContentType(MediaType.APPLICATION_JSON);
-
-        String body = "{\"model\":\"claude-haiku-4-5-20241022\",\"max_tokens\":1,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}";
-        HttpEntity<String> entity = new HttpEntity<>(body, headers);
+        HttpEntity<Void> entity = new HttpEntity<>(headers);
 
         try {
+            // Use the models list endpoint — no tokens consumed, just validates the key
             ResponseEntity<String> response = restTemplate.exchange(
-                    "https://api.anthropic.com/v1/messages",
-                    HttpMethod.POST, entity, String.class);
-            return response.getStatusCode().is2xxSuccessful();
+                    "https://api.anthropic.com/v1/models",
+                    HttpMethod.GET, entity, String.class);
+            return response.getStatusCode().is2xxSuccessful() ? null
+                    : "Anthropic returned HTTP " + response.getStatusCode().value();
+        } catch (org.springframework.web.client.HttpClientErrorException e) {
+            int status = e.getStatusCode().value();
+            String reason = extractApiError(e.getResponseBodyAsString());
+            if (status == 401) return "Invalid API key — Anthropic rejected it (401 Unauthorized). " + reason;
+            if (status == 403) return "API key lacks permission (403 Forbidden). " + reason;
+            if (status == 429) return "Rate limit exceeded (429). " + reason;
+            return "Anthropic error " + status + ": " + reason;
         } catch (Exception e) {
             logger.warn("Anthropic test failed: {}", e.getMessage());
-            return false;
+            return "Could not reach Anthropic: " + e.getMessage();
         }
     }
 
-    private boolean testGemini(String apiKey) {
+    // Returns null on success, human-readable error string on failure
+    private String testGemini(String apiKey) {
         try {
             ResponseEntity<String> response = restTemplate.getForEntity(
                     "https://generativelanguage.googleapis.com/v1/models?key=" + apiKey,
                     String.class);
-            return response.getStatusCode().is2xxSuccessful();
+            return response.getStatusCode().is2xxSuccessful() ? null
+                    : "Gemini returned HTTP " + response.getStatusCode().value();
+        } catch (org.springframework.web.client.HttpClientErrorException e) {
+            int status = e.getStatusCode().value();
+            String reason = extractApiError(e.getResponseBodyAsString());
+            if (status == 400) return "Invalid API key format (400 Bad Request). " + reason;
+            if (status == 403) return "API key is invalid or doesn't have Gemini access (403 Forbidden). " + reason;
+            if (status == 429) return "Quota exceeded — free tier limit reached (429). " + reason;
+            return "Gemini error " + status + ": " + reason;
         } catch (Exception e) {
             logger.warn("Gemini test failed: {}", e.getMessage());
-            return false;
+            return "Could not reach Google Gemini: " + e.getMessage();
         }
     }
 
-    private boolean testBedrock(LlmProviderConfigDto dto) {
-        // Bedrock test uses AWS SDK - simplified check via RestTemplate to STS
-        // In production, use BedrockRuntimeClient from AWS SDK
-        logger.info("Bedrock connection test for region: {}", dto.getAwsRegion());
-        return dto.getAwsAccessKey() != null && !dto.getAwsAccessKey().isBlank()
-                && dto.getAwsSecretKey() != null && !dto.getAwsSecretKey().isBlank()
-                && dto.getAwsRegion() != null && !dto.getAwsRegion().isBlank();
+    // Returns null on success, human-readable error string on failure
+    private String testBedrock(LlmProviderConfigDto dto) {
+        if (dto.getAwsAccessKey() == null || dto.getAwsAccessKey().isBlank())
+            return "AWS Access Key ID is required";
+        if (dto.getAwsSecretKey() == null || dto.getAwsSecretKey().isBlank())
+            return "AWS Secret Access Key is required";
+        if (dto.getAwsRegion() == null || dto.getAwsRegion().isBlank())
+            return "AWS Region is required";
+        logger.info("Bedrock credentials present for region: {}", dto.getAwsRegion());
+        return null;
+    }
+
+    private String extractApiError(String responseBody) {
+        if (responseBody == null || responseBody.isBlank()) return "";
+        try {
+            // Try to pull out "message" or "error.message" from JSON
+            if (responseBody.contains("\"message\"")) {
+                int start = responseBody.indexOf("\"message\"") + 10;
+                start = responseBody.indexOf('"', start) + 1;
+                int end = responseBody.indexOf('"', start);
+                if (start > 0 && end > start) return responseBody.substring(start, end);
+            }
+            if (responseBody.contains("\"error\"")) {
+                int start = responseBody.indexOf("\"error\"");
+                int msgIdx = responseBody.indexOf("\"message\"", start);
+                if (msgIdx > 0) {
+                    int s = responseBody.indexOf('"', msgIdx + 10) + 1;
+                    int e = responseBody.indexOf('"', s);
+                    if (s > 0 && e > s) return responseBody.substring(s, e);
+                }
+            }
+        } catch (Exception ignored) {}
+        // Truncate raw body if JSON parse fails
+        return responseBody.length() > 120 ? responseBody.substring(0, 120) + "…" : responseBody;
     }
 
     // ─── Anomaly Detection ───────────────────────────────────────
@@ -1039,7 +1205,8 @@ public class AIOpsService {
                     c.getLastErrorMessage(),
                     c.getUsageLimit(),
                     c.getCreatedAt() != null ? c.getCreatedAt().toString() : null,
-                    c.getAssignedTeam()
+                    c.getAssignedTeam(),
+                    c.getProxyEndpointId()
             );
         }).collect(Collectors.toList());
     }
@@ -1301,6 +1468,78 @@ public class AIOpsService {
         return new ModelDailyAnalysis(labels, models, costByModel, tokensByModel);
     }
 
+    // ─── Group Key Management ──────────────────────────────────────
+
+    public List<LlmProviderKeyDto> getGroupKeys(Long clientId, Long groupId) {
+        LlmKeyGroup group = keyGroupRepo.findByIdAndClientId(groupId, clientId)
+                .orElseThrow(() -> new RuntimeException("Key group not found"));
+        return providerKeyRepo.findByKeyGroupIdOrderByCreatedAtAsc(group.getId())
+                .stream().map(this::toProviderKeyDto).collect(Collectors.toList());
+    }
+
+    @Transactional
+    public LlmProviderKeyDto addGroupKey(Long clientId, Long groupId, String provider, String plainApiKey) {
+        LlmKeyGroup group = keyGroupRepo.findByIdAndClientId(groupId, clientId)
+                .orElseThrow(() -> new RuntimeException("Key group not found"));
+        LlmProviderKey key = new LlmProviderKey();
+        key.setKeyGroup(group);
+        key.setProvider(provider.toUpperCase());
+        key.setEncryptedApiKey(encryptionService.encrypt(plainApiKey));
+        key.setKeyHint("..." + plainApiKey.substring(Math.max(0, plainApiKey.length() - 4)));
+        key.setStatus("ACTIVE");
+        return toProviderKeyDto(providerKeyRepo.save(key));
+    }
+
+    @Transactional
+    public LlmProviderKeyDto rotateGroupKey(Long clientId, Long groupId, Long keyId, String plainApiKey) {
+        LlmProviderKey key = providerKeyRepo.findByIdAndKeyGroupId(keyId, groupId)
+                .filter(k -> k.getKeyGroup().getClient().getId().equals(clientId))
+                .orElseThrow(() -> new RuntimeException("Key not found"));
+        key.setEncryptedApiKey(encryptionService.encrypt(plainApiKey));
+        key.setKeyHint("..." + plainApiKey.substring(Math.max(0, plainApiKey.length() - 4)));
+        key.setStatus("ACTIVE");
+        return toProviderKeyDto(providerKeyRepo.save(key));
+    }
+
+    @Transactional
+    public void deleteGroupKey(Long clientId, Long groupId, Long keyId) {
+        LlmProviderKey key = providerKeyRepo.findByIdAndKeyGroupId(keyId, groupId)
+                .filter(k -> k.getKeyGroup().getClient().getId().equals(clientId))
+                .orElseThrow(() -> new RuntimeException("Key not found"));
+        providerKeyRepo.delete(key);
+    }
+
+    @Transactional
+    public void updateKeyStatus(Long clientId, Long groupId, Long keyId, String status) {
+        LlmProviderKey key = providerKeyRepo.findByIdAndKeyGroupId(keyId, groupId)
+                .filter(k -> k.getKeyGroup().getClient().getId().equals(clientId))
+                .orElseThrow(() -> new RuntimeException("Key not found"));
+        key.setStatus(status);
+        providerKeyRepo.save(key);
+    }
+
+    @Transactional
+    public void updateGroupStrategy(Long clientId, Long groupId, String strategy) {
+        LlmKeyGroup group = keyGroupRepo.findByIdAndClientId(groupId, clientId)
+                .orElseThrow(() -> new RuntimeException("Key group not found"));
+        group.setLoadBalanceStrategy(strategy);
+        keyGroupRepo.save(group);
+    }
+
+    private LlmProviderKeyDto toProviderKeyDto(LlmProviderKey k) {
+        LlmProviderKeyDto dto = new LlmProviderKeyDto();
+        dto.setId(k.getId());
+        dto.setProvider(k.getProvider());
+        dto.setKeyHint(k.getKeyHint());
+        dto.setStatus(k.getStatus());
+        dto.setCurrentRequests(k.getCurrentRequests());
+        dto.setTotalRequests(k.getTotalRequests());
+        dto.setTotalCost(k.getTotalCost());
+        dto.setTotalTokens(k.getTotalTokens());
+        dto.setCreatedAt(k.getCreatedAt());
+        return dto;
+    }
+
     // ─── Helper: toDto ───────────────────────────────────────────
 
     private LlmProviderConfigDto toDto(LlmProviderConfig config) {
@@ -1313,6 +1552,7 @@ public class AIOpsService {
         dto.setTrackingToken(config.getProxyEndpointId());
         dto.setProxyBaseUrl(serverBaseUrl + "/api/llm-proxy");
         dto.setAssignedTeam(config.getAssignedTeam());
+        dto.setEnabledModels(config.getEnabledModels());
         if (config.getAwsRegion() != null) {
             dto.setAwsRegion(config.getAwsRegion());
         }

@@ -46,6 +46,12 @@ public class ImpersonationJwtFilter extends OncePerRequestFilter {
     private UserRepository userRepository;
 
     @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        String path = request.getRequestURI();
+        return path.startsWith("/api/llm-proxy/") || path.equals("/api/llm-proxy");
+    }
+
+    @Override
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
                                     FilterChain chain) throws ServletException, IOException {

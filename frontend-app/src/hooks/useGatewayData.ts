@@ -9,14 +9,19 @@ export interface GatewayStatus {
 
 export function useGatewayData() {
   const [status, setStatus] = useState<GatewayStatus | null>(null);
+  const [masterKey, setMasterKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
   const fetchStatus = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await apiFetchJson<GatewayStatus>('/api/xamops/aiops/gateway/status');
-      setStatus(data);
+      const [statusData, keyData] = await Promise.all([
+        apiFetchJson<GatewayStatus>('/api/xamops/aiops/gateway/status'),
+        apiFetchJson<{ masterKey: string }>('/api/xamops/aiops/gateway/master-key'),
+      ]);
+      setStatus(statusData);
+      setMasterKey(keyData.masterKey);
     } catch {
       setStatus({ online: false, url: '', proxyEndpoint: '' });
     } finally {
@@ -38,5 +43,5 @@ export function useGatewayData() {
 
   useEffect(() => { fetchStatus(); }, [fetchStatus]);
 
-  return { status, loading, syncing, fetchStatus, syncGateway };
+  return { status, masterKey, loading, syncing, fetchStatus, syncGateway };
 }

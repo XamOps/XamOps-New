@@ -7,114 +7,142 @@ interface LLMProviderSetupModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (config: LlmProviderConfig) => Promise<LlmProviderConfig>;
+  onUpdate?: (id: number, config: LlmProviderConfig) => Promise<LlmProviderConfig>;
+  editProvider?: LlmProviderConfig | null;
   existingProviders: LlmProviderConfig[];
 }
 
 type Step = 'select' | 'success';
 
-// Curl snippets per provider — CloudIDR style (unified Authorization: Bearer + X-XamOps-Key)
-const CURL_SNIPPETS: Record<string, string> = {
-  ANTHROPIC: `curl {{PROXY_URL}}/v1/messages \\
-  -H "Content-Type: application/json" \\
-  -H "Authorization: Bearer YOUR_ANTHROPIC_KEY" \\
-  -H "X-XamOps-Key: {{TRACKING_TOKEN}}" \\
-  -d '{
-    "model": "claude-sonnet-4-20250514",
-    "max_tokens": 100,
-    "messages": [{"role": "user", "content": "Hello!"}]
-  }'`,
-  OPENAI: `curl {{PROXY_URL}}/v1/chat/completions \\
-  -H "Content-Type: application/json" \\
-  -H "Authorization: Bearer YOUR_OPENAI_KEY" \\
-  -H "X-XamOps-Key: {{TRACKING_TOKEN}}" \\
-  -d '{
-    "model": "gpt-4o",
-    "messages": [{"role": "user", "content": "Hello!"}]
-  }'`,
-  GEMINI: `curl {{PROXY_URL}}/v1/models/gemini-2.0-flash:generateContent \\
-  -H "Content-Type: application/json" \\
-  -H "Authorization: Bearer YOUR_GEMINI_KEY" \\
-  -H "X-XamOps-Key: {{TRACKING_TOKEN}}" \\
-  -d '{
-    "contents": [{"parts": [{"text": "Hello!"}]}]
-  }'`,
-  BEDROCK: `curl {{PROXY_URL}}/model/anthropic.claude-3-haiku-20240307-v1:0/invoke \\
-  -H "Content-Type: application/json" \\
-  -H "X-XamOps-Key: {{TRACKING_TOKEN}}" \\
-  -d '{
-    "messages": [{"role": "user", "content": "Hello!"}],
-    "max_tokens": 256,
-    "anthropic_version": "bedrock-2023-05-31"
-  }'`,
+const PROVIDER_MODELS: Record<string, string[]> = {
+  OPENAI:    ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo', 'o1', 'o3-mini'],
+  ANTHROPIC: ['claude-sonnet-4-5-20250929', 'claude-opus-4-5-20250929', 'claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', 'claude-3-haiku-20240307'],
+  GEMINI:    ['gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'],
+  BEDROCK:   ['anthropic.claude-3-5-sonnet-20241022-v2:0', 'anthropic.claude-3-haiku-20240307-v1:0', 'amazon.titan-text-express-v1', 'meta.llama3-70b-instruct-v1:0'],
 };
 
-function CopyButton({ text, className = '' }: { text: string; className?: string }) {
+function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
-  const handleCopy = () => {
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
   return (
-    <button
-      onClick={handleCopy}
-      className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
-        copied
-          ? 'bg-green-600 text-white'
-          : 'bg-indigo-600 text-white hover:bg-indigo-700'
-      } ${className}`}
-    >
+    <button onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
+      className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${copied ? 'bg-green-600 text-white' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}>
       {copied ? 'Copied!' : 'Copy'}
     </button>
   );
 }
 
 const LLMProviderSetupModal: React.FC<LLMProviderSetupModalProps> = ({
-  isOpen,
-  onClose,
-  onSave,
-  existingProviders,
+  isOpen, onClose, onSave, onUpdate, editProvider, existingProviders,
 }) => {
+  const isEditing = !!editProvider;
+
   const [step, setStep] = useState<Step>('select');
   const [selectedProvider, setSelectedProvider] = useState<LlmProvider | null>(null);
   const [displayName, setDisplayName] = useState('');
   const [teamName, setTeamName] = useState('');
+  const [apiKey, setApiKey] = useState('');
+  const [selectedModels, setSelectedModels] = useState<string[]>([]);
   const [awsRegion, setAwsRegion] = useState('');
   const [awsAccessKey, setAwsAccessKey] = useState('');
   const [awsSecretKey, setAwsSecretKey] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [error, setError] = useState('');
   const [savedConfig, setSavedConfig] = useState<LlmProviderConfig | null>(null);
-  const [activeSnippetProvider, setActiveSnippetProvider] = useState<string>('');
+
+  // Pre-fill form when editing an existing provider
+  React.useEffect(() => {
+    if (editProvider && isOpen) {
+      setSelectedProvider(editProvider.provider as LlmProvider);
+      setDisplayName(editProvider.displayName ?? '');
+      setTeamName(editProvider.assignedTeam ?? '');
+      setAwsRegion(editProvider.awsRegion ?? '');
+      setApiKey(''); // never pre-fill key — it's write-only
+      const models = editProvider.enabledModels
+        ? editProvider.enabledModels.split(',').map(m => m.trim()).filter(Boolean)
+        : (PROVIDER_MODELS[editProvider.provider as string] ?? []);
+      setSelectedModels(models);
+      setStep('select');
+      setError('');
+      setTestResult(null);
+    }
+  }, [editProvider, isOpen]);
 
   const resetForm = useCallback(() => {
     setStep('select');
     setSelectedProvider(null);
     setDisplayName('');
     setTeamName('');
+    setApiKey('');
+    setSelectedModels([]);
     setAwsRegion('');
     setAwsAccessKey('');
     setAwsSecretKey('');
     setIsSaving(false);
+    setIsTesting(false);
+    setTestResult(null);
     setError('');
     setSavedConfig(null);
-    setActiveSnippetProvider('');
   }, []);
 
-  const handleClose = useCallback(() => {
-    resetForm();
-    onClose();
-  }, [resetForm, onClose]);
+  const handleClose = useCallback(() => { resetForm(); onClose(); }, [resetForm, onClose]);
 
-  const handleSave = useCallback(async () => {
-    if (!selectedProvider) {
-      setError('Please select a provider');
+  const handleProviderSelect = (provider: LlmProvider) => {
+    setSelectedProvider(provider);
+    setApiKey('');
+    setError('');
+    setTestResult(null);
+    // Select all models by default
+    setSelectedModels(PROVIDER_MODELS[provider] ?? []);
+  };
+
+  const toggleModel = (model: string) => {
+    setSelectedModels(prev =>
+      prev.includes(model) ? prev.filter(m => m !== model) : [...prev, model]
+    );
+  };
+
+  const handleTestConnection = async () => {
+    if (!selectedProvider) return;
+    if (selectedProvider !== 'BEDROCK' && !apiKey.trim()) {
+      setError('Enter an API key first to test connection');
       return;
     }
-    if (selectedProvider === 'BEDROCK') {
-      if (!awsRegion.trim()) { setError('AWS Region is required for Bedrock'); return; }
-      if (!awsAccessKey.trim()) { setError('AWS Access Key is required for Bedrock'); return; }
-      if (!awsSecretKey.trim()) { setError('AWS Secret Key is required for Bedrock'); return; }
+    setIsTesting(true);
+    setTestResult(null);
+    setError('');
+    try {
+      const resp = await fetch('/api/xamops/aiops/providers/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: selectedProvider,
+          apiKey: apiKey.trim() || undefined,
+          awsRegion: awsRegion.trim() || undefined,
+          awsAccessKey: awsAccessKey.trim() || undefined,
+          awsSecretKey: awsSecretKey.trim() || undefined,
+        }),
+      });
+      const data = await resp.json();
+      setTestResult({ success: data.success, message: data.message ?? (data.success ? 'Connection successful' : 'Connection failed') });
+    } catch (e: any) {
+      setTestResult({ success: false, message: e.message ?? 'Request failed' });
+    } finally {
+      setIsTesting(false);
+    }
+  };
+
+  const handleSave = useCallback(async () => {
+    if (!selectedProvider) { setError('Please select a provider'); return; }
+    if (!isEditing) {
+      if (selectedProvider === 'BEDROCK') {
+        if (!awsRegion.trim()) { setError('AWS Region is required'); return; }
+        if (!awsAccessKey.trim()) { setError('AWS Access Key is required'); return; }
+        if (!awsSecretKey.trim()) { setError('AWS Secret Key is required'); return; }
+      } else {
+        if (!apiKey.trim()) { setError('API key is required'); return; }
+      }
     }
     setIsSaving(true);
     setError('');
@@ -124,43 +152,41 @@ const LLMProviderSetupModal: React.FC<LLMProviderSetupModalProps> = ({
         displayName: displayName || selectedProvider,
         status: 'ACTIVE',
         assignedTeam: teamName.trim() || undefined,
+        apiKey: apiKey.trim() || undefined,
+        enabledModels: selectedModels.length > 0 ? selectedModels.join(',') : undefined,
       };
       if (selectedProvider === 'BEDROCK') {
         config.awsRegion = awsRegion.trim();
         config.awsAccessKey = awsAccessKey.trim();
         config.awsSecretKey = awsSecretKey.trim();
       }
-      const result = await onSave(config);
+      const result = isEditing && onUpdate && editProvider?.id
+        ? await onUpdate(editProvider.id, config)
+        : await onSave(config);
       setSavedConfig(result);
-      setActiveSnippetProvider(selectedProvider);
       setStep('success');
     } catch (e: any) {
       setError(e.message || 'Failed to save provider');
     } finally {
       setIsSaving(false);
     }
-  }, [selectedProvider, displayName, awsRegion, awsAccessKey, awsSecretKey, onSave]);
+  }, [selectedProvider, displayName, apiKey, teamName, awsRegion, awsAccessKey, awsSecretKey, selectedModels, isEditing, onSave, onUpdate, editProvider]);
 
   const configuredCountByProvider = existingProviders.reduce<Record<string, number>>((acc, p) => {
     acc[p.provider] = (acc[p.provider] || 0) + 1;
     return acc;
   }, {});
 
-  const getCurlSnippet = (provider: string) => {
-    if (!savedConfig) return '';
-    const snippet = CURL_SNIPPETS[provider] || '';
-    return snippet
-      .replace(/\{\{PROXY_URL\}\}/g, savedConfig.proxyBaseUrl || '')
-      .replace(/\{\{TRACKING_TOKEN\}\}/g, savedConfig.trackingToken || '');
-  };
+  const models = selectedProvider ? (PROVIDER_MODELS[selectedProvider] ?? []) : [];
+  const allSelected = models.length > 0 && selectedModels.length === models.length;
 
   return (
     <DialogRoot isOpen={isOpen} onClose={handleClose} maxWidth="max-w-2xl">
       <DialogPanel
         title={
           <div className="flex items-center gap-2">
-            <i className={`fas ${step === 'success' ? 'fa-check-circle text-green-500' : 'fa-plug text-indigo-500'}`} />
-            <span>{step === 'success' ? 'Setup Complete' : 'Connect LLM Provider'}</span>
+            <i className={`fas ${step === 'success' ? 'fa-check-circle text-green-500' : isEditing ? 'fa-edit text-indigo-500' : 'fa-plug text-indigo-500'}`} />
+            <span>{step === 'success' ? (isEditing ? 'Provider Updated' : 'Setup Complete') : isEditing ? `Edit Provider — ${editProvider?.displayName ?? editProvider?.provider}` : 'Connect LLM Provider'}</span>
           </div>
         }
         onClose={handleClose}
@@ -168,36 +194,32 @@ const LLMProviderSetupModal: React.FC<LLMProviderSetupModalProps> = ({
           <div className="flex items-center justify-between w-full">
             <div className="flex items-center gap-2 text-xs text-gray-400">
               <i className="fas fa-shield-alt" />
-              <span>API keys pass through only — never stored</span>
+              <span>API keys are encrypted at rest (AES-256) — never exposed</span>
             </div>
             <div className="flex items-center gap-3">
               {step === 'select' ? (
                 <>
-                  <button
-                    onClick={handleClose}
-                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-                  >
+                  <button onClick={handleClose}
+                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors">
                     Cancel
                   </button>
                   {selectedProvider && (
-                    <button
-                      onClick={handleSave}
-                      disabled={isSaving}
-                      className="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-indigo-500 to-purple-600 rounded-lg hover:from-indigo-600 hover:to-purple-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
-                    >
-                      {isSaving ? (
-                        <><i className="fas fa-spinner fa-spin mr-2" />Saving...</>
-                      ) : (
-                        <><i className="fas fa-save mr-2" />Save Provider</>
-                      )}
-                    </button>
+                    <>
+                      <button onClick={handleTestConnection} disabled={isTesting}
+                        className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors disabled:opacity-50">
+                        <i className={`fas ${isTesting ? 'fa-circle-notch fa-spin' : 'fa-plug'} text-xs`} />
+                        {isTesting ? 'Testing…' : 'Test Connection'}
+                      </button>
+                      <button onClick={handleSave} disabled={isSaving}
+                        className="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-indigo-500 to-purple-600 rounded-lg hover:from-indigo-600 hover:to-purple-700 transition-all disabled:opacity-50 shadow-sm">
+                        {isSaving ? <><i className="fas fa-spinner fa-spin mr-2" />Saving…</> : isEditing ? <><i className="fas fa-check mr-2" />Update Provider</> : <><i className="fas fa-save mr-2" />Save Provider</>}
+                      </button>
+                    </>
                   )}
                 </>
               ) : (
-                <button
-                  onClick={handleClose}
-                  className="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-green-500 to-emerald-600 rounded-lg hover:from-green-600 hover:to-emerald-700 transition-all shadow-sm"
-                >
+                <button onClick={handleClose}
+                  className="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-green-500 to-emerald-600 rounded-lg hover:from-green-600 hover:to-emerald-700 transition-all shadow-sm">
                   <i className="fas fa-check mr-2" />Done
                 </button>
               )}
@@ -205,29 +227,20 @@ const LLMProviderSetupModal: React.FC<LLMProviderSetupModalProps> = ({
           </div>
         }
       >
-        <div className="space-y-6">
+        <div className="space-y-5">
           {step === 'select' && (
             <>
-              {/* Step 1: Provider Selection */}
+              {/* Provider selection */}
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-3">
-                  Select Provider
-                </label>
+                <label className="block text-sm font-semibold text-gray-700 mb-3">Select Provider</label>
                 <div className="grid grid-cols-2 gap-3">
                   {LLM_PROVIDERS.map(provider => {
                     const keyCount = configuredCountByProvider[provider.key] || 0;
                     const isSelected = selectedProvider === provider.key;
-
                     return (
-                      <button
-                        key={provider.key}
-                        onClick={() => setSelectedProvider(provider.key)}
-                        className={`relative p-4 rounded-xl border-2 text-left transition-all cursor-pointer ${
-                          isSelected
-                            ? 'border-indigo-500 bg-indigo-50 shadow-md'
-                            : 'border-gray-200 hover:border-indigo-300 hover:bg-gray-50'
-                        }`}
-                      >
+                      <button key={provider.key}
+                        onClick={() => handleProviderSelect(provider.key)}
+                        className={`relative p-4 rounded-xl border-2 text-left transition-all cursor-pointer ${isSelected ? 'border-indigo-500 bg-indigo-50 shadow-md' : 'border-gray-200 hover:border-indigo-300 hover:bg-gray-50'}`}>
                         {keyCount > 0 && (
                           <span className="absolute top-2 right-2 text-xs bg-green-100 text-green-600 px-2 py-0.5 rounded-full font-medium">
                             {keyCount} key{keyCount > 1 ? 's' : ''}
@@ -244,96 +257,123 @@ const LLMProviderSetupModal: React.FC<LLMProviderSetupModalProps> = ({
                 </div>
               </div>
 
-              {/* Step 2: Display Name + provider-specific fields */}
               {selectedProvider && (
                 <div className="space-y-4 pt-2 border-t border-gray-100">
+                  {/* Display Name */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Display Name{' '}
                       {(configuredCountByProvider[selectedProvider] || 0) > 0
                         ? <span className="text-amber-600 text-xs">(recommended — you already have a key for this provider)</span>
-                        : <span className="text-gray-400">(optional)</span>
-                      }
+                        : <span className="text-gray-400">(optional)</span>}
                     </label>
-                    <input
-                      type="text"
-                      value={displayName}
-                      onChange={e => setDisplayName(e.target.value)}
+                    <input type="text" value={displayName} onChange={e => setDisplayName(e.target.value)}
                       placeholder={`e.g., Production ${selectedProvider}`}
-                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
-                    />
+                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" />
                   </div>
 
+                  {/* Team */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Assign to Team <span className="text-gray-400">(optional)</span>
                     </label>
                     <div className="relative">
                       <i className="fas fa-users absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs" />
-                      <input
-                        type="text"
-                        value={teamName}
-                        onChange={e => setTeamName(e.target.value)}
-                        placeholder="e.g., backend-team, data-science, product"
-                        className="w-full pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
-                      />
+                      <input type="text" value={teamName} onChange={e => setTeamName(e.target.value)}
+                        placeholder="e.g., backend-team, data-science"
+                        className="w-full pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" />
                     </div>
-                    <p className="text-[11px] text-gray-400 mt-1">
-                      All requests through this key will be attributed to this team in analytics.
-                    </p>
                   </div>
 
-                  {/* Bedrock-specific fields */}
-                  {selectedProvider === 'BEDROCK' && (
-                    <div className="space-y-3 p-4 bg-amber-50 border border-amber-200 rounded-xl">
-                      <div className="flex items-center gap-2 text-xs font-semibold text-amber-800 mb-2">
-                        <i className="fab fa-aws" />
-                        AWS Bedrock Credentials
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-700 mb-1">
-                          AWS Region <span className="text-red-500">*</span>
-                        </label>
-                        <input
-                          type="text"
-                          value={awsRegion}
-                          onChange={e => setAwsRegion(e.target.value)}
-                          placeholder="e.g., us-east-1, ap-south-1"
-                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-700 mb-1">
-                          AWS Access Key ID <span className="text-red-500">*</span>
-                        </label>
-                        <input
-                          type="password"
-                          value={awsAccessKey}
-                          onChange={e => setAwsAccessKey(e.target.value)}
-                          placeholder="AKIA..."
-                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none font-mono"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-700 mb-1">
-                          AWS Secret Access Key <span className="text-red-500">*</span>
-                        </label>
-                        <input
-                          type="password"
-                          value={awsSecretKey}
-                          onChange={e => setAwsSecretKey(e.target.value)}
-                          placeholder="wJal..."
-                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none font-mono"
-                        />
-                      </div>
-                      <p className="text-[11px] text-amber-700">
-                        <i className="fas fa-shield-alt mr-1" />
-                        Credentials are encrypted at rest and used only to sign requests to Bedrock.
-                        No Authorization header needed in your curl commands.
+                  {/* API Key */}
+                  {selectedProvider !== 'BEDROCK' && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        API Key <span className="text-red-500">*</span>
+                      </label>
+                      <input type="password" value={apiKey}
+                        onChange={e => { setApiKey(e.target.value); setError(''); setTestResult(null); }}
+                        placeholder={selectedProvider === 'OPENAI' ? 'sk-...' : selectedProvider === 'ANTHROPIC' ? 'sk-ant-...' : 'AIza...'}
+                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none font-mono" />
+                      <p className="text-[11px] text-gray-400 mt-1">
+                        <i className="fas fa-lock mr-1 text-indigo-400" />
+                        Stored encrypted (AES-256). Only the last 4 characters are shown after saving.
                       </p>
                     </div>
                   )}
 
+                  {/* Bedrock fields */}
+                  {selectedProvider === 'BEDROCK' && (
+                    <div className="space-y-3 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+                      <div className="flex items-center gap-2 text-xs font-semibold text-amber-800 mb-2">
+                        <i className="fab fa-aws" /> AWS Bedrock Credentials
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">AWS Region <span className="text-red-500">*</span></label>
+                        <input type="text" value={awsRegion} onChange={e => { setAwsRegion(e.target.value); setError(''); }}
+                          placeholder="e.g., us-east-1" className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">AWS Access Key ID <span className="text-red-500">*</span></label>
+                        <input type="password" value={awsAccessKey} onChange={e => { setAwsAccessKey(e.target.value); setError(''); }}
+                          placeholder="AKIA..." className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none font-mono" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">AWS Secret Access Key <span className="text-red-500">*</span></label>
+                        <input type="password" value={awsSecretKey} onChange={e => { setAwsSecretKey(e.target.value); setError(''); }}
+                          placeholder="wJal..." className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none font-mono" />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Model selection */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="block text-sm font-medium text-gray-700">
+                        Models <span className="text-gray-400 text-xs">(select which to enable)</span>
+                      </label>
+                      <button onClick={() => setSelectedModels(allSelected ? [] : models)}
+                        className="text-xs text-indigo-600 hover:text-indigo-800 font-medium">
+                        {allSelected ? 'Deselect all' : 'Select all'}
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-1 gap-1.5">
+                      {models.map(model => (
+                        <label key={model}
+                          className={`flex items-center gap-3 px-3 py-2 rounded-lg border cursor-pointer transition-all ${
+                            selectedModels.includes(model)
+                              ? 'border-indigo-300 bg-indigo-50'
+                              : 'border-gray-200 bg-white hover:border-gray-300'
+                          }`}>
+                          <input type="checkbox" checked={selectedModels.includes(model)}
+                            onChange={() => toggleModel(model)}
+                            className="accent-indigo-600 w-4 h-4 flex-shrink-0" />
+                          <span className="text-xs font-mono text-gray-700">{model}</span>
+                        </label>
+                      ))}
+                    </div>
+                    {selectedModels.length === 0 && (
+                      <p className="text-xs text-amber-600 mt-1.5">
+                        <i className="fas fa-exclamation-triangle mr-1" />
+                        Select at least one model
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Test result */}
+                  {testResult && (
+                    <div className={`px-4 py-3 rounded-lg text-sm ${testResult.success ? 'bg-green-50 border border-green-200 text-green-700' : 'bg-red-50 border border-red-200 text-red-700'}`}>
+                      <div className="flex items-center gap-2 font-semibold">
+                        <i className={`fas ${testResult.success ? 'fa-check-circle' : 'fa-times-circle'} flex-shrink-0`} />
+                        <span>{testResult.success ? 'Connection successful' : 'Connection failed'}</span>
+                      </div>
+                      {!testResult.success && (
+                        <p className="mt-1.5 ml-5 text-xs leading-relaxed opacity-90">{testResult.message}</p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Error */}
                   {error && (
                     <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-red-50 text-red-700 text-sm">
                       <i className="fas fa-exclamation-circle" />
@@ -344,17 +384,8 @@ const LLMProviderSetupModal: React.FC<LLMProviderSetupModalProps> = ({
                   <div className="flex items-start gap-3 p-4 bg-green-50/50 rounded-xl border border-green-100">
                     <i className="fas fa-lock text-green-500 mt-0.5" />
                     <div className="text-xs text-green-700 space-y-1">
-                      {selectedProvider === 'BEDROCK' ? (
-                        <>
-                          <p className="font-semibold">Credentials stored encrypted</p>
-                          <p>Your AWS credentials are encrypted with AES-256 and used to sign Bedrock requests server-side. You won't need to pass any auth headers in your curl commands.</p>
-                        </>
-                      ) : (
-                        <>
-                          <p className="font-semibold">No API key needed here</p>
-                          <p>Your API key is <strong>never stored</strong> on XamOps servers. After saving, you'll get a tracking key and a curl command to test. Your API key passes through in each request and is only held in memory for ~1-2 seconds.</p>
-                        </>
-                      )}
+                      <p className="font-semibold">Credentials stored encrypted</p>
+                      <p>Your key is encrypted with AES-256. XamOps uses it automatically — you never need to pass it in your app.</p>
                     </div>
                   </div>
                 </div>
@@ -364,110 +395,37 @@ const LLMProviderSetupModal: React.FC<LLMProviderSetupModalProps> = ({
 
           {step === 'success' && savedConfig && selectedProvider && (
             <div className="space-y-5">
-              {/* Get Started in 3 Steps — CloudIDR style */}
-              <div className="bg-gradient-to-br from-indigo-50 to-purple-50 rounded-xl p-5 border border-indigo-100">
-                <h3 className="text-sm font-bold text-gray-800 mb-4">Get Started in 3 steps</h3>
-                <div className="grid grid-cols-3 gap-4">
-                  {/* Step 1 */}
-                  <div className="bg-white rounded-lg p-3 border border-gray-100 shadow-sm">
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="w-6 h-6 bg-indigo-600 text-white rounded-full flex items-center justify-center text-xs font-bold">1</span>
-                      <span className="text-xs font-semibold text-gray-700">Use your XamOps Key</span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <code className="text-[10px] text-gray-500 font-mono truncate flex-1">
-                        {savedConfig.trackingToken?.substring(0, 20)}...
-                      </code>
-                      <CopyButton text={savedConfig.trackingToken || ''} />
-                    </div>
-                  </div>
-
-                  {/* Step 2 */}
-                  <div className="bg-white rounded-lg p-3 border border-gray-100 shadow-sm">
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="w-6 h-6 bg-indigo-600 text-white rounded-full flex items-center justify-center text-xs font-bold">2</span>
-                      <span className="text-xs font-semibold text-gray-700">Modify your LLM API call</span>
-                    </div>
-                    <p className="text-[10px] text-gray-500">Use our proxy + API key</p>
-                  </div>
-
-                  {/* Step 3 */}
-                  <div className="bg-white rounded-lg p-3 border border-gray-100 shadow-sm">
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="w-6 h-6 bg-indigo-600 text-white rounded-full flex items-center justify-center text-xs font-bold">3</span>
-                      <span className="text-xs font-semibold text-gray-700">Send your first request</span>
-                    </div>
-                    <p className="text-[10px] text-gray-500">Run your app or script; dashboard will refresh with usage.</p>
-                  </div>
+              <div className="flex items-center gap-3 p-4 bg-green-50 border border-green-200 rounded-xl">
+                <i className="fas fa-check-circle text-green-500 text-lg" />
+                <div>
+                  <p className="text-sm font-bold text-green-800">
+                    {savedConfig.displayName ?? selectedProvider} connected successfully!
+                  </p>
+                  <p className="text-xs text-green-600 mt-0.5">
+                    {selectedModels.length} model{selectedModels.length !== 1 ? 's' : ''} enabled — ready to use via Master Key.
+                  </p>
                 </div>
               </div>
 
-              {/* Curl Command */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-xs text-gray-500">Paste this in your terminal to send a test request.</p>
+              <div className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 flex items-center gap-3">
+                <i className="fas fa-fingerprint text-indigo-400" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] text-gray-500 font-semibold uppercase tracking-wide mb-0.5">Tracking Key (X-XamOps-Key)</p>
+                  <code className="text-sm text-gray-800 font-mono font-bold truncate block">{savedConfig.trackingToken}</code>
                 </div>
-                <p className="text-xs text-orange-600 mb-3">
-                  <i className="fas fa-info-circle mr-1" />
-                  Tip: Use straight double quotes (") in the JSON body to avoid invalid JSON errors.
-                </p>
-
-                {/* Provider tabs */}
-                <div className="flex items-center gap-2 mb-3 flex-wrap">
-                  {(['ANTHROPIC', 'OPENAI', 'GEMINI', 'BEDROCK'] as const).map(p => (
-                    <button
-                      key={p}
-                      onClick={() => setActiveSnippetProvider(p)}
-                      className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors ${
-                        activeSnippetProvider === p
-                          ? 'bg-indigo-600 text-white'
-                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                      }`}
-                    >
-                      {p === 'OPENAI' ? 'OpenAI' : p === 'ANTHROPIC' ? 'Anthropic' : p === 'GEMINI' ? 'Google Gemini' : 'AWS Bedrock'}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Code block */}
-                <div className="relative">
-                  <pre className="px-4 py-3 text-xs font-mono bg-gray-900 text-gray-100 rounded-lg overflow-x-auto leading-relaxed max-h-64 overflow-y-auto">
-                    {getCurlSnippet(activeSnippetProvider)}
-                  </pre>
-                  <button
-                    onClick={() => {
-                      navigator.clipboard.writeText(getCurlSnippet(activeSnippetProvider));
-                    }}
-                    className="absolute top-2 right-2 px-2 py-1 text-xs font-medium text-gray-400 hover:text-white bg-gray-700 hover:bg-gray-600 rounded transition-colors"
-                  >
-                    <i className="fas fa-copy mr-1" />Copy
-                  </button>
-                </div>
+                <CopyButton text={savedConfig.trackingToken ?? ''} />
               </div>
 
-              {/* How it works */}
               <div className="flex items-start gap-3 p-4 bg-blue-50/50 rounded-xl border border-blue-100">
                 <i className="fas fa-info-circle text-blue-500 mt-0.5" />
-                <div className="text-xs text-blue-700 space-y-1">
-                  <p className="font-semibold">How it works</p>
-                  {selectedProvider === 'BEDROCK' ? (
-                    <>
-                      <p>Send requests to the XamOps proxy with just one header:</p>
-                      <ul className="list-disc list-inside space-y-0.5 ml-1">
-                        <li><code className="bg-blue-100 px-1 rounded">X-XamOps-Key: {savedConfig.trackingToken?.substring(0, 12)}...</code> — your tracking key</li>
-                      </ul>
-                      <p>XamOps signs the request with your stored AWS credentials using SigV4, forwards to Bedrock, and logs usage. No Authorization header needed.</p>
-                    </>
-                  ) : (
-                    <>
-                      <p>Send requests to the XamOps proxy URL with two headers:</p>
-                      <ul className="list-disc list-inside space-y-0.5 ml-1">
-                        <li><code className="bg-blue-100 px-1 rounded">Authorization: Bearer YOUR_KEY</code> — your provider API key</li>
-                        <li><code className="bg-blue-100 px-1 rounded">X-XamOps-Key: {savedConfig.trackingToken?.substring(0, 12)}...</code> — your tracking key</li>
-                      </ul>
-                      <p>XamOps logs usage metadata (tokens, cost, latency) and forwards your request. Your API key is <strong>never stored</strong>.</p>
-                    </>
-                  )}
+                <div className="text-xs text-blue-700 space-y-1.5">
+                  <p className="font-semibold">Ready to use — no extra steps needed</p>
+                  <p>Your API key is encrypted and stored. Use your <strong>Master Key</strong> from the AI Gateway tab to call any connected provider.</p>
+                  <div className="mt-2 bg-blue-100 rounded-lg px-3 py-2 font-mono text-[11px]">
+                    curl -X POST "https://api.xamops.com/api/llm-proxy/chat/completions" \<br />
+                    &nbsp;&nbsp;-H "X-XamOps-Key: YOUR_MASTER_KEY" \<br />
+                    &nbsp;&nbsp;-d '{`{"model": "${selectedModels[0] ?? 'gpt-4o'}", "messages": [...]}`}'
+                  </div>
                 </div>
               </div>
             </div>

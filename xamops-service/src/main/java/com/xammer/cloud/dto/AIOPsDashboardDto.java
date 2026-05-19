@@ -489,6 +489,7 @@ public class AIOPsDashboardDto implements Serializable {
         private Long usageLimit;
         private String createdAt;
         private String assignedTeam;
+        private String trackingToken;
     }
 
     @Data

@@ -67,6 +67,10 @@ public class LlmProviderConfig {
     @Column(name = "assigned_team")
     private String assignedTeam;
 
+    // Comma-separated list of enabled model names; null means all models for the provider are enabled
+    @Column(name = "enabled_models", columnDefinition = "TEXT")
+    private String enabledModels;
+
     @Column(name = "created_at")
     private Instant createdAt;
 

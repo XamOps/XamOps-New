@@ -2,6 +2,7 @@ package com.xammer.cloud.controller;
 
 import com.xammer.cloud.dto.AIOPsDashboardDto;
 import com.xammer.cloud.dto.AIOPsDashboardDto.*;
+import com.xammer.cloud.dto.LlmKeyGroupDto;
 import com.xammer.cloud.dto.LlmProviderConfigDto;
 import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.service.AIOpsService;
@@ -37,6 +38,19 @@ public class AIOpsController {
         this.liteLLMConfigService = liteLLMConfigService;
     }
 
+    // ─── Master Key ───────────────────────────────────────────────
+
+    @GetMapping("/gateway/master-key")
+    public ResponseEntity<Map<String, String>> getMasterKey(
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        try {
+            return ResponseEntity.ok(aiOpsService.getOrCreateMasterKey(userDetails.getClientId()));
+        } catch (Exception e) {
+            logger.error("Error fetching master key: {}", e.getMessage());
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
     // ─── AI Gateway Status ───────────────────────────────────────
 
     @GetMapping("/gateway/status")
@@ -58,6 +72,57 @@ public class AIOpsController {
             return ResponseEntity.ok(Map.of("message", "Gateway sync triggered"));
         } catch (Exception e) {
             logger.error("Error syncing gateway: {}", e.getMessage());
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    // ─── Key Groups ───────────────────────────────────────────────
+
+    @GetMapping("/gateway/key-groups")
+    public ResponseEntity<List<LlmKeyGroupDto>> getKeyGroups(
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        try {
+            return ResponseEntity.ok(aiOpsService.getKeyGroups(userDetails.getClientId()));
+        } catch (Exception e) {
+            logger.error("Error fetching key groups: {}", e.getMessage());
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    @PostMapping("/gateway/key-groups")
+    public ResponseEntity<LlmKeyGroupDto> createKeyGroup(
+            @AuthenticationPrincipal ClientUserDetails userDetails,
+            @RequestBody LlmKeyGroupDto dto) {
+        try {
+            return ResponseEntity.ok(aiOpsService.createKeyGroup(userDetails.getClientId(), dto));
+        } catch (Exception e) {
+            logger.error("Error creating key group: {}", e.getMessage());
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    @PutMapping("/gateway/key-groups/{id}")
+    public ResponseEntity<LlmKeyGroupDto> updateKeyGroup(
+            @AuthenticationPrincipal ClientUserDetails userDetails,
+            @PathVariable Long id,
+            @RequestBody LlmKeyGroupDto dto) {
+        try {
+            return ResponseEntity.ok(aiOpsService.updateKeyGroup(userDetails.getClientId(), id, dto));
+        } catch (Exception e) {
+            logger.error("Error updating key group: {}", e.getMessage());
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    @DeleteMapping("/gateway/key-groups/{id}")
+    public ResponseEntity<Void> deleteKeyGroup(
+            @AuthenticationPrincipal ClientUserDetails userDetails,
+            @PathVariable Long id) {
+        try {
+            aiOpsService.deleteKeyGroup(userDetails.getClientId(), id);
+            return ResponseEntity.noContent().build();
+        } catch (Exception e) {
+            logger.error("Error deleting key group: {}", e.getMessage());
             return ResponseEntity.internalServerError().build();
         }
     }
@@ -694,6 +759,108 @@ public class AIOpsController {
             return ResponseEntity.ok(aiOpsService.getManagedInference(clientId, period));
         } catch (Exception e) {
             logger.error("Error fetching managed inference: {}", e.getMessage(), e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    // ─── Group Key Management ──────────────────────────────────────
+
+    @GetMapping("/gateway/key-groups/{groupId}/keys")
+    public ResponseEntity<?> getGroupKeys(
+            @AuthenticationPrincipal ClientUserDetails userDetails,
+            @PathVariable Long groupId) {
+        try {
+            Long clientId = userDetails.getClientId();
+            return ResponseEntity.ok(aiOpsService.getGroupKeys(clientId, groupId));
+        } catch (Exception e) {
+            logger.error("Error fetching group keys: {}", e.getMessage(), e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    @PostMapping("/gateway/key-groups/{groupId}/keys")
+    public ResponseEntity<?> addGroupKey(
+            @AuthenticationPrincipal ClientUserDetails userDetails,
+            @PathVariable Long groupId,
+            @RequestBody Map<String, String> body) {
+        try {
+            Long clientId = userDetails.getClientId();
+            String apiKey = body.get("apiKey");
+            String provider = body.get("provider");
+            if (apiKey == null || apiKey.isBlank()) {
+                return ResponseEntity.badRequest().body(Map.of("error", "apiKey is required"));
+            }
+            if (provider == null || provider.isBlank()) {
+                return ResponseEntity.badRequest().body(Map.of("error", "provider is required (OPENAI, ANTHROPIC, GEMINI, BEDROCK)"));
+            }
+            return ResponseEntity.ok(aiOpsService.addGroupKey(clientId, groupId, provider, apiKey));
+        } catch (Exception e) {
+            logger.error("Error adding group key: {}", e.getMessage(), e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    @PutMapping("/gateway/key-groups/{groupId}/keys/{keyId}")
+    public ResponseEntity<?> rotateGroupKey(
+            @AuthenticationPrincipal ClientUserDetails userDetails,
+            @PathVariable Long groupId,
+            @PathVariable Long keyId,
+            @RequestBody Map<String, String> body) {
+        try {
+            Long clientId = userDetails.getClientId();
+            String apiKey = body.get("apiKey");
+            if (apiKey == null || apiKey.isBlank()) {
+                return ResponseEntity.badRequest().body(Map.of("error", "apiKey is required"));
+            }
+            return ResponseEntity.ok(aiOpsService.rotateGroupKey(clientId, groupId, keyId, apiKey));
+        } catch (Exception e) {
+            logger.error("Error rotating group key: {}", e.getMessage(), e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    @DeleteMapping("/gateway/key-groups/{groupId}/keys/{keyId}")
+    public ResponseEntity<?> deleteGroupKey(
+            @AuthenticationPrincipal ClientUserDetails userDetails,
+            @PathVariable Long groupId,
+            @PathVariable Long keyId) {
+        try {
+            Long clientId = userDetails.getClientId();
+            aiOpsService.deleteGroupKey(clientId, groupId, keyId);
+            return ResponseEntity.ok(Map.of("deleted", true));
+        } catch (Exception e) {
+            logger.error("Error deleting group key: {}", e.getMessage(), e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    @PatchMapping("/gateway/key-groups/{groupId}/keys/{keyId}/status")
+    public ResponseEntity<?> updateKeyStatus(
+            @AuthenticationPrincipal ClientUserDetails userDetails,
+            @PathVariable Long groupId,
+            @PathVariable Long keyId,
+            @RequestBody Map<String, String> body) {
+        try {
+            Long clientId = userDetails.getClientId();
+            aiOpsService.updateKeyStatus(clientId, groupId, keyId, body.get("status"));
+            return ResponseEntity.ok(Map.of("updated", true));
+        } catch (Exception e) {
+            logger.error("Error updating key status: {}", e.getMessage(), e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    @PatchMapping("/gateway/key-groups/{groupId}/strategy")
+    public ResponseEntity<?> updateGroupStrategy(
+            @AuthenticationPrincipal ClientUserDetails userDetails,
+            @PathVariable Long groupId,
+            @RequestBody Map<String, String> body) {
+        try {
+            Long clientId = userDetails.getClientId();
+            aiOpsService.updateGroupStrategy(clientId, groupId, body.get("strategy"));
+            return ResponseEntity.ok(Map.of("updated", true));
+        } catch (Exception e) {
+            logger.error("Error updating group strategy: {}", e.getMessage(), e);
             return ResponseEntity.internalServerError().build();
         }
     }

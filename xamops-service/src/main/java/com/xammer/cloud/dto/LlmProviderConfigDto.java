@@ -42,4 +42,7 @@ public class LlmProviderConfigDto {
     private String createdAt;
 
     private String assignedTeam;
+
+    // Comma-separated enabled model names (write: from UI selection; read: returned to frontend)
+    private String enabledModels;
 }

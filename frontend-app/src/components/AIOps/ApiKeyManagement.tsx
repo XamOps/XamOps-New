@@ -4,6 +4,7 @@ import type { ApiKeyStats, ApiKeyRotateRequest } from '../../types/aiops';
 import { PROVIDER_COLORS } from '../../types/aiops';
 import { InfoTooltip } from '../ui/Tooltip';
 
+
 interface ApiKeyManagementProps {
   keys: ApiKeyStats[];
   loading: boolean;
@@ -456,6 +457,21 @@ const ApiKeyManagement: React.FC<ApiKeyManagementProps> = ({
                   </div>
                 )}
               </div>
+
+              {/* Tracking Token */}
+              {key.trackingToken && (
+                <div className="mx-5 mb-3 flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+                  <i className="fas fa-fingerprint text-gray-400 text-xs flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] text-gray-400 uppercase tracking-wide font-semibold mb-0.5">Tracking Key (X-XamOps-Key)</p>
+                    <code className="text-xs text-gray-700 font-mono truncate block">{key.trackingToken}</code>
+                  </div>
+                  <button onClick={() => { navigator.clipboard.writeText(key.trackingToken!); }}
+                    className="flex-shrink-0 px-2 py-1 text-xs text-gray-500 hover:text-indigo-600 bg-white border border-gray-200 rounded hover:border-indigo-300 transition-colors">
+                    <i className="fas fa-copy" />
+                  </button>
+                </div>
+              )}
 
               {/* Actions */}
               <div className="px-5 py-3 border-t border-gray-100 bg-gray-50/50 flex items-center gap-2 flex-wrap">

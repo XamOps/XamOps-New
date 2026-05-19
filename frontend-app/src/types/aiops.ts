@@ -54,10 +54,14 @@ export interface LlmProviderConfig {
   trackingToken?: string;
   createdAt?: string;
   assignedTeam?: string | null;
+  // API key (write-only, stored encrypted on backend, never returned)
+  apiKey?: string;
   // Bedrock-specific (write-only, never returned from backend)
   awsRegion?: string;
   awsAccessKey?: string;
   awsSecretKey?: string;
+  // Comma-separated list of enabled model names; null = all models enabled
+  enabledModels?: string | null;
 }
 
 // ─── Section Loading State ───────────────────────────────────
@@ -423,6 +427,7 @@ export interface ApiKeyStats {
   usageLimit: number | null;
   createdAt: string | null;
   assignedTeam: string | null;
+  trackingToken?: string | null;
 }
 
 export interface ApiKeyRotateRequest {
