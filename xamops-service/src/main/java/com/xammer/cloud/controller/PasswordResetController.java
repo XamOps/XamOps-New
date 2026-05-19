@@ -7,17 +7,21 @@ import com.xammer.cloud.repository.UserRepository;
 import com.xammer.cloud.service.EmailService;
 import com.xammer.cloud.service.MasterDatabaseService;
 import com.xammer.cloud.service.RedisCacheService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
+import java.security.SecureRandom;
 import java.util.Optional;
-import java.util.Random;
 
 @RestController
 @RequestMapping("/api/auth")
+@Slf4j
 public class PasswordResetController {
+
+    private final SecureRandom secureRandom = new SecureRandom();
 
     @Autowired
     private UserRepository userRepository;
@@ -64,11 +68,13 @@ public class PasswordResetController {
 
             // Verify email matches
             if (user.getEmail() == null || !user.getEmail().equalsIgnoreCase(email)) {
-                return ResponseEntity.badRequest().body("Email does not match our records.");
+                log.warn("Password reset attempted for user {} with mismatched email: {}", username, email);
+                // Return generic message to prevent user/email enumeration
+                return ResponseEntity.ok().body("If the account exists, an OTP has been sent to your email.");
             }
 
-            // Generate 6-digit OTP
-            String otp = String.format("%06d", new Random().nextInt(999999));
+            // Generate 6-digit OTP using SecureRandom for cryptographic security
+            String otp = String.format("%06d", secureRandom.nextInt(1000000));
             
             // Save OTP to Redis (Expires in 5 minutes)
             redisCacheService.saveOtp(username, otp);
@@ -79,16 +85,15 @@ public class PasswordResetController {
                           "<p>Your verification code is: <strong>" + otp + "</strong></p>" +
                           "<p>This code expires in 5 minutes.</p>";
             
-            // Log for debugging (in case email fails)
-            System.out.println(">>> OTP for " + username + ": " + otp);
-            
             emailService.sendHtmlEmail(email, subject, body);
+            log.info("Password reset OTP sent to user: {}", username);
 
-            return ResponseEntity.ok().body("OTP sent to your email.");
+            return ResponseEntity.ok().body("If the account exists, an OTP has been sent to your email.");
 
         } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.badRequest().body("Error: " + e.getMessage());
+            log.error("Error during password reset initiation for user {}: {}", username, e.getMessage());
+            // Return generic message to avoid leaking user existence or internal details
+            return ResponseEntity.ok().body("If the account exists, an OTP has been sent to your email.");
         }
     }
 
@@ -114,7 +119,7 @@ public class PasswordResetController {
             // Re-verify OTP to be safe
             String cachedOtp = redisCacheService.getOtp(username);
             if (cachedOtp == null || !cachedOtp.equals(otp)) {
-                return ResponseEntity.badRequest().body("Invalid request or OTP expired.");
+                return ResponseEntity.badRequest().body("Invalid request or expired verification code.");
             }
 
             // ✅ FIX: Switch to the correct database to update the password
@@ -129,11 +134,13 @@ public class PasswordResetController {
 
             // Clear OTP
             redisCacheService.deleteOtp(username);
+            log.info("Password successfully reset for user: {}", username);
 
             return ResponseEntity.ok().body("Password updated successfully.");
 
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body("Failed to reset password: " + e.getMessage());
+            log.error("Failed to reset password for user {}: {}", username, e.getMessage());
+            return ResponseEntity.badRequest().body("Failed to reset password. Please try again later.");
         }
     }
 }
