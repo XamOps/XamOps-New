@@ -23,11 +23,11 @@ import org.springframework.web.bind.annotation.*;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpSession;
+import java.security.SecureRandom;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Random;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.Arrays;
@@ -41,6 +41,9 @@ import java.util.Arrays;
 @RequestMapping("/api/auth")
 @Slf4j
 public class LoginOtpController {
+
+    // Security: Use SecureRandom for cryptographically strong OTP generation
+    private final SecureRandom secureRandom = new SecureRandom();
 
     @Autowired
     private UserRepository userRepository;
@@ -107,8 +110,8 @@ public class LoginOtpController {
             return authenticateAndRedirect(user, request);
         }
 
-        // Credentials validated — generate and send OTP
-        String otp = String.format("%06d", new Random().nextInt(999999));
+        // Security: Generate cryptographically strong 6-digit OTP (000000-999999)
+        String otp = String.format("%06d", secureRandom.nextInt(1000000));
         redisCacheService.saveLoginOtp(email, otp);
         redisCacheService.savePreAuthFlag(email);
 
