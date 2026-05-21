@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import apiClient from '../utils/apiClient';
 
 // ── Types matching backend DTOs ──────────────────────────────────────────────
 
@@ -286,6 +287,25 @@ export interface AgentUserActivity {
   collectedAt?: string;
 }
 
+export interface DbHealthSnapshotDto {
+  instanceId: string;
+  score: number;
+  status: 'healthy' | 'warning' | 'critical';
+  issues: string[];
+  computedAt: string;
+}
+
+export interface DbHealthAlertDto {
+  id: number;
+  instanceId: string;
+  alertType: string;
+  severity: 'WARNING' | 'CRITICAL';
+  message: string;
+  triggeredAt: string;
+  resolvedAt: string | null;
+  active: boolean;
+}
+
 // ── Hook ─────────────────────────────────────────────────────────────────────
 
 const CACHE_TTL = 12 * 60 * 60 * 1000; // 12 hours
@@ -303,6 +323,8 @@ interface CachedPayload {
   slowQueries: SlowQueriesResponse | null;
   agentQueryStats: AgentQueryStat[];
   agentInstanceMetrics: AgentInstanceMetrics[];
+  healthSnapshots: DbHealthSnapshotDto[];
+  dbAlerts: DbHealthAlertDto[];
 }
 
 function readCache(accountId: string): CachedPayload | null {
@@ -349,6 +371,8 @@ export function useDbOpsData(accountId: string | null) {
   const [slowQueries, setSlowQueries]       = useState<SlowQueriesResponse | null>(null);
   const [agentQueryStats, setAgentQueryStats] = useState<AgentQueryStat[]>([]);
   const [agentInstanceMetrics, setAgentInstanceMetrics] = useState<AgentInstanceMetrics[]>([]);
+  const [healthSnapshots, setHealthSnapshots] = useState<DbHealthSnapshotDto[]>([]);
+  const [dbAlerts, setDbAlerts]               = useState<DbHealthAlertDto[]>([]);
   const [loading, setLoading]               = useState(false);
   const [error, setError]                   = useState<string | null>(null);
 
@@ -367,6 +391,8 @@ export function useDbOpsData(accountId: string | null) {
     setSlowQueries(p.slowQueries ?? null);
     setAgentQueryStats(p.agentQueryStats ?? []);
     setAgentInstanceMetrics(p.agentInstanceMetrics ?? []);
+    setHealthSnapshots(p.healthSnapshots ?? []);
+    setDbAlerts(p.dbAlerts ?? []);
   };
 
   const fetchAll = useCallback(async (forceRefresh = false) => {
@@ -396,17 +422,19 @@ export function useDbOpsData(accountId: string | null) {
       setSummary(summaryData);
 
       // All subsequent calls run in parallel
-      const [inv, metricsData, cost, idleData, rsData, snapData, secData, slowData, agentStats, agentMetrics] = await Promise.all([
-        fetchJson<DbInstance[]>(`${base}/inventory`),
-        fetchJson<Record<string, DbMetrics>>(`${base}/metrics`),
-        fetchJson<DbCost[]>(`${base}/costs`),
-        fetchJson<DbIdleInstance[]>(`${base}/idle`),
-        fetchJson<DbRightsizing[]>(`${base}/rightsizing`),
-        fetchJson<DbSnapshot[]>(`${base}/snapshots`),
-        fetchJson<DbSecurityCheck[]>(`${base}/security`),
-        fetchJson<SlowQueriesResponse>(`${base}/slow-queries`),
+      const [inv, metricsData, cost, idleData, rsData, snapData, secData, slowData, agentStats, agentMetrics, healthSnaps, alertsData] = await Promise.all([
+        fetchJson<DbInstance[]>(`${base}/inventory${qp}`),
+        fetchJson<Record<string, DbMetrics>>(`${base}/metrics${qp}`),
+        fetchJson<DbCost[]>(`${base}/costs${qp}`),
+        fetchJson<DbIdleInstance[]>(`${base}/idle${qp}`),
+        fetchJson<DbRightsizing[]>(`${base}/rightsizing${qp}`),
+        fetchJson<DbSnapshot[]>(`${base}/snapshots${qp}`),
+        fetchJson<DbSecurityCheck[]>(`${base}/security${qp}`),
+        fetchJson<SlowQueriesResponse>(`${base}/slow-queries${qp}`),
         fetchJson<AgentQueryStat[]>(`${base}/agent-query-stats`),
         fetchJson<AgentInstanceMetrics[]>(`${base}/agent-instance-metrics`),
+        fetchJson<DbHealthSnapshotDto[]>(`${base}/health-snapshots`),
+        fetchJson<DbHealthAlertDto[]>(`${base}/db-alerts`),
       ]);
 
       const payload = {
@@ -421,6 +449,8 @@ export function useDbOpsData(accountId: string | null) {
         slowQueries:          slowData,
         agentQueryStats:      agentStats   ?? [],
         agentInstanceMetrics: agentMetrics ?? [],
+        healthSnapshots:      healthSnaps  ?? [],
+        dbAlerts:             alertsData   ?? [],
       };
 
       applyPayload(payload);
@@ -442,6 +472,7 @@ export function useDbOpsData(accountId: string | null) {
       setSummary(null); setInventory([]); setMetrics({}); setCosts([]); setIdle([]);
       setRightsizing([]); setSnapshots([]); setSecurity([]); setSlowQueries(null);
       setAgentQueryStats([]); setAgentInstanceMetrics([]);
+      setHealthSnapshots([]); setDbAlerts([]);
       setLoading(false);
       return;
     }
@@ -511,6 +542,7 @@ export function useDbOpsData(accountId: string | null) {
   return {
     summary, inventory, metrics, costs, idle, rightsizing, snapshots, security, slowQueries,
     agentQueryStats, agentInstanceMetrics,
+    healthSnapshots, dbAlerts,
     loading, error,
     refresh,
     fetchInstanceTimeseries,
@@ -521,4 +553,12 @@ export function useDbOpsData(accountId: string | null) {
     fetchAgentIndexUsage,
     fetchAgentTableActivity,
   };
+}
+
+export async function fetchHealthHistory(accountId: string, instanceId: string, hours = 24): Promise<DbHealthSnapshotDto[]> {
+  try {
+    return await apiClient.get<DbHealthSnapshotDto[]>(
+      `/api/dbops/aws/${accountId}/health-history?instanceId=${encodeURIComponent(instanceId)}&hours=${hours}`
+    );
+  } catch { return []; }
 }
