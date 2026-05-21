@@ -70,7 +70,13 @@ public class SecurityConfig {
                         .requestMatcher(request -> {
                             String path = request.getRequestURI();
                             String auth = request.getHeader("Authorization");
-                            return auth != null && !path.startsWith("/api/llm-proxy/");
+                            // Skip agent-facing endpoints that use API keys, not session/JWT
+                            boolean isAgentFacing = path.equals("/api/v1/agent/ingest") ||
+                                                   path.equals("/api/v1/agent/heartbeat") ||
+                                                   path.equals("/api/v1/agent/config") ||
+                                                   path.equals("/api/v1/agent/autoscaling-policy") ||
+                                                   path.equals("/api/v1/agent/db/register");
+                            return auth != null && !path.startsWith("/api/llm-proxy/") && !isAgentFacing;
                         })
                         .cors(withDefaults())
                         .csrf(csrf -> csrf.disable())
@@ -198,8 +204,12 @@ public class SecurityConfig {
                                                                 new AntPathRequestMatcher("/gcp-alerts"),
                                                                 new AntPathRequestMatcher("/terminal"),
 
-                                                                // XamOps Agent API (authenticates via API key, not session)
-                                                                new AntPathRequestMatcher("/api/v1/agent/**"),
+                                                                // XamOps Agent API (these specific endpoints authenticate via API key)
+                                                                new AntPathRequestMatcher("/api/v1/agent/ingest", "POST"),
+                                                                new AntPathRequestMatcher("/api/v1/agent/heartbeat", "POST"),
+                                                                new AntPathRequestMatcher("/api/v1/agent/config", "GET"),
+                                                                new AntPathRequestMatcher("/api/v1/agent/autoscaling-policy", "GET"),
+                                                                new AntPathRequestMatcher("/api/v1/agent/db/register"),
 
                                                                 // XamOps Metering API — public:
                                                                 //   /register → AWS Marketplace redirect (no session)
