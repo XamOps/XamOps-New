@@ -697,3 +697,47 @@ type DbQueryStat struct {
 	NoIndexUsed  bool `json:"noIndexUsed,omitempty"`  // MySQL: SUM_NO_INDEX_USED > 0
 	LockTimeSeconds float64 `json:"lockTimeSeconds,omitempty"` // MySQL only
 }
+
+// DbWaitEvent — one aggregated wait category per DSN per collection cycle.
+// Pushed as "db-wait-events" batch.
+type DbWaitEvent struct {
+	DSNAlias      string `json:"dsnAlias"`
+	DBEngine      string `json:"dbEngine"`
+	DBHost        string `json:"dbHost"`
+	WaitCategory  string `json:"waitCategory"`  // IO | Lock | CPU | Network | Other
+	WaitEventName string `json:"waitEventName"`
+	SessionCount  int    `json:"sessionCount"`
+	CollectedAt   string `json:"collectedAt"`
+}
+
+// DbDiagnostic — connection + privilege health for one DSN.
+// Pushed as "db-diagnostics" batch every collection cycle.
+type DbDiagnostic struct {
+	DSNAlias     string `json:"dsnAlias"`
+	DBEngine     string `json:"dbEngine"`
+	DBHost       string `json:"dbHost"`
+	Reachable    bool   `json:"reachable"`
+	// ErrorType: "" (healthy) | "connection" | "privilege" | "extension_missing"
+	ErrorType    string `json:"errorType"`
+	ErrorMessage string `json:"errorMessage"`
+	CollectedAt  string `json:"collectedAt"`
+}
+
+// AgentCommand — one pending command from the backend command queue.
+type AgentCommand struct {
+	CommandID   string `json:"commandId"`
+	Type        string `json:"type"`       // "explain"
+	DSNAlias    string `json:"dsnAlias"`
+	QueryText   string `json:"queryText"`
+	DBEngine    string `json:"dbEngine"`
+}
+
+// ExplainResult — result of an on-demand EXPLAIN pushed back to the server.
+// Pushed as "db-explain-result" batch (single item).
+type ExplainResult struct {
+	CommandID   string `json:"commandId"`
+	DSNAlias    string `json:"dsnAlias"`
+	PlanJSON    string `json:"planJson"`   // raw JSON string from EXPLAIN
+	Error       string `json:"error"`      // empty on success
+	CollectedAt string `json:"collectedAt"`
+}
