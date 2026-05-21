@@ -1,6 +1,6 @@
 package com.xammer.cloud.domain;
 
-import jakarta.persistence.*;
+import javax.persistence.*;
 import java.time.LocalDateTime;
 
 @Entity
