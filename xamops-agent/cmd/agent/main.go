@@ -113,8 +113,10 @@ func runHeartbeatLoop(ctx context.Context, cfg *config.Config, dataPusher *pushe
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			err := dataPusher.Heartbeat()
-			if err != nil {
+			// Poll for pending EXPLAIN commands before heartbeat
+			dataPusher.PollAndExecCommands()
+
+			if err := dataPusher.Heartbeat(); err != nil {
 				log.Printf("Heartbeat failed: %v", err)
 			}
 		}
