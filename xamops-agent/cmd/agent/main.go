@@ -9,8 +9,6 @@ import (
 	"syscall"
 	"time"
 
-	_ "github.com/redis/go-redis/v9"
-	_ "go.mongodb.org/mongo-driver/mongo"
 	"github.com/xamops/agent/internal/collector"
 	"github.com/xamops/agent/internal/config"
 	"github.com/xamops/agent/internal/pusher"

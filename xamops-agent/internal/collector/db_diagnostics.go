@@ -45,6 +45,14 @@ func checkDiagnostic(ctx context.Context, dsn, engine, alias, host string) DbDia
 	now := time.Now().UTC().Format(time.RFC3339)
 	base := DbDiagnostic{DSNAlias: alias, DBEngine: engine, DBHost: host, CollectedAt: now}
 
+	switch engine {
+	case "mongodb":
+		return checkMongoDiagnostic(ctx, dsn, base)
+	case "redis":
+		return checkRedisDiagnostic(ctx, dsn, base)
+	}
+
+	// SQL engines (mysql, postgres)
 	db, err := sql.Open(engine, dsn)
 	if err != nil {
 		base.ErrorType = "connection"
@@ -63,13 +71,44 @@ func checkDiagnostic(ctx context.Context, dsn, engine, alias, host string) DbDia
 		return base
 	}
 	base.Reachable = true
-
-	// Check that key monitoring queries are permitted
 	if engine == "postgres" {
 		checkPostgresPrivileges(ctx, db, &base)
 	} else if engine == "mysql" {
 		checkMySQLPrivileges(ctx, db, &base)
 	}
+	return base
+}
+
+func checkMongoDiagnostic(ctx context.Context, dsn string, base DbDiagnostic) DbDiagnostic {
+	client, err := connectMongo(ctx, dsn)
+	if err != nil {
+		base.ErrorType = "connection"
+		base.ErrorMessage = sanitizeError(err.Error())
+		return base
+	}
+	defer client.Disconnect(context.Background())
+	base.Reachable = true
+
+	qCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	var result interface{}
+	if err := client.Database("admin").RunCommand(qCtx,
+		map[string]interface{}{"serverStatus": 1}).Decode(&result); err != nil {
+		base.ErrorType = "privilege"
+		base.ErrorMessage = "Missing clusterMonitor role. Grant: db.grantRolesToUser('<user>', [{role:'clusterMonitor',db:'admin'}])"
+	}
+	return base
+}
+
+func checkRedisDiagnostic(ctx context.Context, dsn string, base DbDiagnostic) DbDiagnostic {
+	client, err := connectRedis(ctx, dsn)
+	if err != nil {
+		base.ErrorType = "connection"
+		base.ErrorMessage = sanitizeError(err.Error())
+		return base
+	}
+	defer client.Close()
+	base.Reachable = true
 	return base
 }
 
