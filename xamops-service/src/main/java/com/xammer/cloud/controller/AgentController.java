@@ -12,6 +12,7 @@ import com.xammer.cloud.dto.sre.TriggerInvestigationRequest;
 import com.xammer.cloud.repository.AgentDataCacheRepository;
 import com.xammer.cloud.repository.AgentEventRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.repository.ExplainRequestRepository;
 import com.xammer.cloud.repository.KubernetesClusterConfigRepository;
 import com.xammer.cloud.service.AgentIngestService;
 import com.xammer.cloud.service.DbAgentService;
@@ -71,6 +72,7 @@ public class AgentController {
     private final CloudAccountRepository cloudAccountRepository;
     private final SreInvestigationService sreInvestigationService;
     private final OpenObserveService openObserveService;
+    private final ExplainRequestRepository explainRequestRepository;
 
     public AgentController(
             AgentIngestService agentIngestService,
@@ -81,7 +83,8 @@ public class AgentController {
             RedisCacheService redisCacheService,
             CloudAccountRepository cloudAccountRepository,
             SreInvestigationService sreInvestigationService,
-            OpenObserveService openObserveService) {
+            OpenObserveService openObserveService,
+            ExplainRequestRepository explainRequestRepository) {
         this.agentIngestService = agentIngestService;
         this.dbAgentService = dbAgentService;
         this.clusterConfigRepository = clusterConfigRepository;
@@ -91,6 +94,7 @@ public class AgentController {
         this.cloudAccountRepository = cloudAccountRepository;
         this.sreInvestigationService = sreInvestigationService;
         this.openObserveService = openObserveService;
+        this.explainRequestRepository = explainRequestRepository;
     }
 
     /**
@@ -447,6 +451,41 @@ public class AgentController {
         Map<String, Object> response = new HashMap<>();
         response.put("openobserve", openObserveService.getAgentConfig(accountId));
         return ResponseEntity.ok(response);
+    }
+
+    /**
+     * GET /api/v1/agent/commands?agentName=xxx
+     * Polled by the DB agent to pick up the next pending command (e.g. EXPLAIN request).
+     * Returns the oldest PENDING ExplainRequest for this agent and transitions it to IN_FLIGHT,
+     * or returns an empty 204 when there is nothing to do.
+     *
+     * Authorization: Bearer <global_api_key>
+     */
+    @GetMapping("/commands")
+    public ResponseEntity<Map<String, Object>> pollCommands(
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @RequestParam String agentName) {
+
+        String apiKey = extractApiKey(authHeader);
+        if (apiKey == null || !agentIngestService.validateApiKey(apiKey)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("error", "Invalid or missing API key"));
+        }
+
+        return explainRequestRepository
+                .findFirstByAgentNameAndStatusOrderByCreatedAtAsc(agentName, "PENDING")
+                .map(req -> {
+                    req.setStatus("IN_FLIGHT");
+                    explainRequestRepository.save(req);
+                    Map<String, Object> cmd = new HashMap<>();
+                    cmd.put("commandId",  req.getId());
+                    cmd.put("type",       "explain-query");
+                    cmd.put("dsnAlias",   req.getDsnAlias());
+                    cmd.put("queryText",  req.getQueryText());
+                    cmd.put("dbEngine",   req.getDbEngine());
+                    return ResponseEntity.ok(cmd);
+                })
+                .orElse(ResponseEntity.noContent().<Map<String, Object>>build());
     }
 
     /**

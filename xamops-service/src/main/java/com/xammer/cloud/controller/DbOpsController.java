@@ -1,7 +1,17 @@
 package com.xammer.cloud.controller;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.xammer.cloud.domain.DbAgentConfig;
+import com.xammer.cloud.domain.DbAgentDataCache;
+import com.xammer.cloud.domain.ExplainRequest;
 import com.xammer.cloud.dto.dbops.*;
 import com.xammer.cloud.dto.dbops.AgentTimeseriesDto;
+import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.repository.DbAgentConfigRepository;
+import com.xammer.cloud.repository.DbAgentDataCacheRepository;
+import com.xammer.cloud.repository.ExplainRequestRepository;
 import com.xammer.cloud.service.DbOpsCostService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -9,8 +19,12 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -28,9 +42,25 @@ public class DbOpsController {
     private static final Logger logger = LoggerFactory.getLogger(DbOpsController.class);
 
     private final DbOpsCostService dbOpsCostService;
+    private final CloudAccountRepository cloudAccountRepository;
+    private final DbAgentConfigRepository dbAgentConfigRepository;
+    private final DbAgentDataCacheRepository dbAgentDataCacheRepository;
+    private final ExplainRequestRepository explainRequestRepository;
+    private final ObjectMapper objectMapper;
 
-    public DbOpsController(DbOpsCostService dbOpsCostService) {
+    public DbOpsController(
+            DbOpsCostService dbOpsCostService,
+            CloudAccountRepository cloudAccountRepository,
+            DbAgentConfigRepository dbAgentConfigRepository,
+            DbAgentDataCacheRepository dbAgentDataCacheRepository,
+            ExplainRequestRepository explainRequestRepository) {
         this.dbOpsCostService = dbOpsCostService;
+        this.cloudAccountRepository = cloudAccountRepository;
+        this.dbAgentConfigRepository = dbAgentConfigRepository;
+        this.dbAgentDataCacheRepository = dbAgentDataCacheRepository;
+        this.explainRequestRepository = explainRequestRepository;
+        this.objectMapper = new ObjectMapper();
+        this.objectMapper.registerModule(new JavaTimeModule());
     }
 
     // ── Inventory ─────────────────────────────────────────────────────────────
@@ -396,5 +426,148 @@ public class DbOpsController {
                     logger.error("❌ [DbOps] Timeseries error for {}: {}", instanceId, ex.getMessage());
                     return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
                 });
+    }
+
+    // ── Agent Wait Events ─────────────────────────────────────────────────────
+
+    /**
+     * GET /api/dbops/aws/{accountId}/agent-wait-events
+     *
+     * Returns latest db-wait-events batches pushed by the DB agent, grouped by DSN alias.
+     * Returns [] if no agent has pushed data yet.
+     */
+    @GetMapping("/{accountId}/agent-wait-events")
+    public ResponseEntity<List<AgentWaitEventDto>> getAgentWaitEvents(
+            @PathVariable String accountId) {
+
+        return cloudAccountRepository
+                .findByAwsAccountIdOrGcpProjectIdOrAzureSubscriptionId(accountId, accountId, accountId)
+                .map(account -> {
+                    List<DbAgentConfig> agents = dbAgentConfigRepository.findByCloudAccountId(account.getId());
+                    List<AgentWaitEventDto> result = new ArrayList<>();
+                    for (DbAgentConfig agent : agents) {
+                        // wait-events are stored with per-DSN cache keys: "db-wait-events:{accountId}:{dsnAlias}"
+                        // fetch all cache rows for this agent whose dataType starts with the prefix
+                        List<DbAgentDataCache> rows = dbAgentDataCacheRepository.findByDbAgentId(agent.getId());
+                        for (DbAgentDataCache row : rows) {
+                            if (!row.getDataType().startsWith("db-wait-events:")) continue;
+                            try {
+                                List<AgentWaitEventDto> events = objectMapper.readValue(
+                                        row.getDataJson(), new TypeReference<List<AgentWaitEventDto>>() {});
+                                if (events != null) result.addAll(events);
+                            } catch (Exception e) {
+                                logger.warn("[DbOps] agent-wait-events parse failed for agent {}: {}",
+                                        agent.getAgentName(), e.getMessage());
+                            }
+                        }
+                    }
+                    return ResponseEntity.ok(result);
+                })
+                .orElse(ResponseEntity.ok(List.of()));
+    }
+
+    // ── Agent Diagnostics ─────────────────────────────────────────────────────
+
+    /**
+     * GET /api/dbops/aws/{accountId}/agent-diagnostics
+     *
+     * Returns latest db-diagnostics batch pushed by the DB agent (connectivity checks per DSN).
+     * Returns [] if no agent has pushed data yet.
+     */
+    @GetMapping("/{accountId}/agent-diagnostics")
+    public ResponseEntity<List<AgentDiagnosticDto>> getAgentDiagnostics(
+            @PathVariable String accountId) {
+
+        return cloudAccountRepository
+                .findByAwsAccountIdOrGcpProjectIdOrAzureSubscriptionId(accountId, accountId, accountId)
+                .map(account -> {
+                    List<DbAgentConfig> agents = dbAgentConfigRepository.findByCloudAccountId(account.getId());
+                    List<AgentDiagnosticDto> result = new ArrayList<>();
+                    for (DbAgentConfig agent : agents) {
+                        String cacheKey = "db-diagnostics:" + account.getId();
+                        Optional<DbAgentDataCache> cacheOpt =
+                                dbAgentDataCacheRepository.findByDbAgentIdAndDataType(agent.getId(), cacheKey);
+                        if (cacheOpt.isEmpty()) continue;
+                        try {
+                            List<AgentDiagnosticDto> diags = objectMapper.readValue(
+                                    cacheOpt.get().getDataJson(), new TypeReference<List<AgentDiagnosticDto>>() {});
+                            if (diags != null) result.addAll(diags);
+                        } catch (Exception e) {
+                            logger.warn("[DbOps] agent-diagnostics parse failed for agent {}: {}",
+                                    agent.getAgentName(), e.getMessage());
+                        }
+                    }
+                    return ResponseEntity.ok(result);
+                })
+                .orElse(ResponseEntity.ok(List.of()));
+    }
+
+    // ── Explain Query ─────────────────────────────────────────────────────────
+
+    /**
+     * POST /api/dbops/aws/{accountId}/explain-query
+     *
+     * Enqueues an EXPLAIN request for the DB agent to execute.
+     * Body: { agentName, dsnAlias, queryText, dbEngine }
+     * Returns the new requestId so the UI can poll for the result.
+     */
+    @PostMapping("/{accountId}/explain-query")
+    public ResponseEntity<Map<String, Object>> enqueueExplain(
+            @PathVariable String accountId,
+            @RequestBody ExplainQueryRequest body) {
+
+        return cloudAccountRepository
+                .findByAwsAccountIdOrGcpProjectIdOrAzureSubscriptionId(accountId, accountId, accountId)
+                .map(account -> {
+                    if (body.getAgentName() == null || body.getQueryText() == null
+                            || body.getDsnAlias() == null || body.getDbEngine() == null) {
+                        return ResponseEntity.badRequest()
+                                .<Map<String, Object>>body(Map.of("error",
+                                        "agentName, dsnAlias, queryText and dbEngine are required"));
+                    }
+                    ExplainRequest req = new ExplainRequest();
+                    req.setId(UUID.randomUUID().toString());
+                    req.setCloudAccountId(account.getId());
+                    req.setAgentName(body.getAgentName());
+                    req.setDsnAlias(body.getDsnAlias());
+                    req.setQueryText(body.getQueryText());
+                    req.setDbEngine(body.getDbEngine());
+                    req.setStatus("PENDING");
+                    req.setCreatedAt(LocalDateTime.now());
+                    explainRequestRepository.save(req);
+                    logger.info("[DbOps] explain-query enqueued: id={} agent={}", req.getId(), req.getAgentName());
+                    return ResponseEntity.ok(Map.<String, Object>of(
+                            "requestId", req.getId(),
+                            "status", req.getStatus()
+                    ));
+                })
+                .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(Map.of("error", "Cloud account not found")));
+    }
+
+    // ── Explain Result ────────────────────────────────────────────────────────
+
+    /**
+     * GET /api/dbops/aws/{accountId}/explain-result/{requestId}
+     *
+     * Polls for the result of a previously enqueued EXPLAIN request.
+     * Returns status PENDING / IN_FLIGHT / COMPLETED / FAILED / EXPIRED.
+     */
+    @GetMapping("/{accountId}/explain-result/{requestId}")
+    public ResponseEntity<ExplainResultDto> getExplainResult(
+            @PathVariable String accountId,
+            @PathVariable String requestId) {
+
+        Optional<ExplainRequest> reqOpt = explainRequestRepository.findById(requestId);
+        if (reqOpt.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        ExplainRequest req = reqOpt.get();
+        return ResponseEntity.ok(new ExplainResultDto(
+                req.getId(),
+                req.getStatus(),
+                req.getResultJson(),
+                req.getErrorMessage()
+        ));
     }
 }
