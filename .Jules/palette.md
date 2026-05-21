@@ -1,0 +1,3 @@
+## 2025-05-15 - [Accessibility] Reusable Accessible Pagination Pattern
+**Learning:** Icon-only buttons in pagination need consistent ARIA labels and tooltips to be both accessible to screen readers and intuitive for sighted users. Refactoring these into a local `NavButton` sub-component ensures consistent focus ring styling (`focus-visible:ring-indigo-500`) and simplifies the JSX, keeping the file maintainable within the 50-line PR limit.
+**Action:** Use a local sub-component for repeated accessible buttons with tooltips in complex UI components to maintain focus ring consistency and readability.

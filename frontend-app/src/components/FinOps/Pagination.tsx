@@ -5,6 +5,7 @@
  */
 
 import React from 'react';
+import { TooltipWrapper } from '../ui';
 
 interface PaginationProps {
   currentPage: number;
@@ -13,6 +14,28 @@ interface PaginationProps {
   itemsPerPage: number;
   onPageChange: (page: number) => void;
 }
+
+const NavButton: React.FC<{ label: string; icon: string; onClick: () => void; disabled: boolean }> = ({
+  label,
+  icon,
+  onClick,
+  disabled,
+}) => (
+  <TooltipWrapper tip={label}>
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      className={`px-3 py-1.5 text-sm font-medium rounded-lg border transition-all focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:outline-none ${
+        disabled
+          ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
+          : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+      }`}
+    >
+      <i className={`fas ${icon}`}></i>
+    </button>
+  </TooltipWrapper>
+);
 
 const Pagination: React.FC<PaginationProps> = ({
   currentPage,
@@ -33,53 +56,13 @@ const Pagination: React.FC<PaginationProps> = ({
         <span className="font-semibold">{totalItems}</span> items
       </p>
       <div className="flex items-center space-x-2">
-        <button
-          onClick={() => onPageChange(1)}
-          disabled={currentPage === 1}
-          className={`px-3 py-1.5 text-sm font-medium rounded-lg border transition-all ${
-            currentPage === 1
-              ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
-              : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-          }`}
-        >
-          <i className="fas fa-angle-double-left"></i>
-        </button>
-        <button
-          onClick={() => onPageChange(currentPage - 1)}
-          disabled={currentPage === 1}
-          className={`px-3 py-1.5 text-sm font-medium rounded-lg border transition-all ${
-            currentPage === 1
-              ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
-              : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-          }`}
-        >
-          <i className="fas fa-angle-left"></i>
-        </button>
+        <NavButton label="First page" icon="fa-angle-double-left" onClick={() => onPageChange(1)} disabled={currentPage === 1} />
+        <NavButton label="Previous page" icon="fa-angle-left" onClick={() => onPageChange(currentPage - 1)} disabled={currentPage === 1} />
         <span className="px-4 py-1.5 text-sm font-medium text-gray-700">
           Page {currentPage} of {totalPages}
         </span>
-        <button
-          onClick={() => onPageChange(currentPage + 1)}
-          disabled={currentPage >= totalPages}
-          className={`px-3 py-1.5 text-sm font-medium rounded-lg border transition-all ${
-            currentPage >= totalPages
-              ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
-              : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-          }`}
-        >
-          <i className="fas fa-angle-right"></i>
-        </button>
-        <button
-          onClick={() => onPageChange(totalPages)}
-          disabled={currentPage >= totalPages}
-          className={`px-3 py-1.5 text-sm font-medium rounded-lg border transition-all ${
-            currentPage >= totalPages
-              ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
-              : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-          }`}
-        >
-          <i className="fas fa-angle-double-right"></i>
-        </button>
+        <NavButton label="Next page" icon="fa-angle-right" onClick={() => onPageChange(currentPage + 1)} disabled={currentPage >= totalPages} />
+        <NavButton label="Last page" icon="fa-angle-double-right" onClick={() => onPageChange(totalPages)} disabled={currentPage >= totalPages} />
       </div>
     </div>
   );
