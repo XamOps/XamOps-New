@@ -4,8 +4,10 @@ import { useTopbar } from '../contexts/TopbarContext';
 import {
   useDbOpsData,
   DbInstance, DbSavingsSummary, AgentQueryStat, AgentInstanceMetrics,
+  DbHealthSnapshotDto,
 } from '../hooks/useDbOpsData';
 import DbInstanceDetailPage, { DrawerInstance } from '../components/DbOps/DbInstanceDetailDrawer';
+import { DbAlertPanel } from '../components/DbOps/DbAlertPanel';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -55,14 +57,18 @@ function SummaryCards({ s }: { s: DbSavingsSummary }) {
 // ── Inventory Tab ─────────────────────────────────────────────────────────────
 
 function InventoryTab({
-  inventory, agentStats, agentInstanceMetrics, onSelect,
+  inventory, agentStats, agentInstanceMetrics, onSelect, onRemove, healthSnapshots, healthFilter,
 }: {
   inventory: DbInstance[];
   agentStats: AgentQueryStat[];
   agentInstanceMetrics: AgentInstanceMetrics[];
   onSelect: (inst: DrawerInstance) => void;
+  onRemove: () => void;
+  healthSnapshots: DbHealthSnapshotDto[];
+  healthFilter: string | null;
 }) {
   const [search, setSearch] = useState('');
+  const [removing, setRemoving] = useState<string | null>(null);
 
   const agentHosts = new Map<string, AgentQueryStat[]>();
   agentStats.forEach(s => {
@@ -89,7 +95,7 @@ function InventoryTab({
     r.instanceId.toLowerCase().includes(search.toLowerCase()) ||
     (r.engine ?? '').toLowerCase().includes(search.toLowerCase()) ||
     (r.rdsData?.region ?? '').toLowerCase().includes(search.toLowerCase())
-  );
+  ).filter(r => !healthFilter || healthSnapshots.find(s => s.instanceId === r.instanceId)?.status === healthFilter);
 
   return (
     <div>
@@ -119,7 +125,7 @@ function InventoryTab({
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-100 dark:border-gray-700/50" style={{ background: 'linear-gradient(90deg, rgba(14,165,233,0.04) 0%, rgba(37,99,235,0.04) 100%)' }}>
-                {['Instance ID', 'Source', 'Engine', 'Class', 'Region', 'Status', 'Storage (GB)', 'Encrypted', 'Backups', 'Multi-AZ', 'Est. Cost/mo'].map(h => (
+                {['Instance ID', 'Source', 'Engine', 'Class', 'Region', 'Status', 'Storage (GB)', 'Encrypted', 'Backups', 'Multi-AZ', 'Est. Cost/mo', 'Health', ''].map(h => (
                   <th key={h} className="text-left px-4 py-3 text-[10px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -127,7 +133,7 @@ function InventoryTab({
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={11}>
+                  <td colSpan={13}>
                     <div className="flex flex-col items-center justify-center py-16 gap-3">
                       <div className="dataops-empty-icon w-14 h-14 rounded-2xl flex items-center justify-center">
                         <i className="fas fa-database text-sky-500 text-xl" />
@@ -146,7 +152,7 @@ function InventoryTab({
                   <tr
                     key={row.instanceId}
                     onClick={() => onSelect(row)}
-                    className="dataops-table-row border-b border-gray-50 dark:border-gray-700/30 hover:bg-sky-50/30 dark:hover:bg-sky-900/10 cursor-pointer"
+                    className="group dataops-table-row border-b border-gray-50 dark:border-gray-700/30 hover:bg-sky-50/30 dark:hover:bg-sky-900/10 cursor-pointer"
                   >
                     <td className="dataops-table-first-cell px-4 py-3 font-semibold text-sky-700 dark:text-sky-400 whitespace-nowrap">
                       <span className="hover:underline underline-offset-2">{row.instanceId}</span>
@@ -189,6 +195,40 @@ function InventoryTab({
                         : (am?.ec2HourlyPrice && am.ec2HourlyPrice > 0
                             ? <span title="EC2 on-demand monthly cost" className="text-emerald-600 dark:text-emerald-400">{fmt$(am.ec2HourlyPrice * 730)}</span>
                             : <span className="text-gray-400">—</span>)}
+                    </td>
+                    <td className="px-4 py-3">
+                      {(() => {
+                        const snap = healthSnapshots.find(s => s.instanceId === row.instanceId);
+                        if (!snap) return <span className="text-gray-300 dark:text-gray-600 text-xs">—</span>;
+                        const colors: Record<string, string> = {
+                          healthy:  'text-emerald-600 bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-400',
+                          warning:  'text-amber-600 bg-amber-100 dark:bg-amber-900/30 dark:text-amber-400',
+                          critical: 'text-red-600 bg-red-100 dark:bg-red-900/30 dark:text-red-400',
+                        };
+                        return (
+                          <span className={`inline-flex items-center justify-center w-8 h-8 rounded-full text-xs font-bold ${colors[snap.status] ?? colors.warning}`}>
+                            {snap.score}
+                          </span>
+                        );
+                      })()}
+                    </td>
+                    <td className="px-3 py-3" onClick={e => e.stopPropagation()}>
+                      {row.source === 'rds' && (
+                        <button
+                          title="Remove from list (re-syncs with AWS)"
+                          disabled={removing === row.instanceId}
+                          onClick={async () => {
+                            setRemoving(row.instanceId);
+                            onRemove();
+                            setRemoving(null);
+                          }}
+                          className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all disabled:opacity-40"
+                        >
+                          {removing === row.instanceId
+                            ? <i className="fas fa-spinner fa-spin text-xs" />
+                            : <i className="fas fa-trash-can text-xs" />}
+                        </button>
+                      )}
                     </td>
                   </tr>
                 );
@@ -233,6 +273,40 @@ function LoadingSkeleton() {
   );
 }
 
+// ── Health Summary Card ───────────────────────────────────────────────────────
+
+function HealthSummaryCard({ snapshots, onFilter }: {
+  snapshots: DbHealthSnapshotDto[];
+  onFilter: (status: string | null) => void;
+}) {
+  const critical = snapshots.filter(s => s.status === 'critical').length;
+  const warning  = snapshots.filter(s => s.status === 'warning').length;
+  const healthy  = snapshots.filter(s => s.status === 'healthy').length;
+  if (snapshots.length === 0) return null;
+  return (
+    <div className="flex items-center gap-3 mb-4 flex-wrap">
+      {critical > 0 && (
+        <button onClick={() => onFilter('critical')}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/40 text-red-700 dark:text-red-400 text-xs font-semibold hover:bg-red-100 transition-colors">
+          <span className="w-2 h-2 rounded-full bg-red-500" />{critical} critical
+        </button>
+      )}
+      {warning > 0 && (
+        <button onClick={() => onFilter('warning')}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 text-amber-700 dark:text-amber-400 text-xs font-semibold hover:bg-amber-100 transition-colors">
+          <span className="w-2 h-2 rounded-full bg-amber-500" />{warning} warning
+        </button>
+      )}
+      {healthy > 0 && (
+        <button onClick={() => onFilter(null)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/40 text-emerald-700 dark:text-emerald-400 text-xs font-semibold hover:bg-emerald-100 transition-colors">
+          <span className="w-2 h-2 rounded-full bg-emerald-500" />{healthy} healthy
+        </button>
+      )}
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 const DataOpsPage: React.FC = () => {
@@ -247,10 +321,13 @@ const DataOpsPage: React.FC = () => {
     setInstanceHealth(h);
   }, []);
 
+  const [healthFilter, setHealthFilter] = useState<string | null>(null);
+
   const accountId = selectedAccountIds[0] ?? null;
   const {
     summary, inventory, metrics, costs, idle, rightsizing, snapshots, security, slowQueries,
     agentQueryStats, agentInstanceMetrics,
+    healthSnapshots, dbAlerts,
     loading, error, refresh, fetchInstanceTimeseries, fetchAgentTimeseries, fetchAgentTableSizes,
     fetchAgentVacuumStats, fetchAgentUserActivity, fetchAgentIndexUsage, fetchAgentTableActivity,
   } = useDbOpsData(accountId);
@@ -480,6 +557,7 @@ const DataOpsPage: React.FC = () => {
             <i className="fas fa-flask text-[9px]" />
             Beta
           </span>
+          <DbAlertPanel alerts={dbAlerts ?? []} />
           <button
             onClick={refresh}
             disabled={loading}
@@ -572,7 +650,8 @@ const DataOpsPage: React.FC = () => {
                   : null;
               return combinedSummary && <SummaryCards s={combinedSummary} />;
             })()}
-            <InventoryTab inventory={inventory} agentStats={agentQueryStats} agentInstanceMetrics={agentInstanceMetrics} onSelect={setSelectedInstance} />
+            <HealthSummaryCard snapshots={healthSnapshots} onFilter={setHealthFilter} />
+            <InventoryTab inventory={inventory} agentStats={agentQueryStats} agentInstanceMetrics={agentInstanceMetrics} onSelect={setSelectedInstance} onRemove={refresh} healthSnapshots={healthSnapshots} healthFilter={healthFilter} />
           </>
         )}
 
