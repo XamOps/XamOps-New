@@ -2,6 +2,8 @@ import { useState, useEffect, useRef, ReactElement } from 'react';
 import ReactDOM from 'react-dom';
 import apiClient from '../../utils/apiClient';
 import { useAccounts } from '../../contexts/AccountContext';
+import { QueryPlanViewer } from './QueryPlanViewer';
+import { useExplainQuery } from '../../hooks/useExplainQuery';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceDot,
@@ -1070,6 +1072,26 @@ export function computeHealthScore(
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
+interface AgentWaitEventDto {
+  dsnAlias: string;
+  dbEngine: string;
+  dbHost: string;
+  waitCategory: 'IO' | 'Lock' | 'CPU' | 'Network' | 'Other';
+  waitEventName: string;
+  sessionCount: number;
+  collectedAt: string;
+}
+
+interface AgentDiagnosticDto {
+  dsnAlias: string;
+  dbEngine: string;
+  dbHost: string;
+  reachable: boolean;
+  errorType: string;
+  errorMessage: string;
+  collectedAt: string;
+}
+
 export interface DrawerInstance {
   instanceId: string;
   source: 'rds' | 'agent';
@@ -1579,11 +1601,12 @@ function SlowQueriesTab({ cloudwatchQueries, agentQueries, isPostgres }: {
 }
 
 // ── Query Stats Tab ───────────────────────────────────────────────────────────
-function QueryStatsTab({ stats, engine, instanceId, endpoint }: {
+function QueryStatsTab({ stats, engine, instanceId, endpoint, onExplain }: {
   stats: AgentQueryStat[];
   engine: string;
   instanceId: string;
   endpoint?: string;
+  onExplain?: (q: AgentQueryStat) => void;
 }) {
   const [search,       setSearch]       = useState('');
   const [cacheFilter,  setCacheFilter]  = useState<'all'|'imperfect'|'low'>('all');
@@ -1661,8 +1684,22 @@ function QueryStatsTab({ stats, engine, instanceId, endpoint }: {
     URL.revokeObjectURL(url);
   };
 
-  // ── No-data: show agent setup wizard ──
+  // ── No-data state ──
   if (stats.length === 0) {
+    // RDS instances: no wizard here — the Connect button lives in the Overview tab.
+    if (endpoint) {
+      return (
+        <div className="flex flex-col items-center justify-center py-20 gap-3 text-center">
+          <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-900/20 flex items-center justify-center">
+            <i className="fas fa-chart-bar text-indigo-400 text-lg" />
+          </div>
+          <p className="text-sm font-semibold text-gray-700 dark:text-gray-300">No agent query stats yet</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 max-w-xs">
+            Use the <strong>Connect</strong> button on the Overview tab to set up the XamOps agent for this instance.
+          </p>
+        </div>
+      );
+    }
     return <AgentSetupWizard engine={engine} instanceId={instanceId} endpoint={endpoint} />;
   }
 
@@ -1797,6 +1834,7 @@ function QueryStatsTab({ stats, engine, instanceId, endpoint }: {
               {th('lock',  'Lock',  'Cumulative time spent waiting for database locks. Spikes here indicate write contention or long-running transactions.')}
               {th('rows',  'Rows',  'Average rows returned to the client per execution.')}
               {isPostgres && th('cache', 'Cache', '% of block reads served from shared buffer cache (memory). Below 90% means the query is hitting disk frequently.')}
+              <th className="px-3 py-2.5 text-[11px] font-semibold text-gray-500 dark:text-gray-400 whitespace-nowrap w-20"></th>
             </tr>
           </thead>
 
@@ -1816,7 +1854,7 @@ function QueryStatsTab({ stats, engine, instanceId, endpoint }: {
               const avgMs   = round2(s.avgTimeSeconds  * 1000);
               const maxMs2  = round2(s.maxTimeSeconds  * 1000);
               const lockMs  = round2(s.lockTimeSeconds * 1000);
-              const colSpan = isPostgres ? 8 : 7;
+              const colSpan = isPostgres ? 9 : 8;
 
               return (
                 <>
@@ -1898,6 +1936,14 @@ function QueryStatsTab({ stats, engine, instanceId, endpoint }: {
                         ) : <span className="text-gray-400 text-[10px]">—</span>}
                       </td>
                     )}
+                    <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}>
+                      <button
+                        onClick={() => onExplain?.(s)}
+                        className="px-2 py-1 text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors whitespace-nowrap"
+                      >
+                        <i className="fas fa-magnifying-glass-chart mr-1 text-[9px]" /> Explain
+                      </button>
+                    </td>
                   </tr>
 
                   {/* Expandable detail row: full highlighted SQL */}
@@ -4177,7 +4223,11 @@ export default function DbInstanceDetailDrawer({
   fetchAgentIndexUsage, fetchAgentTableActivity, onConnected, onHealthChange,
 }: Props) {
   const [tab, setTab] = useState<DetailTab>('overview');
+  const [showAgentWizard, setShowAgentWizard] = useState(false);
   const [timeseries, setTimeseries] = useState<DbInstanceTimeseries | null>(null);
+  const [waitEvents, setWaitEvents]           = useState<AgentWaitEventDto[]>([]);
+  const [agentDiagnostics, setAgentDiagnostics] = useState<AgentDiagnosticDto[]>([]);
+  const [explainTarget, setExplainTarget]     = useState<AgentQueryStat | null>(null);
   const [agentTs, setAgentTs] = useState<AgentTimeseries[]>([]);
   const [tableSizes, setTableSizes] = useState<AgentTableSize[]>([]);
   const [vacuumStats, setVacuumStats] = useState<AgentVacuumStat[]>([]);
@@ -4187,6 +4237,8 @@ export default function DbInstanceDetailDrawer({
   const [tsLoading, setTsLoading] = useState(false);
   const [tsHours, setTsHours] = useState(24);
 const { selectedAccountIds } = useAccounts();
+  const accountId = selectedAccountIds[0] ?? '';
+  const { explain, isLoading: explainLoading, result: explainResult, error: explainError, reset: resetExplain } = useExplainQuery(accountId);
   const [agentDisconnecting, setAgentDisconnecting] = useState(false);
   const [agentMgmtOpen, setAgentMgmtOpen] = useState(false);
   const [copiedTopQuery, setCopiedTopQuery] = useState(false);
@@ -4220,10 +4272,19 @@ const { selectedAccountIds } = useAccounts();
 
   useEffect(() => {
     setTab('overview');
+    setShowAgentWizard(false);
     setTimeseries(null);
     setAgentTs([]);
     setTableSizes([]);
-  }, [instance?.instanceId]);
+    if (accountId) {
+      apiClient.get<AgentWaitEventDto[]>(`/api/dbops/aws/${accountId}/agent-wait-events`)
+        .then(data => setWaitEvents(data ?? []))
+        .catch(() => setWaitEvents([]));
+      apiClient.get<AgentDiagnosticDto[]>(`/api/dbops/aws/${accountId}/agent-diagnostics`)
+        .then(data => setAgentDiagnostics(data ?? []))
+        .catch(() => setAgentDiagnostics([]));
+    }
+  }, [instance?.instanceId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!instance) return null;
 
@@ -4253,7 +4314,6 @@ const { selectedAccountIds } = useAccounts();
   const rd = instance.rdsData;
 
   const disconnectAgent = (agentName: string) => {
-    const accountId = selectedAccountIds[0] ?? '';
     if (!agentName || !accountId) return;
     if (!window.confirm(`Remove agent "${agentName}" and all its cached data?\n\nThe Docker container will keep running until you stop it manually on the EC2.`)) return;
     setAgentDisconnecting(true);
@@ -4310,6 +4370,16 @@ const { selectedAccountIds } = useAccounts();
     onHealthChange?.(healthScore);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [healthScore.score, healthScore.status, healthScore.issues.join(',')]);
+
+  useEffect(() => {
+    if (!explainTarget || !agentMetrics) return;
+    explain({
+      agentName: agentMetrics.agentName,
+      dsnAlias:  explainTarget.dsnAlias ?? 'db-0',
+      queryText: explainTarget.queryDigest,
+      dbEngine:  explainTarget.dbEngine ?? 'postgres',
+    });
+  }, [explainTarget]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const securityFailCount = instanceSecurity.filter(c => c.status === 'FAIL').length;
   const instanceMatchesHost = (dbHost: string | undefined) => {
@@ -4400,6 +4470,111 @@ const { selectedAccountIds } = useAccounts();
                 endpoint={instance.rdsData?.endpoint}
               />
             )}
+
+            {/* RDS — Connect Agent wizard (inline, shown on demand) */}
+            {instance.source === 'rds' && showAgentWizard && (
+              <div className="space-y-3">
+                <button
+                  onClick={() => setShowAgentWizard(false)}
+                  className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                >
+                  <i className="fas fa-arrow-left text-[10px]" /> Back to overview
+                </button>
+                <AgentSetupWizard
+                  engine={instance.engine ?? 'postgres'}
+                  instanceId={instance.instanceId}
+                  endpoint={instance.rdsData?.endpoint}
+                />
+              </div>
+            )}
+
+            {/* RDS — Connect Agent CTA when no agent is connected and wizard is hidden */}
+            {instance.source === 'rds' && !agentMetrics && instanceAgentStats.length === 0 && !showAgentWizard && (
+              <div className="flex items-center justify-between gap-4 rounded-xl border border-indigo-100 dark:border-indigo-800/40 bg-indigo-50/60 dark:bg-indigo-900/10 px-4 py-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="shrink-0 w-8 h-8 rounded-lg bg-indigo-100 dark:bg-indigo-800/40 flex items-center justify-center">
+                    <i className="fas fa-plug text-indigo-500 text-sm" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-indigo-700 dark:text-indigo-300">Connect XamOps Agent</p>
+                    <p className="text-[11px] text-indigo-500/80 dark:text-indigo-400/70 truncate">Get per-query stats, wait events, table insights and more</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowAgentWizard(true)}
+                  className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors"
+                >
+                  <i className="fas fa-plug text-[10px]" /> Connect
+                </button>
+              </div>
+            )}
+
+            {/* ── Wait Events ── */}
+            {agentMetrics && (() => {
+              const instanceWaits = waitEvents.filter(w =>
+                w.dbHost === instance.agentHost ||
+                (instance.rdsData?.endpoint && instance.rdsData.endpoint.includes(w.dbHost?.split(':')[0] ?? ''))
+              );
+              const categories = ['IO', 'Lock', 'CPU', 'Network', 'Other'] as const;
+              const colors: Record<string, string> = {
+                IO: 'bg-blue-500', Lock: 'bg-red-500', CPU: 'bg-amber-500',
+                Network: 'bg-violet-500', Other: 'bg-gray-400',
+              };
+              const totals: Record<string, number> = {};
+              instanceWaits.forEach(w => { totals[w.waitCategory] = (totals[w.waitCategory] ?? 0) + w.sessionCount; });
+              const total = Object.values(totals).reduce((s, v) => s + v, 0);
+              if (total === 0) return null;
+              return (
+                <div className="rounded-xl border border-gray-100 dark:border-gray-700/50 bg-white dark:bg-gray-800/60 p-4">
+                  <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">
+                    <i className="fas fa-hourglass-half mr-1.5" />Wait Events
+                  </p>
+                  <div className="flex h-3 rounded-full overflow-hidden gap-px mb-3">
+                    {categories.filter(c => totals[c] > 0).map(c => (
+                      <div key={c} className={`${colors[c]} transition-all`}
+                        style={{ width: `${(totals[c] / total) * 100}%` }}
+                        title={`${c}: ${totals[c]} sessions`} />
+                    ))}
+                  </div>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1">
+                    {categories.filter(c => totals[c] > 0).map(c => (
+                      <span key={c} className="flex items-center gap-1.5 text-[11px] text-gray-600 dark:text-gray-300">
+                        <span className={`w-2 h-2 rounded-full ${colors[c]}`} />
+                        {c} <span className="font-semibold">{Math.round((totals[c] / total) * 100)}%</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* ── Agent diagnostics banner ── */}
+            {agentMetrics && (() => {
+              const diag = agentDiagnostics.find(d =>
+                d.dbHost === instance.agentHost ||
+                (instance.rdsData?.endpoint && instance.rdsData.endpoint.includes(d.dbHost?.split(':')[0] ?? ''))
+              );
+              if (!diag || !diag.errorType) return null;
+              const icons: Record<string, string> = {
+                privilege: 'fa-lock',
+                extension_missing: 'fa-puzzle-piece',
+                connection: 'fa-plug-circle-xmark',
+              };
+              const colors: Record<string, string> = {
+                privilege: 'border-amber-200 dark:border-amber-800/40 bg-amber-50 dark:bg-amber-900/10 text-amber-700 dark:text-amber-300',
+                extension_missing: 'border-blue-200 dark:border-blue-800/40 bg-blue-50 dark:bg-blue-900/10 text-blue-700 dark:text-blue-300',
+                connection: 'border-red-200 dark:border-red-800/40 bg-red-50 dark:bg-red-900/10 text-red-700 dark:text-red-300',
+              };
+              return (
+                <div className={`rounded-xl border px-4 py-3 flex gap-3 items-start ${colors[diag.errorType] ?? colors.connection}`}>
+                  <i className={`fas ${icons[diag.errorType] ?? 'fa-triangle-exclamation'} mt-0.5 shrink-0`} />
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold capitalize">{diag.errorType.replace('_', ' ')} issue</p>
+                    <p className="text-[11px] mt-0.5 opacity-80 break-words">{diag.errorMessage}</p>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* ── Health Score Widget ── */}
             {(metrics || agentMetrics) && (
@@ -5141,6 +5316,7 @@ const { selectedAccountIds } = useAccounts();
             engine={instance.engine ?? 'mysql'}
             instanceId={instance.instanceId}
             endpoint={instance.rdsData?.endpoint}
+            onExplain={setExplainTarget}
           />
         )}
 
@@ -5197,6 +5373,33 @@ const { selectedAccountIds } = useAccounts();
         )}
 
       </div>
+
+        {/* ── Explain loading overlay ── */}
+        {explainLoading && (
+          <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/20 backdrop-blur-sm">
+            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl px-8 py-6 flex flex-col items-center gap-3">
+              <i className="fas fa-spinner fa-spin text-indigo-500 text-2xl" />
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-200">Running EXPLAIN…</p>
+              <p className="text-xs text-gray-400">Agent is computing the plan — usually under 30 s</p>
+            </div>
+          </div>
+        )}
+        {explainError && !explainLoading && (
+          <div className="fixed bottom-6 right-6 z-50 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3 flex items-center gap-3 shadow-lg">
+            <i className="fas fa-circle-exclamation text-red-500" />
+            <p className="text-sm text-red-700 dark:text-red-300">{explainError}</p>
+            <button onClick={resetExplain} className="ml-2 text-red-400 hover:text-red-600">
+              <i className="fas fa-times" />
+            </button>
+          </div>
+        )}
+        {explainResult?.status === 'COMPLETED' && explainResult.planJson && (
+          <QueryPlanViewer
+            planJson={explainResult.planJson}
+            engine={instance.engine ?? 'postgres'}
+            onClose={() => { resetExplain(); setExplainTarget(null); }}
+          />
+        )}
     </div>
   );
 }
