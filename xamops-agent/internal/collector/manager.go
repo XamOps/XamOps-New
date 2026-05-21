@@ -149,6 +149,18 @@ func (m *Manager) CollectAll() (*AgentPayload, error) {
 		} else {
 			log.Printf("WARN: db-table-activity: %v", err)
 		}
+		// Wait event snapshot (pg_stat_activity / events_waits_summary)
+		if batch, err := collectDBWaitEvents(ctx, m.cfg.DBDSNs); err == nil {
+			payload.Batches = append(payload.Batches, batch)
+		} else {
+			log.Printf("WARN: db-wait-events: %v", err)
+		}
+		// Per-DSN connection and privilege health — always push (even 0 items signals healthy)
+		if batch, err := collectDBDiagnostics(ctx, m.cfg.DBDSNs); err == nil {
+			payload.Batches = append(payload.Batches, batch)
+		} else {
+			log.Printf("WARN: db-diagnostics: %v", err)
+		}
 	}
 
 	// ── Disk usage collector (runs standalone — no k8s needed) ──────────────
