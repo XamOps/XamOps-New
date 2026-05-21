@@ -3,8 +3,10 @@ package com.xammer.cloud.service;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xammer.cloud.domain.CloudAccount;
+import com.xammer.cloud.domain.DbAgentConfig;
 import com.xammer.cloud.domain.DbAgentDataCache;
 import com.xammer.cloud.domain.DbHealthSnapshot;
+import com.xammer.cloud.repository.DbAgentConfigRepository;
 import com.xammer.cloud.dto.dbops.AgentDiagnosticDto;
 import com.xammer.cloud.dto.dbops.AgentInstanceMetricsDto;
 import com.xammer.cloud.dto.dbops.DbMetricsDto;
@@ -30,6 +32,7 @@ public class DbHealthScheduler {
     private final DbHealthScoringService     scoringService;
     private final DbHealthAlertService       alertService;
     private final DbAgentDataCacheRepository dbAgentDataCacheRepository;
+    private final DbAgentConfigRepository    dbAgentConfigRepository;
     private final ObjectMapper               objectMapper;
 
     public DbHealthScheduler(CloudAccountRepository cloudAccountRepository,
@@ -37,12 +40,14 @@ public class DbHealthScheduler {
                              DbHealthScoringService scoringService,
                              DbHealthAlertService alertService,
                              DbAgentDataCacheRepository dbAgentDataCacheRepository,
+                             DbAgentConfigRepository dbAgentConfigRepository,
                              ObjectMapper objectMapper) {
         this.cloudAccountRepository  = cloudAccountRepository;
         this.dbOpsCostService        = dbOpsCostService;
         this.scoringService          = scoringService;
         this.alertService            = alertService;
         this.dbAgentDataCacheRepository = dbAgentDataCacheRepository;
+        this.dbAgentConfigRepository    = dbAgentConfigRepository;
         this.objectMapper            = objectMapper;
     }
 
@@ -81,14 +86,16 @@ public class DbHealthScheduler {
 
     private AgentInstanceMetricsDto resolveAgentMetrics(Long accountId, String instanceId) {
         try {
-            for (DbAgentDataCache cache : dbAgentDataCacheRepository
-                    .findByDataTypeStartingWithAndAgentConfig_CloudAccount_Id("db-instance-metrics:", accountId)) {
-                if (cache.getDataJson() == null) continue;
-                for (AgentInstanceMetricsDto am : objectMapper.readValue(
-                        cache.getDataJson(), new TypeReference<List<AgentInstanceMetricsDto>>() {})) {
-                    if (am.getDbHost() != null && instanceId != null
-                            && (instanceId.contains(am.getDbHost().split(":")[0]) || am.getDbHost().contains(instanceId)))
-                        return am;
+            for (DbAgentConfig agent : dbAgentConfigRepository.findByCloudAccountId(accountId)) {
+                for (DbAgentDataCache cache : dbAgentDataCacheRepository.findByDbAgentId(agent.getId())) {
+                    if (cache.getDataJson() == null) continue;
+                    if (cache.getDataType() == null || !cache.getDataType().startsWith("db-instance-metrics:")) continue;
+                    for (AgentInstanceMetricsDto am : objectMapper.readValue(
+                            cache.getDataJson(), new TypeReference<List<AgentInstanceMetricsDto>>() {})) {
+                        if (am.getDbHost() != null && instanceId != null
+                                && (instanceId.contains(am.getDbHost().split(":")[0]) || am.getDbHost().contains(instanceId)))
+                            return am;
+                    }
                 }
             }
         } catch (Exception ignored) {}

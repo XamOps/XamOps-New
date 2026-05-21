@@ -6,6 +6,8 @@ import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.DbAgentDataCache;
 import com.xammer.cloud.domain.DbHealthSnapshot;
 import com.xammer.cloud.dto.dbops.*;
+import com.xammer.cloud.domain.DbAgentConfig;
+import com.xammer.cloud.repository.DbAgentConfigRepository;
 import com.xammer.cloud.repository.DbAgentDataCacheRepository;
 import com.xammer.cloud.repository.DbHealthSnapshotRepository;
 import org.slf4j.Logger;
@@ -25,15 +27,18 @@ public class DbHealthScoringService {
     private final DbOpsCostService           dbOpsCostService;
     private final DbHealthSnapshotRepository snapshotRepository;
     private final DbAgentDataCacheRepository dbAgentDataCacheRepository;
+    private final DbAgentConfigRepository    dbAgentConfigRepository;
     private final ObjectMapper               objectMapper;
 
     public DbHealthScoringService(DbOpsCostService dbOpsCostService,
                                   DbHealthSnapshotRepository snapshotRepository,
                                   DbAgentDataCacheRepository dbAgentDataCacheRepository,
+                                  DbAgentConfigRepository dbAgentConfigRepository,
                                   ObjectMapper objectMapper) {
         this.dbOpsCostService           = dbOpsCostService;
         this.snapshotRepository         = snapshotRepository;
         this.dbAgentDataCacheRepository = dbAgentDataCacheRepository;
+        this.dbAgentConfigRepository    = dbAgentConfigRepository;
         this.objectMapper               = objectMapper;
     }
 
@@ -170,10 +175,26 @@ public class DbHealthScoringService {
 
     // ── Cache readers ─────────────────────────────────────────────────────────
 
+    // Get all agent IDs for an account — used by all cache readers
+    private List<Long> agentIdsForAccount(Long accountId) {
+        return dbAgentConfigRepository.findByCloudAccountId(accountId)
+            .stream().map(DbAgentConfig::getId).collect(java.util.stream.Collectors.toList());
+    }
+
+    // Read all cache rows for account agents whose dataType starts with prefix
+    private List<DbAgentDataCache> cacheRowsByPrefix(Long accountId, String prefix) {
+        List<DbAgentDataCache> rows = new ArrayList<>();
+        for (Long agentId : agentIdsForAccount(accountId)) {
+            dbAgentDataCacheRepository.findByDbAgentId(agentId).stream()
+                .filter(c -> c.getDataType() != null && c.getDataType().startsWith(prefix))
+                .forEach(rows::add);
+        }
+        return rows;
+    }
+
     private AgentInstanceMetricsDto resolveAgentMetrics(Long accountId, DbInstanceDto instance) {
         try {
-            for (DbAgentDataCache cache : dbAgentDataCacheRepository
-                    .findByDataTypeStartingWithAndAgentConfig_CloudAccount_Id("db-instance-metrics:", accountId)) {
+            for (DbAgentDataCache cache : cacheRowsByPrefix(accountId, "db-instance-metrics:")) {
                 if (cache.getDataJson() == null) continue;
                 for (AgentInstanceMetricsDto am : objectMapper.readValue(
                         cache.getDataJson(), new TypeReference<List<AgentInstanceMetricsDto>>() {})) {
@@ -189,8 +210,7 @@ public class DbHealthScoringService {
     private List<AgentVacuumStatDto> resolveVacuumStats(Long accountId, DbInstanceDto instance) {
         List<AgentVacuumStatDto> result = new ArrayList<>();
         try {
-            for (DbAgentDataCache cache : dbAgentDataCacheRepository
-                    .findByDataTypeStartingWithAndAgentConfig_CloudAccount_Id("db-vacuum-stats:", accountId)) {
+            for (DbAgentDataCache cache : cacheRowsByPrefix(accountId, "db-vacuum-stats:")) {
                 if (cache.getDataJson() == null) continue;
                 objectMapper.readValue(cache.getDataJson(), new TypeReference<List<AgentVacuumStatDto>>() {})
                     .stream().filter(v -> v.getDbHost() != null && instance.getEndpoint() != null
@@ -204,8 +224,7 @@ public class DbHealthScoringService {
     private List<AgentWaitEventDto> resolveWaitEvents(Long accountId, DbInstanceDto instance) {
         List<AgentWaitEventDto> result = new ArrayList<>();
         try {
-            for (DbAgentDataCache cache : dbAgentDataCacheRepository
-                    .findByDataTypeStartingWithAndAgentConfig_CloudAccount_Id("db-wait-events:", accountId)) {
+            for (DbAgentDataCache cache : cacheRowsByPrefix(accountId, "db-wait-events:")) {
                 if (cache.getDataJson() == null) continue;
                 objectMapper.readValue(cache.getDataJson(), new TypeReference<List<AgentWaitEventDto>>() {})
                     .stream().filter(w -> w.getDbHost() != null && instance.getEndpoint() != null
@@ -219,8 +238,7 @@ public class DbHealthScoringService {
     List<AgentDiagnosticDto> resolveDiagnostics(Long accountId) {
         List<AgentDiagnosticDto> result = new ArrayList<>();
         try {
-            for (DbAgentDataCache cache : dbAgentDataCacheRepository
-                    .findByDataTypeStartingWithAndAgentConfig_CloudAccount_Id("db-diagnostics:", accountId)) {
+            for (DbAgentDataCache cache : cacheRowsByPrefix(accountId, "db-diagnostics:")) {
                 if (cache.getDataJson() == null) continue;
                 result.addAll(objectMapper.readValue(cache.getDataJson(), new TypeReference<List<AgentDiagnosticDto>>() {}));
             }
