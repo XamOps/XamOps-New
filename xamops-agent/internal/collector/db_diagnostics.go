@@ -4,15 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/lib/pq"
 )
-
-var _ = log.Printf // suppress unused import if log is added later
 
 // collectDBDiagnostics checks reachability and privilege health for every DSN.
 // Always returns a batch even if all DSNs are healthy (empty ErrorType = healthy).
