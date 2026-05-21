@@ -723,6 +723,104 @@ type DbDiagnostic struct {
 	CollectedAt  string `json:"collectedAt"`
 }
 
+// ── MongoDB types ─────────────────────────────────────────────────────────────
+
+type MongoInstanceMetrics struct {
+	DSNAlias          string `json:"dsnAlias"`
+	DBHost            string `json:"dbHost"`
+	CurrentConns      int64  `json:"currentConnections"`
+	AvailableConns    int64  `json:"availableConnections"`
+	TotalCreatedConns int64  `json:"totalCreatedConnections"`
+	ResidentMemMb     int64  `json:"residentMemMb"`
+	VirtualMemMb      int64  `json:"virtualMemMb"`
+	OpsInsert         int64  `json:"opsInsert"`
+	OpsQuery          int64  `json:"opsQuery"`
+	OpsUpdate         int64  `json:"opsUpdate"`
+	OpsDelete         int64  `json:"opsDelete"`
+	OpsGetmore        int64  `json:"opsGetmore"`
+	OpsCommand        int64  `json:"opsCommand"`
+	NetworkBytesIn    int64  `json:"networkBytesIn"`
+	NetworkBytesOut   int64  `json:"networkBytesOut"`
+	UptimeSeconds     int64  `json:"uptimeSeconds"`
+	Version           string `json:"version"`
+	CollectedAt       string `json:"collectedAt"`
+}
+
+type MongoSlowOp struct {
+	DSNAlias    string `json:"dsnAlias"`
+	DBHost      string `json:"dbHost"`
+	Namespace   string `json:"namespace"`
+	Op          string `json:"op"`
+	QueryDigest string `json:"queryDigest"`
+	Millis      int64  `json:"millis"`
+	Timestamp   string `json:"timestamp"`
+	NReturned   int64  `json:"nReturned"`
+	NScanned    int64  `json:"nScanned"`
+	CollectedAt string `json:"collectedAt"`
+}
+
+type MongoIndexStat struct {
+	DSNAlias    string `json:"dsnAlias"`
+	DBHost      string `json:"dbHost"`
+	Database    string `json:"database"`
+	Collection  string `json:"collection"`
+	IndexName   string `json:"indexName"`
+	AccessOps   int64  `json:"accessOps"`
+	AccessSince string `json:"accessSince"`
+	CollectedAt string `json:"collectedAt"`
+}
+
+type MongoReplStatus struct {
+	DSNAlias    string  `json:"dsnAlias"`
+	DBHost      string  `json:"dbHost"`
+	SetName     string  `json:"setName"`
+	MyState     int     `json:"myState"`
+	LagSeconds  float64 `json:"lagSeconds"`
+	CollectedAt string  `json:"collectedAt"`
+}
+
+// ── Redis types ───────────────────────────────────────────────────────────────
+
+type RedisInstanceMetrics struct {
+	DSNAlias               string  `json:"dsnAlias"`
+	DBHost                 string  `json:"dbHost"`
+	UsedMemoryBytes        int64   `json:"usedMemoryBytes"`
+	MaxMemoryBytes         int64   `json:"maxMemoryBytes"`
+	MemUsagePct            float64 `json:"memUsagePct"`
+	KeyspaceHits           int64   `json:"keyspaceHits"`
+	KeyspaceMisses         int64   `json:"keyspaceMisses"`
+	HitRatioPct            float64 `json:"hitRatioPct"`
+	EvictedKeys            int64   `json:"evictedKeys"`
+	ExpiredKeys            int64   `json:"expiredKeys"`
+	TotalCommandsProcessed int64   `json:"totalCommandsProcessed"`
+	ConnectedClients       int64   `json:"connectedClients"`
+	Role                   string  `json:"role"`
+	ReplLagSeconds         float64 `json:"replLagSeconds"`
+	UptimeSeconds          int64   `json:"uptimeSeconds"`
+	Version                string  `json:"version"`
+	CollectedAt            string  `json:"collectedAt"`
+}
+
+type RedisSlowLog struct {
+	DSNAlias    string `json:"dsnAlias"`
+	DBHost      string `json:"dbHost"`
+	ID          int64  `json:"id"`
+	Timestamp   string `json:"timestamp"`
+	DurationUs  int64  `json:"durationUs"`
+	Command     string `json:"command"`
+	CollectedAt string `json:"collectedAt"`
+}
+
+type RedisKeyspace struct {
+	DSNAlias    string `json:"dsnAlias"`
+	DBHost      string `json:"dbHost"`
+	Database    string `json:"database"`
+	Keys        int64  `json:"keys"`
+	Expires     int64  `json:"expires"`
+	AvgTTLMs    int64  `json:"avgTtlMs"`
+	CollectedAt string `json:"collectedAt"`
+}
+
 // AgentCommand — one pending command from the backend command queue.
 type AgentCommand struct {
 	CommandID   string `json:"commandId"`
