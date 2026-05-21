@@ -8,9 +8,15 @@ import com.xammer.cloud.domain.DbAgentDataCache;
 import com.xammer.cloud.domain.ExplainRequest;
 import com.xammer.cloud.dto.dbops.*;
 import com.xammer.cloud.dto.dbops.AgentTimeseriesDto;
+import com.xammer.cloud.domain.DbHealthAlert;
+import com.xammer.cloud.domain.DbHealthSnapshot;
+import com.xammer.cloud.dto.dbops.DbHealthAlertDto;
+import com.xammer.cloud.dto.dbops.DbHealthSnapshotDto;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.DbAgentConfigRepository;
 import com.xammer.cloud.repository.DbAgentDataCacheRepository;
+import com.xammer.cloud.repository.DbHealthAlertRepository;
+import com.xammer.cloud.repository.DbHealthSnapshotRepository;
 import com.xammer.cloud.repository.ExplainRequestRepository;
 import com.xammer.cloud.service.DbOpsCostService;
 import org.slf4j.Logger;
@@ -21,6 +27,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -46,6 +53,8 @@ public class DbOpsController {
     private final DbAgentConfigRepository dbAgentConfigRepository;
     private final DbAgentDataCacheRepository dbAgentDataCacheRepository;
     private final ExplainRequestRepository explainRequestRepository;
+    private final DbHealthSnapshotRepository dbHealthSnapshotRepository;
+    private final DbHealthAlertRepository dbHealthAlertRepository;
     private final ObjectMapper objectMapper;
 
     public DbOpsController(
@@ -53,12 +62,16 @@ public class DbOpsController {
             CloudAccountRepository cloudAccountRepository,
             DbAgentConfigRepository dbAgentConfigRepository,
             DbAgentDataCacheRepository dbAgentDataCacheRepository,
-            ExplainRequestRepository explainRequestRepository) {
+            ExplainRequestRepository explainRequestRepository,
+            DbHealthSnapshotRepository dbHealthSnapshotRepository,
+            DbHealthAlertRepository dbHealthAlertRepository) {
         this.dbOpsCostService = dbOpsCostService;
         this.cloudAccountRepository = cloudAccountRepository;
         this.dbAgentConfigRepository = dbAgentConfigRepository;
         this.dbAgentDataCacheRepository = dbAgentDataCacheRepository;
         this.explainRequestRepository = explainRequestRepository;
+        this.dbHealthSnapshotRepository = dbHealthSnapshotRepository;
+        this.dbHealthAlertRepository = dbHealthAlertRepository;
         this.objectMapper = new ObjectMapper();
         this.objectMapper.registerModule(new JavaTimeModule());
     }
@@ -569,5 +582,88 @@ public class DbOpsController {
                 req.getResultJson(),
                 req.getErrorMessage()
         ));
+    }
+
+    // ── DB Health Alerting ────────────────────────────────────────────────────
+
+    /**
+     * GET /api/dbops/aws/{accountId}/health-history
+     * Returns health snapshots for one instance over the last N hours (default 24).
+     */
+    @GetMapping("/{accountId}/health-history")
+    public ResponseEntity<List<DbHealthSnapshotDto>> getHealthHistory(
+            @PathVariable String accountId,
+            @RequestParam String instanceId,
+            @RequestParam(defaultValue = "24") int hours) {
+        try {
+            com.xammer.cloud.domain.CloudAccount account = getAccount(accountId);
+            java.time.LocalDateTime since = java.time.LocalDateTime.now().minusHours(hours);
+            List<DbHealthSnapshot> snaps = dbHealthSnapshotRepository
+                .findByAccountIdAndInstanceIdAndComputedAtAfterOrderByComputedAtAsc(
+                    account.getId(), instanceId, since);
+            List<DbHealthSnapshotDto> result = snaps.stream().map(s -> {
+                List<String> issues = java.util.List.of();
+                try { issues = objectMapper.readValue(
+                    s.getIssuesJson() != null ? s.getIssuesJson() : "[]",
+                    new com.fasterxml.jackson.core.type.TypeReference<List<String>>() {}); }
+                catch (Exception ignored) {}
+                return DbHealthSnapshotDto.from(s, issues);
+            }).collect(java.util.stream.Collectors.toList());
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            logger.warn("health-history error for {}: {}", accountId, e.getMessage());
+            return ResponseEntity.ok(Collections.emptyList());
+        }
+    }
+
+    /**
+     * GET /api/dbops/aws/{accountId}/health-snapshots
+     * Returns the latest health snapshot for every DB instance under this account.
+     */
+    @GetMapping("/{accountId}/health-snapshots")
+    public ResponseEntity<List<DbHealthSnapshotDto>> getHealthSnapshots(@PathVariable String accountId) {
+        try {
+            com.xammer.cloud.domain.CloudAccount account = getAccount(accountId);
+            List<DbHealthSnapshot> snaps = dbHealthSnapshotRepository.findLatestPerInstance(account.getId());
+            List<DbHealthSnapshotDto> result = snaps.stream().map(s -> {
+                List<String> issues = java.util.List.of();
+                try { issues = objectMapper.readValue(
+                    s.getIssuesJson() != null ? s.getIssuesJson() : "[]",
+                    new com.fasterxml.jackson.core.type.TypeReference<List<String>>() {}); }
+                catch (Exception ignored) {}
+                return DbHealthSnapshotDto.from(s, issues);
+            }).collect(java.util.stream.Collectors.toList());
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            logger.warn("health-snapshots error for {}: {}", accountId, e.getMessage());
+            return ResponseEntity.ok(Collections.emptyList());
+        }
+    }
+
+    /**
+     * GET /api/dbops/aws/{accountId}/db-alerts
+     * Returns active alerts + alerts resolved in the last 24h for the in-app feed.
+     */
+    @GetMapping("/{accountId}/db-alerts")
+    public ResponseEntity<List<DbHealthAlertDto>> getDbAlerts(@PathVariable String accountId) {
+        try {
+            com.xammer.cloud.domain.CloudAccount account = getAccount(accountId);
+            java.time.LocalDateTime since = java.time.LocalDateTime.now().minusHours(24);
+            List<DbHealthAlert> alerts = dbHealthAlertRepository.findForFeed(account.getId(), since);
+            return ResponseEntity.ok(alerts.stream()
+                .map(DbHealthAlertDto::from)
+                .collect(java.util.stream.Collectors.toList()));
+        } catch (Exception e) {
+            logger.warn("db-alerts error for {}: {}", accountId, e.getMessage());
+            return ResponseEntity.ok(Collections.emptyList());
+        }
+    }
+
+    // ── Private helpers ───────────────────────────────────────────────────────
+
+    private com.xammer.cloud.domain.CloudAccount getAccount(String accountId) {
+        return cloudAccountRepository
+                .findByAwsAccountIdOrGcpProjectIdOrAzureSubscriptionId(accountId, accountId, accountId)
+                .orElseThrow(() -> new IllegalArgumentException("Cloud account not found: " + accountId));
     }
 }
