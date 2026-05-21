@@ -2,12 +2,17 @@ package pusher
 
 import (
 	"bytes"
+	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"time"
+
+	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/lib/pq"
 
 	"github.com/xamops/agent/internal/collector"
 	"github.com/xamops/agent/internal/config"
@@ -163,4 +168,143 @@ func (p *Pusher) Heartbeat() error {
 	}
 
 	return fmt.Errorf("heartbeat: server returned HTTP %d", resp.StatusCode)
+}
+
+// explainRateLimit tracks last EXPLAIN time per DSN to enforce 60 s cooldown.
+// Keyed by dsnAlias — bounded by number of DSNs, never grows unboundedly.
+var explainRateLimit = map[string]time.Time{}
+
+// PollAndExecCommands fetches at most one pending EXPLAIN command from the server,
+// executes it safely, and pushes the result back.
+// Non-blocking: any server/DB error is logged and the heartbeat continues.
+func (p *Pusher) PollAndExecCommands() {
+	req, err := http.NewRequest(http.MethodGet, p.cfg.ServerURL+"/api/v1/agent/commands", nil)
+	if err != nil {
+		log.Printf("WARN: commands poll: create request: %v", err)
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+p.cfg.APIKey)
+	req.Header.Set("X-Agent-Name", p.cfg.ClusterName)
+	req.Header.Set("X-Cloud-Account-Id", p.cfg.CloudAccountID)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("WARN: commands poll: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNoContent || resp.StatusCode == http.StatusNotFound {
+		return // no pending commands
+	}
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("WARN: commands poll: server returned HTTP %d", resp.StatusCode)
+		return
+	}
+
+	var commands []collector.AgentCommand
+	if err := json.NewDecoder(resp.Body).Decode(&commands); err != nil || len(commands) == 0 {
+		return
+	}
+
+	cmd := commands[0] // process at most one per heartbeat cycle
+	if cmd.Type != "explain" {
+		log.Printf("WARN: commands poll: unknown command type %q, skipping", cmd.Type)
+		return
+	}
+
+	// Rate limit: one EXPLAIN per DSN per 60 s
+	if last, ok := explainRateLimit[cmd.DSNAlias]; ok && time.Since(last) < 60*time.Second {
+		log.Printf("INFO: commands poll: rate-limiting EXPLAIN for %s (last run %s ago)",
+			cmd.DSNAlias, time.Since(last).Round(time.Second))
+		return
+	}
+
+	log.Printf("INFO: commands poll: running EXPLAIN commandId=%s dsnAlias=%s", cmd.CommandID, cmd.DSNAlias)
+	result := execExplain(cmd, p.cfg.DBDSNs)
+	explainRateLimit[cmd.DSNAlias] = time.Now()
+
+	// Push result as a single-item db-explain-result batch
+	payload := &collector.AgentPayload{
+		SchemaVersion:  "1.0",
+		AgentVersion:   "1.0.0",
+		ClusterName:    p.cfg.ClusterName,
+		CloudAccountID: p.cfg.CloudAccountID,
+		CollectedAt:    time.Now().UTC(),
+		Batches: []collector.DataBatch{{
+			Collector:   "db-explain-result",
+			Items:       []collector.ExplainResult{result},
+			Count:       1,
+			CollectedAt: time.Now().UTC(),
+		}},
+	}
+	if err := p.Push(payload); err != nil {
+		log.Printf("WARN: commands poll: push explain result: %v", err)
+	}
+}
+
+// execExplain runs EXPLAIN (no ANALYZE) for the DSN matching cmd.DSNAlias.
+// NEVER runs EXPLAIN ANALYZE — only the plan is computed, query is not executed.
+func execExplain(cmd collector.AgentCommand, dsns []string) collector.ExplainResult {
+	now := time.Now().UTC().Format(time.RFC3339)
+	result := collector.ExplainResult{CommandID: cmd.CommandID, DSNAlias: cmd.DSNAlias, CollectedAt: now}
+
+	// Find the DSN matching the alias (db-0, db-1, …)
+	dsn := ""
+	for i, d := range dsns {
+		if fmt.Sprintf("db-%d", i) == cmd.DSNAlias {
+			dsn = d
+			break
+		}
+	}
+	if dsn == "" {
+		result.Error = fmt.Sprintf("DSN alias %q not found in agent configuration", cmd.DSNAlias)
+		return result
+	}
+
+	db, err := sql.Open(cmd.DBEngine, dsn)
+	if err != nil {
+		result.Error = fmt.Sprintf("open: %v", err)
+		return result
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	db.SetConnMaxLifetime(10 * time.Second)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+
+	if err := db.PingContext(ctx); err != nil {
+		result.Error = fmt.Sprintf("ping: %v", err)
+		return result
+	}
+
+	switch cmd.DBEngine {
+	case "postgres":
+		_, _ = db.ExecContext(ctx, "SET statement_timeout = '3s'")
+		var plan []byte
+		err = db.QueryRowContext(ctx, "EXPLAIN (FORMAT JSON) "+cmd.QueryText).Scan(&plan)
+		if err == nil {
+			result.PlanJSON = string(plan)
+		} else {
+			result.Error = fmt.Sprintf("explain: %v", err)
+		}
+	case "mysql":
+		_, _ = db.ExecContext(ctx, "SET SESSION MAX_EXECUTION_TIME=3000")
+		rows, err := db.QueryContext(ctx, "EXPLAIN FORMAT=JSON "+cmd.QueryText)
+		if err != nil {
+			result.Error = fmt.Sprintf("explain: %v", err)
+		} else {
+			defer rows.Close()
+			if rows.Next() {
+				if err := rows.Scan(&result.PlanJSON); err != nil {
+					result.Error = fmt.Sprintf("scan plan: %v", err)
+				}
+			}
+		}
+	default:
+		result.Error = fmt.Sprintf("unsupported engine: %s", cmd.DBEngine)
+	}
+	return result
 }
