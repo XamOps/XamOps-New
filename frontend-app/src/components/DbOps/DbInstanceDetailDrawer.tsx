@@ -14,6 +14,7 @@ import {
   DbIdleInstance, DbRightsizing, DbSecurityCheck, DbSnapshot,
   AgentTimeseries, AgentTableSize, AgentVacuumStat, AgentUserActivity,
   AgentIndexUsage, AgentTableActivity,
+  fetchHealthHistory, DbHealthSnapshotDto,
 } from '../../hooks/useDbOpsData';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -4242,6 +4243,7 @@ const { selectedAccountIds } = useAccounts();
   const [agentDisconnecting, setAgentDisconnecting] = useState(false);
   const [agentMgmtOpen, setAgentMgmtOpen] = useState(false);
   const [copiedTopQuery, setCopiedTopQuery] = useState(false);
+  const [healthHistory, setHealthHistory] = useState<DbHealthSnapshotDto[]>([]);
 
   useEffect(() => {
     if (!instance || instance.source !== 'rds') return;
@@ -4283,6 +4285,11 @@ const { selectedAccountIds } = useAccounts();
       apiClient.get<AgentDiagnosticDto[]>(`/api/dbops/aws/${accountId}/agent-diagnostics`)
         .then(data => setAgentDiagnostics(data ?? []))
         .catch(() => setAgentDiagnostics([]));
+    }
+    if (accountId && instance?.instanceId) {
+      fetchHealthHistory(accountId, instance.instanceId, 24)
+        .then(data => setHealthHistory(data ?? []))
+        .catch(() => setHealthHistory([]));
     }
   }, [instance?.instanceId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -4357,13 +4364,11 @@ const { selectedAccountIds } = useAccounts();
   const agentSlowQueriesCount = instanceAgentStats.filter(s => s.avgTimeSeconds > 0.01).length;
   const slowQueriesTabCount = instanceSlowQueries.length || agentSlowQueriesCount;
 
-  const healthScore = computeHealthScore(
-    metrics,
-    agentMetrics,
-    slowQueriesTabCount,
-    instanceSecurity.filter(c => c.status === 'FAIL').length,
-    vacuumStats
-  );
+  const serverScore = healthHistory.length > 0 ? healthHistory[healthHistory.length - 1] : null;
+  const healthScore = serverScore
+    ? { score: serverScore.score, status: serverScore.status as 'healthy' | 'warning' | 'critical', issues: serverScore.issues }
+    : computeHealthScore(metrics, agentMetrics, slowQueriesTabCount,
+        instanceSecurity.filter(s => s.status === 'FAIL').length, vacuumStats);
 
   // Notify parent (topbar) whenever health score changes
   useEffect(() => {
@@ -4631,6 +4636,28 @@ const { selectedAccountIds } = useAccounts();
                   ) : (
                     <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-1">No issues detected</p>
                   )}
+                  {healthHistory.length > 1 && (() => {
+                    const W = 160, H = 32, pad = 4;
+                    const scores = healthHistory.map(s => s.score);
+                    const min = Math.min(...scores), max = Math.max(...scores);
+                    const range = max - min || 1;
+                    const pts = scores.map((s, i) => {
+                      const x = pad + (i / (scores.length - 1)) * (W - pad * 2);
+                      const y = H - pad - ((s - min) / range) * (H - pad * 2);
+                      return `${x},${y}`;
+                    }).join(' ');
+                    const latest = scores[scores.length - 1];
+                    const color = latest >= 80 ? '#10b981' : latest >= 50 ? '#f59e0b' : '#ef4444';
+                    return (
+                      <div className="mt-2 flex flex-col items-center">
+                        <svg width={W} height={H} className="overflow-visible">
+                          <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5"
+                            strokeLinejoin="round" strokeLinecap="round" />
+                        </svg>
+                        <p className="text-[10px] text-gray-400 mt-0.5">24h trend</p>
+                      </div>
+                    );
+                  })()}
                 </div>
                 <div className="text-right shrink-0 text-xs text-gray-400">
                   <div className="font-semibold text-lg text-gray-600 dark:text-gray-300">{healthScore.score}/100</div>
