@@ -570,7 +570,6 @@ jobs:
               --restart unless-stopped \
               --network xamops-network \
               --memory=2g --memory-swap=2g \
-              -p 80:80 \
               ghcr.io/xamops/frontend-app:latest
 
             sleep 20
