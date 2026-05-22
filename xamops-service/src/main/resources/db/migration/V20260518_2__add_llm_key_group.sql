@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS llm_key_group (
     id          BIGSERIAL PRIMARY KEY,
-    client_id   BIGINT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+    client_id   BIGINT NOT NULL,
     name        VARCHAR(128) NOT NULL,
     description VARCHAR(512),
     group_key   VARCHAR(64) NOT NULL UNIQUE,
