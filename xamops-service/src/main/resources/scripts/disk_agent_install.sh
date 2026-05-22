@@ -128,6 +128,7 @@ sudo tee /etc/systemd/system/xamops-disk-agent.service > /dev/null <<'UNIT'
 Description=XamOps Disk Agent
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -137,8 +138,6 @@ ExecStartPre=/bin/sh -c 'i=0; until (T=$(curl -sf -X PUT --max-time 3 http://169
 ExecStart=/usr/local/bin/xamops-agent
 Restart=always
 RestartSec=15
-# Disable start-rate limit so systemd never permanently stops retrying after repeated boot failures
-StartLimitIntervalSec=0
 User=root
 
 [Install]
