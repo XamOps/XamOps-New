@@ -20,6 +20,7 @@
 
 import React, { useCallback, useState, KeyboardEvent } from 'react';
 import useSupportChat from '../../hooks/useSupportChat';
+import { TooltipWrapper } from '../ui';
 import './SupportChatWidget.css';
 
 const SupportChatWidget: React.FC = () => {
@@ -210,22 +211,33 @@ const SupportChatWidget: React.FC = () => {
                     ) : (
                       <>
                         <p className="support-chat-message-text">{msg.text}</p>
-                        {/* Edit / Delete — only for user's own messages, on hover */}
+                        {/* Edit / Delete — only for user's own messages, on hover/focus */}
                         {msg.isUser && (
                           <div className="support-chat-msg-actions">
                             {canEdit(msg.timestamp) && (
-                              <button
-                                onClick={() => { setEditingId(msg.id!); setEditContent(msg.text); }}
-                                title="Edit (within 15 min)"
-                                className="support-chat-msg-action-btn"
-                              >✏️</button>
+                              <TooltipWrapper tip="Edit (within 15 min)">
+                                <button
+                                  onClick={() => {
+                                    setEditingId(msg.id!);
+                                    setEditContent(msg.text);
+                                  }}
+                                  aria-label="Edit message"
+                                  className="support-chat-msg-action-btn"
+                                >
+                                  ✏️
+                                </button>
+                              </TooltipWrapper>
                             )}
                             {canDelete(msg.timestamp) && (
-                              <button
-                                onClick={() => msg.id && deleteMessage(msg.id)}
-                                title="Delete (within 60 min)"
-                                className="support-chat-msg-action-btn"
-                              >🗑️</button>
+                              <TooltipWrapper tip="Delete (within 60 min)">
+                                <button
+                                  onClick={() => msg.id && deleteMessage(msg.id)}
+                                  aria-label="Delete message"
+                                  className="support-chat-msg-action-btn"
+                                >
+                                  🗑️
+                                </button>
+                              </TooltipWrapper>
                             )}
                           </div>
                         )}
