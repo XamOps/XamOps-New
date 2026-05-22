@@ -1,0 +1,3 @@
+## 2026-05-22 - Keyboard-Accessible Action Buttons
+**Learning:** Actions that only appear on hover (like "Edit" or "Delete" on message bubbles) are inaccessible to keyboard-only users if they use `display: none`. Using `opacity: 0` and `pointer-events: none` allows the elements to stay in the tab order, making them discoverable by keyboard and screen reader users via `:focus-within`.
+**Action:** Pair `:hover` with `:focus-within` for container-level action visibility. Use `opacity` or visibility-based hiding instead of `display: none` to keep elements focusable. Always ensure icon-only buttons have descriptive `aria-label` attributes and accessible tooltips.
