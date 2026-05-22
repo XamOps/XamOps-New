@@ -245,4 +245,94 @@ public class DbHealthScoringService {
         } catch (Exception ignored) {}
         return result;
     }
+
+    // ── MongoDB scoring ───────────────────────────────────────────────────────
+
+    /**
+     * Score a single MongoDB instance using agent-pushed metrics.
+     * Returns a ScoreResult (score 0–100, status, issues list).
+     */
+    public ScoreResult scoreMongoInstance(MongoInstanceMetricsDto m,
+            List<MongoSlowOpDto> slowOps,
+            MongoReplStatusDto replStatus) {
+        int score = 100;
+        List<String> issues = new ArrayList<>();
+
+        if (m != null) {
+            long total = m.getCurrentConnections() + m.getAvailableConnections();
+            if (total > 0) {
+                double connPct = (double) m.getCurrentConnections() / total * 100;
+                if (connPct > 80)      { score -= 20; issues.add("Connection usage high (" + Math.round(connPct) + "%)"); }
+                else if (connPct > 60) { score -= 10; issues.add("Connection usage elevated (" + Math.round(connPct) + "%)"); }
+            }
+            if (m.getResidentMemMb() > 0 && m.getVirtualMemMb() > 0) {
+                double memRatio = (double) m.getResidentMemMb() / m.getVirtualMemMb();
+                if (memRatio < 0.20) { score -= 10; issues.add("Low resident/virtual memory ratio"); }
+            }
+        }
+
+        if (slowOps != null && !slowOps.isEmpty()) {
+            int slowCount = slowOps.size();
+            if (slowCount > 20)     { score -= 20; issues.add(slowCount + " slow operations detected"); }
+            else if (slowCount > 5) { score -= 10; issues.add(slowCount + " slow operations"); }
+        }
+
+        if (replStatus != null) {
+            // myState: 0=startup, 1=primary, 2=secondary, 7=arbiter, 8=down, 10=rollback
+            if (replStatus.getMyState() == 1 && replStatus.getLagSeconds() > 30) {
+                score -= 10; issues.add("High replication lag (" + Math.round(replStatus.getLagSeconds()) + "s)");
+            }
+        }
+
+        score = Math.max(0, Math.min(100, score));
+        String status = score >= 80 ? "healthy" : score >= 50 ? "warning" : "critical";
+        return new ScoreResult(score, status, issues);
+    }
+
+    // ── Redis scoring ─────────────────────────────────────────────────────────
+
+    /**
+     * Score a single Redis instance using agent-pushed metrics.
+     * Returns a ScoreResult (score 0–100, status, issues list).
+     */
+    public ScoreResult scoreRedisInstance(RedisInstanceMetricsDto m,
+            List<RedisSlowLogDto> slowLog,
+            List<RedisKeyspaceDto> keyspace) {
+        int score = 100;
+        List<String> issues = new ArrayList<>();
+
+        if (m != null) {
+            if (m.getMemUsagePct() > 90)      { score -= 25; issues.add("Memory usage critical (" + Math.round(m.getMemUsagePct()) + "%)"); }
+            else if (m.getMemUsagePct() > 75)  { score -= 15; issues.add("Memory usage high (" + Math.round(m.getMemUsagePct()) + "%)"); }
+
+            if (m.getHitRatioPct() > 0 && m.getHitRatioPct() < 80) {
+                score -= 15; issues.add("Low cache hit ratio (" + Math.round(m.getHitRatioPct()) + "%)");
+            }
+            if (m.getEvictedKeys() > 0) {
+                score -= 10; issues.add("Key eviction occurring (" + m.getEvictedKeys() + " evicted)");
+            }
+            if (m.getReplLagSeconds() > 10) {
+                score -= 10; issues.add("High replication lag (" + Math.round(m.getReplLagSeconds()) + "s)");
+            }
+        }
+
+        if (slowLog != null && !slowLog.isEmpty()) {
+            int slowCount = slowLog.size();
+            if (slowCount > 20)     { score -= 20; issues.add(slowCount + " slow commands in log"); }
+            else if (slowCount > 5) { score -= 10; issues.add(slowCount + " slow commands"); }
+        }
+
+        if (keyspace != null) {
+            long totalExpiring = keyspace.stream().mapToLong(RedisKeyspaceDto::getExpires).sum();
+            long totalKeys     = keyspace.stream().mapToLong(RedisKeyspaceDto::getKeys).sum();
+            if (totalKeys > 0 && (double) totalExpiring / totalKeys < 0.10) {
+                // Many keys with no TTL is a warning sign for potential memory pressure
+                score -= 5; issues.add("Most keys have no TTL set");
+            }
+        }
+
+        score = Math.max(0, Math.min(100, score));
+        String status = score >= 80 ? "healthy" : score >= 50 ? "warning" : "critical";
+        return new ScoreResult(score, status, issues);
+    }
 }

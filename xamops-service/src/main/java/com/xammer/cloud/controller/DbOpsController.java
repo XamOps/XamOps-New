@@ -8,6 +8,12 @@ import com.xammer.cloud.domain.DbAgentDataCache;
 import com.xammer.cloud.domain.ExplainRequest;
 import com.xammer.cloud.dto.dbops.*;
 import com.xammer.cloud.dto.dbops.AgentTimeseriesDto;
+import com.xammer.cloud.dto.dbops.MongoInstanceMetricsDto;
+import com.xammer.cloud.dto.dbops.MongoSlowOpDto;
+import com.xammer.cloud.dto.dbops.MongoIndexStatDto;
+import com.xammer.cloud.dto.dbops.RedisInstanceMetricsDto;
+import com.xammer.cloud.dto.dbops.RedisSlowLogDto;
+import com.xammer.cloud.dto.dbops.RedisKeyspaceDto;
 import com.xammer.cloud.domain.DbHealthAlert;
 import com.xammer.cloud.domain.DbHealthSnapshot;
 import com.xammer.cloud.dto.dbops.DbHealthAlertDto;
@@ -659,7 +665,75 @@ public class DbOpsController {
         }
     }
 
+    // ── MongoDB agent endpoints ───────────────────────────────────────────────
+
+    @GetMapping("/{accountId}/agent-mongo-metrics")
+    public ResponseEntity<List<MongoInstanceMetricsDto>> getMongoMetrics(@PathVariable String accountId) {
+        return ResponseEntity.ok(readAgentCacheByPrefix(accountId, "mongo-instance-metrics:",
+                new TypeReference<List<MongoInstanceMetricsDto>>() {}));
+    }
+
+    @GetMapping("/{accountId}/agent-mongo-slow-ops")
+    public ResponseEntity<List<MongoSlowOpDto>> getMongoSlowOps(@PathVariable String accountId) {
+        return ResponseEntity.ok(readAgentCacheByPrefix(accountId, "mongo-slow-ops:",
+                new TypeReference<List<MongoSlowOpDto>>() {}));
+    }
+
+    @GetMapping("/{accountId}/agent-mongo-index-stats")
+    public ResponseEntity<List<MongoIndexStatDto>> getMongoIndexStats(@PathVariable String accountId) {
+        return ResponseEntity.ok(readAgentCacheByPrefix(accountId, "mongo-index-stats:",
+                new TypeReference<List<MongoIndexStatDto>>() {}));
+    }
+
+    // ── Redis agent endpoints ─────────────────────────────────────────────────
+
+    @GetMapping("/{accountId}/agent-redis-metrics")
+    public ResponseEntity<List<RedisInstanceMetricsDto>> getRedisMetrics(@PathVariable String accountId) {
+        return ResponseEntity.ok(readAgentCacheByPrefix(accountId, "redis-instance-metrics:",
+                new TypeReference<List<RedisInstanceMetricsDto>>() {}));
+    }
+
+    @GetMapping("/{accountId}/agent-redis-slow-log")
+    public ResponseEntity<List<RedisSlowLogDto>> getRedisSlowLog(@PathVariable String accountId) {
+        return ResponseEntity.ok(readAgentCacheByPrefix(accountId, "redis-slow-log:",
+                new TypeReference<List<RedisSlowLogDto>>() {}));
+    }
+
+    @GetMapping("/{accountId}/agent-redis-keyspace")
+    public ResponseEntity<List<RedisKeyspaceDto>> getRedisKeyspace(@PathVariable String accountId) {
+        return ResponseEntity.ok(readAgentCacheByPrefix(accountId, "redis-keyspace:",
+                new TypeReference<List<RedisKeyspaceDto>>() {}));
+    }
+
     // ── Private helpers ───────────────────────────────────────────────────────
+
+    /**
+     * Generic helper: read all agent cache rows for an account whose dataType starts with prefix,
+     * parse each as List<T>, and flatten into a single result list.
+     */
+    private <T> List<T> readAgentCacheByPrefix(String accountId, String prefix,
+            TypeReference<List<T>> typeRef) {
+        try {
+            com.xammer.cloud.domain.CloudAccount account = getAccount(accountId);
+            List<T> result = new ArrayList<>();
+            for (DbAgentConfig agent : dbAgentConfigRepository.findByCloudAccountId(account.getId())) {
+                for (DbAgentDataCache cache : dbAgentDataCacheRepository.findByDbAgentId(agent.getId())) {
+                    if (cache.getDataType() == null || !cache.getDataType().startsWith(prefix)) continue;
+                    if (cache.getDataJson() == null) continue;
+                    try {
+                        List<T> items = objectMapper.readValue(cache.getDataJson(), typeRef);
+                        if (items != null) result.addAll(items);
+                    } catch (Exception e) {
+                        logger.warn("readAgentCacheByPrefix [{}] parse: {}", prefix, e.getMessage());
+                    }
+                }
+            }
+            return result;
+        } catch (Exception e) {
+            logger.warn("readAgentCacheByPrefix [{}]: {}", prefix, e.getMessage());
+            return Collections.emptyList();
+        }
+    }
 
     private com.xammer.cloud.domain.CloudAccount getAccount(String accountId) {
         return cloudAccountRepository
