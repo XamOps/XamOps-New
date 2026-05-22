@@ -4,6 +4,8 @@ import apiClient from '../../utils/apiClient';
 import { useAccounts } from '../../contexts/AccountContext';
 import { QueryPlanViewer } from './QueryPlanViewer';
 import { useExplainQuery } from '../../hooks/useExplainQuery';
+import { useMongoData } from '../../hooks/useMongoData';
+import { useRedisData } from '../../hooks/useRedisData';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceDot,
@@ -305,7 +307,7 @@ function PerfChart({
 // ── Agent Setup Wizard ────────────────────────────────────────────────────────
 
 interface DsnEntry {
-  engine: 'mysql' | 'postgres';
+  engine: 'mysql' | 'postgres' | 'mongodb' | 'redis';
   host: string;
   port: string;
   dbName: string;
@@ -319,6 +321,12 @@ function buildDsn(d: DsnEntry) {
     const ssl = d.sslMode !== 'prefer' ? `?sslmode=${d.sslMode}` : '';
     return `postgres://${d.user}:${d.pass || '<password>'}@${d.host || '<host>'}:${d.port}/${d.dbName || '<db>'}${ssl}`;
   }
+  if (d.engine === 'mongodb') {
+    return `mongodb://${d.user}:${d.pass || '<password>'}@${d.host || '<host>'}:${d.port}/${d.dbName || 'admin'}`;
+  }
+  if (d.engine === 'redis') {
+    return `redis://:${d.pass || '<password>'}@${d.host || '<host>'}:${d.port}/${d.dbName || '0'}`;
+  }
   return `${d.user}:${d.pass || '<password>'}@tcp(${d.host || '<host>'}:${d.port})/${d.dbName || '<db>'}`;
 }
 
@@ -328,16 +336,23 @@ function AgentSetupWizard({ engine, instanceId, endpoint, onConnected }: { engin
   const [copied, setCopied] = useState('');
 
   const detectedPostgres = /postgres|aurora-postgresql/i.test(engine);
-  const [sqlEngine, setSqlEngine] = useState<'mysql' | 'postgres'>(detectedPostgres ? 'postgres' : 'mysql');
+  const detectedMongo    = /mongo/i.test(engine);
+  const detectedRedis    = /redis/i.test(engine);
+  const detectedEngine: 'mysql' | 'postgres' | 'mongodb' | 'redis' =
+    detectedPostgres ? 'postgres' : detectedMongo ? 'mongodb' : detectedRedis ? 'redis' : 'mysql';
+  const [sqlEngine, setSqlEngine] = useState<'mysql' | 'postgres' | 'mongodb' | 'redis'>(detectedEngine);
   const isPostgres = sqlEngine === 'postgres';
+  const isMongoDB  = sqlEngine === 'mongodb';
+  const isRedisDB  = sqlEngine === 'redis';
 
   const isRds = !!endpoint;
+  const defaultPort = detectedPostgres ? '5432' : detectedMongo ? '27017' : detectedRedis ? '6379' : '3306';
   const [dsns, setDsns] = useState<DsnEntry[]>([{
-    engine: detectedPostgres ? 'postgres' : 'mysql',
+    engine: detectedEngine,
     host: endpoint?.split(':')[0] ?? '',
-    port: detectedPostgres ? '5432' : '3306',
-    dbName: '',
-    user: 'xamops_reader',
+    port: defaultPort,
+    dbName: detectedMongo ? 'admin' : detectedRedis ? '0' : '',
+    user: detectedRedis ? '' : 'xamops_reader',
     pass: '',
     sslMode: isRds ? 'prefer' : 'disable',
   }]);
@@ -393,10 +408,10 @@ function AgentSetupWizard({ engine, instanceId, endpoint, onConnected }: { engin
 
     const applyConfig = (res: { found: boolean; dbEngine?: string; dbHost?: string; dbPort?: string; dbName?: string; dbUser?: string; dbPassword?: string; serverUrl?: string }) => {
       if (!res.found) return false;
-      if (res.dbEngine) setSqlEngine(res.dbEngine as 'mysql' | 'postgres');
+      if (res.dbEngine) setSqlEngine(res.dbEngine as 'mysql' | 'postgres' | 'mongodb' | 'redis');
       setDsns(prev => {
         const first: DsnEntry = { ...prev[0] };
-        if (res.dbEngine) first.engine = res.dbEngine as 'mysql' | 'postgres';
+        if (res.dbEngine) first.engine = res.dbEngine as 'mysql' | 'postgres' | 'mongodb' | 'redis';
         if (res.dbHost)   first.host = res.dbHost!;
         if (res.dbPort)   first.port = res.dbPort!;
         if (res.dbName)   first.dbName = res.dbName!;
@@ -491,6 +506,28 @@ GRANT SELECT ON ALL TABLES IN SCHEMA public TO xamops_reader;
 -- Optional: enable slow query analysis
 CREATE EXTENSION IF NOT EXISTS pg_stat_statements;`;
 
+  const mongoSql = `// Create a read-only monitoring user in admin DB
+use admin
+db.createUser({
+  user: "xamops_reader",
+  pwd: "<strong_password>",
+  roles: []
+})
+// Grant required roles for monitoring
+db.grantRolesToUser("xamops_reader", [
+  { role: "readAnyDatabase",   db: "admin" },
+  { role: "clusterMonitor",    db: "admin" }
+])`;
+
+  const redisSql = `# Redis does not require a dedicated user for monitoring.
+# If your Redis instance uses a password (requirepass), just supply it below.
+# For Redis 6+ ACL users, create a read-only user:
+# ACL SETUSER xamops_reader on ><strong_password> ~* &* +@read +info +slowlog +config|get +latency|history +latency|latest
+#
+# No further configuration is needed — the agent uses INFO, SLOWLOG, and CONFIG GET.`;
+
+  const currentSql = isMongoDB ? mongoSql : isRedisDB ? redisSql : isPostgres ? postgresSql : mysqlSql;
+
   const stopCmd = 'docker stop xamops-agent 2>/dev/null; docker rm xamops-agent 2>/dev/null';
 
   const runCmd = [
@@ -578,7 +615,7 @@ CREATE EXTENSION IF NOT EXISTS pg_stat_statements;`;
                 <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
                   {d.host}:{d.port}{d.dbName ? `/${d.dbName}` : ''}
                 </p>
-                <p className="text-xs text-gray-500">{d.engine === 'postgres' ? 'PostgreSQL' : 'MySQL'} · {queryCount} queries tracked</p>
+                <p className="text-xs text-gray-500">{d.engine === 'postgres' ? 'PostgreSQL' : d.engine === 'mongodb' ? 'MongoDB' : d.engine === 'redis' ? 'Redis' : 'MySQL'} · {queryCount} queries tracked</p>
               </div>
               <i className="fas fa-arrow-right text-gray-400 text-xs" />
             </button>
@@ -678,21 +715,30 @@ CREATE EXTENSION IF NOT EXISTS pg_stat_statements;`;
             <p className="text-xs font-semibold text-purple-800 dark:text-purple-300 mb-1 flex items-center gap-2">
               <i className="fas fa-user-shield" /> Step 1 — Create a read-only monitoring user
             </p>
-            <p className="text-xs text-purple-600 dark:text-purple-400">Run this SQL on your {sqlEngine === 'postgres' ? 'PostgreSQL' : 'MySQL/MariaDB'} instance:</p>
+            <p className="text-xs text-purple-600 dark:text-purple-400">
+              {isMongoDB ? 'Run these commands in mongosh on your MongoDB instance:' :
+               isRedisDB ? 'No user setup required — see notes below:' :
+               `Run this SQL on your ${sqlEngine === 'postgres' ? 'PostgreSQL' : 'MySQL/MariaDB'} instance:`}
+            </p>
           </div>
           {/* Engine toggle */}
-          <div className="flex gap-2">
-            {(['mysql', 'postgres'] as const).map(e => (
+          <div className="flex gap-2 flex-wrap">
+            {([
+              { key: 'mysql',   label: 'MySQL / MariaDB' },
+              { key: 'postgres', label: 'PostgreSQL' },
+              { key: 'mongodb',  label: 'MongoDB' },
+              { key: 'redis',    label: 'Redis' },
+            ] as const).map(e => (
               <button
-                key={e}
-                onClick={() => setSqlEngine(e)}
+                key={e.key}
+                onClick={() => setSqlEngine(e.key)}
                 className={`px-3 py-1 text-xs rounded-md font-medium transition-colors ${
-                  sqlEngine === e
+                  sqlEngine === e.key
                     ? 'bg-indigo-600 text-white'
                     : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
                   }`}
               >
-                {e === 'mysql' ? 'MySQL / MariaDB' : 'PostgreSQL'}
+                {e.label}
               </button>
             ))}
           </div>
@@ -702,7 +748,18 @@ CREATE EXTENSION IF NOT EXISTS pg_stat_statements;`;
             <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
               <i className="fas fa-shield-alt text-slate-500" /> What access does this user get?
             </p>
-            {isPostgres ? (
+            {isMongoDB ? (
+              <ul className="space-y-1.5 text-xs text-slate-600 dark:text-slate-400">
+                <li className="flex gap-2"><span className="font-mono bg-slate-200 dark:bg-slate-700 px-1 rounded shrink-0">readAnyDatabase</span><span>Allows the agent to read collection stats, index stats, and server status. We <strong>never</strong> read your document data.</span></li>
+                <li className="flex gap-2"><span className="font-mono bg-slate-200 dark:bg-slate-700 px-1 rounded shrink-0">clusterMonitor</span><span>Exposes <code className="bg-slate-200 dark:bg-slate-700 px-0.5 rounded">db.currentOp()</code> (active slow ops) and <code className="bg-slate-200 dark:bg-slate-700 px-0.5 rounded">serverStatus</code> metrics. Read-only cluster metadata — no data access.</span></li>
+              </ul>
+            ) : isRedisDB ? (
+              <ul className="space-y-1.5 text-xs text-slate-600 dark:text-slate-400">
+                <li className="flex gap-2"><span className="font-mono bg-slate-200 dark:bg-slate-700 px-1 rounded shrink-0">INFO</span><span>Returns server stats: memory, keyspace, hit/miss ratio, connected clients. No key data is read.</span></li>
+                <li className="flex gap-2"><span className="font-mono bg-slate-200 dark:bg-slate-700 px-1 rounded shrink-0">SLOWLOG GET</span><span>Reads the Redis slow log (commands exceeding slowlog-log-slower-than threshold). Command names only — no values.</span></li>
+                <li className="flex gap-2"><span className="font-mono bg-slate-200 dark:bg-slate-700 px-1 rounded shrink-0">CONFIG GET</span><span>Reads config params (maxmemory, slowlog-log-slower-than). Read-only — no writes.</span></li>
+              </ul>
+            ) : isPostgres ? (
               <ul className="space-y-1.5 text-xs text-slate-600 dark:text-slate-400">
                 <li className="flex gap-2"><span className="font-mono bg-slate-200 dark:bg-slate-700 px-1 rounded shrink-0">CONNECT</span><span>Allows the agent to open a connection to the database. No data access on its own.</span></li>
                 <li className="flex gap-2"><span className="font-mono bg-slate-200 dark:bg-slate-700 px-1 rounded shrink-0">USAGE ON SCHEMA public</span><span>Lets the agent see the list of schema objects (tables, views). Does <strong>not</strong> grant access to row data.</span></li>
@@ -723,8 +780,8 @@ CREATE EXTENSION IF NOT EXISTS pg_stat_statements;`;
             </p>
           </div>
 
-          {/* Parameter requirements — RDS vs self-hosted */}
-          <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/50 rounded-xl p-4 space-y-2">
+          {/* Parameter requirements — RDS vs self-hosted (MySQL / PostgreSQL only) */}
+          {!isMongoDB && !isRedisDB && <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/50 rounded-xl p-4 space-y-2">
             {endpoint ? (
               /* ── RDS: use Parameter Group ── */
               <>
@@ -800,14 +857,14 @@ CREATE EXTENSION IF NOT EXISTS pg_stat_statements;`;
                 )}
               </>
             )}
-          </div>
+          </div>}
 
           <div className="relative">
             <pre className="bg-gray-900 text-gray-100 rounded-xl p-4 text-xs overflow-x-auto leading-relaxed">
-              {isPostgres ? postgresSql : mysqlSql}
+              {currentSql}
             </pre>
             <button
-              onClick={() => copy(isPostgres ? postgresSql : mysqlSql, 'sql')}
+              onClick={() => copy(currentSql, 'sql')}
               className="absolute top-2 right-2 px-2 py-1 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded text-[10px] transition-colors"
             >
               {copied === 'sql' ? <><i className="fas fa-check mr-1" />Copied</> : <><i className="fas fa-copy mr-1" />Copy</>}
@@ -844,11 +901,16 @@ CREATE EXTENSION IF NOT EXISTS pg_stat_statements;`;
               </div>
               {/* Engine toggle + SSL mode */}
               <div className="flex items-center gap-1.5 flex-wrap">
-                {(['mysql', 'postgres'] as const).map(e => (
-                  <button key={e}
-                    onClick={() => updateDsn(idx, 'engine', e)}
-                    className={`px-2 py-0.5 text-xs rounded font-medium transition-colors ${d.engine === e ? 'bg-indigo-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'}`}>
-                    {e === 'mysql' ? 'MySQL' : 'PostgreSQL'}
+                {([
+                  { key: 'mysql',    label: 'MySQL' },
+                  { key: 'postgres', label: 'PostgreSQL' },
+                  { key: 'mongodb',  label: 'MongoDB' },
+                  { key: 'redis',    label: 'Redis' },
+                ] as const).map(e => (
+                  <button key={e.key}
+                    onClick={() => updateDsn(idx, 'engine', e.key)}
+                    className={`px-2 py-0.5 text-xs rounded font-medium transition-colors ${d.engine === e.key ? 'bg-indigo-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'}`}>
+                    {e.label}
                   </button>
                 ))}
                 {d.engine === 'postgres' && (
@@ -866,7 +928,7 @@ CREATE EXTENSION IF NOT EXISTS pg_stat_statements;`;
               <div className="grid grid-cols-2 gap-2">
                 {([
                   { label: 'Host / Endpoint', field: 'host' as const, placeholder: 'mydb.abc.rds.amazonaws.com' },
-                  { label: 'Port',            field: 'port' as const, placeholder: d.engine === 'postgres' ? '5432' : '3306' },
+                  { label: 'Port',            field: 'port' as const, placeholder: d.engine === 'postgres' ? '5432' : d.engine === 'mongodb' ? '27017' : d.engine === 'redis' ? '6379' : '3306' },
                   { label: 'Database Name',   field: 'dbName' as const, placeholder: 'mydb' },
                   { label: 'Username',        field: 'user' as const, placeholder: 'xamops_reader' },
                 ]).map(f => (
@@ -1124,7 +1186,8 @@ interface Props {
   onHealthChange?: (health: { score: number; status: 'healthy' | 'warning' | 'critical'; issues: string[] }) => void;
 }
 
-type DetailTab = 'overview' | 'performance' | 'slowqueries' | 'queries' | 'maintenance' | 'users' | 'cost' | 'security' | 'snapshots';
+type DetailTab = 'overview' | 'performance' | 'slowqueries' | 'queries' | 'maintenance' | 'users' | 'cost' | 'security' | 'snapshots'
+  | 'mongo-ops' | 'mongo-index' | 'redis-keyspace' | 'redis-slowlog';
 
 // ── SQL syntax highlight ──────────────────────────────────────────────────────
 const SQL_KW_RE = /\b(SELECT|DISTINCT|FROM|WHERE|JOIN|LEFT|RIGHT|INNER|OUTER|FULL|CROSS|ON|AND|OR|NOT|IN|LIKE|ILIKE|BETWEEN|IS|NULL|AS|BY|ASC|DESC|GROUP|ORDER|HAVING|LIMIT|OFFSET|INSERT|INTO|VALUES|UPDATE|SET|DELETE|CREATE|DROP|ALTER|TABLE|INDEX|UNION|ALL|WITH|CASE|WHEN|THEN|ELSE|END|EXISTS|COUNT|SUM|AVG|MAX|MIN|COALESCE|CAST|IF|CONCAT|TRIM|LENGTH|NOW|DATE|INTERVAL|EXTRACT|TO_CHAR|RETURNING)\b/gi;
@@ -4240,6 +4303,14 @@ export default function DbInstanceDetailDrawer({
 const { selectedAccountIds } = useAccounts();
   const accountId = selectedAccountIds[0] ?? '';
   const { explain, isLoading: explainLoading, result: explainResult, error: explainError, reset: resetExplain } = useExplainQuery(accountId);
+
+  // Engine-specific: Mongo / Redis detection + hooks (called unconditionally at top level)
+  const isMongo = /mongo/i.test(instance?.engine ?? '');
+  const isRedis = /redis/i.test(instance?.engine ?? '');
+  const mongoHost = isMongo ? (instance?.agentHost ?? instance?.rdsData?.endpoint) : undefined;
+  const redisHost = isRedis ? (instance?.agentHost ?? instance?.rdsData?.endpoint) : undefined;
+  const { metrics: mongoMetrics, slowOps: mongoSlowOps, indexStats: mongoIndexStats } = useMongoData(accountId, mongoHost);
+  const { metrics: redisMetrics, slowLog: redisSlowLog, keyspace: redisKeyspace } = useRedisData(accountId, redisHost);
   const [agentDisconnecting, setAgentDisconnecting] = useState(false);
   const [agentMgmtOpen, setAgentMgmtOpen] = useState(false);
   const [copiedTopQuery, setCopiedTopQuery] = useState(false);
@@ -4428,6 +4499,14 @@ const { selectedAccountIds } = useAccounts();
       badgeCount: instanceSnapshots.length > 0 ? instanceSnapshots.length : undefined,
       badgeColor: 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-400',
     },
+    ...(isMongo ? [
+      { id: 'mongo-ops'   as const, label: 'Slow Ops', icon: 'fa-bolt' },
+      { id: 'mongo-index' as const, label: 'Indexes',  icon: 'fa-list-tree' },
+    ] : []),
+    ...(isRedis ? [
+      { id: 'redis-keyspace' as const, label: 'Keyspace', icon: 'fa-database' },
+      { id: 'redis-slowlog'  as const, label: 'Slow Log', icon: 'fa-stopwatch' },
+    ] : []),
   ];
 
   return (
@@ -4954,6 +5033,80 @@ const { selectedAccountIds } = useAccounts();
               </div>
             )}
 
+            {/* MongoDB overview */}
+            {isMongo && mongoMetrics[0] && (() => {
+              const m = mongoMetrics[0];
+              const totalOps = m.opsInsert + m.opsQuery + m.opsUpdate + m.opsDelete + m.opsCommand;
+              return (
+                <div className="rounded-xl border border-gray-100 dark:border-gray-700/50 bg-white dark:bg-gray-800/60 p-4 space-y-3">
+                  <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                    <i className="fas fa-leaf mr-1.5 text-green-500" />MongoDB
+                    <span className="ml-2 text-gray-400 font-normal normal-case">{m.version}</span>
+                  </p>
+                  <div className="grid grid-cols-3 gap-3 text-center">
+                    <div>
+                      <p className="text-lg font-bold text-gray-800 dark:text-gray-100">{m.currentConnections}</p>
+                      <p className="text-[10px] text-gray-400">Connections</p>
+                    </div>
+                    <div>
+                      <p className="text-lg font-bold text-gray-800 dark:text-gray-100">{m.residentMemMb}MB</p>
+                      <p className="text-[10px] text-gray-400">Resident Mem</p>
+                    </div>
+                    <div>
+                      <p className="text-lg font-bold text-gray-800 dark:text-gray-100">{totalOps.toLocaleString()}</p>
+                      <p className="text-[10px] text-gray-400">Total Ops</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-3 flex-wrap text-[11px] text-gray-500">
+                    {[['Q', m.opsQuery, 'bg-blue-400'],['I', m.opsInsert, 'bg-emerald-400'],['U', m.opsUpdate, 'bg-amber-400'],['D', m.opsDelete, 'bg-red-400']].map(([l, v, c]) => (
+                      <span key={String(l)} className="flex items-center gap-1">
+                        <span className={`w-2 h-2 rounded-full ${c}`} />{l}: {Number(v).toLocaleString()}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Redis overview */}
+            {isRedis && redisMetrics[0] && (() => {
+              const m = redisMetrics[0];
+              const hitColor = m.hitRatioPct >= 95 ? 'text-emerald-600 dark:text-emerald-400'
+                : m.hitRatioPct >= 80 ? 'text-amber-600 dark:text-amber-400'
+                : 'text-red-600 dark:text-red-400';
+              return (
+                <div className="rounded-xl border border-gray-100 dark:border-gray-700/50 bg-white dark:bg-gray-800/60 p-4 space-y-3">
+                  <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                    <i className="fas fa-bolt mr-1.5 text-red-500" />Redis
+                    <span className="ml-2 text-gray-400 font-normal normal-case">{m.version} · {m.role}</span>
+                  </p>
+                  <div className="flex items-center gap-4">
+                    <div>
+                      <p className={`text-3xl font-bold ${hitColor}`}>{m.hitRatioPct.toFixed(1)}%</p>
+                      <p className="text-[10px] text-gray-400 mt-0.5">Cache Hit Ratio</p>
+                    </div>
+                    <div className="flex-1 space-y-2">
+                      {m.maxMemoryBytes > 0 && (
+                        <div>
+                          <div className="flex justify-between text-[10px] text-gray-400 mb-0.5">
+                            <span>Memory</span><span>{Math.round(m.memUsagePct)}%</span>
+                          </div>
+                          <div className="h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                            <div className={`h-full rounded-full ${m.memUsagePct > 90 ? 'bg-red-500' : m.memUsagePct > 70 ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                              style={{ width: `${Math.min(m.memUsagePct, 100)}%` }} />
+                          </div>
+                        </div>
+                      )}
+                      <div className="flex gap-4 text-[11px] text-gray-500">
+                        <span><i className="fas fa-users text-[9px] mr-1" />{m.connectedClients} clients</span>
+                        {m.evictedKeys > 0 && <span className="text-amber-500"><i className="fas fa-trash text-[9px] mr-1" />{m.evictedKeys} evicted</span>}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Agent management — collapsible disconnect */}
             {instance.source === 'agent' && (agentMetrics || instanceAgentStats.length > 0) && (
               <div className="border-t border-gray-100 dark:border-gray-700 pt-4">
@@ -5397,6 +5550,119 @@ const { selectedAccountIds } = useAccounts();
             instanceId={instance.instanceId}
             cloudProvider={cloudProvider}
           />
+        )}
+
+        {/* ── MONGO SLOW OPS ── */}
+        {tab === 'mongo-ops' && (
+          <div className="space-y-3">
+            <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Active Slow Operations (≥ 1s)</p>
+            {mongoSlowOps.length === 0 ? (
+              <div className="text-center py-12">
+                <i className="fas fa-circle-check text-emerald-400 text-2xl mb-2 block" />
+                <p className="text-sm text-gray-400">No slow operations</p>
+              </div>
+            ) : (
+              <table className="w-full text-xs">
+                <thead><tr className="border-b border-gray-100 dark:border-gray-700">
+                  {['Namespace','Op','Duration','Query Shape'].map(h => (
+                    <th key={h} className="text-left px-3 py-2 text-[10px] font-semibold text-gray-400 uppercase">{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>{mongoSlowOps.map((op, i) => (
+                  <tr key={i} className="border-b border-gray-50 dark:border-gray-700/30">
+                    <td className="px-3 py-2 font-mono text-indigo-600 dark:text-indigo-400 text-[11px]">{op.namespace}</td>
+                    <td className="px-3 py-2 text-gray-600 dark:text-gray-300">{op.op}</td>
+                    <td className="px-3 py-2 font-semibold text-amber-600">{op.millis}ms</td>
+                    <td className="px-3 py-2 text-gray-500 truncate max-w-[160px]">{op.queryDigest}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            )}
+          </div>
+        )}
+
+        {/* ── MONGO INDEX STATS ── */}
+        {tab === 'mongo-index' && (
+          <div className="space-y-3">
+            <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Index Usage Stats</p>
+            {mongoIndexStats.length === 0 ? (
+              <div className="text-center py-12 text-sm text-gray-400">No index data available</div>
+            ) : (
+              <table className="w-full text-xs">
+                <thead><tr className="border-b border-gray-100 dark:border-gray-700">
+                  {['Collection','Index','Accesses','Status'].map(h => (
+                    <th key={h} className="text-left px-3 py-2 text-[10px] font-semibold text-gray-400 uppercase">{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>{mongoIndexStats.map((s, i) => (
+                  <tr key={i} className="border-b border-gray-50 dark:border-gray-700/30">
+                    <td className="px-3 py-2 font-mono text-[11px] text-gray-600 dark:text-gray-300">{s.database}.{s.collection}</td>
+                    <td className="px-3 py-2 text-indigo-600 dark:text-indigo-400">{s.indexName}</td>
+                    <td className="px-3 py-2 tabular-nums">{s.accessOps.toLocaleString()}</td>
+                    <td className="px-3 py-2">
+                      {s.accessOps === 0
+                        ? <span className="text-amber-500 text-[10px] font-medium">Unused</span>
+                        : <span className="text-emerald-500 text-[10px] font-medium">Active</span>}
+                    </td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            )}
+          </div>
+        )}
+
+        {/* ── REDIS KEYSPACE ── */}
+        {tab === 'redis-keyspace' && (
+          <div className="space-y-3">
+            <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Keyspace</p>
+            {redisKeyspace.length === 0 ? (
+              <div className="text-center py-12 text-sm text-gray-400">No keyspace data available</div>
+            ) : (
+              <table className="w-full text-xs">
+                <thead><tr className="border-b border-gray-100 dark:border-gray-700">
+                  {['Database','Keys','With TTL','Avg TTL'].map(h => (
+                    <th key={h} className="text-left px-3 py-2 text-[10px] font-semibold text-gray-400 uppercase">{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>{redisKeyspace.map((ks, i) => (
+                  <tr key={i} className="border-b border-gray-50 dark:border-gray-700/30">
+                    <td className="px-3 py-2 font-mono text-indigo-600 dark:text-indigo-400">{ks.database}</td>
+                    <td className="px-3 py-2 tabular-nums font-semibold">{ks.keys.toLocaleString()}</td>
+                    <td className="px-3 py-2 tabular-nums text-gray-500">{ks.expires.toLocaleString()}</td>
+                    <td className="px-3 py-2 text-gray-500">{ks.avgTtlMs > 0 ? `${Math.round(ks.avgTtlMs/1000)}s` : '—'}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            )}
+          </div>
+        )}
+
+        {/* ── REDIS SLOW LOG ── */}
+        {tab === 'redis-slowlog' && (
+          <div className="space-y-3">
+            <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Last 10 Slow Commands</p>
+            {redisSlowLog.length === 0 ? (
+              <div className="text-center py-12">
+                <i className="fas fa-circle-check text-emerald-400 text-2xl mb-2 block" />
+                <p className="text-sm text-gray-400">No slow commands</p>
+              </div>
+            ) : (
+              <table className="w-full text-xs">
+                <thead><tr className="border-b border-gray-100 dark:border-gray-700">
+                  {['Command','Duration','Time'].map(h => (
+                    <th key={h} className="text-left px-3 py-2 text-[10px] font-semibold text-gray-400 uppercase">{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>{redisSlowLog.map((s, i) => (
+                  <tr key={i} className="border-b border-gray-50 dark:border-gray-700/30">
+                    <td className="px-3 py-2 font-mono text-indigo-600 dark:text-indigo-400">{s.command}</td>
+                    <td className="px-3 py-2 font-semibold text-amber-600">{(s.durationUs/1000).toFixed(2)}ms</td>
+                    <td className="px-3 py-2 text-gray-400 text-[10px]">{new Date(s.timestamp).toLocaleTimeString()}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            )}
+          </div>
         )}
 
       </div>
