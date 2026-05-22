@@ -298,7 +298,7 @@ public class GcpCloudGuardService {
             String gcpProjectId = account.getGcpProjectId();
             log.info("Checking Cost Anomalies for GCP project {}", gcpProjectId);
             try {
-                // Use the existing logic from GcpCostService which flags anomalies in historical data
+                String symbol = currencySymbol(gcpCostService.getProjectCurrencyCode(gcpProjectId));
                 List<GcpCostDto> historicalCosts = gcpCostService.getHistoricalCostsSync(gcpProjectId);
                 AtomicInteger counter = new AtomicInteger(1);
 
@@ -308,15 +308,15 @@ public class GcpCloudGuardService {
                             String uniqueId = String.format("anomaly-gcp-%s-%d", anomaly.getName(), counter.getAndIncrement());
                             alerts.add(new AlertDto(
                                     uniqueId,
-                                    "Billing", // Generic service for cost
+                                    "Billing",
                                     "Cost Anomaly Detected",
-                                    String.format("Potential cost anomaly detected for period %s. Cost: $%.2f",
-                                            anomaly.getName(), anomaly.getAmount()),
-                                    "CRITICAL", // Treat flagged history as critical alert
-                                    anomaly.getAmount(), // Usage can be the anomalous amount
-                                    0, // Limit is not applicable
+                                    String.format("Potential cost anomaly detected for period %s. Cost: %s%.2f",
+                                            anomaly.getName(), symbol, anomaly.getAmount()),
+                                    "CRITICAL",
+                                    anomaly.getAmount(),
+                                    0,
                                     "ANOMALY",
-                                    "Global" // Costs are usually global or tied to billing account
+                                    "Global"
                             ));
                         });
                 log.info("Found {} GCP cost anomaly alerts for project {}", alerts.size(), gcpProjectId);
@@ -325,6 +325,21 @@ public class GcpCloudGuardService {
             }
             return alerts;
         });
+    }
+
+    private String currencySymbol(String currencyCode) {
+        if (currencyCode == null) return "$";
+        return switch (currencyCode.toUpperCase()) {
+            case "USD" -> "$";
+            case "INR" -> "₹";
+            case "EUR" -> "€";
+            case "GBP" -> "£";
+            case "JPY" -> "¥";
+            case "CAD" -> "CA$";
+            case "AUD" -> "A$";
+            case "SGD" -> "S$";
+            default -> currencyCode + " ";
+        };
     }
 
     private CompletableFuture<List<AlertDto>> checkSecurityFindings(CloudAccount account) {

@@ -85,9 +85,10 @@ public class BudgetEmailBuilder {
                     : "Your actual spend has reached <strong>50%</strong> of your budget limit.";
         }
 
+        String sym = currencySymbol(budget.getBudgetUnit());
         String spendLine = isForecasted
-                ? "Forecasted: <strong>$" + fmt(budget.getForecastedSpend()) + "</strong> / Limit: <strong>$" + fmt(budget.getBudgetLimit()) + "</strong>"
-                : "Spent: <strong>$" + fmt(budget.getActualSpend()) + "</strong> / Limit: <strong>$" + fmt(budget.getBudgetLimit()) + "</strong>";
+                ? "Forecasted: <strong>" + sym + fmt(budget.getForecastedSpend()) + "</strong> / Limit: <strong>" + sym + fmt(budget.getBudgetLimit()) + "</strong>"
+                : "Spent: <strong>" + sym + fmt(budget.getActualSpend()) + "</strong> / Limit: <strong>" + sym + fmt(budget.getBudgetLimit()) + "</strong>";
 
         double pct = isForecasted ? computePct(budget.getForecastedSpend(), budget.getBudgetLimit())
                                   : computePct(budget.getActualSpend(),     budget.getBudgetLimit());
@@ -172,14 +173,15 @@ public class BudgetEmailBuilder {
     }
 
     private String summarySection(BudgetDetails budget, String accountName, String accountId) {
+        String sym = currencySymbol(budget.getBudgetUnit());
         return "<tr><td style='padding:30px 40px 0 40px;'>"
                 + "<h2 style='margin:0 0 16px 0;color:#1f2937;font-size:17px;font-weight:600;'>Budget Details</h2>"
                 + "<table role='presentation' style='width:100%;border-collapse:collapse;'>"
                 + detailRow("Budget Name",   esc(budget.getBudgetName()))
                 + detailRow("Account",       esc(accountName) + " <span style='color:#9ca3af;font-size:12px;'>(" + esc(accountId) + ")</span>")
-                + detailRow("Limit",         "<strong>$" + fmt(budget.getBudgetLimit()) + " " + esc(budget.getBudgetUnit()) + "</strong>")
-                + detailRow("Actual Spend",  "$" + fmt(budget.getActualSpend()))
-                + detailRow("Forecasted",    "$" + fmt(budget.getForecastedSpend()))
+                + detailRow("Limit",         "<strong>" + sym + fmt(budget.getBudgetLimit()) + " " + esc(budget.getBudgetUnit()) + "</strong>")
+                + detailRow("Actual Spend",  sym + fmt(budget.getActualSpend()))
+                + detailRow("Forecasted",    sym + fmt(budget.getForecastedSpend()))
                 + detailRow("Period",        "Monthly (resets on the 1st)")
                 + "</table></td></tr>";
     }
@@ -239,6 +241,21 @@ public class BudgetEmailBuilder {
                 + "<td style='padding:10px 0;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:14px;width:38%;'>" + esc(label) + "</td>"
                 + "<td style='padding:10px 0;border-bottom:1px solid #e5e7eb;color:#1f2937;font-size:14px;font-weight:500;'>" + value + "</td>"
                 + "</tr>";
+    }
+
+    private String currencySymbol(String currencyCode) {
+        if (currencyCode == null) return "$";
+        return switch (currencyCode.toUpperCase()) {
+            case "USD" -> "$";
+            case "INR" -> "&#8377;";
+            case "EUR" -> "&euro;";
+            case "GBP" -> "&pound;";
+            case "JPY" -> "&yen;";
+            case "CAD" -> "CA$";
+            case "AUD" -> "A$";
+            case "SGD" -> "S$";
+            default -> currencyCode + " ";
+        };
     }
 
     private String fmt(BigDecimal val) {
