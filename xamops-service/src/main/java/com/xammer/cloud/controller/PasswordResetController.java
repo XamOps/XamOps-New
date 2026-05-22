@@ -7,17 +7,22 @@ import com.xammer.cloud.repository.UserRepository;
 import com.xammer.cloud.service.EmailService;
 import com.xammer.cloud.service.MasterDatabaseService;
 import com.xammer.cloud.service.RedisCacheService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
+import java.security.SecureRandom;
 import java.util.Optional;
-import java.util.Random;
 
 @RestController
 @RequestMapping("/api/auth")
+@Slf4j
 public class PasswordResetController {
+
+    private final SecureRandom secureRandom = new SecureRandom();
 
     @Autowired
     private UserRepository userRepository;
@@ -54,21 +59,30 @@ public class PasswordResetController {
     // 1. Send OTP
     @PostMapping("/forgot-password")
     public ResponseEntity<?> sendOtp(@RequestParam String username, @RequestParam String email) {
+        String genericSuccessMessage = "If the account exists, an OTP has been sent to your email.";
         try {
             // ✅ FIX: Switch to the correct database for this user
             setTenantContextForUser(username);
 
             // Find user in their specific Tenant DB
-            User user = userRepository.findByUsername(username)
-                    .orElseThrow(() -> new RuntimeException("User not found"));
+            Optional<User> userOpt = userRepository.findByUsername(username);
+
+            if (userOpt.isEmpty()) {
+                log.warn("Forgot-password attempted for non-existent username: {}", username);
+                return ResponseEntity.ok().body(genericSuccessMessage);
+            }
+
+            User user = userOpt.get();
 
             // Verify email matches
             if (user.getEmail() == null || !user.getEmail().equalsIgnoreCase(email)) {
-                return ResponseEntity.badRequest().body("Email does not match our records.");
+                log.warn("Forgot-password attempted with email mismatch for user: {}", username);
+                return ResponseEntity.ok().body(genericSuccessMessage);
             }
 
-            // Generate 6-digit OTP
-            String otp = String.format("%06d", new Random().nextInt(999999));
+            // ✅ Securely generate 6-digit OTP using SecureRandom
+            // Using 1,000,000 ensures full range 000000-999999
+            String otp = String.format("%06d", secureRandom.nextInt(1000000));
             
             // Save OTP to Redis (Expires in 5 minutes)
             redisCacheService.saveOtp(username, otp);
@@ -97,16 +111,21 @@ public class PasswordResetController {
                           + "</td></tr>"
                           + "</table></td></tr></table></body></html>";
             
-            // Log for debugging (in case email fails)
-            System.out.println(">>> OTP for " + username + ": " + otp);
-            
             emailService.sendHtmlEmail(email, subject, body);
 
-            return ResponseEntity.ok().body("OTP sent to your email.");
+            return ResponseEntity.ok().body(genericSuccessMessage);
 
         } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.badRequest().body("Error: " + e.getMessage());
+            // If user lookup in global directory failed, it might be an invalid username
+            if (e.getMessage() != null && e.getMessage().contains("User not found")) {
+                log.warn("Forgot-password attempted for username not in global directory: {}", username);
+                return ResponseEntity.ok().body(genericSuccessMessage);
+            }
+
+            log.error("Failed to process forgot-password request for user {}: {}", username, e.getMessage());
+            // Return generic error to prevent leaking internal details
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body("An error occurred while processing your request. Please try again later.");
         }
     }
 
@@ -151,7 +170,9 @@ public class PasswordResetController {
             return ResponseEntity.ok().body("Password updated successfully.");
 
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body("Failed to reset password: " + e.getMessage());
+            log.error("Failed to reset password for user {}: {}", username, e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body("An error occurred while resetting your password. Please try again later.");
         }
     }
 }
