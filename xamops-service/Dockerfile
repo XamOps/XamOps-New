@@ -7,11 +7,11 @@ EXPOSE ${EXPOSE_PORT}
 COPY target/*.jar app.jar
 
 ENTRYPOINT ["java", \
-  "-Xms256m", \
-  "-Xmx1536m", \
+  "-Xms512m", \
+  "-Xmx3g", \
   "-XX:+UseG1GC", \
   "-XX:MaxGCPauseMillis=200", \
-  "-XX:MaxMetaspaceSize=256m", \
+  "-XX:MaxMetaspaceSize=512m", \
   "-XX:+UseStringDeduplication", \
   "-XX:+ExitOnOutOfMemoryError", \
   "-Djava.security.egd=file:/dev/./urandom", \
