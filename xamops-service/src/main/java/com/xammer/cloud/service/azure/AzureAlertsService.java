@@ -4,8 +4,14 @@ import com.azure.core.credential.TokenCredential;
 import com.azure.core.credential.TokenRequestContext;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.xammer.cloud.domain.CloudAccount;
+import com.xammer.cloud.dto.AlertDto;
 import com.xammer.cloud.dto.azure.AzureAlertsResponse;
 import com.xammer.cloud.dto.azure.AzureMonitorAlert;
+import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.service.AlertEmailBuilder;
+import com.xammer.cloud.service.AlertNotificationDeduplicator;
+import com.xammer.cloud.service.EmailService;
 import com.xammer.cloud.service.RedisCacheService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,12 +43,24 @@ public class AzureAlertsService {
 
     private final AzureClientProvider clientProvider;
     private final RedisCacheService redisCache;
+    private final EmailService emailService;
+    private final AlertEmailBuilder alertEmailBuilder;
+    private final AlertNotificationDeduplicator deduplicator;
+    private final CloudAccountRepository cloudAccountRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public AzureAlertsService(AzureClientProvider clientProvider,
-                               RedisCacheService redisCache) {
+                               RedisCacheService redisCache,
+                               EmailService emailService,
+                               AlertEmailBuilder alertEmailBuilder,
+                               AlertNotificationDeduplicator deduplicator,
+                               CloudAccountRepository cloudAccountRepository) {
         this.clientProvider = clientProvider;
         this.redisCache = redisCache;
+        this.emailService = emailService;
+        this.alertEmailBuilder = alertEmailBuilder;
+        this.deduplicator = deduplicator;
+        this.cloudAccountRepository = cloudAccountRepository;
     }
 
     /**
@@ -136,6 +154,10 @@ public class AzureAlertsService {
                     ? AzureAlertsResponse.Status.NO_DATA
                     : AzureAlertsResponse.Status.OK;
 
+            if (status == AzureAlertsResponse.Status.OK) {
+                maybeSendDigest(subscriptionId, allAlerts);
+            }
+
             return new AzureAlertsResponse(status, allAlerts);
 
         } catch (Exception e) {
@@ -200,6 +222,63 @@ public class AzureAlertsService {
         }
 
         return result;
+    }
+
+    private void maybeSendDigest(String subscriptionId, List<AzureMonitorAlert> rawAlerts) {
+        try {
+            List<AlertDto> alerts = toAlertDtos(rawAlerts);
+            String fingerprint = AlertNotificationDeduplicator.computeFingerprint(alerts);
+            if (deduplicator.azureDigestAlreadySentForContent(subscriptionId, fingerprint)) {
+                log.info("Azure alert digest unchanged for {}, skipping email", subscriptionId);
+                return;
+            }
+            Optional<CloudAccount> accountOpt = cloudAccountRepository.findByAzureSubscriptionId(subscriptionId);
+            String accountName = accountOpt.map(a -> a.getAccountName() != null ? a.getAccountName() : subscriptionId).orElse(subscriptionId);
+            String recipientEmail = accountOpt.map(a -> a.getClient() != null ? a.getClient().getEmail() : null).orElse(null);
+            if (recipientEmail == null || recipientEmail.isBlank()) {
+                log.info("No recipient email for Azure subscription {}, skipping digest", subscriptionId);
+                return;
+            }
+            String subject = String.format("[XamOps] Azure Alert Digest — %d alert%s for %s",
+                    alerts.size(), alerts.size() == 1 ? "" : "s", accountName);
+            String html = alertEmailBuilder.buildAlertDigestEmail(alerts, accountName, subscriptionId);
+            emailService.sendHtmlEmail(recipientEmail, subject, html);
+            deduplicator.markAzureDigestSent(subscriptionId, fingerprint);
+            log.info("Azure alert digest sent to {} for subscription {}", recipientEmail, subscriptionId);
+        } catch (Exception e) {
+            log.warn("Failed to send Azure alert digest for {}: {}", subscriptionId, e.getMessage());
+        }
+    }
+
+    private List<AlertDto> toAlertDtos(List<AzureMonitorAlert> rawAlerts) {
+        return rawAlerts.stream().map(a -> new AlertDto(
+                a.getAlertId(),
+                a.getResourceType(),
+                a.getAlertName(),
+                a.getDescription(),
+                mapSeverityToStatus(a.getSeverityLabel()),
+                0, 0,
+                mapSignalTypeToAlertType(a.getSignalType()),
+                a.getResourceGroup()
+        )).collect(java.util.stream.Collectors.toList());
+    }
+
+    private String mapSeverityToStatus(String severityLabel) {
+        if (severityLabel == null) return "INFO";
+        return switch (severityLabel) {
+            case "Critical", "Error" -> "CRITICAL";
+            case "Warning"           -> "WARNING";
+            default                  -> "INFO";
+        };
+    }
+
+    private String mapSignalTypeToAlertType(String signalType) {
+        if (signalType == null) return "ALERT";
+        return switch (signalType) {
+            case "Metric", "Log"        -> "ANOMALY";
+            case "Activity Log", "Health" -> "SECURITY";
+            default                     -> "ALERT";
+        };
     }
 
     private String mapSeverityLabel(String severity) {

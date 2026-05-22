@@ -29,6 +29,7 @@ import java.util.stream.Collectors;
  * Redis keys:
  *   notif::aws-digest-fp::{accountId}           → last-sent fingerprint, TTL 1 year
  *   notif::gcp-digest-fp::{projectId}           → last-sent fingerprint, TTL 1 year
+ *   notif::azure-digest-fp::{subscriptionId}    → last-sent fingerprint, TTL 1 year
  *   notif::budget::{accountId}::{name}::{pct}::{yearMonth}  → TTL until month-end
  */
 @Service
@@ -66,6 +67,18 @@ public class AlertNotificationDeduplicator {
     public void markGcpDigestSent(String projectId, String fingerprint) {
         redisCache.put(gcpDigestFpKey(projectId), fingerprint, ONE_YEAR_MINUTES);
         logger.info("[Dedup] Marked GCP digest sent for project {} (fp={}...)", projectId, fingerprint.substring(0, 8));
+    }
+
+    // ── Azure digest ──────────────────────────────────────────────────────────
+
+    public boolean azureDigestAlreadySentForContent(String subscriptionId, String fingerprint) {
+        Optional<String> stored = redisCache.get(azureDigestFpKey(subscriptionId), String.class);
+        return stored.map(fp -> fp.equals(fingerprint)).orElse(false);
+    }
+
+    public void markAzureDigestSent(String subscriptionId, String fingerprint) {
+        redisCache.put(azureDigestFpKey(subscriptionId), fingerprint, ONE_YEAR_MINUTES);
+        logger.info("[Dedup] Marked Azure digest sent for subscription {} (fp={}...)", subscriptionId, fingerprint.substring(0, 8));
     }
 
     // ── Budget alerts ─────────────────────────────────────────────────────────
@@ -119,6 +132,10 @@ public class AlertNotificationDeduplicator {
 
     private String gcpDigestFpKey(String projectId) {
         return "notif::gcp-digest-fp::" + projectId;
+    }
+
+    private String azureDigestFpKey(String subscriptionId) {
+        return "notif::azure-digest-fp::" + subscriptionId;
     }
 
     private String budgetKey(String accountId, String budgetName, int thresholdPct) {

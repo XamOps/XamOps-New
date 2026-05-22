@@ -78,12 +78,12 @@ const Sidebar: React.FC = () => {
       '/rightsizing', '/gcp-rightsizing', '/azure-rightsizing', '/ebs-rightsizing', '/gcp-disk-rightsizing',
       '/cloudsitter', '/gcp-cloudsitter', '/azure-cloudsitter', '/flex-compute', '/autospotting', '/gcp-autospotting', '/azure-autospotting'];
     const cloudopsRoutes = ['/cloudk8s', '/gcp-cloudk8s', '/azure-cloudk8s',
-      '/sonarqube', '/cicd-pipelines', '/devops-in-the-box', '/grafana-dashboard', '/aiops', '/dataops', '/ebs-rightsizing'];
+      '/sonarqube', '/cicd-pipelines', '/devops-in-the-box', '/aiops', '/dataops', '/gcp-dataops', '/azure-dataops', '/ebs-rightsizing'];
     const ticketsRoutes = ['/tickets', '/billops-tickets'];
     const secopsRoutes = ['/security', '/gcp-security', '/azure-security', '/complianceops',
       '/performance', '/gcp-performance', '/azure-performance', '/alerts', '/gcp-alerts', '/azure-alerts'];
     const licensesRoutes = ['/marketplace-purchases', '/workspace-licenses', '/isv-metering'];
-    const observabilityRoutes = ['/observability'];
+    const observabilityRoutes = ['/observability', '/grafana-dashboard'];
     const sreRoutes = ['/sre'];
     // const accessopsRoutes = ['/identity/users', '/identity/groups', '/identity/audit'];
 
@@ -320,9 +320,8 @@ const Sidebar: React.FC = () => {
                 <NavItem href="/sonarqube" icon="fas fa-chart-line" label="Code Quality" isActive={isActive('/sonarqube')} />
                 <NavItem href="/cicd-pipelines" icon="fas fa-cogs" label="CICD Pipelines" isActive={isActive('/cicd-pipelines')} />
                 <NavItem href="/devops-in-the-box" icon="fas fa-toolbox" label="DevOps-in-the-Box" isActive={isActive('/devops-in-the-box')} />
-                <NavItem href="/grafana-dashboard" icon="fas fa-chart-line" label="Grafana" isActive={isActive('/grafana-dashboard')} />
                 <NavItem href="/aiops" icon="fas fa-brain" label="AIOps" isActive={isActive('/aiops')} />
-                <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-dataops' : '/dataops'} icon="fas fa-database" label="DbOps" isActive={isActive('/dataops') || isActive('/gcp-dataops')} />
+                <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-dataops' : selectedAccountDisplay.provider === 'Azure' ? '/azure-dataops' : '/dataops'} icon="fas fa-database" label="DbOps" isActive={isActive('/dataops') || isActive('/gcp-dataops') || isActive('/azure-dataops')} />
               </NavSection>
 
               <NavSection
@@ -352,6 +351,7 @@ const Sidebar: React.FC = () => {
                 <NavItem href="/observability/traces" icon="fas fa-project-diagram" label="Traces" isActive={isActive('/observability/traces')} />
                 <NavItem href="/observability/alerts" icon="fas fa-bell" label="Alerts" isActive={isActive('/observability/alerts')} />
                 <NavItem href="/observability/setup" icon="fas fa-cog" label="Setup" isActive={isActive('/observability/setup')} />
+                <NavItem href="/grafana-dashboard" icon="fas fa-chart-line" label="Grafana" isActive={isActive('/grafana-dashboard')} />
               </NavSection>
 
               <NavSection

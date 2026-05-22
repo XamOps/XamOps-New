@@ -105,6 +105,43 @@ public class BudgetEmailBuilder {
                 footer(date));
     }
 
+    /**
+     * Email sent when a GCP budget is created. Takes raw request params since
+     * GCP budget creation does not return a full BudgetDetails object.
+     */
+    public String buildGcpBudgetCreatedEmail(String budgetName, double limit, String currency, String projectId) {
+        String date = LocalDate.now().format(DateTimeFormatter.ofPattern("MMMM dd, yyyy"));
+        String title = "GCP Budget Created";
+        return buildWrapper(title,
+                headerSection("linear-gradient(135deg,#4285f4 0%,#1a73e8 100%)", "&#127975;", title,
+                        "Your new GCP budget is active and monitoring has started."),
+                simpleDetailSection(budgetName, currency + " " + String.format("%.2f", limit), projectId, "GCP Project"),
+                infoBox(INFO_COLOR, INFO_BG,
+                        "What happens next?",
+                        "XamOps will monitor your GCP spend against this budget and alert you at "
+                        + "<strong>50%</strong>, <strong>80%</strong>, <strong>90%</strong>, and <strong>100%</strong> of the limit."),
+                ctaButton("View Budget in XamOps"),
+                footer(date));
+    }
+
+    /**
+     * Email sent when an Azure budget is created.
+     */
+    public String buildAzureBudgetCreatedEmail(String budgetName, double limit, String currency, String subscriptionId) {
+        String date = LocalDate.now().format(DateTimeFormatter.ofPattern("MMMM dd, yyyy"));
+        String title = "Azure Budget Created";
+        return buildWrapper(title,
+                headerSection("linear-gradient(135deg,#0078d4 0%,#005a9e 100%)", "&#128176;", title,
+                        "Your new Azure budget is active and monitoring has started."),
+                simpleDetailSection(budgetName, currency + " " + String.format("%.2f", limit), subscriptionId, "Subscription"),
+                infoBox(INFO_COLOR, INFO_BG,
+                        "What happens next?",
+                        "XamOps will monitor your Azure spend against this budget and alert you at "
+                        + "<strong>50%</strong>, <strong>80%</strong>, and <strong>100%</strong> of the limit."),
+                ctaButton("View Budget in XamOps"),
+                footer(date));
+    }
+
     // ─────────────────────────────────────────────
     // Private building blocks
     // ─────────────────────────────────────────────
@@ -144,6 +181,17 @@ public class BudgetEmailBuilder {
                 + detailRow("Actual Spend",  "$" + fmt(budget.getActualSpend()))
                 + detailRow("Forecasted",    "$" + fmt(budget.getForecastedSpend()))
                 + detailRow("Period",        "Monthly (resets on the 1st)")
+                + "</table></td></tr>";
+    }
+
+    private String simpleDetailSection(String budgetName, String limit, String accountRef, String accountLabel) {
+        return "<tr><td style='padding:30px 40px 0 40px;'>"
+                + "<h2 style='margin:0 0 16px 0;color:#1f2937;font-size:17px;font-weight:600;'>Budget Details</h2>"
+                + "<table role='presentation' style='width:100%;border-collapse:collapse;'>"
+                + detailRow("Budget Name", esc(budgetName))
+                + detailRow("Limit",       "<strong>" + esc(limit) + "</strong>")
+                + detailRow(esc(accountLabel), esc(accountRef))
+                + detailRow("Period", "Monthly (resets on the 1st)")
                 + "</table></td></tr>";
     }
 

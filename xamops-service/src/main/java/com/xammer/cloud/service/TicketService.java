@@ -140,20 +140,35 @@ public class TicketService {
                     : ADMIN_TECHNICAL_EMAIL;
 
             String subject = String.format("New Ticket [ID: %d]: %s", savedTicket.getId(), savedTicket.getSubject());
-            String text = String.format(
-                    "A new ticket has been created by %s (Client: %s).\n\n" +
-                            "Category: %s\n" +
-                            "Service: %s\n" +
-                            "Severity: %s\n\n" +
-                            "Description:\n%s",
-                    creator.getUsername(),
-                    client.getName(),
-                    ticket.getCategory(),
-                    ticket.getService(),
-                    ticket.getSeverity(),
-                    ticket.getDescription());
+            String html = "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1.0'><title>New Support Ticket</title></head>" +
+                "<body style='margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,Arial,sans-serif;'>" +
+                "<table role='presentation' width='100%' cellpadding='0' cellspacing='0'><tr><td style='padding:32px 16px;'>" +
+                "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' style='max-width:680px;margin:0 auto;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);border:1px solid #e2e8f0;'>" +
+                "<tr><td style='background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);padding:40px;'>" +
+                "  <div style='margin-bottom:16px;'><span style='display:inline-block;background:rgba(255,255,255,0.2);padding:6px 14px;border-radius:20px;color:#fff;font-size:12px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;'>XamOps</span></div>" +
+                "  <div style='font-size:40px;margin-bottom:14px;'>&#127914;</div>" +
+                "  <h1 style='margin:0 0 6px;color:#fff;font-size:24px;font-weight:700;'>New Support Ticket</h1>" +
+                "  <p style='margin:0;color:rgba(255,255,255,0.85);font-size:15px;'>A new ticket has been submitted</p>" +
+                "</td></tr>" +
+                "<tr><td style='padding:32px 40px;'>" +
+                "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' style='margin-bottom:20px;'>" +
+                "<tr><td style='padding:10px 0;border-bottom:1px solid #f1f5f9;color:#64748b;font-size:13px;width:38%;'>Creator</td><td style='padding:10px 0;border-bottom:1px solid #f1f5f9;color:#1e293b;font-size:13px;font-weight:500;'>" + creator.getUsername() + "</td></tr>" +
+                "<tr><td style='padding:10px 0;border-bottom:1px solid #f1f5f9;color:#64748b;font-size:13px;width:38%;'>Client</td><td style='padding:10px 0;border-bottom:1px solid #f1f5f9;color:#1e293b;font-size:13px;font-weight:500;'>" + client.getName() + "</td></tr>" +
+                "<tr><td style='padding:10px 0;border-bottom:1px solid #f1f5f9;color:#64748b;font-size:13px;width:38%;'>Category</td><td style='padding:10px 0;border-bottom:1px solid #f1f5f9;color:#1e293b;font-size:13px;font-weight:500;'>" + ticket.getCategory() + "</td></tr>" +
+                "<tr><td style='padding:10px 0;border-bottom:1px solid #f1f5f9;color:#64748b;font-size:13px;width:38%;'>Service</td><td style='padding:10px 0;border-bottom:1px solid #f1f5f9;color:#1e293b;font-size:13px;font-weight:500;'>" + ticket.getService() + "</td></tr>" +
+                "<tr><td style='padding:10px 0;border-bottom:1px solid #f1f5f9;color:#64748b;font-size:13px;width:38%;'>Severity</td><td style='padding:10px 0;border-bottom:1px solid #f1f5f9;color:#1e293b;font-size:13px;font-weight:500;'>" + ticket.getSeverity() + "</td></tr>" +
+                "</table>" +
+                "<h3 style='margin:0 0 8px;color:#1e293b;font-size:14px;font-weight:700;'>Description</h3>" +
+                "<p style='margin:0;color:#374151;font-size:14px;line-height:1.6;background:#f8fafc;border-radius:8px;padding:14px 16px;'>" + ticket.getDescription() + "</p>" +
+                "</td></tr>" +
+                "<tr><td style='background:#f8fafc;border-top:1px solid #e2e8f0;padding:24px 40px;text-align:center;'>" +
+                "  <span style='display:inline-block;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);padding:7px 18px;border-radius:6px;color:#fff;font-size:13px;font-weight:700;letter-spacing:1px;'>XAMOPS</span>" +
+                "  <p style='margin:12px 0 4px;color:#64748b;font-size:12px;'>Cloud Cost Management &amp; Security Platform</p>" +
+                "  <p style='margin:0;color:#cbd5e1;font-size:11px;'>&copy; 2026 XamOps. All rights reserved.</p>" +
+                "</td></tr>" +
+                "</table></td></tr></table></body></html>";
 
-            emailService.sendHtmlEmail(adminEmail, subject, text);
+            emailService.sendHtmlEmail(adminEmail, subject, html);
         } catch (Exception e) {
             logger.error("Failed to send new ticket notification email for ticket {}", savedTicket.getId(), e);
         }
@@ -312,19 +327,37 @@ public class TicketService {
             String displayMessage = (reply.getMessage() == null || reply.getMessage().isBlank())
                     ? "(Attachment only)"
                     : reply.getMessage();
-            String text = String.format("%s has replied to ticket %d:\n\n---\n%s\n---",
-                    author.getUsername(), ticket.getId(), displayMessage);
-            if (!nonEmpty.isEmpty()) {
-                text += "\n\n[" + nonEmpty.size() + " attachment(s)]";
-            }
+            String html = "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1.0'><title>New Reply on Ticket</title></head>" +
+                "<body style='margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,Arial,sans-serif;'>" +
+                "<table role='presentation' width='100%' cellpadding='0' cellspacing='0'><tr><td style='padding:32px 16px;'>" +
+                "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' style='max-width:680px;margin:0 auto;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);border:1px solid #e2e8f0;'>" +
+                "<tr><td style='background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);padding:40px;'>" +
+                "  <div style='margin-bottom:16px;'><span style='display:inline-block;background:rgba(255,255,255,0.2);padding:6px 14px;border-radius:20px;color:#fff;font-size:12px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;'>XamOps</span></div>" +
+                "  <div style='font-size:40px;margin-bottom:14px;'>&#128172;</div>" +
+                "  <h1 style='margin:0 0 6px;color:#fff;font-size:24px;font-weight:700;'>New Reply on Ticket</h1>" +
+                "  <p style='margin:0;color:rgba(255,255,255,0.85);font-size:15px;'>Ticket #" + ticket.getId() + ": " + ticket.getSubject() + "</p>" +
+                "</td></tr>" +
+                "<tr><td style='padding:32px 40px;'>" +
+                "<p style='margin:0 0 16px;color:#374151;font-size:15px;'><strong>" + author.getUsername() + "</strong> has replied to this ticket.</p>" +
+                "<div style='background:#f8fafc;border-left:4px solid #667eea;border-radius:0 8px 8px 0;padding:14px 18px;margin-bottom:16px;'>" +
+                "  <p style='margin:0;color:#1e293b;font-size:14px;line-height:1.6;'>" + displayMessage + "</p>" +
+                "</div>" +
+                (!nonEmpty.isEmpty() ? "<p style='margin:0;color:#64748b;font-size:13px;'>[" + nonEmpty.size() + " attachment(s)]</p>" : "") +
+                "</td></tr>" +
+                "<tr><td style='background:#f8fafc;border-top:1px solid #e2e8f0;padding:24px 40px;text-align:center;'>" +
+                "  <span style='display:inline-block;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);padding:7px 18px;border-radius:6px;color:#fff;font-size:13px;font-weight:700;letter-spacing:1px;'>XAMOPS</span>" +
+                "  <p style='margin:12px 0 4px;color:#64748b;font-size:12px;'>Cloud Cost Management &amp; Security Platform</p>" +
+                "  <p style='margin:0;color:#cbd5e1;font-size:11px;'>&copy; 2026 XamOps. All rights reserved.</p>" +
+                "</td></tr>" +
+                "</table></td></tr></table></body></html>";
             if (isAdminReply) {
                 if (ticketCreator != null && ticketCreator.getEmail() != null) {
-                    emailService.sendHtmlEmail(ticketCreator.getEmail(), subject, text);
+                    emailService.sendHtmlEmail(ticketCreator.getEmail(), subject, html);
                 }
             } else {
                 String adminEmail = "Account and Billing".equalsIgnoreCase(ticket.getCategory())
                         ? ADMIN_BILLING_EMAIL : ADMIN_TECHNICAL_EMAIL;
-                emailService.sendHtmlEmail(adminEmail, subject, text);
+                emailService.sendHtmlEmail(adminEmail, subject, html);
             }
         } catch (Exception e) {
             logger.error("Failed to send reply notification email for ticket {}", ticket.getId(), e);
@@ -576,9 +609,19 @@ public class TicketService {
 
     private String buildTicketThreadEmailTemplate(Ticket ticket) {
         StringBuilder sb = new StringBuilder();
-        sb.append("<!DOCTYPE html><html><body style='font-family:sans-serif;color:#1e293b;max-width:680px;margin:0 auto;padding:24px'>");
+        sb.append("<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1.0'><title>Ticket Thread Summary</title></head>");
+        sb.append("<body style='margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,Arial,sans-serif;'>");
+        sb.append("<table role='presentation' width='100%' cellpadding='0' cellspacing='0'><tr><td style='padding:32px 16px;'>");
+        sb.append("<table role='presentation' width='100%' cellpadding='0' cellspacing='0' style='max-width:680px;margin:0 auto;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);border:1px solid #e2e8f0;'>");
+        sb.append("<tr><td style='background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);padding:40px;'>");
+        sb.append("  <div style='margin-bottom:16px;'><span style='display:inline-block;background:rgba(255,255,255,0.2);padding:6px 14px;border-radius:20px;color:#fff;font-size:12px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;'>XamOps</span></div>");
+        sb.append("  <div style='font-size:40px;margin-bottom:14px;'>&#128196;</div>");
+        sb.append("  <h1 style='margin:0 0 6px;color:#fff;font-size:24px;font-weight:700;'>Ticket Thread Summary</h1>");
+        sb.append("  <p style='margin:0;color:rgba(255,255,255,0.85);font-size:15px;'>Ticket #").append(ticket.getId()).append(": ").append(ticket.getSubject()).append("</p>");
+        sb.append("</td></tr>");
+        sb.append("<tr><td style='padding:32px 40px;'>");
         sb.append("<div style='background:#f8fafc;border:1px solid #e2e8f0;border-radius:16px;padding:24px;margin-bottom:24px'>");
-        sb.append("<h2 style='margin:0 0 8px'>Ticket #").append(ticket.getId()).append(": ").append(ticket.getSubject()).append("</h2>");
+        sb.append("<h2 style='margin:0 0 8px;color:#1e293b;'>Ticket #").append(ticket.getId()).append(": ").append(ticket.getSubject()).append("</h2>");
         sb.append("<p style='margin:0;font-size:12px;color:#64748b'>Category: ").append(ticket.getCategory())
           .append(" &nbsp;|&nbsp; Severity: ").append(ticket.getSeverity())
           .append(" &nbsp;|&nbsp; Status: ").append(ticket.getStatus()).append("</p>");
@@ -609,7 +652,13 @@ public class TicketService {
                     sb.append("</div>");
                 });
         }
-        sb.append("</body></html>");
+        sb.append("</td></tr>");
+        sb.append("<tr><td style='background:#f8fafc;border-top:1px solid #e2e8f0;padding:24px 40px;text-align:center;'>");
+        sb.append("  <span style='display:inline-block;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);padding:7px 18px;border-radius:6px;color:#fff;font-size:13px;font-weight:700;letter-spacing:1px;'>XAMOPS</span>");
+        sb.append("  <p style='margin:12px 0 4px;color:#64748b;font-size:12px;'>Cloud Cost Management &amp; Security Platform</p>");
+        sb.append("  <p style='margin:0;color:#cbd5e1;font-size:11px;'>&copy; 2026 XamOps. All rights reserved.</p>");
+        sb.append("</td></tr>");
+        sb.append("</table></td></tr></table></body></html>");
         return sb.toString();
     }
 }
