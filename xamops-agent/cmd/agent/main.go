@@ -136,8 +136,9 @@ func startHealthServer(cfg *config.Config) {
 		w.Write([]byte(`{"status":"ready"}`))
 	})
 
-	log.Println("Health server listening on :8080")
-	if err := http.ListenAndServe(":8080", mux); err != nil {
+	addr := ":" + cfg.HealthPort
+	log.Printf("Health server listening on %s", addr)
+	if err := http.ListenAndServe(addr, mux); err != nil {
 		log.Printf("Health server error: %v", err)
 	}
 }

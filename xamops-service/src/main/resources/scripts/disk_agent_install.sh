@@ -106,6 +106,7 @@ CLUSTER_NAME=${CLUSTER_NAME}
 LOG_LEVEL=info
 COLLECT_INTERVAL=300
 HEARTBEAT_INTERVAL=300
+HEALTH_PORT=9091
 
 # Collector flags — disk-only mode
 COLLECTOR_DISK=true
@@ -132,7 +133,7 @@ Wants=network-online.target
 Type=simple
 EnvironmentFile=/etc/xamops/disk-agent.env
 # Wait for EC2 metadata service before starting — IMDS can take 20-30s after instance boot/restart
-ExecStartPre=/bin/sh -c 'i=0; until curl -sf --max-time 3 http://169.254.169.254/latest/meta-data/instance-id >/dev/null 2>&1; do i=$((i+1)); [ $i -ge 20 ] && exit 1; sleep 3; done'
+ExecStartPre=/bin/sh -c 'i=0; until (T=$(curl -sf -X PUT --max-time 3 http://169.254.169.254/latest/api/token -H "X-aws-ec2-metadata-token-ttl-seconds: 60" 2>/dev/null) && curl -sf --max-time 3 -H "X-aws-ec2-metadata-token: $T" http://169.254.169.254/latest/meta-data/instance-id >/dev/null 2>&1) || curl -sf --max-time 3 http://169.254.169.254/latest/meta-data/instance-id >/dev/null 2>&1; do i=$((i+1)); [ $i -ge 20 ] && exit 1; sleep 3; done'
 ExecStart=/usr/local/bin/xamops-agent
 Restart=always
 RestartSec=15
@@ -145,8 +146,25 @@ WantedBy=multi-user.target
 UNIT
 
 sudo systemctl daemon-reload
+
+# ── Systemd preset — prevents cloud-init/preset-all from disabling the service ──
+# Without this, `systemctl preset-all` (run by some OS updates/cloud-init scripts)
+# resets unknown services to their default preset (disabled), overriding our enable.
+sudo mkdir -p /etc/systemd/system-preset
+sudo tee /etc/systemd/system-preset/90-xamops-disk-agent.preset > /dev/null <<'PRESET'
+enable xamops-disk-agent.service
+PRESET
+
 sudo systemctl enable xamops-disk-agent
 sudo systemctl restart xamops-disk-agent
+
+# ── Cron fallback — ensures agent starts on boot even if systemd enable is lost ──
+# Belt-and-suspenders: if the unit ever ends up disabled (e.g. OS re-image,
+# manual preset reset), this cron will start the agent at every system boot.
+CRON_LINE="@reboot root sleep 30 && systemctl is-active --quiet xamops-disk-agent || systemctl start xamops-disk-agent"
+CRON_FILE="/etc/cron.d/xamops-disk-agent"
+echo "$CRON_LINE" | sudo tee "$CRON_FILE" > /dev/null
+sudo chmod 644 "$CRON_FILE"
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 info "Done! Disk agent is running."
