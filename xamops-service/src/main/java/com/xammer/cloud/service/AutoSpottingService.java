@@ -261,7 +261,7 @@ public class AutoSpottingService {
         CloudAccount account = getByAwsAccountId(cloudAccountId);
 
         try {
-            List<AutoSpottingGroupDto> asgs = listAsgsAllRegions(cloudAccountId);
+            List<AutoSpottingGroupDto> asgs = listAsgsAllRegions(cloudAccountId, forceRefresh);
 
             List<ASGCostData> asgCostDataList = new ArrayList<>();
             double totalCurrentHourlyCost = 0.0;
@@ -661,9 +661,7 @@ public class AutoSpottingService {
             long enabledCount = allAsgs.stream().filter(a -> a.isEnabled).count();
             logger.info("=== Total: {} ASG(s) found, {} enabled ===", allAsgs.size(), enabledCount);
 
-            if (!allAsgs.isEmpty()) {
-                redisCacheService.put(CACHE_KEY_ASG_LIST + cloudAccountId, allAsgs, CACHE_TTL_MINUTES);
-            }
+            redisCacheService.put(CACHE_KEY_ASG_LIST + cloudAccountId, allAsgs, CACHE_TTL_MINUTES);
             return allAsgs;
         } catch (Exception e) {
             logger.error("Failed to list ASGs: {}", e.getMessage(), e);
