@@ -64,7 +64,7 @@ public class ObservabilityController {
             return ResponseEntity.ok(toConfigResponse(config));
         } catch (Exception e) {
             logger.error("getConfig failed: {}", e.getMessage());
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            return ResponseEntity.internalServerError().body(Map.of("error", "An unexpected error occurred while processing the observability request.")) ;
         }
     }
 
@@ -84,7 +84,7 @@ public class ObservabilityController {
             return ResponseEntity.ok(toConfigResponse(config));
         } catch (Exception e) {
             logger.error("updateConfig failed: {}", e.getMessage());
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            return ResponseEntity.internalServerError().body(Map.of("error", "An unexpected error occurred while processing the observability request.")) ;
         }
     }
 
@@ -99,7 +99,7 @@ public class ObservabilityController {
                     openObserveService.getOverviewStats(userDetails.getClientId(), providerAccountId));
         } catch (Exception e) {
             logger.error("getOverview failed: {}", e.getMessage());
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            return ResponseEntity.internalServerError().body(Map.of("error", "An unexpected error occurred while processing the observability request.")) ;
         }
     }
 
@@ -115,7 +115,7 @@ public class ObservabilityController {
             return ResponseEntity.ok(streams);
         } catch (Exception e) {
             logger.error("listStreams failed: {}", e.getMessage());
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            return ResponseEntity.internalServerError().body(Map.of("error", "An unexpected error occurred while processing the observability request.")) ;
         }
     }
 
@@ -132,7 +132,7 @@ public class ObservabilityController {
             return ResponseEntity.ok(result);
         } catch (Exception e) {
             logger.error("searchLogs failed: {}", e.getMessage());
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            return ResponseEntity.internalServerError().body(Map.of("error", "An unexpected error occurred while processing the observability request.")) ;
         }
     }
 
@@ -149,7 +149,7 @@ public class ObservabilityController {
             return ResponseEntity.ok(result);
         } catch (Exception e) {
             logger.error("getLogHistogram failed: {}", e.getMessage());
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            return ResponseEntity.internalServerError().body(Map.of("error", "An unexpected error occurred while processing the observability request.")) ;
         }
     }
 
@@ -171,7 +171,7 @@ public class ObservabilityController {
             return ResponseEntity.ok(result);
         } catch (Exception e) {
             logger.error("queryMetrics failed: {}", e.getMessage());
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            return ResponseEntity.internalServerError().body(Map.of("error", "An unexpected error occurred while processing the observability request.")) ;
         }
     }
 
@@ -186,7 +186,7 @@ public class ObservabilityController {
                     openObserveService.getClusters(userDetails.getClientId(), providerAccountId));
         } catch (Exception e) {
             logger.error("getClusters failed: {}", e.getMessage());
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            return ResponseEntity.internalServerError().body(Map.of("error", "An unexpected error occurred while processing the observability request.")) ;
         }
     }
 
@@ -201,7 +201,7 @@ public class ObservabilityController {
                     .header("Content-Type", "text/plain")
                     .body(openObserveService.generateFluentBitConfig(userDetails.getClientId(), providerAccountId));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body("Error: " + e.getMessage());
+            return ResponseEntity.internalServerError().body("Error: An unexpected error occurred while processing the observability request.");
         }
     }
 
@@ -214,7 +214,7 @@ public class ObservabilityController {
                     .header("Content-Type", "text/plain")
                     .body(openObserveService.generateHelmValues(userDetails.getClientId(), providerAccountId));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body("Error: " + e.getMessage());
+            return ResponseEntity.internalServerError().body("Error: An unexpected error occurred while processing the observability request.");
         }
     }
 
@@ -227,7 +227,7 @@ public class ObservabilityController {
                     .header("Content-Type", "text/plain")
                     .body(openObserveService.generateOtelCollectorConfig(userDetails.getClientId(), providerAccountId));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body("Error: " + e.getMessage());
+            return ResponseEntity.internalServerError().body("Error: An unexpected error occurred while processing the observability request.");
         }
     }
 
@@ -244,7 +244,7 @@ public class ObservabilityController {
                     .header("Content-Type", "text/plain")
                     .body(openObserveService.generateHelmEksCommand(userDetails.getClientId(), providerAccountId));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body("Error: " + e.getMessage());
+            return ResponseEntity.internalServerError().body("Error: An unexpected error occurred while processing the observability request.");
         }
     }
 
@@ -261,7 +261,7 @@ public class ObservabilityController {
                     .header("Content-Type", "text/plain")
                     .body(openObserveService.generateEc2OtelConfig(userDetails.getClientId(), providerAccountId));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body("Error: " + e.getMessage());
+            return ResponseEntity.internalServerError().body("Error: An unexpected error occurred while processing the observability request.");
         }
     }
 
@@ -278,7 +278,7 @@ public class ObservabilityController {
                     .header("Content-Type", "text/plain")
                     .body(openObserveService.generateGceOtelConfig(userDetails.getClientId(), providerAccountId));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body("Error: " + e.getMessage());
+            return ResponseEntity.internalServerError().body("Error: An unexpected error occurred while processing the observability request.");
         }
     }
 
@@ -295,7 +295,7 @@ public class ObservabilityController {
                     .header("Content-Type", "text/plain")
                     .body(openObserveService.generateAgentSecret(userDetails.getClientId(), providerAccountId));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body("Error: " + e.getMessage());
+            return ResponseEntity.internalServerError().body("Error: An unexpected error occurred while processing the observability request.");
         }
     }
 
@@ -317,7 +317,7 @@ public class ObservabilityController {
             String content = new String(is.readAllBytes(), StandardCharsets.UTF_8);
             return ResponseEntity.ok().header("Content-Type", "text/plain").body(content);
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body("Error: " + e.getMessage());
+            return ResponseEntity.internalServerError().body("Error: An unexpected error occurred while processing the observability request.");
         }
     }
 
@@ -331,7 +331,7 @@ public class ObservabilityController {
             return ResponseEntity.ok(
                     openObserveService.listAlerts(userDetails.getClientId(), providerAccountId));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            return ResponseEntity.internalServerError().body(Map.of("error", "An unexpected error occurred while processing the observability request.")) ;
         }
     }
 
@@ -344,7 +344,7 @@ public class ObservabilityController {
             return ResponseEntity.ok(
                     openObserveService.createAlert(userDetails.getClientId(), providerAccountId, body));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            return ResponseEntity.internalServerError().body(Map.of("error", "An unexpected error occurred while processing the observability request.")) ;
         }
     }
 
@@ -359,7 +359,7 @@ public class ObservabilityController {
             openObserveService.deleteAlert(userDetails.getClientId(), providerAccountId, streamType, streamName, alertName);
             return ResponseEntity.ok(Map.of("deleted", true));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            return ResponseEntity.internalServerError().body(Map.of("error", "An unexpected error occurred while processing the observability request.")) ;
         }
     }
 
@@ -375,7 +375,7 @@ public class ObservabilityController {
             openObserveService.toggleAlert(userDetails.getClientId(), providerAccountId, streamType, streamName, alertName, enable);
             return ResponseEntity.ok(Map.of("enabled", enable));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            return ResponseEntity.internalServerError().body(Map.of("error", "An unexpected error occurred while processing the observability request.")) ;
         }
     }
 
@@ -389,7 +389,7 @@ public class ObservabilityController {
             return ResponseEntity.ok(
                     openObserveService.listDestinations(userDetails.getClientId(), providerAccountId));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            return ResponseEntity.internalServerError().body(Map.of("error", "An unexpected error occurred while processing the observability request.")) ;
         }
     }
 
@@ -402,7 +402,7 @@ public class ObservabilityController {
             return ResponseEntity.ok(
                     openObserveService.saveDestination(userDetails.getClientId(), providerAccountId, body));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            return ResponseEntity.internalServerError().body(Map.of("error", "An unexpected error occurred while processing the observability request.")) ;
         }
     }
 
@@ -415,7 +415,7 @@ public class ObservabilityController {
             openObserveService.deleteDestination(userDetails.getClientId(), providerAccountId, name);
             return ResponseEntity.ok(Map.of("deleted", true));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            return ResponseEntity.internalServerError().body(Map.of("error", "An unexpected error occurred while processing the observability request.")) ;
         }
     }
 

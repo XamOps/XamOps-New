@@ -62,8 +62,9 @@ public class LlmProxyController {
 
         } catch (RuntimeException e) {
             logger.error("Proxy error: {}", e.getMessage());
+            // Return a generic error message to prevent leaking internal proxy details
             return ResponseEntity.badRequest()
-                    .body("{\"error\":\"" + e.getMessage() + "\"}");
+                    .body("{\"error\":\"An unexpected error occurred while processing the proxy request.\"}");
         }
     }
 }

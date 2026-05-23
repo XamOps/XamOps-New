@@ -71,7 +71,8 @@ public class GlobalExceptionHandler {
 
         Map<String, Object> body = new HashMap<>();
         body.put("timestamp", new Date());
-        body.put("message", "An unexpected error occurred: " + ex.getMessage());
+        // Generic message to prevent information leakage via raw exception messages
+        body.put("message", "An unexpected error occurred. Please contact support.");
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                 .body(body);
