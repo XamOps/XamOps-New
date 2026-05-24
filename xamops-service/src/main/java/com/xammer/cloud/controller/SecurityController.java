@@ -9,9 +9,11 @@ import com.xammer.cloud.service.DashboardDataService;
 import com.xammer.cloud.service.ExcelExportService;
 import com.xammer.cloud.service.ProwlerService;
 import com.xammer.cloud.service.SecurityService;
+import com.xammer.cloud.util.SecurityUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -23,6 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.io.ByteArrayInputStream;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
@@ -60,6 +63,16 @@ public class SecurityController {
 
         logger.info("Fetching security findings for accountId: {}, forceRefresh: {}", accountId, forceRefresh);
 
+        // 🛡️ Sentinel: Validate that the requested account belongs to the authenticated client (IDOR protection)
+        Long clientId = SecurityUtils.getPrincipal().getClientId();
+        Optional<CloudAccount> accountOpt = cloudAccountRepository.findByAwsAccountIdAndClientId(accountId, clientId);
+
+        if (accountOpt.isEmpty()) {
+            logger.warn("Access denied: Account {} not found or does not belong to client {}", accountId, clientId);
+            return CompletableFuture.completedFuture(ResponseEntity.notFound().build());
+        }
+
+        CloudAccount account = accountOpt.get();
         String cacheKey = "security-" + accountId;
 
         if (!forceRefresh) {
@@ -74,15 +87,6 @@ public class SecurityController {
                 return CompletableFuture.completedFuture(ResponseEntity.ok(cachedFindings));
             }
         }
-
-        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
-        if (accounts.isEmpty()) {
-            logger.warn("No account found for accountId: {}", accountId);
-            return CompletableFuture.completedFuture(
-                    ResponseEntity.ok(Collections.emptyList()));
-        }
-
-        CloudAccount account = accounts.get(0);
 
         // Fallback: Fetch fresh data
         logger.info("Fetching fresh security findings for account {}", accountId);
@@ -107,11 +111,15 @@ public class SecurityController {
 
     @GetMapping("/export")
     public CompletableFuture<ResponseEntity<byte[]>> exportFindingsToExcel(@RequestParam String accountId) {
-        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
-        if (accounts.isEmpty()) {
-            throw new RuntimeException("Account not found: " + accountId);
+        // 🛡️ Sentinel: Validate that the requested account belongs to the authenticated client (IDOR protection)
+        Long clientId = SecurityUtils.getPrincipal().getClientId();
+        Optional<CloudAccount> accountOpt = cloudAccountRepository.findByAwsAccountIdAndClientId(accountId, clientId);
+
+        if (accountOpt.isEmpty()) {
+            logger.warn("Access denied (export): Account {} not found or does not belong to client {}", accountId, clientId);
+            return CompletableFuture.completedFuture(ResponseEntity.notFound().build());
         }
-        CloudAccount account = accounts.get(0);
+        CloudAccount account = accountOpt.get();
 
         return cloudListService.getRegionStatusForAccount(account, true)
                 .thenCompose((List<DashboardData.RegionStatus> activeRegions) -> securityService
@@ -138,11 +146,15 @@ public class SecurityController {
     public ResponseEntity<Map<String, Object>> triggerComplianceScan(@RequestParam String accountId) {
         logger.info("Manual compliance scan triggered for accountId: {}", accountId);
 
-        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
-        if (accounts.isEmpty()) {
-            return ResponseEntity.badRequest().body(Map.of(
+        // 🛡️ Sentinel: Validate that the requested account belongs to the authenticated client (IDOR protection)
+        Long clientId = SecurityUtils.getPrincipal().getClientId();
+        Optional<CloudAccount> accountOpt = cloudAccountRepository.findByAwsAccountIdAndClientId(accountId, clientId);
+
+        if (accountOpt.isEmpty()) {
+            logger.warn("Access denied (prowler scan): Account {} not found or does not belong to client {}", accountId, clientId);
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
                     "status", "ERROR",
-                    "message", "Account not found: " + accountId));
+                    "message", "Account not found or access denied."));
         }
 
         // Check if a scan is already running
@@ -180,6 +192,16 @@ public class SecurityController {
     // ✅ Endpoint for Polling Status
     @GetMapping("/prowler/status")
     public ResponseEntity<Map<String, Object>> getProwlerStatus(@RequestParam String accountId) {
+        // 🛡️ Sentinel: Validate that the requested account belongs to the authenticated client (IDOR protection)
+        Long clientId = SecurityUtils.getPrincipal().getClientId();
+        Optional<CloudAccount> accountOpt = cloudAccountRepository.findByAwsAccountIdAndClientId(accountId, clientId);
+
+        if (accountOpt.isEmpty()) {
+            logger.warn("Access denied (prowler status): Account {} not found or does not belong to client {}", accountId, clientId);
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                    "status", "ERROR",
+                    "message", "Account not found or access denied."));
+        }
         return ResponseEntity.ok(prowlerService.getScanStatus(accountId));
     }
 }
