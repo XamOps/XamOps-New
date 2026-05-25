@@ -5,6 +5,7 @@ import com.xammer.cloud.service.EbsDiskRightsizingService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -16,6 +17,7 @@ import java.util.Map;
 public class EbsDiskRightsizingController {
 
     private static final Logger logger = LoggerFactory.getLogger(EbsDiskRightsizingController.class);
+    private static final String GENERIC_ERROR_MESSAGE = "An unexpected error occurred while processing the EBS request.";
     private final EbsDiskRightsizingService ebsService;
 
     // ─── Volumes & Recommendations ───────────────────────────────────────────────
@@ -27,8 +29,7 @@ public class EbsDiskRightsizingController {
         try {
             return ResponseEntity.ok(ebsService.getVolumes(accountId, forceRefresh));
         } catch (Exception e) {
-            logger.error("Failed to list volumes for account {}: {}", accountId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            return handleError("Failed to list volumes for account", accountId, e);
         }
     }
 
@@ -39,8 +40,7 @@ public class EbsDiskRightsizingController {
         try {
             return ResponseEntity.ok(ebsService.getRecommendations(accountId, forceRefresh));
         } catch (Exception e) {
-            logger.error("Failed to get EBS recommendations for account {}: {}", accountId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            return handleError("Failed to get EBS recommendations for account", accountId, e);
         }
     }
 
@@ -61,8 +61,7 @@ public class EbsDiskRightsizingController {
             return ResponseEntity.ok(
                     ebsService.applyAction(accountId, volumeId, region, actionType, targetType, targetSizeGb));
         } catch (Exception e) {
-            logger.error("Failed to apply EBS action for account {}: {}", accountId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            return handleError("Failed to apply EBS action for account", accountId, e);
         }
     }
 
@@ -73,8 +72,7 @@ public class EbsDiskRightsizingController {
         try {
             return ResponseEntity.ok(ebsService.getPolicies(accountId));
         } catch (Exception e) {
-            logger.error("Failed to get policies for account {}: {}", accountId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            return handleError("Failed to get policies for account", accountId, e);
         }
     }
 
@@ -85,8 +83,7 @@ public class EbsDiskRightsizingController {
         try {
             return ResponseEntity.ok(ebsService.createPolicy(accountId, request));
         } catch (Exception e) {
-            logger.error("Failed to create policy for account {}: {}", accountId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            return handleError("Failed to create policy for account", accountId, e);
         }
     }
 
@@ -97,8 +94,7 @@ public class EbsDiskRightsizingController {
         try {
             return ResponseEntity.ok(ebsService.updatePolicy(policyId, request));
         } catch (Exception e) {
-            logger.error("Failed to update policy {}: {}", policyId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            return handleError("Failed to update policy", policyId, e);
         }
     }
 
@@ -108,8 +104,7 @@ public class EbsDiskRightsizingController {
             ebsService.deletePolicy(policyId);
             return ResponseEntity.ok(Map.of("success", true));
         } catch (Exception e) {
-            logger.error("Failed to delete policy {}: {}", policyId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            return handleError("Failed to delete policy", policyId, e);
         }
     }
 
@@ -120,8 +115,7 @@ public class EbsDiskRightsizingController {
         try {
             return ResponseEntity.ok(ebsService.getActionHistory(accountId));
         } catch (Exception e) {
-            logger.error("Failed to get action history for account {}: {}", accountId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            return handleError("Failed to get action history for account", accountId, e);
         }
     }
 
@@ -141,8 +135,7 @@ public class EbsDiskRightsizingController {
             return ResponseEntity.ok(
                     ebsService.initiateDownsize(accountId, volumeId, region, instanceId, mountPoint, targetSizeGb));
         } catch (Exception e) {
-            logger.error("Failed to initiate shrink for account {}: {}", accountId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            return handleError("Failed to initiate shrink for account", accountId, e);
         }
     }
 
@@ -153,8 +146,7 @@ public class EbsDiskRightsizingController {
         try {
             return ResponseEntity.ok(ebsService.getPendingDeletionVolumes(accountId));
         } catch (Exception e) {
-            logger.error("Failed to get pending-deletion volumes for account {}: {}", accountId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            return handleError("Failed to get pending-deletion volumes for account", accountId, e);
         }
     }
 
@@ -167,8 +159,7 @@ public class EbsDiskRightsizingController {
             String region   = (String) request.get("region");
             return ResponseEntity.ok(ebsService.deletePendingVolume(accountId, volumeId, region));
         } catch (Exception e) {
-            logger.error("Failed to delete pending volume for account {}: {}", accountId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            return handleError("Failed to delete pending volume for account", accountId, e);
         }
     }
 
@@ -181,8 +172,7 @@ public class EbsDiskRightsizingController {
             String region   = (String) request.get("region");
             return ResponseEntity.ok(ebsService.keepVolume(accountId, volumeId, region));
         } catch (Exception e) {
-            logger.error("Failed to keep volume for account {}: {}", accountId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            return handleError("Failed to keep volume for account", accountId, e);
         }
     }
 
@@ -197,8 +187,7 @@ public class EbsDiskRightsizingController {
         try {
             return ResponseEntity.ok(ebsService.getVolumeMonitoring(accountId, volumeId, region, hours));
         } catch (Exception e) {
-            logger.error("Failed to get monitoring for volume {} account {}: {}", volumeId, accountId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            return handleError("Failed to get monitoring for volume " + volumeId + " account", accountId, e);
         }
     }
 
@@ -214,8 +203,7 @@ public class EbsDiskRightsizingController {
             java.util.List<String> instanceIds = (java.util.List<String>) request.get("instanceIds");
             return ResponseEntity.ok(ebsService.getDiskUsageViaSSM(accountId, region, instanceIds));
         } catch (Exception e) {
-            logger.error("Failed to fetch disk usage via SSM for account {}: {}", accountId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            return handleError("Failed to fetch disk usage via SSM for account", accountId, e);
         }
     }
 
@@ -231,8 +219,7 @@ public class EbsDiskRightsizingController {
             java.util.List<String> instanceIds = (java.util.List<String>) request.get("instanceIds");
             return ResponseEntity.ok(ebsService.attachSsmPolicyToInstances(accountId, region, instanceIds));
         } catch (Exception e) {
-            logger.error("SSM fix failed for account {}: {}", accountId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            return handleError("SSM fix failed for account", accountId, e);
         }
     }
 
@@ -248,8 +235,17 @@ public class EbsDiskRightsizingController {
 
             return ResponseEntity.ok(ebsService.calculateRoi(provisionedGb, utilizationPct, growthRatePct, diskType));
         } catch (Exception e) {
-            logger.error("ROI calculation failed: {}", e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            return handleError("ROI calculation failed", null, e);
         }
+    }
+
+    private ResponseEntity<?> handleError(String logMessage, Object contextId, Exception e) {
+        logger.error("{}{}: {}", logMessage, contextId != null ? " " + contextId : "", e.getMessage(), e);
+        if (e.getMessage() != null && (e.getMessage().contains("Access denied") || e.getMessage().contains("not found"))) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("success", false, "error", "Resource not found or access denied"));
+        }
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(Map.of("success", false, "error", GENERIC_ERROR_MESSAGE));
     }
 }
