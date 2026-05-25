@@ -516,6 +516,21 @@ public class TicketService {
         ticketRepository.save(ticket);
 
         evictTicketCaches(ticket.getCategory());
+
+        try {
+            User assignee = userRepository.findById(adminId).orElse(null);
+            if (assignee == null || assignee.getEmail() == null || assignee.getEmail().isBlank()) {
+                logger.warn("Cannot send assignment email: no email for adminId={}", adminId);
+            } else {
+                String subject = String.format("You've been assigned Ticket #%d: %s",
+                        ticket.getId(), ticket.getSubject());
+                emailService.sendHtmlEmail(assignee.getEmail(), subject,
+                        buildAssignmentEmailHtml(ticket));
+            }
+        } catch (Exception e) {
+            logger.warn("Failed to send assignment notification email for ticket {}: {}",
+                    ticketId, e.getMessage());
+        }
     }
 
     public List<User> getAdminUsers() {
@@ -823,6 +838,61 @@ public class TicketService {
         } else {
             logger.info("Evicted ticket cache: {}", allTicketsKey);
         }
+    }
+
+    private String buildAssignmentEmailHtml(Ticket ticket) {
+        String severityColor = getSeverityColor(ticket.getSeverity());
+        String clientName = (ticket.getClient() != null) ? escapeHtml(ticket.getClient().getName()) : "N/A";
+
+        return "<!DOCTYPE html>" +
+                "<html lang=\"en\">" +
+                "<head>" +
+                "    <meta charset=\"UTF-8\">" +
+                "    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">" +
+                "    <title>Ticket Assigned</title>" +
+                "</head>" +
+                "<body style=\"margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif; background: linear-gradient(135deg, #f5f7fa 0%, #e9ecef 100%);\">" +
+                "    <div style=\"max-width: 600px; margin: 40px auto; background: white; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);\">" +
+                "        <!-- Header -->" +
+                "        <div style=\"background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 32px 24px; text-align: center;\">" +
+                "            <h1 style=\"margin: 0; color: white; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;\">Ticket Assigned to You</h1>" +
+                "            <p style=\"margin: 8px 0 0 0; color: rgba(255, 255, 255, 0.9); font-size: 14px;\">Ticket ID: #" + ticket.getId() + "</p>" +
+                "        </div>" +
+                "        <!-- Content -->" +
+                "        <div style=\"padding: 32px 24px;\">" +
+                "            <!-- Ticket Subject Card -->" +
+                "            <div style=\"background: #f9fafb; border-radius: 12px; padding: 20px; margin-bottom: 24px; border-left: 4px solid #667eea;\">" +
+                "                <h2 style=\"margin: 0; color: #1a202c; font-size: 18px; font-weight: 700;\">" + escapeHtml(ticket.getSubject()) + "</h2>" +
+                "            </div>" +
+                "            <!-- Details Grid -->" +
+                "            <div style=\"background: white; border: 1px solid #e5e7eb; border-radius: 12px; overflow: hidden;\">" +
+                "                <!-- Client -->" +
+                "                <div style=\"display: table; width: 100%; border-bottom: 1px solid #e5e7eb;\">" +
+                "                    <div style=\"display: table-cell; padding: 16px; background: #f9fafb; width: 35%; font-weight: 600; color: #374151; font-size: 13px;\"><span style=\"margin-right: 8px;\">🏢</span> Client</div>" +
+                "                    <div style=\"display: table-cell; padding: 16px; color: #1a202c; font-size: 14px;\">" + clientName + "</div>" +
+                "                </div>" +
+                "                <!-- Category -->" +
+                "                <div style=\"display: table; width: 100%; border-bottom: 1px solid #e5e7eb;\">" +
+                "                    <div style=\"display: table-cell; padding: 16px; background: #f9fafb; width: 35%; font-weight: 600; color: #374151; font-size: 13px;\"><span style=\"margin-right: 8px;\">📁</span> Category</div>" +
+                "                    <div style=\"display: table-cell; padding: 16px; color: #1a202c; font-size: 14px;\">" + escapeHtml(ticket.getCategory()) + "</div>" +
+                "                </div>" +
+                "                <!-- Severity -->" +
+                "                <div style=\"display: table; width: 100%;\">" +
+                "                    <div style=\"display: table-cell; padding: 16px; background: #f9fafb; width: 35%; font-weight: 600; color: #374151; font-size: 13px;\"><span style=\"margin-right: 8px;\">⚡</span> Severity</div>" +
+                "                    <div style=\"display: table-cell; padding: 16px;\"><span style=\"color: " + severityColor + "; font-weight: 700; font-size: 14px;\">" + escapeHtml(ticket.getSeverity()) + "</span></div>" +
+                "                </div>" +
+                "            </div>" +
+                "        </div>" +
+                "        <!-- Footer -->" +
+                "        <div style=\"background: #f9fafb; padding: 20px 24px; border-top: 1px solid #e5e7eb; text-align: center;\">" +
+                "            <p style=\"margin: 0; color: #6b7280; font-size: 12px; line-height: 1.6;\">" +
+                "                This notification was sent by <strong style=\"color: #667eea;\">XamOps Support System</strong><br>" +
+                "                Please review and respond to this ticket promptly." +
+                "            </p>" +
+                "        </div>" +
+                "    </div>" +
+                "</body>" +
+                "</html>";
     }
 
     /**
