@@ -528,8 +528,7 @@ public class TicketService {
                         buildAssignmentEmailHtml(ticket));
             }
         } catch (Exception e) {
-            logger.warn("Failed to send assignment notification email for ticket {}: {}",
-                    ticketId, e.getMessage());
+            logger.warn("Failed to send assignment notification email for ticket {}", ticketId, e);
         }
     }
 
@@ -842,7 +841,9 @@ public class TicketService {
 
     private String buildAssignmentEmailHtml(Ticket ticket) {
         String severityColor = getSeverityColor(ticket.getSeverity());
-        String clientName = (ticket.getClient() != null) ? escapeHtml(ticket.getClient().getName()) : "N/A";
+        String clientName  = (ticket.getClient()   != null) ? escapeHtml(ticket.getClient().getName()) : "N/A";
+        String categoryStr = (ticket.getCategory() != null) ? escapeHtml(ticket.getCategory())         : "N/A";
+        String severityStr = (ticket.getSeverity() != null) ? escapeHtml(ticket.getSeverity())         : "N/A";
 
         return "<!DOCTYPE html>" +
                 "<html lang=\"en\">" +
@@ -874,12 +875,12 @@ public class TicketService {
                 "                <!-- Category -->" +
                 "                <div style=\"display: table; width: 100%; border-bottom: 1px solid #e5e7eb;\">" +
                 "                    <div style=\"display: table-cell; padding: 16px; background: #f9fafb; width: 35%; font-weight: 600; color: #374151; font-size: 13px;\"><span style=\"margin-right: 8px;\">📁</span> Category</div>" +
-                "                    <div style=\"display: table-cell; padding: 16px; color: #1a202c; font-size: 14px;\">" + escapeHtml(ticket.getCategory()) + "</div>" +
+                "                    <div style=\"display: table-cell; padding: 16px; color: #1a202c; font-size: 14px;\">" + categoryStr + "</div>" +
                 "                </div>" +
                 "                <!-- Severity -->" +
                 "                <div style=\"display: table; width: 100%;\">" +
                 "                    <div style=\"display: table-cell; padding: 16px; background: #f9fafb; width: 35%; font-weight: 600; color: #374151; font-size: 13px;\"><span style=\"margin-right: 8px;\">⚡</span> Severity</div>" +
-                "                    <div style=\"display: table-cell; padding: 16px;\"><span style=\"color: " + severityColor + "; font-weight: 700; font-size: 14px;\">" + escapeHtml(ticket.getSeverity()) + "</span></div>" +
+                "                    <div style=\"display: table-cell; padding: 16px;\"><span style=\"color: " + severityColor + "; font-weight: 700; font-size: 14px;\">" + severityStr + "</span></div>" +
                 "                </div>" +
                 "            </div>" +
                 "        </div>" +
