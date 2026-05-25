@@ -7,6 +7,7 @@ import com.xammer.cloud.domain.EbsVolumeAction;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.DiskPolicyRepository;
 import com.xammer.cloud.repository.EbsVolumeActionRepository;
+import com.xammer.cloud.util.SecurityUtils;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -276,6 +277,13 @@ public class EbsDiskRightsizingService {
         DiskPolicy existing = diskPolicyRepository.findById(policyId)
                 .orElseThrow(() -> new RuntimeException("Policy not found: " + policyId));
 
+        // SECURITY: Multi-tenant isolation check
+        Long clientId = SecurityUtils.getPrincipal().getClientId();
+        if (existing.getAccount() == null || !existing.getAccount().getClient().getId().equals(clientId)) {
+            logger.warn("Security Alert: IDOR attempt to update policy {} by clientId {}", policyId, clientId);
+            throw new RuntimeException("Access denied: Policy not found or does not belong to your client");
+        }
+
         if (req.isDefault() && !existing.isDefault()) {
             diskPolicyRepository.findByAccountIdAndIsDefaultTrue(existing.getAccount().getId())
                     .ifPresent(p -> { p.setDefault(false); diskPolicyRepository.save(p); });
@@ -293,7 +301,17 @@ public class EbsDiskRightsizingService {
     }
 
     public void deletePolicy(Long policyId) {
-        diskPolicyRepository.deleteById(policyId);
+        DiskPolicy existing = diskPolicyRepository.findById(policyId)
+                .orElseThrow(() -> new RuntimeException("Policy not found: " + policyId));
+
+        // SECURITY: Multi-tenant isolation check
+        Long clientId = SecurityUtils.getPrincipal().getClientId();
+        if (existing.getAccount() == null || !existing.getAccount().getClient().getId().equals(clientId)) {
+            logger.warn("Security Alert: IDOR attempt to delete policy {} by clientId {}", policyId, clientId);
+            throw new RuntimeException("Access denied: Policy not found or does not belong to your client");
+        }
+
+        diskPolicyRepository.delete(existing);
     }
 
     // ─── Action History ───────────────────────────────────────────────────────────
@@ -817,9 +835,21 @@ public class EbsDiskRightsizingService {
                 .sum();
     }
 
+    /**
+     * Resolves a CloudAccount by its provider-specific ID (AWS Account ID)
+     * and validates that it belongs to the authenticated user's client.
+     */
     private CloudAccount resolveAccount(String providerAccountId) {
-        return cloudAccountRepository.findByProviderAccountId(providerAccountId)
+        Long clientId = SecurityUtils.getPrincipal().getClientId();
+        CloudAccount account = cloudAccountRepository.findByProviderAccountId(providerAccountId)
                 .orElseThrow(() -> new RuntimeException("Account not found: " + providerAccountId));
+
+        // SECURITY: Multi-tenant isolation check
+        if (account.getClient() == null || !account.getClient().getId().equals(clientId)) {
+            logger.warn("Security Alert: IDOR attempt by clientId {} on account {}", clientId, providerAccountId);
+            throw new RuntimeException("Access denied: Account not found or does not belong to your client");
+        }
+        return account;
     }
 
     private List<String> getEnabledRegions(CloudAccount account) {
