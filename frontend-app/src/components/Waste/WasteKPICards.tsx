@@ -24,6 +24,7 @@ const getServiceIcon = (serviceType: string): string => {
     'VPC': 'vpc.png',
     'Security Group': 'security-group.png',
     'Route 53 Zone': 'aws-route53.png',
+    'Route53 Hosted Zone': 'aws-route53.png',
     'ElastiCache Cluster': 'elasticache-cluster.png',
     'DynamoDB Table': 'dynamodb-table.png',
     'ECR Repository': 'ecr-repository.png',
@@ -40,6 +41,14 @@ const getServiceIcon = (serviceType: string): string => {
     'ECS Cluster': 'aws-ecs.png',
     'DB Snapshot': 'rds-instance.png',
     'Log Group': 'cloudwatch-log-group.png',
+    'EFS File System': 'disk-storage.png',
+    'NAT Gateway': 'nat-gateway.png',
+    'CloudFront Distribution': 'cloudfront.png',
+    'Glue Job': 'glue.png',
+    'Step Functions State Machine': 'step-functions.png',
+    'API Gateway REST API': 'api-gateway.png',
+    'CodeBuild Project': 'codebuild.png',
+    'Kinesis Stream': 'kinesis.png',
   };
   return iconMap[serviceType] || 'default-icon.png';
 };
