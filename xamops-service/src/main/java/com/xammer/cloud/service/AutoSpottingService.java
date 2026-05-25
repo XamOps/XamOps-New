@@ -2182,42 +2182,77 @@ public class AutoSpottingService {
 
             if (!asgResponse.autoScalingGroups().isEmpty()) {
                 var asg = asgResponse.autoScalingGroups().get(0);
-                List<String> instanceIds = asg.instances().stream()
+
+                // Collect instance types directly from ASG membership (no extra API call).
+                // This is the reliable baseline; describeInstances below enriches Spot/OD counts.
+                List<software.amazon.awssdk.services.autoscaling.model.Instance> asgInstances =
+                        asg.instances().stream()
+                                .filter(i -> {
+                                    String ls = i.lifecycleStateAsString();
+                                    return ls != null && !ls.equalsIgnoreCase("Terminating")
+                                            && !ls.equalsIgnoreCase("Terminated");
+                                })
+                                .collect(Collectors.toList());
+
+                for (var ai : asgInstances) {
+                    String t = ai.instanceType();
+                    if (t != null && !t.isEmpty() && !instanceTypes.contains(t)) {
+                        instanceTypes.add(t);
+                    }
+                }
+
+                List<String> instanceIds = asgInstances.stream()
                         .map(i -> i.instanceId())
                         .collect(Collectors.toList());
 
                 if (!instanceIds.isEmpty()) {
-                    Ec2Client ec2Client = awsClientProvider.getEc2Client(account, asgDto.region);
+                    try {
+                        Ec2Client ec2Client = awsClientProvider.getEc2Client(account, asgDto.region);
 
-                    for (List<String> chunk : partition(instanceIds, 100)) {
-                        var describeResp = ec2Client.describeInstances(req -> req.instanceIds(chunk));
+                        for (List<String> chunk : partition(instanceIds, 100)) {
+                            var describeResp = ec2Client.describeInstances(req -> req.instanceIds(chunk));
 
-                        for (Reservation reservation : describeResp.reservations()) {
-                            for (Instance instance : reservation.instances()) {
-                                if ("terminated".equalsIgnoreCase(instance.state().nameAsString())
-                                        || "shutting-down".equalsIgnoreCase(instance.state().nameAsString())) {
-                                    continue;
+                            for (Reservation reservation : describeResp.reservations()) {
+                                for (Instance instance : reservation.instances()) {
+                                    if ("terminated".equalsIgnoreCase(instance.state().nameAsString())
+                                            || "shutting-down".equalsIgnoreCase(instance.state().nameAsString())) {
+                                        continue;
+                                    }
+
+                                    String instanceType = instance.instanceTypeAsString();
+                                    String lifecycle = instance.instanceLifecycleAsString();
+                                    boolean isSpot = "spot".equalsIgnoreCase(lifecycle);
+
+                                    if (instanceType != null && !instanceType.isEmpty()
+                                            && !instanceTypes.contains(instanceType)) {
+                                        instanceTypes.add(instanceType);
+                                    }
+
+                                    double odPrice = spotPricingService.getHourlyOnDemandPrice(instanceType, asgDto.region);
+                                    onDemandHourlyCost += odPrice;
+
+                                    if (isSpot) {
+                                        spotCount++;
+                                        double spotPrice = spotPricingService.getHourlySpotPrice(instanceType, asgDto.region, account);
+                                        currentHourlyCost += spotPrice;
+                                    } else {
+                                        onDemandCount++;
+                                        currentHourlyCost += odPrice;
+                                    }
                                 }
-
-                                String instanceType = instance.instanceTypeAsString();
-                                String lifecycle = instance.instanceLifecycleAsString();
-                                boolean isSpot = "spot".equalsIgnoreCase(lifecycle);
-
-                                if (!instanceTypes.contains(instanceType)) {
-                                    instanceTypes.add(instanceType);
-                                }
-
-                                double odPrice = spotPricingService.getHourlyOnDemandPrice(instanceType, asgDto.region);
+                            }
+                        }
+                    } catch (Exception ec2Ex) {
+                        logger.warn("describeInstances failed for ASG {} in {} — spot/OD counts unavailable: {}",
+                                asgDto.name, asgDto.region, ec2Ex.getMessage());
+                        // Instance types already populated from ASG data above; treat all as on-demand for cost estimate.
+                        for (var ai : asgInstances) {
+                            String t = ai.instanceType();
+                            if (t != null && !t.isEmpty()) {
+                                onDemandCount++;
+                                double odPrice = spotPricingService.getHourlyOnDemandPrice(t, asgDto.region);
+                                currentHourlyCost += odPrice;
                                 onDemandHourlyCost += odPrice;
-
-                                if (isSpot) {
-                                    spotCount++;
-                                    double spotPrice = spotPricingService.getHourlySpotPrice(instanceType, asgDto.region, account);
-                                    currentHourlyCost += spotPrice;
-                                } else {
-                                    onDemandCount++;
-                                    currentHourlyCost += odPrice;
-                                }
                             }
                         }
                     }
