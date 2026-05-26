@@ -451,9 +451,31 @@ public class TicketService {
                         emailService.sendHtmlEmail(ticketCreator.getEmail(), subject, htmlBody);
                     }
                 } else {
-                    String adminEmail = "Account and Billing".equalsIgnoreCase(ticket.getCategory()) ? ADMIN_BILLING_EMAIL
-                            : ADMIN_TECHNICAL_EMAIL;
-                    emailService.sendHtmlEmail(adminEmail, subject, htmlBody);
+                    if (ticket.getAssignedToId() != null) {
+                        userRepository.findById(ticket.getAssignedToId()).ifPresentOrElse(
+                            assignee -> {
+                                if (assignee.getEmail() != null && !assignee.getEmail().isBlank()) {
+                                    emailService.sendHtmlEmail(assignee.getEmail(), subject, htmlBody);
+                                } else {
+                                    List<String> adminEmails = getAdminEmailList();
+                                    if (!adminEmails.isEmpty()) {
+                                        emailService.sendHtmlEmailToMultiple(adminEmails.toArray(new String[0]), subject, htmlBody);
+                                    }
+                                }
+                            },
+                            () -> {
+                                List<String> adminEmails = getAdminEmailList();
+                                if (!adminEmails.isEmpty()) {
+                                    emailService.sendHtmlEmailToMultiple(adminEmails.toArray(new String[0]), subject, htmlBody);
+                                }
+                            }
+                        );
+                    } else {
+                        List<String> adminEmails = getAdminEmailList();
+                        if (!adminEmails.isEmpty()) {
+                            emailService.sendHtmlEmailToMultiple(adminEmails.toArray(new String[0]), subject, htmlBody);
+                        }
+                    }
                 }
             } catch (Exception e) {
                 logger.error("Failed to send reply notification email for ticket {}", ticket.getId(), e);
