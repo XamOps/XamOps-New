@@ -1,6 +1,7 @@
 package com.xammer.cloud.domain;
 
 import javax.persistence.*; // Use javax.persistence for Spring Boot 2.x
+import java.time.Instant;
 
 @Entity
 @Table(name = "github_integration_config") // Optional: Define table name explicitly
@@ -23,6 +24,9 @@ public class GitHubIntegrationConfig {
     @Lob // Use Lob for potentially long strings like encrypted tokens
     @Column(nullable = false, columnDefinition = "TEXT")
     private String encryptedPat; // Store the encrypted Personal Access Token
+
+    @Column
+    private Instant lastSyncedAt;
 
     // --- Constructors ---
     public GitHubIntegrationConfig() {}
@@ -73,6 +77,14 @@ public class GitHubIntegrationConfig {
 
     public void setEncryptedPat(String encryptedPat) {
         this.encryptedPat = encryptedPat;
+    }
+
+    public Instant getLastSyncedAt() {
+        return lastSyncedAt;
+    }
+
+    public void setLastSyncedAt(Instant lastSyncedAt) {
+        this.lastSyncedAt = lastSyncedAt;
     }
 
     // Optional: toString, equals, hashCode methods
