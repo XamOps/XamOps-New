@@ -46,9 +46,6 @@ public class TicketService {
         logger.info("✅ TicketService initialized");
     }
 
-    private static final String ADMIN_TECHNICAL_EMAIL = "sahil@xammer.in";
-    private static final String ADMIN_BILLING_EMAIL = "nirbhay@xammer.in";
-
     // Cache Keys
     private static final String TICKETS_ALL_CACHE_KEY = "tickets:all";
     private static final String TICKETS_CATEGORY_PREFIX = "tickets:category:";
@@ -536,6 +533,13 @@ public class TicketService {
         return userRepository.findAll().stream()
                 .filter(u -> u.getRole() != null &&
                         (u.getRole().contains("ROLE_BILLOPS_ADMIN") || u.getRole().equals("ROLE_BILLOPS_ADMIN_SUB")))
+                .collect(Collectors.toList());
+    }
+
+    private List<String> getAdminEmailList() {
+        return getAdminUsers().stream()
+                .map(User::getEmail)
+                .filter(e -> e != null && !e.isBlank())
                 .collect(Collectors.toList());
     }
 
