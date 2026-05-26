@@ -137,7 +137,11 @@ public class OpenObserveService {
             config.setO2OrgId(orgId);          // actual O2-assigned identifier
             config.setO2IngestionKey(ingestionKey);
             config.setO2ApiKey(apiKey);
-            return configRepo.save(config);
+            ObservabilityConfig saved = configRepo.save(config);
+
+            // Apply org-level retention so agent-created streams don't inherit O2's 7-day default
+            applyOrgDefaultRetention(orgId, saved.getRetentionDays());
+            return saved;
         } catch (Exception e) {
             logger.error("Failed to provision O2 org for client {}: {}", client.getId(), e.getMessage());
             throw new RuntimeException("Failed to provision observability: " + e.getMessage(), e);
@@ -277,7 +281,12 @@ public class OpenObserveService {
         config.setAccountName(account.getAccountName());
         config.setO2OrgId(orgId);
         config.setO2IngestionKey(ingestionKey);
-        return accountConfigRepo.save(config);
+        AccountObservabilityConfig saved = accountConfigRepo.save(config);
+
+        // Inherit retention from the client-level config so streams don't use O2's 7-day default
+        configRepo.findByClientId(client.getId()).ifPresent(clientCfg ->
+                applyOrgDefaultRetention(orgId, clientCfg.getRetentionDays()));
+        return saved;
     }
 
     /**
@@ -1298,8 +1307,9 @@ public class OpenObserveService {
         config.setRetentionDays(retentionDays);
         configRepo.save(config);
 
-        // Apply retention to all streams in OpenObserve immediately
+        // Apply retention to all existing streams and set the org-level default for new streams
         String orgId = config.getO2OrgId();
+        applyOrgDefaultRetention(orgId, retentionDays);
         applyRetentionByType(orgId, "logs",    retentionDays);
         applyRetentionByType(orgId, "metrics", retentionDays);
         applyRetentionByType(orgId, "traces",  retentionDays);
@@ -1337,6 +1347,26 @@ public class OpenObserveService {
             }
         } catch (Exception e) {
             logger.warn("applyRetentionByType failed for org={} type={}: {}", orgId, streamType, e.getMessage());
+        }
+    }
+
+    /**
+     * Sets the org-level default data retention in OpenObserve.
+     * All streams created after this call (e.g. by the OTel collector) will inherit this value
+     * instead of OpenObserve's built-in 7-day default.
+     */
+    private void applyOrgDefaultRetention(String orgId, int retentionDays) {
+        HttpHeaders headers = buildAdminHeaders();
+        try {
+            Map<String, Object> body = Map.of("data_retention", retentionDays);
+            restTemplate.exchange(
+                    o2Url + "/api/" + orgId + "/settings",
+                    HttpMethod.PUT,
+                    new HttpEntity<>(body, headers),
+                    new org.springframework.core.ParameterizedTypeReference<Map<String, Object>>() {});
+            logger.info("Set org-level default retention={}d for org={}", retentionDays, orgId);
+        } catch (Exception e) {
+            logger.warn("applyOrgDefaultRetention failed for org={}: {}", orgId, e.getMessage());
         }
     }
 

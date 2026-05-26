@@ -20,6 +20,7 @@ const TIME_RANGES = [
   { label: 'Last 6 hours', ms: 6 * 60 * 60 * 1000 },
   { label: 'Last 24 hours', ms: 24 * 60 * 60 * 1000 },
   { label: 'Last 7 days', ms: 7 * 24 * 60 * 60 * 1000 },
+  { label: 'Last 30 days', ms: 30 * 24 * 60 * 60 * 1000 },
 ];
 
 const LEVEL_COLORS: Record<string, string> = {
