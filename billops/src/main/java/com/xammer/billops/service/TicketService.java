@@ -110,15 +110,12 @@ public class TicketService {
 
         // 4. Send Email
         try {
-            String adminEmail = "Account and Billing".equalsIgnoreCase(savedTicket.getCategory()) ? ADMIN_BILLING_EMAIL
-                    : ADMIN_TECHNICAL_EMAIL;
-
             String subject = String.format("New Ticket [ID: %d]: %s", savedTicket.getId(), savedTicket.getSubject());
-
-            // Create HTML email template matching UI design
             String htmlBody = buildTicketEmailTemplate(savedTicket, creator, client);
-
-            emailService.sendHtmlEmail(adminEmail, subject, htmlBody);
+            List<String> adminEmails = getAdminEmailList();
+            if (!adminEmails.isEmpty()) {
+                emailService.sendHtmlEmailToMultiple(adminEmails.toArray(new String[0]), subject, htmlBody);
+            }
         } catch (Exception e) {
             logger.error("Failed to send new ticket notification email for ticket {}", savedTicket.getId(), e);
         }
