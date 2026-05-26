@@ -120,7 +120,28 @@ public class OpenObserveService {
     @Transactional
     public ObservabilityConfig provisionTenant(Client client) {
         Optional<ObservabilityConfig> existing = configRepo.findByClientId(client.getId());
-        if (existing.isPresent()) return existing.get();
+        if (existing.isPresent()) {
+            ObservabilityConfig cfg = existing.get();
+            // Return immediately if already fully provisioned
+            if (cfg.getO2OrgId() != null) return cfg;
+            // Previous provisioning attempt saved the record but failed to create the O2 org —
+            // re-attempt org creation and update the existing row in-place.
+            logger.info("Re-provisioning O2 org for client {} (previous attempt left null orgId)", client.getId());
+            try {
+                String orgId = createO2OrgAndGetIdentifier(client.getName(), client.getId());
+                String ingestionKey = createServiceAccount(orgId, "ingest-" + client.getId());
+                String apiKey       = createServiceAccount(orgId, "api-" + client.getId());
+                cfg.setO2OrgId(orgId);
+                cfg.setO2IngestionKey(ingestionKey);
+                cfg.setO2ApiKey(apiKey);
+                ObservabilityConfig saved = configRepo.save(cfg);
+                applyOrgDefaultRetention(orgId, saved.getRetentionDays());
+                return saved;
+            } catch (Exception e) {
+                logger.error("Re-provisioning failed for client {}: {}", client.getId(), e.getMessage());
+                throw new RuntimeException("Failed to re-provision observability: " + e.getMessage(), e);
+            }
+        }
 
         logger.info("Provisioning O2 org for client {}", client.getId());
 
@@ -252,10 +273,10 @@ public class OpenObserveService {
      */
     @Transactional
     public AccountObservabilityConfig provisionForAccount(Client client, String providerAccountId) {
-        // Return existing config if already provisioned
+        // Return existing config if already fully provisioned
         Optional<AccountObservabilityConfig> existing =
                 accountConfigRepo.findByClientIdAndProviderAccountId(client.getId(), providerAccountId);
-        if (existing.isPresent()) return existing.get();
+        if (existing.isPresent() && existing.get().getO2OrgId() != null) return existing.get();
 
         // Look up the CloudAccount entity
         CloudAccount account = cloudAccountRepo.findByProviderAccountId(providerAccountId)
