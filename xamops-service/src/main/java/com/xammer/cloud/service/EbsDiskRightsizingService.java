@@ -7,6 +7,7 @@ import com.xammer.cloud.domain.EbsVolumeAction;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.DiskPolicyRepository;
 import com.xammer.cloud.repository.EbsVolumeActionRepository;
+import com.xammer.cloud.util.SecurityUtils;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -274,7 +275,15 @@ public class EbsDiskRightsizingService {
 
     public DiskPolicy updatePolicy(Long policyId, DiskPolicy req) {
         DiskPolicy existing = diskPolicyRepository.findById(policyId)
-                .orElseThrow(() -> new RuntimeException("Policy not found: " + policyId));
+                .orElseThrow(() -> new RuntimeException("Policy not found or access denied"));
+
+        // Sentinel Security: Validate policy ownership
+        Long currentUserClientId = SecurityUtils.getPrincipal().getClientId();
+        if (!existing.getAccount().getClient().getId().equals(currentUserClientId)) {
+            logger.warn("Access denied: User client {} attempted to update policy {} belonging to client {}",
+                    currentUserClientId, policyId, existing.getAccount().getClient().getId());
+            throw new RuntimeException("Policy not found or access denied");
+        }
 
         if (req.isDefault() && !existing.isDefault()) {
             diskPolicyRepository.findByAccountIdAndIsDefaultTrue(existing.getAccount().getId())
@@ -293,6 +302,17 @@ public class EbsDiskRightsizingService {
     }
 
     public void deletePolicy(Long policyId) {
+        DiskPolicy existing = diskPolicyRepository.findById(policyId)
+                .orElseThrow(() -> new RuntimeException("Policy not found or access denied"));
+
+        // Sentinel Security: Validate policy ownership
+        Long currentUserClientId = SecurityUtils.getPrincipal().getClientId();
+        if (!existing.getAccount().getClient().getId().equals(currentUserClientId)) {
+            logger.warn("Access denied: User client {} attempted to delete policy {} belonging to client {}",
+                    currentUserClientId, policyId, existing.getAccount().getClient().getId());
+            throw new RuntimeException("Policy not found or access denied");
+        }
+
         diskPolicyRepository.deleteById(policyId);
     }
 
@@ -817,9 +837,22 @@ public class EbsDiskRightsizingService {
                 .sum();
     }
 
+    /**
+     * Resolves the CloudAccount and validates ownership for the authenticated user.
+     * Sentinel Security: Added ownership check to prevent IDOR vulnerabilities.
+     */
     private CloudAccount resolveAccount(String providerAccountId) {
-        return cloudAccountRepository.findByProviderAccountId(providerAccountId)
-                .orElseThrow(() -> new RuntimeException("Account not found: " + providerAccountId));
+        CloudAccount account = cloudAccountRepository.findByProviderAccountId(providerAccountId)
+                .orElseThrow(() -> new RuntimeException("Account not found or access denied"));
+
+        Long currentUserClientId = SecurityUtils.getPrincipal().getClientId();
+        if (!account.getClient().getId().equals(currentUserClientId)) {
+            // Security: Prevent resource enumeration by returning a generic error message
+            logger.warn("Access denied: User client {} attempted to access account {} belonging to client {}",
+                    currentUserClientId, providerAccountId, account.getClient().getId());
+            throw new RuntimeException("Account not found or access denied");
+        }
+        return account;
     }
 
     private List<String> getEnabledRegions(CloudAccount account) {
