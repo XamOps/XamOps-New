@@ -447,7 +447,7 @@ public class TicketService {
                 String htmlBody = buildReplyNotificationEmailTemplate(ticket, author, reply);
 
                 if (isAdminReply) {
-                    if (ticketCreator != null && ticketCreator.getEmail() != null) {
+                    if (ticketCreator != null && ticketCreator.getEmail() != null && !ticketCreator.getEmail().isBlank()) {
                         emailService.sendHtmlEmail(ticketCreator.getEmail(), subject, htmlBody);
                     }
                 } else {
