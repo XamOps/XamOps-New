@@ -47,6 +47,9 @@ interface UseCICDPipelinesReturn {
 
   // Utility functions
   refreshData: () => Promise<void>;
+
+  autoOpenLog: boolean;
+  viewError: (item: GitHubRun | JenkinsJob) => Promise<void>;
 }
 
 export const useCICDPipelines = (): UseCICDPipelinesReturn => {
@@ -72,6 +75,7 @@ export const useCICDPipelines = (): UseCICDPipelinesReturn => {
   const [selectedRunUrl, setSelectedRunUrl] = useState('');
   const [pipelineStages, setPipelineStages] = useState<PipelineStage[]>([]);
   const [isStagesLoading, setIsStagesLoading] = useState(false);
+  const [autoOpenLog, setAutoOpenLog] = useState(false);
 
   /**
    * Fetch GitHub Actions runs
@@ -246,11 +250,20 @@ export const useCICDPipelines = (): UseCICDPipelinesReturn => {
    * Close workflow modal
    */
   const closeWorkflow = useCallback(() => {
+    setAutoOpenLog(false);
     setSelectedWorkflow(null);
     setWorkflowHistory([]);
     setSelectedRun(null);
     setPipelineStages([]);
   }, []);
+
+  /**
+   * View error — opens workflow history with log auto-expanded
+   */
+  const viewError = useCallback(async (item: GitHubRun | JenkinsJob) => {
+    setAutoOpenLog(true);
+    await viewWorkflowHistory(item);
+  }, [viewWorkflowHistory]);
 
   // Fetch data on mount
   useEffect(() => {
@@ -290,5 +303,8 @@ export const useCICDPipelines = (): UseCICDPipelinesReturn => {
 
     // Utilities
     refreshData,
+
+    autoOpenLog,
+    viewError,
   };
 };
