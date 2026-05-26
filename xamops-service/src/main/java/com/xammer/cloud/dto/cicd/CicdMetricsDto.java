@@ -130,6 +130,8 @@ public class CicdMetricsDto {
         private String name;
         private int failureCount;
 
+        public FailingStageDto() {}
+
         public FailingStageDto(String name, int failureCount) {
             this.name = name;
             this.failureCount = failureCount;
@@ -157,6 +159,8 @@ public class CicdMetricsDto {
         private String name;
         private int failureCount;
         private double successRate;
+
+        public FailingWorkflowDto() {}
 
         public FailingWorkflowDto(String name, int failureCount, double successRate) {
             this.name = name;
