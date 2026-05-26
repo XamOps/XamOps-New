@@ -162,11 +162,12 @@ public class TicketService {
         Ticket savedTicket = ticketRepository.save(ticket);
 
         try {
-            String adminEmail = "Account and Billing".equalsIgnoreCase(savedTicket.getCategory())
-                    ? ADMIN_BILLING_EMAIL : ADMIN_TECHNICAL_EMAIL;
             String subject = String.format("[Admin] New Ticket [ID: %d]: %s", savedTicket.getId(), savedTicket.getSubject());
             String htmlBody = buildTicketEmailTemplate(savedTicket, creator, client);
-            emailService.sendHtmlEmail(adminEmail, subject, htmlBody);
+            List<String> adminEmails = getAdminEmailList();
+            if (!adminEmails.isEmpty()) {
+                emailService.sendHtmlEmailToMultiple(adminEmails.toArray(new String[0]), subject, htmlBody);
+            }
         } catch (Exception e) {
             logger.error("Failed to send email for admin-created ticket {}", savedTicket.getId(), e);
         }
