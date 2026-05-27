@@ -171,7 +171,8 @@ public class OpenObserveService {
 
     @SuppressWarnings("unchecked")
     private String createO2OrgAndGetIdentifier(String clientName, Long clientId) {
-        String name = clientName != null ? clientName : "tenant-" + clientId;
+        String rawName = clientName != null ? clientName : "tenant_" + clientId;
+        String name = rawName.replaceAll("[^a-zA-Z0-9 ]", "_").replaceAll("_+", "_").trim();
         HttpHeaders headers = buildAdminHeaders();
 
         // Step 1: Check if an org with this name already exists (avoid creating duplicates)
