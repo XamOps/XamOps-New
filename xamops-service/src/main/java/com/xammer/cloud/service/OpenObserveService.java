@@ -31,7 +31,7 @@ public class OpenObserveService {
     @Value("${openobserve.url:http://localhost:5080}")
     private String o2Url;
 
-    /** Public-facing URL for external agents (EC2, Helm outside cluster). Falls back to o2Url. */
+    /** Public-facing URL for browser links and external access. Falls back to o2Url. */
     @Value("${openobserve.external.url:}")
     private String o2ExternalUrl;
 
@@ -750,17 +750,18 @@ public class OpenObserveService {
         String orgId = creds[0];
         String authBase64 = Base64.getEncoder()
                 .encodeToString((adminEmail + ":" + adminPassword).getBytes(StandardCharsets.UTF_8));
+        // Use external URL — customer EC2s may be in a different VPC than OpenObserve
         String o2Endpoint = getExternalO2Url() + "/api/" + orgId;
 
         return "# ════════════════════════════════════════════════════════════════════════════\n" +
                 "# XamOps Observability — EC2 / Linux VM Setup  (production-grade)\n" +
-                "# Collects: structured logs (syslog / auth / nginx / app) +\n" +
+                "# Collects: structured logs (journald + nginx + app + docker) +\n" +
                 "#           full host metrics (CPU / mem / disk / net / process / paging) +\n" +
                 "#           application traces via OTLP receiver\n" +
                 "# ════════════════════════════════════════════════════════════════════════════\n\n" +
                 "# ── Step 1: Install OTel Collector Contrib ───────────────────────────────────\n" +
                 "if command -v rpm &>/dev/null; then\n" +
-                "  # Amazon Linux / RHEL / CentOS\n" +
+                "  # Amazon Linux 2023 / RHEL / CentOS\n" +
                 "  curl -sLO https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v0.103.0/otelcol-contrib_0.103.0_linux_amd64.rpm\n" +
                 "  sudo rpm -ivh otelcol-contrib_0.103.0_linux_amd64.rpm\n" +
                 "else\n" +
@@ -768,50 +769,25 @@ public class OpenObserveService {
                 "  curl -sLO https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v0.103.0/otelcol-contrib_0.103.0_linux_amd64.deb\n" +
                 "  sudo dpkg -i otelcol-contrib_0.103.0_linux_amd64.deb\n" +
                 "fi\n\n" +
-                "# ── Step 2: Write production-grade config ────────────────────────────────────\n" +
+                "# ── Step 2: Add otelcol-contrib to systemd-journal group (for journald access) ─\n" +
+                "sudo usermod -aG systemd-journal otelcol-contrib 2>/dev/null || true\n\n" +
+                "# ── Step 3: Write production-grade config ────────────────────────────────────\n" +
                 "sudo mkdir -p /etc/otelcol-contrib\n" +
                 "sudo tee /etc/otelcol-contrib/config.yaml > /dev/null << 'EOF'\n" +
                 "receivers:\n" +
-                "  # ── Log Receivers ───────────────────────────────────────────────────────────\n" +
-                "  # System logs (/var/log/messages on RHEL/AL2, /var/log/syslog on Ubuntu)\n" +
-                "  filelog/system:\n" +
-                "    include:\n" +
-                "      - /var/log/messages\n" +
-                "      - /var/log/syslog\n" +
-                "    start_at: end\n" +
-                "    multiline:\n" +
-                "      line_start_pattern: '^\\w{3}\\s+\\d{1,2}\\s+\\d{2}:\\d{2}:\\d{2}'\n" +
+                "  # ── Journald receiver — works on AL2023 / RHEL9 / Ubuntu (systemd) ──────────\n" +
+                "  # Replaces filelog/system and filelog/auth which need /var/log/messages (AL2 only)\n" +
+                "  journald:\n" +
+                "    directory: /run/log/journal\n" +
                 "    operators:\n" +
-                "      - type: regex_parser\n" +
-                "        regex: '^(?P<timestamp>\\w{3}\\s+\\d{1,2}\\s+\\d{2}:\\d{2}:\\d{2})\\s+(?P<host>\\S+)\\s+(?P<process>[^\\[]+)(?:\\[(?P<pid>\\d+)\\])?\\s*:\\s*(?P<message>.*)$'\n" +
-                "        timestamp:\n" +
-                "          parse_from: attributes.timestamp\n" +
-                "          layout_type: gotime\n" +
-                "          layout: 'Jan _2 15:04:05'\n" +
-                "        on_error: send\n" +
                 "      - type: severity_parser\n" +
-                "        parse_from: attributes.message\n" +
-                "        on_error: send\n\n" +
-                "  # SSH / sudo / PAM authentication events\n" +
-                "  filelog/auth:\n" +
-                "    include:\n" +
-                "      - /var/log/auth.log\n" +
-                "      - /var/log/secure\n" +
-                "    start_at: end\n" +
-                "    operators:\n" +
-                "      - type: regex_parser\n" +
-                "        regex: '^(?P<timestamp>\\w{3}\\s+\\d{1,2}\\s+\\d{2}:\\d{2}:\\d{2})\\s+(?P<host>\\S+)\\s+(?P<process>[^\\[]+)(?:\\[(?P<pid>\\d+)\\])?\\s*:\\s*(?P<message>.*)$'\n" +
-                "        timestamp:\n" +
-                "          parse_from: attributes.timestamp\n" +
-                "          layout_type: gotime\n" +
-                "          layout: 'Jan _2 15:04:05'\n" +
-                "        on_error: send\n" +
-                "      - type: add\n" +
-                "        field: attributes.log.file.type\n" +
-                "        value: auth\n" +
-                "      - type: severity_parser\n" +
-                "        parse_from: attributes.message\n" +
-                "        on_error: send\n\n" +
+                "        parse_from: body.PRIORITY\n" +
+                "        mapping:\n" +
+                "          fatal: \"0\"\n" +
+                "          error: [\"1\", \"2\", \"3\"]\n" +
+                "          warn: \"4\"\n" +
+                "          info: [\"5\", \"6\"]\n" +
+                "          debug: \"7\"\n\n" +
                 "  # Nginx access + error logs with structured field extraction\n" +
                 "  filelog/nginx:\n" +
                 "    include:\n" +
@@ -971,7 +947,7 @@ public class OpenObserveService {
                 "  extensions: [health_check]\n" +
                 "  pipelines:\n" +
                 "    logs:\n" +
-                "      receivers: [filelog/system, filelog/auth, filelog/nginx, filelog/app, filelog/docker]\n" +
+                "      receivers: [journald, filelog/nginx, filelog/app, filelog/docker]\n" +
                 "      processors: [memory_limiter, resourcedetection, resource, filter/healthcheck, batch]\n" +
                 "      exporters: [otlphttp]\n" +
                 "    metrics:\n" +
@@ -983,17 +959,11 @@ public class OpenObserveService {
                 "      processors: [memory_limiter, resourcedetection, resource, batch]\n" +
                 "      exporters: [otlphttp]\n" +
                 "EOF\n\n" +
-                "# ── Step 3: Grant log file read access ──────────────────────────────────────\n" +
-                "# Install acl package if setfacl is missing (Ubuntu/Debian)\n" +
+                "# ── Step 4: Grant log file read access ──────────────────────────────────────\n" +
+                "# Nginx log access (if nginx is installed)\n" +
                 "if ! command -v setfacl &>/dev/null; then\n" +
                 "  sudo apt-get install -y acl 2>/dev/null || sudo yum install -y acl 2>/dev/null || true\n" +
-                "fi\n\n" +
-                "# Ubuntu/Debian: adm group already has read access to syslog + auth.log\n" +
-                "sudo usermod -aG adm otelcol-contrib 2>/dev/null || true\n\n" +
-                "# RHEL/AL2: use ACL for /var/log/messages and /var/log/secure\n" +
-                "sudo setfacl -m    u:otelcol-contrib:r  /var/log/messages /var/log/secure 2>/dev/null || true\n" +
-                "sudo setfacl -d -m u:otelcol-contrib:r  /var/log/ 2>/dev/null || true\n\n" +
-                "# Nginx log access (if nginx is installed)\n" +
+                "fi\n" +
                 "if [ -d /var/log/nginx ]; then\n" +
                 "  sudo setfacl -Rm   u:otelcol-contrib:r  /var/log/nginx/ 2>/dev/null || true\n" +
                 "  sudo setfacl -d -m u:otelcol-contrib:r  /var/log/nginx/ 2>/dev/null || true\n" +
@@ -1004,7 +974,7 @@ public class OpenObserveService {
                 "  sudo setfacl -Rm  u:otelcol-contrib:rX /var/lib/docker/containers/ 2>/dev/null || true\n" +
                 "  echo 'Docker detected — container log access granted'\n" +
                 "fi\n\n" +
-                "# ── Step 4: Configure auto-restart on failure ───────────────────────────────\n" +
+                "# ── Step 5: Configure auto-restart on failure ───────────────────────────────\n" +
                 "# Creates a systemd drop-in so the collector restarts automatically if it crashes\n" +
                 "sudo mkdir -p /etc/systemd/system/otelcol-contrib.service.d\n" +
                 "sudo tee /etc/systemd/system/otelcol-contrib.service.d/restart.conf > /dev/null << 'EOF'\n" +
@@ -1013,7 +983,7 @@ public class OpenObserveService {
                 "RestartSec=10\n" +
                 "EOF\n" +
                 "sudo systemctl daemon-reload\n\n" +
-                "# ── Step 5: Enable on boot and start ─────────────────────────────────────────\n" +
+                "# ── Step 6: Enable on boot and start ─────────────────────────────────────────\n" +
                 "sudo systemctl enable otelcol-contrib\n" +
                 "sudo systemctl restart otelcol-contrib\n" +
                 "sudo systemctl status otelcol-contrib\n\n" +
@@ -1035,11 +1005,12 @@ public class OpenObserveService {
         String orgId = creds[0];
         String authBase64 = Base64.getEncoder()
                 .encodeToString((adminEmail + ":" + adminPassword).getBytes(StandardCharsets.UTF_8));
+        // Use external URL — customer GCE VMs may be in a different VPC/project than OpenObserve
         String o2Endpoint = getExternalO2Url() + "/api/" + orgId;
 
         return "# ════════════════════════════════════════════════════════════════════════════\n" +
                 "# XamOps Observability — GCE / Linux VM Setup  (production-grade)\n" +
-                "# Collects: structured logs (syslog / auth / nginx / app) +\n" +
+                "# Collects: structured logs (journald + nginx + app + docker) +\n" +
                 "#           full host metrics (CPU / mem / disk / net / process / paging) +\n" +
                 "#           application traces via OTLP receiver\n" +
                 "# ════════════════════════════════════════════════════════════════════════════\n\n" +
@@ -1053,48 +1024,24 @@ public class OpenObserveService {
                 "  curl -sLO https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v0.103.0/otelcol-contrib_0.103.0_linux_amd64.deb\n" +
                 "  sudo dpkg -i otelcol-contrib_0.103.0_linux_amd64.deb\n" +
                 "fi\n\n" +
-                "# ── Step 2: Write production-grade config ────────────────────────────────────\n" +
+                "# ── Step 2: Add otelcol-contrib to systemd-journal group (for journald access) ─\n" +
+                "sudo usermod -aG systemd-journal otelcol-contrib 2>/dev/null || true\n\n" +
+                "# ── Step 3: Write production-grade config ────────────────────────────────────\n" +
                 "sudo mkdir -p /etc/otelcol-contrib\n" +
                 "sudo tee /etc/otelcol-contrib/config.yaml > /dev/null << 'EOF'\n" +
                 "receivers:\n" +
-                "  # ── Log Receivers ───────────────────────────────────────────────────────────\n" +
-                "  filelog/system:\n" +
-                "    include:\n" +
-                "      - /var/log/messages\n" +
-                "      - /var/log/syslog\n" +
-                "    start_at: end\n" +
-                "    multiline:\n" +
-                "      line_start_pattern: '^\\w{3}\\s+\\d{1,2}\\s+\\d{2}:\\d{2}:\\d{2}'\n" +
+                "  # ── Journald receiver — works on AL2023 / RHEL9 / Ubuntu (systemd) ──────────\n" +
+                "  journald:\n" +
+                "    directory: /run/log/journal\n" +
                 "    operators:\n" +
-                "      - type: regex_parser\n" +
-                "        regex: '^(?P<timestamp>\\w{3}\\s+\\d{1,2}\\s+\\d{2}:\\d{2}:\\d{2})\\s+(?P<host>\\S+)\\s+(?P<process>[^\\[]+)(?:\\[(?P<pid>\\d+)\\])?\\s*:\\s*(?P<message>.*)$'\n" +
-                "        timestamp:\n" +
-                "          parse_from: attributes.timestamp\n" +
-                "          layout_type: gotime\n" +
-                "          layout: 'Jan _2 15:04:05'\n" +
-                "        on_error: send\n" +
                 "      - type: severity_parser\n" +
-                "        parse_from: attributes.message\n" +
-                "        on_error: send\n\n" +
-                "  filelog/auth:\n" +
-                "    include:\n" +
-                "      - /var/log/auth.log\n" +
-                "      - /var/log/secure\n" +
-                "    start_at: end\n" +
-                "    operators:\n" +
-                "      - type: regex_parser\n" +
-                "        regex: '^(?P<timestamp>\\w{3}\\s+\\d{1,2}\\s+\\d{2}:\\d{2}:\\d{2})\\s+(?P<host>\\S+)\\s+(?P<process>[^\\[]+)(?:\\[(?P<pid>\\d+)\\])?\\s*:\\s*(?P<message>.*)$'\n" +
-                "        timestamp:\n" +
-                "          parse_from: attributes.timestamp\n" +
-                "          layout_type: gotime\n" +
-                "          layout: 'Jan _2 15:04:05'\n" +
-                "        on_error: send\n" +
-                "      - type: add\n" +
-                "        field: attributes.log.file.type\n" +
-                "        value: auth\n" +
-                "      - type: severity_parser\n" +
-                "        parse_from: attributes.message\n" +
-                "        on_error: send\n\n" +
+                "        parse_from: body.PRIORITY\n" +
+                "        mapping:\n" +
+                "          fatal: \"0\"\n" +
+                "          error: [\"1\", \"2\", \"3\"]\n" +
+                "          warn: \"4\"\n" +
+                "          info: [\"5\", \"6\"]\n" +
+                "          debug: \"7\"\n\n" +
                 "  filelog/nginx:\n" +
                 "    include:\n" +
                 "      - /var/log/nginx/access.log\n" +
@@ -1244,7 +1191,7 @@ public class OpenObserveService {
                 "  extensions: [health_check]\n" +
                 "  pipelines:\n" +
                 "    logs:\n" +
-                "      receivers: [filelog/system, filelog/auth, filelog/nginx, filelog/app, filelog/docker]\n" +
+                "      receivers: [journald, filelog/nginx, filelog/app, filelog/docker]\n" +
                 "      processors: [memory_limiter, resourcedetection, resource, filter/healthcheck, batch]\n" +
                 "      exporters: [otlphttp]\n" +
                 "    metrics:\n" +
@@ -1256,13 +1203,10 @@ public class OpenObserveService {
                 "      processors: [memory_limiter, resourcedetection, resource, batch]\n" +
                 "      exporters: [otlphttp]\n" +
                 "EOF\n\n" +
-                "# ── Step 3: Grant log file read access ──────────────────────────────────────\n" +
+                "# ── Step 4: Grant log file read access ──────────────────────────────────────\n" +
                 "if ! command -v setfacl &>/dev/null; then\n" +
                 "  sudo apt-get install -y acl 2>/dev/null || sudo yum install -y acl 2>/dev/null || true\n" +
                 "fi\n" +
-                "sudo usermod -aG adm otelcol-contrib 2>/dev/null || true\n" +
-                "sudo setfacl -m    u:otelcol-contrib:r  /var/log/messages /var/log/secure 2>/dev/null || true\n" +
-                "sudo setfacl -d -m u:otelcol-contrib:r  /var/log/ 2>/dev/null || true\n" +
                 "if [ -d /var/log/nginx ]; then\n" +
                 "  sudo setfacl -Rm   u:otelcol-contrib:r  /var/log/nginx/ 2>/dev/null || true\n" +
                 "  sudo setfacl -d -m u:otelcol-contrib:r  /var/log/nginx/ 2>/dev/null || true\n" +
@@ -1271,7 +1215,7 @@ public class OpenObserveService {
                 "  sudo setfacl -Rdm u:otelcol-contrib:rX /var/lib/docker/containers/ 2>/dev/null || true\n" +
                 "  sudo setfacl -Rm  u:otelcol-contrib:rX /var/lib/docker/containers/ 2>/dev/null || true\n" +
                 "fi\n\n" +
-                "# ── Step 4: Configure auto-restart on failure ───────────────────────────────\n" +
+                "# ── Step 5: Configure auto-restart on failure ───────────────────────────────\n" +
                 "sudo mkdir -p /etc/systemd/system/otelcol-contrib.service.d\n" +
                 "sudo tee /etc/systemd/system/otelcol-contrib.service.d/restart.conf > /dev/null << 'EOF'\n" +
                 "[Service]\n" +
@@ -1279,7 +1223,7 @@ public class OpenObserveService {
                 "RestartSec=10\n" +
                 "EOF\n" +
                 "sudo systemctl daemon-reload\n\n" +
-                "# ── Step 5: Enable on boot and start ─────────────────────────────────────────\n" +
+                "# ── Step 6: Enable on boot and start ─────────────────────────────────────────\n" +
                 "sudo systemctl enable otelcol-contrib\n" +
                 "sudo systemctl restart otelcol-contrib\n" +
                 "sudo systemctl status otelcol-contrib\n\n" +
