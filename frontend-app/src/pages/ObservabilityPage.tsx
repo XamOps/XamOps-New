@@ -1302,6 +1302,7 @@ const ObservabilityPage: React.FC = () => {
 
   useEffect(() => {
     setTitle('Observability');
+    setInstances([]);
     fetchConfig().then(() => {
       fetchOverview();
       fetchStreams();
