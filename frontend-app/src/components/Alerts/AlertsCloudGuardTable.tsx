@@ -91,11 +91,17 @@ const AlertsCloudGuardTable: React.FC<AlertsCloudGuardTableProps> = ({
               <td>
                 <div className="alerts-alert-info">
                   <p className="alerts-alert-name">{alert.name}</p>
-                  <p className="alerts-alert-description">
-                    {alert.type === 'QUOTA'
-                      ? `${alert.region} - Limit: ${alert.limit.toLocaleString()}`
-                      : alert.description}
-                  </p>
+                  {alert.type === 'QUOTA' ? (
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                        <i className="fas fa-map-marker-alt"></i>
+                        {alert.region || 'Unknown Region'}
+                      </span>
+                      <span className="alerts-alert-description">Limit: {alert.limit.toLocaleString()}</span>
+                    </div>
+                  ) : (
+                    <p className="alerts-alert-description">{alert.description}</p>
+                  )}
                 </div>
               </td>
               <td>
