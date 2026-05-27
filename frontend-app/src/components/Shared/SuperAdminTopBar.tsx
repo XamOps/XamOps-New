@@ -7,9 +7,12 @@
 
 import React from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import { useTheme } from '../../contexts/ThemeContext';
+import { TooltipWrapper } from '../ui/Tooltip';
 import clsx from 'clsx';
 
 const SuperAdminTopBar: React.FC = () => {
+    const { theme } = useTheme();
     const {
         tenantList,
         tenantUsers,
@@ -48,21 +51,22 @@ const SuperAdminTopBar: React.FC = () => {
     };
 
     return (
-        <div className="flex items-center gap-4 py-1.5 px-4 bg-indigo-50/80 backdrop-blur-md border border-indigo-100 rounded-full shadow-sm hover:shadow-md transition-all duration-300">
-            <div className="flex items-center text-xs font-bold text-indigo-900 mr-1">
+        <div className="flex items-center gap-4 py-1.5 px-4 backdrop-blur-md border rounded-full shadow-sm hover:shadow-md transition-all duration-300 bg-indigo-50/80 border-indigo-100 shadow-indigo-500/10 dark:bg-slate-900/80 dark:border-slate-700 dark:shadow-slate-950/50">
+            <div className="flex items-center text-xs font-bold mr-1 text-indigo-900 dark:text-indigo-400">
                 <i className="fas fa-crown text-amber-500 mr-1.5" />
                 <span className="uppercase tracking-wider">Super Admin</span>
             </div>
 
-            <div className="h-4 w-[1px] bg-indigo-200 mx-1"></div>
+            <div className="h-4 w-[1px] mx-1 bg-indigo-200 dark:bg-slate-700"></div>
 
             {/* Tenant Selector */}
             <div className="flex items-center space-x-2">
-                <label className="text-[10px] text-indigo-400 font-bold uppercase tracking-tight">Tenant</label>
+                <label htmlFor="tenant-select" className="text-[10px] text-indigo-400 font-bold uppercase tracking-tight">Tenant</label>
                 <select
+                    id="tenant-select"
                     value={selectedTenant}
                     onChange={handleTenantChange}
-                    className="bg-white border border-indigo-100 text-indigo-900 text-xs rounded-lg px-2.5 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-200 transition-all cursor-pointer hover:border-indigo-300 shadow-sm"
+                    className="border text-xs rounded-lg px-2.5 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all cursor-pointer shadow-sm bg-white border-indigo-100 text-indigo-900 hover:border-indigo-300 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-100 dark:hover:border-slate-600"
                 >
                     <option value="" className="text-gray-900 font-bold">-- Select Tenant --</option>
                     {tenantList.map(tenant => (
@@ -75,12 +79,13 @@ const SuperAdminTopBar: React.FC = () => {
 
             {/* User Selector */}
             <div className={clsx("flex items-center space-x-2", !selectedTenant && "opacity-40 grayscale pointer-events-none")}>
-                <label className="text-[10px] text-indigo-400 font-bold uppercase tracking-tight">Impersonate</label>
+                <label htmlFor="user-select" className="text-[10px] text-indigo-400 font-bold uppercase tracking-tight">Impersonate</label>
                 <select
+                    id="user-select"
                     value={impersonateUser}
                     onChange={handleUserChange}
                     disabled={!selectedTenant}
-                    className="bg-white border border-indigo-100 text-indigo-900 text-xs rounded-lg px-2.5 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-200 transition-all cursor-pointer hover:border-indigo-300 shadow-sm"
+                    className="border text-xs rounded-lg px-2.5 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all cursor-pointer shadow-sm bg-white border-indigo-100 text-indigo-900 hover:border-indigo-300 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-100 dark:hover:border-slate-600"
                 >
                     <option value="" className="text-gray-900 font-bold">-- Select User --</option>
                     {tenantUsers.map(user => (
@@ -93,12 +98,13 @@ const SuperAdminTopBar: React.FC = () => {
 
             {/* Account Selector */}
             <div className={clsx("flex items-center space-x-2", (!impersonateUser || tenantAccounts.length === 0) && "opacity-40 grayscale pointer-events-none")}>
-                <label className="text-[10px] text-indigo-400 font-bold uppercase tracking-tight">Account</label>
+                <label htmlFor="account-select" className="text-[10px] text-indigo-400 font-bold uppercase tracking-tight">Account</label>
                 <select
+                    id="account-select"
                     value={selectedAccountId}
                     onChange={handleAccountChange}
                     disabled={!impersonateUser || tenantAccounts.length === 0}
-                    className="bg-white border border-indigo-100 text-indigo-900 text-xs rounded-lg px-2.5 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-200 transition-all cursor-pointer hover:border-indigo-300 shadow-sm"
+                    className="border text-xs rounded-lg px-2.5 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all cursor-pointer shadow-sm bg-white border-indigo-100 text-indigo-900 hover:border-indigo-300 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-100 dark:hover:border-slate-600"
                 >
                     <option value="" className="text-gray-900 font-bold">-- Select Account --</option>
                     {tenantAccounts.map(account => (
@@ -110,20 +116,24 @@ const SuperAdminTopBar: React.FC = () => {
             </div>
 
             {/* Reset Button */}
-            <button
-                onClick={resetContext}
-                className="ml-1 p-1.5 bg-rose-100 hover:bg-rose-500 text-rose-600 hover:text-white rounded-xl transition-all duration-200 flex items-center justify-center group shadow-sm border border-rose-200/50"
-                title="Reset Context"
-            >
-                <i className="fas fa-undo-alt text-xs group-hover:rotate-[-45deg] transition-transform" />
-            </button>
+            <TooltipWrapper tip="Reset Context">
+                <button
+                    onClick={resetContext}
+                    aria-label="Reset context"
+                    className="ml-1 p-1.5 bg-rose-100 hover:bg-rose-500 text-rose-600 hover:text-white rounded-xl transition-all duration-200 flex items-center justify-center group shadow-sm border border-rose-200/50 focus-visible:ring-2 focus-visible:ring-rose-500 outline-none"
+                >
+                    <i className="fas fa-undo-alt text-xs group-hover:rotate-[-45deg] transition-transform" />
+                </button>
+            </TooltipWrapper>
 
             {/* Environment Badge */}
             <div className={clsx(
-                "px-2 py-0.5 rounded-lg text-[10px] font-bold uppercase tracking-wider",
-                environment === 'prod' ? "bg-rose-100 text-rose-700 border border-rose-200" :
-                    environment === 'uat' ? "bg-amber-100 text-amber-700 border border-amber-200" :
-                        "bg-emerald-100 text-emerald-700 border border-emerald-200"
+                "px-2 py-0.5 rounded-lg text-[10px] font-bold uppercase tracking-wider border transition-colors",
+                environment === 'prod'
+                    ? "bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-900/40 dark:text-rose-400 dark:border-rose-800"
+                    : environment === 'uat'
+                        ? "bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/40 dark:text-amber-400 dark:border-amber-800"
+                        : "bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-400 dark:border-emerald-800"
             )}>
                 {environment}
             </div>
