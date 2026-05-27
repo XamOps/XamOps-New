@@ -46,9 +46,6 @@ public class TicketService {
         logger.info("✅ TicketService initialized");
     }
 
-    private static final String ADMIN_TECHNICAL_EMAIL = "sahil@xammer.in";
-    private static final String ADMIN_BILLING_EMAIL = "nirbhay@xammer.in";
-
     // Cache Keys
     private static final String TICKETS_ALL_CACHE_KEY = "tickets:all";
     private static final String TICKETS_CATEGORY_PREFIX = "tickets:category:";
@@ -113,15 +110,12 @@ public class TicketService {
 
         // 4. Send Email
         try {
-            String adminEmail = "Account and Billing".equalsIgnoreCase(savedTicket.getCategory()) ? ADMIN_BILLING_EMAIL
-                    : ADMIN_TECHNICAL_EMAIL;
-
             String subject = String.format("New Ticket [ID: %d]: %s", savedTicket.getId(), savedTicket.getSubject());
-
-            // Create HTML email template matching UI design
             String htmlBody = buildTicketEmailTemplate(savedTicket, creator, client);
-
-            emailService.sendHtmlEmail(adminEmail, subject, htmlBody);
+            List<String> adminEmails = getAdminEmailList();
+            if (!adminEmails.isEmpty()) {
+                emailService.sendHtmlEmailToMultiple(adminEmails.toArray(new String[0]), subject, htmlBody);
+            }
         } catch (Exception e) {
             logger.error("Failed to send new ticket notification email for ticket {}", savedTicket.getId(), e);
         }
@@ -168,11 +162,12 @@ public class TicketService {
         Ticket savedTicket = ticketRepository.save(ticket);
 
         try {
-            String adminEmail = "Account and Billing".equalsIgnoreCase(savedTicket.getCategory())
-                    ? ADMIN_BILLING_EMAIL : ADMIN_TECHNICAL_EMAIL;
             String subject = String.format("[Admin] New Ticket [ID: %d]: %s", savedTicket.getId(), savedTicket.getSubject());
             String htmlBody = buildTicketEmailTemplate(savedTicket, creator, client);
-            emailService.sendHtmlEmail(adminEmail, subject, htmlBody);
+            List<String> adminEmails = getAdminEmailList();
+            if (!adminEmails.isEmpty()) {
+                emailService.sendHtmlEmailToMultiple(adminEmails.toArray(new String[0]), subject, htmlBody);
+            }
         } catch (Exception e) {
             logger.error("Failed to send email for admin-created ticket {}", savedTicket.getId(), e);
         }
@@ -452,13 +447,35 @@ public class TicketService {
                 String htmlBody = buildReplyNotificationEmailTemplate(ticket, author, reply);
 
                 if (isAdminReply) {
-                    if (ticketCreator != null && ticketCreator.getEmail() != null) {
+                    if (ticketCreator != null && ticketCreator.getEmail() != null && !ticketCreator.getEmail().isBlank()) {
                         emailService.sendHtmlEmail(ticketCreator.getEmail(), subject, htmlBody);
                     }
                 } else {
-                    String adminEmail = "Account and Billing".equalsIgnoreCase(ticket.getCategory()) ? ADMIN_BILLING_EMAIL
-                            : ADMIN_TECHNICAL_EMAIL;
-                    emailService.sendHtmlEmail(adminEmail, subject, htmlBody);
+                    if (ticket.getAssignedToId() != null) {
+                        userRepository.findById(ticket.getAssignedToId()).ifPresentOrElse(
+                            assignee -> {
+                                if (assignee.getEmail() != null && !assignee.getEmail().isBlank()) {
+                                    emailService.sendHtmlEmail(assignee.getEmail(), subject, htmlBody);
+                                } else {
+                                    List<String> adminEmails = getAdminEmailList();
+                                    if (!adminEmails.isEmpty()) {
+                                        emailService.sendHtmlEmailToMultiple(adminEmails.toArray(new String[0]), subject, htmlBody);
+                                    }
+                                }
+                            },
+                            () -> {
+                                List<String> adminEmails = getAdminEmailList();
+                                if (!adminEmails.isEmpty()) {
+                                    emailService.sendHtmlEmailToMultiple(adminEmails.toArray(new String[0]), subject, htmlBody);
+                                }
+                            }
+                        );
+                    } else {
+                        List<String> adminEmails = getAdminEmailList();
+                        if (!adminEmails.isEmpty()) {
+                            emailService.sendHtmlEmailToMultiple(adminEmails.toArray(new String[0]), subject, htmlBody);
+                        }
+                    }
                 }
             } catch (Exception e) {
                 logger.error("Failed to send reply notification email for ticket {}", ticket.getId(), e);
@@ -536,6 +553,13 @@ public class TicketService {
         return userRepository.findAll().stream()
                 .filter(u -> u.getRole() != null &&
                         (u.getRole().contains("ROLE_BILLOPS_ADMIN") || u.getRole().equals("ROLE_BILLOPS_ADMIN_SUB")))
+                .collect(Collectors.toList());
+    }
+
+    private List<String> getAdminEmailList() {
+        return getAdminUsers().stream()
+                .map(User::getEmail)
+                .filter(e -> e != null && !e.isBlank())
                 .collect(Collectors.toList());
     }
 

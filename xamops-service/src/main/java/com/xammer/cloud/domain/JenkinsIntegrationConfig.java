@@ -1,6 +1,7 @@
 package com.xammer.cloud.domain;
 
 import javax.persistence.*;
+import java.time.Instant;
 
 @Entity
 @Table(name = "jenkins_integration_config")
@@ -23,6 +24,9 @@ public class JenkinsIntegrationConfig {
     // FIX: Removed @Lob to prevent "Unable to access lob stream" errors
     @Column(nullable = false, columnDefinition = "TEXT")
     private String encryptedApiToken;
+
+    @Column
+    private Instant lastSyncedAt;
 
     public JenkinsIntegrationConfig() {
     }
@@ -73,5 +77,13 @@ public class JenkinsIntegrationConfig {
 
     public void setEncryptedApiToken(String encryptedApiToken) {
         this.encryptedApiToken = encryptedApiToken;
+    }
+
+    public Instant getLastSyncedAt() {
+        return lastSyncedAt;
+    }
+
+    public void setLastSyncedAt(Instant lastSyncedAt) {
+        this.lastSyncedAt = lastSyncedAt;
     }
 }

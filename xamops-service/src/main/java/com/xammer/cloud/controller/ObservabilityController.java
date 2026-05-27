@@ -431,11 +431,11 @@ public class ObservabilityController {
 
     private Map<String, Object> toAccountConfigResponse(AccountObservabilityConfig accConfig,
                                                          ObservabilityConfig clientConfig) {
-        return Map.of(
-                "orgId",         accConfig.getO2OrgId(),
-                "accountName",   accConfig.getAccountName() != null ? accConfig.getAccountName() : "",
-                "retentionDays", clientConfig.getRetentionDays(),
-                "provisionedAt", accConfig.getCreatedAt().toString()
-        );
+        Map<String, Object> m = new java.util.HashMap<>();
+        m.put("orgId",         accConfig.getO2OrgId() != null ? accConfig.getO2OrgId() : "");
+        m.put("accountName",   accConfig.getAccountName() != null ? accConfig.getAccountName() : "");
+        m.put("retentionDays", clientConfig.getRetentionDays());
+        m.put("provisionedAt", accConfig.getCreatedAt() != null ? accConfig.getCreatedAt().toString() : "");
+        return m;
     }
 }

@@ -69,3 +69,46 @@ export type PipelineStage = GitHubStage | JenkinsStage;
 export type TabType = 'github' | 'jenkins';
 
 export type SelectedWorkflow = CICDRun;
+
+// --- Metrics types ---
+
+export interface CicdDailyStat {
+  date: string;         // "2026-05-20"
+  successCount: number;
+  failureCount: number;
+  avgDuration: number;  // seconds
+}
+
+export interface CicdDora {
+  deploymentFrequency: number; // deploys/day
+  mttr: number;                // seconds
+  changeFailureRate: number;   // percentage
+}
+
+export interface FailingStage {
+  name: string;
+  failureCount: number;
+}
+
+export interface FailingWorkflow {
+  name: string;
+  failureCount: number;
+  successRate: number;
+}
+
+export interface CicdMetrics {
+  successRate: number;
+  totalRuns: number;
+  failureCount: number;
+  avgDurationSeconds: number;
+  prevSuccessRate: number;
+  prevTotalRuns: number;
+  prevFailureCount: number;
+  prevAvgDurationSeconds: number;
+  dora: CicdDora | null;
+  dailyStats: CicdDailyStat[];
+  topFailingStages: FailingStage[];
+  topFailingWorkflows: FailingWorkflow[];
+}
+
+export type TimeRange = 7 | 30 | 90;
