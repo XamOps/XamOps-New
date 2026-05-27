@@ -312,6 +312,12 @@ const GcpAlertsPage: React.FC = () => {
                                                 <td className="px-6 py-4">
                                                     {alert.type === 'QUOTA' && (
                                                         <div className="space-y-2">
+                                                            {alert.region && (
+                                                                <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                                                                    <i className="fas fa-map-marker-alt"></i>
+                                                                    {alert.region}
+                                                                </div>
+                                                            )}
                                                             <div className="progress-bar">
                                                                 <div
                                                                     className={`progress-bar-fill ${getUsageColor(alert)}`}
