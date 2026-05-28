@@ -9,7 +9,9 @@ public class GcpAccountRequestDto {
     private String gcpServiceAccountEmail;
     private String serviceAccountKey;
     private String projectId;
-    private String billingExportTable; // ✅ NEW FIELD
+    private String billingExportTable;
+    private Boolean cspManaged;
+    private Long cspBillingConfigId;
 
     // Getters and Setters
     public String getAccountName() {
@@ -68,12 +70,27 @@ public class GcpAccountRequestDto {
         this.projectId = projectId;
     }
 
-    // ✅ NEW: Billing Export Table
     public String getBillingExportTable() {
         return billingExportTable;
     }
 
     public void setBillingExportTable(String billingExportTable) {
         this.billingExportTable = billingExportTable;
+    }
+
+    public Boolean getCspManaged() {
+        return cspManaged;
+    }
+
+    public void setCspManaged(Boolean cspManaged) {
+        this.cspManaged = cspManaged;
+    }
+
+    public Long getCspBillingConfigId() {
+        return cspBillingConfigId;
+    }
+
+    public void setCspBillingConfigId(Long cspBillingConfigId) {
+        this.cspBillingConfigId = cspBillingConfigId;
     }
 }
