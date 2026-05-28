@@ -39,4 +39,8 @@ public interface CloudAccountRepository extends JpaRepository<CloudAccount, Long
 
     List<CloudAccount> findByAwsAccountIdIn(List<String> awsAccountIds);
 
+    List<CloudAccount> findByCspManagedTrue();
+
+    boolean existsByCspBillingConfigId(Long cspBillingConfigId);
+
 }
