@@ -4,8 +4,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Tag, FolderOpen, Key, Database, Copy, Check, Loader2,
   CheckCircle2, ChevronDown, ExternalLink, Terminal,
-  BarChart3, Package, Activity, Cpu, AlertCircle,
+  BarChart3, Package, Activity, Cpu, AlertCircle, Building2,
 } from 'lucide-react';
+import { useCspBillingConfig } from '../../hooks/useCspBillingConfig';
 import { cn } from '../../lib/utils';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -32,6 +33,9 @@ const GCPForm: React.FC = () => {
   const [projectId, setProjectId] = useState('');
   const [serviceAccountKey, setServiceAccountKey] = useState('');
   const [billingTable, setBillingTable] = useState('');
+  const [isCspManaged, setIsCspManaged] = useState(false);
+  const [cspConfigId, setCspConfigId] = useState<number | null>(null);
+  const { configs: cspConfigs } = useCspBillingConfig();
   const [isLoading, setIsLoading] = useState(false);
   const [commandText, setCommandText] = useState(`sh <(curl -s ${SCRIPT_URL}) YOUR_PROJECT_ID`);
   const [copiedCmd, setCopiedCmd] = useState(false);
@@ -84,12 +88,17 @@ const GCPForm: React.FC = () => {
       return;
     }
 
-    if (billingTable.trim()) {
+    if (!isCspManaged && billingTable.trim()) {
       const parts = billingTable.trim().split('.');
       if (parts.length !== 3 || parts.some(p => !p.trim())) {
         setError('BigQuery table must be in format: project.dataset.table');
         return;
       }
+    }
+
+    if (isCspManaged && !cspConfigId) {
+      setError('Please select your reseller.');
+      return;
     }
 
     setIsLoading(true);
@@ -101,7 +110,9 @@ const GCPForm: React.FC = () => {
           accountName: accountName.trim(),
           projectId: projectId.trim(),
           serviceAccountKey: serviceAccountKey.trim(),
-          ...(billingTable.trim() && { billingExportTable: billingTable.trim() }),
+          cspManaged: isCspManaged,
+          ...(isCspManaged && cspConfigId && { cspBillingConfigId: cspConfigId }),
+          ...(!isCspManaged && billingTable.trim() && { billingExportTable: billingTable.trim() }),
         }),
       });
 
@@ -116,7 +127,7 @@ const GCPForm: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [accountName, projectId, serviceAccountKey, billingTable]);
+  }, [accountName, projectId, serviceAccountKey, billingTable, isCspManaged, cspConfigId]);
 
   // ── Success screen ──────────────────────────────────────────────────────
   if (success) {
@@ -383,24 +394,73 @@ const GCPForm: React.FC = () => {
               <p className="text-xs text-slate-400">Paste the complete JSON output from the Cloud Shell script</p>
             </div>
 
-            {/* BigQuery Billing Table */}
-            <div className="space-y-2">
-              <Label htmlFor="gcpBillingTable" className="flex items-center gap-1.5">
-                <Database className="w-3.5 h-3.5 text-blue-500" />
-                BigQuery Billing Export Table
-                <span className="text-xs font-normal text-slate-400 ml-1">(Optional)</span>
+            {/* CSP managed toggle */}
+            <div className="space-y-3">
+              <Label className="flex items-center gap-1.5">
+                <Building2 className="w-3.5 h-3.5 text-blue-500" />
+                Is your GCP billing managed by Xammer?
               </Label>
-              <Input
-                id="gcpBillingTable"
-                placeholder="project_id.billing_export.gcp_billing_export_v1_XXXXXX"
-                value={billingTable}
-                onChange={(e) => setBillingTable(e.target.value)}
-                className="font-mono text-xs"
-              />
-              <p className="text-xs text-slate-400">
-                Format: <code className="bg-slate-100 px-1 rounded">project.dataset.table</code> — May take up to 24h to be created. You can add this later from Account Manager.
-              </p>
+              <div className="flex flex-col gap-2">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="cspManaged"
+                    checked={!isCspManaged}
+                    onChange={() => { setIsCspManaged(false); setCspConfigId(null); }}
+                    className="accent-blue-500"
+                  />
+                  <span className="text-sm text-slate-700">No — I manage my own billing export</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="cspManaged"
+                    checked={isCspManaged}
+                    onChange={() => { setIsCspManaged(true); setBillingTable(''); }}
+                    className="accent-blue-500"
+                  />
+                  <span className="text-sm text-slate-700">Yes — my billing is managed by Xammer</span>
+                </label>
+              </div>
+
+              {isCspManaged && (
+                <div className="space-y-2">
+                  <Label htmlFor="cspConfig">Select your reseller</Label>
+                  <select
+                    id="cspConfig"
+                    value={cspConfigId ?? ''}
+                    onChange={(e) => setCspConfigId(Number(e.target.value))}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Select reseller...</option>
+                    {cspConfigs.map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
+
+            {/* BigQuery Billing Table — only when NOT CSP-managed */}
+            {!isCspManaged && (
+              <div className="space-y-2">
+                <Label htmlFor="gcpBillingTable" className="flex items-center gap-1.5">
+                  <Database className="w-3.5 h-3.5 text-blue-500" />
+                  BigQuery Billing Export Table
+                  <span className="text-xs font-normal text-slate-400 ml-1">(Optional)</span>
+                </Label>
+                <Input
+                  id="gcpBillingTable"
+                  placeholder="project_id.billing_export.gcp_billing_export_v1_XXXXXX"
+                  value={billingTable}
+                  onChange={(e) => setBillingTable(e.target.value)}
+                  className="font-mono text-xs"
+                />
+                <p className="text-xs text-slate-400">
+                  Format: <code className="bg-slate-100 px-1 rounded">project.dataset.table</code> — May take up to 24h to be created. You can add this later from Account Manager.
+                </p>
+              </div>
+            )}
 
             {/* Error */}
             {error && (
