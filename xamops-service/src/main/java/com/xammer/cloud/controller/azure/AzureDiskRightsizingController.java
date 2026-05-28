@@ -26,7 +26,8 @@ public class AzureDiskRightsizingController {
             return ResponseEntity.ok(azureDiskService.getDisks(accountId, forceRefresh));
         } catch (Exception e) {
             logger.error("Failed to list Azure disks for account {}: {}", accountId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            // Sentinel security directive: Return a generic error message to prevent internal detail leakage
+            return ResponseEntity.status(500).body(Map.of("success", false, "error", "An unexpected error occurred while processing the Azure disk request."));
         }
     }
 
@@ -38,7 +39,8 @@ public class AzureDiskRightsizingController {
             return ResponseEntity.ok(azureDiskService.getRecommendations(accountId, forceRefresh));
         } catch (Exception e) {
             logger.error("Failed to get Azure disk recommendations for account {}: {}", accountId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            // Sentinel security directive: Return a generic error message to prevent internal detail leakage
+            return ResponseEntity.status(500).body(Map.of("success", false, "error", "An unexpected error occurred while processing the Azure disk request."));
         }
     }
 
@@ -56,7 +58,8 @@ public class AzureDiskRightsizingController {
                     azureDiskService.applyAction(accountId, diskName, resourceGroup, actionType, targetSizeGb));
         } catch (Exception e) {
             logger.error("Failed to apply Azure disk action for account {}: {}", accountId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            // Sentinel security directive: Return a generic error message to prevent internal detail leakage
+            return ResponseEntity.status(500).body(Map.of("success", false, "error", "An unexpected error occurred while processing the Azure disk request."));
         }
     }
 
@@ -66,7 +69,8 @@ public class AzureDiskRightsizingController {
             return ResponseEntity.ok(azureDiskService.getPolicies(accountId));
         } catch (Exception e) {
             logger.error("Failed to get Azure disk policies for account {}: {}", accountId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            // Sentinel security directive: Return a generic error message to prevent internal detail leakage
+            return ResponseEntity.status(500).body(Map.of("success", false, "error", "An unexpected error occurred while processing the Azure disk request."));
         }
     }
 
@@ -78,7 +82,8 @@ public class AzureDiskRightsizingController {
             return ResponseEntity.ok(azureDiskService.savePolicy(accountId, policy));
         } catch (Exception e) {
             logger.error("Failed to save Azure disk policy for account {}: {}", accountId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            // Sentinel security directive: Return a generic error message to prevent internal detail leakage
+            return ResponseEntity.status(500).body(Map.of("success", false, "error", "An unexpected error occurred while processing the Azure disk request."));
         }
     }
 
@@ -88,7 +93,8 @@ public class AzureDiskRightsizingController {
             return ResponseEntity.ok(azureDiskService.getActionHistory(accountId));
         } catch (Exception e) {
             logger.error("Failed to get Azure disk action history for account {}: {}", accountId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            // Sentinel security directive: Return a generic error message to prevent internal detail leakage
+            return ResponseEntity.status(500).body(Map.of("success", false, "error", "An unexpected error occurred while processing the Azure disk request."));
         }
     }
 }

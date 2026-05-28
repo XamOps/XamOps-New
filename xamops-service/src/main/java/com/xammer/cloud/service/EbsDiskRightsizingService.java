@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.DiskPolicy;
 import com.xammer.cloud.domain.EbsVolumeAction;
+import com.xammer.cloud.util.SecurityUtils;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.DiskPolicyRepository;
 import com.xammer.cloud.repository.EbsVolumeActionRepository;
@@ -274,7 +275,13 @@ public class EbsDiskRightsizingService {
 
     public DiskPolicy updatePolicy(Long policyId, DiskPolicy req) {
         DiskPolicy existing = diskPolicyRepository.findById(policyId)
-                .orElseThrow(() -> new RuntimeException("Policy not found: " + policyId));
+                .orElseThrow(() -> new RuntimeException("Policy not found or access denied"));
+
+        // Multi-tenant isolation: verify ownership before update
+        Long currentClientId = SecurityUtils.getPrincipal().getClientId();
+        if (!existing.getAccount().getClient().getId().equals(currentClientId)) {
+            throw new RuntimeException("Account not found or access denied");
+        }
 
         if (req.isDefault() && !existing.isDefault()) {
             diskPolicyRepository.findByAccountIdAndIsDefaultTrue(existing.getAccount().getId())
@@ -293,6 +300,15 @@ public class EbsDiskRightsizingService {
     }
 
     public void deletePolicy(Long policyId) {
+        DiskPolicy existing = diskPolicyRepository.findById(policyId)
+                .orElseThrow(() -> new RuntimeException("Policy not found or access denied"));
+
+        // Multi-tenant isolation: verify ownership before delete
+        Long currentClientId = SecurityUtils.getPrincipal().getClientId();
+        if (!existing.getAccount().getClient().getId().equals(currentClientId)) {
+            throw new RuntimeException("Account not found or access denied");
+        }
+
         diskPolicyRepository.deleteById(policyId);
     }
 
@@ -818,8 +834,15 @@ public class EbsDiskRightsizingService {
     }
 
     private CloudAccount resolveAccount(String providerAccountId) {
-        return cloudAccountRepository.findByProviderAccountId(providerAccountId)
-                .orElseThrow(() -> new RuntimeException("Account not found: " + providerAccountId));
+        CloudAccount account = cloudAccountRepository.findByProviderAccountId(providerAccountId)
+                .orElseThrow(() -> new RuntimeException("Account not found or access denied"));
+
+        // Multi-tenant isolation: verify ownership
+        Long currentClientId = SecurityUtils.getPrincipal().getClientId();
+        if (!account.getClient().getId().equals(currentClientId)) {
+            throw new RuntimeException("Account not found or access denied");
+        }
+        return account;
     }
 
     private List<String> getEnabledRegions(CloudAccount account) {

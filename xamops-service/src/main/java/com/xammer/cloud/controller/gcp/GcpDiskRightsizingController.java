@@ -26,7 +26,8 @@ public class GcpDiskRightsizingController {
             return ResponseEntity.ok(gcpDiskService.getDisks(accountId, forceRefresh));
         } catch (Exception e) {
             logger.error("Failed to list GCP disks for account {}: {}", accountId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            // Sentinel security directive: Return a generic error message to prevent internal detail leakage
+            return ResponseEntity.status(500).body(Map.of("success", false, "error", "An unexpected error occurred while processing the GCP disk request."));
         }
     }
 
@@ -38,7 +39,8 @@ public class GcpDiskRightsizingController {
             return ResponseEntity.ok(gcpDiskService.getRecommendations(accountId, forceRefresh));
         } catch (Exception e) {
             logger.error("Failed to get GCP disk recommendations for account {}: {}", accountId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            // Sentinel security directive: Return a generic error message to prevent internal detail leakage
+            return ResponseEntity.status(500).body(Map.of("success", false, "error", "An unexpected error occurred while processing the GCP disk request."));
         }
     }
 
@@ -56,7 +58,8 @@ public class GcpDiskRightsizingController {
                     gcpDiskService.applyAction(accountId, diskName, zone, actionType, targetSize));
         } catch (Exception e) {
             logger.error("Failed to apply GCP disk action for account {}: {}", accountId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            // Sentinel security directive: Return a generic error message to prevent internal detail leakage
+            return ResponseEntity.status(500).body(Map.of("success", false, "error", "An unexpected error occurred while processing the GCP disk request."));
         }
     }
 
@@ -66,7 +69,8 @@ public class GcpDiskRightsizingController {
             return ResponseEntity.ok(gcpDiskService.getPolicies(accountId));
         } catch (Exception e) {
             logger.error("Failed to get GCP disk policies for account {}: {}", accountId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            // Sentinel security directive: Return a generic error message to prevent internal detail leakage
+            return ResponseEntity.status(500).body(Map.of("success", false, "error", "An unexpected error occurred while processing the GCP disk request."));
         }
     }
 
@@ -78,7 +82,8 @@ public class GcpDiskRightsizingController {
             return ResponseEntity.ok(gcpDiskService.savePolicy(accountId, policy));
         } catch (Exception e) {
             logger.error("Failed to save GCP disk policy for account {}: {}", accountId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            // Sentinel security directive: Return a generic error message to prevent internal detail leakage
+            return ResponseEntity.status(500).body(Map.of("success", false, "error", "An unexpected error occurred while processing the GCP disk request."));
         }
     }
 
@@ -88,7 +93,8 @@ public class GcpDiskRightsizingController {
             return ResponseEntity.ok(gcpDiskService.getActionHistory(accountId));
         } catch (Exception e) {
             logger.error("Failed to get GCP disk action history for account {}: {}", accountId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            // Sentinel security directive: Return a generic error message to prevent internal detail leakage
+            return ResponseEntity.status(500).body(Map.of("success", false, "error", "An unexpected error occurred while processing the GCP disk request."));
         }
     }
 }
