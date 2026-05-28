@@ -195,7 +195,12 @@ const CloudAccountsTable: React.FC<CloudAccountsTableProps> = ({
                               <CheckCircle2 className="w-3.5 h-3.5" />
                             </button>
                           )}
-                          {isGcp && !hasBilling && (
+                          {isGcp && account.cspManaged && (
+                            <Badge variant="outline" className="text-xs text-blue-600 border-blue-300 bg-blue-50">
+                              CSP Managed
+                            </Badge>
+                          )}
+                          {isGcp && !account.cspManaged && !hasBilling && (
                             <button
                               onClick={() => openBillingModal(account)}
                               title="Configure Billing Table"
@@ -205,7 +210,7 @@ const CloudAccountsTable: React.FC<CloudAccountsTableProps> = ({
                               Configure Billing
                             </button>
                           )}
-                          {isGcp && hasBilling && (
+                          {isGcp && !account.cspManaged && hasBilling && (
                             <button
                               onClick={() => openBillingModal(account)}
                               title={`Billing: ${account.billingExportTable}`}
