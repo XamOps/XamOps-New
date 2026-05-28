@@ -79,9 +79,10 @@ class CspBillingIngestionServiceTest {
 
         List<String> savedKeys = cacheCaptor.getAllValues().stream()
             .map(CachedData::getCacheKey).toList();
-        assertThat(savedKeys).anyMatch(k -> k.startsWith("GCP_COST_BREAKDOWN::my-project"));
-        assertThat(savedKeys).anyMatch(k -> k.startsWith("GCP_COST_BY_REGION::my-project"));
-        assertThat(savedKeys).anyMatch(k -> k.startsWith("GCP_COST_HISTORY::my-project"));
+        assertThat(savedKeys).anyMatch(k -> k.equals("GCP_COST_BREAKDOWN::my-project::SERVICE"));
+        assertThat(savedKeys).anyMatch(k -> k.equals("GCP_COST_BY_REGION::my-project"));
+        assertThat(savedKeys).anyMatch(k -> k.equals("GCP_COST_HISTORY::my-project"));
+        assertThat(savedKeys).anyMatch(k -> k.equals("gcp:unfiltered-mtd-spend:my-project"));
     }
 
     @Test

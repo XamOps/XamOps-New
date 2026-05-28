@@ -32,7 +32,6 @@ public class CspBillingIngestionService {
     private final ObjectMapper objectMapper;
 
     @Scheduled(cron = "0 0 2 * * *")
-    @Transactional(readOnly = true)
     public void ingestAll() {
         log.info("Starting daily CSP billing ingestion");
         List<CloudAccount> accounts = cloudAccountRepository.findByCspManagedTrue();
@@ -46,6 +45,7 @@ public class CspBillingIngestionService {
         log.info("CSP billing ingestion complete — {} accounts processed", accounts.size());
     }
 
+    @Transactional
     public void ingestForAccount(CloudAccount account) {
         CspBillingConfig config = account.getCspBillingConfig();
         if (config == null) {
@@ -60,7 +60,7 @@ public class CspBillingIngestionService {
         BigQuery bq = queryService.buildClient(config);
 
         List<GcpCostDto> breakdown = queryService.queryServiceBreakdown(bq, config, projectId, currentMonth);
-        writeCache("GCP_COST_BREAKDOWN::" + projectId, breakdown, 60);
+        writeCache("GCP_COST_BREAKDOWN::" + projectId + "::SERVICE", breakdown, 60);
 
         List<GcpCostDto> regions = queryService.queryRegionBreakdown(bq, config, projectId, currentMonth);
         writeCache("GCP_COST_BY_REGION::" + projectId, regions, 60);
@@ -68,13 +68,8 @@ public class CspBillingIngestionService {
         List<GcpCostDto> history = queryService.queryMonthlyHistory(bq, config, projectId);
         writeCache("GCP_COST_HISTORY::" + projectId, history, 60 * 24);
 
-        for (GcpCostDto month : history) {
-            writeCache("GCP_MONTHLY_TOTAL::" + projectId + "::" + month.getName(),
-                month.getAmount(), 60 * 24);
-        }
-
         double mtd = queryService.queryMtdTotal(bq, config, projectId, currentMonth);
-        writeCache("GCP_MTD_SPEND::" + projectId, mtd, 60);
+        writeCache("gcp:unfiltered-mtd-spend:" + projectId, mtd, 60);
 
         log.info("CSP ingestion done for {}: {} services, {} regions, {} months",
             projectId, breakdown.size(), regions.size(), history.size());
