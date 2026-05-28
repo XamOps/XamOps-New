@@ -28,7 +28,8 @@ public class EbsDiskRightsizingController {
             return ResponseEntity.ok(ebsService.getVolumes(accountId, forceRefresh));
         } catch (Exception e) {
             logger.error("Failed to list volumes for account {}: {}", accountId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            // Sentinel security directive: Return a generic error message to prevent internal detail leakage
+            return ResponseEntity.status(500).body(Map.of("success", false, "error", "An unexpected error occurred while processing the EBS request."));
         }
     }
 
@@ -40,7 +41,8 @@ public class EbsDiskRightsizingController {
             return ResponseEntity.ok(ebsService.getRecommendations(accountId, forceRefresh));
         } catch (Exception e) {
             logger.error("Failed to get EBS recommendations for account {}: {}", accountId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            // Sentinel security directive: Return a generic error message to prevent internal detail leakage
+            return ResponseEntity.status(500).body(Map.of("success", false, "error", "An unexpected error occurred while processing the EBS request."));
         }
     }
 
@@ -62,7 +64,8 @@ public class EbsDiskRightsizingController {
                     ebsService.applyAction(accountId, volumeId, region, actionType, targetType, targetSizeGb));
         } catch (Exception e) {
             logger.error("Failed to apply EBS action for account {}: {}", accountId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            // Sentinel security directive: Return a generic error message to prevent internal detail leakage
+            return ResponseEntity.status(500).body(Map.of("success", false, "error", "An unexpected error occurred while processing the EBS request."));
         }
     }
 
@@ -74,7 +77,8 @@ public class EbsDiskRightsizingController {
             return ResponseEntity.ok(ebsService.getPolicies(accountId));
         } catch (Exception e) {
             logger.error("Failed to get policies for account {}: {}", accountId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            // Sentinel security directive: Return a generic error message to prevent internal detail leakage
+            return ResponseEntity.status(500).body(Map.of("success", false, "error", "An unexpected error occurred while processing the EBS request."));
         }
     }
 
@@ -86,7 +90,8 @@ public class EbsDiskRightsizingController {
             return ResponseEntity.ok(ebsService.createPolicy(accountId, request));
         } catch (Exception e) {
             logger.error("Failed to create policy for account {}: {}", accountId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            // Sentinel security directive: Return a generic error message to prevent internal detail leakage
+            return ResponseEntity.status(500).body(Map.of("success", false, "error", "An unexpected error occurred while processing the EBS request."));
         }
     }
 
@@ -98,7 +103,8 @@ public class EbsDiskRightsizingController {
             return ResponseEntity.ok(ebsService.updatePolicy(policyId, request));
         } catch (Exception e) {
             logger.error("Failed to update policy {}: {}", policyId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            // Sentinel security directive: Return a generic error message to prevent internal detail leakage
+            return ResponseEntity.status(500).body(Map.of("success", false, "error", "An unexpected error occurred while processing the EBS request."));
         }
     }
 
@@ -109,7 +115,8 @@ public class EbsDiskRightsizingController {
             return ResponseEntity.ok(Map.of("success", true));
         } catch (Exception e) {
             logger.error("Failed to delete policy {}: {}", policyId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            // Sentinel security directive: Return a generic error message to prevent internal detail leakage
+            return ResponseEntity.status(500).body(Map.of("success", false, "error", "An unexpected error occurred while processing the EBS request."));
         }
     }
 
@@ -121,7 +128,8 @@ public class EbsDiskRightsizingController {
             return ResponseEntity.ok(ebsService.getActionHistory(accountId));
         } catch (Exception e) {
             logger.error("Failed to get action history for account {}: {}", accountId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            // Sentinel security directive: Return a generic error message to prevent internal detail leakage
+            return ResponseEntity.status(500).body(Map.of("success", false, "error", "An unexpected error occurred while processing the EBS request."));
         }
     }
 
@@ -142,7 +150,8 @@ public class EbsDiskRightsizingController {
                     ebsService.initiateDownsize(accountId, volumeId, region, instanceId, mountPoint, targetSizeGb));
         } catch (Exception e) {
             logger.error("Failed to initiate shrink for account {}: {}", accountId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            // Sentinel security directive: Return a generic error message to prevent internal detail leakage
+            return ResponseEntity.status(500).body(Map.of("success", false, "error", "An unexpected error occurred while processing the EBS request."));
         }
     }
 
@@ -154,7 +163,8 @@ public class EbsDiskRightsizingController {
             return ResponseEntity.ok(ebsService.getPendingDeletionVolumes(accountId));
         } catch (Exception e) {
             logger.error("Failed to get pending-deletion volumes for account {}: {}", accountId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            // Sentinel security directive: Return a generic error message to prevent internal detail leakage
+            return ResponseEntity.status(500).body(Map.of("success", false, "error", "An unexpected error occurred while processing the EBS request."));
         }
     }
 
@@ -168,7 +178,8 @@ public class EbsDiskRightsizingController {
             return ResponseEntity.ok(ebsService.deletePendingVolume(accountId, volumeId, region));
         } catch (Exception e) {
             logger.error("Failed to delete pending volume for account {}: {}", accountId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            // Sentinel security directive: Return a generic error message to prevent internal detail leakage
+            return ResponseEntity.status(500).body(Map.of("success", false, "error", "An unexpected error occurred while processing the EBS request."));
         }
     }
 
@@ -182,7 +193,8 @@ public class EbsDiskRightsizingController {
             return ResponseEntity.ok(ebsService.keepVolume(accountId, volumeId, region));
         } catch (Exception e) {
             logger.error("Failed to keep volume for account {}: {}", accountId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            // Sentinel security directive: Return a generic error message to prevent internal detail leakage
+            return ResponseEntity.status(500).body(Map.of("success", false, "error", "An unexpected error occurred while processing the EBS request."));
         }
     }
 
@@ -198,7 +210,8 @@ public class EbsDiskRightsizingController {
             return ResponseEntity.ok(ebsService.getVolumeMonitoring(accountId, volumeId, region, hours));
         } catch (Exception e) {
             logger.error("Failed to get monitoring for volume {} account {}: {}", volumeId, accountId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            // Sentinel security directive: Return a generic error message to prevent internal detail leakage
+            return ResponseEntity.status(500).body(Map.of("success", false, "error", "An unexpected error occurred while processing the EBS request."));
         }
     }
 
@@ -215,7 +228,8 @@ public class EbsDiskRightsizingController {
             return ResponseEntity.ok(ebsService.getDiskUsageViaSSM(accountId, region, instanceIds));
         } catch (Exception e) {
             logger.error("Failed to fetch disk usage via SSM for account {}: {}", accountId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            // Sentinel security directive: Return a generic error message to prevent internal detail leakage
+            return ResponseEntity.status(500).body(Map.of("success", false, "error", "An unexpected error occurred while processing the EBS request."));
         }
     }
 
@@ -232,7 +246,8 @@ public class EbsDiskRightsizingController {
             return ResponseEntity.ok(ebsService.attachSsmPolicyToInstances(accountId, region, instanceIds));
         } catch (Exception e) {
             logger.error("SSM fix failed for account {}: {}", accountId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            // Sentinel security directive: Return a generic error message to prevent internal detail leakage
+            return ResponseEntity.status(500).body(Map.of("success", false, "error", "An unexpected error occurred while processing the EBS request."));
         }
     }
 
@@ -249,7 +264,8 @@ public class EbsDiskRightsizingController {
             return ResponseEntity.ok(ebsService.calculateRoi(provisionedGb, utilizationPct, growthRatePct, diskType));
         } catch (Exception e) {
             logger.error("ROI calculation failed: {}", e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            // Sentinel security directive: Return a generic error message to prevent internal detail leakage
+            return ResponseEntity.status(500).body(Map.of("success", false, "error", "An unexpected error occurred while processing the EBS request."));
         }
     }
 }

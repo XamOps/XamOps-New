@@ -6,6 +6,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.DiskPolicy;
 import com.xammer.cloud.domain.EbsVolumeAction;
+import com.xammer.cloud.util.SecurityUtils;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.DiskPolicyRepository;
 import com.xammer.cloud.repository.EbsVolumeActionRepository;
@@ -142,6 +143,16 @@ public class AzureDiskRightsizingService {
 
     public Map<String, Object> savePolicy(String accountId, DiskPolicy policy) {
         CloudAccount account = resolveAccount(accountId);
+
+        // If updating an existing policy, verify ownership
+        if (policy.getId() != null) {
+            DiskPolicy existing = diskPolicyRepository.findById(policy.getId())
+                    .orElseThrow(() -> new RuntimeException("Policy not found or access denied"));
+            if (!existing.getAccount().getClient().getId().equals(SecurityUtils.getPrincipal().getClientId())) {
+                throw new RuntimeException("Policy not found or access denied");
+            }
+        }
+
         policy.setAccount(account);
         policy.setCloudProvider("AZURE");
         diskPolicyRepository.save(policy);
@@ -357,7 +368,14 @@ public class AzureDiskRightsizingService {
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private CloudAccount resolveAccount(String accountId) {
-        return cloudAccountRepository.findById(Long.parseLong(accountId))
-                .orElseThrow(() -> new IllegalArgumentException("Account not found: " + accountId));
+        CloudAccount account = cloudAccountRepository.findByProviderAccountId(accountId)
+                .orElseThrow(() -> new RuntimeException("Account not found or access denied"));
+
+        // Multi-tenant isolation: verify ownership
+        Long currentClientId = SecurityUtils.getPrincipal().getClientId();
+        if (!account.getClient().getId().equals(currentClientId)) {
+            throw new RuntimeException("Account not found or access denied");
+        }
+        return account;
     }
 }
