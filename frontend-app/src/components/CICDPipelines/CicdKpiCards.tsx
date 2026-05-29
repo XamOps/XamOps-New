@@ -54,9 +54,9 @@ export const CicdKpiCards: React.FC<Props> = ({ metrics, isLoading }) => {
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
       {cards.map(card => (
-        <div key={card.label} className="bg-gray-800 rounded-lg p-4 border border-gray-700">
-          <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">{card.label}</p>
-          <p className="text-xl font-bold text-white">
+        <div key={card.label} className="bg-white rounded-lg p-4 border border-gray-200 shadow-sm">
+          <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">{card.label}</p>
+          <p className="text-xl font-bold text-gray-900">
             {card.value}
             {card.delta}
           </p>

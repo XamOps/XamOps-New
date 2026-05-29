@@ -34,13 +34,13 @@ export const CicdDoraRow: React.FC<Props> = ({ dora, isLoading }) => {
 
   return (
     <div className="mb-4">
-      <p className="text-xs text-gray-500 uppercase tracking-wide mb-2">DORA Metrics</p>
+      <p className="text-xs text-gray-400 uppercase tracking-wide mb-2">DORA Metrics</p>
       <div className="grid grid-cols-3 gap-3">
         {cards.map(card => (
-          <div key={card.label} className="bg-gray-800 rounded-lg p-3 border border-gray-700">
-            <p className="text-xs text-gray-400 mb-1">{card.label}</p>
-            <p className="text-lg font-bold text-purple-400">{card.value}</p>
-            <p className="text-xs text-gray-500 mt-1">{card.hint}</p>
+          <div key={card.label} className="bg-white rounded-lg p-3 border border-gray-200 shadow-sm">
+            <p className="text-xs text-gray-500 mb-1">{card.label}</p>
+            <p className="text-lg font-bold text-indigo-600">{card.value}</p>
+            <p className="text-xs text-gray-400 mt-1">{card.hint}</p>
           </div>
         ))}
       </div>
