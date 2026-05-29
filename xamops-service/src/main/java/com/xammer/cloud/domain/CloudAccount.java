@@ -1,6 +1,7 @@
 package com.xammer.cloud.domain;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
@@ -32,6 +33,8 @@ public class CloudAccount {
     @Column(unique = true)
     private String roleArn;
 
+    // Security rationale: Prevent credential leakage in JSON responses while allowing creation/updates
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
     @Column(columnDefinition = "TEXT")
     private String gcpServiceAccountKey;
 
@@ -75,6 +78,8 @@ public class CloudAccount {
     @Column(name = "azure_client_id")
     private String azureClientId;
 
+    // Security rationale: Prevent credential leakage in JSON responses while allowing creation/updates
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
     @Column(name = "azure_client_secret")
     private String azureClientSecret;
 
