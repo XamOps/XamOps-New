@@ -23,4 +23,5 @@ public class ReservationDto {
     private HistoricalReservationDataDto historicalData;
     private List<ReservationModificationRecommendationDto> modificationRecommendations;
     private List<SavingsPlanDto> savingsPlans;
+    private List<SavingsPlanRecommendationDto> savingsPlanRecommendations;
 }

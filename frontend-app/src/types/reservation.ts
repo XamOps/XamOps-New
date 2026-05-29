@@ -26,6 +26,29 @@ export interface SavingsPlan {
   state: string;
   start: string;
   end: string;
+  utilizationPercentage?: number;
+  usedCommitment?: string;
+  unusedCommitment?: string;
+  netSavings?: string;
+}
+
+export interface SavingsPlanRecommendation {
+  savingsPlanType: string;
+  region?: string;
+  instanceFamily?: string;
+  recommendedCommitment: string;
+  upfrontCost?: string;
+  estimatedMonthlyCost: string;
+  estimatedMonthlySavings: string;
+  estimatedSavingsPercentage: string;
+  currentAverageHourlyOnDemandSpend: string;
+}
+
+export interface SpRecommendationFilters {
+  spType: 'COMPUTE_SP' | 'EC2_INSTANCE_SP' | 'SAGEMAKER_SP';
+  term: 'ONE_YEAR' | 'THREE_YEARS';
+  paymentOption: 'NO_UPFRONT' | 'PARTIAL_UPFRONT' | 'ALL_UPFRONT';
+  lookback: 'SEVEN_DAYS' | 'THIRTY_DAYS' | 'SIXTY_DAYS';
 }
 
 export interface HistoricalDataPoint {
@@ -61,6 +84,7 @@ export interface ReservationData {
   inventory: ReservationInventoryItem[];
   savingsPlans: SavingsPlan[];
   purchaseRecommendations: PurchaseRecommendation[];
+  savingsPlanRecommendations: SavingsPlanRecommendation[];
 }
 
 export interface RecommendationFilters {

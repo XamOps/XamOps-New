@@ -201,6 +201,9 @@ const ReservationInventory: React.FC<ReservationInventoryProps> = ({
                 <th className="px-6 py-3">Region</th>
                 <th className="px-6 py-3">Commitment</th>
                 <th className="px-6 py-3">State</th>
+                <th className="px-6 py-3">Utilization</th>
+                <th className="px-6 py-3">Used / Unused</th>
+                <th className="px-6 py-3">Net Savings</th>
                 <th className="px-6 py-3">Term</th>
                 <th className="px-6 py-3">Expiry</th>
               </tr>
@@ -232,6 +235,48 @@ const ReservationInventory: React.FC<ReservationInventoryProps> = ({
                       </span>
                     </td>
                     <td className="px-6 py-4">
+                      {sp.utilizationPercentage != null ? (
+                        <div className="flex items-center gap-2">
+                          <div className="w-20 bg-gray-100 rounded-full h-2 shadow-inner overflow-hidden">
+                            <div
+                              className={`h-2 rounded-full transition-all duration-500 ${
+                                sp.utilizationPercentage >= 90
+                                  ? 'bg-gradient-to-r from-green-500 to-emerald-500'
+                                  : sp.utilizationPercentage < 70
+                                  ? 'bg-gradient-to-r from-red-500 to-rose-500'
+                                  : 'bg-gradient-to-r from-yellow-500 to-amber-500'
+                              }`}
+                              style={{ width: `${sp.utilizationPercentage}%` }}
+                            ></div>
+                          </div>
+                          <span className="text-xs font-bold text-gray-700">
+                            {sp.utilizationPercentage.toFixed(0)}%
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-gray-400">N/A</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4">
+                      {sp.usedCommitment != null ? (
+                        <div className="text-xs font-medium">
+                          <div className="text-green-700">${sp.usedCommitment}/hr used</div>
+                          <div className="text-red-500 mt-0.5">${sp.unusedCommitment ?? '0'}/hr unused</div>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-gray-400">N/A</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4">
+                      {sp.netSavings != null ? (
+                        <div className="font-semibold text-green-600 text-sm">
+                          ${parseFloat(sp.netSavings).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-gray-400">N/A</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4">
                       <div className="text-xs text-gray-600 font-medium">
                         <span>{formatDate(sp.start)}</span> → <span>{formatDate(sp.end)}</span>
                       </div>
@@ -255,7 +300,7 @@ const ReservationInventory: React.FC<ReservationInventoryProps> = ({
                 ))
               ) : (
                 <tr>
-                  <td colSpan={6} className="text-center py-16">
+                  <td colSpan={9} className="text-center py-16">
                     <div className="flex flex-col items-center">
                       <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
                         <i className="fas fa-piggy-bank text-gray-400 text-2xl"></i>

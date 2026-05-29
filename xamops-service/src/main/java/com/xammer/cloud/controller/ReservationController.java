@@ -5,6 +5,7 @@ import com.xammer.cloud.dto.CostByTagDto;
 import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.dto.ReservationDto;
 import com.xammer.cloud.dto.ReservationModificationRequestDto;
+import com.xammer.cloud.dto.SavingsPlanRecommendationDto;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.service.DashboardDataService;
 import com.xammer.cloud.service.ReservationService;
@@ -89,6 +90,29 @@ public class ReservationController {
                 .thenApply(ResponseEntity::ok)
                 .exceptionally(ex -> {
                     logger.error("Error fetching purchase recommendations for account {}", accountId, ex);
+                    return ResponseEntity.status(500).body(Collections.emptyList());
+                });
+    }
+
+    @GetMapping("/sp-recommendations")
+    public CompletableFuture<ResponseEntity<List<SavingsPlanRecommendationDto>>> getSpRecommendations(
+            @RequestParam String accountId,
+            @RequestParam(defaultValue = "COMPUTE_SP") String spType,
+            @RequestParam(defaultValue = "ONE_YEAR") String term,
+            @RequestParam(defaultValue = "NO_UPFRONT") String paymentOption,
+            @RequestParam(defaultValue = "THIRTY_DAYS") String lookback,
+            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+
+        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
+        if (accounts.isEmpty()) {
+            throw new RuntimeException("Account not found: " + accountId);
+        }
+        CloudAccount account = accounts.get(0);
+
+        return reservationService.getSavingsPlanRecommendations(account, spType, term, paymentOption, lookback, forceRefresh)
+                .thenApply(ResponseEntity::ok)
+                .exceptionally(ex -> {
+                    logger.error("Error fetching SP recommendations for account {}", accountId, ex);
                     return ResponseEntity.status(500).body(Collections.emptyList());
                 });
     }

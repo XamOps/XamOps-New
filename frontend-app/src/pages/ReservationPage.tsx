@@ -38,11 +38,15 @@ export const ReservationPage: React.FC = () => {
     data,
     isLoading,
     isRecsLoading,
+    isSpRecsLoading,
     error,
     recFilters,
     setRecFilters,
+    spRecFilters,
+    setSpRecFilters,
     fetchReservationData,
     fetchPurchaseRecommendations,
+    fetchSpRecommendations,
   } = useReservationData({
     selectedAccountId,
   });
@@ -50,12 +54,17 @@ export const ReservationPage: React.FC = () => {
   // Tab state
   const [activeTab, setActiveTab] = useTabState<TabType>('recommendations');
 
-  // Fetch recommendations when filters change or tab switches to recommendations
   useEffect(() => {
     if (activeTab === 'recommendations' && selectedAccountId && !isLoading) {
       fetchPurchaseRecommendations(false);
     }
   }, [activeTab, recFilters, selectedAccountId, isLoading]);
+
+  useEffect(() => {
+    if (activeTab === 'recommendations' && selectedAccountId && !isLoading) {
+      fetchSpRecommendations(false);
+    }
+  }, [activeTab, spRecFilters, selectedAccountId, isLoading]);
 
   // Show error state
   if (error) {
@@ -178,6 +187,11 @@ export const ReservationPage: React.FC = () => {
                   isLoading={isRecsLoading}
                   onFilterChange={setRecFilters}
                   onFetchRecommendations={() => fetchPurchaseRecommendations(true)}
+                  spRecommendations={data.savingsPlanRecommendations ?? []}
+                  spFilters={spRecFilters}
+                  isSpLoading={isSpRecsLoading}
+                  onSpFilterChange={setSpRecFilters}
+                  onFetchSpRecommendations={() => fetchSpRecommendations(true)}
                 />
               </div>
             )}
