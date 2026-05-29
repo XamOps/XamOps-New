@@ -1,6 +1,7 @@
 package com.xammer.cloud.domain;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
@@ -28,6 +29,8 @@ public class User {
     @Column(unique = true, nullable = false)
     private String username;
 
+    // Security rationale: Prevent password hash leakage in JSON responses while allowing creation/updates
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
     @Column(nullable = false)
     private String password;
 
