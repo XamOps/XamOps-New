@@ -270,7 +270,9 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
   if (url.includes('/api/xamops/optimization'))
     return makeResponse([]);
 
-  // Reservations — specific pattern before generic catch-all
+  // Reservations — specific patterns before generic catch-all
+  if (url.includes('/api/xamops/reservations/sp-recommendations'))
+    return makeResponse(xamops.demoSpRecommendations);
   if (url.includes('/api/xamops/reservations/recommendations'))
     return makeResponse(xamops.demoReservationRecommendations);
   if (url.includes('/api/xamops/reservations'))
@@ -497,6 +499,10 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
   // CICD Pipelines — specific GitHub route before generic catch-all
   if (url.includes('/api/cicd/github/runs'))
     return makeResponse(xamops.demoGithubRuns);
+  if (url.includes('/api/cicd/github/metrics'))
+    return makeResponse(xamops.demoCicdGithubMetrics);
+  if (url.includes('/api/cicd/jenkins/metrics'))
+    return makeResponse(xamops.demoCicdJenkinsMetrics);
   if (url.includes('/api/cicd/'))
     return makeResponse([]);
 

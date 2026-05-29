@@ -466,7 +466,12 @@ export const demoReservationInventory = {
     { reservationId: 'ri-0abc0003', instanceType: 'r5.xlarge', instanceCount: 2, scope: 'Region', utilizationPercentage: 71.0, state: 'active', start: '2023-12-01', end: '2024-12-01' },
   ],
   savingsPlans: [
-    { savingsPlanId: 'sp-0abc0001', type: 'ComputeSavingsPlans', region: 'us-east-1', commitment: 500, paymentOption: 'NoUpfront', state: 'active', start: '2024-01-01', end: '2025-01-01' },
+    { savingsPlanId: 'sp-0abc0001', type: 'ComputeSavingsPlans', region: 'us-east-1', commitment: '0.50/hr', paymentOption: 'NoUpfront', state: 'active', start: '2024-01-01', end: '2026-01-01', utilizationPercentage: 84.6, usedCommitment: '0.42', unusedCommitment: '0.08', netSavings: '184.20' },
+    { savingsPlanId: 'sp-0abc0002', type: 'EC2InstanceSavingsPlans', region: 'eu-west-1', commitment: '0.20/hr', paymentOption: 'PartialUpfront', state: 'active', start: '2025-01-01', end: '2026-01-01', utilizationPercentage: 97.1, usedCommitment: '0.19', unusedCommitment: '0.01', netSavings: '68.40' },
+  ],
+  savingsPlanRecommendations: [
+    { savingsPlanType: 'COMPUTE_SP', region: null, instanceFamily: null, recommendedCommitment: '1.20', upfrontCost: '0.00', estimatedMonthlyCost: '876.00', estimatedMonthlySavings: '412.50', estimatedSavingsPercentage: '32.0', currentAverageHourlyOnDemandSpend: '1.77' },
+    { savingsPlanType: 'EC2_INSTANCE_SP', region: 'us-east-1', instanceFamily: 'm5', recommendedCommitment: '0.35', upfrontCost: '0.00', estimatedMonthlyCost: '255.50', estimatedMonthlySavings: '98.20', estimatedSavingsPercentage: '27.8', currentAverageHourlyOnDemandSpend: '0.48' },
   ],
   historicalData: {
     labels: ['Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr'],
@@ -480,6 +485,12 @@ export const demoReservationRecommendations = [
   { instanceFamily: 'm5', region: 'us-east-1', platform: 'Linux', recommendedInstances: 3, onDemandCost: 420, estimatedMonthlyCost: 280, monthlySavings: 140 },
   { instanceFamily: 'r5', region: 'eu-west-1', platform: 'Linux', recommendedInstances: 2, onDemandCost: 680, estimatedMonthlyCost: 460, monthlySavings: 220 },
   { instanceFamily: 't3', region: 'us-east-1', platform: 'Linux', recommendedInstances: 5, onDemandCost: 240, estimatedMonthlyCost: 165, monthlySavings: 75  },
+];
+
+// /api/xamops/reservations/sp-recommendations
+export const demoSpRecommendations = [
+  { savingsPlanType: 'COMPUTE_SP',      region: null,        instanceFamily: null, recommendedCommitment: '1.20', upfrontCost: '0.00', estimatedMonthlyCost: '876.00', estimatedMonthlySavings: '412.50', estimatedSavingsPercentage: '32.0', currentAverageHourlyOnDemandSpend: '1.77' },
+  { savingsPlanType: 'EC2_INSTANCE_SP', region: 'us-east-1', instanceFamily: 'm5', recommendedCommitment: '0.35', upfrontCost: '0.00', estimatedMonthlyCost: '255.50', estimatedMonthlySavings: '98.20',  estimatedSavingsPercentage: '27.8', currentAverageHourlyOnDemandSpend: '0.48' },
 ];
 
 // ─── /api/autospotting/* ──────────────────────────────────────────────────────
@@ -921,6 +932,67 @@ export const demoGithubRuns = [
   { id: 11003, name: 'Security Scan',          status: 'completed', conclusion: 'failure', displayStatus: 'Failed',  html_url: '', updated_at: '2026-04-29T16:00:00Z', run_number: 140, workflow_id: 1003, repository: { full_name: 'xammer/cloud-app' } },
   { id: 11004, name: 'Infrastructure Preview', status: 'completed', conclusion: 'success', displayStatus: 'Success', html_url: '', updated_at: '2026-04-29T14:30:00Z', run_number: 139, workflow_id: 1004, repository: { full_name: 'xammer/infra'      } },
 ];
+
+// ─── /api/cicd/*/metrics ─────────────────────────────────────────────────────
+export const demoCicdGithubMetrics = {
+  successRate: 87.5,
+  totalRuns: 48,
+  failureCount: 6,
+  avgDurationSeconds: 342,
+  prevSuccessRate: 82.0,
+  prevTotalRuns: 44,
+  prevFailureCount: 8,
+  prevAvgDurationSeconds: 378,
+  dora: { deploymentFrequency: 1.4, mttr: 5400, changeFailureRate: 12.5 },
+  dailyStats: [
+    { date: '2026-05-22', successCount: 5, failureCount: 1, avgDuration: 320 },
+    { date: '2026-05-23', successCount: 7, failureCount: 0, avgDuration: 298 },
+    { date: '2026-05-24', successCount: 6, failureCount: 2, avgDuration: 361 },
+    { date: '2026-05-25', successCount: 8, failureCount: 1, avgDuration: 344 },
+    { date: '2026-05-26', successCount: 4, failureCount: 1, avgDuration: 390 },
+    { date: '2026-05-27', successCount: 9, failureCount: 1, avgDuration: 312 },
+    { date: '2026-05-28', successCount: 3, failureCount: 0, avgDuration: 330 },
+  ],
+  topFailingStages: [
+    { name: 'Build', failureCount: 3 },
+    { name: 'Security Scan', failureCount: 2 },
+    { name: 'Deploy', failureCount: 1 },
+  ],
+  topFailingWorkflows: [
+    { name: 'Security Scan', failureCount: 2, successRate: 50.0 },
+    { name: 'Deploy to Production', failureCount: 2, successRate: 60.0 },
+    { name: 'Build & Test', failureCount: 2, successRate: 80.0 },
+  ],
+};
+
+export const demoCicdJenkinsMetrics = {
+  successRate: 75.0,
+  totalRuns: 20,
+  failureCount: 5,
+  avgDurationSeconds: 480,
+  prevSuccessRate: 70.0,
+  prevTotalRuns: 18,
+  prevFailureCount: 6,
+  prevAvgDurationSeconds: 520,
+  dora: null,
+  dailyStats: [
+    { date: '2026-05-22', successCount: 2, failureCount: 1, avgDuration: 460 },
+    { date: '2026-05-23', successCount: 3, failureCount: 1, avgDuration: 500 },
+    { date: '2026-05-24', successCount: 2, failureCount: 0, avgDuration: 440 },
+    { date: '2026-05-25', successCount: 4, failureCount: 2, avgDuration: 520 },
+    { date: '2026-05-26', successCount: 2, failureCount: 1, avgDuration: 480 },
+    { date: '2026-05-27', successCount: 2, failureCount: 0, avgDuration: 490 },
+    { date: '2026-05-28', successCount: 0, failureCount: 0, avgDuration: 0 },
+  ],
+  topFailingStages: [
+    { name: 'Test', failureCount: 3 },
+    { name: 'Package', failureCount: 2 },
+  ],
+  topFailingWorkflows: [
+    { name: 'nightly-build', failureCount: 3, successRate: 40.0 },
+    { name: 'integration-tests', failureCount: 2, successRate: 60.0 },
+  ],
+};
 
 // ─── /api/dev_ops_script ──────────────────────────────────────────────────────
 export const demoDevOpsScripts = [

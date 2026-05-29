@@ -39,7 +39,8 @@ export function useCicdMetrics(provider: 'github' | 'jenkins'): UseCicdMetricsRe
       const data = await apiClient.get<CicdMetrics>(
         `/api/cicd/${provider}/metrics?days=${days}`
       );
-      setMetrics(data ?? EMPTY_METRICS);
+      const isValid = data && typeof data === 'object' && !Array.isArray(data) && typeof (data as any).successRate === 'number';
+      setMetrics(isValid ? data : EMPTY_METRICS);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Failed to load metrics';
       setError(msg);
