@@ -71,7 +71,8 @@ public class GlobalExceptionHandler {
 
         Map<String, Object> body = new HashMap<>();
         body.put("timestamp", new Date());
-        body.put("message", "An unexpected error occurred: " + ex.getMessage());
+        // SENTINEL: Return generic error message to prevent leaking internal implementation details via exception message
+        body.put("message", "An unexpected error occurred while processing your request. Please contact support if the issue persists.");
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                 .body(body);
