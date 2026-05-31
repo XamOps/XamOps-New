@@ -624,7 +624,9 @@
 }
 
 .support-chat-msg-actions {
-  display: none;
+  display: flex;
+  opacity: 0;
+  pointer-events: none;
   position: absolute;
   top: -22px;
   right: 0;
@@ -636,10 +638,13 @@
   gap: 2px;
   flex-direction: row;
   z-index: 10;
+  transition: opacity 0.15s ease-in-out;
 }
 
-.support-chat-bubble-group:hover .support-chat-msg-actions {
-  display: flex;
+.support-chat-bubble-group:hover .support-chat-msg-actions,
+.support-chat-bubble-group:focus-within .support-chat-msg-actions {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .support-chat-msg-action-btn {
