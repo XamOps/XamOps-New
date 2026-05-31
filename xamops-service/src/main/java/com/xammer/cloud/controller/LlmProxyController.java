@@ -61,9 +61,11 @@ public class LlmProxyController {
             return proxyService.proxyRequest(trackingKey, subPath, method, headers, body, agentName);
 
         } catch (RuntimeException e) {
-            logger.error("Proxy error: {}", e.getMessage());
+            // Sentinel: Logging the actual exception but returning a generic error to the client
+            // to prevent information leakage of internal implementation details.
+            logger.error("Proxy error: {}", e.getMessage(), e);
             return ResponseEntity.badRequest()
-                    .body("{\"error\":\"" + e.getMessage() + "\"}");
+                    .body("{\"error\":\"An unexpected error occurred while processing the proxy request.\"}");
         }
     }
 }
