@@ -7,6 +7,7 @@
 
 import React from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import { TooltipWrapper } from '../ui/Tooltip';
 import clsx from 'clsx';
 
 const SuperAdminTopBar: React.FC = () => {
@@ -58,11 +59,12 @@ const SuperAdminTopBar: React.FC = () => {
 
             {/* Tenant Selector */}
             <div className="flex items-center space-x-2">
-                <label className="text-[10px] text-indigo-400 font-bold uppercase tracking-tight">Tenant</label>
+                <label htmlFor="tenant-select" className="text-[10px] text-indigo-400 font-bold uppercase tracking-tight">Tenant</label>
                 <select
+                    id="tenant-select"
                     value={selectedTenant}
                     onChange={handleTenantChange}
-                    className="bg-white border border-indigo-100 text-indigo-900 text-xs rounded-lg px-2.5 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-200 transition-all cursor-pointer hover:border-indigo-300 shadow-sm"
+                    className="bg-white border border-indigo-100 text-indigo-900 text-xs rounded-lg px-2.5 py-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1 dark:focus-visible:ring-offset-slate-900 transition-all cursor-pointer hover:border-indigo-300 shadow-sm"
                 >
                     <option value="" className="text-gray-900 font-bold">-- Select Tenant --</option>
                     {tenantList.map(tenant => (
@@ -75,12 +77,13 @@ const SuperAdminTopBar: React.FC = () => {
 
             {/* User Selector */}
             <div className={clsx("flex items-center space-x-2", !selectedTenant && "opacity-40 grayscale pointer-events-none")}>
-                <label className="text-[10px] text-indigo-400 font-bold uppercase tracking-tight">Impersonate</label>
+                <label htmlFor="user-select" className="text-[10px] text-indigo-400 font-bold uppercase tracking-tight">Impersonate</label>
                 <select
+                    id="user-select"
                     value={impersonateUser}
                     onChange={handleUserChange}
                     disabled={!selectedTenant}
-                    className="bg-white border border-indigo-100 text-indigo-900 text-xs rounded-lg px-2.5 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-200 transition-all cursor-pointer hover:border-indigo-300 shadow-sm"
+                    className="bg-white border border-indigo-100 text-indigo-900 text-xs rounded-lg px-2.5 py-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1 dark:focus-visible:ring-offset-slate-900 transition-all cursor-pointer hover:border-indigo-300 shadow-sm"
                 >
                     <option value="" className="text-gray-900 font-bold">-- Select User --</option>
                     {tenantUsers.map(user => (
@@ -93,12 +96,13 @@ const SuperAdminTopBar: React.FC = () => {
 
             {/* Account Selector */}
             <div className={clsx("flex items-center space-x-2", (!impersonateUser || tenantAccounts.length === 0) && "opacity-40 grayscale pointer-events-none")}>
-                <label className="text-[10px] text-indigo-400 font-bold uppercase tracking-tight">Account</label>
+                <label htmlFor="account-select" className="text-[10px] text-indigo-400 font-bold uppercase tracking-tight">Account</label>
                 <select
+                    id="account-select"
                     value={selectedAccountId}
                     onChange={handleAccountChange}
                     disabled={!impersonateUser || tenantAccounts.length === 0}
-                    className="bg-white border border-indigo-100 text-indigo-900 text-xs rounded-lg px-2.5 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-200 transition-all cursor-pointer hover:border-indigo-300 shadow-sm"
+                    className="bg-white border border-indigo-100 text-indigo-900 text-xs rounded-lg px-2.5 py-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1 dark:focus-visible:ring-offset-slate-900 transition-all cursor-pointer hover:border-indigo-300 shadow-sm"
                 >
                     <option value="" className="text-gray-900 font-bold">-- Select Account --</option>
                     {tenantAccounts.map(account => (
@@ -110,13 +114,15 @@ const SuperAdminTopBar: React.FC = () => {
             </div>
 
             {/* Reset Button */}
-            <button
-                onClick={resetContext}
-                className="ml-1 p-1.5 bg-rose-100 hover:bg-rose-500 text-rose-600 hover:text-white rounded-xl transition-all duration-200 flex items-center justify-center group shadow-sm border border-rose-200/50"
-                title="Reset Context"
-            >
-                <i className="fas fa-undo-alt text-xs group-hover:rotate-[-45deg] transition-transform" />
-            </button>
+            <TooltipWrapper tip="Reset Context">
+                <button
+                    onClick={resetContext}
+                    className="ml-1 p-1.5 bg-rose-100 hover:bg-rose-500 text-rose-600 hover:text-white rounded-xl transition-all duration-200 flex items-center justify-center group shadow-sm border border-rose-200/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1 dark:focus-visible:ring-offset-slate-900"
+                    aria-label="Reset context"
+                >
+                    <i className="fas fa-undo-alt text-xs group-hover:rotate-[-45deg] transition-transform" />
+                </button>
+            </TooltipWrapper>
 
             {/* Environment Badge */}
             <div className={clsx(
